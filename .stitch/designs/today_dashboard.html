@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Today - Aura Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed": "#ffddb8",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "on-background": "#e5e1e4",
+                        "error-container": "#93000a",
+                        "surface-container-lowest": "#0e0e10",
+                        "primary-fixed": "#e1e0ff",
+                        "surface": "#131315",
+                        "on-tertiary-container": "#ffd4a4",
+                        "primary-container": "#4b4dd8",
+                        "inverse-on-surface": "#313032",
+                        "surface-tint": "#c0c1ff",
+                        "background": "#131315",
+                        "tertiary-container": "#885500",
+                        "surface-container": "#201f22",
+                        "secondary-fixed": "#d8e2ff",
+                        "error": "#ffb4ab",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-secondary-fixed-variant": "#004395",
+                        "on-secondary-container": "#e6ecff",
+                        "surface-dim": "#131315",
+                        "on-surface-variant": "#c7c4d8",
+                        "on-error": "#690005",
+                        "on-primary-container": "#d9d8ff",
+                        "inverse-surface": "#e5e1e4",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "outline-variant": "#464555",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "surface-container-high": "#2a2a2c",
+                        "surface-bright": "#39393b",
+                        "on-primary-fixed": "#07006c",
+                        "on-error-container": "#ffdad6",
+                        "tertiary": "#ffb95f",
+                        "on-secondary": "#002e6a",
+                        "on-tertiary-fixed": "#2a1700",
+                        "secondary": "#adc6ff",
+                        "inverse-primary": "#494bd6",
+                        "primary": "#c0c1ff",
+                        "on-secondary-fixed": "#001a42",
+                        "on-primary": "#1000a9",
+                        "outline": "#918fa1",
+                        "surface-container-highest": "#353437",
+                        "secondary-fixed-dim": "#adc6ff",
+                        "surface-container-low": "#1c1b1d",
+                        "on-tertiary": "#472a00",
+                        "surface-variant": "#353437",
+                        "secondary-container": "#0566d9",
+                        "on-surface": "#e5e1e4"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1rem",
+                        "3xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope", "sans-serif"],
+                        "display": ["Manrope", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #09090B; /* Override to match pure canvas base */
+            color: #E4E4E7;
+        }
+        .aura-surface {
+            background: linear-gradient(145deg, #18181B, #121214);
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+        }
+        .aura-glow {
+            box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.4);
+        }
+        .progress-ring__circle {
+            transition: stroke-dashoffset 1s ease-in-out;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body antialiased pb-28">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center px-6 w-full max-w-xl mx-auto pt-6 pb-4 bg-[#09090B] sticky top-0 z-40">
+<div class="flex items-center gap-4">
+<img alt="User avatar" class="w-12 h-12 rounded-full object-cover border-2 border-surface-container-high" data-alt="A premium close-up headshot of a professional individual looking confident. The lighting is soft and cinematic, complementing a dark UI aesthetic. Deep shadows and a subtle indigo rim light create depth and match a high-end dashboard environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWpodN9e3kgnllma9u4Lrg91UyspI6igP8euGKtuY022ArxG6iQ2926hHVxBkIb1TB_EC_8zxLuKaXjgT46zR4XMkKlTW-QP90bMjr9C6nFY0ls9qVOAEB1FYboVEDcnx83K0DGbHm3cGuBHIyJB47J9J9uc4ZrrKXG4lMjZZS0eejN_cl0JUXjO6B1Kn6qgPNB6QptBiwAivTB0K88P2f3TXjlV1evv-79BAi5aVBrQurK75OtnbwJ-ldcpry5afIQvw0_LmIPBo"/>
+<div>
+<h1 class="font-headline text-2xl font-extrabold text-on-surface">Hello, Harshit</h1>
+<p class="font-label text-sm text-on-surface-variant">Your focus is your superpower today.</p>
+</div>
+</div>
+<button class="p-2 rounded-full text-on-surface hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">notifications</span>
+</button>
+</header>
+<main class="px-6 max-w-xl mx-auto space-y-6 mt-4">
+<!-- Today's Progress Card -->
+<section class="aura-surface rounded-3xl p-6 relative overflow-hidden group">
+<div class="absolute -right-10 -top-10 w-40 h-40 bg-primary/10 rounded-full blur-3xl group-hover:bg-primary/20 transition-all duration-500"></div>
+<div class="flex items-center justify-between relative z-10">
+<div>
+<h2 class="font-headline font-bold text-xl text-on-surface mb-1">Today's Progress</h2>
+<p class="font-label text-sm text-on-surface-variant mb-4">13/18 tasks completed</p>
+<span class="inline-flex items-center gap-1 text-primary font-medium text-sm bg-primary/10 px-3 py-1 rounded-full">
+<span class="material-symbols-outlined text-sm">trending_up</span> On track
+                    </span>
+</div>
+<div class="relative w-24 h-24 flex items-center justify-center">
+<svg class="w-full h-full" viewbox="0 0 100 100">
+<!-- Background circle -->
+<circle cx="50" cy="50" fill="none" r="45" stroke="#2a2a2c" stroke-width="8"></circle>
+<!-- Progress circle (72%) -->
+<circle class="progress-ring__circle" cx="50" cy="50" fill="none" r="45" stroke="#6366F1" stroke-dasharray="282.7" stroke-dashoffset="79.15" stroke-linecap="round" stroke-width="8"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center flex-col">
+<span class="font-headline font-bold text-2xl text-on-surface">72%</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Bento Grid: Streak & Score -->
+<div class="grid grid-cols-2 gap-4">
+<!-- Streak Tracking -->
+<section class="aura-surface rounded-3xl p-5 flex flex-col items-center justify-center text-center">
+<div class="w-12 h-12 rounded-full bg-[#F59E0B]/10 flex items-center justify-center mb-3">
+<span class="material-symbols-outlined text-[#F59E0B] text-2xl" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+</div>
+<h3 class="font-headline font-bold text-xl text-on-surface">12 Days</h3>
+<p class="font-label text-xs text-on-surface-variant">Current Streak</p>
+</section>
+<!-- Productivity Score -->
+<section class="aura-surface rounded-3xl p-5 flex flex-col items-center justify-center text-center">
+<div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+<span class="font-headline font-bold text-primary text-xl">89</span>
+</div>
+<h3 class="font-headline font-bold text-sm text-on-surface">Outstanding</h3>
+<p class="font-label text-xs text-on-surface-variant">Productivity Index</p>
+</section>
+</div>
+<!-- Reminders -->
+<section class="aura-surface rounded-3xl p-5 flex items-center gap-4 border-l-4 border-primary">
+<div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-xl">event</span>
+</div>
+<div>
+<h4 class="font-headline font-semibold text-sm text-on-surface">Daily Standup</h4>
+<p class="font-label text-xs text-on-surface-variant">10:00 AM • Zoom</p>
+</div>
+</section>
+<!-- Tasks Preview -->
+<section class="space-y-4 pt-2">
+<div class="flex justify-between items-center mb-4">
+<h2 class="font-headline font-bold text-lg text-on-surface">Critical Tasks</h2>
+<button class="text-sm text-primary font-medium hover:underline">View All</button>
+</div>
+<!-- Task 1 -->
+<div class="aura-surface rounded-2xl p-4 flex items-start gap-4 transition-transform hover:-translate-y-1">
+<div class="w-6 h-6 rounded-full border-2 border-outline-variant flex-shrink-0 mt-0.5 cursor-pointer hover:border-primary transition-colors"></div>
+<div class="flex-1">
+<h4 class="font-body font-medium text-on-surface text-sm mb-1">Review Q3 Marketing Strategy</h4>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold uppercase tracking-wider text-error bg-error/10 px-2 py-0.5 rounded-md">High</span>
+<span class="font-label text-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">schedule</span> 2:00 PM
+                        </span>
+</div>
+</div>
+</div>
+<!-- Task 2 -->
+<div class="aura-surface rounded-2xl p-4 flex items-start gap-4 transition-transform hover:-translate-y-1">
+<div class="w-6 h-6 rounded-full border-2 border-outline-variant flex-shrink-0 mt-0.5 cursor-pointer hover:border-primary transition-colors"></div>
+<div class="flex-1">
+<h4 class="font-body font-medium text-on-surface text-sm mb-1">Finalize Design System Components</h4>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B] bg-[#F59E0B]/10 px-2 py-0.5 rounded-md">Medium</span>
+<span class="font-label text-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">schedule</span> 4:30 PM
+                        </span>
+</div>
+</div>
+</div>
+<!-- Task 3 -->
+<div class="aura-surface rounded-2xl p-4 flex items-start gap-4 transition-transform hover:-translate-y-1">
+<div class="w-6 h-6 rounded-full border-2 border-outline-variant flex-shrink-0 mt-0.5 cursor-pointer hover:border-primary transition-colors"></div>
+<div class="flex-1">
+<h4 class="font-body font-medium text-on-surface text-sm mb-1">Prepare Weekly Update Email</h4>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold uppercase tracking-wider text-surface-variant bg-surface-container px-2 py-0.5 rounded-md text-on-surface-variant">Low</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- FAB -->
+<button class="fixed bottom-24 right-6 w-14 h-14 bg-primary text-on-primary rounded-full flex items-center justify-center aura-glow hover:scale-105 transition-transform z-50 shadow-2xl">
+<span class="material-symbols-outlined text-3xl">add</span>
+</button>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-6 left-0 right-0 z-50 flex justify-around items-center px-4">
+<div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-md rounded-full px-6 py-3 bg-surface-container/80 dark:bg-surface-container/80 backdrop-blur-xl shadow-2xl shadow-primary/10 flex justify-around items-center">
+<button class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full w-12 h-12 hover:opacity-80 transition-opacity Active: scale-95 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">grid_view</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant w-12 h-12 hover:opacity-80 transition-opacity hover:text-primary transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">calendar_today</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant w-12 h-12 hover:opacity-80 transition-opacity hover:text-primary transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">analytics</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant w-12 h-12 hover:opacity-80 transition-opacity hover:text-primary transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">person</span>
+</button>
+</div>
+</nav>
+<script>
+        // Simple micro-interaction for task completion
+        document.querySelectorAll('.rounded-full.border-2').forEach(checkbox => {
+            checkbox.addEventListener('click', function() {
+                this.classList.toggle('bg-primary');
+                this.classList.toggle('border-primary');
+                this.innerHTML = this.classList.contains('bg-primary') ? '<span class="material-symbols-outlined text-on-primary text-sm flex items-center justify-center h-full w-full">check</span>' : '';
+                
+                const taskText = this.nextElementSibling.querySelector('h4');
+                if(this.classList.contains('bg-primary')) {
+                    taskText.classList.add('line-through', 'text-on-surface-variant');
+                } else {
+                    taskText.classList.remove('line-through', 'text-on-surface-variant');
+                }
+            });
+        });
+    </script>
+</body></html>
