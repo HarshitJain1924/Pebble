@@ -57,10 +57,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "c6c89c23-29e2-400c-a843-e2ff7b60959d"
-      }
+      "router": {}
     },
     "owner": "augstun"
   }
