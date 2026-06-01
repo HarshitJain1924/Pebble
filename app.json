@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow Pebble to use speech recognition to transcribe tasks.",
+        "NSMicrophoneUsageDescription": "Allow Pebble to use the microphone for capturing tasks."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +25,8 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.augstun.pebble",
       "permissions": [
-        "android.permission.SCHEDULE_EXACT_ALARM"
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -48,7 +53,9 @@
         {
           "microphonePermission": "Allow Pebble to use the microphone for capturing tasks.",
           "speechRecognitionPermission": "Allow Pebble to use speech recognition to transcribe tasks.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
         }
       ]
     ],
@@ -57,7 +64,10 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "22ad9617-e41c-4fc9-8c7d-eb05767c6f9f"
+      }
     },
     "owner": "augstun"
   }
