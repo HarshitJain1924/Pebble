@@ -9,17 +9,16 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
-import {
-    ActivityIndicator,
+import { ActivityIndicator,
     Dimensions,
     Platform,
     Pressable,
     SafeAreaView,
     ScrollView,
     StyleSheet,
-    Text,
-    View,
-} from "react-native";
+    
+    View } from "react-native";
+import { AppText as Text } from "@/components/ui/AppText";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -29,6 +28,14 @@ type CategoryStat = {
   count: number;
   pct: number;
   color: string;
+};
+
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const getDateKey = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 export default function ProfileScreen() {
@@ -45,6 +52,17 @@ export default function ProfileScreen() {
   });
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
   const [upcomingReminders, setUpcomingReminders] = useState<any[]>([]);
+  const [weeklyTrends, setWeeklyTrends] = useState<any[]>([]);
+  const [cognitiveFlowStats, setCognitiveFlowStats] = useState<any>({
+    morning: 0,
+    afternoon: 0,
+    evening: 0,
+    morningPct: 0,
+    afternoonPct: 0,
+    eveningPct: 0,
+    peakZone: "Balanced Flow",
+    icon: "activity" as any,
+  });
   const [loading, setLoading] = useState<boolean>(true);
 
   const loadProfileData = useCallback(async () => {
@@ -95,6 +113,84 @@ export default function ProfileScreen() {
         habitsCompleted: totalCompletedHabits,
         activeStreak: streak > 0 ? streak : userProf.level * 2, // simulated streak fallback if zero
         avgScore: avgScore > 0 ? avgScore : 78, // premium baseline fallback if zero
+      });
+
+      // 4a. Calculate Weekly momentum trends
+      const trends = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(now.getDate() - i);
+        const key = getDateKey(d);
+        const entry = history.find((h) => h.date === key);
+        const score = entry ? entry.score : 0;
+        trends.push({
+          dayName: WEEKDAY_NAMES[d.getDay()][0],
+          dateNum: d.getDate(),
+          score,
+          dateString: key,
+        });
+      }
+      setWeeklyTrends(trends);
+
+      // 4b. Calculate Cognitive Flow and peaks
+      let morning = 0;   // 5am - 12pm
+      let afternoon = 0; // 12pm - 5pm
+      let evening = 0;   // 5pm - 5am
+
+      if (rawTodos) {
+        const parsed = JSON.parse(rawTodos);
+        const allTodos = (Object.values(parsed.todos || {}).flat() as any[]);
+        allTodos.forEach((todo) => {
+          if (todo.alarmTime) {
+            const hour = new Date(todo.alarmTime).getHours();
+            if (hour >= 5 && hour < 12) morning++;
+            else if (hour >= 12 && hour < 17) afternoon++;
+            else evening++;
+          } else if (todo.reminderHour !== undefined) {
+            const hour = todo.reminderHour;
+            if (hour >= 5 && hour < 12) morning++;
+            else if (hour >= 12 && hour < 17) afternoon++;
+            else evening++;
+          }
+        });
+      }
+
+      if (rawHabits) {
+        const parsed = JSON.parse(rawHabits);
+        const allHabits = (parsed.dailyHabits || []) as any[];
+        allHabits.forEach((habit) => {
+          if (habit.reminderHour !== undefined) {
+            const hour = habit.reminderHour;
+            if (hour >= 5 && hour < 12) morning++;
+            else if (hour >= 12 && hour < 17) afternoon++;
+            else evening++;
+          }
+        });
+      }
+
+      const total = morning + afternoon + evening || 1;
+      let peakZone = "Balanced Flow";
+      let icon = "activity";
+      if (morning > afternoon && morning > evening) {
+        peakZone = "Morning Focus Peak";
+        icon = "sun";
+      } else if (afternoon > morning && afternoon > evening) {
+        peakZone = "Afternoon Steady Flow";
+        icon = "award";
+      } else if (evening > morning && evening > afternoon) {
+        peakZone = "Night Owl Momentum";
+        icon = "moon";
+      }
+
+      setCognitiveFlowStats({
+        morning,
+        afternoon,
+        evening,
+        morningPct: (morning / total) * 100,
+        afternoonPct: (afternoon / total) * 100,
+        eveningPct: (evening / total) * 100,
+        peakZone,
+        icon,
       });
 
       // 5. Calculate category breakdowns
@@ -219,7 +315,7 @@ export default function ProfileScreen() {
                 />
               </View>
               <Text style={[styles.xpTip, { color: colors.textMuted }]}>
-                Earn +10 XP for todos, +20 XP for checked habits!
+                Each completed task and habit adds another pebble to your progress!
               </Text>
             </View>
           </View>
@@ -259,6 +355,156 @@ export default function ProfileScreen() {
                 <Text style={[styles.statLabel, { color: colors.textMuted }]}>Focus Score</Text>
               </View>
             </AppCard>
+          </View>
+        </Animated.View>
+
+        {/* Weekly Productivity Trend Card */}
+        {weeklyTrends.length > 0 && (
+          <Animated.View entering={FadeInDown.delay(150).duration(450)} style={styles.section}>
+            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>WEEKLY PRODUCTIVITY MOMENTUM</Text>
+            <View style={{
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <View style={{ gap: 2 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "700", color: colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Momentum Index
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                    Productivity scores over the last 7 days
+                  </Text>
+                </View>
+                <Feather name="bar-chart-2" size={16} color={colors.primary} />
+              </View>
+
+              {/* Bar Graph Row */}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", height: 100, paddingTop: 10, paddingHorizontal: 4 }}>
+                {weeklyTrends.map((day) => {
+                  const barHeight = Math.max(day.score, 6); // at least 6% height so a tiny bar shows
+                  
+                  // Color gradient emulation based on score
+                  let barColor = colors.primary;
+                  if (day.score >= 90) barColor = colors.success;
+                  else if (day.score >= 60) barColor = colors.primary;
+                  else if (day.score >= 30) barColor = colors.warning;
+                  else if (day.score > 0) barColor = "#64748b";
+                  else barColor = colors.border; // empty day
+
+                  return (
+                    <View key={day.dateString} style={{ alignItems: "center", flex: 1, gap: 8 }}>
+                      <View style={{
+                        width: 14,
+                        height: 70,
+                        backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B",
+                        borderRadius: 8,
+                        justifyContent: "flex-end",
+                        overflow: "hidden",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}>
+                        <View style={{
+                          height: `${barHeight}%`,
+                          backgroundColor: barColor,
+                          borderRadius: 8,
+                        }} />
+                      </View>
+                      <Text style={{
+                        fontSize: 10,
+                        fontWeight: "600",
+                        color: colors.textMuted,
+                      }}>
+                        {day.dayName}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          </Animated.View>
+        )}
+
+        {/* Cognitive Focus Rhythm & Peaks Analysis */}
+        <Animated.View entering={FadeInDown.delay(200).duration(450)} style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>FOCUS RHYTHM & PEAKS</Text>
+          <View style={{
+            backgroundColor: colors.card,
+            borderRadius: 24,
+            padding: 16,
+            borderWidth: 1,
+            borderColor: colors.border,
+            gap: 12,
+          }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ gap: 2 }}>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Active Focus Peaks
+                </Text>
+                <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                  Active productivity times calculated from scheduled alarms
+                </Text>
+              </View>
+              <Feather name={cognitiveFlowStats.icon as any} size={16} color={colors.primary} />
+            </View>
+
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 }}>
+              <View style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B",
+                borderWidth: 1,
+                borderColor: colors.border,
+                alignItems: "center",
+                justifyContent: "center",
+              }}>
+                <Feather name={cognitiveFlowStats.icon as any} size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: "800", color: colors.text }}>
+                  {cognitiveFlowStats.peakZone}
+                </Text>
+                <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 1 }}>
+                  Most items scheduled in {cognitiveFlowStats.peakZone.toLowerCase().split(" ")[0]}
+                </Text>
+              </View>
+            </View>
+
+            {/* Triple progress bar distribution */}
+            <View style={{ gap: 8, marginTop: 6 }}>
+              <View style={{ gap: 3 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>Morning (5 AM - 12 PM)</Text>
+                  <Text style={{ fontSize: 10, fontWeight: "700", color: colors.text }}>{Math.round(cognitiveFlowStats.morningPct)}%</Text>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B", overflow: "hidden" }}>
+                  <View style={{ height: "100%", width: `${cognitiveFlowStats.morningPct}%`, backgroundColor: colors.primary }} />
+                </View>
+              </View>
+
+              <View style={{ gap: 3 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>Afternoon (12 PM - 5 PM)</Text>
+                  <Text style={{ fontSize: 10, fontWeight: "700", color: colors.text }}>{Math.round(cognitiveFlowStats.afternoonPct)}%</Text>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B", overflow: "hidden" }}>
+                  <View style={{ height: "100%", width: `${cognitiveFlowStats.afternoonPct}%`, backgroundColor: colors.success }} />
+                </View>
+              </View>
+
+              <View style={{ gap: 3 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>Evening/Night (5 PM - 5 AM)</Text>
+                  <Text style={{ fontSize: 10, fontWeight: "700", color: colors.text }}>{Math.round(cognitiveFlowStats.eveningPct)}%</Text>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B", overflow: "hidden" }}>
+                  <View style={{ height: "100%", width: `${cognitiveFlowStats.eveningPct}%`, backgroundColor: "#F59E0B" }} />
+                </View>
+              </View>
+            </View>
           </View>
         </Animated.View>
 

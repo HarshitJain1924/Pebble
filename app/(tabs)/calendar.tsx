@@ -1,23 +1,23 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
-import {
-  Platform,
+import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
+import * as Haptics from "expo-haptics";
+import { Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
+  
+  View } from "react-native";
+import { AppText as Text } from "@/components/ui/AppText";
+import Animated, {
+  FadeInDown,
+  useSharedValue,
+  useAnimatedStyle,
+} from "react-native-reanimated";
 
-import { FloatingGlow } from "@/components/AmbientBackground";
-import { AppCard } from "@/components/AppCard";
-import { AnalyticsEmptyGraphic } from "@/components/AppGraphics";
-import { ProgressRing } from "@/components/ProgressRing";
-import { ScreenSwipeWrapper } from "@/components/ScreenSwipeWrapper";
+import { SegmentedSwitcher } from "@/components/ui/SegmentedSwitcher";
 import { Spacing } from "@/constants/spacing";
 import { Colors } from "@/constants/theme";
 import { Typography } from "@/constants/typography";
@@ -57,14 +57,6 @@ const MONTH_NAMES = [
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const getHeatColor = (score: number) => {
-  if (score >= 90) return "#10B981"; // success green
-  if (score >= 60) return "#3B82F6"; // indigo/blue secondary
-  if (score >= 30) return "#F59E0B"; // orange/amber
-  if (score > 0) return "#64748b";
-  return "#27272A"; // dark gray track
-};
-
 export default function CalendarScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -74,7 +66,49 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState(getDateKey());
   const [allTodos, setAllTodos] = useState<any[]>([]);
   const [allHabits, setAllHabits] = useState<any[]>([]);
-  const [showMonthHeatmap, setShowMonthHeatmap] = useState(false);
+  const [calendarViewMode, setCalendarViewMode] = useState<"month" | "week">("month");
+
+  // Drag and Drop rescheduling states
+  const [isDragging, setIsDragging] = useState(false);
+  const [activeDragItem, setActiveDragItem] = useState<any | null>(null);
+  const [hoveredDate, setHoveredDate] = useState<string | null>(null);
+
+  const dragX = useSharedValue(0);
+  const dragY = useSharedValue(0);
+
+  const touchStartRef = useRef({ x: 0, y: 0 });
+  const monthGridRef = useRef<View>(null);
+  const weekStripRef = useRef<View>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const hasScrolledRef = useRef(false);
+
+  const [monthGridBounds, setMonthGridBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [weekStripBounds, setWeekStripBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  const measureMonthGrid = () => {
+    monthGridRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        setMonthGridBounds({ x, y, width, height });
+      }
+    });
+  };
+
+  const measureWeekStrip = () => {
+    weekStripRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        setWeekStripBounds({ x, y, width, height });
+      }
+    });
+  };
+
+  // Re-measure when calendar view mode changes or active screen focus
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      measureMonthGrid();
+      measureWeekStrip();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [month, calendarViewMode]);
 
   const loadMonth = useCallback(async (year: number, monthIndex: number) => {
     const entries = await getHistoryForMonth(year, monthIndex);
@@ -83,7 +117,6 @@ export default function CalendarScreen() {
 
   const loadDataFromStorage = useCallback(async () => {
     try {
-      // Load todos
       const rawTodos = await AsyncStorage.getItem("todoapp:v1");
       if (rawTodos) {
         const state = JSON.parse(rawTodos);
@@ -93,7 +126,6 @@ export default function CalendarScreen() {
         setAllTodos([]);
       }
 
-      // Load habits
       const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
       if (rawHabits) {
         const state = JSON.parse(rawHabits);
@@ -107,23 +139,23 @@ export default function CalendarScreen() {
     }
   }, []);
 
+  // Load data on focus and when month changes
   useFocusEffect(
     useCallback(() => {
       void loadMonth(month.year, month.month);
       void loadDataFromStorage();
-    }, [loadMonth, loadDataFromStorage, month.month, month.year]),
+    }, [loadMonth, loadDataFromStorage, month.month, month.year])
   );
+
 
   const selectedHistory = useMemo(
     () => historyForDate(history, selectedDate),
     [history, selectedDate],
   );
 
-  // Custom 7-Day Horizontal Week Strip centered around selectedDate
   const weekDaysStrip = useMemo(() => {
     const list = [];
     const current = new Date(selectedDate);
-    // Render 3 days before and 3 days after
     for (let i = -3; i <= 3; i++) {
       const d = new Date(current);
       d.setDate(current.getDate() + i);
@@ -137,33 +169,53 @@ export default function CalendarScreen() {
     return list;
   }, [selectedDate]);
 
-  // Filters and merges scheduled tasks and active habits for selectedDate
+  // Unified timeline items parser with detailed scheduling properties
   const timelineItems = useMemo(() => {
-    // 1. Tasks with alarm times
     const tasks = allTodos
       .filter((todo) => {
-        if (!todo.alarmTime) return false;
-        const dateStr = getDateKey(new Date(todo.alarmTime));
-        return dateStr === selectedDate;
+        const hasDate = todo.scheduledDate === selectedDate;
+        const hasAlarm = todo.alarmTime && getDateKey(new Date(todo.alarmTime)) === selectedDate;
+        return (hasDate || hasAlarm) && todo.scheduledDate !== "inbox";
       })
       .map((todo) => {
-        const d = new Date(todo.alarmTime);
-        const hours = d.getHours();
-        const mins = String(d.getMinutes()).padStart(2, "0");
-        const ampm = hours >= 12 ? "PM" : "AM";
-        const displayHour = hours % 12 || 12;
+        let timeLabel = "All Day";
+        let rawHours = 24;
+        let hour = todo.reminderHour;
+        let minute = todo.reminderMinute;
+
+        if (hour !== undefined && minute !== undefined) {
+          const mins = String(minute).padStart(2, "0");
+          const ampm = hour >= 12 ? "PM" : "AM";
+          const displayHour = hour % 12 || 12;
+          timeLabel = `${displayHour}:${mins} ${ampm}`;
+          rawHours = hour;
+        } else if (todo.alarmTime) {
+          const d = new Date(todo.alarmTime);
+          hour = d.getHours();
+          minute = d.getMinutes();
+          const mins = String(minute).padStart(2, "0");
+          const ampm = hour >= 12 ? "PM" : "AM";
+          const displayHour = hour % 12 || 12;
+          timeLabel = `${displayHour}:${mins} ${ampm}`;
+          rawHours = hour;
+        }
+
         return {
           id: todo.id,
           title: todo.title,
-          timeLabel: `${displayHour}:${mins} ${ampm}`,
-          rawHours: hours,
+          timeLabel,
+          rawHours,
           completed: todo.completed,
           type: "task",
           streak: undefined,
+          category: todo.category,
+          priority: todo.priority,
+          reminderHour: hour,
+          reminderMinute: minute,
+          durationMinutes: todo.durationMinutes || 60,
         };
       });
 
-    // 2. Habits active on selectedDate weekday
     const dateParts = selectedDate.split("-").map(Number);
     const selDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
     const dayOfWeek = selDate.getDay();
@@ -171,7 +223,6 @@ export default function CalendarScreen() {
 
     const habits = allHabits
       .filter((habit) => {
-        // Active if reminderDays is empty/undefined or contains dayOfWeek
         return (
           !habit.reminderDays ||
           habit.reminderDays.length === 0 ||
@@ -179,29 +230,24 @@ export default function CalendarScreen() {
         );
       })
       .map((habit) => {
-        // completion status
         let completed = false;
         if (isTodaySelected) {
           completed = habit.completedToday;
         } else if (selectedHistory) {
-          completed = selectedHistory.completedHabitTitles.includes(
-            habit.title,
-          );
+          completed = selectedHistory.completedHabitTitles?.includes(habit.title) ?? false;
         }
 
-        // Time label
         let timeLabel = "Anytime";
-        let rawHours = 8; // morning default
-        if (
-          habit.reminderHour !== undefined &&
-          habit.reminderMinute !== undefined
-        ) {
-          const hours = habit.reminderHour;
-          const mins = String(habit.reminderMinute).padStart(2, "0");
-          const ampm = hours >= 12 ? "PM" : "AM";
-          const displayHour = hours % 12 || 12;
+        let rawHours = 25;
+        let hour = habit.reminderHour;
+        let minute = habit.reminderMinute;
+
+        if (hour !== undefined && minute !== undefined) {
+          const mins = String(minute).padStart(2, "0");
+          const ampm = hour >= 12 ? "PM" : "AM";
+          const displayHour = hour % 12 || 12;
           timeLabel = `${displayHour}:${mins} ${ampm}`;
-          rawHours = hours;
+          rawHours = hour;
         }
 
         return {
@@ -212,15 +258,102 @@ export default function CalendarScreen() {
           completed,
           type: "habit",
           streak: habit.streak || 0,
+          category: undefined,
+          priority: habit.priority,
+          reminderHour: hour,
+          reminderMinute: minute,
+          durationMinutes: habit.durationMinutes || 30,
         };
       });
 
     return [...tasks, ...habits].sort((a, b) => a.rawHours - b.rawHours);
   }, [allTodos, allHabits, selectedDate, selectedHistory]);
 
-  // (Placeholders removed)
+  // Split allDay vs timed items
+  const allDayItems = useMemo(() => {
+    return timelineItems.filter(
+      (item) => item.reminderHour === undefined || item.reminderMinute === undefined
+    );
+  }, [timelineItems]);
 
-  // Custom Calendar Month Grid Computation
+  // Advanced Overlapping task layout columns computation
+  const timedItemsWithLayout = useMemo(() => {
+    const timed = timelineItems.filter(
+      (item) => item.reminderHour !== undefined && item.reminderMinute !== undefined
+    );
+
+    const sorted = [...timed].sort((a, b) => {
+      const startA = a.reminderHour! * 60 + a.reminderMinute!;
+      const startB = b.reminderHour! * 60 + b.reminderMinute!;
+      return startA - startB;
+    });
+
+    const clusters: (typeof sorted)[] = [];
+    for (const item of sorted) {
+      const start = item.reminderHour! * 60 + item.reminderMinute!;
+      const end = start + item.durationMinutes;
+
+      let placed = false;
+      for (const cluster of clusters) {
+        const overlaps = cluster.some((cItem) => {
+          const cStart = cItem.reminderHour! * 60 + cItem.reminderMinute!;
+          const cEnd = cStart + cItem.durationMinutes;
+          return start < cEnd && cStart < end;
+        });
+        if (overlaps) {
+          cluster.push(item);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        clusters.push([item]);
+      }
+    }
+
+    return clusters.flatMap((cluster) => {
+      const columns: (typeof sorted)[] = [];
+      const itemCols = new Map<string, number>();
+
+      for (const item of cluster) {
+        const start = item.reminderHour! * 60 + item.reminderMinute!;
+        const end = start + item.durationMinutes;
+
+        let colIdx = 0;
+        while (true) {
+          if (!columns[colIdx]) {
+            columns[colIdx] = [item];
+            itemCols.set(item.id, colIdx);
+            break;
+          }
+
+          const overlaps = columns[colIdx].some((cItem) => {
+            const cStart = cItem.reminderHour! * 60 + cItem.reminderMinute!;
+            const cEnd = cStart + cItem.durationMinutes;
+            return start < cEnd && cStart < end;
+          });
+
+          if (!overlaps) {
+            columns[colIdx].push(item);
+            itemCols.set(item.id, colIdx);
+            break;
+          }
+          colIdx++;
+        }
+      }
+
+      const totalCols = columns.length;
+      return cluster.map((item) => {
+        const colIdx = itemCols.get(item.id) || 0;
+        return {
+          ...item,
+          colIdx,
+          totalCols,
+        };
+      });
+    });
+  }, [timelineItems]);
+
   const calendarCells = useMemo(() => {
     const cells = [];
     const daysInMonth = new Date(month.year, month.month + 1, 0).getDate();
@@ -266,7 +399,6 @@ export default function CalendarScreen() {
     });
   };
 
-  // Format month and day display for timeline header
   const headerDateLabel = useMemo(() => {
     const d = new Date(selectedDate);
     const m = MONTH_NAMES[d.getMonth()];
@@ -274,67 +406,342 @@ export default function CalendarScreen() {
     return `${m} ${day}`;
   }, [selectedDate]);
 
+  // Drag and Drop checking boundaries
+  const checkHoveredDate = (x: number, y: number) => {
+    if (calendarViewMode === "month" && monthGridBounds) {
+      const { x: gx, y: gy, width: gw, height: gh } = monthGridBounds;
+      if (x >= gx && x <= gx + gw && y >= gy && y <= gy + gh) {
+        const localX = x - gx;
+        const localY = y - gy;
+        const colWidth = gw / 7;
+        const numRows = Math.ceil(calendarCells.length / 7);
+        const rowHeight = gh / numRows;
+
+        const col = Math.floor(localX / colWidth);
+        const row = Math.floor(localY / rowHeight);
+        const idx = row * 7 + col;
+
+        if (idx >= 0 && idx < calendarCells.length) {
+          const cell = calendarCells[idx];
+          if (cell.type === "day" && cell.dateString) {
+            if (hoveredDate !== cell.dateString) {
+              setHoveredDate(cell.dateString);
+              Haptics.selectionAsync().catch(() => {});
+            }
+            return;
+          }
+        }
+      }
+    } else if (calendarViewMode === "week" && weekStripBounds) {
+      const { x: wx, y: wy, width: ww, height: wh } = weekStripBounds;
+      if (x >= wx && x <= wx + ww && y >= wy - 30 && y <= wy + wh + 30) {
+        const localX = x - wx;
+        const cellWidth = ww / 7;
+        const col = Math.floor(localX / cellWidth);
+
+        if (col >= 0 && col < weekDaysStrip.length) {
+          const day = weekDaysStrip[col];
+          if (hoveredDate !== day.dateString) {
+            setHoveredDate(day.dateString);
+            Haptics.selectionAsync().catch(() => {});
+          }
+          return;
+        }
+      }
+    }
+    setHoveredDate(null);
+  };
+
+  // Reschedule Persistence on Drop
+  const handleDrop = async () => {
+    if (activeDragItem && hoveredDate) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      try {
+        if (activeDragItem.type === "task") {
+          const rawTodos = await AsyncStorage.getItem("todoapp:v1");
+          if (rawTodos) {
+            const state = JSON.parse(rawTodos);
+            const updatedTodos = { ...state.todos };
+
+            let found = false;
+            for (const listId in updatedTodos) {
+              updatedTodos[listId] = updatedTodos[listId].map((todo: any) => {
+                if (todo.id === activeDragItem.id) {
+                  found = true;
+                  return { ...todo, scheduledDate: hoveredDate };
+                }
+                return todo;
+              });
+            }
+
+            if (found) {
+              await AsyncStorage.setItem("todoapp:v1", JSON.stringify({ ...state, todos: updatedTodos }));
+            }
+          }
+        } else if (activeDragItem.type === "habit") {
+          const dateParts = hoveredDate.split("-").map(Number);
+          const selDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+          const dayOfWeek = selDate.getDay();
+
+          const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
+          if (rawHabits) {
+            const state = JSON.parse(rawHabits);
+            const updatedHabits = state.dailyHabits.map((habit: any) => {
+              if (habit.id === activeDragItem.id) {
+                const reminderDays = habit.reminderDays || [];
+                if (!reminderDays.includes(dayOfWeek)) {
+                  return { ...habit, reminderDays: [...reminderDays, dayOfWeek] };
+                }
+              }
+              return habit;
+            });
+            await AsyncStorage.setItem("todoapp:daily:v1", JSON.stringify({ ...state, dailyHabits: updatedHabits }));
+          }
+        }
+
+        setSelectedDate(hoveredDate);
+        await loadDataFromStorage();
+        void loadMonth(month.year, month.month);
+      } catch (err) {
+        console.warn("Failed to update item scheduled date after drag drop", err);
+      }
+    }
+
+    setIsDragging(false);
+    setActiveDragItem(null);
+    setHoveredDate(null);
+  };
+
+  // Reanimated style for the absolute floating item
+  const floatingCardStyle = useAnimatedStyle(() => {
+    return {
+      position: "absolute",
+      left: dragX.value - 120,
+      top: dragY.value - 30,
+      width: 240,
+      opacity: 0.9,
+      transform: [{ scale: 1.05 }],
+      zIndex: 9999,
+    };
+  });
+
+  const hoursRange = Array.from({ length: 24 }, (_, i) => i); // 00:00 to 23:00
+
   return (
-    <ScreenSwipeWrapper prevRoute="/tasks" nextRoute="/settings">
-      <SafeAreaView
-        style={[styles.safeArea, { backgroundColor: "transparent" }]}
-      >
-        <Animated.View
-          entering={FadeInDown.duration(450).springify()}
-          style={{ flex: 1 }}
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <Animated.View entering={FadeInDown.duration(450).springify()} style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollRef}
+          scrollEnabled={!isDragging}
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView
-            contentContainerStyle={styles.container}
-            showsVerticalScrollIndicator={false}
+          {/* Screen Header */}
+          <View style={[styles.header, { marginBottom: 8 }]}>
+            <Text style={[styles.kicker, { color: colors.primary }]}>SCHEDULE</Text>
+            <Text style={[styles.title, { color: colors.text }]}>Agenda Planner</Text>
+          </View>
+
+          {/* View Switcher segment */}
+          <View style={{ marginVertical: 4 }}>
+            <SegmentedSwitcher
+              options={[
+                { key: "month", label: "Month View" },
+                { key: "week", label: "Week Agenda" },
+              ]}
+              activeKey={calendarViewMode}
+              onChange={(val) => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setCalendarViewMode(val as any);
+              }}
+            />
+          </View>
+
+          {/* Calendar Navigation Card */}
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderRadius: 28,
+              borderWidth: 1,
+              borderColor: colors.border,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: colorScheme === "light" ? 0.04 : 0.15,
+              shadowRadius: 16,
+              elevation: 4,
+              padding: 18,
+              marginTop: Platform.OS === "ios" ? 12 : 8,
+            }}
           >
-            {/* Premium Header removed per user request */}
-            <View style={styles.header}>
-              <Text style={[styles.kicker, { color: colors.primary }]}>
-                ANALYTICS
-              </Text>
-              <Text style={[styles.title, { color: colors.text }]}>
-                Overview
-              </Text>
-            </View>
+            {/* Month View: Direct Calendar Grid Navigation */}
+            {calendarViewMode === "month" && (
+              <>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <Pressable
+                    onPress={handlePrevMonth}
+                    hitSlop={8}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.04)",
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Feather name="chevron-left" size={18} color={colors.textMuted} />
+                  </Pressable>
+                  <Text style={{ color: colors.text, fontSize: 17, fontWeight: "800" }}>
+                    {MONTH_NAMES[month.month]} {month.year}
+                  </Text>
+                  <Pressable
+                    onPress={handleNextMonth}
+                    hitSlop={8}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.04)",
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Feather name="chevron-right" size={18} color={colors.textMuted} />
+                  </Pressable>
+                </View>
 
-            {/* Large Date & Folder Calendar Row */}
-            <View style={styles.dateBannerRow}>
-              <View style={{ gap: 2 }}>
-                <Text style={[styles.largeDateText, { color: colors.text }]}>
-                  {headerDateLabel}
-                </Text>
-                <Text
-                  style={[
-                    styles.taskCountSubtitle,
-                    { color: colors.textMuted },
-                  ]}
+                {/* Weekday Headers */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    marginBottom: 6,
+                    paddingBottom: 8,
+                    borderBottomWidth: 1,
+                    borderBottomColor: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.04)",
+                  }}
                 >
-                  {timelineItems.length} task
-                  {timelineItems.length !== 1 ? "s" : ""} today
-                </Text>
-              </View>
-              {/* calendar button removed */}
-            </View>
+                  {WEEKDAY_NAMES.map((name) => (
+                    <Text key={name} style={{ flex: 1, textAlign: "center", color: colors.textMuted, fontSize: 11, fontWeight: "800" }}>
+                      {name.charAt(0)}
+                    </Text>
+                  ))}
+                </View>
 
-            {/* Horizontal Week Strip (Dribbble style) */}
-            <View style={styles.weekStripContainer}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.weekScrollContent}
+                {/* Days Grid */}
+                <View
+                  ref={monthGridRef}
+                  onLayout={measureMonthGrid}
+                  style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 4 }}
+                >
+                  {calendarCells.map((cell) => {
+                    if (cell.type === "empty") {
+                      return <View key={cell.key} style={{ width: "14.28%", height: 38 }} />;
+                    }
+                    const dateStr = cell.dateString || "";
+                    const isSelected = selectedDate === dateStr;
+                    const isToday = dateStr === getDateKey();
+                    const isHovered = hoveredDate === dateStr;
+
+                    const taskCount = allTodos.filter((t) => {
+                      const hasDate = t.scheduledDate === dateStr;
+                      const hasAlarm = t.alarmTime && getDateKey(new Date(t.alarmTime)) === dateStr;
+                      return (hasDate || hasAlarm) && t.scheduledDate !== "inbox";
+                    }).length;
+
+                    return (
+                      <Pressable
+                        key={cell.key}
+                        onPress={() => setSelectedDate(dateStr)}
+                        style={{
+                          width: "14.28%",
+                          height: 38,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 12,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: isSelected
+                              ? colors.primary
+                              : isHovered
+                              ? `${colors.primary}33`
+                              : "transparent",
+                            borderWidth: (isToday && !isSelected) || isHovered ? 1.5 : 0,
+                            borderColor: isHovered
+                              ? colors.primary
+                              : isToday && !isSelected
+                              ? colors.primary
+                              : "transparent",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: isSelected ? "#FFFFFF" : isToday ? colors.primary : colors.text,
+                              fontSize: 13,
+                              fontWeight: isSelected || isToday || isHovered ? "800" : "500",
+                            }}
+                          >
+                            {cell.dayNum}
+                          </Text>
+                        </View>
+                        {taskCount > 0 && !isSelected && (
+                          <View
+                            style={{
+                              position: "absolute",
+                              bottom: 2,
+                              width: 4,
+                              height: 4,
+                              borderRadius: 2,
+                              backgroundColor: colors.primary,
+                            }}
+                          />
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {/* Week View: Fixed 7-day Strip (Responsive Grid) */}
+            {calendarViewMode === "week" && (
+              <View
+                ref={weekStripRef}
+                onLayout={measureWeekStrip}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginHorizontal: -4,
+                }}
               >
                 {weekDaysStrip.map((day) => {
                   const isSelected = selectedDate === day.dateString;
+                  const isHovered = hoveredDate === day.dateString;
                   return (
                     <Pressable
                       key={day.dateString}
                       onPress={() => setSelectedDate(day.dateString)}
                       style={[
                         styles.weekDayCell,
+                        { flex: 1, marginHorizontal: 4 },
                         isSelected
                           ? {
                               backgroundColor: colors.primary,
                               borderColor: isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(255, 255, 255, 0.15)",
+                            }
+                          : isHovered
+                          ? {
+                              backgroundColor: `${colors.primary}33`,
+                              borderColor: colors.primary,
                             }
                           : {
                               backgroundColor: colorScheme === "light" ? "#FFFFFF" : "rgba(255, 255, 255, 0.02)",
@@ -342,559 +749,276 @@ export default function CalendarScreen() {
                             },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.weekDayNameText,
-                          { color: isSelected ? "#ffffff" : colors.textMuted },
-                        ]}
-                      >
+                      <Text style={[styles.weekDayNameText, { color: isSelected ? "#ffffff" : colors.textMuted }]}>
                         {day.dayName}
                       </Text>
-                      <Text
-                        style={[
-                          styles.weekDayNumText,
-                          { color: isSelected ? "#ffffff" : colors.text },
-                        ]}
-                      >
+                      <Text style={[styles.weekDayNumText, { color: isSelected ? "#ffffff" : colors.text }]}>
                         {day.dayNum}
                       </Text>
-                      {isSelected && (
-                        <View
-                          style={[
-                            styles.activeDot,
-                            { backgroundColor: "#ffffff" },
-                          ]}
-                        />
-                      )}
+                      {isSelected && <View style={[styles.activeDot, { backgroundColor: "#ffffff" }]} />}
                     </Pressable>
                   );
                 })}
-              </ScrollView>
-            </View>
-
-            {/* Vertical Time Agenda (Dribbble style) */}
-            <AppCard style={styles.agendaCard}>
-              <FloatingGlow
-                color={colors.primary}
-                size={220}
-                opacity={0.06}
-                style={{ position: "absolute", top: 80, left: 40 }}
-              />
-              <View style={styles.agendaTitleRow}>
-                <Text style={[styles.agendaHeading, { color: colors.text }]}>
-                  Schedule Agenda
-                </Text>
-                <Text
-                  style={[styles.taskCountKicker, { color: colors.textMuted }]}
-                >
-                  {timelineItems.length} items scheduled
-                </Text>
               </View>
+            )}
+          </View>
 
-              <View style={styles.timelineWrapper}>
-                {timelineItems.length > 0 ? (
-                  timelineItems.map((item, idx) => {
-                    const isHabit = item.type === "habit";
+          {/* Selected Date Info Strip */}
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              paddingHorizontal: 4,
+              marginTop: 16,
+              marginBottom: 4,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>{headerDateLabel}</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "700" }}>
+              {timelineItems.length} item{timelineItems.length !== 1 ? "s" : ""}
+            </Text>
+          </View>
 
-                    // Dynamic pastel styling based on event index
-                    let cardBg = "#d1fae5"; // soft light green
-                    let textColor = "#064e3b";
-                    let isPhoneIcon = true;
-
-                    if (idx % 4 === 0) {
-                      cardBg = "#d1fae5"; // mint green
-                      textColor = "#064e3b";
-                      isPhoneIcon = true;
-                    } else if (idx % 4 === 1) {
-                      cardBg = "#e2e8f0"; // light grey
-                      textColor = "#334155";
-                      isPhoneIcon = false;
-                    } else if (idx % 4 === 2) {
-                      cardBg = "#f3e8ff"; // light purple
-                      textColor = "#581c87";
-                      isPhoneIcon = true;
-                    } else {
-                      cardBg = "#e0f2fe"; // light blue/teal
-                      textColor = "#0369a1";
-                      isPhoneIcon = false;
-                    }
-
-                    return (
-                      <View key={item.id || idx} style={styles.timelineRow}>
-                        <View style={styles.timeColumn}>
-                          <Text
-                            style={[
-                              styles.timeLabelText,
-                              { color: colors.textMuted },
-                            ]}
-                          >
-                            {item.timeLabel}
-                          </Text>
-                        </View>
-                        <View style={styles.timelineConnector}>
-                          <View
-                            style={[
-                              styles.timelineNode,
-                              {
-                                backgroundColor: isHabit
-                                  ? colors.warning
-                                  : colors.primary,
-                              },
-                            ]}
-                          />
-                          {idx < timelineItems.length - 1 && (
-                            <View style={[styles.timelineLine, { backgroundColor: colors.border }]} />
-                          )}
-                        </View>
-                        <AppCard
-                          style={[
-                            styles.timelineItemCard,
-                            {
-                              backgroundColor: cardBg,
-                              borderColor: "transparent",
-                              padding: 16,
-                              borderRadius: 20,
-                            },
-                          ]}
-                        >
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              marginBottom: 6,
-                            }}
-                          >
-                            <View
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: 6,
-                              }}
-                            >
-                              <Feather
-                                name={isHabit ? "zap" : "clock"}
-                                size={11}
-                                color={textColor}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: "800",
-                                  color: textColor,
-                                  textTransform: "uppercase",
-                                  letterSpacing: 0.5,
-                                }}
-                              >
-                                {isHabit
-                                  ? `Habit • 🔥 ${item.streak}d`
-                                  : "Task"}
-                              </Text>
-                            </View>
-                            <Feather
-                              name={isPhoneIcon ? "phone" : "message-square"}
-                              size={13}
-                              color={textColor}
-                            />
-                          </View>
-                          <Text
-                            style={[
-                              styles.timelineTaskTitle,
-                              {
-                                color: textColor,
-                                fontWeight: "700",
-                                textDecorationLine: item.completed
-                                  ? "line-through"
-                                  : "none",
-                              },
-                            ]}
-                          >
-                            {item.title}
-                          </Text>
-                        </AppCard>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <View style={styles.emptyAgendaContainer}>
-                    <Feather
-                      name="bell-off"
-                      size={20}
-                      color={colors.textMuted}
-                      style={{ opacity: 0.6 }}
-                    />
-                    <Text
-                      style={[styles.emptyAgendaText, { color: colors.text }]}
-                    >
-                      No items scheduled for today
-                    </Text>
-                    <Text
+          {/* Redesigned Planner Time-Block Section */}
+          <View style={styles.plannerContainer}>
+            {/* All Day / Anytime Section */}
+            {allDayItems.length > 0 && (
+              <View style={styles.allDaySection}>
+                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>ALL DAY</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}
+                >
+                  {allDayItems.map((item, idx) => (
+                    <Pressable
+                      key={item.id || idx}
+                      onLongPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                        setActiveDragItem(item);
+                        setIsDragging(true);
+                        dragX.value = touchStartRef.current.x;
+                        dragY.value = touchStartRef.current.y;
+                        measureMonthGrid();
+                        measureWeekStrip();
+                      }}
+                      onPressIn={(e) => {
+                        touchStartRef.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+                      }}
                       style={[
-                        styles.emptyAgendaSubtext,
-                        { color: colors.textMuted },
+                        styles.allDayCard,
+                        {
+                          marginRight: 4,
+                          backgroundColor: item.completed
+                            ? isLight
+                              ? "#F1F5F9"
+                              : "rgba(255, 255, 255, 0.03)"
+                            : isLight
+                            ? "#E2E8F0"
+                            : "rgba(255, 255, 255, 0.08)",
+                          borderColor: item.completed ? colors.border : colors.primary,
+                        },
                       ]}
                     >
-                      Tap the bell icon in your Planner to set an alarm
-                      reminder.
-                    </Text>
-                  </View>
-                )}
+                      <Text
+                        style={[
+                          styles.allDayCardText,
+                          {
+                            color: item.completed ? colors.textMuted : colors.text,
+                            textDecorationLine: item.completed ? "line-through" : "none",
+                          },
+                        ]}
+                      >
+                        {item.type === "habit" ? `⚡ ${item.title}` : item.title}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
               </View>
-            </AppCard>
+            )}
 
-            {/* Collapsible Monthly Heatmap Calendar Module */}
-            <AppCard style={styles.collapsibleHeatmapCard}>
-              <Pressable
-                onPress={() => setShowMonthHeatmap(!showMonthHeatmap)}
-                style={styles.collapsibleHeader}
-              >
-                <View style={styles.collapsibleTitleLeft}>
-                  <Feather name="activity" size={16} color={colors.primary} />
-                  <Text
-                    style={[
-                      styles.collapsibleTitleText,
-                      { color: colors.text },
-                    ]}
-                  >
-                    Toggle Monthly Heatmap History
-                  </Text>
-                </View>
-                <Feather
-                  name={showMonthHeatmap ? "chevron-up" : "chevron-down"}
-                  size={18}
-                  color={colors.textMuted}
-                />
-              </Pressable>
+            {/* Hourly Planner Visual Blocks */}
+            <View style={styles.timelineGridWrapper}>
+              {/* Background Hours & Lines */}
+              {hoursRange.map((hr) => {
+                const displayHour = hr === 12 ? 12 : hr % 12;
+                const ampm = hr >= 12 ? "PM" : "AM";
+                const timeStr = `${displayHour}:00 ${ampm}`;
 
-              {showMonthHeatmap && (
-                <Animated.View
-                  entering={FadeInDown.duration(300)}
-                  style={[styles.heatmapContent, { borderTopColor: colors.border }]}
-                >
-                  {/* Custom Month Header Navigation */}
-                  <View style={styles.customCalendarHeader}>
-                    <Text style={[styles.monthLabel, { color: colors.text }]}>
-                      {MONTH_NAMES[month.month]} {month.year}
-                    </Text>
-                    <View style={styles.navArrows}>
-                      <Pressable
-                        onPress={handlePrevMonth}
-                        style={[styles.arrowBtn, { borderColor: colors.border, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "rgba(255, 255, 255, 0.02)" }]}
-                      >
-                        <Feather
-                          name="chevron-left"
-                          size={18}
-                          color={colors.textMuted}
-                        />
-                      </Pressable>
-                      <Pressable
-                        onPress={handleNextMonth}
-                        style={[styles.arrowBtn, { borderColor: colors.border, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "rgba(255, 255, 255, 0.02)" }]}
-                      >
-                        <Feather
-                          name="chevron-right"
-                          size={18}
-                          color={colors.textMuted}
-                        />
-                      </Pressable>
+                return (
+                  <View key={hr} style={styles.hourRow}>
+                    <View style={styles.hourLabelCol}>
+                      <Text style={[styles.hourLabelText, { color: colors.textMuted }]}>{timeStr}</Text>
                     </View>
+                    <View style={[styles.hourLineCol, { borderColor: colors.border }]} />
                   </View>
+                );
+              })}
 
-                  {/* Custom Weekday Labels */}
-                  <View style={[styles.weekdaysHeader, { borderBottomColor: colors.border }]}>
-                    {WEEKDAY_NAMES.map((name) => (
-                      <Text
-                        key={name}
-                        style={[
-                          styles.weekdayLabel,
-                          { color: colors.textMuted },
-                        ]}
-                      >
-                        {name.slice(0, 1)}
-                      </Text>
-                    ))}
-                  </View>
+              {/* Absolutely positioned task blocks */}
+              <View style={styles.absoluteBlocksContainer}>
+                {timedItemsWithLayout.map((item, idx) => {
+                  const startMin = 0;
+                  const startMinutes = item.reminderHour * 60 + item.reminderMinute;
 
-                  {/* Custom Days Grid */}
-                  <View style={styles.calendarGrid}>
-                    {calendarCells.map((cell) => {
-                      if (cell.type === "empty") {
-                        return (
-                          <View
-                            key={cell.key}
-                            style={styles.dayCellPlaceholder}
-                          />
-                        );
-                      }
+                  const top = (startMinutes / 60) * 80;
+                  const height = (item.durationMinutes / 60) * 80;
 
-                      const dateStr = cell.dateString || "";
-                      const isSelected = selectedDate === dateStr;
+                  const widthPercent = 100 / item.totalCols;
+                  const leftPercent = item.colIdx * widthPercent;
 
-                      const entry = history.find((h) => h.date === dateStr);
-                      const dayScore = entry ? entry.score : 0;
-                      const isLight = colorScheme === "light";
-                      const heatBgColor =
-                        dayScore > 0
-                          ? getHeatColor(dayScore)
-                          : isLight
-                            ? "rgba(0, 0, 0, 0.04)"
-                            : "rgba(255, 255, 255, 0.05)";
+                  const isHabit = item.type === "habit";
+                  let cardBg = isLight ? "#E2E8F0" : "rgba(255, 255, 255, 0.06)";
+                  let textColor = colors.text;
+                  let accentColor = isHabit ? colors.warning : colors.primary;
 
-                      return (
-                        <Pressable
-                          key={cell.key}
-                          onPress={() => setSelectedDate(dateStr)}
-                          style={styles.dayCellContainer}
-                        >
-                          <View
-                            style={[
-                              styles.dayBadgeCircle,
-                              { backgroundColor: heatBgColor },
-                              isSelected && {
-                                borderColor: colors.primary,
-                                borderWidth: 1.8,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.dayNumText,
-                                {
-                                  color: dayScore > 0
-                                    ? "#ffffff"
-                                    : isSelected
-                                      ? colors.text
-                                      : colors.textMuted,
-                                  fontWeight:
-                                    isSelected || dayScore > 0 ? "700" : "500",
-                                },
-                              ]}
-                            >
-                              {cell.dayNum}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+                  if (item.completed) {
+                    cardBg = isLight ? "#F1F5F9" : "rgba(255, 255, 255, 0.02)";
+                    textColor = colors.textMuted;
+                  } else {
+                    if (idx % 4 === 0) {
+                      cardBg = isLight ? "#E0F2FE" : "rgba(56, 189, 248, 0.12)";
+                      textColor = isLight ? "#0369A1" : "#7DD3FC";
+                      accentColor = "#38BDF8";
+                    } else if (idx % 4 === 1) {
+                      cardBg = isLight ? "#F3E8FF" : "rgba(168, 85, 247, 0.12)";
+                      textColor = isLight ? "#581C87" : "#D8B4FE";
+                      accentColor = "#A855F7";
+                    } else if (idx % 4 === 2) {
+                      cardBg = isLight ? "#D1FAE5" : "rgba(16, 185, 129, 0.12)";
+                      textColor = isLight ? "#064E3B" : "#6EE7B7";
+                      accentColor = "#10B981";
+                    } else {
+                      cardBg = isLight ? "#FFE4E6" : "rgba(244, 63, 94, 0.12)";
+                      textColor = isLight ? "#9F1239" : "#FDA4AF";
+                      accentColor = "#F43F5E";
+                    }
+                  }
 
-                  {/* Legend Card */}
-                  <View style={styles.legendWrapperInside}>
-                    <View style={styles.legendRow}>
-                      <View
-                        style={[
-                          styles.legendSwatch,
-                          { backgroundColor: "#10B981" },
-                        ]}
-                      />
-                      <Text
-                        style={[styles.legendText, { color: colors.textMuted }]}
-                      >
-                        90%+ Done
-                      </Text>
-                    </View>
-                    <View style={styles.legendRow}>
-                      <View
-                        style={[
-                          styles.legendSwatch,
-                          { backgroundColor: "#3B82F6" },
-                        ]}
-                      />
-                      <Text
-                        style={[styles.legendText, { color: colors.textMuted }]}
-                      >
-                        60%+ Done
-                      </Text>
-                    </View>
-                    <View style={styles.legendRow}>
-                      <View
-                        style={[
-                          styles.legendSwatch,
-                          { backgroundColor: "#F59E0B" },
-                        ]}
-                      />
-                      <Text
-                        style={[styles.legendText, { color: colors.textMuted }]}
-                      >
-                        30%+ Done
-                      </Text>
-                    </View>
-                  </View>
-                </Animated.View>
-              )}
-            </AppCard>
-
-            {/* Detailed Completed Log List Card */}
-            <AppCard style={styles.detailCard}>
-              <View style={styles.detailHeader}>
-                <Feather name="calendar" size={16} color={colors.primary} />
-                <Text style={[styles.detailTitle, { color: colors.text }]}>
-                  {selectedDate} Completion Logs
-                </Text>
-              </View>
-
-              {selectedHistory ? (
-                <View style={styles.detailBody}>
-                  {/* Premium overall progress heading with dynamic rank badges */}
-                  <View style={styles.scoreHeaderRow}>
-                    <View style={{ gap: 2 }}>
-                      <Text style={[styles.detailStatLabel, { color: colors.textMuted }]}>
-                        PRODUCTIVITY LEVEL
-                      </Text>
-                      <Text style={[styles.detailStatVal, { color: colors.text, fontSize: 24, fontWeight: "800" }]}>
-                        {selectedHistory.score}% <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: "500" }}>score</Text>
-                      </Text>
-                    </View>
-                    <View style={[
-                      styles.scoreBadge,
-                      {
-                        backgroundColor: selectedHistory.score >= 90 ? "rgba(16, 185, 129, 0.12)" : selectedHistory.score >= 60 ? "rgba(59, 130, 246, 0.12)" : selectedHistory.score >= 30 ? "rgba(245, 158, 11, 0.12)" : "rgba(100, 116, 139, 0.12)"
-                      }
-                    ]}>
-                      <Text style={[
-                        styles.scoreBadgeText,
+                  return (
+                    <Pressable
+                      key={item.id || idx}
+                      onLongPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                        setActiveDragItem(item);
+                        setIsDragging(true);
+                        dragX.value = touchStartRef.current.x;
+                        dragY.value = touchStartRef.current.y;
+                        measureMonthGrid();
+                        measureWeekStrip();
+                      }}
+                      onPressIn={(e) => {
+                        touchStartRef.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+                      }}
+                      style={[
+                        styles.timedBlockCard,
                         {
-                          color: selectedHistory.score >= 90 ? "#10B981" : selectedHistory.score >= 60 ? "#3B82F6" : selectedHistory.score >= 30 ? "#F59E0B" : colors.textMuted
-                        }
-                      ]}>
-                        {selectedHistory.score >= 90 ? "Legendary" : selectedHistory.score >= 60 ? "Focused" : selectedHistory.score >= 30 ? "Active" : "Quiet"}
-                      </Text>
-                    </View>
-                  </View>
+                          top,
+                          height: Math.max(36, height - 2),
+                          left: `${leftPercent}%`,
+                          width: `${widthPercent - 1}%`,
+                          backgroundColor: cardBg,
+                          borderLeftColor: accentColor,
+                          borderLeftWidth: 3,
+                        },
+                      ]}
+                    >
+                      <View style={{ flex: 1, padding: 6, justifyContent: "space-between" }}>
+                        <View>
+                          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                            <Text style={{ fontSize: 9, fontWeight: "800", color: textColor, textTransform: "uppercase" }}>
+                              {item.timeLabel} ({item.durationMinutes}m)
+                            </Text>
+                            {item.priority && item.priority !== "medium" && (
+                              <Text
+                                style={{
+                                  fontSize: 8,
+                                  fontWeight: "900",
+                                  color: item.priority === "high" ? colors.error : colors.success,
+                                }}
+                              >
+                                {item.priority.toUpperCase()}
+                              </Text>
+                            )}
+                          </View>
+                          <Text
+                            numberOfLines={height < 50 ? 1 : 2}
+                            style={{
+                              fontSize: 12,
+                              fontWeight: "700",
+                              color: textColor,
+                              marginTop: 2,
+                              textDecorationLine: item.completed ? "line-through" : "none",
+                            }}
+                          >
+                            {isHabit ? `⚡ ${item.title}` : item.title}
+                          </Text>
+                        </View>
 
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                  {/* Dual Circular Progress Graphs Row */}
-                  <View style={styles.progressRingsRow}>
-                    {/* Left Circular Ring: Habits */}
-                    <View style={styles.ringCardContainer}>
-                      <Text style={[styles.ringCardTitle, { color: colors.text }]}>Habits</Text>
-                      <View style={styles.ringGraphicWrap}>
-                        <ProgressRing
-                          progress={selectedHistory.totalHabits > 0 ? selectedHistory.completedHabits / selectedHistory.totalHabits : 0}
-                          size={68}
-                          strokeWidth={6}
-                          color={colors.warning}
-                          showText={true}
-                        />
-                      </View>
-                      <Text style={[styles.ringCardStat, { color: colors.textMuted }]}>
-                        {selectedHistory.completedHabits} of {selectedHistory.totalHabits}
-                      </Text>
-                    </View>
-
-                    {/* Divider Line */}
-                    <View style={[styles.ringDivider, { backgroundColor: colors.border }]} />
-
-                    {/* Right Circular Ring: Todos */}
-                    <View style={styles.ringCardContainer}>
-                      <Text style={[styles.ringCardTitle, { color: colors.text }]}>Todos</Text>
-                      <View style={styles.ringGraphicWrap}>
-                        <ProgressRing
-                          progress={selectedHistory.totalTodos > 0 ? selectedHistory.completedTodos / selectedHistory.totalTodos : 0}
-                          size={68}
-                          strokeWidth={6}
-                          color={colors.primary}
-                          showText={true}
-                        />
-                      </View>
-                      <Text style={[styles.ringCardStat, { color: colors.textMuted }]}>
-                        {selectedHistory.completedTodos} of {selectedHistory.totalTodos}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                  <View style={styles.listsContainer}>
-                    <View style={styles.listSection}>
-                      <Text
-                        style={[styles.sectionLabel, { color: colors.text }]}
-                      >
-                        Completed Habits
-                      </Text>
-                      {selectedHistory.completedHabitTitles.length > 0 ? (
-                        selectedHistory.completedHabitTitles.map((item) => (
-                          <View key={item} style={styles.detailListItem}>
-                            <Feather
-                              name="check"
-                              size={12}
-                              color={colors.success}
-                            />
-                            <Text
-                              style={[
-                                styles.listItemText,
-                                { color: colors.textMuted },
-                              ]}
-                            >
-                              {item}
+                        {height >= 60 && (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            <Feather name={isHabit ? "zap" : "clock"} size={10} color={textColor} />
+                            <Text style={{ fontSize: 9, color: textColor, opacity: 0.8 }}>
+                              {isHabit ? "Habit" : "Task"}
                             </Text>
                           </View>
-                        ))
-                      ) : (
-                        <Text
-                          style={[
-                            styles.noItemsText,
-                            { color: colors.textMuted },
-                          ]}
-                        >
-                          No habits completed.
-                        </Text>
-                      )}
-                    </View>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </Animated.View>
 
-                    <View style={styles.listSection}>
-                      <Text
-                        style={[styles.sectionLabel, { color: colors.text }]}
-                      >
-                        Completed Todos
-                      </Text>
-                      {selectedHistory.completedTodoTitles.length > 0 ? (
-                        selectedHistory.completedTodoTitles.map((item) => (
-                          <View key={item} style={styles.detailListItem}>
-                            <Feather
-                              name="check"
-                              size={12}
-                              color={colors.success}
-                            />
-                            <Text
-                              style={[
-                                styles.listItemText,
-                                { color: colors.textMuted },
-                              ]}
-                            >
-                              {item}
-                            </Text>
-                          </View>
-                        ))
-                      ) : (
-                        <Text
-                          style={[
-                            styles.noItemsText,
-                            { color: colors.textMuted },
-                          ]}
-                        >
-                          No todos completed.
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.noHistoryWrap}>
-                  <AnalyticsEmptyGraphic />
-                  <Text
-                    style={[styles.noHistoryText, { color: colors.textMuted }]}
-                  >
-                    No completed logs found. Use the checklist to record goals.
-                  </Text>
-                </View>
-              )}
-            </AppCard>
-          </ScrollView>
+      {/* Floating Drag Overlay element */}
+      {isDragging && activeDragItem && (
+        <Animated.View style={floatingCardStyle} pointerEvents="none">
+          <View
+            style={{
+              backgroundColor: activeDragItem.type === "habit" ? colors.warning : colors.primary,
+              borderRadius: 14,
+              padding: 12,
+              borderWidth: 1.5,
+              borderColor: "#FFFFFF",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.3,
+              shadowRadius: 10,
+              elevation: 8,
+            }}
+          >
+            <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "800", textTransform: "uppercase", marginBottom: 2 }}>
+              {activeDragItem.timeLabel || "All Day"}
+            </Text>
+            <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "700" }} numberOfLines={1}>
+              {activeDragItem.title}
+            </Text>
+          </View>
         </Animated.View>
-      </SafeAreaView>
-    </ScreenSwipeWrapper>
+      )}
+
+      {/* Full-screen gesture event responder overlay */}
+      {isDragging && (
+        <View
+          style={[StyleSheet.absoluteFill, { zIndex: 9998, backgroundColor: "transparent" }]}
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          onResponderMove={(evt) => {
+            const { pageX, pageY } = evt.nativeEvent;
+            dragX.value = pageX;
+            dragY.value = pageY;
+            checkHoveredDate(pageX, pageY);
+          }}
+          onResponderRelease={() => {
+            void handleDrop();
+          }}
+        />
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -918,19 +1042,10 @@ const styles = StyleSheet.create({
     lineHeight: 38,
   },
 
-  // Horizontal week strip
-  weekStripContainer: {
-    paddingVertical: 4,
-    marginHorizontal: -16,
-  },
-  weekScrollContent: {
-    paddingHorizontal: 16,
-    gap: 12,
-  },
+  // Fixed week strip
   weekDayCell: {
-    width: 50,
-    height: 78,
-    borderRadius: 24,
+    height: 72,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1.5,
@@ -951,298 +1066,78 @@ const styles = StyleSheet.create({
     bottom: 8,
   },
 
-  // Premium Layout Styles
-  premiumHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+  // Planner Visual styles
+  plannerContainer: {
+    marginTop: 8,
+    gap: 16,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-  },
-  premiumHeaderTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  avatarMini: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-  },
-  dateBannerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginVertical: 4,
-  },
-  largeDateText: {
-    fontSize: 28,
+  sectionSubtitle: {
+    fontSize: 11,
     fontWeight: "800",
-  },
-  taskCountSubtitle: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  folderCalButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "#18181b",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-  },
-  teamAvatars: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  teamAvatarCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-  },
-  teamAvatarText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#ffffff",
-  },
-
-  // Vertical time agenda
-  agendaCard: { padding: Spacing.lg, gap: 16, overflow: "hidden" },
-  agendaTitleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-  },
-  agendaHeading: { fontSize: Typography.sizes.lg, fontWeight: "700" },
-  taskCountKicker: { fontSize: Typography.sizes.xs, fontWeight: "600" },
-  timelineWrapper: { gap: 12, marginTop: 4 },
-  timelineRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  timeColumn: { width: 68, paddingTop: 14 },
-  timeLabelText: { fontSize: 11, fontWeight: "700" },
-  timelineConnector: { width: 12, alignItems: "center", alignSelf: "stretch" },
-  timelineNode: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginTop: 16,
-    zIndex: 1,
-  },
-  timelineLine: {
-    width: 1.5,
-    flex: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    position: "absolute",
-    top: 24,
-    bottom: -12,
-  },
-  timelineItemCard: { flex: 1, padding: Spacing.md, gap: 4, borderWidth: 1 },
-  timelineTaskTitle: { fontSize: 13, fontWeight: "600" },
-  timelineMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 2,
-  },
-  timelineMetaText: { fontSize: 9, fontWeight: "600" },
-
-  // Collapsible heatmap card
-  collapsibleHeatmapCard: { padding: Spacing.md, gap: 8 },
-  collapsibleHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  collapsibleTitleLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  collapsibleTitleText: { fontSize: 14, fontWeight: "700" },
-  heatmapContent: {
-    gap: 12,
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.05)",
-    paddingTop: 12,
-  },
-
-  // Custom Calendar Styles
-  customCalendarHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  monthLabel: { fontSize: 16, fontWeight: "700" },
-  navArrows: { flexDirection: "row", gap: 4 },
-  arrowBtn: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
-  },
-  weekdaysHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.05)",
-    paddingBottom: 8,
-  },
-  weekdayLabel: {
-    width: "14.28%",
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: "700",
+    letterSpacing: 1.5,
     textTransform: "uppercase",
+    marginBottom: 8,
+    paddingHorizontal: 4,
   },
-  calendarGrid: {
+  allDaySection: {
+    gap: 4,
+  },
+  allDayGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    rowGap: 8,
-  },
-  dayCellPlaceholder: {
-    width: "14.28%",
-    aspectRatio: 1,
-  },
-  dayCellContainer: {
-    width: "14.28%",
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-  },
-  dayBadgeCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.04)",
-  },
-  dayNumText: { fontSize: 13 },
-  legendWrapperInside: {
-    flexDirection: "row",
-    justifyContent: "space-between",
     flexWrap: "wrap",
     gap: 8,
+  },
+  allDayCard: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  allDayCardText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  timelineGridWrapper: {
+    position: "relative",
+    flexDirection: "column",
     marginTop: 10,
   },
-  legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  legendSwatch: { width: 12, height: 12, borderRadius: 3 },
-  legendText: { fontSize: Typography.sizes.xs, fontWeight: "600" },
-
-  summaryRow: { flexDirection: "row", gap: 12 },
-  summaryHalf: { flex: 1, gap: 4, padding: Spacing.md },
-  statHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
-  summaryLabel: { fontSize: Typography.sizes.xs, fontWeight: "600" },
-  summaryValue: { fontSize: 22, fontWeight: "700" },
-  detailCard: { padding: Spacing.lg, gap: 12 },
-  detailHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  detailTitle: { fontSize: Typography.sizes.lg, fontWeight: "700" },
-  detailBody: { gap: 12 },
-  scoreHeaderRow: {
+  hourRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 4,
+    height: 80,
   },
-  scoreBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+  hourLabelCol: {
+    width: 65,
+    alignItems: "flex-end",
+    paddingRight: 10,
+    paddingTop: 0,
   },
-  scoreBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+  hourLabelText: {
+    fontSize: 10,
+    fontWeight: "700",
+    textAlign: "right",
   },
-  progressRingsRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  ringCardContainer: {
+  hourLineCol: {
     flex: 1,
-    alignItems: "center",
-    gap: 8,
+    borderTopWidth: 1,
+    borderStyle: "dashed",
   },
-  ringCardTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
+  absoluteBlocksContainer: {
+    position: "absolute",
+    top: 0,
+    left: 65,
+    right: 0,
+    bottom: 0,
   },
-  ringGraphicWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ringCardStat: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  ringDivider: {
-    width: 1,
-    height: 60,
-    opacity: 0.15,
-  },
-  detailStatLabel: { fontSize: Typography.sizes.xs, fontWeight: "700", letterSpacing: 0.8 },
-  detailStatVal: { fontSize: Typography.sizes.md, fontWeight: "700" },
-  divider: {
-    height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    marginVertical: 4,
-  },
-  listsContainer: { flexDirection: "row", gap: 16 },
-  listSection: { flex: 1, gap: 6 },
-  sectionLabel: { fontSize: Typography.sizes.sm, fontWeight: "700" },
-  detailListItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  listItemText: { fontSize: Typography.sizes.xs, fontWeight: "500" },
-  noItemsText: { fontSize: Typography.sizes.xs, fontStyle: "italic" },
-  noHistoryWrap: {
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 16,
-  },
-  noHistoryText: {
-    fontSize: Typography.sizes.sm,
-    textAlign: "center",
-    marginTop: 4,
-  },
-  emptyAgendaContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 32,
-    gap: 8,
-  },
-  emptyAgendaText: {
-    fontSize: 14,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  emptyAgendaSubtext: {
-    fontSize: 11,
-    textAlign: "center",
-    opacity: 0.8,
-    paddingHorizontal: 16,
-    lineHeight: 16,
+  timedBlockCard: {
+    position: "absolute",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
 });

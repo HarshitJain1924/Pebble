@@ -1,131 +1,91 @@
-# Todo App (Expo SDK 54)
+# Pebble Productivity App (Expo SDK 54)
 
-A local-first productivity app built with Expo Router. It combines todos, habits, reminders, analytics, and a focus timer with no backend required.
+A local-first, premium productivity suite built with Expo Router. It seamlessly combines day-focused task planning, daily habit tracking, streak consistency analytics, customizable time alarms, deep-focus Pomodoro timers, and an advanced **Local Heuristic Pebble Capture Engine**—requiring no backend databases or paid cloud APIs.
 
-## Screens
+Pebble is inspired by the classic crow-and-pebbles story: a crow raises the water level one pebble at a time until it reaches its goal.
+Our philosophy is simple:
+* One task
+* One habit
+* One focus session
+* One reminder
+* Small actions create big progress.
 
-### Today
-File: `app/(tabs)/index.tsx`
+> 📖 **Project PRD:** View the full [Product Requirements Document (PRD.md)](./PRD.md) for detailed feature flowcharts, specs, and technical requirements.
 
-The Today screen is a dashboard, not just a list. It shows:
-- Completion progress for all stored todos and habits
-- A short motivational status message
-- Category shortcuts into the rest of the app
-- A preview of the next few pending todos
-- A next-reminder card when scheduled alarms exist
-- A floating action button for quick navigation
+---
 
-### Planner
-File: `app/(tabs)/tasks.tsx`
+## ⚡ Key Highlights
 
-The Planner screen is the main task workspace. It supports:
-- Task CRUD
-- Subtasks
-- Multi-list organization
-- Task completion and deletion
-- Per-task reminders with custom time and weekday scheduling
-- Deep-link focus from notifications
+Pebble integrates a completely offline-ready, lightning-fast natural language engine alongside modern UX principles:
 
-### Daily
-File: `app/(tabs)/daily.tsx`
+1. **Pebble Capture:** Type naturally (e.g. *"Gym every morning at 7am"* or *"Study React tomorrow at 8pm high priority"*). Pebble uses `chrono-node` and `compromise` client-side to extract dates, times, categories, and priorities in **<12ms**.
+2. **Rotating Placeholders:** Fades between plain text examples to naturally guide users on input possibilities.
+3. **✨ Detection Badges:** Displays glowing `Smartly detected` or `Draft schedule` badges based on extraction confidence.
+4. **🔄 Cycle-on-Tap Editing:** Tapping the parsed badges in the preview card lets you cycle categories, priorities, dates, and times on-the-go with **haptic feedback** before saving.
+5. **🔔 Local Notifications:** Parses phrases like *"and remind me 15 minutes before"*, automatically scheduling exact alarms via `expo-notifications`.
+6. **🧠 Local Behavior Suggestions:** Tracks creation frequencies and prompts suggestion banners to *"Convert Gym into a recurring habit?"* after repeated manual entries.
 
-The Daily screen is for habits and streaks. It supports:
-- Habit CRUD
-- Current streak and best streak tracking
-- Daily reset behavior for `completedToday`
-- Reminder scheduling with optional weekdays
-- Progress summary and completion banners
-- Deep-link focus from notifications
+---
 
-### Analytics
-File: `app/(tabs)/calendar.tsx`
+## 📱 Core Screens & Navigation
 
-The Analytics screen shows productivity history with:
-- Calendar heatmap-style views
-- Month navigation
-- Daily history details
-- Todo and habit history summaries
+Built on **Expo Router** with seamless transitions:
 
-### Focus
-File: `app/(tabs)/focus.tsx`
+### 1. Today Dashboard (`app/(tabs)/index.tsx`)
+The entry point of the app, providing an authoritative, borderless summary of your day:
+- **Universal Metrics**: Real-time progress meters tracking completed tasks and active habits.
+- **Category Shortlinks**: High-fidelity graphical shortcuts to filter and create tasks in various contexts.
+- **Alarms Preview**: Spotlights the next upcoming exact alarm notification so you stay ahead.
 
-The Focus screen is a Pomodoro-style timer with:
-- Preset session lengths
-- Start/pause and reset controls
-- Session stats
-- Animated focus visuals
+### 2. Tasks & Habits Planner (`app/(tabs)/tasks.tsx`)
+Features a unified segmented switcher to toggle between **Tasks** and **Habits**:
+- **Calendar Strip**: Scrollable weekday strip using `react-native-calendars` to filter active tasks.
+- **Suggestions Banner**: Displays active local suggestions to convert repetitive tasks into habits.
+- **Streak Statistics**: Track habit consistency with density bars and weekly progress grids.
 
-## Navigation
+### 3. Focus Console (`app/(tabs)/focus.tsx`)
+An immersive deep-work console designed to optimize cognitive flow:
+- **Preset Focus Sessions**: Presets for 15, 25, 45, or 60-minute Pomodoros.
+- **Liquid Timers**: Features visual gradient rings that breathe and animate using `react-native-reanimated`.
+- **Gamification**: Awards +10 XP (represented as pebbles added to your progress) for task completion and +15 XP for habit runs.
 
-The tab layout lives in `app/(tabs)/_layout.tsx`.
+### 4. Pebble Capture Modal
+- **Access:** Tap the `⚡ Pebble Capture` pill or FAB to trigger a Bottom Sheet (`@gorhom/bottom-sheet`).
+- **Glassmorphism Overlay:** Implements beautiful blurred glass backdrops using `expo-blur`.
+- **Interactive Review:** Tweak parsed items instantly by tapping pills.
 
-Visible tabs:
-- Today
-- Planner
-- Analytics
-- Focus
+---
 
-The Daily screen is available as a route and is used by the app even though it is not shown as a tab.
+## 🎨 Hardware Gestures & Fluid Motion
 
-## Reminders
+The Pebble system incorporates smooth transitions powered by **React Native Gesture Handler** and **React Native Reanimated**:
+1. **Interactive Tab Swiping**: Swipe left or right anywhere to slide between tab views (Today ⇄ Planner ⇄ Analytics ⇄ Focus).
+2. **Directional Card Swipes**: Swipe items horizontally in lists:
+   - **Swipe Right**: Checks off and completes the item (Success Haptic + Emerald Green splash overlay).
+   - **Swipe Left**: Deletes the item (Medium Haptic + Crimson Red delete overlay).
+3. **Dynamic Premium Shadows**: Softens shadows dynamically based on theme (opacity `0.03`-`0.05` in light mode).
 
-Reminder logic is centralized in `services/reminders.ts`.
+---
 
-Current behavior:
-- Native builds use `expo-notifications`
-- Web uses browser notifications when available
-- Web falls back to local in-app timers when needed
-- Reminder payloads deep-link back into the correct todo or habit
-- Reminder schedules can include custom hours, minutes, and weekdays
+## 🛠️ Technical Stack
+- **React Native 0.81** (New Architecture & React Compiler enabled)
+- **Expo SDK 54** (Expo Router, expo-notifications, expo-blur, expo-haptics)
+- **State Management**: `@react-native-async-storage/async-storage`
+- **UI Components**: `@gorhom/bottom-sheet`, `react-native-calendars`
 
-Important:
-- Expo Go does not fully support scheduled background notifications.
-- For the most reliable reminder behavior, use a development build or production build.
+---
 
-## Storage
+## 🚀 Run Locally
 
-The app stores everything locally in AsyncStorage.
-
-- Todos: `todoapp:v1`
-- Daily habits: `todoapp:daily:v1`
-
-## Tech Stack
-
-- Expo SDK 54
-- Expo Router
-- React Native
-- AsyncStorage
-- Expo Notifications
-- React Native Calendars
-
-## Run Locally
-
-```bash
-npm install
-npx expo start
-```
-
-For web:
-
-```bash
-npx expo start --web
-```
-
-If Metro switches to another port such as `8082`, use that exact port in the browser.
-
-## What’s Working Well
-
-- Local-first storage with no backend
-- Reminder scheduling with deep links
-- Habit streak tracking
-- Productivity history and analytics
-- A stronger Today dashboard with quick navigation
-
-## Possible Next Improvements
-
-- Edit existing todo text
-- Rename task lists
-- Search and filters
-- Drag-and-drop ordering
-- Swipe actions for habits
-- More detailed dashboard summaries
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+2. **Start Development Server**:
+   ```bash
+   npx expo start
+   ```
+3. **Start Web Server**:
+   ```bash
+   npx expo start --web
+   ```

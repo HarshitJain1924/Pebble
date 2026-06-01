@@ -17,8 +17,9 @@ import {
   TODOS_STORAGE_KEY,
 } from "@/services/storage";
 import { Feather } from "@expo/vector-icons";
+import { emitStateChange } from "@/services/stateEvents";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -38,6 +39,8 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
+
+  const router = useRouter();
 
   const [loading, setLoading] = useState<boolean>(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -174,9 +177,9 @@ export default function SettingsScreen() {
               // 1. Create dummy todos
               const demoTodos = {
                 lists: [
-                  { id: "default", name: "📋 General Todos" },
-                  { id: "work", name: "💼 Work Projects" },
-                  { id: "learning", name: "🎓 Knowledge Base" },
+                  { id: "default", name: "📋 My Pebbles" },
+                  { id: "work", name: "💼 Work Pebbles" },
+                  { id: "learning", name: "🎓 Learning Pebbles" },
                 ],
                 selectedList: "default",
                 todos: {
@@ -186,6 +189,7 @@ export default function SettingsScreen() {
                       title: "Complete design audit of mobile UI",
                       completed: true,
                       category: "creative",
+                      folderId: "default",
                     },
                     {
                       id: "t2",
@@ -193,12 +197,14 @@ export default function SettingsScreen() {
                       completed: false,
                       category: "work",
                       alarmTime: Date.now() + 7200000,
+                      folderId: "default",
                     },
                     {
                       id: "t3",
                       title: "Buy fresh groceries & organic tea",
                       completed: false,
                       category: "health",
+                      folderId: "default",
                     },
                   ],
                   work: [
@@ -207,6 +213,7 @@ export default function SettingsScreen() {
                       title: "Deploy initial production bundle to cloud",
                       completed: true,
                       category: "work",
+                      folderId: "work",
                     },
                     {
                       id: "tw2",
@@ -214,6 +221,7 @@ export default function SettingsScreen() {
                       completed: false,
                       category: "work",
                       alarmTime: Date.now() + 18000000,
+                      folderId: "work",
                     },
                   ],
                   learning: [
@@ -222,12 +230,14 @@ export default function SettingsScreen() {
                       title: "Read Chapter 4 on Advanced React Design Patterns",
                       completed: true,
                       category: "learning",
+                      folderId: "learning",
                     },
                     {
                       id: "tl2",
                       title: "Practice Rust macro syntax exercises",
                       completed: false,
                       category: "learning",
+                      folderId: "learning",
                     },
                   ],
                 },
@@ -338,6 +348,9 @@ export default function SettingsScreen() {
                 ),
               ]);
 
+              emitStateChange("tasks_changed");
+              emitStateChange("habits_changed");
+
               await loadSettingsData();
               Alert.alert(
                 "Success",
@@ -373,11 +386,22 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem(HISTORY_STORAGE_KEY),
                 AsyncStorage.removeItem(PROFILE_STORAGE_KEY),
                 AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
+                AsyncStorage.removeItem("todoapp:onboarding_completed"),
               ]);
+              emitStateChange("tasks_changed");
+              emitStateChange("habits_changed");
               await loadSettingsData();
               Alert.alert(
                 "Storage Wiped",
                 "All storage keys successfully cleared. App reset to default empty canvas.",
+                [
+                  {
+                    text: "OK",
+                    onPress: () => {
+                      router.replace("/onboarding");
+                    },
+                  },
+                ],
               );
             } catch {
               Alert.alert("Error", "Could not clear storage.");

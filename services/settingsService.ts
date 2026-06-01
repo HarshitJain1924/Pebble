@@ -10,6 +10,12 @@ export type AppSettings = {
   };
   categories: Record<string, boolean>; // category key -> enabled
   escalationEnabled: boolean;
+  showDuration?: boolean;
+  showRepeat?: boolean;
+  showReminder?: boolean;
+  showTags?: boolean;
+  showNotes?: boolean;
+  editorRowOrder?: string[];
 };
 
 export type UserProfile = {
@@ -34,12 +40,19 @@ const DEFAULT_SETTINGS: AppSettings = {
     learning: true,
     creative: true,
     focus: true,
+    habit: true,
   },
   escalationEnabled: true,
+  showDuration: true,
+  showRepeat: true,
+  showReminder: true,
+  showTags: true,
+  showNotes: true,
+  editorRowOrder: ["date", "workspace", "priority", "reminder", "repeat", "duration", "tags"],
 };
 
 const DEFAULT_PROFILE: UserProfile = {
-  name: "Harshit",
+  name: "User",
   email: "local@me",
   avatar: "👨‍💻",
   level: 1,

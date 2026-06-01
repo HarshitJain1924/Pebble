@@ -2,16 +2,8 @@ import { Platform } from "react-native";
 
 export const Typography = {
   fontFamily: {
-    headline: Platform.select({
-      ios: "System",
-      android: "sans-serif-medium",
-      web: "Manrope, system-ui, sans-serif",
-    }) || "System",
-    body: Platform.select({
-      ios: "System",
-      android: "sans-serif",
-      web: "Inter, system-ui, sans-serif",
-    }) || "System",
+    headline: "Outfit_700Bold",
+    body: "Outfit_400Regular",
   },
   sizes: {
     xs: 12,

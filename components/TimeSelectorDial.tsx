@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet,  View } from "react-native";
+import { AppText as Text } from "@/components/ui/AppText";
 
 interface TimeSelectorDialProps {
   initialHour?: number;

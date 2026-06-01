@@ -1,3 +1,4 @@
+import { AppText as Text, AppTextInput as TextInput } from "@/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -6,88 +7,77 @@ import {
     Alert,
     AppState,
     AppStateStatus,
+    Dimensions,
     KeyboardAvoidingView,
-    LayoutChangeEvent,
+    Modal,
     Platform,
     Pressable,
+    TextInput as RNTextInput,
     SafeAreaView,
     ScrollView,
     StyleSheet,
-    Text,
-    TextInput,
-    View,
+    TouchableOpacity,
+    View
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { AnimatedCheckbox } from "@/components/AnimatedCheckbox";
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 import { AppCard } from "@/components/AppCard";
 import {
-    HabitsEmptyGraphic,
-    TasksEmptyGraphic,
+    HabitsEmptyGraphic
 } from "@/components/AppGraphics";
-import { ListManager } from "@/components/ListManager";
+import { HabitStreakCard } from "@/components/dashboard/HabitStreakCard";
+import NLPCapture from "@/components/NLPCapture";
 import { ProgressBar } from "@/components/ProgressBar";
-import { ScreenSwipeWrapper } from "@/components/ScreenSwipeWrapper";
 import { SwipeableCard } from "@/components/SwipeableCard";
+import { TaskEditorSheet } from "@/components/TaskEditorSheet";
 import { TimeSelectorDial } from "@/components/TimeSelectorDial";
 import { TodoItem } from "@/components/TodoItem";
-import { Spacing } from "@/constants/spacing";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { SegmentedSwitcher } from "@/components/ui/SegmentedSwitcher";
+import { styles } from "@/constants/taskStyles";
 import { Colors } from "@/constants/theme";
-import { Typography } from "@/constants/typography";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { pluginManager } from "@/plugin";
+import { type ParsedProductivityItem } from "@/services/nlpParser";
+import { getNotificationLogs } from "@/services/notificationsLog";
 import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
 import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
+import {
+    addXp,
+    getProfile,
+    type UserProfile,
+} from "@/services/settingsService";
+import { addStateListener, emitStateChange } from "@/services/stateEvents";
 import {
     DAILY_STORAGE_KEY,
     DAY_MS,
     TODOS_STORAGE_KEY,
 } from "@/services/storage";
 import {
+    getActiveSuggestions,
+    logTaskCreation,
+    resolveSuggestion,
+    type SmartSuggestion,
+} from "@/services/suggestions";
+import {
     DEFAULT_TASK_CATEGORY,
-    getTaskCategoryMeta,
     normalizeTaskCategory,
     TASK_CATEGORY_META,
-    type TaskCategory,
+    type TaskCategory
 } from "@/services/taskCategories";
+import { syncWidgetData } from "@/services/widgetData";
+import * as Haptics from "expo-haptics";
 
-export type Subtask = {
-  id: string;
-  title: string;
-  completed: boolean;
-};
-
-type Todo = {
-  id: string;
-  title: string;
-  completed: boolean;
-  category?: TaskCategory;
-  alarmId?: string;
-  alarmTime?: number;
-  notificationIds?: string[];
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[];
-  escalationMinutes?: number[];
-  subtasks?: Subtask[];
-  priority?: "low" | "medium" | "high";
-};
-
-export type Habit = {
-  id: string;
-  title: string;
-  streak: number;
-  bestStreak: number;
-  completedToday: boolean;
-  lastCompletedDate?: string;
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[];
-  notificationIds?: string[];
-  escalationMinutes?: number[];
-  priority?: "low" | "medium" | "high";
-};
-
-type TaskList = { id: string; name: string };
+import { WorkspaceModal } from "../../modules/workspaces/WorkspaceModal";
+import { WorkspaceGrid } from "../../modules/workspaces/WorkspaceGrid";
+import { AlarmModal } from "../../modules/reminders/AlarmModal";
+import { TaskSections } from "../../modules/tasks/TaskSections";
+import { HabitSection } from "../../modules/habits/HabitSection";
+import { SuggestionBanner } from "../../modules/suggestions/SuggestionBanner";
+import { ProgressSection } from "../../modules/stats/ProgressSection";
+import { type Todo, type Habit, type TaskList, type Subtask } from "../../modules/types";
 
 async function loadNotifications() {
   return import("expo-notifications");
@@ -98,14 +88,14 @@ const STORAGE_KEY = TODOS_STORAGE_KEY;
 const initialTodos: Todo[] = [
   {
     id: "1",
-    title: "Build the todo app shell",
+    title: "Collect my first daily pebble",
     completed: true,
     category: "work",
   },
-  { id: "2", title: "Add a new task", completed: false, category: "personal" },
+  { id: "2", title: "Add a pebble task to the workspace", completed: false, category: "personal" },
   {
     id: "3",
-    title: "Tap a task to mark it done",
+    title: "Tap a pebble task to mark it done",
     completed: false,
     category: "work",
   },
@@ -206,7 +196,7 @@ const addMinutesToTime = (
   minute: number,
   offset: number,
   setHour: React.Dispatch<React.SetStateAction<number>>,
-  setMinute: React.Dispatch<React.SetStateAction<number>>
+  setMinute: React.Dispatch<React.SetStateAction<number>>,
 ) => {
   const totalMinutes = hour * 60 + minute + offset;
   const newHour = Math.floor(totalMinutes / 60) % 24;
@@ -226,10 +216,11 @@ export default function TasksScreen() {
     segment?: string;
     category?: string;
     quickAdd?: string;
+    folderId?: string;
   }>();
 
   const scrollViewRef = useRef<ScrollView>(null);
-  const addTaskInputRef = useRef<TextInput>(null);
+  const addTaskInputRef = useRef<RNTextInput>(null);
   const focusTodoId =
     typeof params.focusItemId === "string" && params.focusItemType === "todo"
       ? params.focusItemId
@@ -245,12 +236,32 @@ export default function TasksScreen() {
     "tasks",
   );
 
+  const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
+
+  const getTodoDateKey = (todo: Todo) => {
+    if (todo.scheduledDate) {
+      return todo.scheduledDate;
+    }
+    if (todo.alarmTime) {
+      return getDateKey(new Date(todo.alarmTime));
+    }
+    const idNum = Number(todo.id);
+    if (!isNaN(idNum) && idNum > 100000000000) {
+      return getDateKey(new Date(idNum));
+    }
+    return getDateKey();
+  };
+
   // Tasks Screen State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
+  const [folderModalVisible, setFolderModalVisible] = useState(false);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
     null,
   );
   const [lists, setLists] = useState<TaskList[]>([
-    { id: "default", name: "My Tasks" },
+    { id: "default", name: "My Pebbles" },
   ]);
   const [selectedList, setSelectedList] = useState<string>("default");
   const [todos, setTodos] = useState<Record<string, Todo[]>>({
@@ -259,35 +270,34 @@ export default function TasksScreen() {
   const [title, setTitle] = useState("");
   const [selectedTodoCategory, setSelectedTodoCategory] =
     useState<TaskCategory>(DEFAULT_TASK_CATEGORY);
-  const [selectedTodoPriority, setSelectedTodoPriority] = useState<"low" | "medium" | "high">("medium");
-  const [selectedListPriorityFilter, setSelectedListPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
+  const [selectedTodoPriority, setSelectedTodoPriority] = useState<
+    "low" | "medium" | "high"
+  >("medium");
+  const [selectedListPriorityFilter, setSelectedListPriorityFilter] = useState<
+    "all" | "high" | "medium" | "low"
+  >("all");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<
+    TaskCategory | "all"
+  >("all");
+
+  const [editingTask, setEditingTask] = useState<Todo | null>(null);
 
   const [expandedTodoIds, setExpandedTodoIds] = useState<
     Record<string, boolean>
   >({});
 
-  // Overdue & Today expanded chevrons
-  const [overdueExpanded, setOverdueExpanded] = useState(true);
-  const [todayExpanded, setTodayExpanded] = useState(true);
   const [taskPositions, setTaskPositions] = useState<Record<string, number>>(
     {},
   );
 
   // Habits Screen State
   const [habits, setHabits] = useState<Habit[]>([]);
-  const [expandedHabitIds, setExpandedHabitIds] = useState<
-    Record<string, boolean>
-  >({});
   const [habitTitle, setHabitTitle] = useState("");
-  const [selectedHabitPriority, setSelectedHabitPriority] = useState<"low" | "medium" | "high">("medium");
-  const [selectedListHabitPriorityFilter, setSelectedListHabitPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
-  const [reminderMenuHabitId, setReminderMenuHabitId] = useState<string | null>(
-    null,
-  );
-  const [reminderCustomVisible, setReminderCustomVisible] = useState(false);
-  const [reminderCustomHour, setReminderCustomHour] = useState<number>(7);
-  const [reminderCustomMinute, setReminderCustomMinute] = useState<number>(0);
-  const [reminderCustomDays, setReminderCustomDays] = useState<number[]>([]);
+  const [selectedHabitPriority, setSelectedHabitPriority] = useState<
+    "low" | "medium" | "high"
+  >("medium");
+  const [selectedListHabitPriorityFilter, setSelectedListHabitPriorityFilter] =
+    useState<"all" | "high" | "medium" | "low">("all");
   const [showCelebrate, setShowCelebrate] = useState(false);
   const [highlightedHabitId, setHighlightedHabitId] = useState<string | null>(
     null,
@@ -296,15 +306,22 @@ export default function TasksScreen() {
 
   // Relocated Alarms State to resolve block scoping
   const [alarmMenu, setAlarmMenu] = useState<string | null>(null);
-  const [alarmCustomVisible, setAlarmCustomVisible] = useState(false);
-  const [alarmCustomHour, setAlarmCustomHour] = useState<number>(9);
-  const [alarmCustomMinute, setAlarmCustomMinute] = useState<number>(0);
-  const [alarmCustomDays, setAlarmCustomDays] = useState<number[]>([]);
 
   const [listsExpanded, setListsExpanded] = useState(false);
-  const [isAddingTask, setIsAddingTask] = useState(false);
+  const [addingTask, setAddingTask] = useState<Todo | null>(null);
+  const [selectedTodoDate, setSelectedTodoDate] =
+    useState<string>(getDateKey());
   const [isAddingHabit, setIsAddingHabit] = useState(false);
   const [statsExpanded, setStatsExpanded] = useState(false);
+
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [hasUnreadNotifs, setHasUnreadNotifs] = useState<boolean>(false);
+
+  // NLP Modal & Heuristic Suggestions States
+  const [nlpVisible, setNlpVisible] = useState(false);
+  const [activeSuggestions, setActiveSuggestions] = useState<SmartSuggestion[]>(
+    [],
+  );
 
   // Relocated persistHabits Callback to resolve block scoping
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
@@ -317,21 +334,72 @@ export default function TasksScreen() {
     }
   }, []);
 
+  // 14-Day Scrollable Week Strip
+  const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const weekDaysStrip = useMemo(() => {
+    const list = [];
+    const today = new Date();
+    // Render 3 days before today up to 10 days after today
+    for (let i = -3; i <= 10; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      list.push({
+        dateString: getDateKey(d),
+        dayNum: String(d.getDate()).padStart(2, "0"),
+        dayName: WEEKDAY_NAMES[d.getDay()],
+        isToday: getDateKey(d) === getDateKey(today),
+      });
+    }
+    return list;
+  }, []);
+
+  const formatSelectedDayName = useMemo(() => {
+    const today = getDateKey();
+    if (selectedDate === today) return "Today";
+    const tomorrow = getDateKey(new Date(Date.now() + DAY_MS));
+    if (selectedDate === tomorrow) return "Tomorrow";
+    try {
+      const parsed = parseDateKey(selectedDate);
+      return parsed.toLocaleDateString([], {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return selectedDate;
+    }
+  }, [selectedDate]);
+
+  // Task Memos
   // Task Memos
   const currentTodos = useMemo(
     () => todos[selectedList] ?? [],
     [todos, selectedList],
   );
 
+  const filteredTodos = useMemo(() => {
+    const raw = todos[selectedList] ?? [];
+    if (searchQuery.trim() === "") return raw;
+    return raw.filter((todo) => {
+      const matchesTitle = todo.title
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+      const matchesDesc =
+        todo.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        false;
+      const matchesTags =
+        todo.tags?.some((tag) =>
+          tag.toLowerCase().includes(searchQuery.toLowerCase()),
+        ) || false;
+      return matchesTitle || matchesDesc || matchesTags;
+    });
+  }, [todos, selectedList, searchQuery]);
+
   const isOverdue = (todo: Todo) => {
     if (todo.completed) return false;
-    const idNum = Number(todo.id);
-    if (isNaN(idNum) || idNum < 100000000000) return false;
-    const createdDate = new Date(idNum);
-    const today = new Date();
-    createdDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    return createdDate.getTime() < today.getTime();
+    const todoDate = getTodoDateKey(todo);
+    return todoDate < selectedDate;
   };
 
   const getPriorityWeight = (priority?: string) => {
@@ -341,20 +409,105 @@ export default function TasksScreen() {
   };
 
   const overdueTodos = useMemo(() => {
-    const filtered = currentTodos.filter((todo) => isOverdue(todo));
-    const matched = selectedListPriorityFilter === "all"
-      ? filtered
-      : filtered.filter((todo) => todo.priority === selectedListPriorityFilter);
-    return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [currentTodos, selectedListPriorityFilter]);
+    let filtered = filteredTodos.filter(
+      (todo) => todo.scheduledDate !== "inbox" && isOverdue(todo),
+    );
+    if (selectedCategoryFilter !== "all") {
+      filtered = filtered.filter(
+        (todo) => todo.category === selectedCategoryFilter,
+      );
+    }
+    const matched =
+      selectedListPriorityFilter === "all"
+        ? filtered
+        : filtered.filter(
+            (todo) => todo.priority === selectedListPriorityFilter,
+          );
+    return [...matched].sort(
+      (a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority),
+    );
+  }, [
+    filteredTodos,
+    selectedListPriorityFilter,
+    selectedCategoryFilter,
+    selectedDate,
+  ]);
 
   const todayTodos = useMemo(() => {
-    const filtered = currentTodos.filter((todo) => !isOverdue(todo));
-    const matched = selectedListPriorityFilter === "all"
-      ? filtered
-      : filtered.filter((todo) => todo.priority === selectedListPriorityFilter);
-    return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [currentTodos, selectedListPriorityFilter]);
+    let filtered = filteredTodos.filter(
+      (todo) =>
+        todo.scheduledDate !== "inbox" &&
+        !isOverdue(todo) &&
+        getTodoDateKey(todo) === selectedDate,
+    );
+    if (selectedCategoryFilter !== "all") {
+      filtered = filtered.filter(
+        (todo) => todo.category === selectedCategoryFilter,
+      );
+    }
+    const matched =
+      selectedListPriorityFilter === "all"
+        ? filtered
+        : filtered.filter(
+            (todo) => todo.priority === selectedListPriorityFilter,
+          );
+    return [...matched].sort(
+      (a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority),
+    );
+  }, [
+    filteredTodos,
+    selectedListPriorityFilter,
+    selectedCategoryFilter,
+    selectedDate,
+  ]);
+
+  const upcomingTodos = useMemo(() => {
+    let filtered = filteredTodos.filter(
+      (todo) =>
+        todo.scheduledDate !== "inbox" &&
+        !isOverdue(todo) &&
+        getTodoDateKey(todo) > selectedDate,
+    );
+    if (selectedCategoryFilter !== "all") {
+      filtered = filtered.filter(
+        (todo) => todo.category === selectedCategoryFilter,
+      );
+    }
+    const matched =
+      selectedListPriorityFilter === "all"
+        ? filtered
+        : filtered.filter(
+            (todo) => todo.priority === selectedListPriorityFilter,
+          );
+    return [...matched].sort(
+      (a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority),
+    );
+  }, [
+    filteredTodos,
+    selectedListPriorityFilter,
+    selectedCategoryFilter,
+    selectedDate,
+  ]);
+
+  const inboxTodos = useMemo(() => {
+    let filtered = filteredTodos.filter(
+      (todo) => todo.scheduledDate === "inbox",
+    );
+    if (selectedCategoryFilter !== "all") {
+      filtered = filtered.filter(
+        (todo) => todo.category === selectedCategoryFilter,
+      );
+    }
+    const matched =
+      selectedListPriorityFilter === "all"
+        ? filtered
+        : filtered.filter(
+            (todo) => todo.priority === selectedListPriorityFilter,
+          );
+    return [...matched].sort(
+      (a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority),
+    );
+  }, [filteredTodos, selectedListPriorityFilter, selectedCategoryFilter]);
 
   const remainingCount = useMemo(
     () => currentTodos.filter((todo) => !todo.completed).length,
@@ -368,12 +521,39 @@ export default function TasksScreen() {
     () => habits.filter((habit) => !habit.completedToday).length,
     [habits],
   );
+
   const displayedHabits = useMemo(() => {
-    const filtered = selectedListHabitPriorityFilter === "all"
-      ? habits
-      : habits.filter((habit) => habit.priority === selectedListHabitPriorityFilter);
-    return [...filtered].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [habits, selectedListHabitPriorityFilter]);
+    const dateParts = selectedDate.split("-").map(Number);
+    const selDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+    const dayOfWeek = selDate.getDay();
+
+    const activeHabits = habits.filter((habit) => {
+      return (
+        !habit.reminderDays ||
+        habit.reminderDays.length === 0 ||
+        habit.reminderDays.includes(dayOfWeek)
+      );
+    });
+
+    const filtered =
+      selectedListHabitPriorityFilter === "all"
+        ? activeHabits
+        : activeHabits.filter(
+            (habit) => habit.priority === selectedListHabitPriorityFilter,
+          );
+
+    const searchFiltered =
+      searchQuery.trim() === ""
+        ? filtered
+        : filtered.filter((h) =>
+            h.title.toLowerCase().includes(searchQuery.toLowerCase()),
+          );
+
+    return [...searchFiltered].sort(
+      (a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority),
+    );
+  }, [habits, selectedListHabitPriorityFilter, selectedDate, searchQuery]);
+
   const completedHabitCount = habits.length - unfinishedHabitCount;
   const habitCompletionPct =
     habits.length === 0 ? 0 : completedHabitCount / habits.length;
@@ -383,6 +563,8 @@ export default function TasksScreen() {
     [habits],
   );
 
+
+
   // Initialize and Sync Segment URL Search Parameters
   useEffect(() => {
     if (params.segment === "habits") {
@@ -391,6 +573,14 @@ export default function TasksScreen() {
       setActiveSegment("tasks");
     }
   }, [params.segment]);
+
+  useEffect(() => {
+    if (params.folderId) {
+      setOpenedFolderId(params.folderId);
+      setSelectedList(params.folderId);
+      setActiveSegment("tasks");
+    }
+  }, [params.folderId]);
 
   useEffect(() => {
     if (typeof params.category === "string") {
@@ -414,27 +604,76 @@ export default function TasksScreen() {
 
   // Load States on Tab/Screen Focus
   const loadState = useCallback(async () => {
+    console.log("=== LOAD STATE START ===");
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
+      if (!raw) {
+        const defaultFolders = [
+          { id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" },
+        ];
+        const defaultTodos = {
+          default: [],
+        };
+        setLists(defaultFolders as any);
+        setTodos(defaultTodos as any);
+        setSelectedList("default");
+        await AsyncStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            lists: defaultFolders,
+            selectedList: "default",
+            todos: defaultTodos,
+          }),
+        );
+        return;
+      }
       const parsed = JSON.parse(raw) as {
         lists: TaskList[];
         selectedList: string;
         todos: Record<string, Todo[]>;
       };
       if (parsed?.lists) setLists(parsed.lists);
-      if (parsed?.selectedList) setSelectedList(parsed.selectedList);
+      if (openedFolderId) {
+        setSelectedList(openedFolderId);
+      } else if (parsed?.selectedList) {
+        setSelectedList(parsed.selectedList);
+      }
       if (parsed?.todos) {
         const normalizedTodos = Object.fromEntries(
-          Object.entries(parsed.todos).map(([listId, listTodos]) => [
-            listId,
-            listTodos.map((todo) => ({
-              ...todo,
-              category: normalizeTaskCategory(todo.category),
-            })),
-          ]),
+          Object.entries(parsed.todos).map(([listId, listTodos]) => {
+            console.log(`\nWorkspace Key: "${listId}"`);
+            const normalized = listTodos.map((todo) => {
+              console.log(`Task Title: "${todo.title}"`);
+              console.log(`Task folderId: "${todo.folderId || "undefined"}"`);
+              if (todo.folderId && todo.folderId !== listId) {
+                console.warn(
+                  `[MISMATCH FLAGGED] ⚠️ Workspace Key "${listId}" does not match Task folderId "${todo.folderId}"! (Auto-Healed)`,
+                );
+              } else {
+                console.log(
+                  `[MATCH VERIFIED] ✓ Workspace Key and Task folderId are in sync.`,
+                );
+              }
+              return {
+                ...todo,
+                category: normalizeTaskCategory(todo.category),
+                folderId: listId, // Force/sanitize folderId to match dictionary key!
+              };
+            });
+            return [listId, normalized];
+          }),
         ) as Record<string, Todo[]>;
         setTodos(normalizedTodos);
+      }
+
+      try {
+        const userProfile = await getProfile();
+        setProfile(userProfile);
+        const logs = await getNotificationLogs();
+        const hasUnread = logs.some((l: any) => !l.read);
+        setHasUnreadNotifs(hasUnread);
+      } catch {
+        // ignore
       }
 
       // Reschedule web alarms for persisted alarmTimes
@@ -460,8 +699,8 @@ export default function TasksScreen() {
                   );
                 }
                 persistState(
-                  parsed.lists || lists,
-                  parsed.selectedList || selectedList,
+                  parsed.lists || [],
+                  parsed.selectedList || "default",
                   updatedLists,
                 );
                 return updatedLists;
@@ -472,29 +711,16 @@ export default function TasksScreen() {
       }
     } catch {
       // ignore
+    } finally {
+      console.log("=== LOAD STATE END ===");
     }
-  }, []);
+  }, [openedFolderId]);
 
   const loadHabits = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
       if (!raw) {
-        const starter = [
-          "Microsoft Rewards",
-          "LeetCode",
-          "Gym",
-          "Study",
-          "Drink Water",
-          "Sleep Early",
-        ].map((habitTitle) => ({
-          id: `habit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          title: habitTitle,
-          streak: 0,
-          bestStreak: 0,
-          completedToday: false,
-        }));
-        setHabits(starter);
-        await persistHabits(starter);
+        setHabits([]);
         return;
       }
 
@@ -507,11 +733,173 @@ export default function TasksScreen() {
     }
   }, []);
 
+  const loadSuggestions = useCallback(async () => {
+    try {
+      const active = await getActiveSuggestions();
+      setActiveSuggestions(active);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleSaveParsedItem = async (
+    parsed: ParsedProductivityItem,
+    targetWorkspaceId?: string,
+  ) => {
+    if (!parsed.title || parsed.title.trim() === "") return;
+
+    if (parsed.type === "task") {
+      const alarmTime =
+        parsed.time && parsed.date
+          ? (() => {
+              const [hours, minutes] = parsed.time.split(":").map(Number);
+              const [year, monthVal, dayVal] = parsed.date
+                .split("-")
+                .map(Number);
+              const dateObj = new Date(
+                year,
+                monthVal - 1,
+                dayVal,
+                hours,
+                minutes,
+                0,
+                0,
+              );
+
+              // Subtract lead reminder offset in minutes if specified
+              if (parsed.reminderOffsetMinutes) {
+                dateObj.setMinutes(
+                  dateObj.getMinutes() - parsed.reminderOffsetMinutes,
+                );
+              }
+
+              return dateObj.getTime() > Date.now()
+                ? dateObj.getTime()
+                : undefined;
+            })()
+          : undefined;
+
+      const destinationWorkspaceId =
+        targetWorkspaceId || openedFolderId || "default";
+
+      const newTodo: Todo = {
+        id: String(Date.now()),
+        title: parsed.title,
+        completed: false,
+        category: parsed.category || DEFAULT_TASK_CATEGORY,
+        priority: parsed.priority || "medium",
+        scheduledDate: parsed.date || "inbox",
+        alarmTime,
+        reminderHour: parsed.time
+          ? Number(parsed.time.split(":")[0])
+          : undefined,
+        reminderMinute: parsed.time
+          ? Number(parsed.time.split(":")[1])
+          : undefined,
+        folderId: destinationWorkspaceId,
+      };
+
+      const totalBefore = Object.values(todos).reduce(
+        (sum, list) => sum + list.length,
+        0,
+      );
+      console.log("TASK COUNT BEFORE", totalBefore);
+
+      setTodos((current) => {
+        const listTodos = current[destinationWorkspaceId] ?? [];
+        const updated = {
+          ...current,
+          [destinationWorkspaceId]: [newTodo, ...listTodos],
+        };
+        persistState(lists, selectedList, updated);
+
+        const totalAfter = Object.values(updated).reduce(
+          (sum, list) => sum + list.length,
+          0,
+        );
+        console.log("TASK COUNT AFTER", totalAfter);
+
+        return updated;
+      });
+
+      emitStateChange("tasks_changed");
+
+      await addXp(10).catch(() => {});
+      pluginManager.dispatchTaskCreated(newTodo);
+
+      const newSuggestion = await logTaskCreation(parsed.title);
+      if (newSuggestion) {
+        await loadSuggestions();
+      }
+    } else {
+      const reminderDays =
+        parsed.recurrence === "weekdays"
+          ? [1, 2, 3, 4, 5]
+          : parsed.recurrence === "weekends"
+            ? [0, 6]
+            : [];
+
+      const newHabit: Habit = {
+        id: `habit-${Date.now()}`,
+        title: parsed.title,
+        streak: 0,
+        bestStreak: 0,
+        completedToday: false,
+        priority: parsed.priority || "medium",
+        reminderDays: reminderDays.length > 0 ? reminderDays : undefined,
+        reminderHour: parsed.time
+          ? Number(parsed.time.split(":")[0])
+          : undefined,
+        reminderMinute: parsed.time
+          ? Number(parsed.time.split(":")[1])
+          : undefined,
+      };
+
+      setHabits((current) => {
+        const updated = [newHabit, ...current];
+        persistHabits(updated);
+        return updated;
+      });
+
+      emitStateChange("habits_changed");
+
+      await addXp(5).catch(() => {});
+      pluginManager.dispatchHabitCompleted(newHabit);
+    }
+
+    void syncWidgetData().catch(() => {});
+    void recordDailyHistorySnapshot();
+  };
+
+  const handleCreateWorkspaceFromNLP = (name: string): string => {
+    const newId = `list-${Date.now()}`;
+    const newWorkspace = {
+      id: newId,
+      name,
+      emoji: "📂",
+      icon: "grid",
+      iconType: "emoji" as const,
+      color: "#6366F1",
+    };
+    const updatedLists = [...lists, newWorkspace];
+    const updatedTodos = { ...todos, [newId]: [] };
+
+    setLists(updatedLists);
+    setTodos(updatedTodos);
+    persistState(updatedLists, selectedList, updatedTodos);
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {},
+    );
+    return newId;
+  };
+
   useFocusEffect(
     useCallback(() => {
       void loadState();
       void loadHabits();
-    }, [loadState, loadHabits]),
+      void loadSuggestions();
+    }, [loadState, loadHabits, loadSuggestions]),
   );
 
   // Sync notification permissions and channels
@@ -580,6 +968,58 @@ export default function TasksScreen() {
     };
   }, [persistHabits]);
 
+  useEffect(() => {
+    setSearchQuery("");
+  }, [openedFolderId, activeSegment]);
+
+  // Log after workspace navigation
+  useEffect(() => {
+    console.log(`\n=== WORKSPACE NAVIGATION ===`);
+    console.log(`Workspace Key (selectedList): "${selectedList}"`);
+    console.log(
+      `Opened Folder ID (openedFolderId): "${openedFolderId || "null"}"`,
+    );
+    if (openedFolderId) {
+      const folder = lists.find((l) => l.id === openedFolderId);
+      console.log(`Workspace Name: "${folder?.name || "Unknown"}"`);
+    } else {
+      console.log(`Workspace Name: "Workspaces Grid (All)"`);
+    }
+    console.log(`============================\n`);
+  }, [openedFolderId, selectedList, lists]);
+
+  // Listen for global task and habit updates to sync state immediately
+  useEffect(() => {
+    const unsubscribeTasks = addStateListener("tasks_changed", () => {
+      console.log(
+        "🔔 [EVENT RECEIVED] tasks_changed inside Tasks screen. Syncing state...",
+      );
+      void loadState();
+    });
+
+    const unsubscribeHabits = addStateListener("habits_changed", () => {
+      console.log(
+        "🔔 [EVENT RECEIVED] habits_changed inside Tasks screen. Syncing state...",
+      );
+      void loadHabits();
+    });
+
+    return () => {
+      unsubscribeTasks();
+      unsubscribeHabits();
+    };
+  }, [loadState, loadHabits]);
+
+  // Diagnostics: Run on every single render to print the currently visible task count
+  useEffect(() => {
+    const visibleTaskCount =
+      overdueTodos.length +
+      todayTodos.length +
+      upcomingTodos.length +
+      inboxTodos.length;
+    console.log("VISIBLE TASK COUNT", visibleTaskCount);
+  });
+
   // Alarms highlight scroll triggers
   useEffect(() => {
     if (focusTodoId) {
@@ -611,29 +1051,7 @@ export default function TasksScreen() {
     return undefined;
   }, [focusHabitId]);
 
-  useEffect(() => {
-    if (!alarmMenu) {
-      setAlarmCustomVisible(false);
-      return;
-    }
-    const todo = (todos[selectedList] ?? []).find((t) => t.id === alarmMenu);
-    setAlarmCustomHour(todo?.reminderHour ?? 9);
-    setAlarmCustomMinute(todo?.reminderMinute ?? 0);
-    setAlarmCustomDays(todo?.reminderDays ?? []);
-    setAlarmCustomVisible(false);
-  }, [alarmMenu, todos, selectedList]);
 
-  useEffect(() => {
-    if (!reminderMenuHabitId) {
-      setReminderCustomVisible(false);
-      return;
-    }
-    const target = habits.find((h) => h.id === reminderMenuHabitId);
-    setReminderCustomHour(target?.reminderHour ?? 7);
-    setReminderCustomMinute(target?.reminderMinute ?? 0);
-    setReminderCustomDays(target?.reminderDays ?? []);
-    setReminderCustomVisible(false);
-  }, [reminderMenuHabitId, habits]);
 
   // Task Actions
   const persistState = async (
@@ -659,68 +1077,91 @@ export default function TasksScreen() {
     persistState(lists, listId, todos);
   };
 
-  const deleteCurrentList = () => {
-    if (lists.length <= 1) {
-      Alert.alert("Cannot delete", "At least one list is required.");
-      return;
-    }
 
-    const updatedLists = lists.filter((list) => list.id !== selectedList);
-    const nextSelected = updatedLists[0]?.id ?? "default";
-    const updatedTodos = { ...todos };
 
-    (updatedTodos[selectedList] ?? []).forEach((todo) => {
-      const alarmId = todo.alarmId;
-      if (alarmId && !alarmId.startsWith("web-")) {
-        void loadNotifications().then((Notifications) =>
-          Notifications.cancelScheduledNotificationAsync(alarmId).catch(
-            () => {},
-          ),
-        );
-      }
-      if (todo.alarmId && todo.alarmId.startsWith("web-")) {
-        clearTimeout(Number(todo.alarmId.replace("web-", "")));
-      }
-    });
-
-    delete updatedTodos[selectedList];
-    if (!updatedTodos[nextSelected]) {
-      updatedTodos[nextSelected] = [];
-    }
-
-    setLists(updatedLists);
-    setTodos(updatedTodos);
-    setSelectedList(nextSelected);
-    persistState(updatedLists, nextSelected, updatedTodos);
+  const cycleCategory = () => {
+    const index = TASK_CATEGORY_META.findIndex(
+      (c) => c.key === selectedTodoCategory,
+    );
+    const nextIndex = (index + 1) % TASK_CATEGORY_META.length;
+    setSelectedTodoCategory(TASK_CATEGORY_META[nextIndex].key);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   };
 
-  const addTodo = () => {
-    const trimmedTitle = title.trim();
+  const cyclePriority = () => {
+    const priorities: ("high" | "medium" | "low")[] = ["high", "medium", "low"];
+    const index = priorities.indexOf(selectedTodoPriority);
+    const nextIndex = (index + 1) % priorities.length;
+    setSelectedTodoPriority(priorities[nextIndex]);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  };
 
-    if (!trimmedTitle) {
-      return;
-    }
+  const cycleDate = () => {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+
+    const dates = [
+      getDateKey(today),
+      getDateKey(tomorrow),
+      getDateKey(nextWeek),
+      "inbox",
+    ];
+    const index = dates.indexOf(selectedTodoDate);
+    const nextIndex = (index + 1) % dates.length;
+    setSelectedTodoDate(dates[nextIndex]);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  };
+
+  const getSelectedDateLabel = () => {
+    if (selectedTodoDate === "inbox") return "Inbox";
+    const today = getDateKey();
+    if (selectedTodoDate === today) return "Today";
+    const tomorrow = getDateKey(new Date(Date.now() + DAY_MS));
+    if (selectedTodoDate === tomorrow) return "Tomorrow";
+    const nextWeek = getDateKey(new Date(Date.now() + 7 * DAY_MS));
+    if (selectedTodoDate === nextWeek) return "Next Week";
+    return selectedTodoDate;
+  };
+
+  const onSaveNewTask = (newTask: Todo) => {
+    if (!newTask.title || newTask.title.trim() === "") return;
+
+    const targetFolderId = newTask.folderId || selectedList || "default";
+
+    const totalBefore = Object.values(todos).reduce(
+      (sum, list) => sum + list.length,
+      0,
+    );
+    console.log("TASK COUNT BEFORE", totalBefore);
 
     setTodos((current) => {
-      const listTodos = current[selectedList] ?? [];
+      const listTodos = current[targetFolderId] ?? [];
       const updated = {
         ...current,
-        [selectedList]: [
-          {
-            id: String(Date.now()),
-            title: trimmedTitle,
-            completed: false,
-            category: selectedTodoCategory,
-            priority: selectedTodoPriority,
-          },
+        [targetFolderId]: [
+          { ...newTask, folderId: targetFolderId },
           ...listTodos,
         ],
       };
       persistState(lists, selectedList, updated);
+      void syncWidgetData().catch(() => {});
+
+      const totalAfter = Object.values(updated).reduce(
+        (sum, list) => sum + list.length,
+        0,
+      );
+      console.log("TASK COUNT AFTER", totalAfter);
+
       return updated;
     });
-    setTitle("");
-    setSelectedTodoPriority("medium");
+
+    emitStateChange("tasks_changed");
+
+    pluginManager.dispatchTaskCreated(newTask);
+    setAddingTask(null);
   };
 
   const updateTodoTitle = (id: string, newTitle: string) => {
@@ -765,80 +1206,71 @@ export default function TasksScreen() {
     });
   };
 
-  const toggleTodo = (id: string) => {
+  const toggleTodo = async (id: string) => {
+    const listTodos = todos[selectedList] ?? [];
+    const todo = listTodos.find((t) => t.id === id);
+    if (!todo) return;
+    const nextCompleted = !todo.completed;
+    const updatedTodo = { ...todo, completed: nextCompleted };
+
+    if (nextCompleted) {
+      await addXp(10).catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
+    } else {
+      await addXp(-10).catch(() => {});
+    }
+
     setTodos((current) => {
-      const listTodos = current[selectedList] ?? [];
-      const updatedList = listTodos.map((todo) =>
-        todo.id === id ? { ...todo, completed: !todo.completed } : todo,
+      const currentListTodos = current[selectedList] ?? [];
+      const updatedList = currentListTodos.map((t) =>
+        t.id === id ? updatedTodo : t,
       );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
       return updated;
     });
+
+    if (nextCompleted) {
+      pluginManager.dispatchTaskCompleted(updatedTodo);
+    } else {
+      pluginManager.dispatchTaskUncompleted(updatedTodo);
+    }
+    await syncWidgetData().catch(() => {});
+    emitStateChange("tasks_changed");
   };
 
   const deleteTodo = (id: string) => {
+    const listTodos = todos[selectedList] ?? [];
+    const toDelete = listTodos.find((t) => t.id === id);
+    if (!toDelete) return;
+
     setTodos((current) => {
-      const listTodos = current[selectedList] ?? [];
-      const toDelete = listTodos.find((t) => t.id === id);
+      const currentListTodos = current[selectedList] ?? [];
       void cancelReminderIds(
         toDelete?.notificationIds ??
           (toDelete?.alarmId ? [toDelete.alarmId] : []),
       );
       const updated = {
         ...current,
-        [selectedList]: listTodos.filter((todo) => todo.id !== id),
+        [selectedList]: currentListTodos.filter((todo) => todo.id !== id),
       };
       persistState(lists, selectedList, updated);
+      void syncWidgetData().catch(() => {});
       return updated;
     });
+
+    pluginManager.dispatchTaskDeleted(id);
+    emitStateChange("tasks_changed");
   };
 
-  const toggleSubtask = (todoId: string, subtaskId: string) => {
+  const updateTodoCategory = (todoId: string, newCategory: TaskCategory) => {
     setTodos((current) => {
       const listTodos = current[selectedList] ?? [];
-      const updatedList = listTodos.map((todo) => {
-        if (todo.id !== todoId) return todo;
-        const updatedSubtasks = (todo.subtasks ?? []).map((sub) =>
-          sub.id === subtaskId ? { ...sub, completed: !sub.completed } : sub,
-        );
-        return { ...todo, subtasks: updatedSubtasks };
-      });
-      const updated = { ...current, [selectedList]: updatedList };
-      persistState(lists, selectedList, updated);
-      return updated;
-    });
-  };
-
-  const addSubtask = (todoId: string, text: string) => {
-    if (!text.trim()) return;
-    setTodos((current) => {
-      const listTodos = current[selectedList] ?? [];
-      const updatedList = listTodos.map((todo) => {
-        if (todo.id !== todoId) return todo;
-        const newSub: Subtask = {
-          id: `sub-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-          title: text.trim(),
-          completed: false,
-        };
-        return { ...todo, subtasks: [...(todo.subtasks ?? []), newSub] };
-      });
-      const updated = { ...current, [selectedList]: updatedList };
-      persistState(lists, selectedList, updated);
-      return updated;
-    });
-  };
-
-  const deleteSubtask = (todoId: string, subtaskId: string) => {
-    setTodos((current) => {
-      const listTodos = current[selectedList] ?? [];
-      const updatedList = listTodos.map((todo) => {
-        if (todo.id !== todoId) return todo;
-        return {
-          ...todo,
-          subtasks: (todo.subtasks ?? []).filter((sub) => sub.id !== subtaskId),
-        };
-      });
+      const updatedList = listTodos.map((todo) =>
+        todo.id === todoId ? { ...todo, category: newCategory } : todo,
+      );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
       return updated;
@@ -885,6 +1317,7 @@ export default function TasksScreen() {
       kind: "todo",
       itemId: todoId,
       title: todo.title,
+      category: todo.category,
       oneTimeAt: new Date(triggerTime),
       escalationMinutes: [120, 240],
       channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
@@ -912,6 +1345,7 @@ export default function TasksScreen() {
       );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
+      void syncWidgetData().catch(() => {});
       return updated;
     });
   };
@@ -933,6 +1367,7 @@ export default function TasksScreen() {
       kind: "todo",
       itemId: todoId,
       title: todo.title,
+      category: todo.category,
       dailyTime: { hour, minute },
       dailyDays: days,
       escalationMinutes: [120, 240],
@@ -962,11 +1397,11 @@ export default function TasksScreen() {
       );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
+      void syncWidgetData().catch(() => {});
       return updated;
     });
 
     setAlarmMenu(null);
-    setAlarmCustomVisible(false);
   };
 
   const cancelAlarm = async (todoId: string) => {
@@ -989,6 +1424,7 @@ export default function TasksScreen() {
       );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
+      void syncWidgetData().catch(() => {});
       return updated;
     });
   };
@@ -1019,6 +1455,7 @@ export default function TasksScreen() {
     setHabits((current) => {
       const updated = [next, ...current];
       persistHabits(updated);
+      void syncWidgetData().catch(() => {});
       return updated;
     });
     setHabitTitle("");
@@ -1032,1952 +1469,790 @@ export default function TasksScreen() {
     setHabits((current) => {
       const updated = current.filter((habit) => habit.id !== id);
       persistHabits(updated);
+      void syncWidgetData().catch(() => {});
       return updated;
     });
   };
 
-  const toggleHabit = (id: string) => {
+  const toggleHabit = async (id: string) => {
     const today = getDateKey();
     const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
+    const habit = habits.find((h) => h.id === id);
+    if (!habit) return;
+
+    let updatedHabit;
+    const isCompleting = !habit.completedToday;
+    if (isCompleting) {
+      let nextStreak = 1;
+      if (habit.lastCompletedDate === today) {
+        nextStreak = habit.streak || 1;
+      } else if (habit.lastCompletedDate === yesterday) {
+        nextStreak = habit.streak + 1;
+      }
+      updatedHabit = {
+        ...habit,
+        completedToday: true,
+        lastCompletedDate: today,
+        streak: nextStreak,
+        bestStreak: Math.max(habit.bestStreak, nextStreak),
+      };
+
+      // Award +15 XP
+      await addXp(15).catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
+    } else {
+      const rolledBackStreak = Math.max(0, habit.streak - 1);
+      updatedHabit = {
+        ...habit,
+        completedToday: false,
+        streak: rolledBackStreak,
+        lastCompletedDate: rolledBackStreak > 0 ? yesterday : undefined,
+      };
+
+      // Deduct 15 XP
+      await addXp(-15).catch(() => {});
+    }
 
     setHabits((current) => {
-      const updated = current.map((habit) => {
-        if (habit.id !== id) {
-          return habit;
-        }
-
-        if (!habit.completedToday) {
-          let nextStreak = 1;
-          if (habit.lastCompletedDate === today) {
-            nextStreak = habit.streak || 1;
-          } else if (habit.lastCompletedDate === yesterday) {
-            nextStreak = habit.streak + 1;
-          }
-
-          return {
-            ...habit,
-            completedToday: true,
-            lastCompletedDate: today,
-            streak: nextStreak,
-            bestStreak: Math.max(habit.bestStreak, nextStreak),
-          };
-        }
-
-        const rolledBackStreak = Math.max(0, habit.streak - 1);
-        return {
-          ...habit,
-          completedToday: false,
-          streak: rolledBackStreak,
-          lastCompletedDate: rolledBackStreak > 0 ? yesterday : undefined,
-        };
-      });
-
+      const updated = current.map((h) => (h.id === id ? updatedHabit : h));
       persistHabits(updated);
       return updated;
     });
+
+    pluginManager.dispatchHabitCompleted(updatedHabit);
+    void recordDailyHistorySnapshot();
+    await syncWidgetData().catch(() => {});
   };
 
-  const setReminderWithDays = async (
-    habitId: string,
-    hour: number,
-    minute: number,
-    days?: number[],
-  ) => {
-    const target = habits.find((habit) => habit.id === habitId);
-    if (!target) {
-      return;
-    }
 
-    try {
-      await cancelReminderIds(target.notificationIds ?? []);
-      const scheduled = await scheduleReminderBatch({
-        kind: "habit",
-        itemId: habitId,
-        title: target.title,
-        dailyTime: { hour, minute },
-        dailyDays: days,
-        escalationMinutes: [120, 240],
-        channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-        context: {
-          title: target.title,
-          remainingCount: unfinishedHabitCount,
-          totalCount: habits.length,
-          streak: target.streak,
-          bestStreak: target.bestStreak,
-        },
-      });
 
-      setHabits((current) => {
-        const updated = current.map((habit) =>
-          habit.id === habitId
-            ? {
-                ...habit,
-                reminderHour: hour,
-                reminderMinute: minute,
-                reminderDays: days,
-                notificationIds: scheduled.ids,
-                escalationMinutes: scheduled.escalationMinutes,
-              }
-            : habit,
+  const onSaveEditedTask = (updatedTask: Todo) => {
+    setTodos((current) => {
+      const allLists = { ...current };
+      for (const listId in allLists) {
+        allLists[listId] = allLists[listId].map((t) =>
+          t.id === updatedTask.id ? updatedTask : t,
         );
-        persistHabits(updated);
-        return updated;
-      });
-    } catch {
-      Alert.alert(
-        "Could not schedule",
-        "Reminder scheduling failed on this device.",
-      );
-    }
+      }
 
-    setReminderMenuHabitId(null);
-    setReminderCustomVisible(false);
-  };
+      let foundListId = selectedList;
+      for (const listId in allLists) {
+        if (allLists[listId].find((t) => t.id === updatedTask.id)) {
+          foundListId = listId;
+          break;
+        }
+      }
+      if (updatedTask.folderId && updatedTask.folderId !== foundListId) {
+        allLists[foundListId] = allLists[foundListId].filter(
+          (t) => t.id !== updatedTask.id,
+        );
+        if (!allLists[updatedTask.folderId])
+          allLists[updatedTask.folderId] = [];
+        allLists[updatedTask.folderId].push(updatedTask);
+      }
 
-  const clearReminder = async (habitId: string) => {
-    const target = habits.find((habit) => habit.id === habitId);
-    await cancelReminderIds(target?.notificationIds ?? []);
-
-    setHabits((current) => {
-      const updated = current.map((habit) =>
-        habit.id === habitId
-          ? {
-              ...habit,
-              reminderHour: undefined,
-              reminderMinute: undefined,
-              notificationIds: [],
-              escalationMinutes: undefined,
-            }
-          : habit,
-      );
-      persistHabits(updated);
-      return updated;
+      persistState(lists, selectedList, allLists);
+      return allLists;
     });
-
-    setReminderMenuHabitId(null);
+    emitStateChange("tasks_changed");
   };
 
-  const renderTodoItem = (item: Todo) => {
-    return (
-      <TodoItem
-        key={item.id}
-        item={item}
-        colors={colors}
-        colorScheme={colorScheme}
-        isOverdue={isOverdue(item)}
-        lists={lists}
-        selectedList={selectedList}
-        isExpanded={!!expandedTodoIds[item.id]}
-        onToggleExpand={() => toggleExpand(item.id)}
-        onToggleTodo={() => toggleTodo(item.id)}
-        onDeleteTodo={() => deleteTodo(item.id)}
-        onUpdateTodoTitle={(newTitle) => updateTodoTitle(item.id, newTitle)}
-        onMoveTodoToList={(toListId) => moveTodoToList(item.id, selectedList, toListId)}
-        onUpdateTodoPriority={(priority) => {
-          setTodos((current) => {
-            const listTodos = current[selectedList] ?? [];
-            const updatedList = listTodos.map((todo) =>
-              todo.id === item.id ? { ...todo, priority } : todo,
-            );
-            const updated = { ...current, [selectedList]: updatedList };
-            persistState(lists, selectedList, updated);
-            return updated;
-          });
-        }}
-        onToggleSubtask={(subtaskId) => toggleSubtask(item.id, subtaskId)}
-        onAddSubtask={(text) => addSubtask(item.id, text)}
-        onDeleteSubtask={(subtaskId) => deleteSubtask(item.id, subtaskId)}
-        onToggleAlarmMenu={() => setAlarmMenu(alarmMenu === item.id ? null : item.id)}
-        onCancelAlarm={() => cancelAlarm(item.id)}
-        alarmMenuOpen={alarmMenu === item.id}
-        onLayout={(event) => {
-          const { y } = event.nativeEvent.layout;
-          setTaskPositions((prev) => ({ ...prev, [item.id]: y }));
-        }}
-      />
-    );
-  };
+
+
+
 
   return (
-    <ScreenSwipeWrapper prevRoute="/" nextRoute="/calendar">
-      <SafeAreaView
-        style={[styles.safeArea, { backgroundColor: "transparent" }]}
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+      onStartShouldSetResponderCapture={(evt) => {
+        console.log("TOUCH CAPTURE: screen touched at", {
+          x: evt.nativeEvent.locationX,
+          y: evt.nativeEvent.locationY,
+        });
+        return false; // Let events bubble down to children
+      }}
+    >
+      <Animated.View
+        entering={FadeInDown.duration(450).springify()}
+        style={{ flex: 1 }}
       >
-        <Animated.View
-          entering={FadeInDown.duration(450).springify()}
-          style={{ flex: 1 }}
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <KeyboardAvoidingView
-            style={styles.flex}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
-            <View style={styles.container}>
-              {/* Header */}
-              <View style={styles.header}>
-                <View>
-                  <Text style={[styles.kicker, { color: colors.primary }]}>
-                    PLANNER
-                  </Text>
-                  <Text style={[styles.title, { color: colors.text }]}>
-                    {activeSegment === "tasks" ? "Tasks" : "Habits"}
-                  </Text>
-                </View>
-                {activeSegment === "tasks" && (
+          <View style={styles.container}>
+            {/* Header */}
+            {openedFolderId ? (
+              <View style={{ marginBottom: 12 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 8,
+                    paddingHorizontal: 4,
+                  }}
+                >
                   <Pressable
-                    onPress={clearCompleted}
-                    disabled={completedCount === 0}
-                    style={styles.clearBtn}
+                    onPress={() => {
+                      Haptics.impactAsync(
+                        Haptics.ImpactFeedbackStyle.Light,
+                      ).catch(() => {});
+                      setOpenedFolderId(null);
+                      setSelectedList("default"); // Force selectedList in sync!
+                      setSearchQuery(""); // Clear search query when going back
+                    }}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: colors.cardLight,
+                    }}
                   >
-                    <Text
-                      style={{
-                        color:
-                          completedCount === 0
-                            ? colors.textMuted
-                            : colors.primary,
-                        fontWeight: "600",
-                        fontSize: Typography.sizes.sm,
-                      }}
-                    >
-                      Clear completed
-                    </Text>
+                    <Feather name="arrow-left" size={18} color={colors.text} />
                   </Pressable>
+
+                  {(() => {
+                    const currentFolder = lists.find(
+                      (l) => l.id === openedFolderId,
+                    ) as any;
+                    const folderColor = currentFolder?.color || colors.primary;
+                    const hasIcon = currentFolder?.iconType === "icon";
+                    return (
+                      <View
+                        style={{
+                          flex: 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginLeft: 12,
+                        }}
+                      >
+                        {hasIcon ? (
+                          <Feather
+                            name={currentFolder?.icon || "briefcase"}
+                            size={20}
+                            color={folderColor}
+                            style={{ marginRight: 8 }}
+                          />
+                        ) : (
+                          <Text style={{ fontSize: 20, marginRight: 6 }}>
+                            {currentFolder?.emoji || "📁"}
+                          </Text>
+                        )}
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontWeight: "800",
+                            color: colors.text,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {currentFolder?.name}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+
+                  <Pressable
+                    onPress={() => {
+                      const folder = lists.find(
+                        (l) => l.id === openedFolderId,
+                      ) as any;
+                      if (folder) {
+                        setEditingFolderId(folder.id);
+                        setFolderModalVisible(true);
+                      }
+                    }}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: colors.cardLight,
+                    }}
+                  >
+                    <Feather
+                      name="sliders"
+                      size={16}
+                      color={colors.textMuted}
+                    />
+                  </Pressable>
+                </View>
+
+                {/* Tasks Search Bar inside Workspace */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: colors.card,
+                    borderRadius: 12,
+                    paddingHorizontal: 12,
+                    height: 40,
+                    marginTop: 4,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Feather
+                    name="search"
+                    size={16}
+                    color={colors.textMuted}
+                    style={{ marginRight: 8 }}
+                  />
+                  <TextInput
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder="Search tasks..."
+                    placeholderTextColor={colors.textMuted}
+                    style={{
+                      flex: 1,
+                      color: colors.text,
+                      fontSize: 13,
+                      height: "100%",
+                      padding: 0,
+                    }}
+                  />
+                  {searchQuery.length > 0 && (
+                    <Pressable onPress={() => setSearchQuery("")} hitSlop={10}>
+                      <Feather name="x" size={16} color={colors.textMuted} />
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            ) : (
+              <View style={{ marginBottom: 4 }}>
+                <AppHeader
+                  kicker="Planner"
+                  title={activeSegment === "tasks" ? "Workspaces" : "Habits"}
+                  subtitle={
+                    activeSegment === "tasks"
+                      ? `${lists.length} workspaces active`
+                      : `${unfinishedHabitCount} habits remaining`
+                  }
+                  profile={profile}
+                  hasUnreadNotifs={hasUnreadNotifs}
+                  showProfile={false}
+                  showNotifications={false}
+                />
+
+                {/* Segment Selector */}
+                <View style={{ marginVertical: 4 }}>
+                  <SegmentedSwitcher
+                    options={[
+                      { key: "tasks", label: "Workspaces" },
+                      { key: "habits", label: "All Habits" },
+                    ]}
+                    activeKey={activeSegment}
+                    onChange={(val) => {
+                      setActiveSegment(val as any);
+                      setSearchQuery(""); // Clear search when switching tabs
+                    }}
+                  />
+                </View>
+
+                {/* Heuristic Quick NLP Capture Pill */}
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(
+                      Haptics.ImpactFeedbackStyle.Light,
+                    ).catch(() => {});
+                    setNlpVisible(true);
+                  }}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: colors.card,
+                    borderWidth: 1.5,
+                    borderColor: colors.border,
+                    borderRadius: 14,
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    marginVertical: 4,
+                  }}
+                >
+                  <Feather name="zap" size={14} color={colors.primary} />
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 13,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Pebble Capture
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Workspaces Search Bar */}
+                {activeSegment === "tasks" && (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: colors.card,
+                      borderRadius: 12,
+                      paddingHorizontal: 12,
+                      height: 40,
+                      marginVertical: 4,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Feather
+                      name="search"
+                      size={16}
+                      color={colors.textMuted}
+                      style={{ marginRight: 8 }}
+                    />
+                    <TextInput
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      placeholder="Search workspaces..."
+                      placeholderTextColor={colors.textMuted}
+                      style={{
+                        flex: 1,
+                        color: colors.text,
+                        fontSize: 13,
+                        height: "100%",
+                        padding: 0,
+                      }}
+                    />
+                    {searchQuery.length > 0 && (
+                      <Pressable
+                        onPress={() => setSearchQuery("")}
+                        hitSlop={10}
+                      >
+                        <Feather name="x" size={16} color={colors.textMuted} />
+                      </Pressable>
+                    )}
+                  </View>
                 )}
               </View>
+            )}
 
-              {/* Segmented Control Selector */}
-              <View style={styles.segmentedControlContainer}>
-                <Pressable
-                  onPress={() => setActiveSegment("tasks")}
-                  style={[
-                    styles.segmentButton,
-                    activeSegment === "tasks" && {
-                      backgroundColor: "rgba(99, 102, 241, 0.15)",
-                      borderColor: colors.primary,
-                    },
-                  ]}
+            {/* Active Content Screens */}
+            {activeSegment === "tasks" ? (
+              openedFolderId === null ? (
+                <ScrollView
+                  style={styles.flex}
+                  contentContainerStyle={{ paddingBottom: 120 }}
+                  showsVerticalScrollIndicator={false}
                 >
-                  <Feather
-                    name="check-square"
-                    size={14}
-                    color={
-                      activeSegment === "tasks"
-                        ? colors.primary
-                        : colors.textMuted
-                    }
+                  <SuggestionBanner
+                    activeSuggestions={activeSuggestions}
+                    loadSuggestions={loadSuggestions}
+                    setHabits={setHabits}
+                    persistHabits={persistHabits}
+                    setTodos={setTodos}
+                    persistState={persistState}
+                    lists={lists}
+                    selectedList={selectedList}
+                    openedFolderId={openedFolderId}
+                    getDateKey={getDateKey}
                   />
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      {
-                        color:
-                          activeSegment === "tasks"
-                            ? colors.text
-                            : colors.textMuted,
-                        fontWeight: activeSegment === "tasks" ? "700" : "500",
-                      },
-                    ]}
-                  >
-                    Tasks
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setActiveSegment("habits")}
-                  style={[
-                    styles.segmentButton,
-                    activeSegment === "habits" && {
-                      backgroundColor: "rgba(245, 158, 11, 0.15)",
-                      borderColor: colors.warning,
-                    },
-                  ]}
-                >
-                  <Feather
-                    name="zap"
-                    size={14}
-                    color={
-                      activeSegment === "habits"
-                        ? colors.warning
-                        : colors.textMuted
-                    }
+                  <WorkspaceGrid
+                    lists={lists}
+                    todos={todos}
+                    searchQuery={searchQuery}
+                    onSelectWorkspace={(id) => {
+                      setOpenedFolderId(id);
+                      setSelectedList(id);
+                    }}
+                    onEditWorkspace={(id) => {
+                      setEditingFolderId(id);
+                      setFolderModalVisible(true);
+                    }}
+                    onCreateWorkspace={() => {
+                      setEditingFolderId(null);
+                      setFolderModalVisible(true);
+                    }}
                   />
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      {
-                        color:
-                          activeSegment === "habits"
-                            ? colors.text
-                            : colors.textMuted,
-                        fontWeight: activeSegment === "habits" ? "700" : "500",
-                      },
-                    ]}
-                  >
-                    Habits
-                  </Text>
-                </Pressable>
-              </View>
-
-              {activeSegment === "tasks" ? (
+                </ScrollView>
+              ) : (
                 <ScrollView
                   ref={scrollViewRef}
                   style={styles.flex}
                   contentContainerStyle={{ gap: 16, paddingBottom: 120 }}
                   showsVerticalScrollIndicator={false}
                 >
-                  {/* List category selector */}
-                  <ListManager
-                    lists={lists}
-                    selectedList={selectedList}
-                    todos={todos}
-                    onSelectList={selectList}
-                    onDeleteCurrentList={deleteCurrentList}
-                    onCreateList={(name) => {
-                      const id = `list-${Date.now()}`;
-                      const updatedLists = [...lists, { id, name }];
-                      const updatedTodos = { ...todos, [id]: [] };
-                      setLists(updatedLists);
-                      setTodos(updatedTodos);
-                      setSelectedList(id);
-                      persistState(updatedLists, id, updatedTodos);
-                    }}
-                    onRenameList={(id, newName) => {
-                      const updated = lists.map((l) =>
-                        l.id === id ? { ...l, name: newName } : l,
-                      );
-                      setLists(updated);
-                      persistState(updated, selectedList, todos);
-                    }}
-                    listsExpanded={listsExpanded}
-                    setListsExpanded={setListsExpanded}
-                    colors={colors}
-                    colorScheme={colorScheme}
-                  />
-
                   {/* Add task bar */}
-                  <AppCard style={styles.addTaskCard}>
-                    <TextInput
-                      ref={addTaskInputRef}
-                      value={title}
-                      onChangeText={setTitle}
-                      placeholder="Add a new task"
-                      placeholderTextColor={colors.textMuted}
-                      onSubmitEditing={addTodo}
-                      onFocus={() => setIsAddingTask(true)}
-                      onBlur={() => {
-                        if (title.trim() === "") setIsAddingTask(false);
-                      }}
-                      style={[styles.addTaskInput, { color: colors.text }]}
-                    />
-                    <Pressable
-                      onPress={addTodo}
-                      style={[
-                        styles.addBtn,
-                        { backgroundColor: colors.primary },
-                      ]}
-                    >
-                      <Feather name="plus" size={20} color="#ffffff" />
-                    </Pressable>
-                  </AppCard>
-
-                  {(isAddingTask || title.trim().length > 0) && (
-                    <View style={styles.categoryChoiceRow}>
-                      <Text
-                        style={[
-                          styles.categoryChoiceLabel,
-                          { color: colors.textMuted },
-                        ]}
-                      >
-                        Task type
-                      </Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.categoryChoicePills}
-                      >
-                        {TASK_CATEGORY_META.map((category) => {
-                          const isSelected =
-                            selectedTodoCategory === category.key;
-                          return (
-                            <Pressable
-                              key={category.key}
-                              onPress={() =>
-                                setSelectedTodoCategory(category.key)
-                              }
-                              style={({ pressed }) => [
-                                styles.categoryChoicePill,
-                                {
-                                  backgroundColor: isSelected
-                                    ? category.softTint
-                                    : colors.cardLight,
-                                  borderColor: isSelected
-                                    ? category.tint
-                                    : colors.border,
-                                  opacity: pressed ? 0.9 : 1,
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={{
-                                  color: isSelected ? category.tint : colors.text,
-                                  fontWeight: "700",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {category.label}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </ScrollView>
-                    </View>
-                  )}
-
-                  {/* Priority Selector */}
-                  {(isAddingTask || title.trim().length > 0) && (
-                    <View style={styles.categoryChoiceRow}>
-                      <Text
-                        style={[
-                          styles.categoryChoiceLabel,
-                          { color: colors.textMuted },
-                        ]}
-                      >
-                        Priority
-                      </Text>
-                      <View style={{ flexDirection: "row", gap: 8 }}>
-                        {[
-                          { key: "high", label: "🔴 High", color: colors.error, softColor: colorScheme === "light" ? "rgba(220, 38, 38, 0.08)" : "rgba(239, 68, 68, 0.12)" },
-                          { key: "medium", label: "🟡 Medium", color: colors.warning, softColor: colorScheme === "light" ? "rgba(217, 119, 6, 0.08)" : "rgba(245, 158, 11, 0.12)" },
-                          { key: "low", label: "🟢 Low", color: colors.success, softColor: colorScheme === "light" ? "rgba(5, 150, 105, 0.08)" : "rgba(16, 185, 129, 0.12)" },
-                        ].map((p) => {
-                          const isSelected = selectedTodoPriority === p.key;
-                          return (
-                            <Pressable
-                              key={p.key}
-                              onPress={() => setSelectedTodoPriority(p.key as any)}
-                              style={({ pressed }) => [
-                                styles.categoryChoicePill,
-                                {
-                                  backgroundColor: isSelected ? p.softColor : colors.cardLight,
-                                  borderColor: isSelected ? p.color : colors.border,
-                                  opacity: pressed ? 0.9 : 1,
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={{
-                                  color: isSelected ? p.color : colors.text,
-                                  fontWeight: "700",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {p.label}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Priority Filter Row */}
-                  <View style={[styles.categoryChoiceRow, { marginBottom: 8 }]}>
-                    <Text
-                      style={[
-                        styles.categoryChoiceLabel,
-                        { color: colors.textMuted },
-                      ]}
-                    >
-                      Filter Priority
-                    </Text>
-                    <View style={{ flexDirection: "row", gap: 8 }}>
-                      {[
-                        { key: "all", label: "All" },
-                        { key: "high", label: "🔴 High" },
-                        { key: "medium", label: "🟡 Medium" },
-                        { key: "low", label: "🟢 Low" },
-                      ].map((p) => {
-                        const isSelected = selectedListPriorityFilter === p.key;
-                        return (
-                          <Pressable
-                            key={p.key}
-                            onPress={() => setSelectedListPriorityFilter(p.key as any)}
-                            style={({ pressed }) => [
-                              styles.categoryChoicePill,
-                              {
-                                backgroundColor: isSelected
-                                  ? colorScheme === "light" ? "#E2E8F0" : "#27272A"
-                                  : colors.cardLight,
-                                borderColor: isSelected ? colors.primary : colors.border,
-                                opacity: pressed ? 0.9 : 1,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={{
-                                color: isSelected ? colors.text : colors.textMuted,
-                                fontWeight: isSelected ? "700" : "500",
-                                fontSize: 12,
-                              }}
-                            >
-                              {p.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-
-                  {/* Tasks List View */}
-                  <View style={styles.listContent}>
-                    {/* Overdue Section */}
-                    {overdueTodos.length > 0 && (
-                      <View style={styles.sectionContainer}>
-                        <Pressable
-                          onPress={() => setOverdueExpanded(!overdueExpanded)}
-                          style={styles.sectionHeaderPressable}
-                        >
-                          <Text
-                            style={[
-                              styles.sectionHeaderText,
-                              { color: colors.text },
-                            ]}
-                          >
-                            Overdue
-                          </Text>
-                          <Feather
-                            name={
-                              overdueExpanded ? "chevron-up" : "chevron-down"
-                            }
-                            size={16}
-                            color={colors.textMuted}
-                          />
-                        </Pressable>
-                        {overdueExpanded && (
-                          <View style={styles.sectionTasksList}>
-                            {overdueTodos.map(renderTodoItem)}
-                          </View>
-                        )}
-                      </View>
-                    )}
-
-                    {/* Today Section */}
-                    <View style={styles.sectionContainer}>
-                      <Pressable
-                        onPress={() => setTodayExpanded(!todayExpanded)}
-                        style={styles.sectionHeaderPressable}
-                      >
-                        <Text
-                          style={[
-                            styles.sectionHeaderText,
-                            { color: colors.text },
-                          ]}
-                        >
-                          Today
-                        </Text>
-                        <Feather
-                          name={todayExpanded ? "chevron-up" : "chevron-down"}
-                          size={16}
-                          color={colors.textMuted}
-                        />
-                      </Pressable>
-                      {todayExpanded && (
-                        <View style={styles.sectionTasksList}>
-                          {todayTodos.length > 0 ? (
-                            todayTodos.map(renderTodoItem)
-                          ) : overdueTodos.length === 0 ? (
-                            <View
-                              style={[
-                                styles.emptyState,
-                                { borderColor: colors.border, gap: 16 },
-                              ]}
-                            >
-                              <TasksEmptyGraphic />
-                              <Text
-                                style={[
-                                  styles.emptyTitle,
-                                  { color: colors.text },
-                                ]}
-                              >
-                                No tasks found
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.emptySubtitle,
-                                  { color: colors.textMuted },
-                                ]}
-                              >
-                                Add one above and start focusing.
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                </ScrollView>
-              ) : (
-                <ScrollView
-                  style={styles.flex}
-                  contentContainerStyle={{ gap: 16, paddingBottom: 120 }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {/* Collapsible Stats Section */}
-                  <AppCard style={{ padding: 12 }}>
-                    <Pressable
-                      onPress={() => setStatsExpanded(!statsExpanded)}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Feather name="bar-chart-2" size={16} color={colors.primary} />
-                        <Text style={{ fontWeight: "700", color: colors.text, fontSize: 14 }}>
-                          Daily Progress
-                        </Text>
-                        <View
-                          style={{
-                            backgroundColor: `${colors.primary}15`,
-                            borderRadius: 12,
-                            paddingHorizontal: 8,
-                            paddingVertical: 2,
-                          }}
-                        >
-                          <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>
-                            {Math.round(habitCompletionPct * 100)}% Done
-                          </Text>
-                        </View>
-                      </View>
-                      <Feather
-                        name={statsExpanded ? "chevron-up" : "chevron-down"}
-                        size={18}
-                        color={colors.textMuted}
-                      />
-                    </Pressable>
-
-                    {statsExpanded && (
-                      <View style={{ marginTop: 12, gap: 12 }}>
-                        {/* Habits Banners */}
-                        {unfinishedHabitCount > 0 && (
-                          <View
-                            style={[
-                              styles.warningBanner,
-                              {
-                                backgroundColor: `${colors.warning}15`,
-                                borderColor: `${colors.warning}33`,
-                                marginTop: 0,
-                              },
-                            ]}
-                          >
-                            <Feather
-                              name="alert-triangle"
-                              size={16}
-                              color={colors.warning}
-                            />
-                            <Text
-                              style={[styles.warningText, { color: colors.warning }]}
-                            >
-                              {unfinishedHabitCount} habits left today
-                            </Text>
-                          </View>
-                        )}
-
-                        {showCelebrate && (
-                          <View
-                            style={[
-                              styles.successBanner,
-                              {
-                                backgroundColor: `${colors.success}15`,
-                                borderColor: `${colors.success}33`,
-                                marginTop: 0,
-                              },
-                            ]}
-                          >
-                            <Feather name="award" size={18} color={colors.success} />
-                            <Text
-                              style={[styles.successText, { color: colors.success }]}
-                            >
-                              Perfect run! All habits completed today.
-                            </Text>
-                          </View>
-                        )}
-
-                        {/* Summary / Streaks */}
-                        <View style={[styles.summaryRow, { gap: 8 }]}>
-                          <View style={[styles.summaryHalf, { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 10, backgroundColor: colors.cardLight }]}>
-                            <Text
-                              style={[
-                                styles.summaryLabel,
-                                { color: colors.textMuted, fontSize: 11 },
-                              ]}
-                            >
-                              Completed Today
-                            </Text>
-                            <Text style={[styles.summaryVal, { color: colors.text, fontSize: 16, fontWeight: "700" }]}>
-                              {completedHabitCount}/{habits.length}
-                            </Text>
-                          </View>
-                          <View style={[styles.summaryHalf, { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 10, backgroundColor: colors.cardLight }]}>
-                            <Text
-                              style={[
-                                styles.summaryLabel,
-                                { color: colors.textMuted, fontSize: 11 },
-                              ]}
-                            >
-                              Longest Streak
-                            </Text>
-                            <Text style={[styles.summaryVal, { color: colors.text, fontSize: 16, fontWeight: "700" }]}>
-                              {longestStreak} Days
-                            </Text>
-                          </View>
-                        </View>
-
-                        {/* Progress bar */}
-                        <ProgressBar progress={habitCompletionPct} />
-                      </View>
-                    )}
-                  </AppCard>
-
-                  {/* Add Habit input */}
-                  <AppCard style={styles.addTaskCard}>
-                    <TextInput
-                      value={habitTitle}
-                      onChangeText={setHabitTitle}
-                      placeholder="Add a new habit"
-                      placeholderTextColor={colors.textMuted}
-                      onSubmitEditing={addHabit}
-                      onFocus={() => setIsAddingHabit(true)}
-                      onBlur={() => {
-                        if (habitTitle.trim() === "") setIsAddingHabit(false);
-                      }}
-                      style={[styles.addTaskInput, { color: colors.text }]}
-                    />
-                    <Pressable
-                      onPress={addHabit}
-                      style={[
-                        styles.addBtn,
-                        { backgroundColor: colors.primary },
-                      ]}
-                    >
-                      <Feather name="plus" size={20} color="#ffffff" />
-                    </Pressable>
-                  </AppCard>
-
-                  {/* Habit Priority Selector */}
-                  {(isAddingHabit || habitTitle.trim().length > 0) && (
-                    <View style={styles.categoryChoiceRow}>
-                      <Text
-                        style={[
-                          styles.categoryChoiceLabel,
-                          { color: colors.textMuted },
-                        ]}
-                      >
-                        Priority
-                      </Text>
-                      <View style={{ flexDirection: "row", gap: 8 }}>
-                        {[
-                          { key: "high", label: "🔴 High", color: colors.error, softColor: colorScheme === "light" ? "rgba(220, 38, 38, 0.08)" : "rgba(239, 68, 68, 0.12)" },
-                          { key: "medium", label: "🟡 Medium", color: colors.warning, softColor: colorScheme === "light" ? "rgba(217, 119, 6, 0.08)" : "rgba(245, 158, 11, 0.12)" },
-                          { key: "low", label: "🟢 Low", color: colors.success, softColor: colorScheme === "light" ? "rgba(5, 150, 105, 0.08)" : "rgba(16, 185, 129, 0.12)" },
-                        ].map((p) => {
-                          const isSelected = selectedHabitPriority === p.key;
-                          return (
-                            <Pressable
-                              key={p.key}
-                              onPress={() => setSelectedHabitPriority(p.key as any)}
-                              style={({ pressed }) => [
-                                styles.categoryChoicePill,
-                                {
-                                  backgroundColor: isSelected ? p.softColor : colors.cardLight,
-                                  borderColor: isSelected ? p.color : colors.border,
-                                  opacity: pressed ? 0.9 : 1,
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={{
-                                  color: isSelected ? p.color : colors.text,
-                                  fontWeight: "700",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {p.label}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Habit Priority Filter Row */}
-                  <View style={[styles.categoryChoiceRow, { marginBottom: 8, marginTop: 10 }]}>
-                    <Text
-                      style={[
-                        styles.categoryChoiceLabel,
-                        { color: colors.textMuted },
-                      ]}
-                    >
-                      Filter Priority
-                    </Text>
-                    <View style={{ flexDirection: "row", gap: 8 }}>
-                      {[
-                        { key: "all", label: "All" },
-                        { key: "high", label: "🔴 High" },
-                        { key: "medium", label: "🟡 Medium" },
-                        { key: "low", label: "🟢 Low" },
-                      ].map((p) => {
-                        const isSelected = selectedListHabitPriorityFilter === p.key;
-                        return (
-                          <Pressable
-                            key={p.key}
-                            onPress={() => setSelectedListHabitPriorityFilter(p.key as any)}
-                            style={({ pressed }) => [
-                              styles.categoryChoicePill,
-                              {
-                                backgroundColor: isSelected
-                                  ? colorScheme === "light" ? "#E2E8F0" : "#27272A"
-                                  : colors.cardLight,
-                                borderColor: isSelected ? colors.primary : colors.border,
-                                opacity: pressed ? 0.9 : 1,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={{
-                                color: isSelected ? colors.text : colors.textMuted,
-                                fontWeight: isSelected ? "700" : "500",
-                                fontSize: 12,
-                              }}
-                            >
-                              {p.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-
-                  {/* Habits List View */}
-                  <View style={styles.listContent}>
-                    {displayedHabits.length > 0 ? (
-                      displayedHabits.map((item) => {
-                        const baseTime = formatReminder(
-                          item.reminderHour,
-                          item.reminderMinute,
-                        );
-                        const DAY_LABELS = [
-                          "Sun",
-                          "Mon",
-                          "Tue",
-                          "Wed",
-                          "Thu",
-                          "Fri",
-                          "Sat",
-                        ];
-                        const formatDays = (days?: number[]) => {
-                          if (!days || days.length === 0) return null;
-                          const sorted = [...days].sort((a, b) => a - b);
-                          return sorted
-                            .map((d) => DAY_LABELS[d] ?? d)
-                            .join(", ");
-                        };
-                        const daysText = formatDays(item.reminderDays ?? []);
-                        const reminderText = baseTime
-                          ? daysText
-                          : baseTime
-                          ? daysText
-                            ? `${daysText} • ${baseTime}`
-                            : baseTime
-                          : daysText;
-                        const reminderMenuVisible =
-                          reminderMenuHabitId === item.id;
-
-                        // Mock weekly checklist grid
-                        const renderWeeklyGrid = (completed: boolean) => {
-                          return (
-                            <View style={styles.weeklyGrid}>
-                              {["M", "T", "W", "T", "F", "S", "S"].map(
-                                (day, idx) => {
-                                  const isDone = completed || idx < 3;
-                                  return (
-                                    <View
-                                      key={idx}
-                                      style={[
-                                        styles.gridDot,
-                                        {
-                                          backgroundColor: isDone
-                                            ? colors.success
-                                            : "transparent",
-                                          borderColor: isDone
-                                            ? colors.success
-                                            : colors.border,
-                                        },
-                                      ]}
-                                    >
-                                      <Text
-                                        style={[
-                                          styles.gridText,
-                                          {
-                                            color: isDone
-                                              ? "#fff"
-                                              : colors.textMuted,
-                                          },
-                                        ]}
-                                      >
-                                        {day}
-                                      </Text>
-                                    </View>
-                                  );
-                                },
-                              )}
-                            </View>
-                          );
-                        };
-
-                        const isExpanded = !!expandedHabitIds[item.id];
-                        return (
-                          <View key={item.id} style={styles.habitWrap}>
-                            <SwipeableCard
-                              onSwipeRight={() => toggleHabit(item.id)}
-                              onSwipeLeft={() => deleteHabit(item.id)}
-                            >
-                              <AppCard
-                                style={[
-                                  styles.todoItemCard,
-                                  {
-                                    borderLeftWidth: 4,
-                                    borderLeftColor: item.priority === "high"
-                                      ? colors.error
-                                      : item.priority === "low"
-                                      ? colors.success
-                                      : colors.warning,
-                                  },
-                                  highlightedHabitId === item.id && {
-                                    borderColor: colors.primary,
-                                  },
-                                  item.completedToday && {
-                                    borderColor: "rgba(16, 185, 129, 0.18)",
-                                    borderWidth: 1,
-                                    backgroundColor: "rgba(16, 185, 129, 0.03)",
-                                  },
-                                ]}
-                              >
-                                <View style={styles.todoMainRow}>
-                                  <View style={styles.todoLeft}>
-                                    <AnimatedCheckbox
-                                      checked={item.completedToday}
-                                      onToggle={() => toggleHabit(item.id)}
-                                    />
-                                    <Pressable
-                                      onPress={() =>
-                                        setExpandedHabitIds((prev) => ({
-                                          ...prev,
-                                          [item.id]: !prev[item.id],
-                                        }))
-                                      }
-                                      style={styles.todoTexts}
-                                    >
-                                      <View
-                                        style={{
-                                          flexDirection: "row",
-                                          alignItems: "center",
-                                          gap: 6,
-                                        }}
-                                      >
-                                        <Text
-                                          style={[
-                                            styles.todoTitle,
-                                            {
-                                              color: item.completedToday
-                                                ? colors.textMuted
-                                                : colors.text,
-                                              textDecorationLine:
-                                                item.completedToday
-                                                  ? "line-through"
-                                                  : "none",
-                                            },
-                                          ]}
-                                        >
-                                          {item.title}
-                                        </Text>
-                                        {item.streak > 0 && (
-                                          <View
-                                            style={{
-                                              backgroundColor:
-                                                "rgba(249, 115, 22, 0.08)",
-                                              paddingHorizontal: 6,
-                                              paddingVertical: 1,
-                                              borderRadius: 8,
-                                            }}
-                                          >
-                                            <Text
-                                              style={{
-                                                fontSize: 10,
-                                                fontWeight: "800",
-                                                color: "#F97316",
-                                              }}
-                                            >
-                                              🔥 {item.streak}d
-                                            </Text>
-                                          </View>
-                                        )}
-                                      </View>
-
-                                      <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginTop: 4, flexWrap: 'wrap' }}>
-                                        <View
-                                          style={[
-                                            styles.tagBadge,
-                                            {
-                                              backgroundColor: item.priority === "high"
-                                                ? `${colors.error}12`
-                                                : item.priority === "low"
-                                                ? `${colors.success}12`
-                                                : `${colors.warning}12`,
-                                              borderColor: item.priority === "high"
-                                                ? colors.error
-                                                : item.priority === "low"
-                                                ? colors.success
-                                                : colors.warning,
-                                            },
-                                          ]}
-                                        >
-                                          <Text
-                                            style={[
-                                              styles.tagBadgeText,
-                                              {
-                                                color: item.priority === "high"
-                                                  ? colors.error
-                                                  : item.priority === "low"
-                                                  ? colors.success
-                                                  : colors.warning,
-                                              },
-                                            ]}
-                                          >
-                                            {item.priority ? item.priority.toUpperCase() : "MEDIUM"}
-                                          </Text>
-                                        </View>
-                                        {reminderText && (
-                                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                                            <Feather
-                                              name="bell"
-                                              size={11}
-                                              color={colors.primary}
-                                            />
-                                            <Text
-                                              style={[
-                                                styles.reminderText,
-                                                { color: colors.primary },
-                                              ]}
-                                            >
-                                              {reminderText}
-                                            </Text>
-                                          </View>
-                                        )}
-                                      </View>
-
-                                      {renderWeeklyGrid(item.completedToday)}
-                                    </Pressable>
-                                  </View>
-
-                                  <Pressable
-                                    onPress={() =>
-                                      setExpandedHabitIds((prev) => ({
-                                        ...prev,
-                                        [item.id]: !prev[item.id],
-                                      }))
-                                    }
-                                    hitSlop={8}
-                                    style={{ padding: 4 }}
-                                  >
-                                    <Feather
-                                      name={
-                                        isExpanded
-                                          ? "chevron-up"
-                                          : "chevron-down"
-                                      }
-                                      size={18}
-                                      color={colors.textMuted}
-                                    />
-                                  </Pressable>
-                                </View>
-
-                                {isExpanded && (
-                                  <View
-                                    style={[
-                                      styles.expandSection,
-                                      {
-                                        borderTopColor:
-                                          "rgba(255,255,255,0.05)",
-                                      },
-                                    ]}
-                                  >
-                                    {/* Inline Title Rename */}
-                                    <View style={styles.editTaskRow}>
-                                      <Text
-                                        style={[
-                                          styles.editLabel,
-                                          { color: colors.textMuted },
-                                        ]}
-                                      >
-                                        Rename
-                                      </Text>
-                                      <TextInput
-                                        value={item.title}
-                                        onChangeText={(newTitle) => {
-                                          setHabits((curr) => {
-                                            const next = curr.map((h) =>
-                                              h.id === item.id
-                                                ? { ...h, title: newTitle }
-                                                : h,
-                                            );
-                                            persistHabits(next);
-                                            return next;
-                                          });
-                                        }}
-                                        placeholder="Habit name"
-                                        placeholderTextColor={colors.textMuted}
-                                        style={[
-                                          styles.editTitleInput,
-                                          {
-                                            color: colors.text,
-                                            borderColor: colors.border,
-                                          },
-                                        ]}
-                                      />
-                                    </View>
-
-                                    {/* Priority Selection Selector */}
-                                    <View style={styles.editTaskRow}>
-                                      <Text style={[styles.editLabel, { color: colors.textMuted }]}>
-                                        Priority
-                                      </Text>
-                                      <View style={{ flexDirection: "row", gap: 6 }}>
-                                        {[
-                                          { key: "high", label: "🔴 High", color: colors.error, softColor: colorScheme === "light" ? "rgba(220, 38, 38, 0.08)" : "rgba(239, 68, 68, 0.12)" },
-                                          { key: "medium", label: "🟡 Medium", color: colors.warning, softColor: colorScheme === "light" ? "rgba(217, 119, 6, 0.08)" : "rgba(245, 158, 11, 0.12)" },
-                                          { key: "low", label: "🟢 Low", color: colors.success, softColor: colorScheme === "light" ? "rgba(5, 150, 105, 0.08)" : "rgba(16, 185, 129, 0.12)" },
-                                        ].map((p) => {
-                                          const isSelected = item.priority === p.key;
-                                          return (
-                                            <Pressable
-                                              key={p.key}
-                                              onPress={() => {
-                                                setHabits((curr) => {
-                                                  const next = curr.map((h) =>
-                                                    h.id === item.id
-                                                      ? { ...h, priority: p.key as any }
-                                                      : h,
-                                                  );
-                                                  persistHabits(next);
-                                                  return next;
-                                                });
-                                              }}
-                                              style={[
-                                                styles.migratePill,
-                                                {
-                                                  backgroundColor: isSelected ? p.softColor : colors.cardLight,
-                                                  borderColor: isSelected ? p.color : colors.border,
-                                                },
-                                              ]}
-                                            >
-                                              <Text
-                                                style={{
-                                                  color: isSelected ? p.color : colors.text,
-                                                  fontSize: 11,
-                                                  fontWeight: "700",
-                                                }}
-                                              >
-                                                {p.label}
-                                              </Text>
-                                            </Pressable>
-                                          );
-                                        })}
-                                      </View>
-                                    </View>
-
-                                    <View style={styles.dividerSmall} />
-
-                                    {/* Habit Actions Row */}
-                                    <View style={styles.expandedActionsRow}>
-                                      <Pressable
-                                        onPress={() =>
-                                          setReminderMenuHabitId(
-                                            reminderMenuHabitId === item.id
-                                              ? null
-                                              : item.id,
-                                          )
-                                        }
-                                        style={[
-                                          styles.expandedActionBtn,
-                                          {
-                                            backgroundColor:
-                                              item.reminderHour !== undefined
-                                                ? "rgba(245, 158, 11, 0.15)"
-                                                : "rgba(255, 255, 255, 0.04)",
-                                          },
-                                        ]}
-                                      >
-                                        <Feather
-                                          name="bell"
-                                          size={13}
-                                          color={
-                                            item.reminderHour !== undefined
-                                              ? colors.warning
-                                              : colors.textMuted
-                                          }
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.expandedActionBtnText,
-                                            {
-                                              color:
-                                                item.reminderHour !== undefined
-                                                  ? colors.warning
-                                                  : colors.textMuted,
-                                            },
-                                          ]}
-                                        >
-                                          {item.reminderHour !== undefined
-                                            ? formatReminder(
-                                                item.reminderHour,
-                                                item.reminderMinute,
-                                              ) || "Reminder Set"
-                                            : "Set Reminder"}
-                                        </Text>
-                                      </Pressable>
-                                      {item.reminderHour !== undefined && (
-                                        <Pressable
-                                          onPress={() => clearReminder(item.id)}
-                                          style={[
-                                            styles.expandedActionBtn,
-                                            {
-                                              backgroundColor:
-                                                "rgba(239, 68, 68, 0.08)",
-                                            },
-                                          ]}
-                                        >
-                                          <Feather
-                                            name="bell-off"
-                                            size={13}
-                                            color="#EF4444"
-                                          />
-                                          <Text
-                                            style={[
-                                              styles.expandedActionBtnText,
-                                              { color: "#EF4444" },
-                                            ]}
-                                          >
-                                            Remove
-                                          </Text>
-                                        </Pressable>
-                                      )}
-                                      <Pressable
-                                        onPress={() => deleteHabit(item.id)}
-                                        style={[
-                                          styles.expandedActionBtn,
-                                          {
-                                            backgroundColor:
-                                              "rgba(239, 68, 68, 0.08)",
-                                            marginLeft: "auto",
-                                          },
-                                        ]}
-                                      >
-                                        <Feather
-                                          name="trash-2"
-                                          size={13}
-                                          color="#EF4444"
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.expandedActionBtnText,
-                                            { color: "#EF4444" },
-                                          ]}
-                                        >
-                                          Delete
-                                        </Text>
-                                      </Pressable>
-                                    </View>
-                                  </View>
-                                )}
-                              </AppCard>
-                            </SwipeableCard>
-
-                            {/* Habit alarm modal */}
-                            {reminderMenuVisible && (
-                              <AppCard style={styles.alarmModal}>
-                                <ScrollView
-                                  horizontal
-                                  showsHorizontalScrollIndicator={false}
-                                  contentContainerStyle={styles.alarmOptions}
-                                >
-                                  {[
-                                    { label: "7:00", hour: 7, minute: 0 },
-                                    { label: "12:00", hour: 12, minute: 0 },
-                                    { label: "18:00", hour: 18, minute: 0 },
-                                    { label: "21:00", hour: 21, minute: 0 },
-                                  ].map((option) => (
-                                    <Pressable
-                                      key={option.label}
-                                      onPress={() =>
-                                        setReminderWithDays(
-                                          item.id,
-                                          option.hour,
-                                          option.minute,
-                                        )
-                                      }
-                                      style={[
-                                        styles.alarmBtn,
-                                        { backgroundColor: colors.cardLight },
-                                      ]}
-                                    >
-                                      <Text
-                                        style={{
-                                          color: colors.primary,
-                                          fontWeight: "600",
-                                        }}
-                                      >
-                                        {option.label}
-                                      </Text>
-                                    </Pressable>
-                                  ))}
-                                </ScrollView>
-
-                                <View style={styles.dropdownBottom}>
-                                  <Pressable
-                                    onPress={() =>
-                                      setReminderCustomVisible((s) => !s)
-                                    }
-                                    style={[
-                                      styles.alarmBtn,
-                                      {
-                                        backgroundColor: `${colors.primary}22`,
-                                      },
-                                    ]}
-                                  >
-                                    <Text
-                                      style={{
-                                        color: colors.primary,
-                                        fontWeight: "700",
-                                      }}
-                                    >
-                                      Custom
-                                    </Text>
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => clearReminder(item.id)}
-                                    style={styles.clearBtn}
-                                  >
-                                    <Text
-                                      style={{
-                                        color: colors.error,
-                                        fontWeight: "600",
-                                      }}
-                                    >
-                                      Clear alarm
-                                    </Text>
-                                  </Pressable>
-                                </View>
-
-                                {reminderCustomVisible && (
-                                  <TimeSelectorDial
-                                    initialHour={reminderCustomHour}
-                                    initialMinute={reminderCustomMinute}
-                                    initialDays={reminderCustomDays}
-                                    colors={colors}
-                                    onSave={(hour, minute, days) =>
-                                      setReminderWithDays(item.id, hour, minute, days?.length ? days : undefined)
-                                    }
-                                  />
-                                )}
-                              </AppCard>
-
-                            )}
-                          </View>
-                        );
-                      })
-                    ) : (
+                  <Pressable
+                    onPress={() => {
+                      console.log("STEP 1: Add button pressed");
+                      console.log("STEP 2: Setting addingTask");
+                      setAddingTask({
+                        id: String(Date.now()),
+                        title: "",
+                        completed: false,
+                        category: DEFAULT_TASK_CATEGORY,
+                        priority: "medium",
+                        scheduledDate: getDateKey(),
+                        folderId: openedFolderId || "default",
+                      });
+                    }}
+                  >
+                    <AppCard style={styles.addTaskCard}>
                       <View
                         style={[
-                          styles.emptyState,
-                          { borderColor: colors.border, gap: 16 },
+                          styles.addTaskInput,
+                          { justifyContent: "center" },
                         ]}
                       >
-                        <HabitsEmptyGraphic />
-                        <Text
-                          style={[styles.emptyTitle, { color: colors.text }]}
-                        >
-                          No habits tracked yet
-                        </Text>
-                        <Text
-                          style={[
-                            styles.emptySubtitle,
-                            { color: colors.textMuted },
-                          ]}
-                        >
-                          Add one above and start your streaks.
+                        <Text style={{ color: colors.textMuted }}>
+                          {`Add a task to ${lists.find((l) => l.id === openedFolderId)?.name}`}
                         </Text>
                       </View>
-                    )}
-                  </View>
-                </ScrollView>
-              )}
-
-              {/* Alarm Modal */}
-              {alarmMenu && (
-                <AppCard style={styles.alarmModal}>
-                  <View style={styles.alarmOptions}>
-                    {[
-                      { label: "5 min", mins: 5 },
-                      { label: "30 min", mins: 30 },
-                      { label: "1 hour", mins: 60 },
-                    ].map(({ label, mins }) => (
-                      <Pressable
-                        key={label}
-                        onPress={() => { scheduleAlarm(alarmMenu, mins); setAlarmMenu(null); }}
-                        style={[styles.alarmBtn, { backgroundColor: colors.cardLight }]}
+                      <View
+                        style={[
+                          styles.addBtn,
+                          { backgroundColor: colors.primary },
+                        ]}
                       >
-                        <Text style={{ color: colors.primary, fontWeight: "600" }}>{label}</Text>
-                      </Pressable>
-                    ))}
-                    <Pressable
-                      onPress={() => setAlarmCustomVisible((s) => !s)}
-                      style={[styles.alarmBtn, { backgroundColor: `${colors.primary}22` }]}
-                    >
-                      <Text style={{ color: colors.primary, fontWeight: "700" }}>Custom</Text>
-                    </Pressable>
-                    <Pressable onPress={() => setAlarmMenu(null)} style={styles.closeAlarmBtn}>
-                      <Text style={{ color: colors.textMuted }}>Close</Text>
-                    </Pressable>
-                  </View>
-                  {alarmCustomVisible && (
-                    <TimeSelectorDial
-                      initialHour={alarmCustomHour}
-                      initialMinute={alarmCustomMinute}
-                      initialDays={alarmCustomDays}
-                      colors={colors}
-                      onSave={(hour, minute, days) =>
-                        scheduleAlarmWithDays(alarmMenu, hour, minute, days)
-                      }
-                    />
-                  )}
-                </AppCard>
-              )}
+                        <Feather name="plus" size={20} color="#ffffff" />
+                      </View>
+                    </AppCard>
+                  </Pressable>
 
-            </View>
-          </KeyboardAvoidingView>
-        </Animated.View>
-      </SafeAreaView>
-    </ScreenSwipeWrapper>
+                  {/* Tasks List */}
+                  <TaskSections
+                    overdueTodos={overdueTodos}
+                    todayTodos={todayTodos}
+                    upcomingTodos={upcomingTodos}
+                    inboxTodos={inboxTodos}
+                    lists={lists}
+                    selectedList={selectedList}
+                    selectedDate={selectedDate}
+                    completedCount={completedCount}
+                    onClearCompleted={clearCompleted}
+                    onToggleTodo={toggleTodo}
+                    onDeleteTodo={deleteTodo}
+                    onEditTodo={(todo) => {
+                      console.log("STEP 1: Edit button pressed");
+                      console.log("STEP 2: Setting editingTask");
+                      setEditingTask(todo);
+                    }}
+                    onSetAlarm={setAlarmMenu}
+                    onTaskLayout={(todoId, y) => {
+                      setTaskPositions((prev) => ({ ...prev, [todoId]: y }));
+                    }}
+                  />
+                </ScrollView>
+              )
+            ) : (
+              <ScrollView
+                style={styles.flex}
+                contentContainerStyle={{ gap: 16, paddingBottom: 120 }}
+                showsVerticalScrollIndicator={false}
+              >
+                <ProgressSection
+                  statsExpanded={statsExpanded}
+                  setStatsExpanded={setStatsExpanded}
+                  habitCompletionPct={habitCompletionPct}
+                  unfinishedHabitCount={unfinishedHabitCount}
+                  showCelebrate={showCelebrate}
+                  completedHabitCount={completedHabitCount}
+                  totalHabitsCount={habits.length}
+                  longestStreak={longestStreak}
+                />
+
+                {/* Add Habit input */}
+                <AppCard style={styles.addTaskCard}>
+                  <TextInput
+                    value={habitTitle}
+                    onChangeText={setHabitTitle}
+                    placeholder="Add a new habit"
+                    placeholderTextColor={colors.textMuted}
+                    onSubmitEditing={addHabit}
+                    onFocus={() => {
+                      setIsAddingHabit(true);
+                    }}
+                    onBlur={() => {
+                      if (habitTitle.trim() === "") setIsAddingHabit(false);
+                    }}
+                    style={[styles.addTaskInput, { color: colors.text }]}
+                  />
+                  <Pressable
+                    onPress={addHabit}
+                    style={[styles.addBtn, { backgroundColor: colors.primary }]}
+                  >
+                    <Feather name="plus" size={20} color="#ffffff" />
+                  </Pressable>
+                </AppCard>
+
+                {/* Habit Priority Selector */}
+                {(isAddingHabit || habitTitle.trim().length > 0) && (
+                  <View style={styles.categoryChoiceRow}>
+                    <Text
+                      style={[
+                        styles.categoryChoiceLabel,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      Priority
+                    </Text>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      {[
+                        {
+                          key: "high",
+                          label: "🔴 High",
+                          color: colors.error,
+                          softColor:
+                            colorScheme === "light"
+                              ? "rgba(220, 38, 38, 0.08)"
+                              : "rgba(239, 68, 68, 0.12)",
+                        },
+                        {
+                          key: "medium",
+                          label: "🟡 Medium",
+                          color: colors.warning,
+                          softColor:
+                            colorScheme === "light"
+                              ? "rgba(217, 119, 6, 0.08)"
+                              : "rgba(245, 158, 11, 0.12)",
+                        },
+                        {
+                          key: "low",
+                          label: "🟢 Low",
+                          color: colors.success,
+                          softColor:
+                            colorScheme === "light"
+                              ? "rgba(5, 150, 105, 0.08)"
+                              : "rgba(16, 185, 129, 0.12)",
+                        },
+                      ].map((p) => {
+                        const isSelected = selectedHabitPriority === p.key;
+                        return (
+                          <Pressable
+                            key={p.key}
+                            onPress={() =>
+                              setSelectedHabitPriority(p.key as any)
+                            }
+                            style={({ pressed }) => [
+                              styles.categoryChoicePill,
+                              {
+                                backgroundColor: isSelected
+                                  ? p.softColor
+                                  : colors.cardLight,
+                                borderColor: isSelected
+                                  ? p.color
+                                  : colors.border,
+                                opacity: pressed ? 0.9 : 1,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={{
+                                color: isSelected ? p.color : colors.text,
+                                fontWeight: "700",
+                                fontSize: 12,
+                              }}
+                            >
+                              {p.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
+                {/* Habit Priority Filter Row */}
+                <View
+                  style={[
+                    styles.categoryChoiceRow,
+                    { marginBottom: 8, marginTop: 10 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.categoryChoiceLabel,
+                      { color: colors.textMuted },
+                    ]}
+                  >
+                    Filter Priority
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {[
+                      { key: "all", label: "All" },
+                      { key: "high", label: "🔴 High" },
+                      { key: "medium", label: "🟡 Medium" },
+                      { key: "low", label: "🟢 Low" },
+                    ].map((p) => {
+                      const isSelected =
+                        selectedListHabitPriorityFilter === p.key;
+                      return (
+                        <Pressable
+                          key={p.key}
+                          onPress={() =>
+                            setSelectedListHabitPriorityFilter(p.key as any)
+                          }
+                          style={({ pressed }) => [
+                            styles.categoryChoicePill,
+                            {
+                              backgroundColor: isSelected
+                                ? colorScheme === "light"
+                                  ? "#E2E8F0"
+                                  : "#27272A"
+                                : colors.cardLight,
+                              borderColor: isSelected
+                                ? colors.primary
+                                : colors.border,
+                              opacity: pressed ? 0.9 : 1,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: isSelected
+                                ? colors.text
+                                : colors.textMuted,
+                              fontWeight: isSelected ? "700" : "500",
+                              fontSize: 12,
+                            }}
+                          >
+                            {p.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Habits List View */}
+                <HabitSection
+                  displayedHabits={displayedHabits}
+                  habits={habits}
+                  setHabits={setHabits}
+                  persistHabits={persistHabits}
+                  toggleHabit={toggleHabit}
+                  deleteHabit={deleteHabit}
+                  unfinishedHabitCount={unfinishedHabitCount}
+                />
+              </ScrollView>
+            )}
+
+            {/* Workspace Creator Modal */}
+            <WorkspaceModal
+              visible={folderModalVisible}
+              onClose={() => setFolderModalVisible(false)}
+              editingFolderId={editingFolderId}
+              lists={lists}
+              setLists={setLists}
+              todos={todos}
+              setTodos={setTodos}
+              selectedList={selectedList}
+              setSelectedList={setSelectedList}
+              openedFolderId={openedFolderId}
+              setOpenedFolderId={setOpenedFolderId}
+              persistState={persistState}
+            />
+
+            {/* Centered Alarm Modal */}
+            <AlarmModal
+              visible={!!alarmMenu}
+              todoId={alarmMenu}
+              todos={todos}
+              selectedList={selectedList}
+              onClose={() => setAlarmMenu(null)}
+              onScheduleAlarm={scheduleAlarm}
+              onScheduleAlarmWithDays={scheduleAlarmWithDays}
+            />
+          </View>
+        </KeyboardAvoidingView>
+
+        <TaskEditorSheet
+          task={editingTask || addingTask}
+          lists={lists}
+          mode={addingTask ? "add" : "edit"}
+          onClose={() => {
+            if (editingTask) setEditingTask(null);
+            if (addingTask) setAddingTask(null);
+          }}
+          onSave={addingTask ? onSaveNewTask : onSaveEditedTask}
+          onDelete={editingTask ? deleteTodo : undefined}
+        />
+        <NLPCapture
+          visible={nlpVisible}
+          onClose={() => setNlpVisible(false)}
+          onSave={handleSaveParsedItem}
+          workspaces={lists}
+          currentWorkspaceId={openedFolderId || "default"}
+          onCreateWorkspace={handleCreateWorkspaceFromNLP}
+          todos={todos}
+        />
+      </Animated.View>
+
+      {/* Premium Floating NLP Button */}
+      <Animated.View
+        entering={FadeInDown.delay(600).duration(400)}
+        style={{
+          position: "absolute",
+          right: 20,
+          bottom: Platform.OS === "ios" ? 110 : 96,
+          zIndex: 99,
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+              () => {},
+            );
+            setNlpVisible(true);
+          }}
+          activeOpacity={0.85}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            backgroundColor: colors.primary,
+            alignItems: "center",
+            justifyContent: "center",
+            shadowColor: colors.primary,
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.35,
+            shadowRadius: 10,
+            elevation: 8,
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.15)",
+          }}
+        >
+          <Feather name="zap" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      </Animated.View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
-  container: { flex: 1, paddingHorizontal: 16, paddingTop: 16, gap: 16 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+const localStyles = StyleSheet.create({
+  workspaceGridCard: {
+    width: (SCREEN_WIDTH - 44) / 2,
+    borderRadius: 18,
+    overflow: "hidden",
+    position: "relative",
+    minHeight: 140,
   },
-  kicker: {
-    fontSize: Typography.sizes.xs,
-    fontWeight: "700",
-    letterSpacing: 2,
-  },
-  title: {
-    fontSize: Typography.sizes.display,
-    fontWeight: "700",
-    lineHeight: 38,
-  },
-  clearBtn: {
-    paddingVertical: 6,
-  },
-  listManager: {
-    gap: 12,
-  },
-  listHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  sectionTitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: "700",
-  },
-  listPills: {
-    gap: 8,
-    paddingVertical: 4,
-  },
-  listPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  createListRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingLeft: 12,
-    paddingRight: 6,
-    paddingVertical: 6,
-  },
-  createListInput: {
-    flex: 1,
-    fontSize: Typography.sizes.sm,
-  },
-  smallAddBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+  workspaceIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  addTaskCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 6,
-    paddingLeft: 14,
+  workspaceName: {
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
   },
-  addTaskInput: {
-    flex: 1,
-    fontSize: Typography.sizes.md,
-    paddingVertical: 10,
-  },
-  addBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  categoryChoiceRow: {
-    gap: 8,
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  categoryChoiceLabel: {
+  workspaceCount: {
     fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  categoryChoicePills: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  categoryChoicePill: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  listContent: {
-    gap: 10,
-    paddingBottom: 120,
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderRadius: 24,
-    padding: 32,
-    gap: 12,
-    marginTop: 20,
-  },
-  emptyTitle: {
-    fontSize: Typography.sizes.lg,
-    fontWeight: "700",
-  },
-  emptySubtitle: {
-    fontSize: Typography.sizes.sm,
-    textAlign: "center",
-  },
-  todoItemCard: {
-    padding: Spacing.md,
-    flexDirection: "column",
-    gap: 8,
-  },
-  todoLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  todoTexts: {
-    flex: 1,
-    gap: 2,
-  },
-  todoTitle: {
-    fontSize: Typography.sizes.md,
     fontWeight: "600",
-  },
-  reminderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  reminderText: {
-    fontSize: Typography.sizes.xs,
-    fontWeight: "600",
-  },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingLeft: 10,
-  },
-  alarmModal: {
-    position: "absolute",
-    bottom: 96,
-    left: 0,
-    right: 0,
-    gap: 12,
-    elevation: 12,
-    zIndex: 999,
-  },
-  alarmOptions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  alarmBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  closeAlarmBtn: {
-    padding: 8,
-  },
-  customPicker: {
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.05)",
-    paddingTop: 12,
-  },
-  timeInputs: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  timeInput: {
-    width: 60,
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 8,
-    textAlign: "center",
-    fontSize: 16,
-  },
-  weekdayRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 4,
-  },
-  weekdayCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setAlarmBtn: {
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  todoMainRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
     marginTop: 2,
-  },
-  subtaskProgressLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  subtaskProgressText: {
-    fontSize: Typography.sizes.xs,
-    fontWeight: "500",
-  },
-  expandSection: {
-    borderTopWidth: 1,
-    paddingTop: 10,
-    marginTop: 4,
-    gap: 10,
-  },
-  subtaskProgressBarWrap: {
-    paddingVertical: 2,
-  },
-  subtaskList: {
-    gap: 8,
-  },
-  subtaskItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-  },
-  subtaskLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-  subtaskCheckbox: {
-    padding: 2,
-  },
-  subtaskTitle: {
-    fontSize: Typography.sizes.sm,
-    fontWeight: "500",
-    flex: 1,
-  },
-  createSubtaskRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingLeft: 10,
-    paddingRight: 4,
-    paddingVertical: 4,
-    marginTop: 2,
-  },
-  createSubtaskInput: {
-    flex: 1,
-    fontSize: Typography.sizes.xs,
-    paddingVertical: 4,
-  },
-  subtaskAddBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sectionContainer: {
-    marginBottom: 16,
-    gap: 8,
-  },
-  sectionHeaderPressable: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  },
-  sectionHeaderText: {
-    fontSize: Typography.sizes.sm,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 1.5,
-  },
-  sectionTasksList: {
-    gap: 10,
-  },
-  tagBadge: {
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    alignSelf: "flex-start",
-  },
-  tagBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-
-  // New Segmented Control Styles
-  segmentedControlContainer: {
-    flexDirection: "row",
-    padding: 4,
-    backgroundColor: "rgba(255, 255, 255, 0.02)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
-  },
-  segmentButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "transparent",
-    gap: 6,
-  },
-  segmentText: {
-    fontSize: 13,
-  },
-
-  // Edit / Migrate Options Styles
-  editTaskRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginVertical: 2,
-  },
-  editLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    width: 54,
-  },
-  editTitleInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: 13,
-  },
-  migrateCategoryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginVertical: 2,
-  },
-  migratePills: {
-    gap: 6,
-    paddingVertical: 2,
-  },
-  migratePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  dividerSmall: {
-    height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    marginVertical: 4,
-  },
-  expandedActionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 10,
-    width: "100%",
-  },
-  expandedActionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  expandedActionBtnText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-
-  // Habits Merged Styles
-  warningBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: Spacing.md,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  warningText: { fontSize: Typography.sizes.sm, fontWeight: "600" },
-  successBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: Spacing.md,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  successText: { fontSize: Typography.sizes.sm, fontWeight: "600" },
-  summaryRow: { flexDirection: "row", gap: 12 },
-  summaryHalf: { flex: 1, gap: 4, padding: Spacing.md },
-  summaryLabel: { fontSize: Typography.sizes.xs, fontWeight: "600" },
-  summaryVal: { fontSize: 22, fontWeight: "800" },
-  progressSection: { padding: Spacing.lg, gap: Spacing.sm },
-  progressHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  progressTitle: { fontSize: Typography.sizes.md, fontWeight: "700" },
-  progressPercent: { fontSize: Typography.sizes.md, fontWeight: "800" },
-  habitWrap: { gap: 8 },
-  weeklyGrid: { flexDirection: "row", gap: 6, marginTop: 4 },
-  gridDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gridText: { fontSize: 8, fontWeight: "800" },
-  dropdownBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  timeSelectWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginVertical: 12,
-  },
-  timeCol: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    minWidth: 70,
-  },
-  chevronBtn: {
-    padding: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  timeText: {
-    fontSize: 28,
-    fontWeight: "700",
-    marginVertical: 2,
-    fontVariant: ["tabular-nums"],
-  },
-  presetOffsetsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-    marginVertical: 8,
-  },
-  offsetBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
-  },
-  offsetBtnText: {
-    fontSize: 12,
-    fontWeight: "600",
   },
 });

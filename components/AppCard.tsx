@@ -1,5 +1,5 @@
 import React from "react";
-import { Platform, Pressable, StyleProp, StyleSheet, ViewStyle } from "react-native";
+import { Platform, TouchableOpacity, StyleProp, StyleSheet, ViewStyle } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -17,7 +17,7 @@ type AppCardProps = {
   interactive?: boolean;
 };
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 export const AppCard: React.FC<AppCardProps> = ({
   children,
@@ -50,7 +50,7 @@ export const AppCard: React.FC<AppCardProps> = ({
 
   const dynamicShadow = colorScheme === "light" ? Platform.select({
     ios: {
-      shadowColor: "#000000",
+      shadowColor: "#000",
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.05,
       shadowRadius: 12,
@@ -64,11 +64,32 @@ export const AppCard: React.FC<AppCardProps> = ({
     default: {},
   }) : Shadows.soft;
 
+  if (!interactive) {
+    return (
+      <Animated.View
+        style={[
+          styles.card,
+          {
+            backgroundColor: colorScheme === "light" ? "#FFFFFF" : "rgba(24, 24, 27, 0.72)",
+            borderColor: colorScheme === "light" ? theme.border : "rgba(255, 255, 255, 0.065)",
+          },
+          dynamicShadow,
+          animatedStyle,
+          style,
+        ]}
+      >
+        {children}
+      </Animated.View>
+    );
+  }
+
   return (
-    <AnimatedPressable
+    <AnimatedTouchableOpacity
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
+      delayPressIn={80}
+      activeOpacity={1}
       style={[
         styles.card,
         {
@@ -79,10 +100,9 @@ export const AppCard: React.FC<AppCardProps> = ({
         animatedStyle,
         style,
       ]}
-      disabled={!interactive}
     >
       {children}
-    </AnimatedPressable>
+    </AnimatedTouchableOpacity>
   );
 };
 

@@ -1,12 +1,21 @@
 import { Feather } from "@expo/vector-icons";
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet,   View } from "react-native";
+import { AppTextInput as TextInput } from "@/components/ui/AppText";
+import { AppText as Text } from "@/components/ui/AppText";
 
 import { Typography } from "@/constants/typography";
 
 import { AppCard } from "./AppCard";
 
-type TaskList = { id: string; name: string };
+type TaskList = {
+  id: string;
+  name: string;
+  color?: string;
+  emoji?: string;
+  icon?: string;
+  iconType?: "emoji" | "icon";
+};
 
 interface ListManagerProps {
   lists: TaskList[];
@@ -118,7 +127,7 @@ export function ListManager({
                 fontWeight: "700",
               }}
             >
-              {lists.find((l) => l.id === selectedList)?.name ?? "My Tasks"}
+              {lists.find((l) => l.id === selectedList)?.name ?? "My Pebbles"}
             </Text>
           </View>
         </View>
@@ -200,7 +209,19 @@ export function ListManager({
 
               const listTodos = todos[list.id] ?? [];
               const count = listTodos.filter((t) => !t.completed).length;
-              const { bg, text, icon } = getListColors(list.name, isSelected);
+
+              let bg = "";
+              let text = "";
+              let isCustom = false;
+              if (list.color) {
+                isCustom = true;
+                bg = isSelected ? `${list.color}22` : "rgba(255,255,255,0.03)";
+                text = isSelected ? list.color : colors.text;
+              } else {
+                const colorsMeta = getListColors(list.name, isSelected);
+                bg = colorsMeta.bg;
+                text = colorsMeta.text;
+              }
 
               return (
                 <Pressable
@@ -221,7 +242,15 @@ export function ListManager({
                     },
                   ]}
                 >
-                  <Feather name={icon} size={13} color={text} />
+                  {isCustom ? (
+                    list.iconType === "icon" && list.icon ? (
+                      <Feather name={list.icon as any} size={13} color={text} />
+                    ) : (
+                      <Text style={{ fontSize: 13, marginRight: 2 }}>{list.emoji || "📁"}</Text>
+                    )
+                  ) : (
+                    <Feather name={getListColors(list.name, isSelected).icon} size={13} color={text} />
+                  )}
                   <Text
                     style={{
                       color: text,

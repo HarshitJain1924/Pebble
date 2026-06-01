@@ -56,12 +56,12 @@ type DailyPayload = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const STARTER_HABITS = [
-  "Microsoft Rewards",
-  "LeetCode",
-  "Gym",
-  "Study",
-  "Drink Water",
-  "Sleep Early",
+  "Daily Focus Session",
+  "Read 10 Pages",
+  "Drink 3L Water",
+  "Reflect on Progress",
+  "Sleep by 11 PM",
+  "Stretch or Walk",
 ];
 
 const QUICK_REMINDER_OPTIONS = [
@@ -753,7 +753,7 @@ export default function DailyScreen() {
                   >
                     <HabitsEmptyGraphic />
                     <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      No habits tracked yet
+                      Every goal starts with one pebble.
                     </Text>
                     <Text
                       style={[

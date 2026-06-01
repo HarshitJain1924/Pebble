@@ -18,6 +18,7 @@ export type ReminderScheduleOptions = {
   itemId: string;
   title: string;
   channelId?: string;
+  category?: string;
   oneTimeAt?: Date;
   dailyTime?: {
     hour: number;
@@ -175,6 +176,71 @@ export async function cancelReminderIds(ids?: string[]) {
   );
 }
 
+// Request Android exact-alarm permission (best-effort). Opens settings/intent.
+export async function requestExactAlarmPermission(): Promise<boolean> {
+  try {
+    if (Platform.OS !== "android") return true;
+    const IntentLauncher = await import("expo-intent-launcher");
+
+    // ACTION to request exact alarm permission introduced in Android 12
+    // Best-effort: launch the request action; fall back to app notification settings
+    try {
+      // This action may not be available on all Android versions/devices.
+      // If it fails, fall back to app notification settings screen.
+      // Note: startActivityAsync accepts a string action.
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await IntentLauncher.startActivityAsync(
+        "android.app.action.REQUEST_SCHEDULE_EXACT_ALARM",
+      );
+      return true;
+    } catch {
+      // Fallback: open app settings where user can toggle exact alarm permission.
+      try {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        await IntentLauncher.startActivityAsync(
+          (IntentLauncher as any).ACTION_APPLICATION_DETAILS_SETTINGS || "android.settings.APPLICATION_DETAILS_SETTINGS",
+          {
+            data: `package:${require("expo-application").default?.nativeApplicationId || ""}`,
+          },
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  } catch {
+    return false;
+  }
+}
+
+// Debug helpers: list scheduled notifications and cancel them all.
+export async function listScheduledNotifications(): Promise<any[]> {
+  try {
+    const Notifications = await loadNotifications();
+    if (typeof Notifications.getAllScheduledNotificationsAsync === "function") {
+      return await Notifications.getAllScheduledNotificationsAsync();
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export async function cancelAllScheduledNotifications(): Promise<void> {
+  try {
+    const Notifications = await loadNotifications();
+    if (
+      typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
+    ) {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export async function scheduleReminderBatch(
   options: ReminderScheduleOptions,
 ): Promise<ScheduledReminderBatch> {
@@ -184,11 +250,15 @@ export async function scheduleReminderBatch(
 
   // Integrate settings checks (Quiet Hours and Category subscriptions)
   try {
-    const { getSettings, isCurrentlyInQuietHours } = require("./settingsService");
+    const {
+      getSettings,
+      isCurrentlyInQuietHours,
+    } = require("./settingsService");
     const settings = await getSettings();
 
     // 1. Check if category is subscribed
-    if (settings.categories[options.kind] === false) {
+    const categoryKey = options.category || options.kind;
+    if (settings.categories[categoryKey] === false) {
       return { ids: [], escalationMinutes };
     }
 
@@ -248,10 +318,8 @@ export async function scheduleReminderBatch(
       const triggerObj: any = {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: triggerDate,
+        channelId: options.channelId,
       };
-      if (options.channelId) {
-        triggerObj.channelId = options.channelId;
-      }
 
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
@@ -307,10 +375,8 @@ export async function scheduleReminderBatch(
           weekday: platformWeekday,
           hour: adjusted.hour,
           minute: adjusted.minute,
+          channelId: options.channelId,
         };
-        if (options.channelId) {
-          triggerObj.channelId = options.channelId;
-        }
 
         const notificationId = await Notifications.scheduleNotificationAsync({
           content: {
@@ -351,10 +417,8 @@ export async function scheduleReminderBatch(
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour: adjusted.hour,
       minute: adjusted.minute,
+      channelId: options.channelId,
     };
-    if (options.channelId) {
-      triggerObj.channelId = options.channelId;
-    }
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
