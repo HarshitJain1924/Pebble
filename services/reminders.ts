@@ -248,6 +248,14 @@ export async function scheduleReminderBatch(
     ? options.escalationMinutes
     : DEFAULT_ESCALATION_MINUTES;
 
+  const resolvedChannelId =
+    options.channelId ||
+    (Platform.OS === "android"
+      ? options.kind === "habit"
+        ? "daily-habits"
+        : "todo-reminders"
+      : undefined);
+
   // Integrate settings checks (Quiet Hours and Category subscriptions)
   try {
     const {
@@ -318,8 +326,17 @@ export async function scheduleReminderBatch(
       const triggerObj: any = {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: triggerDate,
-        channelId: options.channelId,
+        channelId: resolvedChannelId,
       };
+
+      console.log("[scheduleReminderBatch] [Native Date] Scheduling request:", {
+        kind: options.kind,
+        itemId: options.itemId,
+        title: options.title,
+        triggerDate: triggerDate.toISOString(),
+        triggerTimestamp: triggerDate.getTime(),
+        channelId: resolvedChannelId,
+      });
 
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
@@ -330,6 +347,7 @@ export async function scheduleReminderBatch(
         },
         trigger: triggerObj as any,
       });
+      console.log("[scheduleReminderBatch] [Native Date] Expo Notification Scheduled. ID:", notificationId);
       ids.push(notificationId);
       continue;
     }
@@ -375,8 +393,18 @@ export async function scheduleReminderBatch(
           weekday: platformWeekday,
           hour: adjusted.hour,
           minute: adjusted.minute,
-          channelId: options.channelId,
+          channelId: resolvedChannelId,
         };
+
+        console.log("[scheduleReminderBatch] [Native Weekly] Scheduling request:", {
+          kind: options.kind,
+          itemId: options.itemId,
+          title: options.title,
+          weekday: platformWeekday,
+          hour: adjusted.hour,
+          minute: adjusted.minute,
+          channelId: resolvedChannelId,
+        });
 
         const notificationId = await Notifications.scheduleNotificationAsync({
           content: {
@@ -389,6 +417,7 @@ export async function scheduleReminderBatch(
           },
           trigger: triggerObj as any,
         });
+        console.log("[scheduleReminderBatch] [Native Weekly] Expo Notification Scheduled. ID:", notificationId);
         ids.push(notificationId);
       }
       continue;
@@ -417,8 +446,17 @@ export async function scheduleReminderBatch(
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour: adjusted.hour,
       minute: adjusted.minute,
-      channelId: options.channelId,
+      channelId: resolvedChannelId,
     };
+
+    console.log("[scheduleReminderBatch] [Native Daily] Scheduling request:", {
+      kind: options.kind,
+      itemId: options.itemId,
+      title: options.title,
+      hour: adjusted.hour,
+      minute: adjusted.minute,
+      channelId: resolvedChannelId,
+    });
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
@@ -429,6 +467,7 @@ export async function scheduleReminderBatch(
       },
       trigger: triggerObj as any,
     });
+    console.log("[scheduleReminderBatch] [Native Daily] Expo Notification Scheduled. ID:", notificationId);
     ids.push(notificationId);
   }
 

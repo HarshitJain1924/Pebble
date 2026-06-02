@@ -32,19 +32,22 @@ export default function NotificationListener() {
         // Request basic permissions but do not force
         try {
           const { status } = await Notifications.getPermissionsAsync();
+          console.log("[NotificationListener] getPermissionsAsync status:", status);
           if (status !== "granted") {
-            await Notifications.requestPermissionsAsync();
+            const requestResult = await Notifications.requestPermissionsAsync();
+            console.log("[NotificationListener] requestPermissionsAsync status:", requestResult.status);
           }
 
           if (Platform.OS === "android") {
             await Notifications.setNotificationChannelAsync("todo-reminders", {
               name: "Todo Reminders",
-              importance: Notifications.AndroidImportance.DEFAULT,
+              importance: Notifications.AndroidImportance.HIGH,
             });
             await Notifications.setNotificationChannelAsync("daily-habits", {
               name: "Daily Habits",
-              importance: Notifications.AndroidImportance.DEFAULT,
+              importance: Notifications.AndroidImportance.HIGH,
             });
+            console.log("[NotificationListener] Android notification channels configured (todo-reminders, daily-habits) with HIGH importance.");
           }
         } catch (e) {
           // ignore
@@ -109,7 +112,10 @@ export default function NotificationListener() {
                       title: title || "Snoozed",
                       body: body || "Reminder",
                     },
-                    trigger: { seconds: 60 * 5 } as any,
+                    trigger: {
+                      seconds: 60 * 5,
+                      channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+                    } as any,
                   });
                 } catch (e) {
                   // ignore

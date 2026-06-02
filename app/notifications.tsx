@@ -64,6 +64,7 @@ export default function NotificationsCenter() {
     try {
       const Notifications = await import("expo-notifications");
       const { status } = await Notifications.getPermissionsAsync();
+      console.log("[NotificationsCenter] checkPermissions getPermissionsAsync status:", status);
       setPermissionStatus(status);
     } catch {
       setPermissionStatus("undetermined");
@@ -86,6 +87,7 @@ export default function NotificationsCenter() {
     try {
       const Notifications = await import("expo-notifications");
       const { status } = await Notifications.requestPermissionsAsync();
+      console.log("[NotificationsCenter] requestPermissions requestPermissionsAsync status:", status);
       setPermissionStatus(status);
       if (status === "granted") {
         Alert.alert("Granted", "Notifications are active on your device!");
@@ -256,7 +258,10 @@ export default function NotificationsCenter() {
               sound: true,
               data: { type: "test", itemId: "test" },
             },
-            trigger: { seconds: 3 } as any,
+            trigger: {
+              seconds: 3,
+              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+            } as any,
           });
           Alert.alert("Scheduled", "Alert will trigger in 3 seconds!");
         } else {

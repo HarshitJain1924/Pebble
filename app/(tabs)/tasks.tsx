@@ -749,35 +749,56 @@ export default function TasksScreen() {
     if (!parsed.title || parsed.title.trim() === "") return;
 
     if (parsed.type === "task") {
-      const alarmTime =
-        parsed.time && parsed.date
-          ? (() => {
-              const [hours, minutes] = parsed.time.split(":").map(Number);
-              const [year, monthVal, dayVal] = parsed.date
-                .split("-")
-                .map(Number);
-              const dateObj = new Date(
-                year,
-                monthVal - 1,
-                dayVal,
-                hours,
-                minutes,
-                0,
-                0,
-              );
+      let alarmTime: number | undefined;
+      let notificationIds: string[] = [];
+      let alarmId: string | undefined;
 
-              // Subtract lead reminder offset in minutes if specified
-              if (parsed.reminderOffsetMinutes) {
-                dateObj.setMinutes(
-                  dateObj.getMinutes() - parsed.reminderOffsetMinutes,
-                );
-              }
+      if (parsed.time && parsed.date) {
+        const [hours, minutes] = parsed.time.split(":").map(Number);
+        const [year, monthVal, dayVal] = parsed.date
+          .split("-")
+          .map(Number);
+        const dateObj = new Date(
+          year,
+          monthVal - 1,
+          dayVal,
+          hours,
+          minutes,
+          0,
+          0,
+        );
 
-              return dateObj.getTime() > Date.now()
-                ? dateObj.getTime()
-                : undefined;
-            })()
-          : undefined;
+        // Subtract lead reminder offset in minutes if specified
+        if (parsed.reminderOffsetMinutes) {
+          dateObj.setMinutes(
+            dateObj.getMinutes() - parsed.reminderOffsetMinutes,
+          );
+        }
+
+        if (dateObj.getTime() > Date.now()) {
+          alarmTime = dateObj.getTime();
+          try {
+            const scheduled = await scheduleReminderBatch({
+              kind: "todo",
+              itemId: String(Date.now()),
+              title: parsed.title,
+              category: parsed.category || DEFAULT_TASK_CATEGORY,
+              oneTimeAt: dateObj,
+              escalationMinutes: [120, 240],
+              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+              context: {
+                title: parsed.title,
+                remainingCount: 1,
+                totalCount: 1,
+              },
+            });
+            alarmId = scheduled.primaryId;
+            notificationIds = scheduled.ids;
+          } catch (e) {
+            console.error("Failed to schedule NLP task reminder:", e);
+          }
+        }
+      }
 
       const destinationWorkspaceId =
         targetWorkspaceId || openedFolderId || "default";
@@ -790,6 +811,8 @@ export default function TasksScreen() {
         priority: parsed.priority || "medium",
         scheduledDate: parsed.date || "inbox",
         alarmTime,
+        alarmId,
+        notificationIds,
         reminderHour: parsed.time
           ? Number(parsed.time.split(":")[0])
           : undefined,
@@ -802,7 +825,7 @@ export default function TasksScreen() {
       const totalBefore = Object.values(todos).reduce(
         (sum, list) => sum + list.length,
         0,
-      );
+        );
       console.log("TASK COUNT BEFORE", totalBefore);
 
       setTodos((current) => {
@@ -839,6 +862,34 @@ export default function TasksScreen() {
             ? [0, 6]
             : [];
 
+      const hour = parsed.time ? Number(parsed.time.split(":")[0]) : undefined;
+      const minute = parsed.time ? Number(parsed.time.split(":")[1]) : undefined;
+      let notificationIds: string[] = [];
+
+      if (hour !== undefined && minute !== undefined) {
+        try {
+          const scheduled = await scheduleReminderBatch({
+            kind: "habit",
+            itemId: `habit-${Date.now()}`,
+            title: parsed.title,
+            dailyTime: { hour, minute },
+            dailyDays: reminderDays.length > 0 ? reminderDays : undefined,
+            escalationMinutes: [120, 240],
+            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+            context: {
+              title: parsed.title,
+              remainingCount: 1,
+              totalCount: 1,
+              streak: 0,
+              bestStreak: 0,
+            },
+          });
+          notificationIds = scheduled.ids;
+        } catch (e) {
+          console.error("Failed to schedule NLP habit reminder:", e);
+        }
+      }
+
       const newHabit: Habit = {
         id: `habit-${Date.now()}`,
         title: parsed.title,
@@ -847,12 +898,9 @@ export default function TasksScreen() {
         completedToday: false,
         priority: parsed.priority || "medium",
         reminderDays: reminderDays.length > 0 ? reminderDays : undefined,
-        reminderHour: parsed.time
-          ? Number(parsed.time.split(":")[0])
-          : undefined,
-        reminderMinute: parsed.time
-          ? Number(parsed.time.split(":")[1])
-          : undefined,
+        reminderHour: hour,
+        reminderMinute: minute,
+        notificationIds,
       };
 
       setHabits((current) => {

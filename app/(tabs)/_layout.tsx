@@ -220,6 +220,7 @@ export default function TabLayout() {
             title: trimmed,
             oneTimeAt: alarmDate,
             category: "work",
+            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
           });
           alarmTime = batch.alarmTime;
           notificationIds = batch.ids;
