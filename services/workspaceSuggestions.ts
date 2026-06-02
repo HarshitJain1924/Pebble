@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getTopicMatchScore } from "@/services/workspaceTopics";
+import { getTopicMatchScore, detectTaskTopic } from "@/services/workspaceTopics";
 
 const WORKSPACE_HISTORY_KEY = "todoapp:workspace:history:v1";
 
@@ -204,3 +204,10 @@ export async function getWorkspaceSuggestions(
   // Sort descending by score
   return results.sort((a, b) => b.score - a.score);
 }
+
+export const WorkspaceMatcher = {
+  getWorkspaceSuggestions,
+  addWorkspaceSelectionToHistory,
+  loadWorkspaceHistory,
+  detectTaskTopic,
+};

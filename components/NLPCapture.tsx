@@ -31,6 +31,7 @@ import {
   getWorkspaceSuggestions,
   addWorkspaceSelectionToHistory,
   type WorkspaceSuggestionResult,
+  detectTaskTopic,
 } from "@/services/workspaceSuggestions";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -84,6 +85,7 @@ export default function NLPCapture({
   
   // Workspace Suggestions State
   const [topSuggestion, setTopSuggestion] = useState<WorkspaceSuggestionResult | null>(null);
+  const [detectedTopic, setDetectedTopic] = useState<{ topic: string; friendlyName: string } | null>(null);
 
   // Voice Capture Hook Integration
   const {
@@ -118,6 +120,7 @@ export default function NLPCapture({
   useEffect(() => {
     if (!parsedItem || parsedItem.type !== "task") {
       setTopSuggestion(null);
+      setDetectedTopic(null);
       return;
     }
 
@@ -130,16 +133,39 @@ export default function NLPCapture({
       );
       
       const top = results[0];
-      // Rule 5: Auto-select highest scored workspace if no active workspace is open
-      if (top && top.score >= 35) {
+      const topicResult = detectTaskTopic(parsedItem.title);
+
+      if (top && top.score >= 15) {
         setTopSuggestion(top);
-        if (currentWorkspaceId === "default") {
-          setSelectedWorkspaceId(top.workspaceId);
+        setDetectedTopic(null);
+
+        // Auto-select if score >= 70 (High Match) and no active workspace is open
+        if (top.score >= 70) {
+          if (currentWorkspaceId === "default") {
+            setSelectedWorkspaceId(top.workspaceId);
+          }
+        } else {
+          if (currentWorkspaceId === "default") {
+            setSelectedWorkspaceId("default");
+          }
         }
       } else {
         setTopSuggestion(null);
         if (currentWorkspaceId === "default") {
           setSelectedWorkspaceId("default");
+        }
+
+        if (topicResult) {
+          const workspaceExists = workspaces.some(
+            w => w.name.toLowerCase() === topicResult.friendlyName.toLowerCase()
+          );
+          if (!workspaceExists) {
+            setDetectedTopic(topicResult);
+          } else {
+            setDetectedTopic(null);
+          }
+        } else {
+          setDetectedTopic(null);
         }
       }
     };
@@ -762,7 +788,38 @@ export default function NLPCapture({
                             </View>
                           </TouchableOpacity>
                         );
-                      })() : (
+                      })() : detectedTopic ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (onCreateWorkspace && detectedTopic) {
+                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                              const newId = onCreateWorkspace(detectedTopic.friendlyName);
+                              setSelectedWorkspaceId(newId);
+                            }
+                          }}
+                          style={[
+                            styles.suggestionPill,
+                            {
+                              borderColor: theme.primary,
+                              backgroundColor: `${theme.primary}12`,
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              alignItems: "center"
+                            }
+                          ]}
+                          activeOpacity={0.78}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <Text style={{ fontSize: 16 }}>✨</Text>
+                            <Text style={[styles.suggestionPillText, { color: theme.primary, fontWeight: "700" }]}>
+                              {"Create \"" + detectedTopic.friendlyName + "\" Workspace"}
+                            </Text>
+                          </View>
+                          <View style={{ backgroundColor: `${theme.primary}22`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                            <Text style={{ color: theme.primary, fontSize: 10, fontWeight: "700" }}>1-TAP CREATE</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : (
                         <View style={[styles.suggestionPill, { borderColor, backgroundColor: "rgba(100, 116, 139, 0.02)", justifyContent: "center", paddingVertical: 10 }]}>
                           <Text style={{ fontSize: 13, color: textMuted, fontStyle: "italic" }}>
                             💡 Learning your workspace patterns

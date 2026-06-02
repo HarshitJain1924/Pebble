@@ -1,19 +1,23 @@
 export const TOPICS = {
   DEVOPS: [
-    "docker", "kubernetes", "k8s", "terraform", "aws", "azure", "gcp", "linux", "ansible", "jenkins", "helm", "argocd", "containers", "cloud", "devops"
+    "docker", "kubernetes", "k8s", "terraform", "aws", "azure", "gcp", "linux", "ansible", "jenkins", "helm", "argocd", "containers", "cloud", "devops", "ci/cd", "cicd"
   ],
   PLACEMENT: [
-    "dsa", "leetcode", "aptitude", "interview", "resume", "placement", "oa", "coding", "round"
+    "dsa", "leetcode", "aptitude", "interview", "resume", "placement", "oa", "coding", "round", "placement prep"
   ],
-  WEB_DEVELOPMENT: [
-    "react", "nextjs", "node", "express", "mongodb", "frontend", "backend", "fullstack", "javascript", "typescript", "web", "development"
+  LEARNING: [
+    "react", "nextjs", "node", "express", "mongodb", "frontend", "backend", "fullstack", "javascript", "typescript", "web", "development", "study", "course", "tutorial", "revision", "practice", "learning"
   ],
   FITNESS: [
     "gym", "workout", "cardio", "exercise", "running", "protein", "fitness"
-  ],
-  LEARNING: [
-    "study", "course", "tutorial", "revision", "practice", "learning"
   ]
+};
+
+export const TOPIC_FRIENDLY_NAMES: Record<string, string> = {
+  DEVOPS: "DevOps",
+  PLACEMENT: "Placement Prep",
+  LEARNING: "Learning",
+  FITNESS: "Fitness"
 };
 
 /**
@@ -63,4 +67,23 @@ export function getTopicMatchScore(taskTitle: string, workspaceName: string, wsT
   });
 
   return hasTopicMatch ? 40 : 0;
+}
+
+/**
+ * Detect task topic from title keywords directly.
+ */
+export function detectTaskTopic(taskTitle: string): { topic: string; friendlyName: string } | null {
+  const taskLower = taskTitle.toLowerCase();
+
+  for (const [topic, keywords] of Object.entries(TOPICS)) {
+    const hasMatch = keywords.some(k => taskLower.includes(k));
+    if (hasMatch) {
+      return {
+        topic,
+        friendlyName: TOPIC_FRIENDLY_NAMES[topic] || topic
+      };
+    }
+  }
+
+  return null;
 }
