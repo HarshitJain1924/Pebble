@@ -24,7 +24,7 @@ const stubModule = {
   abort: () => {},
   requestPermissionsAsync: async () => ({ granted: false }),
   getPermissionsAsync: async () => ({ granted: false }),
-  getServicesAsync: async () => [],
+  isRecognitionAvailable: () => false,
   getStateAsync: async () => "inactive",
 };
 
@@ -71,10 +71,12 @@ export class SpeechRecognitionService {
     }
 
     try {
-      const services = await ExpoSpeechRecognitionModule.getServicesAsync();
-      this.isAvailableCache = services.length > 0;
+      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+      console.log("[VOICE] isRecognitionAvailable:", available);
+      this.isAvailableCache = available;
       return this.isAvailableCache;
-    } catch {
+    } catch (e) {
+      console.error("[VOICE] Error checking availability:", e);
       this.isAvailableCache = false;
       return false;
     }

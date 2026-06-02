@@ -103,6 +103,7 @@ export function useVoiceCapture({ onTranscriptComplete, onTranscriptChange }: Us
   };
 
   const startRecording = useCallback(async () => {
+    console.log("[VOICE] start recording");
     if (completionTimeoutRef.current) {
       clearTimeout(completionTimeoutRef.current);
     }
