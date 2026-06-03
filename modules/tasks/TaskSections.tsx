@@ -44,6 +44,9 @@ interface TaskSectionsProps {
   onEditTodo: (todo: Todo) => void;
   onSetAlarm: (id: string) => void;
   onTaskLayout?: (todoId: string, y: number) => void;
+  isSelectionMode?: boolean;
+  selectedItemIds?: Set<string>;
+  onToggleSelectItem?: (id: string) => void;
 }
 
 export function TaskSections({
@@ -61,6 +64,9 @@ export function TaskSections({
   onEditTodo,
   onSetAlarm,
   onTaskLayout,
+  isSelectionMode = false,
+  selectedItemIds = new Set(),
+  onToggleSelectItem,
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -89,6 +95,9 @@ export function TaskSections({
         onToggleTodo={() => onToggleTodo(item.id)}
         onDeleteTodo={() => onDeleteTodo(item.id)}
         onEditTodo={() => onEditTodo(item)}
+        isSelectionMode={isSelectionMode}
+        isSelected={selectedItemIds.has(item.id)}
+        onSelect={() => onToggleSelectItem?.(item.id)}
         onLayout={(event) => {
           if (onTaskLayout) {
             const { y } = event.nativeEvent.layout;

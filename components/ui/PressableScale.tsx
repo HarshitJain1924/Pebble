@@ -24,6 +24,7 @@ export const PressableScale: React.FC<Props> = ({
   contentStyle,
   scaleTo = 0.97,
   haptic = false,
+  hitSlop,
   ...rest
 }) => {
   const scale = useSharedValue(1);
@@ -52,11 +53,11 @@ export const PressableScale: React.FC<Props> = ({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={onPress}
-      hitSlop={8}
+      hitSlop={hitSlop ?? 8}
       {...rest}
       style={style}
     >
-      <Animated.View style={[aStyle, contentStyle]}>{children}</Animated.View>
+      <Animated.View pointerEvents="none" style={[aStyle, contentStyle]}>{children}</Animated.View>
     </Pressable>
   );
 };

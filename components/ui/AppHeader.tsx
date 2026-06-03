@@ -12,6 +12,7 @@ export type AppHeaderProps = {
   subtitle?: string;
   showProfile?: boolean;
   showNotifications?: boolean;
+  showArchive?: boolean;
   nextReminder?: string | null;
   hasUnreadNotifs?: boolean;
   profile?: { name: string; avatar: string; level: number } | null;
@@ -23,6 +24,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   subtitle,
   showProfile = true,
   showNotifications = true,
+  showArchive = false,
   nextReminder,
   hasUnreadNotifs,
   profile,
@@ -39,8 +41,26 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {title && <Text style={[styles.title, { color: colors.text }]}>{title}</Text>}
         {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
       </View>
-      {(showNotifications || showProfile) && (
+      {(showNotifications || showProfile || showArchive) && (
         <View style={styles.right}>
+          {showArchive && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.bellButton,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open archive"
+              onPress={() => router.push("/archive")}
+            >
+              <Feather name="archive" size={16} color={colors.textMuted} />
+            </Pressable>
+          )}
+
           {showNotifications && (
             <Pressable
               style={({ pressed }) => [

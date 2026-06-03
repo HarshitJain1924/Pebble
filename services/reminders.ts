@@ -27,6 +27,13 @@ export type ReminderScheduleOptions = {
   dailyDays?: number[]; // 0 = Sunday .. 6 = Saturday
   escalationMinutes?: number[];
   context?: ReminderContext;
+  recurrence?: {
+    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
+    interval?: number;
+    unit?: "hours" | "days";
+    days?: number[];
+    dayOfMonth?: number;
+  };
 };
 
 export type ScheduledReminderBatch = {
@@ -287,7 +294,7 @@ export async function scheduleReminderBatch(
     // fallback if service isn't initialized yet
   }
 
-  const offsets = [0, ...escalationMinutes];
+  const offsets = options.recurrence?.type === "interval" ? [0] : [0, ...escalationMinutes];
   const ids: string[] = [];
   const isWeb = Platform.OS === "web";
 
@@ -350,6 +357,207 @@ export async function scheduleReminderBatch(
       console.log("[scheduleReminderBatch] [Native Date] Expo Notification Scheduled. ID:", notificationId);
       ids.push(notificationId);
       continue;
+    }
+
+    if (options.recurrence) {
+      if (options.recurrence.type === "interval") {
+        const seconds = options.recurrence.unit === "hours"
+          ? (options.recurrence.interval || 1) * 3600
+          : (options.recurrence.interval || 1) * 86400;
+
+        if (isWeb) {
+          const timeoutId = setTimeout(() => {
+            notifyFallback("Interval reminder", body);
+            const intervalId = setInterval(() => {
+              notifyFallback("Interval reminder", body);
+            }, seconds * 1000);
+            ids.push(`web-interval-${String(intervalId)}`);
+          }, seconds * 1000);
+          ids.push(`web-timeout-${String(timeoutId)}`);
+          continue;
+        }
+
+        const Notifications = await loadNotifications();
+        const triggerObj: any = {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds,
+          repeats: true,
+          channelId: resolvedChannelId,
+        };
+
+        console.log("[scheduleReminderBatch] [Native Interval] Scheduling request:", {
+          kind: options.kind,
+          itemId: options.itemId,
+          title: options.title,
+          seconds,
+          channelId: resolvedChannelId,
+        });
+
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: options.kind === "habit" ? "Daily habit reminder" : "Todo reminder",
+            body,
+            data,
+          },
+          trigger: triggerObj,
+        });
+        console.log("[scheduleReminderBatch] [Native Interval] Expo Notification Scheduled. ID:", notificationId);
+        ids.push(notificationId);
+        continue;
+      }
+
+      if (!options.dailyTime) {
+        continue;
+      }
+
+      const adjusted = addMinutesToClock(
+        options.dailyTime.hour,
+        options.dailyTime.minute,
+        offset,
+      );
+
+      const Notifications = await loadNotifications();
+
+      if (options.recurrence.type === "daily") {
+        if (isWeb) {
+          const nextTrigger = getNextOccurrenceDate(adjusted.hour, adjusted.minute);
+          const initialDelay = nextTrigger.getTime() - Date.now();
+          const timeoutId = setTimeout(() => {
+            notifyFallback("Daily reminder", body);
+            const intervalId = setInterval(() => {
+              notifyFallback("Daily reminder", body);
+            }, DAY_MS);
+            ids.push(`web-interval-${String(intervalId)}`);
+          }, initialDelay);
+          ids.push(`web-timeout-${String(timeoutId)}`);
+          continue;
+        }
+
+        const triggerObj: any = {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour: adjusted.hour,
+          minute: adjusted.minute,
+          channelId: resolvedChannelId,
+        };
+
+        console.log("[scheduleReminderBatch] [Native Daily Recurrence] Scheduling request:", {
+          kind: options.kind,
+          itemId: options.itemId,
+          title: options.title,
+          hour: adjusted.hour,
+          minute: adjusted.minute,
+          channelId: resolvedChannelId,
+        });
+
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: options.kind === "habit" ? "Daily habit reminder" : "Todo reminder",
+            body,
+            data,
+          },
+          trigger: triggerObj,
+        });
+        console.log("[scheduleReminderBatch] [Native Daily Recurrence] Expo Notification Scheduled. ID:", notificationId);
+        ids.push(notificationId);
+        continue;
+      }
+
+      if (options.recurrence.type === "weekdays" || options.recurrence.type === "weekly") {
+        const targetDays = options.recurrence.type === "weekdays"
+          ? [1, 2, 3, 4, 5]
+          : (options.recurrence.days && options.recurrence.days.length > 0
+              ? options.recurrence.days
+              : [new Date().getDay()]);
+
+        for (const weekday of targetDays) {
+          if (isWeb) {
+            const nextTrigger = getNextOccurrenceForWeekday(weekday, adjusted.hour, adjusted.minute);
+            const initialDelay = nextTrigger.getTime() - Date.now();
+            const timeoutId = setTimeout(() => {
+              notifyFallback("Weekly reminder", body);
+              const intervalId = setInterval(() => {
+                notifyFallback("Weekly reminder", body);
+              }, 7 * DAY_MS);
+              ids.push(`web-interval-${String(intervalId)}`);
+            }, initialDelay);
+            ids.push(`web-timeout-${String(timeoutId)}`);
+            continue;
+          }
+
+          const platformWeekday = Math.min(Math.max(1 + weekday, 1), 7);
+          const triggerObj: any = {
+            type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+            weekday: platformWeekday,
+            hour: adjusted.hour,
+            minute: adjusted.minute,
+            channelId: resolvedChannelId,
+          };
+
+          console.log("[scheduleReminderBatch] [Native Weekly Recurrence] Scheduling request:", {
+            kind: options.kind,
+            itemId: options.itemId,
+            title: options.title,
+            weekday: platformWeekday,
+            hour: adjusted.hour,
+            minute: adjusted.minute,
+            channelId: resolvedChannelId,
+          });
+
+          const notificationId = await Notifications.scheduleNotificationAsync({
+            content: {
+              title: options.kind === "habit" ? "Daily habit reminder" : "Todo reminder",
+              body,
+              data,
+            },
+            trigger: triggerObj,
+          });
+          console.log("[scheduleReminderBatch] [Native Weekly Recurrence] Expo Notification Scheduled. ID:", notificationId);
+          ids.push(notificationId);
+        }
+        continue;
+      }
+
+      if (options.recurrence.type === "monthly") {
+        const dayOfMonth = options.recurrence.dayOfMonth || 1;
+        
+        if (isWeb) {
+          const timeoutId = setTimeout(() => {
+            notifyFallback("Monthly reminder", body);
+          }, 30 * DAY_MS);
+          ids.push(`web-timeout-${String(timeoutId)}`);
+          continue;
+        }
+
+        const triggerObj: any = {
+          type: Notifications.SchedulableTriggerInputTypes.MONTHLY,
+          day: dayOfMonth,
+          hour: adjusted.hour,
+          minute: adjusted.minute,
+          channelId: resolvedChannelId,
+        };
+
+        console.log("[scheduleReminderBatch] [Native Monthly Recurrence] Scheduling request:", {
+          kind: options.kind,
+          itemId: options.itemId,
+          title: options.title,
+          day: dayOfMonth,
+          hour: adjusted.hour,
+          minute: adjusted.minute,
+          channelId: resolvedChannelId,
+        });
+
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: options.kind === "habit" ? "Daily habit reminder" : "Todo reminder",
+            body,
+            data,
+          },
+          trigger: triggerObj,
+        });
+        console.log("[scheduleReminderBatch] [Native Monthly Recurrence] Expo Notification Scheduled. ID:", notificationId);
+        ids.push(notificationId);
+        continue;
+      }
     }
 
     if (!options.dailyTime) {

@@ -24,6 +24,7 @@ type SwipeableCardProps = {
   onEdit?: () => void;
   onDelete?: () => void;
   swipeThreshold?: number;
+  disabled?: boolean;
 };
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -48,6 +49,7 @@ export function SwipeableCard({
   onEdit,
   onDelete,
   swipeThreshold = 80,
+  disabled = false,
 }: SwipeableCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -75,9 +77,11 @@ export function SwipeableCard({
   const gesture = Gesture.Pan()
     .activeOffsetX([-20, 20])
     .onStart(() => {
+      if (disabled) return;
       startX.value = translateX.value;
     })
     .onUpdate((event) => {
+      if (disabled) return;
       let val = startX.value + event.translationX;
       
       // Rubber-band resistance past snap offset
@@ -99,6 +103,7 @@ export function SwipeableCard({
       }
     })
     .onEnd((event) => {
+      if (disabled) return;
       if (event.translationX > swipeThreshold && onSwipeRight) {
         // Animate out to right, complete task, and snap back
         translateX.value = withSpring(SCREEN_WIDTH * 0.4, SNAP_SPRING, () => {
@@ -130,7 +135,9 @@ export function SwipeableCard({
       }
     });
 
-  const composedGesture = Gesture.Exclusive(gesture, tapGesture);
+  const composedGesture = disabled
+    ? tapGesture
+    : Gesture.Exclusive(gesture, tapGesture);
 
   const cardStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],

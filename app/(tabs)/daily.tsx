@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -30,24 +30,14 @@ import { Spacing } from "@/constants/spacing";
 import { Colors } from "@/constants/theme";
 import { Typography } from "@/constants/typography";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useUndo } from "@/components/ui/UndoContext";
+import * as Haptics from "expo-haptics";
 import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
 import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
-import { DAILY_STORAGE_KEY } from "@/services/storage";
-
-export type Habit = {
-  id: string;
-  title: string;
-  streak: number;
-  bestStreak: number;
-  completedToday: boolean;
-  lastCompletedDate?: string;
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[]; // 0 = Sunday .. 6 = Saturday
-  notificationIds?: string[];
-  escalationMinutes?: number[];
-  priority?: "low" | "medium" | "high";
-};
+import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { addStateListener, emitStateChange } from "@/services/stateEvents";
+import { TaskEditorSheet } from "@/components/TaskEditorSheet";
+import { type TaskList, type Habit } from "@/modules/types";
 
 type DailyPayload = {
   dailyHabits: Habit[];
@@ -153,8 +143,10 @@ const addMinutesToTime = (
 };
 
 export default function DailyScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
+  const { showToast } = useUndo();
   const params = useLocalSearchParams<{
     focusItemId?: string;
     focusItemType?: string;
@@ -180,18 +172,25 @@ export default function DailyScreen() {
 
   const celebrateDateRef = useRef<string | null>(null);
   const habitListRef = useRef<FlatList<Habit>>(null);
+  const [workspaces, setWorkspaces] = useState<TaskList[]>([]);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
 
-  const completedCount = useMemo(
-    () => habits.filter((habit) => habit.completedToday).length,
+  const activeHabits = useMemo(
+    () => habits.filter((h) => !h.archived),
     [habits],
   );
-  const unfinishedCount = habits.length - completedCount;
+
+  const completedCount = useMemo(
+    () => activeHabits.filter((habit) => habit.completedToday).length,
+    [activeHabits],
+  );
+  const unfinishedCount = activeHabits.length - completedCount;
   const completionPct =
-    habits.length === 0 ? 0 : completedCount / habits.length;
+    activeHabits.length === 0 ? 0 : completedCount / activeHabits.length;
   const completionPctLabel = Math.round(completionPct * 100);
   const longestStreak = useMemo(
-    () => habits.reduce((max, habit) => Math.max(max, habit.bestStreak), 0),
-    [habits],
+    () => activeHabits.reduce((max, habit) => Math.max(max, habit.bestStreak || 0), 0),
+    [activeHabits],
   );
 
   const getPriorityWeight = (priority?: string) => {
@@ -202,10 +201,10 @@ export default function DailyScreen() {
 
   const displayedHabits = useMemo(() => {
     const filtered = selectedHabitPriorityFilter === "all"
-      ? habits
-      : habits.filter((habit) => habit.priority === selectedHabitPriorityFilter);
+      ? activeHabits
+      : activeHabits.filter((habit) => habit.priority === selectedHabitPriorityFilter);
     return [...filtered].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [habits, selectedHabitPriorityFilter]);
+  }, [activeHabits, selectedHabitPriorityFilter]);
 
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
     try {
@@ -270,10 +269,45 @@ export default function DailyScreen() {
     }
   }, [persistHabits]);
 
+  const loadWorkspaces = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.lists && parsed.lists.length > 0) {
+          setWorkspaces(parsed.lists);
+          return;
+        }
+      }
+      setWorkspaces([{ id: "default", name: "My Pebbles", emoji: "📂" }]);
+    } catch {
+      setWorkspaces([{ id: "default", name: "My Pebbles", emoji: "📂" }]);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadHabits();
+      void loadWorkspaces();
+    }, [loadHabits, loadWorkspaces])
+  );
+
   useEffect(() => {
     initializeNotifications();
     loadHabits();
-  }, [initializeNotifications, loadHabits]);
+    loadWorkspaces();
+
+    const unsubscribe = addStateListener("habits_changed", () => {
+      loadHabits();
+    });
+    const unsubscribeTasks = addStateListener("tasks_changed", () => {
+      loadWorkspaces();
+    });
+    return () => {
+      unsubscribe();
+      unsubscribeTasks();
+    };
+  }, [initializeNotifications, loadHabits, loadWorkspaces]);
 
   useEffect(() => {
     if (!focusHabitId) {
@@ -333,7 +367,7 @@ export default function DailyScreen() {
     };
   }, [persistHabits]);
 
-  const addHabit = () => {
+  const addHabit = async () => {
     const trimmed = title.trim();
     if (!trimmed) {
       return;
@@ -346,26 +380,94 @@ export default function DailyScreen() {
       bestStreak: 0,
       completedToday: false,
       priority: selectedHabitPriority,
+      category: "health",
+      createdAt: Date.now(),
+      createdDate: getDateKey(),
     };
 
-    setHabits((current) => {
-      const updated = [next, ...current];
-      persistHabits(updated);
-      return updated;
-    });
+    const updated = [next, ...habits];
+    setHabits(updated);
+    await persistHabits(updated);
+    showToast("✓ Habit added to Health");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setTitle("");
     setSelectedHabitPriority("medium");
+    emitStateChange("habits_changed");
   };
 
   const deleteHabit = async (id: string) => {
     const target = habits.find((habit) => habit.id === id);
     await cancelNotifications(target?.notificationIds ?? []);
 
-    setHabits((current) => {
-      const updated = current.filter((habit) => habit.id !== id);
-      persistHabits(updated);
-      return updated;
-    });
+    const updated = habits.filter((habit) => habit.id !== id);
+    setHabits(updated);
+    await persistHabits(updated);
+    emitStateChange("habits_changed");
+  };
+
+  const handleSaveEditedHabit = async (updated: Habit) => {
+    let notificationIds = updated.notificationIds || [];
+    
+    const original = habits.find(h => h.id === updated.id);
+    const reminderChanged =
+      updated.reminderHour !== original?.reminderHour ||
+      updated.reminderMinute !== original?.reminderMinute ||
+      JSON.stringify(updated.reminderDays || []) !== JSON.stringify(original?.reminderDays || []) ||
+      JSON.stringify(updated.recurrence) !== JSON.stringify(original?.recurrence);
+
+    if (reminderChanged) {
+      await cancelNotifications(original?.notificationIds ?? []);
+      notificationIds = [];
+
+      if (updated.reminderHour !== undefined && updated.reminderMinute !== undefined) {
+        let reminderDays: number[] | undefined = undefined;
+        if (updated.recurrence) {
+          if (updated.recurrence.type === "weekdays") {
+            reminderDays = [1, 2, 3, 4, 5];
+          } else if (updated.recurrence.type === "weekly") {
+            reminderDays = updated.recurrence.days;
+          }
+        }
+
+        try {
+          const scheduled = await scheduleReminderBatch({
+            kind: "habit",
+            itemId: updated.id,
+            title: updated.title,
+            dailyTime: { hour: updated.reminderHour, minute: updated.reminderMinute },
+            dailyDays: reminderDays,
+            recurrence: updated.recurrence || undefined,
+            escalationMinutes: [120, 240],
+            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+            context: {
+              title: updated.title,
+              remainingCount: 1,
+              totalCount: 1,
+              streak: updated.streak,
+              bestStreak: updated.bestStreak,
+            },
+          });
+          notificationIds = scheduled.ids;
+        } catch (e) {
+          console.error("Failed to reschedule habit reminder:", e);
+        }
+      }
+    }
+
+    const finalHabit = {
+      ...updated,
+      notificationIds,
+    };
+
+    const nextHabits = habits.map((h) => (h.id === finalHabit.id ? finalHabit : h));
+    setHabits(nextHabits);
+    await persistHabits(nextHabits);
+
+    emitStateChange("habits_changed");
+  };
+
+  const handleDeleteEditedHabit = async (id: string) => {
+    await deleteHabit(id);
   };
 
   const toggleHabit = (id: string) => {
@@ -772,16 +874,6 @@ export default function DailyScreen() {
                     colorScheme={colorScheme}
                     onToggleHabit={() => toggleHabit(item.id)}
                     onDeleteHabit={() => deleteHabit(item.id)}
-                    reminderMenuVisible={reminderMenuHabitId === item.id}
-                    onToggleReminderMenu={() =>
-                      setReminderMenuHabitId((curr) =>
-                        curr === item.id ? null : item.id,
-                      )
-                    }
-                    onSetReminder={(hour, minute, days) =>
-                      setReminderWithDays(item.id, hour, minute, days)
-                    }
-                    onClearReminder={() => clearReminder(item.id)}
                     highlightedHabitId={highlightedHabitId}
                   />
                 )}

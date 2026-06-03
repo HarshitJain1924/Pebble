@@ -23,6 +23,18 @@ export interface WorkspaceSuggestionResult {
   confidence: "High Match" | "Medium Match" | "Low Match" | "No Match";
 }
 
+const KEYWORD_WORKSPACE_MAP: Record<string, string> = {
+  "kubernetes": "devops",
+  "docker": "devops",
+  "aws": "devops",
+  "react": "development",
+  "gym": "fitness",
+  "workout": "fitness",
+  "exam": "study",
+  "dsa": "study",
+  "leetcode": "study"
+};
+
 const STOP_WORDS = new Set([
   "study", "solve", "buy", "update", "doctor", "appointment", "meeting", "call", "get", "make", "find",
   "and", "the", "a", "an", "to", "for", "in", "on", "at", "with", "of", "from", "by", "about"
@@ -93,6 +105,9 @@ export async function getWorkspaceSuggestions(
 
   const history = await loadWorkspaceHistory();
   const taskKeywords = extractKeywords(taskTitle);
+
+  console.log(`[SUGGESTION AUDIT] Task Title: "${taskTitle}" | Category: "${category}"`);
+  console.log(`  - History length: ${history.length}`);
 
   const results: WorkspaceSuggestionResult[] = workspaces.map((ws) => {
     let titleScore = 0;
@@ -181,7 +196,17 @@ export async function getWorkspaceSuggestions(
     // --- 5. Topic-Based Match Score Boost (Max: 40) ---
     const topicScore = getTopicMatchScore(taskTitle, ws.name, wsTasks);
 
-    const totalScore = titleScore + topicScore + categoryScore + recentScore + frequencyScore;
+    // --- 6. Explicit Keyword Weighted Matching (Boost: +55) ---
+    let keywordScore = 0;
+    const taskLower = taskTitle.toLowerCase();
+    for (const [kw, wsNameKeyword] of Object.entries(KEYWORD_WORKSPACE_MAP)) {
+      if (taskLower.includes(kw) && ws.name.toLowerCase().includes(wsNameKeyword)) {
+        keywordScore = 55;
+        break;
+      }
+    }
+
+    const totalScore = titleScore + topicScore + categoryScore + recentScore + frequencyScore + keywordScore;
     const finalScore = Math.min(100, totalScore);
 
     // Set match confidence
@@ -193,6 +218,15 @@ export async function getWorkspaceSuggestions(
     } else if (finalScore >= 15) {
       confidence = "Low Match";
     }
+
+    console.log(`[SUGGESTION AUDIT] Workspace: "${ws.name}" (ID: ${ws.id})`);
+    console.log(`  - Title Score: ${titleScore}`);
+    console.log(`  - Topic Score: ${topicScore}`);
+    console.log(`  - Category Score: ${categoryScore}`);
+    console.log(`  - Recent Score: ${recentScore}`);
+    console.log(`  - Frequency Score: ${frequencyScore}`);
+    console.log(`  - Keyword Score: ${keywordScore}`);
+    console.log(`  - Total Score: ${totalScore} -> Final: ${finalScore} (${confidence})`);
 
     return {
       workspaceId: ws.id,
@@ -211,3 +245,5 @@ export const WorkspaceMatcher = {
   loadWorkspaceHistory,
   detectTaskTopic,
 };
+
+export { detectTaskTopic };

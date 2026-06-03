@@ -8,8 +8,6 @@ import { Platform,
   StyleSheet,
   View,
   Modal,
-  
-  
   KeyboardAvoidingView,
   ScrollView,
   TouchableOpacity } from "react-native";
@@ -37,6 +35,13 @@ import { scheduleReminderBatch } from "@/services/reminders";
 import { TimeSelectorDial } from "@/components/TimeSelectorDial";
 import * as Haptics from "expo-haptics";
 import { emitStateChange } from "@/services/stateEvents";
+import { parseProductivityText } from "@/services/nlpParser";
+import { getRecurrenceLabel } from "@/services/recurrence";
+import { getWorkspaceSuggestions } from "@/services/workspaceSuggestions";
+import { loadQuickSuggestions } from "@/services/quickSuggestions";
+import { useUndo } from "@/components/ui/UndoContext";
+import { useVoiceCapture } from "@/hooks/useVoiceCapture";
+import { VoiceCaptureButton } from "@/components/VoiceCaptureButton";
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -60,9 +65,19 @@ export default function TabLayout() {
   const [quickAddVisible, setQuickAddVisible] = useState(false);
   const [activeSegment, setActiveSegment] = useState<"task" | "habit">("task");
   const [taskTitle, setTaskTitle] = useState("");
+  const { showToast } = useUndo();
+  const [parsedItem, setParsedItem] = useState<any>(null);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const blurTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [taskDescription, setTaskDescription] = useState("");
   const [taskTags, setTaskTags] = useState<string[]>([]);
   const [folders, setFolders] = useState<any[]>([]);
+  const [quickSuggestions, setQuickSuggestions] = useState<string[]>([
+    "Gym every weekday at 7am",
+    "Study Kubernetes tomorrow at 8pm",
+    "Drink water every 2 hours",
+    "Pay rent every month on the 1st",
+  ]);
   const [selectedFolderId, setSelectedFolderId] = useState<string>("default");
   const [selectedPriority, setSelectedPriority] = useState<"low" | "medium" | "high">("medium");
   const [selectedQuickAddDate, setSelectedQuickAddDate] = useState<string>(getDateKey());
@@ -82,11 +97,148 @@ export default function TabLayout() {
     const today = new Date();
     return { year: today.getFullYear(), month: today.getMonth() };
   });
+
+  // Voice Capture Hook Integration
+  const {
+    status: voiceStatus,
+    volume: voiceVolume,
+    errorMsg: voiceError,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useVoiceCapture({
+    onTranscriptComplete: (finalText) => {
+      setTaskTitle(finalText);
+    },
+    onTranscriptChange: (interimText) => {
+      setTaskTitle(interimText);
+    },
+  });
+
+  // Debounced NLP parsing for Quick Add
+  useEffect(() => {
+    const trimmed = taskTitle.trim();
+    if (!trimmed) {
+      setParsedItem(null);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(async () => {
+      const parsed = parseProductivityText(trimmed);
+      setParsedItem(parsed);
+
+      if (parsed.confidence >= 0.7) {
+        if (parsed.type === "habit" && activeSegment !== "habit") {
+          setActiveSegment("habit");
+        } else if (parsed.type === "task" && activeSegment !== "task") {
+          setActiveSegment("task");
+        }
+      }
+
+      if (parsed.type === "task") {
+        if (parsed.date) setSelectedQuickAddDate(parsed.date);
+        if (parsed.time) {
+          setSelectedQuickAddTime(parsed.time);
+          setEnableReminder(true);
+        }
+        if (parsed.priority) setSelectedPriority(parsed.priority);
+        if (parsed.recurrence) {
+          setSelectedRepeat(parsed.recurrence.type === "weekdays" ? "daily" : (parsed.recurrence.type as any));
+        }
+
+        // Auto workspace suggestions
+        try {
+          const suggestions = await getWorkspaceSuggestions(
+            parsed.title,
+            parsed.category || "work",
+            folders,
+            {}
+          );
+          const top = suggestions[0];
+          if (top && top.score >= 70) {
+            setSelectedFolderId(top.workspaceId);
+          }
+        } catch (e) {
+          // ignore
+        }
+      } else if (parsed.type === "habit") {
+        if (parsed.priority) setSelectedPriority(parsed.priority);
+        if (parsed.recurrence) {
+          setSelectedRepeat(parsed.recurrence.type === "weekdays" ? "daily" : (parsed.recurrence.type as any));
+        }
+        if (parsed.time) {
+          setSelectedQuickAddTime(parsed.time);
+          setEnableReminder(true);
+        }
+        // Auto workspace suggestions for habits
+        try {
+          const suggestions = await getWorkspaceSuggestions(
+            parsed.title,
+            parsed.category || "health",
+            folders,
+            {}
+          );
+          const top = suggestions[0];
+          if (top && top.score >= 70) {
+            setSelectedFolderId(top.workspaceId);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }, 250);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [taskTitle, activeSegment, folders]);
+
   const quickAddSheetRef = useRef<BottomSheetModal>(null);
   
+  const loadSmartSuggestions = async (currentFolders: any[]) => {
+    try {
+      const [tasksRaw, habitsRaw] = await Promise.all([
+        AsyncStorage.getItem(TODOS_STORAGE_KEY),
+        AsyncStorage.getItem(DAILY_STORAGE_KEY),
+      ]);
+      const allTasks: any[] = [];
+      if (tasksRaw) {
+        const parsed = JSON.parse(tasksRaw);
+        if (parsed.todos) {
+          Object.values(parsed.todos as Record<string, any[]>).forEach((list) => {
+            allTasks.push(...list);
+          });
+        }
+      }
+      const allHabits: any[] = habitsRaw
+        ? (JSON.parse(habitsRaw).dailyHabits ?? [])
+        : [];
+      const suggestions = await loadQuickSuggestions({
+        tasks: allTasks,
+        habits: allHabits,
+        workspaces: currentFolders,
+      });
+      if (suggestions.length > 0) setQuickSuggestions(suggestions);
+    } catch {
+      // keep current suggestions on error
+    }
+  };
+
   const openQuickAdd = () => {
     setQuickAddVisible(true);
-    loadFolders();
+    // Load folders first, then generate smart suggestions from live data
+    AsyncStorage.getItem(TODOS_STORAGE_KEY).then((raw) => {
+      let currentFolders: any[] = [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.lists?.length > 0) currentFolders = parsed.lists;
+      }
+      setFolders(currentFolders);
+      setSelectedFolderId(
+        raw ? (JSON.parse(raw).selectedList || currentFolders[0]?.id || "default") : "default"
+      );
+      void loadSmartSuggestions(currentFolders);
+    }).catch(() => {
+      void loadSmartSuggestions([]);
+    });
     quickAddSheetRef.current?.present();
   };
 
@@ -181,6 +333,10 @@ export default function TabLayout() {
       setSearchWorkspaceQuery("");
       setSearchTagsQuery("");
       setShowAdvancedOptions(false);
+      cancelRecording();
+      // Reset focus state so next session starts fresh
+      if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current);
+      setIsInputFocused(false);
     }
   };
 
@@ -204,47 +360,83 @@ export default function TabLayout() {
         todos[selectedFolderId] = [];
       }
 
+      const titleToSave = parsedItem ? parsedItem.title : trimmed;
+      const descToSave = taskDescription.trim() || undefined;
+      const priorityToSave = parsedItem?.priority || selectedPriority;
+      const dateToSave = parsedItem?.date || selectedQuickAddDate;
+      const timeToSave = parsedItem?.time || selectedQuickAddTime;
+      const recurrenceToSave = parsedItem?.recurrence;
+
       let alarmTime: number | undefined;
       let notificationIds: string[] = [];
       let alarmId: string | undefined;
 
-      if (selectedQuickAddTime && enableReminder && selectedQuickAddDate !== "inbox") {
-        const [hours, minutes] = selectedQuickAddTime.split(":").map(Number);
-        const [year, monthVal, dayVal] = selectedQuickAddDate.split("-").map(Number);
-        const alarmDate = new Date(year, monthVal - 1, dayVal, hours, minutes, 0, 0);
+      if (timeToSave && dateToSave !== "inbox") {
+        if (recurrenceToSave) {
+          try {
+            const scheduled = await scheduleReminderBatch({
+              kind: "todo",
+              itemId: String(Date.now()),
+              title: titleToSave,
+              category: parsedItem?.category || "work",
+              dailyTime: {
+                hour: Number(timeToSave.split(":")[0]),
+                minute: Number(timeToSave.split(":")[1]),
+              },
+              recurrence: recurrenceToSave,
+              escalationMinutes: [120, 240],
+              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+              context: {
+                title: titleToSave,
+                remainingCount: 1,
+                totalCount: 1,
+              },
+            });
+            alarmId = scheduled.primaryId;
+            notificationIds = scheduled.ids;
+          } catch (e) {
+            console.error("Failed to schedule Quick Add recurring task reminder:", e);
+          }
+        } else {
+          const [hours, minutes] = timeToSave.split(":").map(Number);
+          const [year, monthVal, dayVal] = dateToSave.split("-").map(Number);
+          const alarmDate = new Date(year, monthVal - 1, dayVal, hours, minutes, 0, 0);
 
-        if (alarmDate.getTime() > Date.now()) {
-          const batch = await scheduleReminderBatch({
-            kind: "todo",
-            itemId: String(Date.now()),
-            title: trimmed,
-            oneTimeAt: alarmDate,
-            category: "work",
-            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-          });
-          alarmTime = batch.alarmTime;
-          notificationIds = batch.ids;
-          alarmId = batch.primaryId;
+          if (alarmDate.getTime() > Date.now()) {
+            const batch = await scheduleReminderBatch({
+              kind: "todo",
+              itemId: String(Date.now()),
+              title: titleToSave,
+              oneTimeAt: alarmDate,
+              category: parsedItem?.category || "work",
+              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+            });
+            alarmTime = batch.alarmTime;
+            notificationIds = batch.ids;
+            alarmId = batch.primaryId;
+          }
         }
       }
 
       const newTask = {
         id: String(Date.now()),
-        title: trimmed,
-        description: taskDescription.trim() || undefined,
+        title: titleToSave,
+        description: descToSave,
         tags: taskTags.length > 0 ? taskTags : undefined,
         completed: false,
         folderId: selectedFolderId,
-        category: "work",
-        priority: selectedPriority,
-        scheduledDate: selectedQuickAddDate,
+        category: parsedItem?.category || "work",
+        priority: priorityToSave,
+        scheduledDate: dateToSave,
         alarmTime,
         notificationIds,
         alarmId,
-        reminderHour: selectedQuickAddTime ? Number(selectedQuickAddTime.split(":")[0]) : undefined,
-        reminderMinute: selectedQuickAddTime ? Number(selectedQuickAddTime.split(":")[1]) : undefined,
+        reminderHour: timeToSave ? Number(timeToSave.split(":")[0]) : undefined,
+        reminderMinute: timeToSave ? Number(timeToSave.split(":")[1]) : undefined,
         durationMinutes: selectedDuration || undefined,
-        repeatType: selectedRepeat !== "none" ? selectedRepeat : undefined,
+        recurrence: recurrenceToSave || (selectedRepeat !== "none" ? { type: selectedRepeat } : undefined),
+        createdAt: Date.now(),
+        createdDate: getDateKey(),
       };
 
       todos[selectedFolderId] = [newTask, ...todos[selectedFolderId]];
@@ -254,11 +446,14 @@ export default function TabLayout() {
         JSON.stringify({ lists, selectedList: selectedFolderId, todos })
       );
 
-      // Standard rewards & haptics
+      // Standard rewards & haptics & toasts
       await addXp(10).catch(() => {});
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       void recordDailyHistorySnapshot();
       emitStateChange("tasks_changed");
+
+      const wsName = lists.find((l) => l.id === selectedFolderId)?.name || "My Pebbles";
+      showToast(`✓ Task added to ${wsName}`);
 
       closeQuickAdd();
     } catch (e) {
@@ -279,13 +474,67 @@ export default function TabLayout() {
         if (parsed.dailyHabits) dailyHabits = parsed.dailyHabits;
       }
 
+      const titleToSave = parsedItem ? parsedItem.title : trimmed;
+      const priorityToSave = parsedItem?.priority || selectedPriority;
+      const recurrenceToSave = parsedItem?.recurrence;
+      
+      let reminderDays: number[] | undefined = undefined;
+      if (recurrenceToSave) {
+        if (recurrenceToSave.type === "weekdays") {
+          reminderDays = [1, 2, 3, 4, 5];
+        } else if (recurrenceToSave.type === "weekly") {
+          reminderDays = recurrenceToSave.days;
+        }
+      }
+
+      let hour: number | undefined;
+      let minute: number | undefined;
+      let notificationIds: string[] = [];
+
+      if (parsedItem?.time) {
+        hour = Number(parsedItem.time.split(":")[0]);
+        minute = Number(parsedItem.time.split(":")[1]);
+
+        try {
+          const scheduled = await scheduleReminderBatch({
+            kind: "habit",
+            itemId: `habit-${Date.now()}`,
+            title: titleToSave,
+            dailyTime: { hour, minute },
+            dailyDays: reminderDays,
+            recurrence: recurrenceToSave || undefined,
+            escalationMinutes: [120, 240],
+            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+            context: {
+              title: titleToSave,
+              remainingCount: 1,
+              totalCount: 1,
+              streak: 0,
+              bestStreak: 0,
+            },
+          });
+          notificationIds = scheduled.ids;
+        } catch (e) {
+          console.error("Failed to schedule quick-add habit reminder:", e);
+        }
+      }
+
       const newHabit = {
         id: `habit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: trimmed,
+        title: titleToSave,
         streak: 0,
         bestStreak: 0,
         completedToday: false,
-        priority: selectedPriority,
+        priority: priorityToSave,
+        category: parsedItem?.category || "health",
+        folderId: selectedFolderId,
+        reminderDays,
+        reminderHour: hour,
+        reminderMinute: minute,
+        recurrence: recurrenceToSave || (selectedRepeat !== "none" ? { type: selectedRepeat } : undefined),
+        notificationIds,
+        createdAt: Date.now(),
+        createdDate: getDateKey(),
       };
 
       dailyHabits = [...dailyHabits, newHabit];
@@ -295,10 +544,14 @@ export default function TabLayout() {
         JSON.stringify({ dailyHabits })
       );
 
-      // Standard rewards & haptics
+      // Standard rewards & haptics & toasts
       await addXp(5).catch(() => {});
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       void recordDailyHistorySnapshot();
+      emitStateChange("habits_changed");
+
+      const catLabel = TASK_CATEGORY_META.find((c) => c.key === (newHabit.category || "health"))?.label || "Health";
+      showToast(`✓ Habit added to ${catLabel}`);
 
       closeQuickAdd();
     } catch (e) {
@@ -511,25 +764,7 @@ export default function TabLayout() {
             ),
           }}
         />
-        <Tabs.Screen
-          name="lists"
-          options={{
-            title: "Lists",
-            tabBarIcon: ({ color, focused }) => (
-              <View style={{ alignItems: "center" }}>
-                <Feather name="list" size={focused ? 22 : 20} color={color} />
-                {focused && (
-                  <View
-                    style={[
-                      navStyles.activeDot,
-                      { backgroundColor: theme.primary },
-                    ]}
-                  />
-                )}
-              </View>
-            ),
-          }}
-        />
+
         <Tabs.Screen
           name="settings"
           options={{
@@ -650,17 +885,26 @@ export default function TabLayout() {
               paddingVertical: 12,
               gap: 8,
               marginBottom: 16,
+              position: "relative",
             }}
           >
             <BottomSheetTextInput
               style={{ color: theme.text, fontSize: 16, fontWeight: "600", padding: 0 }}
               value={taskTitle}
               onChangeText={setTaskTitle}
-              placeholder={activeSegment === "task" ? "What would you like to do?" : "E.g. Drink water, Gym, Study..."}
+              placeholder={voiceStatus === "listening" ? "Listening..." : (activeSegment === "task" ? "What would you like to do?" : "E.g. Drink water, Gym, Study...")}
               placeholderTextColor={theme.textMuted}
               autoCorrect={false}
               maxLength={70}
-              autoFocus={true}
+              autoFocus={voiceStatus !== "listening"}
+              onFocus={() => {
+                if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current);
+                setIsInputFocused(true);
+              }}
+              onBlur={() => {
+                // Delay hiding chips so suggestion chip onPress can fire first
+                blurTimeoutRef.current = setTimeout(() => setIsInputFocused(false), 200);
+              }}
             />
             {activeSegment === "task" && (
               <BottomSheetTextInput
@@ -674,9 +918,134 @@ export default function TabLayout() {
                 maxLength={200}
               />
             )}
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 8, gap: 16 }}>
+              {taskTitle.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setTaskTitle("")}
+                  style={{
+                    width: 44,
+                    height: 44,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  hitSlop={12}
+                >
+                  <Feather name="x-circle" size={20} color={theme.textMuted} />
+                </TouchableOpacity>
+              )}
+              <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                <VoiceCaptureButton
+                  status={voiceStatus}
+                  volume={voiceVolume}
+                  onStart={startRecording}
+                  onStop={stopRecording}
+                  onCancel={cancelRecording}
+                  themePrimary={theme.primary}
+                />
+              </View>
+            </View>
           </View>
 
-                     {/* Minimal Toolbar Row */}
+          {voiceError ? (
+            <View style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              marginTop: -8,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: "rgba(239, 68, 68, 0.15)",
+            }}>
+              <Feather name="alert-circle" size={13} color="#EF4444" />
+              <Text style={{ fontSize: 12, fontWeight: "600", color: "#EF4444" }}>{voiceError}</Text>
+            </View>
+          ) : null}
+
+          {/* Quick suggestions — 2×2 grid, no gesture conflicts */}
+          {taskTitle.trim() === "" && (
+            <View style={{ marginBottom: 16 }}>
+              <Text style={{
+                color: theme.textMuted,
+                fontSize: 10,
+                fontWeight: "700",
+                marginBottom: 8,
+                letterSpacing: 0.5,
+              }}>
+                💡 QUICK SUGGESTIONS
+              </Text>
+              <View style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 8,
+              }}>
+                {quickSuggestions.slice(0, 4).map((sug) => {
+                  const icon = (() => {
+                    const s = sug.toLowerCase();
+                    if (s.includes("gym") || s.includes("workout") || s.includes("run") || s.includes("walk") || s.includes("stretch") || s.includes("yoga") || s.includes("pushup")) return "🏋️";
+                    if (s.includes("water") || s.includes("drink") || s.includes("vitamin")) return "💧";
+                    if (s.includes("sleep") || s.includes("bed") || s.includes("screen")) return "😴";
+                    if (s.includes("meditat") || s.includes("mindful") || s.includes("journal")) return "🧘";
+                    if (s.includes("read") || s.includes("book") || s.includes("page")) return "📚";
+                    if (s.includes("study") || s.includes("kubernetes") || s.includes("docker") || s.includes("course") || s.includes("tutorial")) return "💻";
+                    if (s.includes("leetcode") || s.includes("dsa") || s.includes("coding") || s.includes("practice")) return "🧩";
+                    if (s.includes("assignment") || s.includes("college") || s.includes("revise")) return "📝";
+                    if (s.includes("plan") || s.includes("review") || s.includes("inbox") || s.includes("deep work")) return "📋";
+                    if (s.includes("rent") || s.includes("budget") || s.includes("expense") || s.includes("invest")) return "💰";
+                    if (s.includes("meal") || s.includes("track") || s.includes("diet")) return "🥗";
+                    if (s.includes("call") || s.includes("friend") || s.includes("family")) return "👋";
+                    return "✨";
+                  })();
+                  return (
+                    <TouchableOpacity
+                      key={sug}
+                      onPress={() => {
+                        if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        setTaskTitle(sug);
+                      }}
+                      style={{
+                        width: "48%" as any,
+                        minHeight: 52,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderRadius: 14,
+                        backgroundColor: isLight ? "#F8FAFC" : "#27272A",
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ fontSize: 18, lineHeight: 22 }}>{icon}</Text>
+                      <Text
+                        style={{
+                          color: theme.text,
+                          fontSize: 11,
+                          fontWeight: "600",
+                          flex: 1,
+                          lineHeight: 15,
+                        }}
+                        numberOfLines={2}
+                      >
+                        {sug}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+
+          {/* Lightweight NLP Preview Card */}
+
+          {/* Minimal Toolbar Row */}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 12, paddingHorizontal: 4 }}>
               {/* Date Button */}
               <TouchableOpacity
@@ -758,98 +1127,6 @@ export default function TabLayout() {
                 })()}
               </TouchableOpacity>
             </View>
-
-            {/* Advanced Options Toggle Link */}
-            {activeSegment === "task" && (
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setShowAdvancedOptions(!showAdvancedOptions);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingVertical: 6,
-                  paddingHorizontal: 4,
-                  alignSelf: "flex-start",
-                  gap: 4,
-                  marginBottom: 12,
-                }}
-              >
-                <Text style={{ color: theme.primary, fontSize: 12, fontWeight: "700" }}>
-                  {showAdvancedOptions ? "Hide Advanced Options" : "Advanced Options"}
-                </Text>
-                <Feather
-                  name={showAdvancedOptions ? "chevron-up" : "chevron-down"}
-                  size={14}
-                  color={theme.primary}
-                />
-              </TouchableOpacity>
-            )}
-
-            {/* Collapsible Advanced Options Section */}
-            {showAdvancedOptions && activeSegment === "task" && (
-              <View
-                style={{
-                  flexDirection: "row",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  marginBottom: 16,
-                  paddingHorizontal: 4,
-                  paddingTop: 8,
-                  borderTopWidth: 1,
-                  borderTopColor: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.05)",
-                }}
-              >
-                {/* Tags Button */}
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    setTagsPickerVisible(true);
-                  }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 12,
-                    backgroundColor: isLight ? "#F1F5F9" : "#27272A",
-                    gap: 6,
-                  }}
-                >
-                  <Feather name="tag" size={14} color={theme.primary} />
-                  <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
-                    {taskTags.length > 0 ? `#${taskTags.join(", ")}` : "Tags"}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* More Indicator if active */}
-                {(selectedDuration || selectedRepeat !== "none") && (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      borderRadius: 12,
-                      backgroundColor: `${theme.primary}12`,
-                      borderColor: theme.primary,
-                      borderWidth: 1,
-                      gap: 6,
-                    }}
-                  >
-                    <Feather name="more-horizontal" size={14} color={theme.primary} />
-                    <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
-                      {selectedDuration ? `${selectedDuration}m` : ""}
-                      {selectedDuration && selectedRepeat !== "none" ? " · " : ""}
-                      {selectedRepeat !== "none" ? selectedRepeat : ""}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Actions Panel */}
             <View style={modalStyles.actionsContainer}>
               <TouchableOpacity
                 activeOpacity={0.8}
@@ -866,7 +1143,14 @@ export default function TabLayout() {
               <TouchableOpacity
                 activeOpacity={0.8}
                 disabled={!taskTitle.trim()}
-                onPress={activeSegment === "task" ? handleCreateTask : handleCreateHabit}
+                onPress={() => {
+                  const resolvedType = parsedItem?.type || activeSegment;
+                  if (resolvedType === "habit") {
+                    handleCreateHabit();
+                  } else {
+                    handleCreateTask();
+                  }
+                }}
                 style={[
                   modalStyles.actionButton,
                   {
@@ -876,7 +1160,7 @@ export default function TabLayout() {
                 ]}
               >
                 <Text style={[modalStyles.btnText, { color: "#FFFFFF", fontWeight: "700" }]}>
-                  Create {activeSegment === "task" ? "Task" : "Habit"}
+                  Create {(parsedItem?.type || activeSegment) === "habit" ? "Habit" : "Task"}
                 </Text>
               </TouchableOpacity>
             </View>

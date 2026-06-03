@@ -55,6 +55,9 @@ interface TodoItemProps {
   onDeleteTodo: () => void;
   onEditTodo?: () => void;
   onLayout?: (event: LayoutChangeEvent) => void;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }
 
 export function TodoItem({
@@ -68,6 +71,9 @@ export function TodoItem({
   onDeleteTodo,
   onEditTodo,
   onLayout,
+  isSelectionMode = false,
+  isSelected = false,
+  onSelect,
 }: TodoItemProps) {
   const category = getTaskCategoryMeta(normalizeTaskCategory(item.category));
   const overdueTagBg = overdue ? "rgba(245, 158, 11, 0.08)" : "transparent";
@@ -84,6 +90,7 @@ export function TodoItem({
     <SwipeableCard
       onSwipeRight={onToggleTodo}
       onSwipeLeft={onDeleteTodo}
+      disabled={isSelectionMode}
     >
       <View onLayout={onLayout}>
         <AppCard
@@ -103,11 +110,21 @@ export function TodoItem({
           {/* Parent Task Main Info Row */}
           <View style={styles.todoMainRow}>
             <View style={styles.todoLeft}>
-              <AnimatedCheckbox
-                checked={item.completed}
-                onToggle={onToggleTodo}
-              />
-              <Pressable onPress={onEditTodo} style={styles.todoTexts}>
+              {isSelectionMode ? (
+                <Pressable onPress={onSelect} style={{ padding: 4 }}>
+                  <Feather
+                    name={isSelected ? "check-circle" : "circle"}
+                    size={18}
+                    color={isSelected ? colors.primary : colors.textMuted}
+                  />
+                </Pressable>
+              ) : (
+                <AnimatedCheckbox
+                  checked={item.completed}
+                  onToggle={onToggleTodo}
+                />
+              )}
+              <Pressable onPress={isSelectionMode ? onSelect : onEditTodo} style={styles.todoTexts}>
                 <Text
                   style={[
                     styles.todoTitle,
@@ -230,17 +247,19 @@ export function TodoItem({
               </Pressable>
             </View>
 
-            <Pressable
-              onPress={onEditTodo}
-              hitSlop={8}
-              style={{ padding: 4 }}
-            >
-              <Feather
-                name="edit-2"
-                size={16}
-                color={colors.textMuted}
-              />
-            </Pressable>
+            {!isSelectionMode && (
+              <Pressable
+                onPress={onEditTodo}
+                hitSlop={8}
+                style={{ padding: 4 }}
+              >
+                <Feather
+                  name="edit-2"
+                  size={16}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+            )}
           </View>
         </AppCard>
       </View>

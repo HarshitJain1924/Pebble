@@ -1,7 +1,7 @@
 import { AppText as Text, AppTextInput as TextInput } from "@/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -40,6 +40,7 @@ import { styles } from "@/constants/taskStyles";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { pluginManager } from "@/plugin";
+import { useUndo } from "@/components/ui/UndoContext";
 import { type ParsedProductivityItem } from "@/services/nlpParser";
 import { getNotificationLogs } from "@/services/notificationsLog";
 import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
@@ -69,6 +70,7 @@ import {
 } from "@/services/taskCategories";
 import { syncWidgetData } from "@/services/widgetData";
 import * as Haptics from "expo-haptics";
+import { isRecurringOccurrenceForDate, getRecurrenceLabel } from "@/services/recurrence";
 
 import { WorkspaceModal } from "../../modules/workspaces/WorkspaceModal";
 import { WorkspaceGrid } from "../../modules/workspaces/WorkspaceGrid";
@@ -206,8 +208,10 @@ const addMinutesToTime = (
 };
 
 export default function TasksScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
+  const isDark = colorScheme === "dark";
 
   // Search parameters for deep link highlight and segment initialization
   const params = useLocalSearchParams<{
@@ -254,6 +258,9 @@ export default function TasksScreen() {
 
   // Tasks Screen State
   const [searchQuery, setSearchQuery] = useState("");
+  const [isBulkSelectActive, setIsBulkSelectActive] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
   const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
   const [folderModalVisible, setFolderModalVisible] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -281,6 +288,7 @@ export default function TasksScreen() {
   >("all");
 
   const [editingTask, setEditingTask] = useState<Todo | null>(null);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
 
   const [expandedTodoIds, setExpandedTodoIds] = useState<
     Record<string, boolean>
@@ -374,12 +382,12 @@ export default function TasksScreen() {
   // Task Memos
   // Task Memos
   const currentTodos = useMemo(
-    () => todos[selectedList] ?? [],
+    () => (todos[selectedList] ?? []).filter((t) => !t.archived),
     [todos, selectedList],
   );
 
   const filteredTodos = useMemo(() => {
-    const raw = todos[selectedList] ?? [];
+    const raw = (todos[selectedList] ?? []).filter((t) => !t.archived);
     if (searchQuery.trim() === "") return raw;
     return raw.filter((todo) => {
       const matchesTitle = todo.title
@@ -388,13 +396,16 @@ export default function TasksScreen() {
       const matchesDesc =
         todo.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         false;
-      const matchesTags =
-        todo.tags?.some((tag) =>
-          tag.toLowerCase().includes(searchQuery.toLowerCase()),
-        ) || false;
-      return matchesTitle || matchesDesc || matchesTags;
+      const matchesCategory =
+        todo.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        false;
+      const wsName = lists.find((l) => l.id === todo.folderId)?.name || "";
+      const matchesWorkspace = wsName.toLowerCase().includes(searchQuery.toLowerCase());
+      const recLabel = getRecurrenceLabel(todo.recurrence) || "";
+      const matchesRecurrence = recLabel.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesTitle || matchesDesc || matchesCategory || matchesWorkspace || matchesRecurrence;
     });
-  }, [todos, selectedList, searchQuery]);
+  }, [todos, selectedList, searchQuery, lists]);
 
   const isOverdue = (todo: Todo) => {
     if (todo.completed) return false;
@@ -434,12 +445,11 @@ export default function TasksScreen() {
   ]);
 
   const todayTodos = useMemo(() => {
-    let filtered = filteredTodos.filter(
-      (todo) =>
-        todo.scheduledDate !== "inbox" &&
-        !isOverdue(todo) &&
-        getTodoDateKey(todo) === selectedDate,
-    );
+    let filtered = filteredTodos.filter((todo) => {
+      if (todo.scheduledDate === "inbox") return false;
+      if (isOverdue(todo)) return false;
+      return isRecurringOccurrenceForDate(todo, selectedDate);
+    });
     if (selectedCategoryFilter !== "all") {
       filtered = filtered.filter(
         (todo) => todo.category === selectedCategoryFilter,
@@ -489,6 +499,8 @@ export default function TasksScreen() {
     selectedDate,
   ]);
 
+  const { showUndo, showToast } = useUndo();
+
   const inboxTodos = useMemo(() => {
     let filtered = filteredTodos.filter(
       (todo) => todo.scheduledDate === "inbox",
@@ -528,6 +540,10 @@ export default function TasksScreen() {
     const dayOfWeek = selDate.getDay();
 
     const activeHabits = habits.filter((habit) => {
+      if (habit.archived) return false;
+      if (habit.recurrence) {
+        return isRecurringOccurrenceForDate(habit, selectedDate);
+      }
       return (
         !habit.reminderDays ||
         habit.reminderDays.length === 0 ||
@@ -545,14 +561,21 @@ export default function TasksScreen() {
     const searchFiltered =
       searchQuery.trim() === ""
         ? filtered
-        : filtered.filter((h) =>
-            h.title.toLowerCase().includes(searchQuery.toLowerCase()),
-          );
+        : filtered.filter((h) => {
+            const matchesTitle = h.title.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesDesc = h.description?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
+            const matchesCategory = h.category?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
+            const wsName = lists.find((l) => l.id === h.folderId)?.name || "";
+            const matchesWorkspace = wsName.toLowerCase().includes(searchQuery.toLowerCase());
+            const recLabel = getRecurrenceLabel(h.recurrence) || "";
+            const matchesRecurrence = recLabel.toLowerCase().includes(searchQuery.toLowerCase());
+            return matchesTitle || matchesDesc || matchesCategory || matchesWorkspace || matchesRecurrence;
+          });
 
     return [...searchFiltered].sort(
       (a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority),
     );
-  }, [habits, selectedListHabitPriorityFilter, selectedDate, searchQuery]);
+  }, [habits, selectedListHabitPriorityFilter, selectedDate, searchQuery, lists]);
 
   const completedHabitCount = habits.length - unfinishedHabitCount;
   const habitCompletionPct =
@@ -604,7 +627,6 @@ export default function TasksScreen() {
 
   // Load States on Tab/Screen Focus
   const loadState = useCallback(async () => {
-    console.log("=== LOAD STATE START ===");
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (!raw) {
@@ -641,23 +663,11 @@ export default function TasksScreen() {
       if (parsed?.todos) {
         const normalizedTodos = Object.fromEntries(
           Object.entries(parsed.todos).map(([listId, listTodos]) => {
-            console.log(`\nWorkspace Key: "${listId}"`);
             const normalized = listTodos.map((todo) => {
-              console.log(`Task Title: "${todo.title}"`);
-              console.log(`Task folderId: "${todo.folderId || "undefined"}"`);
-              if (todo.folderId && todo.folderId !== listId) {
-                console.warn(
-                  `[MISMATCH FLAGGED] ⚠️ Workspace Key "${listId}" does not match Task folderId "${todo.folderId}"! (Auto-Healed)`,
-                );
-              } else {
-                console.log(
-                  `[MATCH VERIFIED] ✓ Workspace Key and Task folderId are in sync.`,
-                );
-              }
               return {
                 ...todo,
                 category: normalizeTaskCategory(todo.category),
-                folderId: listId, // Force/sanitize folderId to match dictionary key!
+                folderId: listId,
               };
             });
             return [listId, normalized];
@@ -712,7 +722,7 @@ export default function TasksScreen() {
     } catch {
       // ignore
     } finally {
-      console.log("=== LOAD STATE END ===");
+      // state loaded
     }
   }, [openedFolderId]);
 
@@ -753,7 +763,32 @@ export default function TasksScreen() {
       let notificationIds: string[] = [];
       let alarmId: string | undefined;
 
-      if (parsed.time && parsed.date) {
+      if (parsed.time && parsed.recurrence) {
+        try {
+          const scheduled = await scheduleReminderBatch({
+            kind: "todo",
+            itemId: String(Date.now()),
+            title: parsed.title,
+            category: parsed.category || DEFAULT_TASK_CATEGORY,
+            dailyTime: {
+              hour: Number(parsed.time.split(":")[0]),
+              minute: Number(parsed.time.split(":")[1]),
+            },
+            recurrence: parsed.recurrence,
+            escalationMinutes: [120, 240],
+            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+            context: {
+              title: parsed.title,
+              remainingCount: 1,
+              totalCount: 1,
+            },
+          });
+          alarmId = scheduled.primaryId;
+          notificationIds = scheduled.ids;
+        } catch (e) {
+          console.error("Failed to schedule NLP recurring task reminder:", e);
+        }
+      } else if (parsed.time && parsed.date) {
         const [hours, minutes] = parsed.time.split(":").map(Number);
         const [year, monthVal, dayVal] = parsed.date
           .split("-")
@@ -819,14 +854,11 @@ export default function TasksScreen() {
         reminderMinute: parsed.time
           ? Number(parsed.time.split(":")[1])
           : undefined,
+        recurrence: parsed.recurrence,
         folderId: destinationWorkspaceId,
+        createdAt: Date.now(),
+        createdDate: getDateKey(),
       };
-
-      const totalBefore = Object.values(todos).reduce(
-        (sum, list) => sum + list.length,
-        0,
-        );
-      console.log("TASK COUNT BEFORE", totalBefore);
 
       setTodos((current) => {
         const listTodos = current[destinationWorkspaceId] ?? [];
@@ -835,15 +867,11 @@ export default function TasksScreen() {
           [destinationWorkspaceId]: [newTodo, ...listTodos],
         };
         persistState(lists, selectedList, updated);
-
-        const totalAfter = Object.values(updated).reduce(
-          (sum, list) => sum + list.length,
-          0,
-        );
-        console.log("TASK COUNT AFTER", totalAfter);
-
         return updated;
       });
+
+      const wsName = lists.find((l) => l.id === destinationWorkspaceId)?.name || "My Pebbles";
+      showToast(`✓ Task added to ${wsName}`);
 
       emitStateChange("tasks_changed");
 
@@ -855,16 +883,18 @@ export default function TasksScreen() {
         await loadSuggestions();
       }
     } else {
-      const reminderDays =
-        parsed.recurrence === "weekdays"
-          ? [1, 2, 3, 4, 5]
-          : parsed.recurrence === "weekends"
-            ? [0, 6]
-            : [];
-
       const hour = parsed.time ? Number(parsed.time.split(":")[0]) : undefined;
       const minute = parsed.time ? Number(parsed.time.split(":")[1]) : undefined;
       let notificationIds: string[] = [];
+
+      let reminderDays: number[] | undefined = undefined;
+      if (parsed.recurrence) {
+        if (parsed.recurrence.type === "weekdays") {
+          reminderDays = [1, 2, 3, 4, 5];
+        } else if (parsed.recurrence.type === "weekly") {
+          reminderDays = parsed.recurrence.days;
+        }
+      }
 
       if (hour !== undefined && minute !== undefined) {
         try {
@@ -873,7 +903,8 @@ export default function TasksScreen() {
             itemId: `habit-${Date.now()}`,
             title: parsed.title,
             dailyTime: { hour, minute },
-            dailyDays: reminderDays.length > 0 ? reminderDays : undefined,
+            dailyDays: reminderDays,
+            recurrence: parsed.recurrence,
             escalationMinutes: [120, 240],
             channelId: Platform.OS === "android" ? "daily-habits" : undefined,
             context: {
@@ -897,17 +928,23 @@ export default function TasksScreen() {
         bestStreak: 0,
         completedToday: false,
         priority: parsed.priority || "medium",
-        reminderDays: reminderDays.length > 0 ? reminderDays : undefined,
+        reminderDays,
         reminderHour: hour,
         reminderMinute: minute,
+        recurrence: parsed.recurrence,
         notificationIds,
+        category: parsed.category || "health",
+        folderId: targetWorkspaceId || "default",
+        createdAt: Date.now(),
+        createdDate: getDateKey(),
       };
 
-      setHabits((current) => {
-        const updated = [newHabit, ...current];
-        persistHabits(updated);
-        return updated;
-      });
+      const updated = [newHabit, ...habits];
+      setHabits(updated);
+      await persistHabits(updated);
+
+      const catLabel = TASK_CATEGORY_META.find((c) => c.key === (newHabit.category || "health"))?.label || "Health";
+      showToast(`✓ Habit added to ${catLabel}`);
 
       emitStateChange("habits_changed");
 
@@ -919,6 +956,71 @@ export default function TasksScreen() {
     void recordDailyHistorySnapshot();
   };
 
+  const handleSaveEditedHabit = async (updated: Habit) => {
+    let notificationIds = updated.notificationIds || [];
+    
+    const original = habits.find(h => h.id === updated.id);
+    const reminderChanged =
+      updated.reminderHour !== original?.reminderHour ||
+      updated.reminderMinute !== original?.reminderMinute ||
+      JSON.stringify(updated.reminderDays || []) !== JSON.stringify(original?.reminderDays || []) ||
+      JSON.stringify(updated.recurrence) !== JSON.stringify(original?.recurrence);
+
+    if (reminderChanged) {
+      await cancelReminderIds(original?.notificationIds);
+      notificationIds = [];
+
+      if (updated.reminderHour !== undefined && updated.reminderMinute !== undefined) {
+        let reminderDays: number[] | undefined = undefined;
+        if (updated.recurrence) {
+          if (updated.recurrence.type === "weekdays") {
+            reminderDays = [1, 2, 3, 4, 5];
+          } else if (updated.recurrence.type === "weekly") {
+            reminderDays = updated.recurrence.days;
+          }
+        }
+
+        try {
+          const scheduled = await scheduleReminderBatch({
+            kind: "habit",
+            itemId: updated.id,
+            title: updated.title,
+            dailyTime: { hour: updated.reminderHour, minute: updated.reminderMinute },
+            dailyDays: reminderDays,
+            recurrence: updated.recurrence || undefined,
+            escalationMinutes: [120, 240],
+            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+            context: {
+              title: updated.title,
+              remainingCount: 1,
+              totalCount: 1,
+              streak: updated.streak,
+              bestStreak: updated.bestStreak,
+            },
+          });
+          notificationIds = scheduled.ids;
+        } catch (e) {
+          console.error("Failed to reschedule habit reminder:", e);
+        }
+      }
+    }
+
+    const finalHabit = {
+      ...updated,
+      notificationIds,
+    };
+
+    const nextHabits = habits.map((h) => (h.id === finalHabit.id ? finalHabit : h));
+    setHabits(nextHabits);
+    await persistHabits(nextHabits);
+
+    emitStateChange("habits_changed");
+  };
+
+  const handleDeleteEditedHabit = async (id: string) => {
+    await deleteHabit(id);
+  };
+
   const handleCreateWorkspaceFromNLP = (name: string): string => {
     const newId = `list-${Date.now()}`;
     const newWorkspace = {
@@ -928,13 +1030,16 @@ export default function TasksScreen() {
       icon: "grid",
       iconType: "emoji" as const,
       color: "#6366F1",
+      createdAt: Date.now(),
     };
     const updatedLists = [...lists, newWorkspace];
     const updatedTodos = { ...todos, [newId]: [] };
 
     setLists(updatedLists);
     setTodos(updatedTodos);
-    persistState(updatedLists, selectedList, updatedTodos);
+    setSelectedList(newId);
+    setOpenedFolderId(newId);
+    persistState(updatedLists, newId, updatedTodos);
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
       () => {},
@@ -1018,37 +1123,19 @@ export default function TasksScreen() {
 
   useEffect(() => {
     setSearchQuery("");
+    setIsBulkSelectActive(false);
+    setSelectedItemIds(new Set());
   }, [openedFolderId, activeSegment]);
 
-  // Log after workspace navigation
-  useEffect(() => {
-    console.log(`\n=== WORKSPACE NAVIGATION ===`);
-    console.log(`Workspace Key (selectedList): "${selectedList}"`);
-    console.log(
-      `Opened Folder ID (openedFolderId): "${openedFolderId || "null"}"`,
-    );
-    if (openedFolderId) {
-      const folder = lists.find((l) => l.id === openedFolderId);
-      console.log(`Workspace Name: "${folder?.name || "Unknown"}"`);
-    } else {
-      console.log(`Workspace Name: "Workspaces Grid (All)"`);
-    }
-    console.log(`============================\n`);
-  }, [openedFolderId, selectedList, lists]);
+
 
   // Listen for global task and habit updates to sync state immediately
   useEffect(() => {
     const unsubscribeTasks = addStateListener("tasks_changed", () => {
-      console.log(
-        "🔔 [EVENT RECEIVED] tasks_changed inside Tasks screen. Syncing state...",
-      );
       void loadState();
     });
 
     const unsubscribeHabits = addStateListener("habits_changed", () => {
-      console.log(
-        "🔔 [EVENT RECEIVED] habits_changed inside Tasks screen. Syncing state...",
-      );
       void loadHabits();
     });
 
@@ -1058,15 +1145,7 @@ export default function TasksScreen() {
     };
   }, [loadState, loadHabits]);
 
-  // Diagnostics: Run on every single render to print the currently visible task count
-  useEffect(() => {
-    const visibleTaskCount =
-      overdueTodos.length +
-      todayTodos.length +
-      upcomingTodos.length +
-      inboxTodos.length;
-    console.log("VISIBLE TASK COUNT", visibleTaskCount);
-  });
+
 
   // Alarms highlight scroll triggers
   useEffect(() => {
@@ -1178,37 +1257,32 @@ export default function TasksScreen() {
     if (!newTask.title || newTask.title.trim() === "") return;
 
     const targetFolderId = newTask.folderId || selectedList || "default";
-
-    const totalBefore = Object.values(todos).reduce(
-      (sum, list) => sum + list.length,
-      0,
-    );
-    console.log("TASK COUNT BEFORE", totalBefore);
+    const taskWithCreatedAt = {
+      ...newTask,
+      createdAt: newTask.createdAt || Date.now(),
+    };
 
     setTodos((current) => {
       const listTodos = current[targetFolderId] ?? [];
       const updated = {
         ...current,
         [targetFolderId]: [
-          { ...newTask, folderId: targetFolderId },
+          { ...taskWithCreatedAt, folderId: targetFolderId },
           ...listTodos,
         ],
       };
       persistState(lists, selectedList, updated);
       void syncWidgetData().catch(() => {});
-
-      const totalAfter = Object.values(updated).reduce(
-        (sum, list) => sum + list.length,
-        0,
-      );
-      console.log("TASK COUNT AFTER", totalAfter);
-
       return updated;
     });
 
+    const wsName = lists.find((l) => l.id === targetFolderId)?.name || "My Pebbles";
+    showToast(`✓ Task added to ${wsName}`);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
     emitStateChange("tasks_changed");
 
-    pluginManager.dispatchTaskCreated(newTask);
+    pluginManager.dispatchTaskCreated(taskWithCreatedAt);
     setAddingTask(null);
   };
 
@@ -1498,6 +1572,9 @@ export default function TasksScreen() {
       bestStreak: 0,
       completedToday: false,
       priority: selectedHabitPriority,
+      category: selectedTodoCategory || "health",
+      createdAt: Date.now(),
+      createdDate: getDateKey(),
     };
 
     setHabits((current) => {
@@ -1506,6 +1583,9 @@ export default function TasksScreen() {
       void syncWidgetData().catch(() => {});
       return updated;
     });
+
+    const catLabel = TASK_CATEGORY_META.find((c) => c.key === (next.category || "health"))?.label || "Health";
+    showToast(`✓ Habit added to ${catLabel}`);
     setHabitTitle("");
     setSelectedHabitPriority("medium");
   };
@@ -1607,6 +1687,187 @@ export default function TasksScreen() {
     emitStateChange("tasks_changed");
   };
 
+  const handleBulkComplete = async () => {
+    const isTask = activeSegment === "tasks";
+    if (isTask) {
+      setTodos((current) => {
+        const next = { ...current };
+        for (const listId in next) {
+          next[listId] = next[listId].map((t) => {
+            if (selectedItemIds.has(t.id)) {
+              return { ...t, completed: true, lastUpdated: getDateKey() };
+            }
+            return t;
+          });
+        }
+        persistState(lists, selectedList, next);
+        return next;
+      });
+      emitStateChange("tasks_changed");
+    } else {
+      const today = getDateKey();
+      const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
+      setHabits((current) => {
+        const next = current.map((h) => {
+          if (selectedItemIds.has(h.id)) {
+            let nextStreak = 1;
+            if (h.lastCompletedDate === today) {
+              nextStreak = h.streak || 1;
+            } else if (h.lastCompletedDate === yesterday) {
+              nextStreak = h.streak + 1;
+            }
+            return {
+              ...h,
+              completedToday: true,
+              lastCompletedDate: today,
+              streak: nextStreak,
+              bestStreak: Math.max(h.bestStreak, nextStreak),
+              lastUpdated: today,
+            };
+          }
+          return h;
+        });
+        persistHabits(next);
+        return next;
+      });
+      emitStateChange("habits_changed");
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setIsBulkSelectActive(false);
+    setSelectedItemIds(new Set());
+  };
+
+  const handleBulkArchive = async () => {
+    const isTask = activeSegment === "tasks";
+    if (isTask) {
+      setTodos((current) => {
+        const next = { ...current };
+        for (const listId in next) {
+          next[listId] = next[listId].map((t) => {
+            if (selectedItemIds.has(t.id)) {
+              void cancelReminderIds(t.notificationIds || []);
+              return { ...t, archived: true, notificationIds: [], lastUpdated: getDateKey() };
+            }
+            return t;
+          });
+        }
+        persistState(lists, selectedList, next);
+        return next;
+      });
+      emitStateChange("tasks_changed");
+    } else {
+      setHabits((current) => {
+        const next = current.map((h) => {
+          if (selectedItemIds.has(h.id)) {
+            void cancelReminderIds(h.notificationIds || []);
+            return { ...h, archived: true, notificationIds: [], lastUpdated: getDateKey() };
+          }
+          return h;
+        });
+        persistHabits(next);
+        return next;
+      });
+      emitStateChange("habits_changed");
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setIsBulkSelectActive(false);
+    setSelectedItemIds(new Set());
+  };
+
+  const handleBulkDelete = () => {
+    Alert.alert(
+      "Delete Selected",
+      `Are you sure you want to permanently delete the ${selectedItemIds.size} selected item(s)?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const isTask = activeSegment === "tasks";
+            if (isTask) {
+              setTodos((current) => {
+                const next = { ...current };
+                for (const listId in next) {
+                  next[listId] = next[listId].filter((t) => {
+                    if (selectedItemIds.has(t.id)) {
+                      void cancelReminderIds(t.notificationIds || []);
+                      return false;
+                    }
+                    return true;
+                  });
+                }
+                persistState(lists, selectedList, next);
+                return next;
+              });
+              emitStateChange("tasks_changed");
+            } else {
+              setHabits((current) => {
+                const next = current.filter((h) => {
+                  if (selectedItemIds.has(h.id)) {
+                    void cancelReminderIds(h.notificationIds || []);
+                    return false;
+                  }
+                  return true;
+                });
+                persistHabits(next);
+                return next;
+              });
+              emitStateChange("habits_changed");
+            }
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+            setIsBulkSelectActive(false);
+            setSelectedItemIds(new Set());
+          },
+        },
+      ]
+    );
+  };
+
+  const handleBulkMove = async (targetFolderId: string) => {
+    setIsMoveModalVisible(false);
+    const isTask = activeSegment === "tasks";
+    if (isTask) {
+      setTodos((current) => {
+        const next = { ...current };
+        const itemsToMove: Todo[] = [];
+        for (const listId in next) {
+          const itemsToKeep: Todo[] = [];
+          next[listId].forEach((t) => {
+            if (selectedItemIds.has(t.id)) {
+              itemsToMove.push({ ...t, folderId: targetFolderId, lastUpdated: getDateKey() });
+            } else {
+              itemsToKeep.push(t);
+            }
+          });
+          next[listId] = itemsToKeep;
+        }
+        if (!next[targetFolderId]) {
+          next[targetFolderId] = [];
+        }
+        next[targetFolderId] = [...itemsToMove, ...next[targetFolderId]];
+        persistState(lists, selectedList, next);
+        return next;
+      });
+      emitStateChange("tasks_changed");
+    } else {
+      setHabits((current) => {
+        const next = current.map((h) => {
+          if (selectedItemIds.has(h.id)) {
+            return { ...h, folderId: targetFolderId, lastUpdated: getDateKey() };
+          }
+          return h;
+        });
+        persistHabits(next);
+        return next;
+      });
+      emitStateChange("habits_changed");
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setIsBulkSelectActive(false);
+    setSelectedItemIds(new Set());
+  };
+
 
 
 
@@ -1614,13 +1875,7 @@ export default function TasksScreen() {
   return (
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor: colors.background }]}
-      onStartShouldSetResponderCapture={(evt) => {
-        console.log("TOUCH CAPTURE: screen touched at", {
-          x: evt.nativeEvent.locationX,
-          y: evt.nativeEvent.locationY,
-        });
-        return false; // Let events bubble down to children
-      }}
+
     >
       <Animated.View
         entering={FadeInDown.duration(450).springify()}
@@ -1705,31 +1960,53 @@ export default function TasksScreen() {
                     );
                   })()}
 
-                  <Pressable
-                    onPress={() => {
-                      const folder = lists.find(
-                        (l) => l.id === openedFolderId,
-                      ) as any;
-                      if (folder) {
-                        setEditingFolderId(folder.id);
-                        setFolderModalVisible(true);
-                      }
-                    }}
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: colors.cardLight,
-                    }}
-                  >
-                    <Feather
-                      name="sliders"
-                      size={16}
-                      color={colors.textMuted}
-                    />
-                  </Pressable>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      onPress={() => {
+                        setIsBulkSelectActive(!isBulkSelectActive);
+                        setSelectedItemIds(new Set());
+                      }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: isBulkSelectActive ? `${colors.primary}22` : colors.cardLight,
+                      }}
+                    >
+                      <Feather
+                        name={isBulkSelectActive ? "x" : "check-square"}
+                        size={16}
+                        color={isBulkSelectActive ? colors.primary : colors.textMuted}
+                      />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        const folder = lists.find(
+                          (l) => l.id === openedFolderId,
+                        ) as any;
+                        if (folder) {
+                          setEditingFolderId(folder.id);
+                          setFolderModalVisible(true);
+                        }
+                      }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: colors.cardLight,
+                      }}
+                    >
+                      <Feather
+                        name="sliders"
+                        size={16}
+                        color={colors.textMuted}
+                      />
+                    </Pressable>
+                  </View>
                 </View>
 
                 {/* Tasks Search Bar inside Workspace */}
@@ -1786,21 +2063,46 @@ export default function TasksScreen() {
                   hasUnreadNotifs={hasUnreadNotifs}
                   showProfile={false}
                   showNotifications={false}
+                  showArchive={true}
                 />
 
-                {/* Segment Selector */}
-                <View style={{ marginVertical: 4 }}>
-                  <SegmentedSwitcher
-                    options={[
-                      { key: "tasks", label: "Workspaces" },
-                      { key: "habits", label: "All Habits" },
-                    ]}
-                    activeKey={activeSegment}
-                    onChange={(val) => {
-                      setActiveSegment(val as any);
-                      setSearchQuery(""); // Clear search when switching tabs
-                    }}
-                  />
+                {/* Segment Selector Row */}
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 4, gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <SegmentedSwitcher
+                      options={[
+                        { key: "tasks", label: "Workspaces" },
+                        { key: "habits", label: "All Habits" },
+                      ]}
+                      activeKey={activeSegment}
+                      onChange={(val) => {
+                        setActiveSegment(val as any);
+                        setSearchQuery(""); // Clear search when switching tabs
+                      }}
+                    />
+                  </View>
+                  {activeSegment === "habits" && (
+                    <Pressable
+                      onPress={() => {
+                        setIsBulkSelectActive(!isBulkSelectActive);
+                        setSelectedItemIds(new Set());
+                      }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: isBulkSelectActive ? `${colors.primary}22` : colors.cardLight,
+                      }}
+                    >
+                      <Feather
+                        name={isBulkSelectActive ? "x" : "check-square"}
+                        size={16}
+                        color={isBulkSelectActive ? colors.primary : colors.textMuted}
+                      />
+                    </Pressable>
+                  )}
                 </View>
 
                 {/* Heuristic Quick NLP Capture Pill */}
@@ -1933,8 +2235,6 @@ export default function TasksScreen() {
                   {/* Add task bar */}
                   <Pressable
                     onPress={() => {
-                      console.log("STEP 1: Add button pressed");
-                      console.log("STEP 2: Setting addingTask");
                       setAddingTask({
                         id: String(Date.now()),
                         title: "",
@@ -1943,6 +2243,7 @@ export default function TasksScreen() {
                         priority: "medium",
                         scheduledDate: getDateKey(),
                         folderId: openedFolderId || "default",
+                        createdAt: Date.now(),
                       });
                     }}
                   >
@@ -1982,13 +2283,21 @@ export default function TasksScreen() {
                     onToggleTodo={toggleTodo}
                     onDeleteTodo={deleteTodo}
                     onEditTodo={(todo) => {
-                      console.log("STEP 1: Edit button pressed");
-                      console.log("STEP 2: Setting editingTask");
-                      setEditingTask(todo);
+                      router.push(`/task-details?id=${todo.id}&type=task&date=${selectedDate}`);
                     }}
                     onSetAlarm={setAlarmMenu}
                     onTaskLayout={(todoId, y) => {
                       setTaskPositions((prev) => ({ ...prev, [todoId]: y }));
+                    }}
+                    isSelectionMode={isBulkSelectActive}
+                    selectedItemIds={selectedItemIds}
+                    onToggleSelectItem={(id) => {
+                      setSelectedItemIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      });
                     }}
                   />
                 </ScrollView>
@@ -2182,6 +2491,17 @@ export default function TasksScreen() {
                   toggleHabit={toggleHabit}
                   deleteHabit={deleteHabit}
                   unfinishedHabitCount={unfinishedHabitCount}
+                  isSelectionMode={isBulkSelectActive}
+                  selectedItemIds={selectedItemIds}
+                  onToggleSelectItem={(id) => {
+                    setSelectedItemIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      return next;
+                    });
+                  }}
+                  onEditHabit={(item) => setEditingHabit(item)}
                 />
               </ScrollView>
             )}
@@ -2226,6 +2546,15 @@ export default function TasksScreen() {
           onSave={addingTask ? onSaveNewTask : onSaveEditedTask}
           onDelete={editingTask ? deleteTodo : undefined}
         />
+        <TaskEditorSheet
+          task={editingHabit}
+          lists={lists}
+          mode="edit"
+          itemType="habit"
+          onClose={() => setEditingHabit(null)}
+          onSave={handleSaveEditedHabit}
+          onDelete={handleDeleteEditedHabit}
+        />
         <NLPCapture
           visible={nlpVisible}
           onClose={() => setNlpVisible(false)}
@@ -2237,43 +2566,113 @@ export default function TasksScreen() {
         />
       </Animated.View>
 
+      {/* Workspace Picker Modal for Move Action */}
+      <Modal visible={isMoveModalVisible} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <AppCard style={{ width: "100%", padding: 20, gap: 16, borderRadius: 24, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: colors.text }}>Move to Workspace</Text>
+            <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: -4 }}>
+              Select target workspace for {selectedItemIds.size} item(s):
+            </Text>
+            <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 8 }}>
+              {lists.map((ws) => (
+                <TouchableOpacity
+                  key={ws.id}
+                  onPress={() => handleBulkMove(ws.id)}
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    backgroundColor: colors.cardLight,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10
+                  }}
+                >
+                  <Text style={{ fontSize: 18 }}>{ws.emoji || "📁"}</Text>
+                  <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>{ws.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={() => setIsMoveModalVisible(false)}
+              style={{
+                alignItems: "center",
+                padding: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                marginTop: 8
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: "700" }}>Cancel</Text>
+            </TouchableOpacity>
+          </AppCard>
+        </View>
+      </Modal>
+
+      {/* Floating Bulk Actions Bar */}
+      {isBulkSelectActive && selectedItemIds.size > 0 && (
+        <View style={[localStyles.bulkBar, { backgroundColor: isDark ? "rgba(28, 28, 33, 0.95)" : "rgba(255, 255, 255, 0.95)", borderColor: colors.border }]}>
+          <TouchableOpacity onPress={handleBulkComplete} style={localStyles.bulkBtn}>
+            <Feather name="check-circle" size={18} color={colors.success} />
+            <Text style={[localStyles.bulkBtnText, { color: colors.text }]}>Complete</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleBulkArchive} style={localStyles.bulkBtn}>
+            <Feather name="archive" size={18} color={colors.warning} />
+            <Text style={[localStyles.bulkBtnText, { color: colors.text }]}>Archive</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setIsMoveModalVisible(true)} style={localStyles.bulkBtn}>
+            <Feather name="folder" size={18} color={colors.primary} />
+            <Text style={[localStyles.bulkBtnText, { color: colors.text }]}>Move</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleBulkDelete} style={localStyles.bulkBtn}>
+            <Feather name="trash-2" size={18} color={colors.error} />
+            <Text style={[localStyles.bulkBtnText, { color: colors.text }]}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Premium Floating NLP Button */}
-      <Animated.View
-        entering={FadeInDown.delay(600).duration(400)}
-        style={{
-          position: "absolute",
-          right: 20,
-          bottom: Platform.OS === "ios" ? 110 : 96,
-          zIndex: 99,
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
-              () => {},
-            );
-            setNlpVisible(true);
-          }}
-          activeOpacity={0.85}
+      {!isBulkSelectActive && (
+        <Animated.View
+          entering={FadeInDown.delay(600).duration(400)}
           style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            backgroundColor: colors.primary,
-            alignItems: "center",
-            justifyContent: "center",
-            shadowColor: colors.primary,
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.35,
-            shadowRadius: 10,
-            elevation: 8,
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.15)",
+            position: "absolute",
+            right: 20,
+            bottom: Platform.OS === "ios" ? 110 : 96,
+            zIndex: 99,
           }}
         >
-          <Feather name="zap" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      </Animated.View>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+                () => {},
+              );
+              setNlpVisible(true);
+            }}
+            activeOpacity={0.85}
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+              shadowColor: colors.primary,
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.35,
+              shadowRadius: 10,
+              elevation: 8,
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.15)",
+            }}
+          >
+            <Feather name="zap" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -2302,5 +2701,36 @@ const localStyles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     marginTop: 2,
+  },
+  bulkBar: {
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 110 : 96,
+    left: 20,
+    right: 20,
+    height: 64,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    paddingHorizontal: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 9999,
+  },
+  bulkBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    flex: 1,
+    height: "100%",
+  },
+  bulkBtnText: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
   },
 });

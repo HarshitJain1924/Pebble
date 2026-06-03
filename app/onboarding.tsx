@@ -385,7 +385,7 @@ function PebbleCaptureIllustration() {
 
       {/* Transcription Bubble */}
       <Animated.View style={[styles.transcribeBubble, bubbleStyle]}>
-        <Text style={styles.transcribeText}>"Read 10 pages today"</Text>
+        <Text style={styles.transcribeText}>{"\"Read 10 pages today\""}</Text>
       </Animated.View>
 
       {/* Structured Task Card */}
@@ -663,6 +663,62 @@ function WelcomeParticles() {
   );
 }
 
+interface OnboardingDotProps {
+  i: number;
+  scrollX: SharedValue<number>;
+  containerWidth: number;
+  isDark: boolean;
+  colors: any;
+}
+
+function OnboardingDot({ i, scrollX, containerWidth, isDark, colors }: OnboardingDotProps) {
+  const dotStyle = useAnimatedStyle(() => {
+    const width = interpolate(
+      scrollX.value,
+      [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
+      [6, 20, 6],
+      "clamp"
+    );
+    
+    const opacity = interpolate(
+      scrollX.value,
+      [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
+      [0.35, 1, 0.35],
+      "clamp"
+    );
+
+    const backgroundColor = interpolateColor(
+      scrollX.value,
+      [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
+      [
+        isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.18)",
+        colors.primary,
+        isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.18)",
+      ]
+    );
+
+    const shadowOpacity = interpolate(
+      scrollX.value,
+      [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
+      [0, 0.45, 0],
+      "clamp"
+    );
+
+    return {
+      width,
+      opacity,
+      backgroundColor,
+      shadowOpacity,
+    };
+  });
+
+  return (
+    <Animated.View
+      style={[styles.dot, dotStyle]}
+    />
+  );
+}
+
 export default function OnboardingScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -786,54 +842,16 @@ export default function OnboardingScreen() {
         {/* Bottom Pagination & Action Row */}
         <View style={styles.bottomBar}>
           <View style={styles.dotsRow}>
-            {[0, 1, 2, 3].map((i) => {
-              const dotStyle = useAnimatedStyle(() => {
-                const width = interpolate(
-                  scrollX.value,
-                  [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
-                  [6, 20, 6],
-                  "clamp"
-                );
-                
-                const opacity = interpolate(
-                  scrollX.value,
-                  [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
-                  [0.35, 1, 0.35],
-                  "clamp"
-                );
-
-                const backgroundColor = interpolateColor(
-                  scrollX.value,
-                  [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
-                  [
-                    isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.18)",
-                    colors.primary,
-                    isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.18)",
-                  ]
-                );
-
-                const shadowOpacity = interpolate(
-                  scrollX.value,
-                  [(i - 1) * containerWidth, i * containerWidth, (i + 1) * containerWidth],
-                  [0, 0.45, 0],
-                  "clamp"
-                );
-
-                return {
-                  width,
-                  opacity,
-                  backgroundColor,
-                  shadowOpacity,
-                };
-              });
-
-              return (
-                <Animated.View
-                  key={i}
-                  style={[styles.dot, dotStyle]}
-                />
-              );
-            })}
+            {[0, 1, 2, 3].map((i) => (
+              <OnboardingDot
+                key={i}
+                i={i}
+                scrollX={scrollX}
+                containerWidth={containerWidth}
+                isDark={isDark}
+                colors={colors}
+              />
+            ))}
           </View>
 
           <View style={styles.buttonRow}>

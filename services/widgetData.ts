@@ -58,7 +58,7 @@ export async function syncWidgetData(focusTimeToday = 0): Promise<WidgetPayload>
     const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
     if (rawTodos) {
       const parsed = JSON.parse(rawTodos);
-      const allTodos = Object.values(parsed.todos || {}).flat() as any[];
+      const allTodos = (Object.values(parsed.todos || {}).flat() as any[]).filter(t => !t.archived);
       totalTasks = allTodos.length;
       completedTasks = allTodos.filter((t) => t.completed).length;
     }
@@ -73,7 +73,7 @@ export async function syncWidgetData(focusTimeToday = 0): Promise<WidgetPayload>
     const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
     if (rawHabits) {
       const parsed = JSON.parse(rawHabits);
-      const allHabits = (parsed.dailyHabits || []) as any[];
+      const allHabits = ((parsed.dailyHabits || []) as any[]).filter(h => !h.archived);
       pendingHabitTitles = allHabits.filter((h) => !h.completedToday).map((h) => h.title);
       currentStreak = allHabits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
       if (pendingHabitTitles.length > 0) {

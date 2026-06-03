@@ -70,6 +70,7 @@ type Todo = {
   folderId?: string;
   description?: string;
   tags?: string[];
+  archived?: boolean;
 };
 type Habit = {
   id: string;
@@ -79,6 +80,7 @@ type Habit = {
   completedToday: boolean;
   lastCompletedDate?: string;
   priority?: "low" | "medium" | "high";
+  archived?: boolean;
 };
 
 export default function DashboardScreen() {
@@ -166,6 +168,7 @@ export default function DashboardScreen() {
         });
 
         const allTodos = rawList.filter((todo) => {
+          if (todo.archived) return false;
           if (todo.scheduledDate === "inbox") {
             return todo.completed;
           }
@@ -223,7 +226,7 @@ export default function DashboardScreen() {
 
       if (rawHabits) {
         const parsed = JSON.parse(rawHabits) as { dailyHabits: Habit[] };
-        const allHabits = parsed.dailyHabits || [];
+        const allHabits = (parsed.dailyHabits || []).filter((h) => !h.archived);
         hTotal = allHabits.length;
         hCompleted = allHabits.filter((h) => h.completedToday).length;
 
@@ -444,12 +447,10 @@ export default function DashboardScreen() {
   // Synchronize dashboard state immediately when tasks/habits are modified in other tabs/modals
   useEffect(() => {
     const unsubscribeTasks = addStateListener("tasks_changed", () => {
-      console.log("🔔 [EVENT RECEIVED] tasks_changed inside Dashboard screen. Syncing state...");
       void loadDashboardData();
     });
 
     const unsubscribeHabits = addStateListener("habits_changed", () => {
-      console.log("🔔 [EVENT RECEIVED] habits_changed inside Dashboard screen. Syncing state...");
       void loadDashboardData();
     });
 
@@ -1069,7 +1070,7 @@ export default function DashboardScreen() {
                       completedToday={false}
                       priority={habit.priority}
                       onPressToggle={() => completeHabitFromDashboard(habit.id)}
-                      onCardPress={() => router.push("/tasks?segment=habits")}
+                      onCardPress={() => router.push(`/task-details?id=${habit.id}&type=habit`)}
                     />
                   ))}
                   {displayedCompletedHabits.map((habit) => (
@@ -1081,7 +1082,7 @@ export default function DashboardScreen() {
                       completedToday={true}
                       priority={habit.priority}
                       onPressToggle={() => completeHabitFromDashboard(habit.id)}
-                      onCardPress={() => router.push("/tasks?segment=habits")}
+                      onCardPress={() => router.push(`/task-details?id=${habit.id}&type=habit`)}
                     />
                   ))}
                 </View>

@@ -1,11 +1,11 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet,  View } from "react-native";
+import React from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { AppText as Text } from "@/components/ui/AppText";
+import { useRouter } from "expo-router";
 
 import { ProgressRing } from "./ProgressRing";
 import { SwipeableCard } from "@/components/SwipeableCard";
-import { TimeSelectorDial } from "@/components/TimeSelectorDial";
 
 export type Habit = {
   id: string;
@@ -28,26 +28,17 @@ interface HabitItemProps {
   colorScheme: "light" | "dark" | null;
   onToggleHabit: () => void;
   onDeleteHabit: () => void;
-  reminderMenuVisible: boolean;
-  onToggleReminderMenu: () => void;
-  onSetReminder: (hour: number, minute: number, days?: number[]) => void;
-  onClearReminder: () => void;
   highlightedHabitId?: string | null;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }
-
-const QUICK_REMINDER_OPTIONS = [
-  { label: "7:00 AM", hour: 7, minute: 0, icon: "sunrise" },
-  { label: "12:00 PM", hour: 12, minute: 0, icon: "sun" },
-  { label: "6:00 PM", hour: 18, minute: 0, icon: "sunset" },
-  { label: "9:00 PM", hour: 21, minute: 0, icon: "moon" },
-];
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const AMBER = "#F59E0B";
 const AMBER_DIM = "#D97706";
-const AMBER_SOFT = "rgba(245,158,11,0.14)";
 
 export function HabitItem({
   item,
@@ -55,13 +46,12 @@ export function HabitItem({
   colorScheme,
   onToggleHabit,
   onDeleteHabit,
-  reminderMenuVisible,
-  onToggleReminderMenu,
-  onSetReminder,
-  onClearReminder,
   highlightedHabitId,
+  isSelectionMode = false,
+  isSelected = false,
+  onSelect,
 }: HabitItemProps) {
-  const [customPickerVisible, setCustomPickerVisible] = useState(false);
+  const router = useRouter();
   const isDark = colorScheme === "dark";
 
   const formatReminder = (hour?: number, minute?: number) => {
@@ -170,9 +160,10 @@ export function HabitItem({
       <SwipeableCard
         onSwipeRight={onToggleHabit}
         onSwipeLeft={onDeleteHabit}
+        disabled={isSelectionMode}
       >
         <Pressable
-          onPress={onToggleReminderMenu}
+          onPress={isSelectionMode ? onSelect : () => router.push(`/task-details?id=${item.id}&type=habit`)}
           style={[
             styles.habitCard,
             {
@@ -195,34 +186,44 @@ export function HabitItem({
             ]}
           />
 
-          {/* Completion ring */}
-          <Pressable onPress={onToggleHabit} style={styles.ringBtn} hitSlop={8}>
-            <ProgressRing
-              progress={item.completedToday ? 1 : 0}
-              size={40}
-              strokeWidth={3}
-              showText={false}
-              color={AMBER}
-            />
-            <View
-              style={[
-                styles.ringInner,
-                {
-                  backgroundColor: item.completedToday
-                    ? AMBER
-                    : isDark
-                    ? "rgba(245,158,11,0.08)"
-                    : "rgba(245,158,11,0.1)",
-                },
-              ]}
-            >
-              {item.completedToday ? (
-                <Feather name="check" size={14} color="#fff" />
-              ) : (
-                <Text style={styles.ringEmoji}>🔥</Text>
-              )}
-            </View>
-          </Pressable>
+          {/* Selection indicator or Completion ring */}
+          {isSelectionMode ? (
+            <Pressable onPress={onSelect} style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", marginRight: 12 }} hitSlop={8}>
+              <Feather
+                name={isSelected ? "check-circle" : "circle"}
+                size={18}
+                color={isSelected ? colors.primary : colors.textMuted}
+              />
+            </Pressable>
+          ) : (
+            <Pressable onPress={onToggleHabit} style={styles.ringBtn} hitSlop={8}>
+              <ProgressRing
+                progress={item.completedToday ? 1 : 0}
+                size={40}
+                strokeWidth={3}
+                showText={false}
+                color={AMBER}
+              />
+              <View
+                style={[
+                  styles.ringInner,
+                  {
+                    backgroundColor: item.completedToday
+                      ? AMBER
+                      : isDark
+                      ? "rgba(245,158,11,0.08)"
+                      : "rgba(245,158,11,0.1)",
+                  },
+                ]}
+              >
+                {item.completedToday ? (
+                  <Feather name="check" size={14} color="#fff" />
+                ) : (
+                  <Text style={styles.ringEmoji}>🔥</Text>
+                )}
+              </View>
+            </Pressable>
+          )}
 
           {/* Main content */}
           <View style={styles.habitContent}>
@@ -275,116 +276,6 @@ export function HabitItem({
           </View>
         </Pressable>
       </SwipeableCard>
-
-      {/* Reminder dropdown */}
-      {reminderMenuVisible && (
-        <View
-          style={[
-            styles.reminderSheet,
-            {
-              backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF",
-              borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-            },
-          ]}
-        >
-          <Text
-            style={[styles.reminderSheetTitle, { color: colors.text }]}
-          >
-            Set Reminder
-          </Text>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.quickRow}
-          >
-            {QUICK_REMINDER_OPTIONS.map((opt) => {
-              const isActive =
-                item.reminderHour === opt.hour &&
-                item.reminderMinute === opt.minute;
-              return (
-                <Pressable
-                  key={opt.label}
-                  onPress={() => onSetReminder(opt.hour, opt.minute)}
-                  style={[
-                    styles.quickPill,
-                    {
-                      backgroundColor: isActive
-                        ? AMBER_SOFT
-                        : isDark
-                        ? "rgba(255,255,255,0.06)"
-                        : "rgba(0,0,0,0.04)",
-                      borderColor: isActive ? AMBER : "transparent",
-                      borderWidth: 1,
-                    },
-                  ]}
-                >
-                  <Text style={styles.quickPillIcon}>{opt.icon === "sunrise" ? "🌅" : opt.icon === "sun" ? "☀️" : opt.icon === "sunset" ? "🌇" : "🌙"}</Text>
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      { color: isActive ? AMBER : colors.text },
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <View style={styles.reminderActions}>
-            <Pressable
-              onPress={() => setCustomPickerVisible((s) => !s)}
-              style={[
-                styles.reminderActionBtn,
-                {
-                  backgroundColor: AMBER_SOFT,
-                  borderColor: AMBER,
-                  borderWidth: 1,
-                },
-              ]}
-            >
-              <Feather name="clock" size={14} color={AMBER} />
-              <Text style={[styles.reminderActionText, { color: AMBER }]}>
-                Custom time
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={onClearReminder}
-              style={[
-                styles.reminderActionBtn,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(239,68,68,0.08)"
-                    : "rgba(239,68,68,0.06)",
-                  borderColor: "rgba(239,68,68,0.3)",
-                  borderWidth: 1,
-                },
-              ]}
-            >
-              <Feather name="x" size={14} color={colors.error} />
-              <Text style={[styles.reminderActionText, { color: colors.error }]}>
-                Clear
-              </Text>
-            </Pressable>
-          </View>
-
-          {customPickerVisible && (
-            <TimeSelectorDial
-              colors={colors}
-              initialHour={item.reminderHour ?? 7}
-              initialMinute={item.reminderMinute ?? 0}
-              initialDays={item.reminderDays ?? []}
-              onSave={(h, m, d) => {
-                onSetReminder(h, m, d);
-                setCustomPickerVisible(false);
-              }}
-              saveLabel="Apply"
-            />
-          )}
-        </View>
-      )}
     </View>
   );
 }
@@ -508,64 +399,5 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-  },
-  actions: {
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 10,
-    marginLeft: 8,
-  },
-  actionBtn: {
-    padding: 4,
-  },
-  // Reminder sheet
-  reminderSheet: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 16,
-    gap: 14,
-    marginTop: -2,
-  },
-  reminderSheetTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  quickRow: {
-    gap: 8,
-    paddingVertical: 2,
-  },
-  quickPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
-  },
-  quickPillIcon: {
-    fontSize: 15,
-    lineHeight: 18,
-  },
-  quickPillText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  reminderActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  reminderActionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  reminderActionText: {
-    fontSize: 13,
-    fontWeight: "700",
   },
 });

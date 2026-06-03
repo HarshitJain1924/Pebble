@@ -387,6 +387,9 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem(PROFILE_STORAGE_KEY),
                 AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
                 AsyncStorage.removeItem("todoapp:onboarding_completed"),
+                AsyncStorage.removeItem("todoapp:workspace:history:v1"),
+                AsyncStorage.removeItem("PEBBLE_CAPTURE_CREATION_HISTORY"),
+                AsyncStorage.removeItem("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS"),
               ]);
               emitStateChange("tasks_changed");
               emitStateChange("habits_changed");
@@ -665,6 +668,33 @@ export default function SettingsScreen() {
                 </Pressable>
               ))}
             </View>
+          </AppCard>
+        </Animated.View>
+
+        {/* Task & Habit Archive */}
+        <Animated.View entering={FadeInDown.delay(120).duration(450)}>
+          <AppCard style={styles.sectionCard}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Task & Habit Archive
+            </Text>
+            <Text style={[styles.toggleDesc, { color: colors.textMuted, marginBottom: 12, fontSize: 13, lineHeight: 18 }]}>
+              View, restore, or permanently delete items you have archived.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryButton,
+                {
+                  backgroundColor: colors.cardLight,
+                  borderColor: colors.border,
+                  borderWidth: 1,
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+              onPress={() => router.push("/archive")}
+            >
+              <Feather name="archive" size={14} color={colors.primary} />
+              <Text style={[styles.buttonText, { color: colors.text, marginLeft: 6 }]}>View Archived Items</Text>
+            </Pressable>
           </AppCard>
         </Animated.View>
 

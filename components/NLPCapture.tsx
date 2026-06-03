@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Modal,
   StyleSheet,
   View,
   TouchableOpacity,
   TextInput,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
@@ -22,8 +21,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { AppText as Text } from "@/components/ui/AppText";
 import { Colors } from "@/constants/theme";
-import { Spacing } from "@/constants/spacing";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useUndo } from "@/components/ui/UndoContext";
 import { parseProductivityText, type ParsedProductivityItem } from "@/services/nlpParser";
 import { useVoiceCapture } from "@/hooks/useVoiceCapture";
 import { VoiceCaptureButton } from "@/components/VoiceCaptureButton";
@@ -31,10 +30,10 @@ import {
   getWorkspaceSuggestions,
   addWorkspaceSelectionToHistory,
   type WorkspaceSuggestionResult,
-  detectTaskTopic,
 } from "@/services/workspaceSuggestions";
+import { detectTaskTopic } from "@/services/workspaceTopics";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 
 interface NLPCaptureProps {
   visible: boolean;
@@ -71,17 +70,18 @@ export default function NLPCapture({
   todos = {},
 }: NLPCaptureProps) {
   const colorScheme = useColorScheme();
+  const { showToast } = useUndo();
   const isDark = colorScheme === "dark";
   const theme = Colors[colorScheme ?? "dark"];
 
   const [inputText, setInputText] = useState("");
   const [parsedItem, setParsedItem] = useState<ParsedProductivityItem | null>(null);
-  const [isParsing, setIsParsing] = useState(false);
 
   // Workspace Selection State
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(currentWorkspaceId);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [hasManuallySelected, setHasManuallySelected] = useState(false);
   
   // Workspace Suggestions State
   const [topSuggestion, setTopSuggestion] = useState<WorkspaceSuggestionResult | null>(null);
@@ -90,7 +90,6 @@ export default function NLPCapture({
   // Voice Capture Hook Integration
   const {
     status: voiceStatus,
-    transcript: voiceTranscript,
     volume: voiceVolume,
     errorMsg: voiceError,
     startRecording,
@@ -105,20 +104,38 @@ export default function NLPCapture({
     },
   });
 
+  const lastVisible = React.useRef(visible);
   useEffect(() => {
-    if (visible) {
+    if (visible && !lastVisible.current) {
       setSelectedWorkspaceId(currentWorkspaceId);
       setIsCreatingWorkspace(false);
       setNewWorkspaceName("");
       setTopSuggestion(null);
-    } else {
+      setHasManuallySelected(false);
+    }
+    if (!visible && lastVisible.current) {
       cancelRecording();
     }
-  }, [visible, currentWorkspaceId]);
+    lastVisible.current = visible;
+  }, [visible, currentWorkspaceId, cancelRecording]);
+
+  useEffect(() => {
+    setHasManuallySelected(false);
+  }, [parsedItem?.title]);
+
+  // Clear/reset suggestions status when input is cleared or empty
+  useEffect(() => {
+    if (inputText.trim() === "") {
+      setHasManuallySelected(false);
+      setSelectedWorkspaceId(currentWorkspaceId);
+      setTopSuggestion(null);
+      setDetectedTopic(null);
+    }
+  }, [inputText, currentWorkspaceId]);
 
   // Live Suggestions Calculation and Smart Defaults
   useEffect(() => {
-    if (!parsedItem || parsedItem.type !== "task") {
+    if (!parsedItem) {
       setTopSuggestion(null);
       setDetectedTopic(null);
       return;
@@ -127,7 +144,7 @@ export default function NLPCapture({
     const fetchSuggestions = async () => {
       const results = await getWorkspaceSuggestions(
         parsedItem.title,
-        parsedItem.category || "work",
+        parsedItem.category || (parsedItem.type === "habit" ? "health" : "work"),
         workspaces,
         todos
       );
@@ -141,17 +158,18 @@ export default function NLPCapture({
 
         // Auto-select if score >= 70 (High Match) and no active workspace is open
         if (top.score >= 70) {
-          if (currentWorkspaceId === "default") {
+          if (currentWorkspaceId === "default" && !hasManuallySelected) {
             setSelectedWorkspaceId(top.workspaceId);
           }
         } else {
-          if (currentWorkspaceId === "default") {
+          if (currentWorkspaceId === "default" && !hasManuallySelected) {
             setSelectedWorkspaceId("default");
           }
         }
       } else {
-        setTopSuggestion(null);
-        if (currentWorkspaceId === "default") {
+        setTopSuggestion(t => top ? null : t); // Preserve topSuggestion if still typing to avoid visual flicker
+        if (!top) setTopSuggestion(null);
+        if (currentWorkspaceId === "default" && !hasManuallySelected) {
           setSelectedWorkspaceId("default");
         }
 
@@ -171,7 +189,7 @@ export default function NLPCapture({
     };
 
     fetchSuggestions();
-  }, [parsedItem, workspaces, todos, currentWorkspaceId]);
+  }, [parsedItem, workspaces, todos, currentWorkspaceId, hasManuallySelected]);
 
   const handleSaveNewWorkspace = () => {
     const trimmed = newWorkspaceName.trim();
@@ -180,6 +198,7 @@ export default function NLPCapture({
     if (onCreateWorkspace) {
       const newId = onCreateWorkspace(trimmed);
       setSelectedWorkspaceId(newId);
+      setHasManuallySelected(true);
     }
     setIsCreatingWorkspace(false);
     setNewWorkspaceName("");
@@ -201,7 +220,7 @@ export default function NLPCapture({
       setPlaceholderIndex((prev) => (prev + 1) % PLACEHOLDERS.length);
     }, 3500);
     return () => clearInterval(timer);
-  }, [visible]);
+  }, [visible, PLACEHOLDERS.length]);
 
   // Animations
   const cardScale = useSharedValue(0.9);
@@ -221,7 +240,18 @@ export default function NLPCapture({
     } else {
       cardScale.value = 0.9;
     }
-  }, [visible]);
+  }, [visible, cardScale]);
+
+  const handleParse = useCallback((triggerHaptic = true) => {
+    if (inputText.trim() === "") return;
+
+    if (triggerHaptic) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+
+    const parsed = parseProductivityText(inputText);
+    setParsedItem(parsed);
+  }, [inputText]);
 
   // Live Parsing logic as the user types
   useEffect(() => {
@@ -235,36 +265,22 @@ export default function NLPCapture({
     }, 300);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [inputText]);
-
-  const handleParse = (triggerHaptic = true) => {
-    if (inputText.trim() === "") return;
-
-    if (triggerHaptic) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    }
-
-    setIsParsing(true);
-    const parsed = parseProductivityText(inputText);
-    setParsedItem(parsed);
-    setIsParsing(false);
-  };
+  }, [inputText, handleParse]);
 
   const handleConfirm = () => {
     if (!parsedItem) return;
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     
-    if (parsedItem.type === "task") {
-      const finalWorkspaceId = selectedWorkspaceId || "default";
-      addWorkspaceSelectionToHistory(
-        parsedItem.title,
-        parsedItem.category || "work",
-        finalWorkspaceId
-      ).catch(() => {});
-    }
+    const finalWorkspaceId = selectedWorkspaceId || "default";
+    addWorkspaceSelectionToHistory(
+      parsedItem.title,
+      parsedItem.category || (parsedItem.type === "habit" ? "health" : "work"),
+      finalWorkspaceId
+    ).catch(() => {});
 
-    onSave(parsedItem, parsedItem.type === "task" ? selectedWorkspaceId : undefined);
+    console.log("[CREATE] workspace", selectedWorkspaceId);
+    onSave(parsedItem, selectedWorkspaceId);
     onClose();
   };
 
@@ -333,6 +349,7 @@ export default function NLPCapture({
     const index = workspaces.findIndex(w => w.id === selectedWorkspaceId);
     let nextIndex = index === -1 ? 0 : (index + 1) % workspaces.length;
     setSelectedWorkspaceId(workspaces[nextIndex].id);
+    setHasManuallySelected(true);
   };
 
   const getFriendlyDateLabel = (dateStr?: string) => {
@@ -368,6 +385,50 @@ export default function NLPCapture({
       return `${displayHour}:${displayMin} ${isPm ? "PM" : "AM"}`;
     } catch {
       return timeStr;
+    }
+  };
+
+  const getRecurrenceLabel = (parsed: any) => {
+    if (!parsed?.recurrence) return null;
+    const rec = parsed.recurrence;
+    switch (rec.type) {
+      case "daily":
+        return "Daily";
+      case "weekdays":
+        return "Weekdays";
+      case "weekly":
+        if (rec.days && rec.days.length > 0) {
+          const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+          if (rec.days.length === 1) {
+            return `Every ${days[rec.days[0]]}`;
+          }
+          if (rec.days.length === 2 && rec.days.includes(0) && rec.days.includes(6)) {
+            return "Every Weekend";
+          }
+          return `Weekly (${rec.days.map((d: number) => days[d].substring(0, 3)).join(", ")})`;
+        }
+        return "Weekly";
+      case "monthly":
+        if (rec.dayOfMonth) {
+          const suffix = (day: number) => {
+            if (day > 3 && day < 21) return "th";
+            switch (day % 10) {
+              case 1: return "st";
+              case 2: return "nd";
+              case 3: return "rd";
+              default: return "th";
+            }
+          };
+          return `Monthly on the ${rec.dayOfMonth}${suffix(rec.dayOfMonth)}`;
+        }
+        return "Monthly";
+      case "interval":
+        if (rec.unit === "hours") {
+          return rec.interval === 1 ? "Every Hour" : `Every ${rec.interval} Hours`;
+        }
+        return rec.interval === 1 ? "Every Day" : `Every ${rec.interval} Days`;
+      default:
+        return null;
     }
   };
 
@@ -456,13 +517,14 @@ export default function NLPCapture({
               <TouchableOpacity
                 onPress={onClose}
                 style={[styles.closeButton, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }]}
+                hitSlop={12}
               >
                 <Feather name="x" size={20} color={textPrimary} />
               </TouchableOpacity>
             </View>
 
             {/* Input Row */}
-            <View style={[styles.inputContainer, { backgroundColor: inputBg, borderColor }, inputShadow]}>
+            <View style={[styles.inputContainer, { backgroundColor: inputBg, borderColor, flexDirection: "column", alignItems: "stretch" }, inputShadow]}>
               <TextInput
                 value={inputText}
                 onChangeText={setInputText}
@@ -471,25 +533,33 @@ export default function NLPCapture({
                 multiline
                 numberOfLines={3}
                 autoFocus={voiceStatus !== "listening"}
-                style={[styles.textInput, { color: textPrimary }]}
+                style={[styles.textInput, { color: textPrimary, paddingRight: 0 }]}
               />
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-end" }}>
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 8, gap: 16 }}>
                 {inputText.length > 0 && (
                   <TouchableOpacity
                     onPress={() => setInputText("")}
-                    style={styles.clearInputBtn}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    hitSlop={12}
                   >
-                    <Feather name="x-circle" size={16} color={textMuted} />
+                    <Feather name="x-circle" size={20} color={textMuted} />
                   </TouchableOpacity>
                 )}
-                <VoiceCaptureButton
-                  status={voiceStatus}
-                  volume={voiceVolume}
-                  onStart={startRecording}
-                  onStop={stopRecording}
-                  onCancel={cancelRecording}
-                  themePrimary={theme.primary}
-                />
+                <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                  <VoiceCaptureButton
+                    status={voiceStatus}
+                    volume={voiceVolume}
+                    onStart={startRecording}
+                    onStop={stopRecording}
+                    onCancel={cancelRecording}
+                    themePrimary={theme.primary}
+                  />
+                </View>
               </View>
             </View>
 
@@ -535,41 +605,7 @@ export default function NLPCapture({
               >
                 {/* Header of Preview Card */}
                 <View style={styles.previewHeader}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View
-                      style={[
-                        styles.typeBadge,
-                        {
-                          backgroundColor:
-                            parsedItem.type === "habit"
-                              ? "rgba(245, 158, 11, 0.15)"
-                              : "rgba(59, 130, 246, 0.15)",
-                        },
-                      ]}
-                    >
-                      <Feather
-                        name={parsedItem.type === "habit" ? "activity" : "check-square"}
-                        size={12}
-                        color={parsedItem.type === "habit" ? "#F59E0B" : "#3B82F6"}
-                      />
-                      <Text
-                        style={[
-                          styles.typeBadgeText,
-                          { color: parsedItem.type === "habit" ? "#F59E0B" : "#3B82F6" },
-                        ]}
-                      >
-                        {parsedItem.type === "habit" ? "Habit" : "Task"}
-                      </Text>
-                    </View>
-                    {parsedItem.recurrence && (
-                      <View style={[styles.typeBadge, { backgroundColor: "rgba(168, 85, 247, 0.15)" }]}>
-                        <Feather name="refresh-cw" size={10} color="#A855F7" />
-                        <Text style={[styles.typeBadgeText, { color: "#A855F7" }]}>
-                          {parsedItem.recurrence}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
+                  <View />
 
                   {/* Detection Status Badge */}
                   <View
@@ -645,6 +681,16 @@ export default function NLPCapture({
                     </Text>
                   </TouchableOpacity>
 
+                  {/* Recurrence Pill */}
+                  {parsedItem.recurrence && (
+                    <View style={styles.attributeItem}>
+                      <Feather name="refresh-cw" size={14} color="#10B981" />
+                      <Text style={[styles.attributeText, { color: textPrimary }]}>
+                        Repeat: {getRecurrenceLabel(parsedItem)} 🔁
+                      </Text>
+                    </View>
+                  )}
+
                   {/* Reminder Pill */}
                   {parsedItem.reminderOffsetMinutes && (
                     <View style={styles.attributeItem}>
@@ -655,7 +701,7 @@ export default function NLPCapture({
                     </View>
                   )}
                   {/* Workspace Selector */}
-                {parsedItem.type === "task" && workspaces.length > 0 && (
+                {(parsedItem.type === "task" || parsedItem.type === "habit") && workspaces.length > 0 && (
                   <View style={styles.workspaceSelectorContainer}>
                     <Text style={[styles.workspaceLabel, { color: textMuted }]}>📂 Workspace</Text>
                     
@@ -737,13 +783,17 @@ export default function NLPCapture({
                         return (
                           <TouchableOpacity
                             onPress={() => {
-                              if (isSelected) return;
+                              const suggestion = { id: topSuggestion.workspaceId, name: suggestedWs?.name || "My Pebbles" };
+                              console.log("[SUGGESTION] pressed", suggestion);
+                              console.log("[SUGGESTION] before", selectedWorkspaceId);
+                              console.log("[SUGGESTION] after", suggestion.id);
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
                               
                               workspaceScale.value = 0.95;
                               workspaceScale.value = withSpring(1, { damping: 10, stiffness: 250 });
                               
                               setSelectedWorkspaceId(topSuggestion.workspaceId);
+                              setHasManuallySelected(true);
                             }}
                             style={[
                               styles.suggestionPill,
@@ -794,7 +844,13 @@ export default function NLPCapture({
                             if (onCreateWorkspace && detectedTopic) {
                               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
                               const newId = onCreateWorkspace(detectedTopic.friendlyName);
+                              const suggestion = { id: newId, name: detectedTopic.friendlyName };
+                              console.log("[SUGGESTION] pressed", suggestion);
+                              console.log("[SUGGESTION] before", selectedWorkspaceId);
+                              console.log("[SUGGESTION] after", suggestion.id);
                               setSelectedWorkspaceId(newId);
+                              setHasManuallySelected(true);
+                              showToast(`Workspace '${detectedTopic.friendlyName}' created and selected`);
                             }
                           }}
                           style={[
@@ -832,7 +888,7 @@ export default function NLPCapture({
                 </View>
 
                 {/* Visual Feedback Badge */}
-                {parsedItem.type === "task" && (
+                {(parsedItem.type === "task" || parsedItem.type === "habit") && (
                   <View style={styles.destinationBadge}>
                     <Text style={[styles.destinationBadgeText, { color: textMuted }]}>
                       Saving to {workspaces.find(w => w.id === selectedWorkspaceId)?.name || "My Pebbles"}
@@ -848,7 +904,9 @@ export default function NLPCapture({
                 >
                   <Feather name="plus-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
                   <Text style={styles.saveBtnText}>
-                    {parsedItem.type === "task" ? "Add to Workspace" : "Add Habit"}
+                    {(parsedItem.type === "task" || parsedItem.type === "habit") && selectedWorkspaceId !== "default"
+                      ? `Add to ${workspaces.find(w => w.id === selectedWorkspaceId)?.name || "Workspace"}`
+                      : parsedItem.type === "task" ? "Add to Workspace" : "Add Habit"}
                   </Text>
                 </TouchableOpacity>
               </Animated.View>

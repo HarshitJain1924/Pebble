@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import { Platform,
@@ -27,6 +27,8 @@ import {
   getHistoryForMonth,
   historyForDate,
 } from "@/services/productivityHistory";
+import { addStateListener } from "@/services/stateEvents";
+import { isRecurringOccurrenceForDate } from "@/services/recurrence";
 
 const getDateKey = (date = new Date()) => {
   const year = date.getFullYear();
@@ -58,6 +60,7 @@ const MONTH_NAMES = [
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function CalendarScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
@@ -120,8 +123,8 @@ export default function CalendarScreen() {
       const rawTodos = await AsyncStorage.getItem("todoapp:v1");
       if (rawTodos) {
         const state = JSON.parse(rawTodos);
-        const listTodos = Object.values(state.todos ?? {}).flat();
-        setAllTodos(listTodos as any[]);
+        const listTodos = (Object.values(state.todos ?? {}).flat() as any[]).filter(t => !t.archived);
+        setAllTodos(listTodos);
       } else {
         setAllTodos([]);
       }
@@ -129,7 +132,7 @@ export default function CalendarScreen() {
       const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
       if (rawHabits) {
         const state = JSON.parse(rawHabits);
-        const listHabits = state.dailyHabits ?? [];
+        const listHabits = (state.dailyHabits ?? []).filter((h: any) => !h.archived);
         setAllHabits(listHabits);
       } else {
         setAllHabits([]);
@@ -146,6 +149,19 @@ export default function CalendarScreen() {
       void loadDataFromStorage();
     }, [loadMonth, loadDataFromStorage, month.month, month.year])
   );
+
+  useEffect(() => {
+    const unsubTasks = addStateListener("tasks_changed", () => {
+      loadDataFromStorage();
+    });
+    const unsubHabits = addStateListener("habits_changed", () => {
+      loadDataFromStorage();
+    });
+    return () => {
+      unsubTasks();
+      unsubHabits();
+    };
+  }, [loadDataFromStorage]);
 
 
   const selectedHistory = useMemo(
@@ -173,9 +189,9 @@ export default function CalendarScreen() {
   const timelineItems = useMemo(() => {
     const tasks = allTodos
       .filter((todo) => {
-        const hasDate = todo.scheduledDate === selectedDate;
-        const hasAlarm = todo.alarmTime && getDateKey(new Date(todo.alarmTime)) === selectedDate;
-        return (hasDate || hasAlarm) && todo.scheduledDate !== "inbox";
+        const matchesDate = isRecurringOccurrenceForDate(todo, selectedDate) ||
+          (todo.alarmTime && getDateKey(new Date(todo.alarmTime)) === selectedDate);
+        return matchesDate && todo.scheduledDate !== "inbox";
       })
       .map((todo) => {
         let timeLabel = "All Day";
@@ -223,6 +239,9 @@ export default function CalendarScreen() {
 
     const habits = allHabits
       .filter((habit) => {
+        if (habit.recurrence) {
+          return isRecurringOccurrenceForDate(habit, selectedDate);
+        }
         return (
           !habit.reminderDays ||
           habit.reminderDays.length === 0 ||
@@ -806,6 +825,10 @@ export default function CalendarScreen() {
                       onPressIn={(e) => {
                         touchStartRef.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
                       }}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        router.push(`/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`);
+                      }}
                       style={[
                         styles.allDayCard,
                         {
@@ -910,6 +933,10 @@ export default function CalendarScreen() {
                       }}
                       onPressIn={(e) => {
                         touchStartRef.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+                      }}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        router.push(`/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`);
                       }}
                       style={[
                         styles.timedBlockCard,

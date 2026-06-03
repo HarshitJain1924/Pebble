@@ -22,11 +22,13 @@ type HabitLike = {
   completedToday: boolean;
   streak?: number;
   bestStreak?: number;
+  archived?: boolean;
 };
 
 type TodoLike = {
   title: string;
   completed: boolean;
+  archived?: boolean;
 };
 
 type TodosState = {
@@ -82,8 +84,8 @@ export async function getTodaySummary() {
     loadTodosState(),
     loadDailyState(),
   ]);
-  const habits = dailyState.dailyHabits ?? [];
-  const todos = Object.values(todosState.todos ?? {}).flat();
+  const habits = (dailyState.dailyHabits ?? []).filter((h) => !h.archived);
+  const todos = Object.values(todosState.todos ?? {}).flat().filter((t) => !t.archived);
 
   const completedHabits = habits.filter((habit) => habit.completedToday).length;
   const completedTodos = todos.filter((todo) => todo.completed).length;
@@ -109,8 +111,8 @@ export async function recordDailyHistorySnapshot() {
     AsyncStorage.getItem(HISTORY_STORAGE_KEY),
   ]);
 
-  const habits = dailyState.dailyHabits ?? [];
-  const todos = Object.values(todosState.todos ?? {}).flat();
+  const habits = (dailyState.dailyHabits ?? []).filter((h) => !h.archived);
+  const todos = Object.values(todosState.todos ?? {}).flat().filter((t) => !t.archived);
   const completedHabits = habits.filter((habit) => habit.completedToday).length;
   const completedTodos = todos.filter((todo) => todo.completed).length;
   const totalHabits = habits.length;

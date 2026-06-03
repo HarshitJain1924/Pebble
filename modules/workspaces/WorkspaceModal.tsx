@@ -115,6 +115,7 @@ export function WorkspaceModal({
         icon: folderIconInput,
         iconType: folderIconTypeInput,
         color: folderColorInput,
+        createdAt: Date.now(),
       });
       updatedTodos[newId] = [];
       activeListId = newId;
