@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   Platform,
   Image,
+  useWindowDimensions,
 } from "react-native";
 import { AppText as Text } from "@/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
@@ -725,12 +726,24 @@ export default function OnboardingScreen() {
   const isDark = colorScheme === "dark";
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
+  const { width: windowWidth } = useWindowDimensions();
   
   const [activeIndex, setActiveIndex] = useState(0);
-  const [containerWidth, setContainerWidth] = useState(SCREEN_WIDTH);
+  const [containerWidth, setContainerWidth] = useState(windowWidth);
 
   // Animated scroll tracker
   const scrollX = useSharedValue(0);
+
+  // Sync containerWidth when windowWidth changes
+  useEffect(() => {
+    setContainerWidth(windowWidth);
+  }, [windowWidth]);
+
+  // Adjust scroll offset on containerWidth change (orientation change)
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ x: activeIndex * containerWidth, animated: false });
+    scrollX.value = activeIndex * containerWidth;
+  }, [containerWidth, activeIndex]);
 
   const onLayout = (event: any) => {
     const { width } = event.nativeEvent.layout;

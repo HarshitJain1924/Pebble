@@ -1,123 +1,270 @@
+import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
-import { requireNativeModule } from "expo-modules-core";
-import type {
-  ExpoSpeechRecognitionModule as ModuleType,
-  useSpeechRecognitionEvent as HookType,
-} from "expo-speech-recognition";
 
-// 1. Detect if the native speech module is present to prevent crashes in Expo Go
-let hasNativeModule = false;
-if (Platform.OS === "web") {
-  hasNativeModule = true; // Web uses SpeechRecognition Web API
-} else {
-  try {
-    hasNativeModule = !!requireNativeModule("ExpoSpeechRecognition");
-  } catch {
-    hasNativeModule = false;
-  }
+// Types
+export interface SpeechRecognitionResultEvent {
+  results: { transcript: string }[];
+  isFinal: boolean;
 }
 
-// 2. Define stubs for native-less environments (like Expo Go)
-const stubModule = {
-  start: () => {},
-  stop: () => {},
-  abort: () => {},
-  requestPermissionsAsync: async () => ({ granted: false }),
-  getPermissionsAsync: async () => ({ granted: false }),
-  isRecognitionAvailable: () => false,
-  getStateAsync: async () => "inactive",
+export interface SpeechRecognitionErrorEvent {
+  error: string;
+  message?: string;
+}
+
+export interface SpeechRecognitionVolumeEvent {
+  value: number;
+}
+
+type EventCallbackMap = {
+  result: (event: SpeechRecognitionResultEvent) => void;
+  end: () => void;
+  error: (event: SpeechRecognitionErrorEvent) => void;
+  volumechange: (event: SpeechRecognitionVolumeEvent) => void;
 };
 
-const stubHook = () => {};
+// Global event listeners registry
+const listeners: { [K in keyof EventCallbackMap]?: Set<EventCallbackMap[K]> } = {
+  result: new Set(),
+  end: new Set(),
+  error: new Set(),
+  volumechange: new Set(),
+};
 
-// 3. Load native speech library dynamically if module exists
-let runtimeModule: any = stubModule;
-let runtimeHook: any = stubHook;
+function emitEvent<K extends keyof EventCallbackMap>(event: K, payload?: any) {
+  listeners[event]?.forEach((cb: any) => {
+    try {
+      cb(payload);
+    } catch (e) {
+      console.error(`Error in voice event listener for ${event}:`, e);
+    }
+  });
+}
 
-if (hasNativeModule) {
-  try {
-    const SpeechLib = require("expo-speech-recognition");
-    runtimeModule = SpeechLib.ExpoSpeechRecognitionModule;
-    runtimeHook = SpeechLib.useSpeechRecognitionEvent;
-  } catch (e) {
-    console.warn("Failed to load expo-speech-recognition native module", e);
+// Browser/Web Speech Recognition implementation
+let webRecognition: any = null;
+let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let microphone: MediaStreamAudioSourceNode | null = null;
+let javascriptNode: ScriptProcessorNode | null = null;
+let volumeInterval: any = null;
+
+if (Platform.OS === "web" && typeof window !== "undefined") {
+  const SpeechRecognition =
+    (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  if (SpeechRecognition) {
+    webRecognition = new SpeechRecognition();
+    webRecognition.continuous = true;
+    webRecognition.interimResults = true;
+
+    webRecognition.onresult = (event: any) => {
+      const results = [];
+      let isFinal = false;
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        results.push({
+          transcript: event.results[i][0].transcript,
+        });
+        if (event.results[i].isFinal) {
+          isFinal = true;
+        }
+      }
+      emitEvent("result", { results, isFinal });
+    };
+
+    webRecognition.onerror = (event: any) => {
+      emitEvent("error", { error: event.error, message: event.message });
+    };
+
+    webRecognition.onend = () => {
+      emitEvent("end");
+      stopVolumeDetection();
+    };
   }
 }
 
-// 4. Export type-safe wrappers
-export const ExpoSpeechRecognitionModule = runtimeModule as typeof ModuleType;
-export const useSpeechRecognitionEvent = runtimeHook as typeof HookType;
+function startVolumeDetection() {
+  if (typeof window === "undefined" || !navigator.mediaDevices) return;
+  navigator.mediaDevices
+    .getUserMedia({ audio: true, video: false })
+    .then((stream) => {
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      microphone = audioContext.createMediaStreamSource(stream);
+      javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
 
-export class SpeechRecognitionService {
-  private static isAvailableCache: boolean | null = null;
+      analyser.smoothingTimeConstant = 0.8;
+      analyser.fftSize = 1024;
 
-  /**
-   * Checks if speech recognition is available on this platform/device.
-   */
-  static async checkAvailability(): Promise<boolean> {
-    if (!hasNativeModule && Platform.OS !== "web") {
-      return false; // Native module is missing (Expo Go)
-    }
+      microphone.connect(analyser);
+      analyser.connect(javascriptNode);
+      javascriptNode.connect(audioContext.destination);
 
-    if (this.isAvailableCache !== null) {
-      return this.isAvailableCache;
-    }
+      javascriptNode.onaudioprocess = () => {
+        const array = new Uint8Array(analyser!.frequencyBinCount);
+        analyser!.getByteFrequencyData(array);
+        let values = 0;
+        const length = array.length;
+        for (let i = 0; i < length; i++) {
+          values += array[i];
+        }
+        const average = values / length;
+        // Map average volume (0-255) to decibels / level (-2 to 10 range approximately)
+        const dbLevel = (average / 255) * 12 - 2;
+        emitEvent("volumechange", { value: dbLevel });
+      };
+    })
+    .catch((err) => {
+      console.warn("Volume meter failed:", err);
+    });
+}
 
-    if (Platform.OS === "web") {
-      const WebSpeech =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      this.isAvailableCache = !!WebSpeech;
-      return this.isAvailableCache;
-    }
-
-    try {
-      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-      console.log("[VOICE] isRecognitionAvailable:", available);
-      this.isAvailableCache = available;
-      return this.isAvailableCache;
-    } catch (e) {
-      console.error("[VOICE] Error checking availability:", e);
-      this.isAvailableCache = false;
-      return false;
-    }
+function stopVolumeDetection() {
+  try {
+    if (javascriptNode) javascriptNode.disconnect();
+    if (microphone) microphone.disconnect();
+    if (audioContext) audioContext.close();
+    javascriptNode = null;
+    microphone = null;
+    audioContext = null;
+  } catch (e) {
+    console.warn("Error stopping volume detection:", e);
   }
+}
 
-  /**
-   * Requests permissions for microphone access and speech recognition.
-   */
-  static async requestPermissions(): Promise<boolean> {
-    if (!hasNativeModule) {
-      return false;
-    }
-    if (Platform.OS === "web") {
-      return true;
-    }
-
-    try {
-      const response = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      return response.granted;
-    } catch (e) {
-      console.warn("Speech recognition permission request failed:", e);
-      return false;
-    }
+// Safe native imports
+let NativeModule: any = null;
+let nativeUseEvent: any = null;
+try {
+  if (Platform.OS !== "web") {
+    const speechLib = require("expo-speech-recognition");
+    NativeModule = speechLib.ExpoSpeechRecognitionModule;
+    nativeUseEvent = speechLib.useSpeechRecognitionEvent;
   }
+} catch (e) {
+  console.warn("Native expo-speech-recognition import failed:", e);
+}
 
-  /**
-   * Checks current permission status.
-   */
-  static async checkPermissions(): Promise<boolean> {
-    if (!hasNativeModule) {
-      return false;
-    }
+// 1. ExpoSpeechRecognitionModule Implementation
+export const ExpoSpeechRecognitionModule = {
+  start(options: { lang?: string; interimResults?: boolean; volumeChangeEventOptions?: { enabled: boolean; intervalMillis: number } }) {
     if (Platform.OS === "web") {
-      return true;
+      if (!webRecognition) {
+        console.warn("Speech recognition not supported on this browser.");
+        emitEvent("error", { error: "not-supported", message: "Web Speech API is not supported in this browser." });
+        return;
+      }
+      try {
+        webRecognition.lang = options.lang || "en-US";
+        webRecognition.start();
+        if (options.volumeChangeEventOptions?.enabled) {
+          startVolumeDetection();
+        }
+      } catch (err: any) {
+        emitEvent("error", { error: "start-failed", message: err.message });
+      }
+    } else {
+      if (NativeModule) {
+        NativeModule.start(options);
+      } else {
+        console.warn("Native speech recognition module not available.");
+      }
     }
+  },
 
+  stop() {
+    if (Platform.OS === "web") {
+      if (webRecognition) {
+        webRecognition.stop();
+        stopVolumeDetection();
+      }
+    } else {
+      if (NativeModule) {
+        NativeModule.stop();
+      }
+    }
+  },
+
+  abort() {
+    if (Platform.OS === "web") {
+      if (webRecognition) {
+        webRecognition.abort();
+        stopVolumeDetection();
+      }
+    } else {
+      if (NativeModule) {
+        NativeModule.abort();
+      }
+    }
+  },
+};
+
+// 2. SpeechRecognitionService Implementation
+export const SpeechRecognitionService = {
+  async checkAvailability(): Promise<boolean> {
+    if (Platform.OS === "web") {
+      return webRecognition !== null;
+    }
+    // For native
     try {
-      const response = await ExpoSpeechRecognitionModule.getPermissionsAsync();
-      return response.granted;
+      if (NativeModule && typeof NativeModule.checkAvailability === "function") {
+        return await NativeModule.checkAvailability();
+      }
+      return true; // fallback
     } catch {
       return false;
     }
+  },
+
+  async requestPermissions(): Promise<boolean> {
+    if (Platform.OS === "web") {
+      if (typeof navigator === "undefined" || !navigator.mediaDevices) return false;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    // For native
+    try {
+      if (NativeModule && typeof NativeModule.requestPermissions === "function") {
+        const result = await NativeModule.requestPermissions();
+        return !!result;
+      }
+      return true; // fallback
+    } catch {
+      return false;
+    }
+  },
+};
+
+// 3. useSpeechRecognitionEvent Custom Hook
+export function useSpeechRecognitionEvent<K extends keyof EventCallbackMap>(
+  event: K,
+  callback: EventCallbackMap[K]
+) {
+  // Use native hook if on device
+  if (Platform.OS !== "web" && nativeUseEvent) {
+    nativeUseEvent(event, callback);
+    return;
   }
+
+  // Web fallback hook
+  const callbackRef = useRef(callback);
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
+    const wrapper = (payload: any) => {
+      callbackRef.current(payload);
+    };
+
+    listeners[event]?.add(wrapper as any);
+
+    return () => {
+      listeners[event]?.delete(wrapper as any);
+    };
+  }, [event]);
 }

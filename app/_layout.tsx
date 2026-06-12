@@ -22,6 +22,8 @@ import UndoProvider from "@/components/ui/UndoContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import NotificationListener from "@/components/ui/NotificationListener";
 
+import { cleanupRecycleBin } from "@/services/storage";
+
 SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = {
@@ -40,6 +42,10 @@ export default function RootLayout() {
     Outfit_600SemiBold,
     Outfit_700Bold,
   });
+
+  useEffect(() => {
+    cleanupRecycleBin();
+  }, []);
 
   useEffect(() => {
     if (!navigationState?.key) {
@@ -85,6 +91,8 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="onboarding" options={{ headerShown: false }} />
               <Stack.Screen name="profile" options={{ headerShown: false }} />
+              <Stack.Screen name="profile/stats" options={{ headerShown: false }} />
+              <Stack.Screen name="profile/achievements" options={{ headerShown: false }} />
               <Stack.Screen
                 name="notifications"
                 options={{ headerShown: false }}
@@ -95,6 +103,10 @@ export default function RootLayout() {
               />
               <Stack.Screen
                 name="archive"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="recycle-bin"
                 options={{ headerShown: false }}
               />
             </Stack>

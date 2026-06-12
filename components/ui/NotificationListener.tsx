@@ -70,7 +70,7 @@ export default function NotificationListener() {
             const route = getNotificationRoute(
               response.notification.request.content.data,
             );
-            if (route) router.push(route);
+            if (route) router.push(route as any);
           },
         );
         subscription = Notifications.addNotificationResponseReceivedListener(
@@ -79,7 +79,7 @@ export default function NotificationListener() {
             const route = getNotificationRoute(
               response.notification.request.content.data,
             );
-            if (route) router.push(route);
+            if (route) router.push(route as any);
           },
         );
 

@@ -22,26 +22,26 @@ function sanitizeStyle(style: any) {
   return rest;
 }
 
-export function AppText(props: TextProps) {
-  const fontFamily = getFontFamily(props.style);
-  const cleanStyle = sanitizeStyle(props.style);
+export function AppText({ style, ...props }: TextProps) {
+  const fontFamily = getFontFamily(style);
+  const cleanStyle = sanitizeStyle(style);
   
   return (
     <RNText
       {...props}
-      style={[cleanStyle, { fontFamily }]}
+      style={StyleSheet.flatten([cleanStyle, { fontFamily }])}
     />
   );
 }
 
-export function AppTextInput(props: TextInputProps) {
-  const fontFamily = getFontFamily(props.style);
-  const cleanStyle = sanitizeStyle(props.style);
+export function AppTextInput({ style, ...props }: TextInputProps) {
+  const fontFamily = getFontFamily(style);
+  const cleanStyle = sanitizeStyle(style);
   
   return (
     <RNTextInput
       {...props}
-      style={[cleanStyle, { fontFamily }]}
+      style={StyleSheet.flatten([cleanStyle, { fontFamily }])}
     />
   );
 }

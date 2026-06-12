@@ -34,9 +34,11 @@ export type Todo = {
   folderId?: string;
   archived?: boolean;
   createdDate?: string;
+  startDate?: string;
   lastUpdated?: string;
   recurrenceExceptions?: string[];
   createdAt?: number;
+  xpAwarded?: boolean;
 };
 
 export type Habit = {
@@ -64,9 +66,13 @@ export type Habit = {
   folderId?: string;
   archived?: boolean;
   createdDate?: string;
+  startDate?: string;
   lastUpdated?: string;
   recurrenceExceptions?: string[];
   createdAt?: number;
+  xpAwardedDate?: string;
+  previousStreak?: number;
+  streakBrokenDate?: string;
 };
 
 export type TaskList = {
@@ -77,4 +83,13 @@ export type TaskList = {
   iconType?: "emoji" | "icon";
   color?: string;
   createdAt?: number;
+};
+
+export type RecycleBinItem = {
+  id: string;
+  title: string;
+  deletedAt: number;
+  itemType: "task" | "habit" | "workspace";
+  originalLocation: string;
+  data: any;
 };

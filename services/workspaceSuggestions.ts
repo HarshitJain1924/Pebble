@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getTopicMatchScore, detectTaskTopic } from "@/services/workspaceTopics";
+import { getRecycleBinItems } from "./storage";
 
 const WORKSPACE_HISTORY_KEY = "todoapp:workspace:history:v1";
 
@@ -104,10 +105,35 @@ export async function getWorkspaceSuggestions(
   }
 
   const history = await loadWorkspaceHistory();
+  const recycleBin = await getRecycleBinItems();
+  const recycledWorkspaceIds = new Set<string>();
+  const recycledTitles = new Set<string>();
+
+  for (const item of recycleBin) {
+    if (item.itemType === "workspace") {
+      recycledWorkspaceIds.add(item.id);
+      recycledTitles.add(item.title.toLowerCase().trim());
+      if (item.data) {
+        if (Array.isArray(item.data.todos)) {
+          for (const t of item.data.todos) if (t?.title) recycledTitles.add(t.title.toLowerCase().trim());
+        }
+        if (Array.isArray(item.data.habits)) {
+          for (const h of item.data.habits) if (h?.title) recycledTitles.add(h.title.toLowerCase().trim());
+        }
+      }
+    } else {
+      recycledTitles.add(item.title.toLowerCase().trim());
+    }
+  }
+
+  const activeHistory = history.filter(hist => {
+    return !recycledWorkspaceIds.has(hist.workspaceId) && !recycledTitles.has(hist.taskTitle.toLowerCase().trim());
+  });
+
   const taskKeywords = extractKeywords(taskTitle);
 
   console.log(`[SUGGESTION AUDIT] Task Title: "${taskTitle}" | Category: "${category}"`);
-  console.log(`  - History length: ${history.length}`);
+  console.log(`  - History length: ${activeHistory.length}`);
 
   const results: WorkspaceSuggestionResult[] = workspaces.map((ws) => {
     let titleScore = 0;
@@ -137,7 +163,7 @@ export async function getWorkspaceSuggestions(
 
       // C. Check Historical Title Overlap match
       let histMatchingCount = 0;
-      history.forEach((hist) => {
+      activeHistory.forEach((hist) => {
         if (hist.workspaceId === ws.id) {
           const histWords = hist.taskTitle.toLowerCase().split(/\s+/);
           const hasOverlap = taskKeywords.some((k) => histWords.includes(k));
@@ -176,21 +202,21 @@ export async function getWorkspaceSuggestions(
 
     // --- 3. Recent Workspace Usage (Max: 15) ---
     let recentScore = 0;
-    if (history.length > 0) {
-      if (history[0]?.workspaceId === ws.id) {
+    if (activeHistory.length > 0) {
+      if (activeHistory[0]?.workspaceId === ws.id) {
         recentScore = 15;
-      } else if (history[1]?.workspaceId === ws.id) {
+      } else if (activeHistory[1]?.workspaceId === ws.id) {
         recentScore = 10;
-      } else if (history[2]?.workspaceId === ws.id) {
+      } else if (activeHistory[2]?.workspaceId === ws.id) {
         recentScore = 5;
       }
     }
 
     // --- 4. Workspace Frequency (Max: 10) ---
     let frequencyScore = 0;
-    if (history.length > 0) {
-      const count = history.filter((h) => h.workspaceId === ws.id).length;
-      frequencyScore = Math.round((count / history.length) * 10);
+    if (activeHistory.length > 0) {
+      const count = activeHistory.filter((h) => h.workspaceId === ws.id).length;
+      frequencyScore = Math.round((count / activeHistory.length) * 10);
     }
 
     // --- 5. Topic-Based Match Score Boost (Max: 40) ---

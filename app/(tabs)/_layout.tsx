@@ -22,6 +22,7 @@ import Animated, {
   runOnJS,
 } from "react-native-reanimated";
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetTextInput, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import CaptureInputBox from "@/components/ui/CaptureInputBox";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY } from "@/services/storage";
 import {
@@ -366,6 +367,7 @@ export default function TabLayout() {
       const dateToSave = parsedItem?.date || selectedQuickAddDate;
       const timeToSave = parsedItem?.time || selectedQuickAddTime;
       const recurrenceToSave = parsedItem?.recurrence;
+      const generatedTaskId = String(Date.now());
 
       let alarmTime: number | undefined;
       let notificationIds: string[] = [];
@@ -376,7 +378,7 @@ export default function TabLayout() {
           try {
             const scheduled = await scheduleReminderBatch({
               kind: "todo",
-              itemId: String(Date.now()),
+              itemId: generatedTaskId,
               title: titleToSave,
               category: parsedItem?.category || "work",
               dailyTime: {
@@ -405,7 +407,7 @@ export default function TabLayout() {
           if (alarmDate.getTime() > Date.now()) {
             const batch = await scheduleReminderBatch({
               kind: "todo",
-              itemId: String(Date.now()),
+              itemId: generatedTaskId,
               title: titleToSave,
               oneTimeAt: alarmDate,
               category: parsedItem?.category || "work",
@@ -419,7 +421,7 @@ export default function TabLayout() {
       }
 
       const newTask = {
-        id: String(Date.now()),
+        id: generatedTaskId,
         title: titleToSave,
         description: descToSave,
         tags: taskTags.length > 0 ? taskTags : undefined,
@@ -446,8 +448,6 @@ export default function TabLayout() {
         JSON.stringify({ lists, selectedList: selectedFolderId, todos })
       );
 
-      // Standard rewards & haptics & toasts
-      await addXp(10).catch(() => {});
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       void recordDailyHistorySnapshot();
       emitStateChange("tasks_changed");
@@ -487,6 +487,7 @@ export default function TabLayout() {
         }
       }
 
+      const generatedHabitId = `habit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       let hour: number | undefined;
       let minute: number | undefined;
       let notificationIds: string[] = [];
@@ -498,7 +499,7 @@ export default function TabLayout() {
         try {
           const scheduled = await scheduleReminderBatch({
             kind: "habit",
-            itemId: `habit-${Date.now()}`,
+            itemId: generatedHabitId,
             title: titleToSave,
             dailyTime: { hour, minute },
             dailyDays: reminderDays,
@@ -520,7 +521,7 @@ export default function TabLayout() {
       }
 
       const newHabit = {
-        id: `habit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: generatedHabitId,
         title: titleToSave,
         streak: 0,
         bestStreak: 0,
@@ -535,6 +536,7 @@ export default function TabLayout() {
         notificationIds,
         createdAt: Date.now(),
         createdDate: getDateKey(),
+        startDate: getDateKey(),
       };
 
       dailyHabits = [...dailyHabits, newHabit];
@@ -544,8 +546,6 @@ export default function TabLayout() {
         JSON.stringify({ dailyHabits })
       );
 
-      // Standard rewards & haptics & toasts
-      await addXp(5).catch(() => {});
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       void recordDailyHistorySnapshot();
       emitStateChange("habits_changed");
@@ -687,12 +687,6 @@ export default function TabLayout() {
         />
         <Tabs.Screen
           name="daily"
-          listeners={{
-            tabPress: (e) => {
-              e.preventDefault();
-              openQuickAdd();
-            },
-          }}
           options={{
             title: "",
             tabBarLabel: () => null,
@@ -865,6 +859,7 @@ export default function TabLayout() {
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                   setActiveSegment("habit");
+                  setShowAdvancedOptions(false); // collapse note field — habits have no description
                 }}
               >
                 <Feather name="activity" size={13} color={activeSegment === "habit" ? "#FFFFFF" : theme.textMuted} style={{ marginRight: 6 }} />
@@ -874,77 +869,74 @@ export default function TabLayout() {
               </TouchableOpacity>
             </View>
 
-          {/* Note-Like Task Inputs */}
-          <View
-            style={{
-              backgroundColor: inputBg,
-              borderColor: isLight ? theme.border : "rgba(255,255,255,0.06)",
-              borderWidth: 1.5,
-              borderRadius: 16,
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              gap: 8,
-              marginBottom: 16,
-              position: "relative",
+          {/* Note-Like Task Inputs — shares canonical layout with Pebble Capture via CaptureInputBox */}
+          <CaptureInputBox
+            value={taskTitle}
+            onChangeText={setTaskTitle}
+            placeholder={voiceStatus === "listening" ? "Listening..." : (activeSegment === "task" ? "What would you like to do?" : "E.g. Drink water, Gym, Study...")}
+            placeholderTextColor={theme.textMuted}
+            onFocus={() => {
+              if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current);
+              setIsInputFocused(true);
             }}
-          >
-            <BottomSheetTextInput
-              style={{ color: theme.text, fontSize: 16, fontWeight: "600", padding: 0 }}
-              value={taskTitle}
-              onChangeText={setTaskTitle}
-              placeholder={voiceStatus === "listening" ? "Listening..." : (activeSegment === "task" ? "What would you like to do?" : "E.g. Drink water, Gym, Study...")}
-              placeholderTextColor={theme.textMuted}
-              autoCorrect={false}
-              maxLength={70}
-              autoFocus={voiceStatus !== "listening"}
-              onFocus={() => {
-                if (blurTimeoutRef.current) clearTimeout(blurTimeoutRef.current);
-                setIsInputFocused(true);
-              }}
-              onBlur={() => {
-                // Delay hiding chips so suggestion chip onPress can fire first
-                blurTimeoutRef.current = setTimeout(() => setIsInputFocused(false), 200);
-              }}
-            />
-            {activeSegment === "task" && (
-              <BottomSheetTextInput
-                style={{ color: theme.text, fontSize: 13, fontWeight: "400", padding: 0 }}
-                value={taskDescription}
-                onChangeText={setTaskDescription}
-                placeholder="Description (optional)"
-                placeholderTextColor={theme.textMuted}
-                multiline
-                numberOfLines={2}
-                maxLength={200}
-              />
-            )}
-            <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 8, gap: 16 }}>
-              {taskTitle.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => setTaskTitle("")}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  hitSlop={12}
-                >
-                  <Feather name="x-circle" size={20} color={theme.textMuted} />
-                </TouchableOpacity>
-              )}
-              <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                <VoiceCaptureButton
-                  status={voiceStatus}
-                  volume={voiceVolume}
-                  onStart={startRecording}
-                  onStop={stopRecording}
-                  onCancel={cancelRecording}
-                  themePrimary={theme.primary}
-                />
-              </View>
-            </View>
-          </View>
+            onBlur={() => {
+              blurTimeoutRef.current = setTimeout(() => setIsInputFocused(false), 200);
+            }}
+            textInputProps={{
+              autoCorrect: false,
+              maxLength: 70,
+              autoFocus: voiceStatus !== "listening",
+            }}
+            voiceStatus={voiceStatus}
+            voiceVolume={voiceVolume}
+            onVoiceStart={startRecording}
+            onVoiceStop={stopRecording}
+            onVoiceCancel={cancelRecording}
+            themePrimary={theme.primary}
+            backgroundColor={inputBg}
+            borderColor={isLight ? theme.border : "rgba(255,255,255,0.06)"}
+            textColor={theme.text}
+            TextInputComponent={BottomSheetTextInput as any}
+            middleSlot={
+              activeSegment === "task" ? (
+                <View>
+                  {showAdvancedOptions ? (
+                    <BottomSheetTextInput
+                      style={{
+                        color: theme.text,
+                        fontSize: 13,
+                        fontWeight: "400",
+                        padding: 0,
+                        minHeight: 36,
+                        textAlignVertical: "top",
+                        borderTopWidth: 1,
+                        borderTopColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)",
+                        paddingTop: 8,
+                      }}
+                      value={taskDescription}
+                      onChangeText={setTaskDescription}
+                      placeholder="Add a note..."
+                      placeholderTextColor={theme.textMuted}
+                      multiline
+                      numberOfLines={2}
+                      maxLength={200}
+                      autoFocus
+                    />
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => setShowAdvancedOptions(true)}
+                      hitSlop={8}
+                      activeOpacity={0.6}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                    >
+                      <Feather name="plus" size={13} color={theme.textMuted} />
+                      <Text style={{ fontSize: 12, color: theme.textMuted, fontWeight: "500" }}>Add note</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ) : undefined
+            }
+          />
 
           {voiceError ? (
             <View style={{
@@ -1047,85 +1039,164 @@ export default function TabLayout() {
 
           {/* Minimal Toolbar Row */}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 12, paddingHorizontal: 4 }}>
-              {/* Date Button */}
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setShowSchedulerModal(true);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 12,
-                  backgroundColor: isLight ? "#F1F5F9" : "#27272A",
-                  gap: 6,
-                }}
-              >
-                <Feather name="calendar" size={14} color={theme.primary} />
-                <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
-                  {selectedQuickAddDate === "inbox" ? "Date" : "📅 " + (selectedQuickAddDate === getDateKey() ? "Today" : selectedQuickAddDate)}
-                </Text>
-              </TouchableOpacity>
+              {activeSegment === "task" ? (
+                <>
+                  {/* Date Button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setShowSchedulerModal(true);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                      gap: 6,
+                    }}
+                  >
+                    <Feather name="calendar" size={14} color={theme.primary} />
+                    <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
+                      {selectedQuickAddDate === "inbox" ? "Date" : "📅 " + (selectedQuickAddDate === getDateKey() ? "Today" : selectedQuickAddDate)}
+                    </Text>
+                  </TouchableOpacity>
 
-              {/* Priority Button */}
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setPriorityPickerVisible(true);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 12,
-                  backgroundColor: isLight ? "#F1F5F9" : "#27272A",
-                  gap: 6,
-                }}
-              >
-                <Feather
-                  name="flag"
-                  size={14}
-                  color={selectedPriority === "high" ? theme.error : selectedPriority === "low" ? theme.success : theme.warning}
-                />
-                <Text style={{
-                  color: selectedPriority === "high" ? theme.error : selectedPriority === "low" ? theme.success : theme.warning,
-                  fontSize: 12, fontWeight: "600"
-                }}>
-                  {selectedPriority ? selectedPriority.charAt(0).toUpperCase() + selectedPriority.slice(1) : "Priority"}
-                </Text>
-              </TouchableOpacity>
+                  {/* Priority Button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setPriorityPickerVisible(true);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                      gap: 6,
+                    }}
+                  >
+                    <Feather
+                      name="flag"
+                      size={14}
+                      color={selectedPriority === "high" ? theme.error : selectedPriority === "low" ? theme.success : theme.warning}
+                    />
+                    <Text style={{
+                      color: selectedPriority === "high" ? theme.error : selectedPriority === "low" ? theme.success : theme.warning,
+                      fontSize: 12, fontWeight: "600"
+                    }}>
+                      {selectedPriority ? selectedPriority.charAt(0).toUpperCase() + selectedPriority.slice(1) : "Priority"}
+                    </Text>
+                  </TouchableOpacity>
 
-              {/* Workspace Button */}
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setWorkspacePickerVisible(true);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 12,
-                  backgroundColor: isLight ? "#F1F5F9" : "#27272A",
-                  gap: 6,
-                }}
-              >
-                {(() => {
-                  const folder = folders.find((f) => f.id === selectedFolderId);
-                  return (
-                    <>
-                      <Text style={{ fontSize: 14 }}>{folder?.emoji || "📁"}</Text>
-                      <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
-                        {folder?.name || "Workspace"}
-                      </Text>
-                    </>
-                  );
-                })()}
-              </TouchableOpacity>
+                  {/* Workspace Button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setWorkspacePickerVisible(true);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                      gap: 6,
+                    }}
+                  >
+                    {(() => {
+                      const folder = folders.find((f) => f.id === selectedFolderId);
+                      return (
+                        <>
+                          <Text style={{ fontSize: 14 }}>{folder?.emoji || "📁"}</Text>
+                          <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
+                            {folder?.name || "Workspace"}
+                          </Text>
+                        </>
+                      );
+                    })()}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  {/* Time Button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setShowSchedulerModal(true);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                      gap: 6,
+                    }}
+                  >
+                    <Feather name="clock" size={14} color="#6366F1" />
+                    <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
+                      {selectedQuickAddTime ? `⏰ ${selectedQuickAddTime}` : "Time"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Repeat Button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setShowSchedulerModal(true);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                      gap: 6,
+                    }}
+                  >
+                    <Feather name="refresh-cw" size={14} color="#10B981" />
+                    <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
+                      {selectedRepeat !== "none" ? `🔁 ${selectedRepeat.charAt(0).toUpperCase() + selectedRepeat.slice(1)}` : "Repeat"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Priority Button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setPriorityPickerVisible(true);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                      gap: 6,
+                    }}
+                  >
+                    <Feather
+                      name="flag"
+                      size={14}
+                      color={selectedPriority === "high" ? theme.error : selectedPriority === "low" ? theme.success : theme.warning}
+                    />
+                    <Text style={{
+                      color: selectedPriority === "high" ? theme.error : selectedPriority === "low" ? theme.success : theme.warning,
+                      fontSize: 12, fontWeight: "600"
+                    }}>
+                      {selectedPriority ? selectedPriority.charAt(0).toUpperCase() + selectedPriority.slice(1) : "Priority"}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
             <View style={modalStyles.actionsContainer}>
               <TouchableOpacity
@@ -1213,118 +1284,127 @@ export default function TabLayout() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-              {/* Quick Date Shortcuts */}
-              <Text style={{ color: theme.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-                Quick Date
-              </Text>
-              <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-                {(() => {
-                  const today = new Date();
-                  const tomorrow = new Date(today);
-                  tomorrow.setDate(today.getDate() + 1);
-                  
-                  // Next Monday helper
-                  const nextMonday = new Date(today);
-                  nextMonday.setDate(today.getDate() + ((1 + 7 - today.getDay()) % 7 || 7));
-
-                  return [
-                    { label: "Today", val: getDateKey(today) },
-                    { label: "Tomorrow", val: getDateKey(tomorrow) },
-                    { label: "Next Monday", val: getDateKey(nextMonday) },
-                    { label: "Today Morning", val: getDateKey(today), time: "09:00" },
-                    { label: "No Date", val: "inbox" },
-                  ].map((opt) => {
-                    const isSel = selectedQuickAddDate === opt.val && (!opt.time || selectedQuickAddTime === opt.time);
-                    return (
-                      <TouchableOpacity
-                        key={opt.label}
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                          setSelectedQuickAddDate(opt.val);
-                          if (opt.time) {
-                            setSelectedQuickAddTime(opt.time);
-                            setEnableReminder(true);
-                          } else if (opt.val === "inbox") {
-                            setSelectedQuickAddTime(null);
-                            setEnableReminder(false);
-                          }
-                        }}
-                        style={{
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          borderRadius: 12,
-                          backgroundColor: isSel ? `${theme.primary}18` : (isLight ? "#F1F5F9" : "#27272A"),
-                          borderColor: isSel ? theme.primary : "transparent",
-                          borderWidth: 1,
-                        }}
-                      >
-                        <Text style={{ color: isSel ? theme.text : theme.textMuted, fontSize: 11, fontWeight: "700" }}>{opt.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  });
-                })()}
-              </View>
-
-              {/* Month Calendar Grid */}
-              {selectedQuickAddDate !== "inbox" && (
+              {activeSegment !== "habit" && (
                 <>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <TouchableOpacity onPress={handleSchedulerPrevMonth} hitSlop={8}>
-                      <Feather name="chevron-left" size={18} color={theme.textMuted} />
-                    </TouchableOpacity>
-                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: "800" }}>
-                      {SCHED_MONTH_NAMES[schedulerMonth.month]} {schedulerMonth.year}
-                    </Text>
-                    <TouchableOpacity onPress={handleSchedulerNextMonth} hitSlop={8}>
-                      <Feather name="chevron-right" size={18} color={theme.textMuted} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={{ flexDirection: "row", marginBottom: 4 }}>
-                    {SCHED_WEEKDAY_INITS.map((init, idx) => (
-                      <Text key={`wk-${idx}`} style={{ flex: 1, textAlign: "center", color: theme.textMuted, fontSize: 10, fontWeight: "800" }}>{init}</Text>
-                    ))}
-                  </View>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 16 }}>
-                    {schedulerCells.map((cell) => {
-                      if (cell.type === "empty") {
-                        return <View key={cell.key} style={{ width: "14.28%", height: 32 }} />;
-                      }
-                      const dateStr = cell.dateString || "";
-                      const isSel = selectedQuickAddDate === dateStr;
-                      const isToday = dateStr === getDateKey();
-                      return (
-                        <Pressable
-                          key={cell.key}
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                            setSelectedQuickAddDate(dateStr);
-                          }}
-                          style={{
-                            width: "14.28%",
-                            height: 32,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <View style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 14,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            backgroundColor: isSel ? theme.primary : "transparent",
-                            borderWidth: isToday && !isSel ? 1.5 : 0,
-                            borderColor: isToday && !isSel ? theme.primary : "transparent",
-                          }}>
-                            <Text style={{ color: isSel ? "#FFFFFF" : isToday ? theme.primary : theme.text, fontSize: 11, fontWeight: isSel || isToday ? "800" : "500" }}>
-                              {cell.dayNum}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
+                  {/* Quick Date Shortcuts */}
+                  <Text style={{ color: theme.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                    Quick Date
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+                    {(() => {
+                      const today = new Date();
+                      const tomorrow = new Date(today);
+                      tomorrow.setDate(today.getDate() + 1);
+                      
+                      // Next Monday helper
+                      const nextMonday = new Date(today);
+                      nextMonday.setDate(today.getDate() + ((1 + 7 - today.getDay()) % 7 || 7));
+
+                      return [
+                        { label: "Today", val: getDateKey(today) },
+                        { label: "Tomorrow", val: getDateKey(tomorrow) },
+                        { label: "Next Monday", val: getDateKey(nextMonday) },
+                        { label: "Today Morning", val: getDateKey(today), time: "09:00" },
+                        { label: "No Date", val: "inbox" },
+                      ].map((opt) => {
+                        const isSel = selectedQuickAddDate === opt.val && (!opt.time || selectedQuickAddTime === opt.time);
+                        return (
+                          <TouchableOpacity
+                            key={opt.label}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                              setSelectedQuickAddDate(opt.val);
+                              if (opt.time) {
+                                setSelectedQuickAddTime(opt.time);
+                                setEnableReminder(true);
+                              } else if (opt.val === "inbox") {
+                                setSelectedQuickAddTime(null);
+                                setEnableReminder(false);
+                              }
+                            }}
+                            style={{
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 12,
+                              backgroundColor: isSel ? `${theme.primary}18` : (isLight ? "#F1F5F9" : "#27272A"),
+                              borderColor: isSel ? theme.primary : "transparent",
+                              borderWidth: 1,
+                            }}
+                          >
+                            <Text style={{ color: isSel ? theme.text : theme.textMuted, fontSize: 11, fontWeight: "700" }}>{opt.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      });
+                    })()}
                   </View>
 
+                  {/* Month Calendar Grid */}
+                  {selectedQuickAddDate !== "inbox" && (
+                    <>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <TouchableOpacity onPress={handleSchedulerPrevMonth} hitSlop={8}>
+                          <Feather name="chevron-left" size={18} color={theme.textMuted} />
+                        </TouchableOpacity>
+                        <Text style={{ color: theme.text, fontSize: 13, fontWeight: "800" }}>
+                          {SCHED_MONTH_NAMES[schedulerMonth.month]} {schedulerMonth.year}
+                        </Text>
+                        <TouchableOpacity onPress={handleSchedulerNextMonth} hitSlop={8}>
+                          <Feather name="chevron-right" size={18} color={theme.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={{ flexDirection: "row", marginBottom: 4 }}>
+                        {SCHED_WEEKDAY_INITS.map((init, idx) => (
+                          <Text key={`wk-${idx}`} style={{ flex: 1, textAlign: "center", color: theme.textMuted, fontSize: 10, fontWeight: "800" }}>{init}</Text>
+                        ))}
+                      </View>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 16 }}>
+                        {schedulerCells.map((cell) => {
+                          if (cell.type === "empty") {
+                            return <View key={cell.key} style={{ width: "14.28%", height: 32 }} />;
+                          }
+                          const dateStr = cell.dateString || "";
+                          const isSel = selectedQuickAddDate === dateStr;
+                          const isToday = dateStr === getDateKey();
+                          return (
+                            <Pressable
+                              key={cell.key}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                                setSelectedQuickAddDate(dateStr);
+                              }}
+                              style={{
+                                width: "14.28%",
+                                height: 32,
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                            >
+                              <View style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 14,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                backgroundColor: isSel ? theme.primary : "transparent",
+                                borderWidth: isToday && !isSel ? 1.5 : 0,
+                                borderColor: isToday && !isSel ? theme.primary : "transparent",
+                              }}>
+                                <Text style={{ color: isSel ? "#FFFFFF" : isToday ? theme.primary : theme.text, fontSize: 11, fontWeight: isSel || isToday ? "800" : "500" }}>
+                                  {cell.dayNum}
+                                </Text>
+                              </View>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Time Slots, custom, Repeat and Duration */}
+              {(activeSegment === "habit" || selectedQuickAddDate !== "inbox") && (
+                <>
                   {/* Time Slots */}
                   <Text style={{ color: theme.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 }}>
                     Time
@@ -1470,41 +1550,45 @@ export default function TabLayout() {
                   </View>
 
                   {/* Duration Picker */}
-                  <Text style={{ color: theme.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 }}>
-                    Duration
-                  </Text>
-                  <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-                    {[
-                      { label: "None", val: null },
-                      { label: "15m", val: 15 },
-                      { label: "30m", val: 30 },
-                      { label: "45m", val: 45 },
-                      { label: "1h", val: 60 },
-                      { label: "1.5h", val: 90 },
-                      { label: "2h", val: 120 },
-                    ].map((opt) => {
-                      const isSel = selectedDuration === opt.val;
-                      return (
-                        <TouchableOpacity
-                          key={opt.label}
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                            setSelectedDuration(opt.val);
-                          }}
-                          style={{
-                            paddingHorizontal: 12,
-                            paddingVertical: 6,
-                            borderRadius: 12,
-                            backgroundColor: isSel ? `${theme.primary}18` : (isLight ? "#F1F5F9" : "#27272A"),
-                            borderColor: isSel ? theme.primary : "transparent",
-                            borderWidth: 1,
-                          }}
-                        >
-                          <Text style={{ color: isSel ? theme.text : theme.textMuted, fontSize: 11, fontWeight: "700" }}>{opt.label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  {activeSegment !== "habit" && (
+                    <>
+                      <Text style={{ color: theme.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 }}>
+                        Duration
+                      </Text>
+                      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+                        {[
+                          { label: "None", val: null },
+                          { label: "15m", val: 15 },
+                          { label: "30m", val: 30 },
+                          { label: "45m", val: 45 },
+                          { label: "1h", val: 60 },
+                          { label: "1.5h", val: 90 },
+                          { label: "2h", val: 120 },
+                        ].map((opt) => {
+                          const isSel = selectedDuration === opt.val;
+                          return (
+                            <TouchableOpacity
+                              key={opt.label}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                                setSelectedDuration(opt.val);
+                              }}
+                              style={{
+                                paddingHorizontal: 12,
+                                paddingVertical: 6,
+                                borderRadius: 12,
+                                backgroundColor: isSel ? `${theme.primary}18` : (isLight ? "#F1F5F9" : "#27272A"),
+                                borderColor: isSel ? theme.primary : "transparent",
+                                borderWidth: 1,
+                              }}
+                            >
+                              <Text style={{ color: isSel ? theme.text : theme.textMuted, fontSize: 11, fontWeight: "700" }}>{opt.label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
                 </>
               )}
             </ScrollView>

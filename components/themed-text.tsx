@@ -1,7 +1,7 @@
-import { StyleSheet,  type TextProps } from "react-native";
-import { AppText as Text } from "@/components/ui/AppText";
-
-import { useThemeColor } from '@/hooks/use-theme-color';
+import { StyleSheet, Text, type TextProps } from 'react-native';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
+import { AppText } from './ui/AppText';
 
 export type ThemedTextProps = TextProps & {
   lightColor?: string;
@@ -16,17 +16,20 @@ export function ThemedText({
   type = 'default',
   ...rest
 }: ThemedTextProps) {
-  const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
+  const theme = useColorScheme() ?? 'dark';
+  const color = theme === 'light' 
+    ? (lightColor ?? Colors.light.text) 
+    : (darkColor ?? Colors.dark.text);
 
   return (
-    <Text
+    <AppText
       style={[
         { color },
-        type === 'default' ? styles.default : undefined,
-        type === 'title' ? styles.title : undefined,
-        type === 'defaultSemiBold' ? styles.defaultSemiBold : undefined,
-        type === 'subtitle' ? styles.subtitle : undefined,
-        type === 'link' ? styles.link : undefined,
+        type === 'default' && styles.default,
+        type === 'title' && styles.title,
+        type === 'defaultSemiBold' && styles.defaultSemiBold,
+        type === 'subtitle' && styles.subtitle,
+        type === 'link' && styles.link,
         style,
       ]}
       {...rest}
@@ -46,8 +49,8 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 32,
-    fontWeight: 'bold',
     lineHeight: 32,
+    fontWeight: 'bold',
   },
   subtitle: {
     fontSize: 20,

@@ -17,7 +17,9 @@ import type { Todo, Habit, TaskList } from "@/modules/types";
 
 const MAX_SUGGESTIONS = 4;
 const SEEN_KEY = "pebble:quick-suggestions:seen-v1";
+export const QUICK_SUGGESTIONS_SEEN_KEY = SEEN_KEY;
 const MAX_SEEN_HISTORY = 20;
+
 
 // ─── Suggestion Pool ──────────────────────────────────────────────────────────
 

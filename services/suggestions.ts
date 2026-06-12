@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getRecycleBinItems } from "./storage";
 
 export type SuggestionType = "convert_habit" | "recurring_schedule";
 
@@ -41,9 +42,31 @@ export async function logTaskCreation(title: string): Promise<SmartSuggestion | 
     }
     await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
 
+    // Fetch recycle bin titles to filter
+    const recycleBin = await getRecycleBinItems();
+    const recycledTitles = new Set(recycleBin.map(item => {
+      if (item.itemType === "workspace") {
+        const titles = [item.title.toLowerCase().trim()];
+        if (item.data) {
+          if (Array.isArray(item.data.todos)) {
+            for (const t of item.data.todos) if (t?.title) titles.push(t.title.toLowerCase().trim());
+          }
+          if (Array.isArray(item.data.habits)) {
+            for (const h of item.data.habits) if (h?.title) titles.push(h.title.toLowerCase().trim());
+          }
+        }
+        return titles;
+      } else {
+        return [item.title.toLowerCase().trim()];
+      }
+    }).flat());
+
     // 3. Heuristics matching: Count occurrences in the past 30 days
     const lowerTitle = cleanTitle.toLowerCase();
-    const count = history.filter(entry => entry.title.toLowerCase() === lowerTitle).length;
+    const count = history.filter(entry => {
+      const entryTitle = entry.title.toLowerCase().trim();
+      return entryTitle === lowerTitle && !recycledTitles.has(entryTitle);
+    }).length;
 
     if (count >= 3) {
       // 4. Check if we've already suggested this
@@ -85,7 +108,26 @@ export async function getActiveSuggestions(): Promise<SmartSuggestion[]> {
   try {
     const suggestionsRaw = await AsyncStorage.getItem(SUGGESTION_STORAGE_KEY);
     const suggestions: SmartSuggestion[] = suggestionsRaw ? JSON.parse(suggestionsRaw) : [];
-    return suggestions.filter(s => !s.resolved);
+    
+    const recycleBin = await getRecycleBinItems();
+    const recycledTitles = new Set(recycleBin.map(item => {
+      if (item.itemType === "workspace") {
+        const titles = [item.title.toLowerCase().trim()];
+        if (item.data) {
+          if (Array.isArray(item.data.todos)) {
+            for (const t of item.data.todos) if (t?.title) titles.push(t.title.toLowerCase().trim());
+          }
+          if (Array.isArray(item.data.habits)) {
+            for (const h of item.data.habits) if (h?.title) titles.push(h.title.toLowerCase().trim());
+          }
+        }
+        return titles;
+      } else {
+        return [item.title.toLowerCase().trim()];
+      }
+    }).flat());
+
+    return suggestions.filter(s => !s.resolved && !recycledTitles.has(s.title.toLowerCase().trim()));
   } catch {
     return [];
   }

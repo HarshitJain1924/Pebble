@@ -64,19 +64,20 @@ export const AppCard: React.FC<AppCardProps> = ({
     default: {},
   }) : Shadows.soft;
 
+  const flatStyle = StyleSheet.flatten([
+    styles.card,
+    {
+      backgroundColor: colorScheme === "light" ? "#FFFFFF" : "rgba(24, 24, 27, 0.72)",
+      borderColor: colorScheme === "light" ? theme.border : "rgba(255, 255, 255, 0.065)",
+    },
+    dynamicShadow,
+    style,
+  ]);
+
   if (!interactive) {
     return (
       <Animated.View
-        style={[
-          styles.card,
-          {
-            backgroundColor: colorScheme === "light" ? "#FFFFFF" : "rgba(24, 24, 27, 0.72)",
-            borderColor: colorScheme === "light" ? theme.border : "rgba(255, 255, 255, 0.065)",
-          },
-          dynamicShadow,
-          animatedStyle,
-          style,
-        ]}
+        style={[flatStyle, animatedStyle]}
       >
         {children}
       </Animated.View>
@@ -90,16 +91,7 @@ export const AppCard: React.FC<AppCardProps> = ({
       onPressOut={handlePressOut}
       delayPressIn={80}
       activeOpacity={1}
-      style={[
-        styles.card,
-        {
-          backgroundColor: colorScheme === "light" ? "#FFFFFF" : "rgba(24, 24, 27, 0.72)",
-          borderColor: colorScheme === "light" ? theme.border : "rgba(255, 255, 255, 0.065)",
-        },
-        dynamicShadow,
-        animatedStyle,
-        style,
-      ]}
+      style={[flatStyle, animatedStyle]}
     >
       {children}
     </AnimatedTouchableOpacity>

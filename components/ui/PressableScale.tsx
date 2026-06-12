@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Pressable, PressableProps, StyleProp, ViewStyle } from "react-native";
+import { Pressable, PressableProps, StyleProp, ViewStyle, StyleSheet } from "react-native";
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -37,7 +37,7 @@ export const PressableScale: React.FC<Props> = ({
     scale.value = withSpring(scaleTo, { damping: 12, stiffness: 200 });
     if (haptic) {
       try {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       } catch {}
     }
     onPressIn?.(e);
@@ -57,7 +57,7 @@ export const PressableScale: React.FC<Props> = ({
       {...rest}
       style={style}
     >
-      <Animated.View pointerEvents="none" style={[aStyle, contentStyle]}>{children}</Animated.View>
+      <Animated.View pointerEvents="none" style={[StyleSheet.flatten(contentStyle), aStyle]}>{children}</Animated.View>
     </Pressable>
   );
 };

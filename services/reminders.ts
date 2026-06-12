@@ -264,29 +264,29 @@ export async function scheduleReminderBatch(
       : undefined);
 
   // Integrate settings checks (Quiet Hours and Category subscriptions)
+  let settings: any = null;
+  let isCurrentlyInQuietHours: any = null;
   try {
-    const {
-      getSettings,
-      isCurrentlyInQuietHours,
-    } = require("./settingsService");
-    const settings = await getSettings();
+    const settingsService = require("./settingsService");
+    isCurrentlyInQuietHours = settingsService.isCurrentlyInQuietHours;
+    settings = await settingsService.getSettings();
 
     // 1. Check if category is subscribed
     const categoryKey = options.category || options.kind;
-    if (settings.categories[categoryKey] === false) {
+    if (settings && settings.categories && settings.categories[categoryKey] === false) {
       return { ids: [], escalationMinutes };
     }
 
     // 2. Check if oneTimeAt falls in quiet hours
     if (options.oneTimeAt) {
-      if (isCurrentlyInQuietHours(settings, options.oneTimeAt.getHours())) {
+      if (isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, options.oneTimeAt.getHours())) {
         return { ids: [], escalationMinutes };
       }
     }
 
     // 3. Check if dailyTime falls in quiet hours
     if (options.dailyTime) {
-      if (isCurrentlyInQuietHours(settings, options.dailyTime.hour)) {
+      if (isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, options.dailyTime.hour)) {
         return { ids: [], escalationMinutes };
       }
     }
@@ -310,6 +310,10 @@ export async function scheduleReminderBatch(
       const triggerDate = new Date(
         options.oneTimeAt.getTime() + offset * 60 * 1000,
       );
+      if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, triggerDate.getHours())) {
+        console.log(`[scheduleReminderBatch] Skipping offset ${offset} for oneTimeAt because it falls inside Quiet Hours.`);
+        continue;
+      }
       if (isWeb) {
         const canNotify = await ensureWebPermission();
         const delay = triggerDate.getTime() - Date.now();
@@ -415,6 +419,11 @@ export async function scheduleReminderBatch(
         options.dailyTime.minute,
         offset,
       );
+
+      if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, adjusted.hour)) {
+        console.log(`[scheduleReminderBatch] Skipping offset ${offset} for recurrence because it falls inside Quiet Hours.`);
+        continue;
+      }
 
       const Notifications = await loadNotifications();
 
@@ -570,6 +579,11 @@ export async function scheduleReminderBatch(
       offset,
     );
 
+    if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, adjusted.hour)) {
+      console.log(`[scheduleReminderBatch] Skipping offset ${offset} for fallback daily/weekly because it falls inside Quiet Hours.`);
+      continue;
+    }
+
     // If the caller provided explicit weekdays, schedule each weekday separately.
     if (options.dailyDays && options.dailyDays.length > 0) {
       for (const weekday of options.dailyDays) {
@@ -692,3 +706,58 @@ export async function scheduleReminderBatch(
 export function hasNotificationPayload(data: unknown) {
   return Boolean(getNotificationPayload(data));
 }
+
+import { type Todo, type Habit } from "@/modules/types";
+
+export async function rescheduleTodoReminders(todo: Todo): Promise<Todo> {
+  const updatedTodo = { ...todo };
+  try {
+    if (todo.alarmTime && todo.alarmTime > Date.now()) {
+      const batch = await scheduleReminderBatch({
+        kind: "todo",
+        itemId: todo.id,
+        title: todo.title,
+        oneTimeAt: new Date(todo.alarmTime),
+        category: todo.category,
+      });
+      updatedTodo.alarmId = batch.primaryId;
+      updatedTodo.notificationIds = batch.ids;
+    } else if (todo.reminderHour !== undefined && todo.reminderMinute !== undefined) {
+      const batch = await scheduleReminderBatch({
+        kind: "todo",
+        itemId: todo.id,
+        title: todo.title,
+        dailyTime: { hour: todo.reminderHour, minute: todo.reminderMinute },
+        dailyDays: todo.reminderDays,
+        recurrence: todo.recurrence,
+        category: todo.category,
+      });
+      updatedTodo.notificationIds = batch.ids;
+    }
+  } catch (e) {
+    console.warn("Failed to reschedule todo reminders", e);
+  }
+  return updatedTodo;
+}
+
+export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
+  const updatedHabit = { ...habit };
+  try {
+    if (habit.reminderHour !== undefined && habit.reminderMinute !== undefined) {
+      const batch = await scheduleReminderBatch({
+        kind: "habit",
+        itemId: habit.id,
+        title: habit.title,
+        dailyTime: { hour: habit.reminderHour, minute: habit.reminderMinute },
+        dailyDays: habit.reminderDays,
+        recurrence: habit.recurrence,
+        category: habit.category,
+      });
+      updatedHabit.notificationIds = batch.ids;
+    }
+  } catch (e) {
+    console.warn("Failed to reschedule habit reminders", e);
+  }
+  return updatedHabit;
+}
+

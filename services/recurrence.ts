@@ -23,7 +23,10 @@ export function dayDiff(fromDateKey: string, toDateKey: string): number {
 export function isRecurringOccurrenceForDate(
   item: {
     id: string;
+    title?: string;
     scheduledDate?: string;
+    startDate?: string;
+    createdDate?: string;
     alarmTime?: number;
     recurrence?: {
       type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
@@ -52,57 +55,69 @@ export function isRecurringOccurrenceForDate(
   // Start date of the recurrence
   let startDayKey = item.scheduledDate && item.scheduledDate !== "inbox"
     ? item.scheduledDate
-    : undefined;
+    : (item.startDate || item.createdDate);
 
   if (!startDayKey) {
     if (item.alarmTime) {
       startDayKey = getDateKey(new Date(item.alarmTime));
     } else {
-      // Fallback: parse creation time from numeric id
-      const idNum = Number(item.id.replace(/[^\d]/g, ""));
-      if (!isNaN(idNum) && idNum > 1000000000000) {
-        startDayKey = getDateKey(new Date(idNum));
-      } else {
-        startDayKey = getDateKey(new Date());
-      }
+      startDayKey = getDateKey(new Date());
     }
   }
 
   // Cannot occur before its start date
   if (dateKey < startDayKey) {
+    console.log("[RECURRENCE]", item.title, item.id, "startDate:", startDayKey, "selectedDate:", dateKey, "isMatch: false (Before start date)");
     return false;
   }
 
   const targetDate = parseDateKey(dateKey);
   const dayOfWeek = targetDate.getDay(); // 0 = Sunday .. 6 = Saturday
 
+  let isMatch = false;
   switch (item.recurrence.type) {
     case "daily":
-      return true;
+      isMatch = true;
+      break;
     case "weekdays":
-      return dayOfWeek >= 1 && dayOfWeek <= 5;
+      isMatch = dayOfWeek >= 1 && dayOfWeek <= 5;
+      break;
     case "weekly": {
       const targetDays = item.recurrence.days && item.recurrence.days.length > 0
         ? item.recurrence.days
         : [parseDateKey(startDayKey).getDay()];
-      return targetDays.includes(dayOfWeek);
+      isMatch = targetDays.includes(dayOfWeek);
+      break;
     }
     case "monthly": {
       const dayOfMonth = item.recurrence.dayOfMonth || parseDateKey(startDayKey).getDate();
-      return targetDate.getDate() === dayOfMonth;
+      isMatch = targetDate.getDate() === dayOfMonth;
+      break;
     }
     case "interval": {
       if (item.recurrence.unit === "days") {
         const interval = item.recurrence.interval || 1;
         const diff = dayDiff(startDayKey, dateKey);
-        return diff >= 0 && diff % interval === 0;
+        isMatch = diff >= 0 && diff % interval === 0;
+      } else {
+        // If hourly, it occurs daily on the day view
+        isMatch = true;
       }
-      // If hourly, it occurs daily on the day view
-      return true;
+      break;
     }
     default:
-      return false;
+      isMatch = false;
   }
+
+  console.log(
+    "[RECURRENCE]",
+    item.title,
+    item.id,
+    "startDate:", startDayKey,
+    "selectedDate:", dateKey,
+    "isMatch:", isMatch
+  );
+  return isMatch;
 }
 
 /**

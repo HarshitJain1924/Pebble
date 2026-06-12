@@ -1,58 +1,40 @@
-export type NotificationTargetType = "todo" | "habit";
+// Notification route mapping — determines where tapping a notification navigates the user
 
-export type NotificationPayload = {
-  type: NotificationTargetType;
+export interface NotificationPayload {
+  type: "todo" | "habit";
   itemId: string;
-};
-
-export type NotificationRoute = {
-  pathname: "/" | "/daily" | "/tasks";
-  params: {
-    focusItemId: string;
-    focusItemType: NotificationTargetType;
-    segment?: "tasks" | "habits";
-  };
-};
-
-export function getNotificationPayload(
-  data: unknown,
-): NotificationPayload | null {
-  if (!data || typeof data !== "object") {
-    return null;
-  }
-
-  const maybe = data as Partial<NotificationPayload>;
-  if (
-    (maybe.type === "todo" || maybe.type === "habit") &&
-    typeof maybe.itemId === "string"
-  ) {
-    return { type: maybe.type, itemId: maybe.itemId };
-  }
-
-  return null;
+  escalationLevel?: number;
 }
 
-export function getNotificationRoute(data: unknown): NotificationRoute | null {
-  const payload = getNotificationPayload(data);
-  if (!payload) {
-    return null;
-  }
+/**
+ * Parses notification data and returns a typed payload if valid, otherwise null.
+ */
+export function getNotificationPayload(data: unknown): NotificationPayload | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  if (d.type !== "todo" && d.type !== "habit") return null;
+  if (typeof d.itemId !== "string" || !d.itemId) return null;
+  return {
+    type: d.type,
+    itemId: d.itemId,
+    escalationLevel: typeof d.escalationLevel === "number" ? d.escalationLevel : 0,
+  };
+}
 
-  return payload.type === "todo"
-    ? {
-        pathname: "/tasks",
-        params: {
-          focusItemId: payload.itemId,
-          focusItemType: payload.type,
-          segment: "tasks",
-        },
-      }
-    : {
-        pathname: "/tasks",
-        params: {
-          focusItemId: payload.itemId,
-          focusItemType: payload.type,
-          segment: "habits",
-        },
-      };
+/**
+ * Returns the app route for a notification payload.
+ * Used by the notification listener to navigate on tap.
+ */
+export function getRouteForPayload(payload: NotificationPayload): string {
+  switch (payload.type) {
+    case "habit":
+      return `/task-details?id=${payload.itemId}&type=habit`;
+    case "todo":
+    default:
+      return `/task-details?id=${payload.itemId}&type=task`;
+  }
+}
+export function getNotificationRoute(data: unknown): string | null {
+  const payload = getNotificationPayload(data);
+  return payload ? getRouteForPayload(payload) : null;
 }

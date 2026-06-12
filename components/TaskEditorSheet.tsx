@@ -20,6 +20,8 @@ import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useUndo } from "@/components/ui/UndoContext";
 import { TimeSelectorDial } from "@/components/TimeSelectorDial";
+import * as Haptics from "expo-haptics";
+import { getCognitiveFlowStats, CognitiveFlowStats } from "@/services/cognitiveFlowService";
 
 export type TaskList = { id: string; name: string };
 
@@ -71,6 +73,46 @@ export function TaskEditorSheet({
   const [intervalUnit, setIntervalUnit] = useState<"hours" | "days">("days");
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
   const [recurrenceDayOfMonth, setRecurrenceDayOfMonth] = useState<number>(1);
+
+  const [flowStats, setFlowStats] = useState<CognitiveFlowStats | null>(null);
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const stats = await getCognitiveFlowStats();
+        setFlowStats(stats);
+      } catch {}
+    }
+    loadStats();
+  }, []);
+
+  const suggestions = useMemo(() => {
+    if (!flowStats) return [];
+    if (flowStats.peakZone === "Morning Focus Peak") {
+      return [
+        { label: "8:00 AM", hour: 8, minute: 0 },
+        { label: "10:00 AM", hour: 10, minute: 0 },
+        { label: "11:30 AM", hour: 11, minute: 30 },
+      ];
+    } else if (flowStats.peakZone === "Afternoon Steady Flow") {
+      return [
+        { label: "12:30 PM", hour: 12, minute: 30 },
+        { label: "2:00 PM", hour: 14, minute: 0 },
+        { label: "4:00 PM", hour: 16, minute: 0 },
+      ];
+    } else if (flowStats.peakZone === "Night Owl Momentum") {
+      return [
+        { label: "6:00 PM", hour: 18, minute: 0 },
+        { label: "8:00 PM", hour: 20, minute: 0 },
+        { label: "9:30 PM", hour: 21, minute: 30 },
+      ];
+    }
+    return [
+      { label: "9:00 AM", hour: 9, minute: 0 },
+      { label: "2:00 PM", hour: 14, minute: 0 },
+      { label: "7:00 PM", hour: 19, minute: 0 },
+    ];
+  }, [flowStats]);
 
   const hasChanges = useMemo(() => {
     if (!task || !editedTask) return false;
@@ -385,7 +427,7 @@ export function TaskEditorSheet({
             </View>
 
             {/* Reminder Setting */}
-            <View style={[styles.metaCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.metaCard, { backgroundColor: colors.card, borderColor: colors.border, gap: 10 }]}>
               <TouchableOpacity
                 onPress={() => setTimePickerVisible(!timePickerVisible)}
                 style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}
@@ -405,6 +447,47 @@ export function TaskEditorSheet({
                   <Feather name={timePickerVisible ? "chevron-up" : "chevron-down"} size={16} color={colors.textMuted} style={{ marginLeft: 6 }} />
                 </View>
               </TouchableOpacity>
+
+              {/* Peak Focus Time Suggestions */}
+              {flowStats && suggestions.length > 0 && (
+                <View style={{ gap: 6, marginTop: 4 }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: colors.textMuted, letterSpacing: 0.5 }}>
+                    ⚡ RECOMMENDATIONS ({flowStats.peakZone.toUpperCase().split(" ")[0]})
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {suggestions.map((s) => {
+                      const isSelected = reminderHour === s.hour && reminderMinute === s.minute;
+                      return (
+                        <TouchableOpacity
+                          key={s.label}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                            setReminderHour(s.hour);
+                            setReminderMinute(s.minute);
+                            if (reminderDays.length === 0) {
+                              setReminderDays([0, 1, 2, 3, 4, 5, 6]); // Default to everyday
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            backgroundColor: isSelected ? `${colors.primary}18` : (isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.03)"),
+                            borderColor: isSelected ? colors.primary : colors.border,
+                            borderWidth: 1.2,
+                            borderRadius: 12,
+                            paddingVertical: 10,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Text style={{ fontSize: 12, fontWeight: "800", color: isSelected ? colors.primary : colors.text }}>
+                            {s.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
 
               {timePickerVisible && (
                 <View style={{ marginTop: 12 }}>

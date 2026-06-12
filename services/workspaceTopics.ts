@@ -1,89 +1,66 @@
-export const TOPICS = {
-  DEVOPS: [
-    "docker", "kubernetes", "k8s", "terraform", "aws", "azure", "gcp", "linux", "ansible", "jenkins", "helm", "argocd", "containers", "cloud", "devops", "ci/cd", "cicd"
-  ],
-  PLACEMENT: [
-    "dsa", "leetcode", "aptitude", "interview", "resume", "placement", "oa", "coding", "round", "placement prep"
-  ],
-  LEARNING: [
-    "react", "nextjs", "node", "express", "mongodb", "frontend", "backend", "fullstack", "javascript", "typescript", "web", "development", "study", "course", "tutorial", "revision", "practice", "learning"
-  ],
-  FITNESS: [
-    "gym", "workout", "cardio", "exercise", "running", "protein", "fitness"
-  ]
-};
+// Topic detection for workspace suggestions — matches task keywords to topic domains
 
-export const TOPIC_FRIENDLY_NAMES: Record<string, string> = {
-  DEVOPS: "DevOps",
-  PLACEMENT: "Placement Prep",
-  LEARNING: "Learning",
-  FITNESS: "Fitness"
-};
-
-/**
- * Detect topic associations of a workspace based on its name and existing tasks.
- */
-export function detectWorkspaceTopics(workspaceName: string, tasks: { title: string }[]): string[] {
-  const detected: string[] = [];
-  const nameLower = workspaceName.toLowerCase();
-
-  Object.entries(TOPICS).forEach(([topic, keywords]) => {
-    // 1. Analyze workspace name
-    const matchesName = keywords.some(k => nameLower.includes(k));
-    if (matchesName) {
-      detected.push(topic);
-      return;
-    }
-
-    // 2. Scan existing tasks in the workspace
-    const matchesTasks = tasks.some(task => {
-      const titleLower = task.title.toLowerCase();
-      return keywords.some(k => titleLower.includes(k));
-    });
-    if (matchesTasks) {
-      detected.push(topic);
-    }
-  });
-
-  return detected;
+export interface TopicMatch {
+  topic: string;
+  friendlyName: string;
+  score: number;
 }
 
+// Topic keyword map: maps topic key → display name and keyword set
+const TOPIC_DEFINITIONS: { topic: string; friendlyName: string; keywords: string[] }[] = [
+  { topic: "devops",      friendlyName: "DevOps",      keywords: ["kubernetes", "docker", "aws", "gcp", "azure", "terraform", "ci", "cd", "jenkins", "pipeline", "deployment", "container", "helm"] },
+  { topic: "development", friendlyName: "Development", keywords: ["react", "nextjs", "typescript", "javascript", "python", "api", "backend", "frontend", "code", "debug", "refactor", "component", "hook"] },
+  { topic: "fitness",     friendlyName: "Fitness",     keywords: ["gym", "workout", "exercise", "run", "jog", "lift", "yoga", "stretch", "cardio", "protein", "diet", "weight"] },
+  { topic: "study",       friendlyName: "Study",       keywords: ["exam", "dsa", "leetcode", "study", "course", "lecture", "revision", "assignment", "homework", "learn", "quiz", "chapter"] },
+  { topic: "finance",     friendlyName: "Finance",     keywords: ["rent", "bill", "pay", "tax", "invoice", "budget", "expense", "savings", "investment", "bank", "loan", "salary"] },
+  { topic: "health",      friendlyName: "Health",      keywords: ["doctor", "appointment", "medicine", "health", "checkup", "therapy", "prescription", "hospital", "clinic"] },
+  { topic: "shopping",    friendlyName: "Shopping",    keywords: ["buy", "purchase", "order", "shop", "amazon", "grocery", "food", "supplies", "market"] },
+  { topic: "reading",     friendlyName: "Reading",     keywords: ["read", "book", "chapter", "novel", "page", "article", "blog", "newsletter"] },
+  { topic: "social",      friendlyName: "Social",      keywords: ["call", "meet", "friend", "family", "mom", "dad", "birthday", "party", "dinner", "catch up"] },
+];
+
 /**
- * Calculate topic-based matching boost score (+40 if overlapping topic matched).
+ * Detect the primary topic of a task title.
+ * Returns the best match or null if confidence is too low.
  */
-export function getTopicMatchScore(taskTitle: string, workspaceName: string, wsTasks: { title: string }[]): number {
-  const taskLower = taskTitle.toLowerCase();
-  const wsTopics = detectWorkspaceTopics(workspaceName, wsTasks);
+export function detectTaskTopic(title: string): { topic: string; friendlyName: string } | null {
+  const lower = title.toLowerCase();
+  let best: { topic: string; friendlyName: string; score: number } | null = null;
 
-  let hasTopicMatch = false;
-
-  Object.entries(TOPICS).forEach(([topic, keywords]) => {
-    // Check if the task title contains any keyword from this topic dictionary
-    const taskHasKeyword = keywords.some(k => taskLower.includes(k));
-    // Check if the workspace is associated with this same topic
-    if (taskHasKeyword && wsTopics.includes(topic)) {
-      hasTopicMatch = true;
+  for (const def of TOPIC_DEFINITIONS) {
+    let score = 0;
+    for (const kw of def.keywords) {
+      if (lower.includes(kw)) {
+        score += kw.length; // longer keyword = higher confidence
+      }
     }
-  });
-
-  return hasTopicMatch ? 40 : 0;
-}
-
-/**
- * Detect task topic from title keywords directly.
- */
-export function detectTaskTopic(taskTitle: string): { topic: string; friendlyName: string } | null {
-  const taskLower = taskTitle.toLowerCase();
-
-  for (const [topic, keywords] of Object.entries(TOPICS)) {
-    const hasMatch = keywords.some(k => taskLower.includes(k));
-    if (hasMatch) {
-      return {
-        topic,
-        friendlyName: TOPIC_FRIENDLY_NAMES[topic] || topic
-      };
+    if (score > 0 && (!best || score > best.score)) {
+      best = { topic: def.topic, friendlyName: def.friendlyName, score };
     }
   }
 
-  return null;
+  return best && best.score >= 3 ? { topic: best.topic, friendlyName: best.friendlyName } : null;
+}
+
+/**
+ * Return a numeric boost score (0–40) for how well a task title matches a workspace name
+ * based on topic domain overlap.
+ */
+export function getTopicMatchScore(
+  taskTitle: string,
+  workspaceName: string,
+  _workspaceTasks: { title: string }[]
+): number {
+  const topic = detectTaskTopic(taskTitle);
+  if (!topic) return 0;
+
+  const wsLower = workspaceName.toLowerCase();
+  const topicWords = topic.topic.split(/[_\s]+/);
+  const friendlyWords = topic.friendlyName.toLowerCase().split(/\s+/);
+
+  const hasMatch =
+    topicWords.some((w) => wsLower.includes(w)) ||
+    friendlyWords.some((w) => wsLower.includes(w));
+
+  return hasMatch ? 40 : 0;
 }

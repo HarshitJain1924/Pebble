@@ -1,6 +1,7 @@
 import React from "react";
 import { Platform, Pressable, StyleSheet,  View } from "react-native";
 import { AppText as Text } from "@/components/ui/AppText";
+import { RenderAvatar } from "@/components/profile/RenderAvatar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Colors } from "@/constants/theme";
@@ -13,9 +14,13 @@ export type AppHeaderProps = {
   showProfile?: boolean;
   showNotifications?: boolean;
   showArchive?: boolean;
+  showTrash?: boolean;
   nextReminder?: string | null;
   hasUnreadNotifs?: boolean;
   profile?: { name: string; avatar: string; level: number } | null;
+  totalPebbles?: number;
+  gemsBalance?: number;
+  onPebblePress?: () => void;
 };
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -25,9 +30,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   showProfile = true,
   showNotifications = true,
   showArchive = false,
+  showTrash = false,
   nextReminder,
   hasUnreadNotifs,
   profile,
+  totalPebbles,
+  gemsBalance,
+  onPebblePress,
 }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -41,8 +50,26 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {title && <Text style={[styles.title, { color: colors.text }]}>{title}</Text>}
         {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
       </View>
-      {(showNotifications || showProfile || showArchive) && (
+      {(showNotifications || showProfile || showArchive || showTrash || totalPebbles !== undefined) && (
         <View style={styles.right}>
+          {showTrash && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.bellButton,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open recycle bin"
+              onPress={() => router.push("/recycle-bin")}
+            >
+              <Feather name="trash-2" size={16} color={colors.textMuted} />
+            </Pressable>
+          )}
+
           {showArchive && (
             <Pressable
               style={({ pressed }) => [
@@ -58,6 +85,60 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               onPress={() => router.push("/archive")}
             >
               <Feather name="archive" size={16} color={colors.textMuted} />
+            </Pressable>
+          )}
+
+          {totalPebbles !== undefined && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.pebbleCapsule,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: isLight ? "rgba(99,102,241,0.06)" : "rgba(99,102,241,0.12)",
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open pebble jar details"
+              onPress={onPebblePress}
+            >
+              <Text style={{ fontSize: 13, marginRight: 3 }}>🫙</Text>
+              <Text
+                style={{
+                  color: colors.primaryLight,
+                  fontSize: 12,
+                  fontWeight: "800",
+                }}
+              >
+                {totalPebbles}
+              </Text>
+            </Pressable>
+          )}
+
+          {gemsBalance !== undefined && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.pebbleCapsule,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: isLight ? "rgba(245,158,11,0.06)" : "rgba(245,158,11,0.12)",
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="View gems"
+              onPress={() => router.push("/profile")}
+            >
+              <Text style={{ fontSize: 13, marginRight: 3 }}>💎</Text>
+              <Text
+                style={{
+                  color: "#F59E0B",
+                  fontSize: 12,
+                  fontWeight: "800",
+                }}
+              >
+                {gemsBalance}
+              </Text>
             </Pressable>
           )}
 
@@ -106,9 +187,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   },
                 ]}
               >
-                <Text style={{ fontSize: 16 }}>
-                  {profile ? profile.avatar : "👨‍💻"}
-                </Text>
+                <RenderAvatar avatar={profile ? profile.avatar : "👨‍💻"} size={32} />
                 {hasUnreadNotifs && (
                   <View
                     style={[
@@ -219,5 +298,14 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     top: 0,
     right: 0,
+  },
+  pebbleCapsule: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    justifyContent: "center",
   },
 });

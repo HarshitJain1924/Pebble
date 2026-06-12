@@ -255,31 +255,87 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     };
 
     // Heuristic Classification: Habits vs Tasks
-    const lowTitle = cleanedText.toLowerCase();
-    const isWorkLike =
-      category === "work" ||
-      category === "creative" ||
-      category === "focus" ||
-      /\b(?:pay\s+)?rent\b/i.test(lowTitle) ||
-      /\bkubernetes\b/i.test(lowTitle) ||
-      /\bdocker\b/i.test(lowTitle) ||
-      /\bdsa\b/i.test(lowTitle) ||
-      /\binterview\b/i.test(lowTitle) ||
-      /\bplacement\b/i.test(lowTitle) ||
-      /\bbackup\b/i.test(lowTitle) ||
-      /\bfinance\b/i.test(lowTitle) ||
-      /\bmeeting\b/i.test(lowTitle) ||
-      /\bproject\b/i.test(lowTitle) ||
-      /\bassignment\b/i.test(lowTitle);
+    const lowTitle = cleanedText.toLowerCase().trim();
+    const originalLow = originalText.toLowerCase().trim();
 
-    const isHabitLike =
-      category === "health" ||
-      /\b(?:read|journal|meditate|water|gym|workout|running|run|exercise|walk|drink)\b/i.test(lowTitle);
+    let habitScore = 0;
+    let taskScore = 0;
 
-    if (isWorkLike && !isHabitLike) {
-      type = "task";
+    // 1. Recurrence boost
+    if (/\bevery\s+day\b/i.test(originalLow) || /\bdaily\b/i.test(originalLow) || /\beveryday\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+morning\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+evening\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+night\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+weekday\b/i.test(originalLow) || /\bweekdays\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+weekend\b/i.test(originalLow) || /\bweekends\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+(?:sun|mon|tue|wed|thu|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+\d+\s+(?:hours?|days?)\b/i.test(originalLow) || /\bevery\s+hour\b/i.test(originalLow) || /\bhourly\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\b/i.test(originalLow) || /\bweekly\b/i.test(originalLow) || /\bmonthly\b/i.test(originalLow)) {
+      habitScore += 4.0;
     } else {
+      habitScore += 3.0;
+    }
+
+    // 2. Category weights
+    if (category === "health") {
+      habitScore += 3.0;
+    } else if (category === "learning") {
+      taskScore += 1.0;
+    } else if (category === "work" || category === "creative" || category === "focus") {
+      taskScore += 2.0;
+    }
+
+    // 3. Keyword weights
+    const specificWorkKeywords = [
+      "submit", "client", "meeting", "project", "assignment", "report", "presentation",
+      "kubernetes", "docker", "dsa", "interview", "placement", "backup", "finance", "rent", "pay rent", "pay"
+    ];
+    // Compound phrases that are definitely work-tasks even if verbs are generic
+    const workPhrases = ["call client", "call meeting", "call interview"];
+    workPhrases.forEach(phrase => {
+      if (originalLow.includes(phrase)) {
+        taskScore += 4.5;
+      }
+    });
+    const weakWorkKeywords = ["task", "complete", "do", "update"];
+    const habitKeywords = [
+      "read", "journal", "meditate", "water", "gym", "workout", "running", "run", "exercise",
+      "walk", "drink", "stretch", "swim", "train", "yoga", "hydration", "teeth", "brush"
+    ];
+
+    specificWorkKeywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, "i");
+      if (regex.test(lowTitle)) {
+        taskScore += 4.5;
+      }
+    });
+
+    weakWorkKeywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, "i");
+      if (regex.test(lowTitle)) {
+        taskScore += 1.0;
+      }
+    });
+
+    habitKeywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, "i");
+      if (regex.test(lowTitle)) {
+        habitScore += 3.0;
+      }
+    });
+
+    if (habitScore > taskScore) {
       type = "habit";
+    } else {
+      type = "task";
     }
   } else {
     type = "task"; // non-recurring defaults to task

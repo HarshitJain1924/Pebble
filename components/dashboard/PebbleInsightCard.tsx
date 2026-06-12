@@ -117,6 +117,90 @@ export const PebbleInsightCard: React.FC = () => {
           insightsList.push(`🏆 You achieved a perfect 100% completion score on ${perfectDays} day${perfectDays > 1 ? "s" : ""} in history.`);
         }
 
+        // Insight E: Consistency Index and Active Days Streak
+        if (history.length > 0) {
+          const activeDays = history.filter((e) => (e.completedTodos + e.completedHabits) > 0).length;
+          const consistencyIndex = Math.round((activeDays / history.length) * 100);
+          
+          if (consistencyIndex >= 60 && history.length >= 3) {
+            insightsList.push(`⚡ Your Consistency Index is ${consistencyIndex}%! You're consistently showing up and executing your daily intentions.`);
+          }
+
+          // Calculate consecutive active days streak
+          let longestActiveStreak = 0;
+          let tempStreak = 0;
+          const chronoHistory = [...history].sort((a, b) => a.date.localeCompare(b.date));
+          let lastDate: Date | null = null;
+
+          chronoHistory.forEach((entry) => {
+            const hasCompletions = (entry.completedTodos + entry.completedHabits) > 0;
+            if (hasCompletions) {
+              if (lastDate === null) {
+                tempStreak = 1;
+              } else {
+                const diffTime = Math.abs(new Date(entry.date).getTime() - lastDate.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                if (diffDays <= 1) {
+                  tempStreak++;
+                } else {
+                  tempStreak = 1;
+                }
+              }
+              longestActiveStreak = Math.max(longestActiveStreak, tempStreak);
+              lastDate = new Date(entry.date);
+            } else {
+              tempStreak = 0;
+              lastDate = null;
+            }
+          });
+
+          if (longestActiveStreak > 2) {
+            insightsList.push(`🔥 You have maintained a consecutive focus streak of ${longestActiveStreak} active days. Keep the momentum going!`);
+          }
+        }
+
+        // Insight F: WoW Habit Completion Rate Comparison
+        if (history.length >= 3) {
+          const now = new Date();
+          const todayStartOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+          const oneDayMs = 24 * 60 * 60 * 1000;
+
+          const thisWeekEntries = history.filter((entry) => {
+            const entryParts = entry.date.split("-").map(Number);
+            const entryTime = new Date(entryParts[0], entryParts[1] - 1, entryParts[2]).getTime();
+            return (todayStartOfDay - entryTime) <= 7 * oneDayMs;
+          });
+
+          const lastWeekEntries = history.filter((entry) => {
+            const entryParts = entry.date.split("-").map(Number);
+            const entryTime = new Date(entryParts[0], entryParts[1] - 1, entryParts[2]).getTime();
+            const diff = todayStartOfDay - entryTime;
+            return diff > 7 * oneDayMs && diff <= 14 * oneDayMs;
+          });
+
+          const getHabitRate = (entries: DailyHistory[]) => {
+            let completed = 0;
+            let total = 0;
+            entries.forEach((e) => {
+              completed += e.completedHabits;
+              total += e.totalHabits;
+            });
+            return total > 0 ? (completed / total) : null;
+          };
+
+          const thisWeekRate = getHabitRate(thisWeekEntries);
+          const lastWeekRate = getHabitRate(lastWeekEntries);
+
+          if (thisWeekRate !== null && lastWeekRate !== null) {
+            const diff = Math.round((thisWeekRate - lastWeekRate) * 100);
+            if (diff > 5) {
+              insightsList.push(`📈 Your habit completion rate increased by ${diff}% this week compared to last week! Excellent progress.`);
+            } else if (diff < -5) {
+              insightsList.push(`📉 Your habit completion rate is down by ${Math.abs(diff)}% compared to last week. Try scheduling specific blocks for them.`);
+            }
+          }
+        }
+
         // Randomly select one calculated insight to show, or fallback
         if (insightsList.length > 0) {
           const randomIndex = Math.floor(Math.random() * insightsList.length);

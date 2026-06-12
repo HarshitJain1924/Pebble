@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, Alert, TouchableOpacity, Platform } from "react-native";
 import { AppText as Text } from "@/components/ui/AppText";
 import { useRouter } from "expo-router";
 
@@ -20,6 +20,8 @@ export type Habit = {
   notificationIds?: string[];
   escalationMinutes?: number[];
   priority?: "low" | "medium" | "high";
+  previousStreak?: number;
+  streakBrokenDate?: string;
 };
 
 interface HabitItemProps {
@@ -32,6 +34,7 @@ interface HabitItemProps {
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onSelect?: () => void;
+  onRecoverStreak?: (method: "pebbles" | "focus") => void;
 }
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -39,6 +42,23 @@ const DAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const AMBER = "#F59E0B";
 const AMBER_DIM = "#D97706";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const parseDateKey = (value: string) => {
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+const dayDiff = (fromDateKey: string, toDateKey: string) => {
+  const from = parseDateKey(fromDateKey).getTime();
+  const to = parseDateKey(toDateKey).getTime();
+  return Math.floor((to - from) / DAY_MS);
+};
+const getDateKey = (date = new Date()) => {
+  const y = date.getFullYear();
+  const m = `${date.getMonth() + 1}`.padStart(2, "0");
+  const d = `${date.getDate()}`.padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
 
 export function HabitItem({
   item,
@@ -50,6 +70,7 @@ export function HabitItem({
   isSelectionMode = false,
   isSelected = false,
   onSelect,
+  onRecoverStreak,
 }: HabitItemProps) {
   const router = useRouter();
   const isDark = colorScheme === "dark";
@@ -273,6 +294,91 @@ export function HabitItem({
 
             {/* Week grid dots */}
             {renderWeekGrid()}
+
+            {/* Recovery Grace Period UI */}
+            {(() => {
+              const todayKey = getDateKey();
+              const isEligibleForRecovery =
+                !!item.previousStreak &&
+                item.previousStreak > 0 &&
+                !!item.streakBrokenDate &&
+                dayDiff(item.streakBrokenDate, todayKey) <= 1;
+
+              if (!isEligibleForRecovery || !onRecoverStreak) return null;
+
+              return (
+                <View
+                  style={{
+                    marginTop: 10,
+                    padding: 10,
+                    backgroundColor: isDark ? "rgba(239, 68, 68, 0.08)" : "rgba(239, 68, 68, 0.05)",
+                    borderColor: isDark ? "rgba(239, 68, 68, 0.2)" : "rgba(239, 68, 68, 0.15)",
+                    borderWidth: 1.2,
+                    borderRadius: 12,
+                    gap: 8,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "800", color: colors.error }}>
+                      💔 Streak of {item.previousStreak} Broken!
+                    </Text>
+                    <Text style={{ fontSize: 10, color: colors.textMuted, flex: 1, textAlign: "right" }}>
+                      Expires in 48h
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Alert.alert(
+                          "Recover Streak",
+                          `Spend 1 Gem to restore your ${item.previousStreak}-day streak?`,
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Spend 1 Gem",
+                              onPress: () => onRecoverStreak("pebbles"),
+                            },
+                          ]
+                        );
+                      }}
+                      style={{
+                        flex: 1,
+                        backgroundColor: isDark ? "rgba(245, 158, 11, 0.15)" : "#FEF3C7",
+                        borderColor: AMBER,
+                        borderWidth: 1,
+                        borderRadius: 8,
+                        paddingVertical: 6,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: AMBER }}>
+                        💎 Spend 1 Gem
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => onRecoverStreak("focus")}
+                      style={{
+                        flex: 1,
+                        backgroundColor: isDark ? "rgba(99, 102, 241, 0.15)" : "#EEF2FF",
+                        borderColor: colors.primary,
+                        borderWidth: 1,
+                        borderRadius: 8,
+                        paddingVertical: 6,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: colors.primary }}>
+                        ⚡ Focus 10 Mins
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
           </View>
         </Pressable>
       </SwipeableCard>

@@ -20,9 +20,9 @@ import { AppText as Text } from "@/components/ui/AppText";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { type Todo, type Habit, type TaskList } from "@/modules/types";
-import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY, HISTORY_STORAGE_KEY } from "@/services/storage";
+import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY, HISTORY_STORAGE_KEY, addToRecycleBin, getRecycleBinItems, saveRecycleBinItems } from "@/services/storage";
 import { emitStateChange } from "@/services/stateEvents";
-import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
+import { cancelReminderIds, scheduleReminderBatch, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
 import { TimeSelectorDial } from "@/components/TimeSelectorDial";
 import { getRecurrenceLabel, getDateKey } from "@/services/recurrence";
 import { useUndo } from "@/components/ui/UndoContext";
@@ -53,7 +53,7 @@ export default function TaskDetailsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
-  const { showToast } = useUndo();
+  const { showToast, showUndo } = useUndo();
 
   // State Variables
   const [loading, setLoading] = useState(true);
@@ -62,6 +62,19 @@ export default function TaskDetailsScreen() {
   const [item, setItem] = useState<any>(null);
   const [completionRate, setCompletionRate] = useState<number | null>(null);
   const [timesCompleted, setTimesCompleted] = useState<number | null>(null);
+  const [completedDates, setCompletedDates] = useState<string[]>([]);
+
+  const calendarMarkedDates = useMemo(() => {
+    const marked: Record<string, any> = {};
+    completedDates.forEach((dateStr) => {
+      marked[dateStr] = {
+        selected: true,
+        selectedColor: "#F59E0B",
+        textColor: "#FFFFFF",
+      };
+    });
+    return marked;
+  }, [completedDates]);
 
   // Form Fields State
   const [title, setTitle] = useState("");
@@ -197,10 +210,16 @@ export default function TaskDetailsScreen() {
                 const history = JSON.parse(historyRaw);
                 if (Array.isArray(history)) {
                   const relevantEntries = history.filter((entry: any) => entry.totalHabits > 0);
-                  const completedCount = relevantEntries.filter((entry: any) =>
+                  const completedEntries = history.filter((entry: any) =>
                     entry.completedHabitTitles?.includes(foundHabit.title)
-                  ).length;
+                  );
+                  const completedCount = completedEntries.length;
                   setTimesCompleted(completedCount);
+
+                  // Gather all unique date strings where the habit was completed
+                  const dates = completedEntries.map((entry: any) => entry.date).filter(Boolean);
+                  setCompletedDates(dates);
+
                   if (relevantEntries.length > 0) {
                     setCompletionRate(Math.round((completedCount / relevantEntries.length) * 100));
                   } else {
@@ -210,6 +229,7 @@ export default function TaskDetailsScreen() {
               } else {
                 setTimesCompleted(0);
                 setCompletionRate(0);
+                setCompletedDates([]);
               }
             } catch (e) {
               console.warn("Failed to load habit completion stats:", e);
@@ -667,7 +687,11 @@ export default function TaskDetailsScreen() {
         }
       } else {
         // Full delete
+        const originalWorkspace = workspaces.find((w) => w.id === (item.folderId || "default"))?.name || "Default";
+
         await cancelReminderIds(item.notificationIds || []);
+
+        await addToRecycleBin(isTask ? "task" : "habit", item, originalWorkspace);
 
         if (isTask) {
           const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
@@ -686,6 +710,42 @@ export default function TaskDetailsScreen() {
             await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
           }
         }
+
+        showUndo({
+          message: `Deleted "${item.title}"`,
+          onUndo: async () => {
+            // Remove from Recycle Bin
+            const binItems = await getRecycleBinItems();
+            await saveRecycleBinItems(binItems.filter((bi) => bi.id !== item.id));
+
+            if (isTask) {
+              const rescheduled = await rescheduleTodoReminders(item);
+              const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+              if (raw) {
+                const state = JSON.parse(raw);
+                const listId = rescheduled.folderId || "default";
+                if (!state.todos[listId]) state.todos[listId] = [];
+                if (!state.todos[listId].some((t: Todo) => t.id === item.id)) {
+                  state.todos[listId].push(rescheduled);
+                }
+                await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
+              }
+              emitStateChange("tasks_changed");
+            } else {
+              const rescheduled = await rescheduleHabitReminders(item);
+              const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+              if (raw) {
+                const state = JSON.parse(raw);
+                if (!state.dailyHabits) state.dailyHabits = [];
+                if (!state.dailyHabits.some((h: Habit) => h.id === item.id)) {
+                  state.dailyHabits.push(rescheduled);
+                }
+                await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
+              }
+              emitStateChange("habits_changed");
+            }
+          },
+        });
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
@@ -819,12 +879,14 @@ export default function TaskDetailsScreen() {
               </View>
 
               {/* Workspace */}
-              <View style={[styles.badge, { backgroundColor: `${colors.primary}15`, borderColor: colors.primary }]}>
-                <Feather name="folder" size={12} color={colors.primary} />
-                <Text style={[styles.badgeText, { color: colors.primary }]}>
-                  {workspaces.find((w) => w.id === item.folderId)?.name || "Default"}
-                </Text>
-              </View>
+              {isTask && (
+                <View style={[styles.badge, { backgroundColor: `${colors.primary}15`, borderColor: colors.primary }]}>
+                  <Feather name="folder" size={12} color={colors.primary} />
+                  <Text style={[styles.badgeText, { color: colors.primary }]}>
+                    {workspaces.find((w) => w.id === item.folderId)?.name || "Default"}
+                  </Text>
+                </View>
+              )}
 
               {/* Status */}
               {isTask ? (
@@ -960,6 +1022,46 @@ export default function TaskDetailsScreen() {
               )}
             </View>
 
+            {/* Completion History Calendar (Habits Only) */}
+            {!isTask && (
+              <View style={{ gap: 8, marginTop: 8 }}>
+                <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700", marginLeft: 4 }}>
+                  Completion Calendar
+                </Text>
+                <View style={{
+                  backgroundColor: colors.card,
+                  borderRadius: 20,
+                  borderWidth: 1.5,
+                  borderColor: colors.border,
+                  overflow: "hidden",
+                  padding: 8,
+                }}>
+                  <Calendar
+                    theme={{
+                      calendarBackground: colors.card,
+                      textSectionTitleColor: colors.textMuted,
+                      selectedDayBackgroundColor: "#F59E0B",
+                      selectedDayTextColor: "#ffffff",
+                      todayTextColor: colors.primary,
+                      dayTextColor: colors.text,
+                      textDisabledColor: `${colors.textMuted}33`,
+                      dotColor: "#F59E0B",
+                      selectedDotColor: "#ffffff",
+                      arrowColor: colors.primary,
+                      monthTextColor: colors.text,
+                      textDayFontWeight: "600",
+                      textMonthFontWeight: "700",
+                      textDayHeaderFontWeight: "700",
+                      textDayFontSize: 13,
+                      textMonthFontSize: 14,
+                      textDayHeaderFontSize: 11,
+                    }}
+                    markedDates={calendarMarkedDates}
+                  />
+                </View>
+              </View>
+            )}
+
             {/* Quick action buttons row */}
             <View style={{ gap: 12, marginTop: 12 }}>
               <TouchableOpacity
@@ -1072,17 +1174,19 @@ export default function TaskDetailsScreen() {
             </View>
 
             {/* Description Input */}
-            <View style={styles.inputWrap}>
-              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Notes</Text>
-              <TextInput
-                style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff", minHeight: 70, textAlignVertical: "top" }]}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="Add details..."
-                placeholderTextColor={colors.textMuted}
-                multiline
-              />
-            </View>
+            {isTask && (
+              <View style={styles.inputWrap}>
+                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Notes</Text>
+                <TextInput
+                  style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff", minHeight: 70, textAlignVertical: "top" }]}
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder="Add details..."
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                />
+              </View>
+            )}
 
             {/* Category Selector */}
             <View style={styles.inputWrap}>
@@ -1134,28 +1238,30 @@ export default function TaskDetailsScreen() {
             </View>
 
             {/* Workspace Selector */}
-            <View style={styles.inputWrap}>
-              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Workspace</Text>
-              <View style={styles.pillsContainer}>
-                {workspaces.map((ws) => {
-                  const isSelected = workspaceId === ws.id;
-                  return (
-                    <TouchableOpacity
-                      key={ws.id}
-                      style={[styles.pill, {
-                        backgroundColor: isSelected ? `${colors.primary}22` : colors.card,
-                        borderColor: isSelected ? colors.primary : colors.border
-                      }]}
-                      onPress={() => setWorkspaceId(ws.id)}
-                    >
-                      <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 13, fontWeight: "600" }}>
-                        {ws.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+            {isTask && (
+              <View style={styles.inputWrap}>
+                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Workspace</Text>
+                <View style={styles.pillsContainer}>
+                  {workspaces.map((ws) => {
+                    const isSelected = workspaceId === ws.id;
+                    return (
+                      <TouchableOpacity
+                        key={ws.id}
+                        style={[styles.pill, {
+                          backgroundColor: isSelected ? `${colors.primary}22` : colors.card,
+                          borderColor: isSelected ? colors.primary : colors.border
+                        }]}
+                        onPress={() => setWorkspaceId(ws.id)}
+                      >
+                        <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 13, fontWeight: "600" }}>
+                          {ws.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
+            )}
 
             {/* Scheduled Date Selector (Tasks Only) */}
             {isTask && (
