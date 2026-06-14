@@ -11,7 +11,6 @@ import {
     Platform,
     Pressable,
     SafeAreaView,
-    ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -149,9 +148,6 @@ export default function DailyScreen() {
   const [title, setTitle] = useState("");
   const [selectedHabitPriority, setSelectedHabitPriority] = useState<"low" | "medium" | "high">("medium");
   const [selectedHabitPriorityFilter, setSelectedHabitPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
-  const [reminderMenuHabitId, setReminderMenuHabitId] = useState<string | null>(
-    null,
-  );
   const [showCelebrate, setShowCelebrate] = useState(false);
   const [highlightedHabitId, setHighlightedHabitId] = useState<string | null>(
     null,
@@ -390,84 +386,6 @@ export default function DailyScreen() {
     });
   };
 
-  const setReminderWithDays = async (
-    habitId: string,
-    hour: number,
-    minute: number,
-    days?: number[],
-  ) => {
-    const target = habits.find((habit) => habit.id === habitId);
-    if (!target) {
-      return;
-    }
-
-    try {
-      await cancelNotifications(target.notificationIds ?? []);
-      const scheduled = await scheduleReminderBatch({
-        kind: "habit",
-        itemId: habitId,
-        title: target.title,
-        dailyTime: { hour, minute },
-        dailyDays: days,
-        escalationMinutes: [120, 240],
-        channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-        context: {
-          title: target.title,
-          remainingCount: unfinishedCount,
-          totalCount: habits.length,
-          streak: target.streak,
-          bestStreak: target.bestStreak,
-        },
-      });
-
-      setHabits((current) => {
-        const updated = current.map((habit) =>
-          habit.id === habitId
-            ? {
-                ...habit,
-                reminderHour: hour,
-                reminderMinute: minute,
-                reminderDays: days,
-                notificationIds: scheduled.ids,
-                escalationMinutes: scheduled.escalationMinutes,
-              }
-            : habit,
-        );
-        persistHabits(updated);
-        return updated;
-      });
-    } catch {
-      Alert.alert(
-        "Could not schedule",
-        "Reminder scheduling failed on this device.",
-      );
-    }
-
-    setReminderMenuHabitId(null);
-  };
-
-  const clearReminder = async (habitId: string) => {
-    const target = habits.find((habit) => habit.id === habitId);
-    await cancelNotifications(target?.notificationIds ?? []);
-
-    setHabits((current) => {
-      const updated = current.map((habit) =>
-        habit.id === habitId
-          ? {
-              ...habit,
-              reminderHour: undefined,
-              reminderMinute: undefined,
-              notificationIds: [],
-              escalationMinutes: undefined,
-            }
-          : habit,
-      );
-      persistHabits(updated);
-      return updated;
-    });
-
-    setReminderMenuHabitId(null);
-  };
 
   // HabitItem handles streak grids, day labels, and reminders internally
 
