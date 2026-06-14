@@ -15,9 +15,17 @@ import {
   PROFILE_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   TODOS_STORAGE_KEY,
+  RECYCLE_BIN_STORAGE_KEY,
+  NOTIF_LOG_STORAGE_KEY,
 } from "@/services/storage";
+import { PEBBLE_LOG_KEY } from "@/services/pebbleService";
+import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/services/quickSuggestions";
+import { WIDGET_PAYLOAD_KEY } from "@/services/widgetData";
+import { cancelAllScheduledNotifications } from "@/services/reminders";
 import { Feather } from "@expo/vector-icons";
 import { emitStateChange } from "@/services/stateEvents";
+import { RenderAvatar, AVATAR_OPTIONS, EMOJI_OPTIONS } from "@/components/profile/RenderAvatar";
+import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
@@ -92,6 +100,7 @@ export default function SettingsScreen() {
       };
       await saveProfile(updatedProfile);
       setProfile(updatedProfile);
+      emitStateChange("profile_changed");
       Alert.alert("Success", "Profile updated successfully!");
     } catch {
       Alert.alert("Error", "Could not save profile details.");
@@ -387,6 +396,16 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem(PROFILE_STORAGE_KEY),
                 AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
                 AsyncStorage.removeItem("todoapp:onboarding_completed"),
+                AsyncStorage.removeItem("todoapp:workspace:history:v1"),
+                AsyncStorage.removeItem("PEBBLE_CAPTURE_CREATION_HISTORY"),
+                AsyncStorage.removeItem("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS"),
+                AsyncStorage.removeItem(RECYCLE_BIN_STORAGE_KEY),
+                AsyncStorage.removeItem(NOTIF_LOG_STORAGE_KEY),
+                AsyncStorage.removeItem(PEBBLE_LOG_KEY),
+                AsyncStorage.removeItem(QUICK_SUGGESTIONS_SEEN_KEY),
+                AsyncStorage.removeItem(WIDGET_PAYLOAD_KEY),
+                AsyncStorage.removeItem("todoapp:focus:stats"),
+                cancelAllScheduledNotifications(),
               ]);
               emitStateChange("tasks_changed");
               emitStateChange("habits_changed");
@@ -444,8 +463,45 @@ export default function SettingsScreen() {
     }
     try {
       const parsed = JSON.parse(importDataString);
-      const keyValPairs: [string, string][] = [];
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("Backup payload must be a JSON object.");
+      }
 
+      const hasCoreKeys = [TODOS_STORAGE_KEY, DAILY_STORAGE_KEY, PROFILE_STORAGE_KEY].some(
+        (key) => key in parsed
+      );
+      if (!hasCoreKeys) {
+        throw new Error("Backup does not contain any valid Pebble data keys.");
+      }
+
+      // Validate TODOS_STORAGE_KEY
+      if (TODOS_STORAGE_KEY in parsed) {
+        const rawVal = parsed[TODOS_STORAGE_KEY];
+        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+        if (!valObj || !Array.isArray(valObj.lists) || typeof valObj.todos !== "object") {
+          throw new Error("Invalid format for tasks and workspaces.");
+        }
+      }
+
+      // Validate DAILY_STORAGE_KEY
+      if (DAILY_STORAGE_KEY in parsed) {
+        const rawVal = parsed[DAILY_STORAGE_KEY];
+        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+        if (!valObj || !Array.isArray(valObj.dailyHabits)) {
+          throw new Error("Invalid format for habits.");
+        }
+      }
+
+      // Validate PROFILE_STORAGE_KEY
+      if (PROFILE_STORAGE_KEY in parsed) {
+        const rawVal = parsed[PROFILE_STORAGE_KEY];
+        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+        if (!valObj || typeof valObj !== "object") {
+          throw new Error("Invalid format for user profile.");
+        }
+      }
+
+      const keyValPairs: [string, string][] = [];
       Object.entries(parsed).forEach(([key, val]) => {
         if (typeof val === "string") {
           keyValPairs.push([key, val]);
@@ -462,14 +518,20 @@ export default function SettingsScreen() {
       setImportModalVisible(false);
       setImportDataString("");
       await loadSettingsData();
+
+      // Emit changes to all screens to load restored state
+      emitStateChange("tasks_changed");
+      emitStateChange("habits_changed");
+      emitStateChange("profile_changed");
+
       Alert.alert(
         "Success",
         "Backup restored successfully! All lists and parameters are up to date.",
       );
-    } catch (err) {
+    } catch (err: any) {
       Alert.alert(
         "Restore Failed",
-        "Could not parse or write backup string. Verify formatting.",
+        `Could not parse or write backup: ${err.message || "Verify formatting."}`,
       );
     }
   };
@@ -533,27 +595,83 @@ export default function SettingsScreen() {
             </Text>
 
             <View style={styles.profileInputsRow}>
-              {/* Avatar Selector emoji options */}
-              <View style={styles.avatarRow}>
-                {["👨‍💻", "🚀", "🎨", "🎮", "🧘", "💼"].map((emoji) => (
-                  <Pressable
-                    key={emoji}
-                    onPress={() => setAvatar(emoji)}
-                    style={[
-                      styles.avatarBox,
-                      {
-                        backgroundColor:
-                          avatar === emoji
-                            ? `${colors.primary}18`
-                            : "rgba(255,255,255,0.02)",
-                        borderColor:
-                          avatar === emoji ? colors.primary : colors.border,
-                      },
-                    ]}
-                  >
-                    <Text style={{ fontSize: 18 }}>{emoji}</Text>
-                  </Pressable>
-                ))}
+              {/* Current Avatar visual preview */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8, backgroundColor: "rgba(255,255,255,0.015)", padding: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
+                <RenderAvatar avatar={avatar} size={48} />
+                <View style={{ gap: 2 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.text }}>Current Companion</Text>
+                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>
+                    {avatar.startsWith("avatar_") 
+                      ? AVATAR_OPTIONS.find(o => o.id === avatar)?.label || "Mascot Crow"
+                      : "Classic Emoji"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Mascot Personas Selection Row */}
+              <View style={{ gap: 6, marginBottom: 8 }}>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: colors.primary, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                  Mascot Personas
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                  {AVATAR_OPTIONS.map((opt) => {
+                    const isSelected = avatar === opt.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          setAvatar(opt.id);
+                        }}
+                        style={[
+                          styles.avatarBox,
+                          {
+                            width: 54,
+                            height: 54,
+                            borderRadius: 12,
+                            backgroundColor: isSelected ? `${colors.primary}18` : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected ? colors.primary : colors.border,
+                          },
+                        ]}
+                      >
+                        <RenderAvatar avatar={opt.id} size={36} />
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* Classic Emojis Selection Row */}
+              <View style={{ gap: 6, marginBottom: 12 }}>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                  Classic Emojis
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                  {EMOJI_OPTIONS.map((emoji) => {
+                    const isSelected = avatar === emoji;
+                    return (
+                      <Pressable
+                        key={emoji}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          setAvatar(emoji);
+                        }}
+                        style={[
+                          styles.avatarBox,
+                          {
+                            width: 48,
+                            height: 48,
+                            borderRadius: 10,
+                            backgroundColor: isSelected ? `${colors.primary}18` : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected ? colors.primary : colors.border,
+                          },
+                        ]}
+                      >
+                        <Text style={{ fontSize: 18 }}>{emoji}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
               </View>
 
               <View style={styles.inputContainer}>
@@ -665,6 +783,33 @@ export default function SettingsScreen() {
                 </Pressable>
               ))}
             </View>
+          </AppCard>
+        </Animated.View>
+
+        {/* Task & Habit Archive */}
+        <Animated.View entering={FadeInDown.delay(120).duration(450)}>
+          <AppCard style={styles.sectionCard}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Task & Habit Archive
+            </Text>
+            <Text style={[styles.toggleDesc, { color: colors.textMuted, marginBottom: 12, fontSize: 13, lineHeight: 18 }]}>
+              View, restore, or permanently delete items you have archived.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryButton,
+                {
+                  backgroundColor: colors.cardLight,
+                  borderColor: colors.border,
+                  borderWidth: 1,
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+              onPress={() => router.push("/archive")}
+            >
+              <Feather name="archive" size={14} color={colors.primary} />
+              <Text style={[styles.buttonText, { color: colors.text, marginLeft: 6 }]}>View Archived Items</Text>
+            </Pressable>
           </AppCard>
         </Animated.View>
 

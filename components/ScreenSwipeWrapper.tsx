@@ -8,12 +8,14 @@ type ScreenSwipeWrapperProps = {
   children: React.ReactNode;
   prevRoute?: string;
   nextRoute?: string;
+  hideMesh?: boolean;
 };
 
 export function ScreenSwipeWrapper({
   children,
   prevRoute,
   nextRoute,
+  hideMesh = false,
 }: ScreenSwipeWrapperProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -21,7 +23,7 @@ export function ScreenSwipeWrapper({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Dynamic hardware-accelerated ambient backdrop mesh */}
-      <AnimatedMeshLayer />
+      {!hideMesh && <AnimatedMeshLayer />}
       <View style={styles.content}>
         {children}
       </View>

@@ -20,6 +20,9 @@ import "react-native-reanimated";
 
 import UndoProvider from "@/components/ui/UndoContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import NotificationListener from "@/components/ui/NotificationListener";
+
+import { cleanupRecycleBin } from "@/services/storage";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -39,6 +42,10 @@ export default function RootLayout() {
     Outfit_600SemiBold,
     Outfit_700Bold,
   });
+
+  useEffect(() => {
+    cleanupRecycleBin();
+  }, []);
 
   useEffect(() => {
     if (!navigationState?.key) {
@@ -71,10 +78,6 @@ export default function RootLayout() {
     }
   }, [fontsLoaded]);
 
-  useEffect(() => {
-    // Notification listeners moved to NotificationListener which runs inside UndoProvider
-  }, [navigationState?.key, router]);
-
   if (!fontsLoaded) {
     return null;
   }
@@ -88,43 +91,31 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="onboarding" options={{ headerShown: false }} />
               <Stack.Screen name="profile" options={{ headerShown: false }} />
+              <Stack.Screen name="profile/stats" options={{ headerShown: false }} />
+              <Stack.Screen name="profile/achievements" options={{ headerShown: false }} />
               <Stack.Screen
                 name="notifications"
                 options={{ headerShown: false }}
               />
+              <Stack.Screen
+                name="task-details"
+                options={{ headerShown: false, presentation: "modal" }}
+              />
+              <Stack.Screen
+                name="archive"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="recycle-bin"
+                options={{ headerShown: false }}
+              />
             </Stack>
             {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
-            <RequireImportNotificationListener />
+            <NotificationListener />
             <StatusBar style="auto" />
           </UndoProvider>
         </BottomSheetModalProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
-  );
-}
-
-// Lazy component to load NotificationListener only on client/runtime
-function RequireImportNotificationListener() {
-  React.useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        await import("@/components/ui/NotificationListener");
-      } catch (e) {
-        // ignore
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-  // Render the component synchronously to ensure hook runs
-  const NotificationListener = React.lazy(
-    () => import("@/components/ui/NotificationListener"),
-  );
-  return (
-    <React.Suspense fallback={null}>
-      <NotificationListener />
-    </React.Suspense>
   );
 }

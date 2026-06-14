@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getTopicMatchScore } from "@/services/workspaceTopics";
+import { getTopicMatchScore, detectTaskTopic } from "@/services/workspaceTopics";
+import { getRecycleBinItems } from "./storage";
 
 const WORKSPACE_HISTORY_KEY = "todoapp:workspace:history:v1";
 
@@ -22,6 +23,18 @@ export interface WorkspaceSuggestionResult {
   score: number;
   confidence: "High Match" | "Medium Match" | "Low Match" | "No Match";
 }
+
+const KEYWORD_WORKSPACE_MAP: Record<string, string> = {
+  "kubernetes": "devops",
+  "docker": "devops",
+  "aws": "devops",
+  "react": "development",
+  "gym": "fitness",
+  "workout": "fitness",
+  "exam": "study",
+  "dsa": "study",
+  "leetcode": "study"
+};
 
 const STOP_WORDS = new Set([
   "study", "solve", "buy", "update", "doctor", "appointment", "meeting", "call", "get", "make", "find",
@@ -92,7 +105,35 @@ export async function getWorkspaceSuggestions(
   }
 
   const history = await loadWorkspaceHistory();
+  const recycleBin = await getRecycleBinItems();
+  const recycledWorkspaceIds = new Set<string>();
+  const recycledTitles = new Set<string>();
+
+  for (const item of recycleBin) {
+    if (item.itemType === "workspace") {
+      recycledWorkspaceIds.add(item.id);
+      recycledTitles.add(item.title.toLowerCase().trim());
+      if (item.data) {
+        if (Array.isArray(item.data.todos)) {
+          for (const t of item.data.todos) if (t?.title) recycledTitles.add(t.title.toLowerCase().trim());
+        }
+        if (Array.isArray(item.data.habits)) {
+          for (const h of item.data.habits) if (h?.title) recycledTitles.add(h.title.toLowerCase().trim());
+        }
+      }
+    } else {
+      recycledTitles.add(item.title.toLowerCase().trim());
+    }
+  }
+
+  const activeHistory = history.filter(hist => {
+    return !recycledWorkspaceIds.has(hist.workspaceId) && !recycledTitles.has(hist.taskTitle.toLowerCase().trim());
+  });
+
   const taskKeywords = extractKeywords(taskTitle);
+
+  console.log(`[SUGGESTION AUDIT] Task Title: "${taskTitle}" | Category: "${category}"`);
+  console.log(`  - History length: ${activeHistory.length}`);
 
   const results: WorkspaceSuggestionResult[] = workspaces.map((ws) => {
     let titleScore = 0;
@@ -122,7 +163,7 @@ export async function getWorkspaceSuggestions(
 
       // C. Check Historical Title Overlap match
       let histMatchingCount = 0;
-      history.forEach((hist) => {
+      activeHistory.forEach((hist) => {
         if (hist.workspaceId === ws.id) {
           const histWords = hist.taskTitle.toLowerCase().split(/\s+/);
           const hasOverlap = taskKeywords.some((k) => histWords.includes(k));
@@ -161,27 +202,37 @@ export async function getWorkspaceSuggestions(
 
     // --- 3. Recent Workspace Usage (Max: 15) ---
     let recentScore = 0;
-    if (history.length > 0) {
-      if (history[0]?.workspaceId === ws.id) {
+    if (activeHistory.length > 0) {
+      if (activeHistory[0]?.workspaceId === ws.id) {
         recentScore = 15;
-      } else if (history[1]?.workspaceId === ws.id) {
+      } else if (activeHistory[1]?.workspaceId === ws.id) {
         recentScore = 10;
-      } else if (history[2]?.workspaceId === ws.id) {
+      } else if (activeHistory[2]?.workspaceId === ws.id) {
         recentScore = 5;
       }
     }
 
     // --- 4. Workspace Frequency (Max: 10) ---
     let frequencyScore = 0;
-    if (history.length > 0) {
-      const count = history.filter((h) => h.workspaceId === ws.id).length;
-      frequencyScore = Math.round((count / history.length) * 10);
+    if (activeHistory.length > 0) {
+      const count = activeHistory.filter((h) => h.workspaceId === ws.id).length;
+      frequencyScore = Math.round((count / activeHistory.length) * 10);
     }
 
     // --- 5. Topic-Based Match Score Boost (Max: 40) ---
     const topicScore = getTopicMatchScore(taskTitle, ws.name, wsTasks);
 
-    const totalScore = titleScore + topicScore + categoryScore + recentScore + frequencyScore;
+    // --- 6. Explicit Keyword Weighted Matching (Boost: +55) ---
+    let keywordScore = 0;
+    const taskLower = taskTitle.toLowerCase();
+    for (const [kw, wsNameKeyword] of Object.entries(KEYWORD_WORKSPACE_MAP)) {
+      if (taskLower.includes(kw) && ws.name.toLowerCase().includes(wsNameKeyword)) {
+        keywordScore = 55;
+        break;
+      }
+    }
+
+    const totalScore = titleScore + topicScore + categoryScore + recentScore + frequencyScore + keywordScore;
     const finalScore = Math.min(100, totalScore);
 
     // Set match confidence
@@ -194,6 +245,15 @@ export async function getWorkspaceSuggestions(
       confidence = "Low Match";
     }
 
+    console.log(`[SUGGESTION AUDIT] Workspace: "${ws.name}" (ID: ${ws.id})`);
+    console.log(`  - Title Score: ${titleScore}`);
+    console.log(`  - Topic Score: ${topicScore}`);
+    console.log(`  - Category Score: ${categoryScore}`);
+    console.log(`  - Recent Score: ${recentScore}`);
+    console.log(`  - Frequency Score: ${frequencyScore}`);
+    console.log(`  - Keyword Score: ${keywordScore}`);
+    console.log(`  - Total Score: ${totalScore} -> Final: ${finalScore} (${confidence})`);
+
     return {
       workspaceId: ws.id,
       score: finalScore,
@@ -204,3 +264,12 @@ export async function getWorkspaceSuggestions(
   // Sort descending by score
   return results.sort((a, b) => b.score - a.score);
 }
+
+export const WorkspaceMatcher = {
+  getWorkspaceSuggestions,
+  addWorkspaceSelectionToHistory,
+  loadWorkspaceHistory,
+  detectTaskTopic,
+};
+
+export { detectTaskTopic };

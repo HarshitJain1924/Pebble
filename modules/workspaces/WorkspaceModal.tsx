@@ -15,7 +15,13 @@ import { AppCard } from "@/components/AppCard";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { styles } from "@/constants/taskStyles";
-import { type TaskList, type Todo } from "../types";
+import { type TaskList, type Todo, type Habit } from "../types";
+import { useUndo } from "@/components/ui/UndoContext";
+import { addToRecycleBin, getRecycleBinItems, saveRecycleBinItems } from "@/services/storage";
+import { cancelReminderIds, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY } from "@/services/storage";
+import { emitStateChange } from "@/services/stateEvents";
 
 async function loadNotifications() {
   return import("expo-notifications");
@@ -38,6 +44,9 @@ interface WorkspaceModalProps {
     selected: string,
     todos: Record<string, Todo[]>,
   ) => Promise<void>;
+  habits: Habit[];
+  setHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
+  persistHabits: (nextHabits: Habit[]) => Promise<void>;
 }
 
 export function WorkspaceModal({
@@ -53,7 +62,11 @@ export function WorkspaceModal({
   openedFolderId,
   setOpenedFolderId,
   persistState,
+  habits,
+  setHabits,
+  persistHabits,
 }: WorkspaceModalProps) {
+  const { showUndo } = useUndo();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
 
@@ -115,6 +128,7 @@ export function WorkspaceModal({
         icon: folderIconInput,
         iconType: folderIconTypeInput,
         color: folderColorInput,
+        createdAt: Date.now(),
       });
       updatedTodos[newId] = [];
       activeListId = newId;
@@ -123,7 +137,10 @@ export function WorkspaceModal({
     setLists(updatedLists);
     setTodos(updatedTodos);
     setSelectedList(activeListId);
-    void persistState(updatedLists, activeListId, updatedTodos);
+    void persistState(updatedLists, activeListId, updatedTodos).then(() => {
+      emitStateChange("tasks_changed");
+      emitStateChange("habits_changed");
+    });
     onClose();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   };
@@ -133,31 +150,57 @@ export function WorkspaceModal({
 
     Alert.alert(
       "Delete Workspace",
-      "Are you sure you want to delete this workspace and all its tasks? This action cannot be undone.",
+      "Are you sure you want to delete this workspace? It and all its tasks and habits will be moved to the Recycle Bin.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            const updatedLists = lists.filter((l) => l.id !== editingFolderId);
-            const updatedTodos = { ...todos };
+          onPress: async () => {
+            const workspace = lists.find((l) => l.id === editingFolderId);
+            if (!workspace) return;
 
-            // Cancel any notifications scheduled for this workspace's tasks
-            (updatedTodos[editingFolderId] ?? []).forEach((todo) => {
+            const workspaceTodos = todos[editingFolderId] || [];
+            const workspaceHabits = habits.filter((h) => h.folderId === editingFolderId);
+
+            // 1. Cancel notifications
+            for (const todo of workspaceTodos) {
+              if (todo.notificationIds) {
+                await cancelReminderIds(todo.notificationIds);
+              }
               const alarmId = todo.alarmId;
               if (alarmId && !alarmId.startsWith("web-")) {
-                void loadNotifications().then((Notifications) =>
-                  Notifications.cancelScheduledNotificationAsync(alarmId).catch(() => {}),
-                );
+                const Notifications = await loadNotifications();
+                await Notifications.cancelScheduledNotificationAsync(alarmId).catch(() => {});
               }
-              if (todo.alarmId && todo.alarmId.startsWith("web-")) {
-                clearTimeout(Number(todo.alarmId.replace("web-", "")));
+              if (alarmId && alarmId.startsWith("web-")) {
+                clearTimeout(Number(alarmId.replace("web-", "")));
               }
-            });
+            }
 
+            for (const habit of workspaceHabits) {
+              if (habit.notificationIds) {
+                await cancelReminderIds(habit.notificationIds);
+              }
+            }
+
+            // 2. Add to Recycle Bin
+            await addToRecycleBin(
+              "workspace",
+              {
+                list: workspace,
+                todos: workspaceTodos,
+                habits: workspaceHabits,
+              },
+              "Workspaces"
+            );
+
+            // 3. Update state
+            const updatedLists = lists.filter((l) => l.id !== editingFolderId);
+            const updatedTodos = { ...todos };
             delete updatedTodos[editingFolderId];
-            
+            const updatedHabits = habits.filter((h) => h.folderId !== editingFolderId);
+
             const fallbackList = updatedLists[0]?.id || "default";
             if (!updatedTodos[fallbackList]) {
               updatedTodos[fallbackList] = [];
@@ -165,14 +208,77 @@ export function WorkspaceModal({
 
             setLists(updatedLists);
             setTodos(updatedTodos);
+            setHabits(updatedHabits);
             setSelectedList(fallbackList);
-            void persistState(updatedLists, fallbackList, updatedTodos);
-            
+
+            await persistState(updatedLists, fallbackList, updatedTodos);
+            await persistHabits(updatedHabits);
+            emitStateChange("tasks_changed");
+            emitStateChange("habits_changed");
+
             if (openedFolderId === editingFolderId) {
               setOpenedFolderId(null);
             }
             onClose();
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+            // 4. Show Undo Toast
+            showUndo({
+              message: `Deleted "${workspace.name}"`,
+              onUndo: async () => {
+                // Remove from Recycle Bin
+                const binItems = await getRecycleBinItems();
+                await saveRecycleBinItems(binItems.filter((item) => item.id !== editingFolderId));
+
+                // Reschedule reminders
+                const rescheduledTodos = await Promise.all(
+                  workspaceTodos.map((t) => rescheduleTodoReminders(t))
+                );
+                const rescheduledHabits = await Promise.all(
+                  workspaceHabits.map((h) => rescheduleHabitReminders(h))
+                );
+
+                // Restore state and persist
+                const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+                let currentLists: TaskList[] = [];
+                let currentTodos: Record<string, Todo[]> = {};
+                if (rawTodos) {
+                  const parsed = JSON.parse(rawTodos);
+                  currentLists = parsed.lists || [];
+                  currentTodos = parsed.todos || {};
+                }
+
+                const restoredLists = currentLists.some((l) => l.id === editingFolderId)
+                  ? currentLists
+                  : [...currentLists, workspace];
+
+                const restoredTodos = {
+                  ...currentTodos,
+                  [editingFolderId]: rescheduledTodos,
+                };
+
+                const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+                let currentHabits: Habit[] = [];
+                if (rawHabits) {
+                  const parsed = JSON.parse(rawHabits);
+                  currentHabits = parsed.dailyHabits ?? [];
+                }
+                const restoredHabits = [
+                  ...currentHabits.filter((h) => h.folderId !== editingFolderId),
+                  ...rescheduledHabits,
+                ];
+
+                await persistState(restoredLists, editingFolderId, restoredTodos);
+                await persistHabits(restoredHabits);
+
+                setLists(restoredLists);
+                setTodos(restoredTodos);
+                setHabits(restoredHabits);
+
+                emitStateChange("tasks_changed");
+                emitStateChange("habits_changed");
+              },
+            });
           },
         },
       ],

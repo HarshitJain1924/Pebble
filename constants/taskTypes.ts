@@ -36,6 +36,8 @@ export type Habit = {
   notificationIds?: string[];
   escalationMinutes?: number[];
   priority?: "low" | "medium" | "high";
+  previousStreak?: number;
+  streakBrokenDate?: string;
 };
 
 export type TaskList = { id: string; name: string };

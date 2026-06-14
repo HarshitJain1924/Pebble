@@ -1,36 +1,53 @@
 import { FloatingGlow } from "@/components/AmbientBackground";
 import { AppCard } from "@/components/AppCard";
+import { AppText as Text } from "@/components/ui/AppText";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { getHistoryForMonth } from "@/services/productivityHistory";
-import { getLevelInfo, getProfile, type UserProfile } from "@/services/settingsService";
+import {
+  getLevelInfo,
+  getProfile,
+  saveProfile,
+  type UserProfile,
+} from "@/services/settingsService";
+import { getPebbleCounts } from "@/services/pebbleService";
 import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { addStateListener, emitStateChange } from "@/services/stateEvents";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
-import { ActivityIndicator,
-    Dimensions,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    
-    View } from "react-native";
-import { AppText as Text } from "@/components/ui/AppText";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import * as Haptics from "expo-haptics";
+import { useFocusEffect, useRouter, Stack } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Dimensions,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  View,
+  Modal,
+} from "react-native";
+import Animated, {
+  FadeInDown,
+} from "react-native-reanimated";
+import { RankTiersModal } from "@/components/profile/RankTiersModal";
+import { RenderAvatar, AVATAR_OPTIONS, EMOJI_OPTIONS } from "@/components/profile/RenderAvatar";
+import { BlurView } from "expo-blur";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-type CategoryStat = {
-  name: string;
-  count: number;
-  pct: number;
-  color: string;
+const isWeb = Platform.OS === "web";
+const enteringAnim = (delay = 0, duration = 450) => {
+  if (isWeb) return undefined;
+  return FadeInDown.delay(delay).duration(duration);
 };
 
-const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const triggerMediumHaptic = () => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+};
+
 const getDateKey = (date = new Date()) => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -48,21 +65,25 @@ export default function ProfileScreen() {
     todosCompleted: 0,
     habitsCompleted: 0,
     activeStreak: 0,
+    bestStreak: 0,
     avgScore: 0,
+    focusSessions: 0,
+    focusTime: 0,
+    completionRate: 0,
   });
-  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
-  const [upcomingReminders, setUpcomingReminders] = useState<any[]>([]);
-  const [weeklyTrends, setWeeklyTrends] = useState<any[]>([]);
-  const [cognitiveFlowStats, setCognitiveFlowStats] = useState<any>({
-    morning: 0,
-    afternoon: 0,
-    evening: 0,
-    morningPct: 0,
-    afternoonPct: 0,
-    eveningPct: 0,
-    peakZone: "Balanced Flow",
-    icon: "activity" as any,
+  const [pebblesToday, setPebblesToday] = useState<number>(0);
+  const [showRankSheet, setShowRankSheet] = useState<boolean>(false);
+  const [showAvatarPicker, setShowAvatarPicker] = useState<boolean>(false);
+  const [lifetimePebbles, setLifetimePebbles] = useState<number>(0);
+  const [monthlyPebbles, setMonthlyPebbles] = useState<number>(0);
+  const [lifetimeTypes, setLifetimeTypes] = useState<{ task: number; habit: number; focus: number }>({
+    task: 0,
+    habit: 0,
+    focus: 0,
   });
+  const [pebbleBalance, setPebbleBalance] = useState<number>(0);
+  const [gemsBalance, setGemsBalance] = useState<number>(0);
+
   const [loading, setLoading] = useState<boolean>(true);
 
   const loadProfileData = useCallback(async () => {
@@ -71,164 +92,130 @@ export default function ProfileScreen() {
       const userProf = await getProfile();
       setProfile(userProf);
 
-      // 2. Query Completed Todos and Streaks
+      // 2. Query Completed Todos
       const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
       let totalCompletedTodos = 0;
-      const categoryCounts: Record<string, number> = {};
+      let totalTasks = 0;
 
       if (rawTodos) {
         const parsed = JSON.parse(rawTodos);
-        const allTodos = (Object.values(parsed.todos || {}).flat() as any[]);
+        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
+        totalTasks = allTodos.length;
         totalCompletedTodos = allTodos.filter((t) => t.completed).length;
-
-        // Group completed todos by category
-        allTodos.forEach((todo) => {
-          if (todo.completed && todo.category) {
-            const cat = todo.category.toLowerCase();
-            categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
-          }
-        });
       }
 
       // 3. Query Habit completed stats and streaks
       const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
       let totalCompletedHabits = 0;
       let streak = 0;
+      let bestStreak = 0;
 
       if (rawHabits) {
         const parsed = JSON.parse(rawHabits);
         const allHabits = (parsed.dailyHabits || []) as any[];
         totalCompletedHabits = allHabits.filter((h) => h.completedToday).length;
         streak = allHabits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
+        bestStreak = allHabits.reduce(
+          (max, h) => Math.max(max, h.bestStreak || 0),
+          0,
+        );
       }
 
       // 4. Calculate Average Productivity Score (last 3 months)
       const now = new Date();
-      const history = await getHistoryForMonth(now.getFullYear(), now.getMonth());
+      const history = await getHistoryForMonth(
+        now.getFullYear(),
+        now.getMonth(),
+      );
       const scores = history.map((h) => h.score);
-      const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+      const avgScore =
+        scores.length > 0
+          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+          : 0;
+
+      // 5. Query Focus stats
+      const rawFocus = await AsyncStorage.getItem("todoapp:focus:stats");
+      let focusSessions = 0;
+      let focusTime = 0;
+      if (rawFocus) {
+        const parsed = JSON.parse(rawFocus);
+        focusSessions = parsed.completedToday ?? 0;
+        focusTime = parsed.totalFocusTime ?? 0;
+      }
+
+      // 5.5. Query Full Lifetime History
+      const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
+      let pastTodosCompleted = 0;
+      let pastHabitsCompleted = 0;
+      const todayKey = getDateKey();
+      if (rawHistory) {
+        try {
+          const historyList = JSON.parse(rawHistory);
+          if (Array.isArray(historyList)) {
+            historyList.forEach((entry: any) => {
+              if (entry.date !== todayKey) {
+                pastTodosCompleted += entry.completedTodos || 0;
+                pastHabitsCompleted += entry.completedHabits || 0;
+              }
+            });
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      const actualTodosCompleted = pastTodosCompleted + totalCompletedTodos;
+      const actualHabitsCompleted = pastHabitsCompleted + totalCompletedHabits;
+
+      const completionRate =
+        totalTasks > 0
+          ? Math.round((totalCompletedTodos / totalTasks) * 100)
+          : actualTodosCompleted > 0
+            ? 100
+            : 0;
+
+      const pebbleStats = await getPebbleCounts();
+      setLifetimePebbles(pebbleStats.lifetime);
+      setMonthlyPebbles(pebbleStats.monthly);
+      setLifetimeTypes(pebbleStats.lifetimeTypes || { task: 0, habit: 0, focus: 0 });
 
       setStats({
-        todosCompleted: totalCompletedTodos,
-        habitsCompleted: totalCompletedHabits,
-        activeStreak: streak > 0 ? streak : userProf.level * 2, // simulated streak fallback if zero
-        avgScore: avgScore > 0 ? avgScore : 78, // premium baseline fallback if zero
+        todosCompleted: actualTodosCompleted,
+        habitsCompleted: actualHabitsCompleted,
+        activeStreak: Math.max(pebbleStats.streak || 0, streak),
+        bestStreak: Math.max(pebbleStats.bestStreak || 0, bestStreak),
+        avgScore: avgScore,
+        focusSessions,
+        focusTime,
+        completionRate,
       });
 
-      // 4a. Calculate Weekly momentum trends
-      const trends = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(now.getDate() - i);
-        const key = getDateKey(d);
-        const entry = history.find((h) => h.date === key);
-        const score = entry ? entry.score : 0;
-        trends.push({
-          dayName: WEEKDAY_NAMES[d.getDay()][0],
-          dateNum: d.getDate(),
-          score,
-          dateString: key,
-        });
-      }
-      setWeeklyTrends(trends);
-
-      // 4b. Calculate Cognitive Flow and peaks
-      let morning = 0;   // 5am - 12pm
-      let afternoon = 0; // 12pm - 5pm
-      let evening = 0;   // 5pm - 5am
-
+      // Calculate pebbles earned today
+      let todayPebblesCount = 0;
       if (rawTodos) {
         const parsed = JSON.parse(rawTodos);
-        const allTodos = (Object.values(parsed.todos || {}).flat() as any[]);
-        allTodos.forEach((todo) => {
-          if (todo.alarmTime) {
-            const hour = new Date(todo.alarmTime).getHours();
-            if (hour >= 5 && hour < 12) morning++;
-            else if (hour >= 12 && hour < 17) afternoon++;
-            else evening++;
-          } else if (todo.reminderHour !== undefined) {
-            const hour = todo.reminderHour;
-            if (hour >= 5 && hour < 12) morning++;
-            else if (hour >= 12 && hour < 17) afternoon++;
-            else evening++;
-          }
-        });
+        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
+        todayPebblesCount += allTodos.filter((t) => t.completed && t.completedAt && t.completedAt.startsWith(todayKey)).length;
       }
-
       if (rawHabits) {
         const parsed = JSON.parse(rawHabits);
         const allHabits = (parsed.dailyHabits || []) as any[];
-        allHabits.forEach((habit) => {
-          if (habit.reminderHour !== undefined) {
-            const hour = habit.reminderHour;
-            if (hour >= 5 && hour < 12) morning++;
-            else if (hour >= 12 && hour < 17) afternoon++;
-            else evening++;
-          }
-        });
+        // Habits completed today count as 1 pebble each
+        todayPebblesCount += allHabits.filter((h) => h.completedToday).length;
       }
+      setPebblesToday(todayPebblesCount);
 
-      const total = morning + afternoon + evening || 1;
-      let peakZone = "Balanced Flow";
-      let icon = "activity";
-      if (morning > afternoon && morning > evening) {
-        peakZone = "Morning Focus Peak";
-        icon = "sun";
-      } else if (afternoon > morning && afternoon > evening) {
-        peakZone = "Afternoon Steady Flow";
-        icon = "award";
-      } else if (evening > morning && evening > afternoon) {
-        peakZone = "Night Owl Momentum";
-        icon = "moon";
-      }
+      const { getGemsBalance } = require("@/services/pebbleService");
+      const balance = await getGemsBalance();
+      setGemsBalance(balance);
 
-      setCognitiveFlowStats({
-        morning,
-        afternoon,
-        evening,
-        morningPct: (morning / total) * 100,
-        afternoonPct: (afternoon / total) * 100,
-        eveningPct: (evening / total) * 100,
-        peakZone,
-        icon,
-      });
-
-      // 5. Calculate category breakdowns
-      const catColors: Record<string, string> = {
-        work: "#6366F1",
-        personal: "#10B981",
-        health: "#F59E0B",
-        learning: "#3B82F6",
-        creative: "#A855F7",
-        focus: "#06B6D4",
-      };
-
-      const totalCategoryTasks = Object.values(categoryCounts).reduce((a, b) => a + b, 0) || 1;
-      const breakdowns = Object.entries(categoryCounts).map(([name, count]) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1),
-        count,
-        pct: count / totalCategoryTasks,
-        color: catColors[name] ?? "#6B7280",
-      }));
-      setCategoryStats(breakdowns.sort((a, b) => b.count - a.count));
-
-      // 6. Upcoming Reminders
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        const all = Object.values(parsed.todos ?? {}).flat() as any[];
-        const future = all
-          .filter((t: any) => t.alarmTime && t.alarmTime > Date.now())
-          .sort((a: any, b: any) => a.alarmTime - b.alarmTime)
-          .slice(0, 5);
-        setUpcomingReminders(future);
-      }
-
-    } catch (e) {
-      // ignore
+    } catch (err) {
+      console.warn("Failed loading profile data in simplified profile", err);
     } finally {
       setLoading(false);
     }
   }, []);
+
 
   useFocusEffect(
     useCallback(() => {
@@ -236,9 +223,46 @@ export default function ProfileScreen() {
     }, [loadProfileData]),
   );
 
+  useEffect(() => {
+    const unsubscribeProfile = addStateListener("profile_changed", () => {
+      loadProfileData();
+    });
+    const unsubscribePebbles = addStateListener("pebbles_changed", () => {
+      loadProfileData();
+    });
+    return () => {
+      unsubscribeProfile();
+      unsubscribePebbles();
+    };
+  }, [loadProfileData]);
+
+  const handleSelectAvatar = async (newAvatar: string) => {
+    if (!profile) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      const updatedProfile: UserProfile = {
+        ...profile,
+        avatar: newAvatar,
+      };
+      await saveProfile(updatedProfile);
+      setProfile(updatedProfile);
+      emitStateChange("profile_changed");
+      setShowAvatarPicker(false);
+    } catch (err) {
+      console.warn("Failed to save avatar", err);
+    }
+  };
+
+
+
   if (loading || !profile) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background, justifyContent: "center" }]}>
+      <SafeAreaView
+        style={[
+          styles.safeArea,
+          { backgroundColor: colors.background, justifyContent: "center" },
+        ]}
+      >
         <ActivityIndicator size="large" color={colors.primary} />
       </SafeAreaView>
     );
@@ -246,331 +270,767 @@ export default function ProfileScreen() {
 
   const levelInfo = getLevelInfo(profile.xp);
 
+  // Pebble progression and Crow stage/speech bubble calculations
+  const totalPebbles = lifetimePebbles;
+
+  let crowStage: "beginner" | "advanced" | "power" = "beginner";
+  if (totalPebbles >= 101) {
+    crowStage = "power";
+  } else if (totalPebbles >= 26) {
+    crowStage = "advanced";
+  }
+
+  const milestoneInfo = (() => {
+    if (totalPebbles <= 10) {
+      return {
+        stage: 1,
+        name: "First Steps",
+        range: "0-10",
+        desc: "Gathering the first stones of momentum.",
+      };
+    }
+    if (totalPebbles <= 25) {
+      return {
+        stage: 2,
+        name: "Sprout",
+        range: "11-25",
+        desc: "A small base of habit stones.",
+      };
+    }
+    if (totalPebbles <= 50) {
+      return {
+        stage: 3,
+        name: "Zen Stream",
+        range: "26-50",
+        desc: "Flowing stream of productivity.",
+      };
+    }
+    if (totalPebbles <= 100) {
+      return {
+        stage: 4,
+        name: "Sanctuary Base",
+        range: "51-100",
+        desc: "Solid foundation for daily rhythm.",
+      };
+    }
+    if (totalPebbles <= 250) {
+      return {
+        stage: 5,
+        name: "Pebble Hoarder",
+        range: "101-250",
+        desc: "A significant heap of accomplishments.",
+      };
+    }
+    if (totalPebbles <= 500) {
+      return {
+        stage: 6,
+        name: "Zen Mountain",
+        range: "251-500",
+        desc: "An impressive, towering mount of zen.",
+      };
+    }
+    return {
+      stage: 7,
+      name: "Ocean of Focus",
+      range: "500+",
+      desc: "Infinite zen achieved. Master level.",
+    };
+  })();
+
+  // Tiny dynamic status line content
+  let dynamicStatus = "Ready for today's focus";
+  if (pebblesToday > 0) {
+    dynamicStatus = `+${pebblesToday} pebble${pebblesToday === 1 ? "" : "s"} today`;
+  } else if (stats.activeStreak > 0) {
+    dynamicStatus = `${stats.activeStreak} day streak active`;
+  } else if (stats.avgScore > 70) {
+    dynamicStatus = "Strong momentum this week";
+  }
+
+  // Circular achievements teaser triggers
+  const teaserAchievements = [
+    { icon: "check-square" as const, unlocked: stats.todosCompleted >= 1, title: "First Pebble" },
+    { icon: "activity" as const, unlocked: stats.habitsCompleted >= 1, title: "Daily Routine" },
+    { icon: "trending-up" as const, unlocked: stats.activeStreak >= 7, title: "Weekly Momentum" },
+    { icon: "calendar" as const, unlocked: stats.activeStreak >= 30, title: "Monthly Resilience" },
+    { icon: "award" as const, unlocked: stats.todosCompleted >= 100, title: "Centurion" },
+    { icon: "zap" as const, unlocked: stats.focusSessions >= 10, title: "Focus Master" },
+  ];
+  
+  const unlockedTeasers = teaserAchievements.filter((a) => a.unlocked).slice(0, 3);
+  const unlockedCount = teaserAchievements.filter((a) => a.unlocked).length;
+
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      {/* Immersive Glassmorphic Header */}
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+    >
+      <Stack.Screen options={{ headerShown: false }} />
+      {/* Header */}
       <View style={[styles.header, { borderColor: colors.border }]}>
+
         <Pressable
-          style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.7 : 1 }]}
-          onPress={() => router.back()}
+          style={({ pressed }) => [
+            styles.backButton,
+            { opacity: pressed ? 0.7 : 1 },
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            router.back();
+          }}
         >
           <Feather name="arrow-left" size={20} color={colors.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Profile Dashboard</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Sanctuary Profile
+        </Text>
         <Pressable
-          style={({ pressed }) => [styles.settingsButton, { opacity: pressed ? 0.7 : 1 }]}
-          onPress={() => router.push("/settings")}
+          style={({ pressed }) => [
+            styles.settingsButton,
+            { opacity: pressed ? 0.7 : 1 },
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            router.push("/settings");
+          }}
         >
           <Feather name="settings" size={20} color={colors.text} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Sleek Hero Profile Card */}
-        <Animated.View entering={FadeInDown.duration(450)}>
-          <View style={[styles.heroCard, { backgroundColor: "rgba(99, 102, 241, 0.05)", borderColor: colors.border }]}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Hero with centerpiece Crow Nest */}
+        <Animated.View entering={enteringAnim(0, 450)}>
+          <View
+            style={[
+              styles.heroCard,
+              {
+                backgroundColor:
+                  colorScheme === "light"
+                    ? "rgba(0, 0, 0, 0.02)"
+                    : "rgba(255, 255, 255, 0.02)",
+                borderColor: colors.border,
+              },
+            ]}
+          >
             <FloatingGlow
               color={colors.primary}
               size={120}
-              opacity={0.15}
+              opacity={0.12}
               pulseSpeed={8000}
               style={{ position: "absolute", right: -30, top: -30 }}
             />
 
+            {/* Avatar & Username Row */}
             <View style={styles.profileHeaderRow}>
-              <View style={[styles.avatarContainer, { borderColor: colors.primary, backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)" }]}>
-                <Text style={styles.avatarText}>{profile.avatar}</Text>
-              </View>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.avatarContainer,
+                  {
+                    borderColor: colors.primary,
+                    backgroundColor:
+                      colorScheme === "light"
+                        ? "rgba(0,0,0,0.03)"
+                        : "rgba(255,255,255,0.03)",
+                    opacity: pressed ? 0.8 : 1,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setShowAvatarPicker(true);
+                }}
+              >
+                <RenderAvatar avatar={profile.avatar} size={64} />
+                <View
+                  style={{
+                    position: "absolute",
+                    bottom: -4,
+                    right: -4,
+                    backgroundColor: colors.primary,
+                    borderRadius: 10,
+                    width: 20,
+                    height: 20,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1.5,
+                    borderColor: colors.card,
+                  }}
+                >
+                  <Feather name="edit-2" size={10} color="#FFFFFF" />
+                </View>
+              </Pressable>
               <View style={styles.profileInfo}>
-                <Text style={[styles.nameText, { color: colors.text }]}>{profile.name}</Text>
-                <Text style={[styles.emailText, { color: colors.textMuted }]}>{profile.email}</Text>
-                
-                {/* Level Tag */}
-                <View style={[styles.rankBadge, { backgroundColor: `${colors.primary}18` }]}>
-                  <Feather name="shield" size={10} color={colors.primaryLight} />
-                  <Text style={[styles.rankText, { color: colors.primaryLight }]}>
+                <Text style={[styles.nameText, { color: colors.text }]}>
+                  {profile.name}
+                </Text>
+                <Text style={[styles.emailText, { color: colors.textMuted }]}>
+                  {profile.email}
+                </Text>
+
+                {/* Level badge */}
+                <Pressable
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    setShowRankSheet(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.rankBadge,
+                    { backgroundColor: `${colors.primary}18`, opacity: pressed ? 0.75 : 1 },
+                  ]}
+                >
+                  <Feather
+                    name="shield"
+                    size={10}
+                    color={colors.primaryLight}
+                  />
+                  <Text
+                    style={[styles.rankText, { color: colors.primaryLight }]}
+                  >
                     {levelInfo.rank}
                   </Text>
-                </View>
+                </Pressable>
               </View>
             </View>
 
+            {/* Pebble progression centerpiece (Redesigned Premium Layout) */}
+            <View
+              style={[
+                styles.jarCard,
+                {
+                  borderColor: colors.border,
+                  backgroundColor:
+                    colorScheme === "light"
+                      ? "rgba(99, 102, 241, 0.02)"
+                      : "rgba(99, 102, 241, 0.04)",
+                  paddingVertical: 16,
+                  paddingHorizontal: 16,
+                  borderWidth: 1.5,
+                  borderRadius: 16,
+                  gap: 14,
+                },
+              ]}
+            >
+              {/* Header Row */}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={{ fontSize: 18 }}>🫙</Text>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Pebble Sanctuary
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    backgroundColor: `${colors.primary}18`,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: `${colors.primary}33`,
+                  }}
+                >
+                  <Text style={{ fontSize: 9, fontWeight: "800", color: colors.primary }}>
+                    STAGE {milestoneInfo.stage}: {milestoneInfo.name.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Statistics Split Columns (Grid Style to prevent overlap) */}
+              <View style={{ flexDirection: "row", width: "100%", justifyContent: "space-between", gap: 8 }}>
+                {/* Monthly Progress */}
+                <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ fontSize: 15, fontWeight: "900", color: colors.text }}>
+                    {monthlyPebbles}/100
+                  </Text>
+                  <Text style={{ fontSize: 8, fontWeight: "600", color: colors.textMuted, marginTop: 2 }}>
+                    Monthly Target
+                  </Text>
+                </View>
+
+                {/* Gems Balance */}
+                <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ fontSize: 15, fontWeight: "900", color: "#F59E0B" }}>
+                    💎 {gemsBalance}
+                  </Text>
+                  <Text style={{ fontSize: 8, fontWeight: "600", color: colors.textMuted, marginTop: 2 }}>
+                    Gems Balance
+                  </Text>
+                </View>
+
+                {/* Lifetime Total */}
+                <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ fontSize: 15, fontWeight: "900", color: colors.text }}>
+                    {totalPebbles}
+                  </Text>
+                  <Text style={{ fontSize: 8, fontWeight: "600", color: colors.textMuted, marginTop: 2 }}>
+                    Lifetime
+                  </Text>
+                </View>
+              </View>
+
+              {/* Pebble Sources Breakdown */}
+              <View style={{ width: "100%", gap: 6, marginTop: 4 }}>
+                <Text style={{ fontSize: 8, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                  Pebble Sources
+                </Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {/* Tasks — purple */}
+                  <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(139,92,246,0.06)" : "rgba(139,92,246,0.12)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: "rgba(139,92,246,0.25)", alignItems: "center", gap: 3 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Feather name="check-square" size={11} color="#8B5CF6" />
+                      <Text style={{ fontSize: 13, fontWeight: "900", color: "#8B5CF6" }}>
+                        {lifetimeTypes.task}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 8, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", textAlign: "center" }}>
+                      Tasks
+                    </Text>
+                  </View>
+                  {/* Habits — orange */}
+                  <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(249,115,22,0.06)" : "rgba(249,115,22,0.12)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: "rgba(249,115,22,0.25)", alignItems: "center", gap: 3 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Feather name="repeat" size={11} color="#F97316" />
+                      <Text style={{ fontSize: 13, fontWeight: "900", color: "#F97316" }}>
+                        {lifetimeTypes.habit}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 8, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", textAlign: "center" }}>
+                      Habits
+                    </Text>
+                  </View>
+                  {/* Focus — green */}
+                  <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(16,185,129,0.06)" : "rgba(16,185,129,0.12)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: "rgba(16,185,129,0.25)", alignItems: "center", gap: 3 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Feather name="zap" size={11} color="#10B981" />
+                      <Text style={{ fontSize: 13, fontWeight: "900", color: "#10B981" }}>
+                        {lifetimeTypes.focus}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 8, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", textAlign: "center" }}>
+                      Focus
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Milestone Progress Bar */}
+
+              {milestoneInfo.stage < 7 && (
+                <View style={{ width: "100%", gap: 6 }}>
+                  <View
+                    style={{
+                      height: 5,
+                      width: "100%",
+                      borderRadius: 3,
+                      backgroundColor:
+                        colorScheme === "light"
+                          ? "rgba(0,0,0,0.06)"
+                          : "rgba(255,255,255,0.06)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {(() => {
+                      const current = totalPebbles;
+                      const ranges = [0, 10, 25, 50, 100, 250, 500];
+                      const minVal = ranges[milestoneInfo.stage - 1];
+                      const maxVal = ranges[milestoneInfo.stage];
+                      const totalInStage = maxVal - minVal;
+                      const progressInStage = Math.max(0, current - minVal);
+                      const pct = (progressInStage / totalInStage) * 100;
+
+                      return (
+                        <View
+                          style={{
+                            height: "100%",
+                            width: `${Math.max(5, Math.min(100, pct))}%`,
+                            backgroundColor: colors.primary,
+                          }}
+                        />
+                      );
+                    })()}
+                  </View>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    {(() => {
+                      const nextMilestone = [10, 25, 50, 100, 250, 500][
+                        milestoneInfo.stage - 1
+                      ];
+                      const remaining = nextMilestone - totalPebbles;
+                      return (
+                        <Text style={{ fontSize: 9, fontWeight: "600", color: colors.textMuted }}>
+                          {remaining} pebble{remaining === 1 ? "" : "s"} to Stage {milestoneInfo.stage + 1}
+                        </Text>
+                      );
+                    })()}
+
+                    {(() => {
+                      const nextUnlock = [
+                        { count: 10, label: "Sprout Jar Nest" },
+                        { count: 26, label: "Curious Mascot grows" },
+                        { count: 100, label: "Zen Energy floats" },
+                        { count: 101, label: "Crowned Mascot & sparkles" },
+                        { count: 500, label: "Golden Jar & sparks" },
+                      ].find((u) => totalPebbles < u.count);
+
+                      if (!nextUnlock) return null;
+
+                      return (
+                        <Text style={{ fontSize: 8, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, color: colors.warning }}>
+                          ⚡ Next: {nextUnlock.label}
+                        </Text>
+                      );
+                    })()}
+                  </View>
+                </View>
+              )}
+            </View>
+
             {/* XP progress bar */}
-            <View style={styles.xpProgressContainer}>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setShowRankSheet(true);
+              }}
+              style={({ pressed }) => [
+                styles.xpProgressContainer,
+                { opacity: pressed ? 0.9 : 1 }
+              ]}
+            >
               <View style={styles.xpLabelRow}>
-                <Text style={[styles.levelLabel, { color: colors.text }]}>Level {levelInfo.level}</Text>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <View
+                    style={[
+                      styles.miniLevelBadge,
+                      { backgroundColor: colors.primary },
+                    ]}
+                  >
+                    <Text style={styles.miniLevelText}>
+                      Lvl {levelInfo.level}
+                    </Text>
+                  </View>
+                  <Text style={[styles.levelLabel, { color: colors.text }]}>
+                    {levelInfo.rank}
+                  </Text>
+                </View>
                 <Text style={[styles.xpLabel, { color: colors.textMuted }]}>
                   {levelInfo.xpInCurrentLevel} / {levelInfo.xpNeededForNext} XP
                 </Text>
               </View>
-              <View style={[styles.xpBarOutline, { backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)" }]}>
-                <View
-                  style={[
-                    styles.xpBarFill,
-                    {
-                      width: `${Math.max(5, Math.min(100, levelInfo.progressPct * 100))}%`,
-                      backgroundColor: colors.primary,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={[styles.xpTip, { color: colors.textMuted }]}>
-                Each completed task and habit adds another pebble to your progress!
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
 
-        {/* Stats Grid */}
-        <Animated.View entering={FadeInDown.delay(100).duration(450)}>
-          <View style={styles.statsGrid}>
-            <AppCard style={styles.statCard}>
-              <Feather name="zap" size={18} color="#F97316" />
-              <View>
-                <Text style={[styles.statValue, { color: colors.text }]}>{stats.activeStreak} days</Text>
-                <Text style={[styles.statLabel, { color: colors.textMuted }]}>Active Streak</Text>
-              </View>
-            </AppCard>
-
-            <AppCard style={styles.statCard}>
-              <Feather name="check-circle" size={18} color={colors.success} />
-              <View>
-                <Text style={[styles.statValue, { color: colors.text }]}>{stats.todosCompleted}</Text>
-                <Text style={[styles.statLabel, { color: colors.textMuted }]}>Tasks Cleared</Text>
-              </View>
-            </AppCard>
-
-            <AppCard style={styles.statCard}>
-              <Feather name="repeat" size={18} color={colors.primary} />
-              <View>
-                <Text style={[styles.statValue, { color: colors.text }]}>{stats.habitsCompleted}</Text>
-                <Text style={[styles.statLabel, { color: colors.textMuted }]}>Habits Active</Text>
-              </View>
-            </AppCard>
-
-            <AppCard style={styles.statCard}>
-              <Feather name="award" size={18} color={colors.warning} />
-              <View>
-                <Text style={[styles.statValue, { color: colors.text }]}>{stats.avgScore}%</Text>
-                <Text style={[styles.statLabel, { color: colors.textMuted }]}>Focus Score</Text>
-              </View>
-            </AppCard>
-          </View>
-        </Animated.View>
-
-        {/* Weekly Productivity Trend Card */}
-        {weeklyTrends.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(150).duration(450)} style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>WEEKLY PRODUCTIVITY MOMENTUM</Text>
-            <View style={{
-              backgroundColor: colors.card,
-              borderRadius: 24,
-              padding: 16,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <View style={{ gap: 2 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "700", color: colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    Momentum Index
-                  </Text>
-                  <Text style={{ fontSize: 11, color: colors.textMuted }}>
-                    Productivity scores over the last 7 days
-                  </Text>
-                </View>
-                <Feather name="bar-chart-2" size={16} color={colors.primary} />
-              </View>
-
-              {/* Bar Graph Row */}
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", height: 100, paddingTop: 10, paddingHorizontal: 4 }}>
-                {weeklyTrends.map((day) => {
-                  const barHeight = Math.max(day.score, 6); // at least 6% height so a tiny bar shows
-                  
-                  // Color gradient emulation based on score
-                  let barColor = colors.primary;
-                  if (day.score >= 90) barColor = colors.success;
-                  else if (day.score >= 60) barColor = colors.primary;
-                  else if (day.score >= 30) barColor = colors.warning;
-                  else if (day.score > 0) barColor = "#64748b";
-                  else barColor = colors.border; // empty day
-
+              {/* Segmented XP Progress Bar */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 3,
+                  height: 6,
+                  width: "100%",
+                  marginTop: 2,
+                }}
+              >
+                {Array.from({ length: 10 }).map((_, i) => {
+                  const isActive = levelInfo.progressPct * 10 > i;
                   return (
-                    <View key={day.dateString} style={{ alignItems: "center", flex: 1, gap: 8 }}>
-                      <View style={{
-                        width: 14,
-                        height: 70,
-                        backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B",
-                        borderRadius: 8,
-                        justifyContent: "flex-end",
-                        overflow: "hidden",
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                      }}>
-                        <View style={{
-                          height: `${barHeight}%`,
-                          backgroundColor: barColor,
-                          borderRadius: 8,
-                        }} />
-                      </View>
-                      <Text style={{
-                        fontSize: 10,
-                        fontWeight: "600",
-                        color: colors.textMuted,
-                      }}>
-                        {day.dayName}
-                      </Text>
-                    </View>
+                    <View
+                      key={i}
+                      style={{
+                        flex: 1,
+                        height: "100%",
+                        borderRadius: 3,
+                        backgroundColor: isActive
+                          ? colors.primary
+                          : colorScheme === "light"
+                            ? "rgba(0,0,0,0.08)"
+                            : "rgba(255,255,255,0.08)",
+                      }}
+                    />
                   );
                 })}
               </View>
-            </View>
-          </Animated.View>
-        )}
 
-        {/* Cognitive Focus Rhythm & Peaks Analysis */}
-        <Animated.View entering={FadeInDown.delay(200).duration(450)} style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>FOCUS RHYTHM & PEAKS</Text>
-          <View style={{
-            backgroundColor: colors.card,
-            borderRadius: 24,
-            padding: 16,
-            borderWidth: 1,
-            borderColor: colors.border,
-            gap: 12,
-          }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <View style={{ gap: 2 }}>
-                <Text style={{ fontSize: 13, fontWeight: "700", color: colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                  Active Focus Peaks
+              <Text style={styles.xpSubText}>
+                {levelInfo.xpNeededForNext - levelInfo.xpInCurrentLevel} XP to
+                Level {levelInfo.level + 1}
+              </Text>
+            </Pressable>
+
+            {/* Streaks & Stats Row */}
+            <View style={[styles.divider, { marginVertical: 8 }]} />
+            <View style={styles.heroStatsRow}>
+              <View style={styles.heroStatItem}>
+                <Text style={[styles.heroStatVal, { color: colors.text }]}>
+                  {stats.activeStreak}
                 </Text>
-                <Text style={{ fontSize: 11, color: colors.textMuted }}>
-                  Active productivity times calculated from scheduled alarms
+                <Text
+                  style={[styles.heroStatLabel, { color: colors.textMuted }]}
+                >
+                  Current Streak
                 </Text>
               </View>
-              <Feather name={cognitiveFlowStats.icon as any} size={16} color={colors.primary} />
-            </View>
-
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 }}>
-              <View style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B",
-                borderWidth: 1,
-                borderColor: colors.border,
-                alignItems: "center",
-                justifyContent: "center",
-              }}>
-                <Feather name={cognitiveFlowStats.icon as any} size={20} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: "800", color: colors.text }}>
-                  {cognitiveFlowStats.peakZone}
+              <View
+                style={[
+                  styles.verticalDivider,
+                  { backgroundColor: colors.border },
+                ]}
+              />
+              <View style={styles.heroStatItem}>
+                <Text style={[styles.heroStatVal, { color: colors.text }]}>
+                  {stats.bestStreak}
                 </Text>
-                <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 1 }}>
-                  Most items scheduled in {cognitiveFlowStats.peakZone.toLowerCase().split(" ")[0]}
+                <Text
+                  style={[styles.heroStatLabel, { color: colors.textMuted }]}
+                >
+                  Best Streak
                 </Text>
               </View>
-            </View>
-
-            {/* Triple progress bar distribution */}
-            <View style={{ gap: 8, marginTop: 6 }}>
-              <View style={{ gap: 3 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>Morning (5 AM - 12 PM)</Text>
-                  <Text style={{ fontSize: 10, fontWeight: "700", color: colors.text }}>{Math.round(cognitiveFlowStats.morningPct)}%</Text>
-                </View>
-                <View style={{ height: 6, borderRadius: 3, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B", overflow: "hidden" }}>
-                  <View style={{ height: "100%", width: `${cognitiveFlowStats.morningPct}%`, backgroundColor: colors.primary }} />
-                </View>
-              </View>
-
-              <View style={{ gap: 3 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>Afternoon (12 PM - 5 PM)</Text>
-                  <Text style={{ fontSize: 10, fontWeight: "700", color: colors.text }}>{Math.round(cognitiveFlowStats.afternoonPct)}%</Text>
-                </View>
-                <View style={{ height: 6, borderRadius: 3, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B", overflow: "hidden" }}>
-                  <View style={{ height: "100%", width: `${cognitiveFlowStats.afternoonPct}%`, backgroundColor: colors.success }} />
-                </View>
-              </View>
-
-              <View style={{ gap: 3 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>Evening/Night (5 PM - 5 AM)</Text>
-                  <Text style={{ fontSize: 10, fontWeight: "700", color: colors.text }}>{Math.round(cognitiveFlowStats.eveningPct)}%</Text>
-                </View>
-                <View style={{ height: 6, borderRadius: 3, backgroundColor: colorScheme === "light" ? "#F1F5F9" : "#18181B", overflow: "hidden" }}>
-                  <View style={{ height: "100%", width: `${cognitiveFlowStats.eveningPct}%`, backgroundColor: "#F59E0B" }} />
-                </View>
+              <View
+                style={[
+                  styles.verticalDivider,
+                  { backgroundColor: colors.border },
+                ]}
+              />
+              <View style={styles.heroStatItem}>
+                <Text style={[styles.heroStatVal, { color: colors.text }]}>
+                  {stats.avgScore}%
+                </Text>
+                <Text
+                  style={[styles.heroStatLabel, { color: colors.textMuted }]}
+                >
+                  Focus Score
+                </Text>
               </View>
             </View>
           </View>
         </Animated.View>
 
-        {/* Category breakdown (if tasks exist) */}
-        {categoryStats.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(200).duration(450)} style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>TASKS BY CATEGORY</Text>
-            <AppCard style={styles.categoryCard}>
-              {categoryStats.map((cat, idx) => (
-                <View key={cat.name} style={[styles.catRow, idx !== 0 && { marginTop: 12 }]}>
-                  <View style={styles.catInfoRow}>
-                    <Text style={[styles.catNameText, { color: colors.text }]}>{cat.name}</Text>
-                    <Text style={[styles.catCountText, { color: colors.textMuted }]}>{cat.count} tasks</Text>
-                  </View>
-                  <View style={[styles.catProgressBg, { backgroundColor: "rgba(255,255,255,0.06)" }]}>
-                    <View
-                      style={[
-                        styles.catProgressFill,
-                        {
-                          width: `${cat.pct * 100}%`,
-                          backgroundColor: cat.color,
-                        },
-                      ]}
-                    />
-                  </View>
+        {/* Circular Achievements Teaser Row (Dribbble-style badge tray) */}
+        {unlockedTeasers.length > 0 && (
+          <Animated.View entering={enteringAnim(80, 450)} style={styles.teaserSection}>
+            <View style={styles.teaserHeader}>
+              <Text style={[styles.teaserLabel, { color: colors.textMuted }]}>
+                RECENT BADGES
+              </Text>
+              <Pressable
+                style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  router.push("/profile/achievements");
+                }}
+              >
+                <Text style={[styles.teaserLink, { color: colors.primary }]}>
+                  View Gallery ({unlockedCount}/10)
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.badgeTray}>
+              {unlockedTeasers.map((ach, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.badgeTrayItem,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: colorScheme === "light"
+                        ? "rgba(99, 102, 241, 0.04)"
+                        : "rgba(99, 102, 241, 0.08)",
+                    },
+                  ]}
+                >
+                  <Feather name={ach.icon} size={15} color={colors.primary} />
+                  <Text style={[styles.badgeTrayText, { color: colors.text }]} numberOfLines={1}>
+                    {ach.title}
+                  </Text>
                 </View>
               ))}
-            </AppCard>
+            </View>
           </Animated.View>
         )}
 
-        {/* Upcoming alarms list */}
-        <Animated.View entering={FadeInDown.delay(300).duration(450)} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>UPCOMING ALARMS</Text>
-            <Pressable onPress={() => router.push("/notifications")}>
-              <Text style={[styles.seeAllText, { color: colors.primary }]}>Alerts Center</Text>
-            </Pressable>
-          </View>
+        {/* Dribbble-Style Glassmorphic Clean Navigation List */}
+        <Animated.View entering={enteringAnim(150, 450)} style={styles.navSection}>
+          <Text style={[styles.teaserLabel, { color: colors.textMuted, marginBottom: 2 }]}>
+            HUB NAVIGATION
+          </Text>
 
-          <AppCard style={styles.upcomingCard}>
-            {upcomingReminders.length === 0 ? (
-              <View style={styles.emptyReminders}>
-                <Feather name="bell-off" size={16} color={colors.textMuted} />
-                <Text style={[styles.emptyRemindersText, { color: colors.textMuted }]}>
-                  No future reminders active.
-                </Text>
-              </View>
-            ) : (
-              upcomingReminders.map((alarm, idx) => {
-                const alarmDate = new Date(alarm.alarmTime);
-                const label = alarmDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                return (
-                  <View key={alarm.id} style={[styles.alarmRow, idx !== 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}>
-                    <Feather name="clock" size={13} color={colors.primary} />
-                    <Text style={[styles.alarmTitleText, { color: colors.text }]} numberOfLines={1}>
-                      {alarm.title}
-                    </Text>
-                    <Text style={[styles.alarmTimeText, { color: colors.textMuted }]}>{label}</Text>
-                  </View>
-                );
-              })
-            )}
-          </AppCard>
+          <Pressable
+            style={({ pressed }) => [
+              styles.navCard,
+              {
+                borderColor: colors.border,
+                backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.015)" : "rgba(255,255,255,0.015)",
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              router.push("/profile/stats");
+            }}
+          >
+            <View style={[styles.navIconBox, { backgroundColor: "rgba(99, 102, 241, 0.08)" }]}>
+              <Feather name="bar-chart-2" size={18} color={colors.primary} />
+            </View>
+            <View style={styles.navTextContainer}>
+              <Text style={[styles.navCardTitle, { color: colors.text }]}>Analytics & Focus Trends</Text>
+              <Text style={[styles.navCardSubtitle, { color: colors.textMuted }]}>
+                Weekly momentum, rhythm peaks and category breakdowns
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={colors.textMuted} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.navCard,
+              {
+                borderColor: colors.border,
+                backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.015)" : "rgba(255,255,255,0.015)",
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              router.push("/profile/achievements");
+            }}
+          >
+            <View style={[styles.navIconBox, { backgroundColor: "rgba(245, 158, 11, 0.08)" }]}>
+              <Feather name="award" size={18} color={colors.warning} />
+            </View>
+            <View style={styles.navTextContainer}>
+              <Text style={[styles.navCardTitle, { color: colors.text }]}>Badges & Achievements</Text>
+              <Text style={[styles.navCardSubtitle, { color: colors.textMuted }]}>
+                Unlocked milestones, progress tracks, and collectible items
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={colors.textMuted} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.navCard,
+              {
+                borderColor: colors.border,
+                backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.015)" : "rgba(255,255,255,0.015)",
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              router.push("/notifications");
+            }}
+          >
+            <View style={[styles.navIconBox, { backgroundColor: "rgba(16, 185, 129, 0.08)" }]}>
+              <Feather name="bell" size={18} color={colors.success} />
+            </View>
+            <View style={styles.navTextContainer}>
+              <Text style={[styles.navCardTitle, { color: colors.text }]}>Alerts & Reminder Center</Text>
+              <Text style={[styles.navCardSubtitle, { color: colors.textMuted }]}>
+                Upcoming alarms schedule and active task alert configuration
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={colors.textMuted} />
+          </Pressable>
         </Animated.View>
       </ScrollView>
+
+      {/* Rank Tiers Modal */}
+      <RankTiersModal
+        visible={showRankSheet}
+        onClose={() => setShowRankSheet(false)}
+        levelInfo={levelInfo}
+        colors={colors}
+        colorScheme={colorScheme}
+      />
+
+      {/* Avatar Selection Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showAvatarPicker}
+        onRequestClose={() => setShowAvatarPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <BlurView intensity={25} style={StyleSheet.absoluteFill} tint="dark" />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAvatarPicker(false)} />
+          
+          <Animated.View
+            entering={enteringAnim(0, 300)}
+            style={[
+              styles.avatarPickerCard,
+              { backgroundColor: colors.card, borderColor: colors.border }
+            ]}
+          >
+            {/* Header */}
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitleText, { color: colors.text }]}>Choose Companion Avatar</Text>
+              <Pressable
+                onPress={() => setShowAvatarPicker(false)}
+                style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="x" size={20} color={colors.text} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16 }}>
+              {/* 2.5D Mascot Poses section */}
+              <View style={{ gap: 10 }}>
+                <Text style={[styles.categoryTitle, { color: colors.primary }]}>2.5D MASCOT CROW PERSONAS</Text>
+                <View style={styles.avatarPickerGrid}>
+                  {AVATAR_OPTIONS.map((opt) => {
+                    const isSelected = profile.avatar === opt.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        onPress={() => handleSelectAvatar(opt.id)}
+                        style={[
+                          styles.avatarPickerItem,
+                          {
+                            backgroundColor: isSelected ? `${colors.primary}15` : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected ? colors.primary : colors.border,
+                          }
+                        ]}
+                      >
+                        <RenderAvatar avatar={opt.id} size={48} />
+                        <Text style={[styles.avatarLabelText, { color: colors.text }]} numberOfLines={1}>
+                          {opt.label}
+                        </Text>
+                        <Text style={[styles.avatarDescText, { color: colors.textMuted }]} numberOfLines={1}>
+                          {opt.desc}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Standard Emojis section */}
+              <View style={{ gap: 10, marginTop: 4 }}>
+                <Text style={[styles.categoryTitle, { color: colors.textMuted }]}>CLASSIC EMOJIS</Text>
+                <View style={styles.emojiPickerGrid}>
+                  {EMOJI_OPTIONS.map((emoji) => {
+                    const isSelected = profile.avatar === emoji;
+                    return (
+                      <Pressable
+                        key={emoji}
+                        onPress={() => handleSelectAvatar(emoji)}
+                        style={[
+                          styles.emojiPickerItem,
+                          {
+                            backgroundColor: isSelected ? `${colors.primary}15` : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected ? colors.primary : colors.border,
+                          }
+                        ]}
+                      >
+                        <Text style={{ fontSize: 24 }}>{emoji}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </ScrollView>
+          </Animated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -609,7 +1069,7 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   heroCard: {
-    borderRadius: 20,
+    borderRadius: 24,
     borderWidth: 1,
     padding: 20,
     overflow: "hidden",
@@ -634,7 +1094,7 @@ const styles = StyleSheet.create({
   },
   profileInfo: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   nameText: {
     fontSize: 20,
@@ -659,6 +1119,44 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.6,
   },
+  miniLevelBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  miniLevelText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  xpSubText: {
+    fontSize: 9,
+    fontWeight: "600",
+    textAlign: "right",
+    marginTop: 2,
+  },
+  jarCard: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderRadius: 24,
+    position: "relative",
+  },
+  jarHeaderLabel: {
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  pebbleCountText: {
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
   xpProgressContainer: {
     gap: 6,
   },
@@ -675,111 +1173,178 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
-  xpBarOutline: {
-    height: 8,
-    borderRadius: 4,
-    overflow: "hidden",
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
-  xpBarFill: {
-    height: "100%",
-    borderRadius: 4,
+  heroStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    paddingVertical: 4,
   },
-  xpTip: {
-    fontSize: 9,
+  heroStatItem: {
+    alignItems: "center",
+    gap: 2,
+  },
+  heroStatVal: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  heroStatLabel: {
+    fontSize: 10,
     fontWeight: "600",
-    marginTop: 2,
   },
-  statsGrid: {
+  verticalDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  teaserSection: {
+    gap: 8,
+  },
+  teaserHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  teaserLabel: {
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  teaserLink: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  badgeTray: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  badgeTrayItem: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 6,
+  },
+  badgeTrayText: {
+    fontSize: 11,
+    fontWeight: "700",
+    maxWidth: 70,
+  },
+  navSection: {
+    gap: 10,
+  },
+  navCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 12,
+  },
+  navIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navTextContainer: {
+    flex: 1,
+    gap: 2,
+  },
+  navCardTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  navCardSubtitle: {
+    fontSize: 10,
+    fontWeight: "600",
+    lineHeight: 13,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  avatarPickerCard: {
+    width: "100%",
+    maxWidth: 440,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    padding: 20,
+    maxHeight: "85%",
+    gap: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+    paddingBottom: 12,
+  },
+  modalTitleText: {
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  categoryTitle: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  avatarPickerGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
   },
-  statCard: {
-    width: (SCREEN_WIDTH - 42) / 2, // 2 column layout
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  statValue: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  statLabel: {
-    fontSize: 11,
-  },
-  section: {
-    gap: 10,
-  },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-  },
-  seeAllText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  categoryCard: {
-    padding: 16,
-  },
-  catRow: {
-    gap: 6,
-  },
-  catInfoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  catNameText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  catCountText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  catProgressBg: {
-    height: 6,
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  catProgressFill: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  upcomingCard: {
+  avatarPickerItem: {
+    flex: 1,
+    minWidth: 150,
+    height: 110,
+    borderRadius: 16,
+    borderWidth: 1.5,
     padding: 10,
-  },
-  emptyReminders: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
-    gap: 8,
   },
-  emptyRemindersText: {
-    fontSize: 13,
-    fontWeight: "500",
+  avatarLabelText: {
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 4,
+    textAlign: "center",
   },
-  alarmRow: {
+  avatarDescText: {
+    fontSize: 8,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  emojiPickerGrid: {
     flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    flexWrap: "wrap",
     gap: 10,
   },
-  alarmTitleText: {
-    fontSize: 13,
-    fontWeight: "600",
-    flex: 1,
-  },
-  alarmTimeText: {
-    fontSize: 12,
+  emojiPickerItem: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

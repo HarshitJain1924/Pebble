@@ -24,8 +24,21 @@ export type Todo = {
   description?: string;
   tags?: string[];
   durationMinutes?: number;
-  repeatType?: "none" | "daily" | "weekly" | "monthly";
+  recurrence?: {
+    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
+    interval?: number;
+    unit?: "hours" | "days";
+    days?: number[];
+    dayOfMonth?: number;
+  };
   folderId?: string;
+  archived?: boolean;
+  createdDate?: string;
+  startDate?: string;
+  lastUpdated?: string;
+  recurrenceExceptions?: string[];
+  createdAt?: number;
+  xpAwarded?: boolean;
 };
 
 export type Habit = {
@@ -41,6 +54,25 @@ export type Habit = {
   notificationIds?: string[];
   escalationMinutes?: number[];
   priority?: "low" | "medium" | "high";
+  recurrence?: {
+    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
+    interval?: number;
+    unit?: "hours" | "days";
+    days?: number[];
+    dayOfMonth?: number;
+  };
+  description?: string;
+  category?: TaskCategory;
+  folderId?: string;
+  archived?: boolean;
+  createdDate?: string;
+  startDate?: string;
+  lastUpdated?: string;
+  recurrenceExceptions?: string[];
+  createdAt?: number;
+  xpAwardedDate?: string;
+  previousStreak?: number;
+  streakBrokenDate?: string;
 };
 
 export type TaskList = {
@@ -50,4 +82,14 @@ export type TaskList = {
   icon?: string;
   iconType?: "emoji" | "icon";
   color?: string;
+  createdAt?: number;
+};
+
+export type RecycleBinItem = {
+  id: string;
+  title: string;
+  deletedAt: number;
+  itemType: "task" | "habit" | "workspace";
+  originalLocation: string;
+  data: any;
 };

@@ -27,6 +27,7 @@ type BannerOptions = {
 type UndoContextType = {
   showUndo: (opts: UndoOptions) => void;
   showBanner: (opts: BannerOptions) => void;
+  showToast: (message: string, duration?: number) => void;
 };
 
 const UndoContext = createContext<UndoContextType | null>(null);
@@ -48,6 +49,11 @@ export const UndoProvider: React.FC<{ children: React.ReactNode }> = ({
   const colors = Colors[colorScheme ?? "dark"];
   const [banner, setBanner] = useState<BannerOptions | null>(null);
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastAnim] = useState(() => new Animated.Value(0));
+  const toastTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     Animated.timing(anim, {
       toValue: visible ? 1 : 0,
@@ -57,12 +63,23 @@ export const UndoProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [visible, anim]);
 
   useEffect(() => {
+    Animated.timing(toastAnim, {
+      toValue: toastVisible ? 1 : 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [toastVisible, toastAnim]);
+
+  useEffect(() => {
     let t: ReturnType<typeof setTimeout> | null = null;
     if (visible && opts?.duration !== 0) {
       t = setTimeout(() => setVisible(false), opts?.duration ?? 4000);
     }
     return () => {
       if (t) clearTimeout(t);
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
     };
   }, [visible, opts]);
 
@@ -71,6 +88,17 @@ export const UndoProvider: React.FC<{ children: React.ReactNode }> = ({
     setVisible(false);
     // allow re-show animation
     setTimeout(() => setVisible(true), 50);
+  }, []);
+
+  const showToast = useCallback((msg: string, duration = 3000) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToastMessage(msg);
+    setToastVisible(true);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastVisible(false);
+    }, duration);
   }, []);
 
   const showBanner = useCallback(
@@ -108,7 +136,7 @@ export const UndoProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   return (
-    <UndoContext.Provider value={{ showUndo, showBanner }}>
+    <UndoContext.Provider value={{ showUndo, showBanner, showToast }}>
       {children}
       {opts && (
         <Animated.View
@@ -145,6 +173,31 @@ export const UndoProvider: React.FC<{ children: React.ReactNode }> = ({
               {opts.actionLabel ?? "Undo"}
             </Text>
           </Pressable>
+        </Animated.View>
+      )}
+      {toastMessage && (
+        <Animated.View
+          pointerEvents={toastVisible ? "auto" : "none"}
+          style={[
+            toastStyles.container,
+            {
+              transform: [
+                {
+                  translateY: toastAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [80, 0],
+                  }),
+                },
+              ],
+              opacity: toastAnim,
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <Text style={[toastStyles.message, { color: colors.text }]} numberOfLines={2}>
+            {toastMessage}
+          </Text>
         </Animated.View>
       )}
       {banner && (
@@ -249,7 +302,32 @@ const styles = StyleSheet.create({
   actionText: { fontSize: 13, fontWeight: "800" },
 });
 
-export default UndoProvider;
+const toastStyles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    bottom: 40,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    zIndex: 9999,
+  },
+  message: {
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+});
 
 const bannerStyles = StyleSheet.create({
   container: {
@@ -272,3 +350,5 @@ const bannerStyles = StyleSheet.create({
   body: { fontSize: 12 },
   action: { fontSize: 13, fontWeight: "800" },
 });
+
+export default UndoProvider;

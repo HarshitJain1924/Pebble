@@ -1,9 +1,11 @@
-type EventType = "tasks_changed" | "habits_changed";
-type Listener = () => void;
+type EventType = "tasks_changed" | "habits_changed" | "profile_changed" | "pebbles_changed";
+type Listener = (emitterId?: string) => void;
 
 const listeners: Record<EventType, Set<Listener>> = {
   tasks_changed: new Set<Listener>(),
   habits_changed: new Set<Listener>(),
+  profile_changed: new Set<Listener>(),
+  pebbles_changed: new Set<Listener>(),
 };
 
 /**
@@ -20,11 +22,11 @@ export const addStateListener = (event: EventType, listener: Listener) => {
 /**
  * Emit a global state change event to notify all active listeners.
  */
-export const emitStateChange = (event: EventType) => {
-  console.log(`📣 [EVENT EMITTED] "${event}" - Notifying all listeners.`);
+export const emitStateChange = (event: EventType, emitterId?: string) => {
+  console.log(`📣 [EVENT EMITTED] "${event}" from "${emitterId || "unknown"}" - Notifying all listeners.`);
   listeners[event].forEach((listener) => {
     try {
-      listener();
+      listener(emitterId);
     } catch (e) {
       console.warn(`Error in state event listener for "${event}":`, e);
     }

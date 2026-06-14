@@ -71,6 +71,7 @@ export function VoiceCaptureButton({
   });
 
   const handlePress = () => {
+    console.log("MIC PRESSED");
     if (status === "idle") {
       onStart();
     } else if (status === "listening") {
@@ -84,16 +85,16 @@ export function VoiceCaptureButton({
   const renderIcon = () => {
     switch (status) {
       case "listening":
-        return <Feather name="square" size={16} color="#fff" />;
+        return <Feather name="square" size={18} color="#fff" />;
       case "processing":
         return <ActivityIndicator size="small" color="#fff" />;
       case "completed":
-        return <Feather name="check" size={18} color="#fff" />;
+        return <Feather name="check" size={20} color="#fff" />;
       case "error":
-        return <Feather name="alert-circle" size={18} color="#fff" />;
+        return <Feather name="alert-circle" size={20} color="#fff" />;
       case "idle":
       default:
-        return <Feather name="mic" size={18} color="#fff" />;
+        return <Feather name="mic" size={20} color="#fff" />;
     }
   };
 
@@ -123,7 +124,7 @@ export function VoiceCaptureButton({
     <View style={styles.container}>
       {/* Real-time sound wave indicator when listening */}
       {status === "listening" && (
-        <View style={styles.equalizer}>
+        <View pointerEvents="none" style={styles.equalizer}>
           <View style={[styles.eqBar, { height: getBarHeight(14, 2) }]} />
           <View style={[styles.eqBar, { height: getBarHeight(24, 4) }]} />
           <View style={[styles.eqBar, { height: getBarHeight(18, 3) }]} />
@@ -132,10 +133,23 @@ export function VoiceCaptureButton({
 
       {/* Button & Pulsing Glow Ring */}
       <View style={styles.buttonWrapper}>
-        <Animated.View style={[styles.glowRing, { backgroundColor: getButtonBgColor() }, glowStyle]} />
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.glowRing,
+            { backgroundColor: getButtonBgColor() },
+            glowStyle
+          ]}
+        />
         
-        <PressableScale onPress={handlePress} haptic>
+        <PressableScale
+          onPress={handlePress}
+          haptic
+          hitSlop={20}
+          style={styles.pressableScale}
+        >
           <Animated.View
+            pointerEvents="none"
             style={[
               styles.micCircle,
               { backgroundColor: getButtonBgColor() },
@@ -149,7 +163,7 @@ export function VoiceCaptureButton({
 
       {/* Equalizer on the right side for balance */}
       {status === "listening" && (
-        <View style={styles.equalizer}>
+        <View pointerEvents="none" style={styles.equalizer}>
           <View style={[styles.eqBar, { height: getBarHeight(18, 3) }]} />
           <View style={[styles.eqBar, { height: getBarHeight(24, 4) }]} />
           <View style={[styles.eqBar, { height: getBarHeight(14, 2) }]} />
@@ -173,10 +187,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  pressableScale: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   micCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -188,9 +208,9 @@ const styles = StyleSheet.create({
   },
   glowRing: {
     position: "absolute",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     zIndex: 1,
   },
   equalizer: {

@@ -9,6 +9,9 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { addXp } from "@/services/settingsService";
 import { resolveSuggestion, type SmartSuggestion } from "@/services/suggestions";
 import { type Todo, type Habit, type TaskList } from "../types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { emitStateChange } from "@/services/stateEvents";
 
 interface SuggestionBannerProps {
   activeSuggestions: SmartSuggestion[];
@@ -114,12 +117,16 @@ export function SuggestionBanner({
                     completedToday: false,
                     priority: "medium",
                   };
-                  setHabits((current) => {
-                    const updated = [newHabit, ...current];
-                    void persistHabits(updated);
-                    return updated;
-                  });
-                  await addXp(5).catch(() => {});
+                  const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+                  let currentHabits: Habit[] = [];
+                  if (raw) {
+                    const parsed = JSON.parse(raw);
+                    currentHabits = parsed.dailyHabits ?? [];
+                  }
+                  const updated = [newHabit, ...currentHabits];
+                  await persistHabits(updated);
+                  setHabits(updated);
+                  emitStateChange("habits_changed");
                   Alert.alert(
                     "Success",
                     `"${suggestion.title}" has been converted to a recurring daily habit!`,
@@ -134,17 +141,21 @@ export function SuggestionBanner({
                     scheduledDate: getDateKey(),
                     folderId: openedFolderId || "default",
                   };
-                  setTodos((current) => {
-                    const listId = openedFolderId || "default";
-                    const listTodos = current[listId] ?? [];
-                    const updated = {
-                      ...current,
-                      [listId]: [newTodo, ...listTodos],
-                    };
-                    void persistState(lists, selectedList, updated);
-                    return updated;
-                  });
-                  await addXp(10).catch(() => {});
+                  const listId = openedFolderId || "default";
+                  const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+                  let currentTodos: Record<string, Todo[]> = {};
+                  if (rawTodos) {
+                    const parsed = JSON.parse(rawTodos);
+                    currentTodos = parsed.todos || {};
+                  }
+                  const listTodos = currentTodos[listId] ?? [];
+                  const updated = {
+                    ...currentTodos,
+                    [listId]: [newTodo, ...listTodos],
+                  };
+                  await persistState(lists, selectedList, updated);
+                  setTodos(updated);
+                  emitStateChange("tasks_changed");
                   Alert.alert(
                     "Success",
                     `Created recurring study schedule task for "${suggestion.title}"!`,

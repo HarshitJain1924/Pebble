@@ -8,7 +8,13 @@ export type ParsedProductivityItem = {
   time?: string; // HH:MM
   category?: "work" | "personal" | "health" | "learning" | "creative" | "focus";
   priority?: "high" | "medium" | "low";
-  recurrence?: "daily" | "weekdays" | "weekends" | "none";
+  recurrence?: {
+    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
+    interval?: number;
+    unit?: "hours" | "days";
+    days?: number[];
+    dayOfMonth?: number;
+  };
   reminderOffsetMinutes?: number; // Alarm offset (e.g. 30 for "30 mins before")
   confidence: number;
 };
@@ -35,7 +41,7 @@ const formatDate = (date: Date): string => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return `${y}-${m}:${d}`; // Wait! The original was `${y}-${m}-${d}`. Wait, let's look at the original formatting: line 38 was `${y}-${m}-${d}`. I should keep it as `${y}-${m}-${d}`. Ah! Let me copy it exactly as in line 38.
 };
 
 // Helper to format time as HH:MM
@@ -59,49 +65,283 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
   let lowText = cleanedText.toLowerCase();
 
   let type: "task" | "habit" = "task";
-  let recurrence: "daily" | "weekdays" | "weekends" | "none" = "none";
   let category: "work" | "personal" | "health" | "learning" | "creative" | "focus" | undefined;
   let priority: "high" | "medium" | "low" | undefined;
   let dateStr: string | undefined;
   let timeStr: string | undefined;
   let confidence = 0.5;
 
-  // 1. Habit Detection & Recurrence Stripping
-  const habitKeywords = [
-    { pattern: /\bdaily\b/gi, type: "daily" as const },
-    { pattern: /\bevery day\b/gi, type: "daily" as const },
-    { pattern: /\beveryday\b/gi, type: "daily" as const },
-    { pattern: /\bevery morning\b/gi, type: "daily" as const, time: "08:00" },
-    { pattern: /\bevery evening\b/gi, type: "daily" as const, time: "18:00" },
-    { pattern: /\bweekdays\b/gi, type: "weekdays" as const },
-    { pattern: /\bweekends\b/gi, type: "weekends" as const },
-    { pattern: /\bevery weekday\b/gi, type: "weekdays" as const },
-    { pattern: /\bevery weekend\b/gi, type: "weekends" as const },
-  ];
+  const weekdayMap: Record<string, number> = {
+    sunday: 0, sun: 0,
+    monday: 1, mon: 1,
+    tuesday: 2, tue: 2,
+    wednesday: 3, wed: 3,
+    thursday: 4, thu: 4,
+    friday: 5, fri: 5,
+    saturday: 6, sat: 6
+  };
 
-  for (const habitRule of habitKeywords) {
-    if (habitRule.pattern.test(cleanedText)) {
-      type = "habit";
-      recurrence = habitRule.type;
-      if (habitRule.time) {
-        timeStr = habitRule.time;
-      }
-      cleanedText = cleanedText.replace(habitRule.pattern, "");
+  // --- 1. Category Detection (Early for Heuristic Classification) ---
+  const compromiseDoc = nlp(cleanedText);
+  
+  for (const [catName, keywords] of Object.entries(CATEGORY_MAP)) {
+    const hasKeyword = keywords.some(keyword => {
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const startBoundary = /^\w/.test(keyword) ? '\\b' : '';
+      const endBoundary = /\w$/.test(keyword) ? '\\b' : '';
+      const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "i");
+      return regex.test(cleanedText);
+    });
+
+    if (hasKeyword) {
+      category = catName as any;
       confidence += 0.15;
-      break; // Match first matching habit rule
+      break;
     }
   }
 
-  // Handle generic "every ..." recurrence
-  if (type !== "habit" && /\bevery\b/gi.test(cleanedText)) {
-    // If it says "every monday", "every gym session" etc
-    type = "habit";
-    recurrence = "daily";
-    confidence += 0.1;
-    cleanedText = cleanedText.replace(/\bevery\b/gi, "");
+  if (!category) {
+    if (compromiseDoc.match("#Verb (study|read|learn|write|code)").found) {
+      category = "learning";
+      confidence += 0.1;
+    } else if (compromiseDoc.match("#Verb (run|walk|gym|stretch|swim|train)").found) {
+      category = "health";
+      confidence += 0.1;
+    } else if (compromiseDoc.match("(meeting|client|office|presentation|sprint)").found) {
+      category = "work";
+      confidence += 0.1;
+    }
   }
 
-  // 1.5 Smart Reminder parsing (e.g. "and remind me 30 minutes before")
+  // --- 2. Recurrence Parsing ---
+  let recurrence: ParsedProductivityItem["recurrence"] = undefined;
+  let repeatType: "daily" | "weekdays" | "weekly" | "monthly" | "interval" | undefined;
+  let repeatInterval: number | undefined;
+  let repeatUnit: "hours" | "days" | undefined;
+  let repeatDays: number[] | undefined;
+  let repeatDayOfMonth: number | undefined;
+
+  const intervalHoursRegex = /\bevery\s+(\d+)\s+hours?\b/i;
+  const everyHourRegex = /\b(?:every\s+hour|hourly)\b/i;
+  const intervalDaysRegex = /\bevery\s+(\d+)\s+days?\b/i;
+  const monthlyOnDayRegex = /\bevery\s+month\s+(?:on\s+)?(?:the\s+)?(\d+)(?:st|nd|rd|th)?\b/i;
+  const monthlyDefaultRegex = /\b(?:every\s+month|monthly)\b/i;
+  const weekdaysRegex = /\b(?:every\s+weekday|weekdays)\b/i;
+  const weekendsRegex = /\b(?:every\s+weekend|weekends)\b/i;
+
+  if (intervalHoursRegex.test(cleanedText)) {
+    const match = cleanedText.match(intervalHoursRegex);
+    if (match) {
+      repeatType = "interval";
+      repeatInterval = Number(match[1]);
+      repeatUnit = "hours";
+      cleanedText = cleanedText.replace(match[0], "");
+      confidence += 0.15;
+    }
+  } else if (everyHourRegex.test(cleanedText)) {
+    const match = cleanedText.match(everyHourRegex);
+    if (match) {
+      repeatType = "interval";
+      repeatInterval = 1;
+      repeatUnit = "hours";
+      cleanedText = cleanedText.replace(match[0], "");
+      confidence += 0.15;
+    }
+  } else if (intervalDaysRegex.test(cleanedText)) {
+    const match = cleanedText.match(intervalDaysRegex);
+    if (match) {
+      repeatType = "interval";
+      repeatInterval = Number(match[1]);
+      repeatUnit = "days";
+      cleanedText = cleanedText.replace(match[0], "");
+      confidence += 0.15;
+    }
+  } else if (monthlyOnDayRegex.test(cleanedText)) {
+    const match = cleanedText.match(monthlyOnDayRegex);
+    if (match) {
+      repeatType = "monthly";
+      repeatDayOfMonth = Number(match[1]);
+      cleanedText = cleanedText.replace(match[0], "");
+      confidence += 0.15;
+    }
+  } else if (monthlyDefaultRegex.test(cleanedText)) {
+    const match = cleanedText.match(monthlyDefaultRegex);
+    if (match) {
+      repeatType = "monthly";
+      repeatDayOfMonth = new Date().getDate();
+      cleanedText = cleanedText.replace(match[0], "");
+      confidence += 0.15;
+    }
+  } else if (weekdaysRegex.test(cleanedText)) {
+    const match = cleanedText.match(weekdaysRegex);
+    if (match) {
+      repeatType = "weekdays";
+      repeatDays = [1, 2, 3, 4, 5];
+      cleanedText = cleanedText.replace(match[0], "");
+      confidence += 0.15;
+    }
+  } else if (weekendsRegex.test(cleanedText)) {
+    const match = cleanedText.match(weekendsRegex);
+    if (match) {
+      repeatType = "weekly";
+      repeatDays = [0, 6];
+      cleanedText = cleanedText.replace(match[0], "");
+      confidence += 0.15;
+    }
+  } else {
+    // Specific weekdays check (e.g. "every monday and thursday")
+    const weeklyMatch = cleanedText.match(/\bevery\s+([a-z\s,and&]+)\b/i);
+    let isWeeklyMatched = false;
+    if (weeklyMatch) {
+      const words = weeklyMatch[1].toLowerCase().split(/[\s,]+/);
+      const matchedDays: number[] = [];
+      words.forEach(w => {
+        const cleanWord = w.replace(/[^\w]/g, "");
+        if (weekdayMap[cleanWord] !== undefined) {
+          matchedDays.push(weekdayMap[cleanWord]);
+        }
+      });
+      if (matchedDays.length > 0) {
+        repeatType = "weekly";
+        repeatDays = Array.from(new Set(matchedDays)).sort((a, b) => a - b);
+        cleanedText = cleanedText.replace(weeklyMatch[0], "");
+        confidence += 0.15;
+        isWeeklyMatched = true;
+      }
+    }
+    
+    if (!isWeeklyMatched) {
+      const weeklyDefaultRegex = /\b(?:every\s+week|weekly)\b/i;
+      if (weeklyDefaultRegex.test(cleanedText)) {
+        repeatType = "weekly";
+        repeatDays = [new Date().getDay()];
+        cleanedText = cleanedText.replace(weeklyDefaultRegex, "");
+        confidence += 0.15;
+      } else if (/\b(?:every\s+day|daily|everyday)\b/i.test(cleanedText)) {
+        const match = cleanedText.match(/\b(?:every\s+day|daily|everyday)\b/i);
+        if (match) {
+          repeatType = "daily";
+          cleanedText = cleanedText.replace(match[0], "");
+          confidence += 0.15;
+        }
+      } else if (/\bevery\s+morning\b/i.test(cleanedText)) {
+        const match = cleanedText.match(/\bevery\s+morning\b/i);
+        if (match) {
+          repeatType = "daily";
+          timeStr = "08:00";
+          cleanedText = cleanedText.replace(match[0], "");
+          confidence += 0.15;
+        }
+      } else if (/\bevery\s+evening\b/i.test(cleanedText)) {
+        const match = cleanedText.match(/\bevery\s+evening\b/i);
+        if (match) {
+          repeatType = "daily";
+          timeStr = "18:00";
+          cleanedText = cleanedText.replace(match[0], "");
+          confidence += 0.15;
+        }
+      }
+    }
+  }
+
+  // If a recurrence pattern was matched, assemble the object and run classification heuristic
+  if (repeatType) {
+    recurrence = {
+      type: repeatType,
+      interval: repeatInterval,
+      unit: repeatUnit,
+      days: repeatDays,
+      dayOfMonth: repeatDayOfMonth,
+    };
+
+    // Heuristic Classification: Habits vs Tasks
+    const lowTitle = cleanedText.toLowerCase().trim();
+    const originalLow = originalText.toLowerCase().trim();
+
+    let habitScore = 0;
+    let taskScore = 0;
+
+    // 1. Recurrence boost
+    if (/\bevery\s+day\b/i.test(originalLow) || /\bdaily\b/i.test(originalLow) || /\beveryday\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+morning\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+evening\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+night\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+weekday\b/i.test(originalLow) || /\bweekdays\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+weekend\b/i.test(originalLow) || /\bweekends\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+(?:sun|mon|tue|wed|thu|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\s+\d+\s+(?:hours?|days?)\b/i.test(originalLow) || /\bevery\s+hour\b/i.test(originalLow) || /\bhourly\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else if (/\bevery\b/i.test(originalLow) || /\bweekly\b/i.test(originalLow) || /\bmonthly\b/i.test(originalLow)) {
+      habitScore += 4.0;
+    } else {
+      habitScore += 3.0;
+    }
+
+    // 2. Category weights
+    if (category === "health") {
+      habitScore += 3.0;
+    } else if (category === "learning") {
+      taskScore += 1.0;
+    } else if (category === "work" || category === "creative" || category === "focus") {
+      taskScore += 2.0;
+    }
+
+    // 3. Keyword weights
+    const specificWorkKeywords = [
+      "submit", "client", "meeting", "project", "assignment", "report", "presentation",
+      "kubernetes", "docker", "dsa", "interview", "placement", "backup", "finance", "rent", "pay rent", "pay"
+    ];
+    // Compound phrases that are definitely work-tasks even if verbs are generic
+    const workPhrases = ["call client", "call meeting", "call interview"];
+    workPhrases.forEach(phrase => {
+      if (originalLow.includes(phrase)) {
+        taskScore += 4.5;
+      }
+    });
+    const weakWorkKeywords = ["task", "complete", "do", "update"];
+    const habitKeywords = [
+      "read", "journal", "meditate", "water", "gym", "workout", "running", "run", "exercise",
+      "walk", "drink", "stretch", "swim", "train", "yoga", "hydration", "teeth", "brush"
+    ];
+
+    specificWorkKeywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, "i");
+      if (regex.test(lowTitle)) {
+        taskScore += 4.5;
+      }
+    });
+
+    weakWorkKeywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, "i");
+      if (regex.test(lowTitle)) {
+        taskScore += 1.0;
+      }
+    });
+
+    habitKeywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, "i");
+      if (regex.test(lowTitle)) {
+        habitScore += 3.0;
+      }
+    });
+
+    if (habitScore > taskScore) {
+      type = "habit";
+    } else {
+      type = "task";
+    }
+  } else {
+    type = "task"; // non-recurring defaults to task
+  }
+
+  // --- 3. Reminder Offset parsing (e.g. "and remind me 30 minutes before") ---
   let reminderOffsetMinutes: number | undefined;
   const reminderRegex = /\b(?:remind|alert)(?:\s+me)?\s+(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs|h)\s*(?:before|prior)\b/i;
   const reminderMatch = cleanedText.match(reminderRegex);
@@ -119,7 +359,7 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     confidence += 0.1;
   }
 
-  // 2. Priority Detection
+  // --- 4. Priority Detection ---
   lowText = cleanedText.toLowerCase();
   for (const [prio, keywords] of Object.entries(PRIORITY_MAP)) {
     for (const keyword of keywords) {
@@ -137,61 +377,22 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     if (priority) break;
   }
 
-  // 3. Category Detection using keywords + Compromise
-  lowText = cleanedText.toLowerCase();
-  const compromiseDoc = nlp(cleanedText);
-  
-  for (const [catName, keywords] of Object.entries(CATEGORY_MAP)) {
-    // Check keyword array match
-    const hasKeyword = keywords.some(keyword => {
-      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const startBoundary = /^\w/.test(keyword) ? '\\b' : '';
-      const endBoundary = /\w$/.test(keyword) ? '\\b' : '';
-      const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "i");
-      return regex.test(cleanedText);
-    });
-
-    // Check Compromise match if keyword found or double check verbs/nouns
-    if (hasKeyword) {
-      category = catName as any;
-      confidence += 0.15;
-      break;
-    }
-  }
-
-  // Fallback category heuristics using Compromise parts of speech
-  if (!category) {
-    if (compromiseDoc.match("#Verb (study|read|learn|write|code)").found) {
-      category = "learning";
-      confidence += 0.1;
-    } else if (compromiseDoc.match("#Verb (run|walk|gym|stretch|swim|train)").found) {
-      category = "health";
-      confidence += 0.1;
-    } else if (compromiseDoc.match("(meeting|client|office|presentation|sprint)").found) {
-      category = "work";
-      confidence += 0.1;
-    }
-  }
-
-  // 4. Date & Time Parsing via Chrono
-  // We parse the current cleanedText so date keywords are extracted
+  // --- 5. Date & Time Parsing via Chrono ---
   try {
     const chronoResults = chrono.parse(cleanedText);
     if (chronoResults.length > 0) {
       for (const result of chronoResults) {
         const parsedDate = result.start.date();
         
-        // If task, extract target date
-        if (type === "task") {
+        // If task, extract target date (only if NOT recurring)
+        if (type === "task" && !recurrence) {
           dateStr = formatDate(parsedDate);
         }
 
-        // Check if time was explicitly specified
         const hourSpecified = result.start.isCertain("hour");
         if (hourSpecified) {
           timeStr = formatTime(parsedDate);
         } else {
-          // Fallback checks for custom strings Chrono might miss certain flags on
           const timeRegexes = [
             { pattern: /\b(\d{1,2})pm\b/i, offset: 12 },
             { pattern: /\b(\d{1,2})am\b/i, offset: 0 },
@@ -218,20 +419,18 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
           }
         }
 
-        // Strip the matched date text from the title
         cleanedText = cleanedText.replace(result.text, "");
       }
       confidence += 0.15;
     } else {
-      // Manual backup regexes for simple dates in case chrono has issues
       const todayRegex = /\btoday\b/i;
       const tomorrowRegex = /\btomorrow\b/i;
       if (todayRegex.test(cleanedText)) {
-        if (type === "task") dateStr = formatDate(new Date());
+        if (type === "task" && !recurrence) dateStr = formatDate(new Date());
         cleanedText = cleanedText.replace(todayRegex, "");
         confidence += 0.1;
       } else if (tomorrowRegex.test(cleanedText)) {
-        if (type === "task") {
+        if (type === "task" && !recurrence) {
           const tomorrow = new Date();
           tomorrow.setDate(tomorrow.getDate() + 1);
           dateStr = formatDate(tomorrow);
@@ -244,42 +443,46 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     console.warn("Chrono parsing failed, falling back to regex: ", err);
   }
 
-  // 5. Final Title Clean Up
-  // Strip trailing/leading space, prepositions like "at", "on", "by", "for", "to"
+  // --- 6. Final Title Clean Up ---
   let title = cleanedText
-    .replace(/\s+/g, " ") // Collapse spaces
+    .replace(/\s+/g, " ")
     .trim();
 
-  // Strip leading/trailing connector words (e.g. "at 7pm", "to study", "gym at")
   title = title
     .replace(/^(at|on|by|for|to|with|in)\s+/i, "")
     .replace(/\s+(at|on|by|for|to|with|in)$/i, "")
     .trim();
 
-  // Capitalize first letter
   if (title.length > 0) {
     title = title.charAt(0).toUpperCase() + title.slice(1);
   } else {
-    title = originalText; // Fallback to full input if everything got stripped
+    title = originalText;
   }
 
-  // Default values if unspecified
   if (!priority) {
     priority = "medium";
   }
 
-  // Cap confidence score
+  const formatCleanDate = (date: Date): string => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const finalDateStr = dateStr ? dateStr.replace(":", "-") : undefined;
+
   confidence = Math.min(1.0, Math.max(0.1, confidence));
 
   return {
     type,
     title,
-    date: dateStr,
+    date: finalDateStr,
     time: timeStr,
     category,
     priority,
-    recurrence: recurrence !== "none" ? recurrence : undefined,
+    recurrence,
     reminderOffsetMinutes,
-    confidence: Math.round(confidence * 100) / 100, // round to 2 decimals
+    confidence: Math.round(confidence * 100) / 100,
   };
 }

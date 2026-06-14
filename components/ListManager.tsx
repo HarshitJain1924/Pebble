@@ -1,8 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import React, { useState } from "react";
 import { Pressable, ScrollView, StyleSheet,   View } from "react-native";
-import { AppTextInput as TextInput } from "@/components/ui/AppText";
-import { AppText as Text } from "@/components/ui/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "@/components/ui/AppText";
 
 import { Typography } from "@/constants/typography";
 

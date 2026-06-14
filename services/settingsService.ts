@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PROFILE_STORAGE_KEY, SETTINGS_STORAGE_KEY } from "./storage";
+import type { Todo, Habit } from "@/modules/types";
 
 export type AppSettings = {
   theme: "dark" | "light" | "system";
@@ -148,6 +149,60 @@ export async function addXp(amount: number): Promise<UserProfile> {
   await saveProfile(updatedProfile);
   return updatedProfile;
 }
+
+export async function handleTaskXpChange(
+  todo: Todo,
+  nextCompleted: boolean,
+): Promise<{ xpAwarded: boolean; xpChange: number }> {
+  let xpChange = 0;
+  let xpAwarded = !!todo.xpAwarded;
+
+  if (nextCompleted) {
+    if (!xpAwarded) {
+      xpChange = 10;
+      xpAwarded = true;
+    }
+  } else {
+    if (xpAwarded) {
+      xpChange = -10;
+      xpAwarded = false;
+    }
+  }
+
+  if (xpChange !== 0) {
+    await addXp(xpChange).catch(() => {});
+  }
+
+  return { xpAwarded, xpChange };
+}
+
+export async function handleHabitXpChange(
+  habit: Habit,
+  nextCompleted: boolean,
+  todayKey: string,
+): Promise<{ xpAwardedDate?: string; xpChange: number }> {
+  let xpChange = 0;
+  let xpAwardedDate = habit.xpAwardedDate;
+
+  if (nextCompleted) {
+    if (xpAwardedDate !== todayKey) {
+      xpChange = 15;
+      xpAwardedDate = todayKey;
+    }
+  } else {
+    if (xpAwardedDate === todayKey) {
+      xpChange = -15;
+      xpAwardedDate = undefined;
+    }
+  }
+
+  if (xpChange !== 0) {
+    await addXp(xpChange).catch(() => {});
+  }
+
+  return { xpAwardedDate, xpChange };
+}
+
 
 // Helper to determine if a given hour falls inside quiet hours
 export function isCurrentlyInQuietHours(
