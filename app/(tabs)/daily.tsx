@@ -753,16 +753,6 @@ export default function DailyScreen() {
                     colorScheme={colorScheme}
                     onToggleHabit={() => toggleHabit(item.id)}
                     onDeleteHabit={() => deleteHabit(item.id)}
-                    reminderMenuVisible={reminderMenuHabitId === item.id}
-                    onToggleReminderMenu={() =>
-                      setReminderMenuHabitId((curr) =>
-                        curr === item.id ? null : item.id,
-                      )
-                    }
-                    onSetReminder={(hour, minute, days) =>
-                      setReminderWithDays(item.id, hour, minute, days)
-                    }
-                    onClearReminder={() => clearReminder(item.id)}
                     highlightedHabitId={highlightedHabitId}
                   />
                 )}
