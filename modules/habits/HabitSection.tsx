@@ -14,7 +14,6 @@ import { HabitStreakCard } from "@/components/dashboard/HabitStreakCard";
 import { HabitsEmptyGraphic } from "@/components/AppGraphics";
 import { TimeSelectorDial } from "@/components/TimeSelectorDial";
 import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
-import { syncWidgetData } from "@/services/widgetData";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { styles } from "@/constants/taskStyles";
@@ -116,7 +115,6 @@ export function HabitSection({
             : habit,
         );
         void persistHabits(updated);
-        void syncWidgetData().catch(() => {});
         return updated;
       });
     } catch {
@@ -147,7 +145,6 @@ export function HabitSection({
           : habit,
       );
       void persistHabits(updated);
-      void syncWidgetData().catch(() => {});
       return updated;
     });
 

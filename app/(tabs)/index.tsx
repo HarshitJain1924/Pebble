@@ -27,7 +27,6 @@ import {
     TASK_CATEGORY_KEYS,
     type TaskCategory,
 } from "@/services/taskCategories";
-import { syncWidgetData } from "@/services/widgetData";
 import * as Haptics from "expo-haptics";
 import { addStateListener, emitStateChange } from "@/services/stateEvents";
 
@@ -330,7 +329,6 @@ export default function DashboardScreen() {
         );
 
         await loadDashboardData();
-        await syncWidgetData().catch(() => {});
         emitStateChange("tasks_changed");
 
         // show undo snackbar — restore previous todo state when undone
@@ -361,7 +359,6 @@ export default function DashboardScreen() {
                     JSON.stringify({ ...parsed2, todos: reverted }),
                   );
                   await loadDashboardData();
-                  await syncWidgetData().catch(() => {});
                   emitStateChange("tasks_changed");
                 } catch {
                   // ignore
@@ -426,7 +423,6 @@ export default function DashboardScreen() {
         void recordDailyHistorySnapshot();
 
         await loadDashboardData();
-        await syncWidgetData().catch(() => {});
         emitStateChange("habits_changed");
       } catch (e) {
         console.warn("Failed to complete habit on dashboard", e);

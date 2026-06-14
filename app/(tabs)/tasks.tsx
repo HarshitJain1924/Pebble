@@ -67,7 +67,6 @@ import {
     TASK_CATEGORY_META,
     type TaskCategory
 } from "@/services/taskCategories";
-import { syncWidgetData } from "@/services/widgetData";
 import * as Haptics from "expo-haptics";
 
 import { WorkspaceModal } from "../../modules/workspaces/WorkspaceModal";
@@ -915,7 +914,6 @@ export default function TasksScreen() {
       pluginManager.dispatchHabitCompleted(newHabit);
     }
 
-    void syncWidgetData().catch(() => {});
     void recordDailyHistorySnapshot();
   };
 
@@ -1195,7 +1193,6 @@ export default function TasksScreen() {
         ],
       };
       persistState(lists, selectedList, updated);
-      void syncWidgetData().catch(() => {});
 
       const totalAfter = Object.values(updated).reduce(
         (sum, list) => sum + list.length,
@@ -1285,7 +1282,6 @@ export default function TasksScreen() {
     } else {
       pluginManager.dispatchTaskUncompleted(updatedTodo);
     }
-    await syncWidgetData().catch(() => {});
     emitStateChange("tasks_changed");
   };
 
@@ -1305,7 +1301,6 @@ export default function TasksScreen() {
         [selectedList]: currentListTodos.filter((todo) => todo.id !== id),
       };
       persistState(lists, selectedList, updated);
-      void syncWidgetData().catch(() => {});
       return updated;
     });
 
@@ -1393,7 +1388,6 @@ export default function TasksScreen() {
       );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
-      void syncWidgetData().catch(() => {});
       return updated;
     });
   };
@@ -1445,7 +1439,6 @@ export default function TasksScreen() {
       );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
-      void syncWidgetData().catch(() => {});
       return updated;
     });
 
@@ -1472,7 +1465,6 @@ export default function TasksScreen() {
       );
       const updated = { ...current, [selectedList]: updatedList };
       persistState(lists, selectedList, updated);
-      void syncWidgetData().catch(() => {});
       return updated;
     });
   };
@@ -1503,7 +1495,6 @@ export default function TasksScreen() {
     setHabits((current) => {
       const updated = [next, ...current];
       persistHabits(updated);
-      void syncWidgetData().catch(() => {});
       return updated;
     });
     setHabitTitle("");
@@ -1517,7 +1508,6 @@ export default function TasksScreen() {
     setHabits((current) => {
       const updated = current.filter((habit) => habit.id !== id);
       persistHabits(updated);
-      void syncWidgetData().catch(() => {});
       return updated;
     });
   };
@@ -1571,7 +1561,6 @@ export default function TasksScreen() {
 
     pluginManager.dispatchHabitCompleted(updatedHabit);
     void recordDailyHistorySnapshot();
-    await syncWidgetData().catch(() => {});
   };
 
 

@@ -19,13 +19,11 @@ import {
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { AnimatedCheckbox } from "@/components/AnimatedCheckbox";
 import { AppCard } from "@/components/AppCard";
 import { HabitsEmptyGraphic } from "@/components/AppGraphics";
 import { HabitItem } from "@/components/HabitItem";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ScreenSwipeWrapper } from "@/components/ScreenSwipeWrapper";
-import { SwipeableCard } from "@/components/SwipeableCard";
 import { Spacing } from "@/constants/spacing";
 import { Colors } from "@/constants/theme";
 import { Typography } from "@/constants/typography";
@@ -64,12 +62,7 @@ const STARTER_HABITS = [
   "Stretch or Walk",
 ];
 
-const QUICK_REMINDER_OPTIONS = [
-  { label: "7:00", hour: 7, minute: 0 },
-  { label: "12:00", hour: 12, minute: 0 },
-  { label: "18:00", hour: 18, minute: 0 },
-  { label: "21:00", hour: 21, minute: 0 },
-];
+
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -138,19 +131,7 @@ const getGreeting = () => {
   return "Good evening";
 };
 
-const addMinutesToTime = (
-  hour: number,
-  minute: number,
-  offset: number,
-  setHour: React.Dispatch<React.SetStateAction<number>>,
-  setMinute: React.Dispatch<React.SetStateAction<number>>
-) => {
-  const totalMinutes = hour * 60 + minute + offset;
-  const newHour = Math.floor(totalMinutes / 60) % 24;
-  const newMinute = totalMinutes % 60;
-  setHour(newHour >= 0 ? newHour : (newHour + 24) % 24);
-  setMinute(newMinute >= 0 ? newMinute : (newMinute + 60) % 60);
-};
+
 
 export default function DailyScreen() {
   const colorScheme = useColorScheme();

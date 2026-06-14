@@ -23,7 +23,7 @@ import { Spacing } from "@/constants/spacing";
 import { Colors } from "@/constants/theme";
 import { Typography } from "@/constants/typography";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { syncWidgetData } from "@/services/widgetData";
+
 
 export default function FocusScreen() {
   const colorScheme = useColorScheme();
@@ -87,7 +87,6 @@ export default function FocusScreen() {
         return nextCompleted;
       });
       AlertFinish();
-      void syncWidgetData(minutes).catch(() => {});
     }
 
     return () => {
