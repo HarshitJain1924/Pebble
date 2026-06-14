@@ -56,13 +56,38 @@ export async function undoLastPebble(type: PebbleType) {
     const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
     if (!raw) return;
     let log: PebbleLogEntry[] = JSON.parse(raw);
-    
+
     // Find last index of this type
     const idx = log.map((p) => p.type).lastIndexOf(type);
-    if (idx !== -1) {
-      log.splice(idx, 1);
-      await AsyncStorage.setItem(PEBBLE_LOG_KEY, JSON.stringify(log));
+    if (idx === -1) return;
+
+    const removedEntry = log[idx];
+    const removedDate = new Date(removedEntry.timestamp);
+    const removedDateKey = `${removedDate.getFullYear()}-${String(removedDate.getMonth() + 1).padStart(2, "0")}-${String(removedDate.getDate()).padStart(2, "0")}`;
+
+    // Check if this was the ONLY pebble that day (it triggered a bonus gem)
+    const pebblesOnSameDay = log.filter((entry) => {
+      const d = new Date(entry.timestamp);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      return key === removedDateKey;
+    });
+    const wasOnlyPebbleToday = pebblesOnSameDay.length === 1;
+
+    log.splice(idx, 1);
+    await AsyncStorage.setItem(PEBBLE_LOG_KEY, JSON.stringify(log));
+
+    // Roll back the bonus gem that was awarded for the first pebble of that day
+    if (wasOnlyPebbleToday) {
+      try {
+        const bonusRaw = await AsyncStorage.getItem(GEMS_BONUS_KEY);
+        const currentBonus = bonusRaw ? parseInt(bonusRaw, 10) || 0 : 0;
+        if (currentBonus > 0) {
+          await AsyncStorage.setItem(GEMS_BONUS_KEY, String(currentBonus - 1));
+        }
+      } catch {}
     }
+
+    emitStateChange("pebbles_changed", "pebble_service");
   } catch (e) {
     console.warn("Failed to undo pebble", e);
   }
@@ -176,7 +201,7 @@ export async function ensurePebbleLogInitialized() {
     const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
     if (raw) return; // Already initialized
 
-    // Count lifetime todos
+    // Count lifetime completed todos
     const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
     let todosCompleted = 0;
     if (rawTodos) {
@@ -187,33 +212,10 @@ export async function ensurePebbleLogInitialized() {
       } catch {}
     }
 
-    // Count lifetime habits from history
+    // Backfill from history entries to restore correct dates
     const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
-    let habitsCompleted = 0;
-    if (rawHistory) {
-      try {
-        const historyList = JSON.parse(rawHistory);
-        if (Array.isArray(historyList)) {
-          historyList.forEach((entry: any) => {
-            habitsCompleted += entry.completedHabits || 0;
-          });
-        }
-      } catch {}
-    }
-
-    // Count lifetime focus sessions
-    const rawFocus = await AsyncStorage.getItem("todoapp:focus:stats");
-    let focusCompleted = 0;
-    if (rawFocus) {
-      try {
-        const parsed = JSON.parse(rawFocus);
-        focusCompleted = parsed.completedToday ?? 0;
-      } catch {}
-    }
-
     const log: PebbleLogEntry[] = [];
-    
-    // Backfill based on history entries to restore correct dates
+
     if (rawHistory) {
       try {
         const historyList = JSON.parse(rawHistory);
@@ -221,30 +223,31 @@ export async function ensurePebbleLogInitialized() {
           historyList.forEach((entry: any) => {
             const [entryYear, entryMonth, entryDay] = entry.date.split("-").map(Number);
             const timestamp = new Date(entryYear, entryMonth - 1, entryDay).getTime();
-            
+
             for (let i = 0; i < (entry.completedTodos || 0); i++) {
               log.push({ type: "task", timestamp });
             }
             for (let i = 0; i < (entry.completedHabits || 0); i++) {
               log.push({ type: "habit", timestamp });
             }
+            // NOTE: focus sessions are NOT backfilled from history because
+            // `completedToday` is a daily-reset field that cannot be trusted
+            // as a historical count. Only real pebble log entries count.
           });
         }
       } catch {}
     }
 
-    // Add remaining tasks that might not be in history
+    // Add any completed todos not yet captured in history
     const historyTodosCount = log.filter((p) => p.type === "task").length;
     const remainingTodos = Math.max(0, todosCompleted - historyTodosCount);
+    const now = Date.now();
     for (let i = 0; i < remainingTodos; i++) {
-      log.push({ type: "task", timestamp: Date.now() });
+      log.push({ type: "task", timestamp: now });
     }
 
-    // Add focus sessions (distribute them in the current month)
-    for (let i = 0; i < focusCompleted; i++) {
-      log.push({ type: "focus", timestamp: Date.now() - 86400000 });
-    }
-
+    // Write the log (even if empty — marks the key as initialized so this
+    // function is skipped on subsequent calls)
     await AsyncStorage.setItem(PEBBLE_LOG_KEY, JSON.stringify(log));
   } catch (e) {
     console.warn("Failed to initialize pebble log", e);
@@ -348,9 +351,10 @@ export async function getPebbleBalance(): Promise<number> {
 }
 
 export async function spendPebbles(amount: number): Promise<boolean> {
-  // Wrap with spendGems for backward compatibility, mapping 10 pebbles -> 1 gem
-  const gemAmount = amount === 10 ? 1 : Math.max(1, Math.floor(amount / 10));
-  return spendGems(gemAmount);
+  // Each call to spendPebbles spends exactly 1 gem regardless of the raw pebble amount
+  // (callers are expected to already express the cost in gems via spendGems directly;
+  //  this function exists for backward-compatibility with legacy call sites)
+  return spendGems(1);
 }
 
 export const GEMS_SPENT_KEY = "todoapp:gems_spent";

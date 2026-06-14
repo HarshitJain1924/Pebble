@@ -726,7 +726,8 @@ export function useFocusState() {
                   const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
                   if (rawHabits) {
                     const parsed = JSON.parse(rawHabits);
-                    const yesterdayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate() - 1).padStart(2, "0")}`;
+                    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
                     const updatedHabits = parsed.dailyHabits.map((h: any) => {
                       if (h.id === taskId) {
                         return {

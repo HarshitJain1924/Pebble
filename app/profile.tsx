@@ -135,11 +135,12 @@ export default function ProfileScreen() {
 
       // 5. Query Focus stats
       const rawFocus = await AsyncStorage.getItem("todoapp:focus:stats");
-      let focusSessions = 0;
       let focusTime = 0;
       if (rawFocus) {
         const parsed = JSON.parse(rawFocus);
-        focusSessions = parsed.completedToday ?? 0;
+        // NOTE: parsed.completedToday is a daily-only counter that resets; don't use
+        // it as a lifetime stat. Lifetime focus session count is taken from pebbleStats
+        // below, using lifetimeTypes.focus which is built from the persistent pebble log.
         focusTime = parsed.totalFocusTime ?? 0;
       }
 
@@ -185,7 +186,7 @@ export default function ProfileScreen() {
         activeStreak: Math.max(pebbleStats.streak || 0, streak),
         bestStreak: Math.max(pebbleStats.bestStreak || 0, bestStreak),
         avgScore: avgScore,
-        focusSessions,
+        focusSessions: pebbleStats.lifetimeTypes?.focus ?? 0,
         focusTime,
         completionRate,
       });

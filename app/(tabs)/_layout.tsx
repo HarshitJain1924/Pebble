@@ -31,7 +31,6 @@ import {
   type TaskCategory,
 } from "@/services/taskCategories";
 import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
-import { addXp } from "@/services/settingsService";
 import { scheduleReminderBatch } from "@/services/reminders";
 import { TimeSelectorDial } from "@/components/TimeSelectorDial";
 import * as Haptics from "expo-haptics";
@@ -43,6 +42,7 @@ import { loadQuickSuggestions } from "@/services/quickSuggestions";
 import { useUndo } from "@/components/ui/UndoContext";
 import { useVoiceCapture } from "@/hooks/useVoiceCapture";
 import { VoiceCaptureButton } from "@/components/VoiceCaptureButton";
+import { MascotOverlay } from "@/components/MascotOverlay";
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -766,6 +766,8 @@ export default function TabLayout() {
           }}
         />
       </Tabs>
+
+      <MascotOverlay />
 
       {/* Global Quick Add Overlay Modal */}
       <BottomSheetModal

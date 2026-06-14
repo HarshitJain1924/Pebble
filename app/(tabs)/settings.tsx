@@ -18,7 +18,7 @@ import {
   RECYCLE_BIN_STORAGE_KEY,
   NOTIF_LOG_STORAGE_KEY,
 } from "@/services/storage";
-import { PEBBLE_LOG_KEY } from "@/services/pebbleService";
+import { PEBBLE_LOG_KEY, GEMS_BONUS_KEY, GEMS_SPENT_KEY, PEBBLE_SPENT_KEY } from "@/services/pebbleService";
 import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/services/quickSuggestions";
 import { WIDGET_PAYLOAD_KEY } from "@/services/widgetData";
 import { cancelAllScheduledNotifications } from "@/services/reminders";
@@ -405,10 +405,24 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem(QUICK_SUGGESTIONS_SEEN_KEY),
                 AsyncStorage.removeItem(WIDGET_PAYLOAD_KEY),
                 AsyncStorage.removeItem("todoapp:focus:stats"),
+                AsyncStorage.removeItem(GEMS_BONUS_KEY),
+                AsyncStorage.removeItem(GEMS_SPENT_KEY),
+                AsyncStorage.removeItem(PEBBLE_SPENT_KEY),
+                AsyncStorage.removeItem("todoapp:focus:current_session"),
+                AsyncStorage.removeItem("todoapp:focus:current_stopwatch"),
+                AsyncStorage.removeItem("todoapp:focus:liked_sound_ids"),
+                AsyncStorage.removeItem("todoapp:focus:custom_tracks"),
+                AsyncStorage.removeItem("todoapp:focus:selected_sound_id"),
+                AsyncStorage.removeItem("todoapp:focus:sound_volume"),
+                AsyncStorage.removeItem("todoapp:focus:is_muted"),
+                AsyncStorage.removeItem("todoapp:focus:is_shuffle"),
+                AsyncStorage.removeItem("todoapp:focus:is_repeat"),
+                AsyncStorage.removeItem("todoapp:focus:glow_enabled"),
                 cancelAllScheduledNotifications(),
               ]);
               emitStateChange("tasks_changed");
               emitStateChange("habits_changed");
+              emitStateChange("pebbles_changed");
               await loadSettingsData();
               Alert.alert(
                 "Storage Wiped",

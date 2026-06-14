@@ -26,7 +26,8 @@ import {
 import { getActiveSuggestions, logTaskCreation, type SmartSuggestion } from "@/services/suggestions";
 import { DEFAULT_TASK_CATEGORY, normalizeTaskCategory, TASK_CATEGORY_META, type TaskCategory } from "@/services/taskCategories";
 import { syncWidgetData } from "@/services/widgetData";
-import { isRecurringOccurrenceForDate, getRecurrenceLabel } from "@/services/recurrence";
+import { isRecurringOccurrenceForDate, getRecurrenceLabel, parseDateKey, dayDiff } from "@/services/recurrence";
+import { normalizeHabitsForToday } from "@/services/habitService";
 
 const STORAGE_KEY = TODOS_STORAGE_KEY;
 
@@ -53,60 +54,7 @@ export const getDateKey = (date = new Date()) => {
   return `${y}-${m}-${d}`;
 };
 
-export const parseDateKey = (value: string) => {
-  const [y, m, d] = value.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-};
 
-export const dayDiff = (fromDateKey: string, toDateKey: string) => {
-  const from = parseDateKey(fromDateKey).getTime();
-  const to = parseDateKey(toDateKey).getTime();
-  return Math.floor((to - from) / DAY_MS);
-};
-
-export const normalizeHabitsForToday = (habitsList: Habit[]) => {
-  const today = getDateKey();
-
-  return habitsList.map((habit) => {
-    if (!habit.lastCompletedDate) {
-      return { ...habit, completedToday: false };
-    }
-
-    const diff = dayDiff(habit.lastCompletedDate, today);
-
-    if (diff <= 0) {
-      return {
-        ...habit,
-        completedToday:
-          habit.completedToday && habit.lastCompletedDate === today,
-      };
-    }
-
-    if (diff === 1) {
-      return { ...habit, completedToday: false };
-    }
-
-    const isWithinRecoveryWindow = habit.streakBrokenDate && (dayDiff(habit.streakBrokenDate, today) <= 1);
-    let nextPreviousStreak = habit.previousStreak;
-    let nextStreakBrokenDate = habit.streakBrokenDate;
-
-    if (habit.streak > 0) {
-      nextPreviousStreak = habit.streak;
-      nextStreakBrokenDate = today;
-    } else if (!isWithinRecoveryWindow) {
-      nextPreviousStreak = undefined;
-      nextStreakBrokenDate = undefined;
-    }
-
-    return {
-      ...habit,
-      completedToday: false,
-      streak: 0,
-      previousStreak: nextPreviousStreak,
-      streakBrokenDate: nextStreakBrokenDate,
-    };
-  });
-};
 
 export const getListColors = (name: string, isSelected: boolean) => {
   const lowercase = name.toLowerCase();

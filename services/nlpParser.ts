@@ -41,7 +41,7 @@ const formatDate = (date: Date): string => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}:${d}`; // Wait! The original was `${y}-${m}-${d}`. Wait, let's look at the original formatting: line 38 was `${y}-${m}-${d}`. I should keep it as `${y}-${m}-${d}`. Ah! Let me copy it exactly as in line 38.
+  return `${y}-${m}-${d}`;
 };
 
 // Helper to format time as HH:MM
@@ -463,14 +463,7 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     priority = "medium";
   }
 
-  const formatCleanDate = (date: Date): string => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  };
-
-  const finalDateStr = dateStr ? dateStr.replace(":", "-") : undefined;
+  const finalDateStr = dateStr;
 
   confidence = Math.min(1.0, Math.max(0.1, confidence));
 

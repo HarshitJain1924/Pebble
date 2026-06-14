@@ -6,7 +6,6 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { addXp } from "@/services/settingsService";
 import { resolveSuggestion, type SmartSuggestion } from "@/services/suggestions";
 import { type Todo, type Habit, type TaskList } from "../types";
 import AsyncStorage from "@react-native-async-storage/async-storage";

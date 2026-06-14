@@ -149,11 +149,32 @@ export default function StatsScreen() {
         });
       }
 
+      // Query Lifetime History
+      const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
+      let historyList: any[] = [];
+      let pastTodosCompleted = 0;
+      let pastHabitsCompleted = 0;
+      const todayKey = getDateKey();
+      if (rawHistory) {
+        try {
+          historyList = JSON.parse(rawHistory);
+          if (Array.isArray(historyList)) {
+            historyList.forEach((entry: any) => {
+              if (entry.date !== todayKey) {
+                pastTodosCompleted += entry.completedTodos || 0;
+                pastHabitsCompleted += entry.completedHabits || 0;
+              }
+            });
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
       // Calculate Peak Productive Day based on historical data
-      const history = await getHistoryForMonth(now.getFullYear(), now.getMonth());
       let peakProductiveDayString = "None yet";
-      if (history.length > 0) {
-        const sortedHistory = [...history].sort((a, b) => b.score - a.score);
+      if (historyList.length > 0) {
+        const sortedHistory = [...historyList].sort((a, b) => b.score - a.score);
         const peakEntry = sortedHistory[0];
         if (peakEntry && peakEntry.score > 0) {
           const [py, pm, pd] = peakEntry.date.split("-").map(Number);
@@ -163,8 +184,14 @@ export default function StatsScreen() {
         }
       }
 
-      // Load Average Productivity Score (last 3 months)
-      const scores = history.map((h) => h.score);
+      // Load Average Productivity Score (last 3 months / 90 days)
+      const parseDateKey = (val: string) => {
+        const [y, m, d] = val.split("-").map(Number);
+        return new Date(y, m - 1, d);
+      };
+      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const last3MonthsHistory = historyList.filter((h: any) => parseDateKey(h.date) >= ninetyDaysAgo);
+      const scores = last3MonthsHistory.map((h: any) => h.score);
       const avgScore =
         scores.length > 0
           ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
@@ -180,27 +207,6 @@ export default function StatsScreen() {
           focusSessions = parsed.completedToday ?? 0;
           focusTime = parsed.totalFocusTime ?? 0;
         } catch {}
-      }
-
-      // Query Lifetime History
-      const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
-      let pastTodosCompleted = 0;
-      let pastHabitsCompleted = 0;
-      const todayKey = getDateKey();
-      if (rawHistory) {
-        try {
-          const historyList = JSON.parse(rawHistory);
-          if (Array.isArray(historyList)) {
-            historyList.forEach((entry: any) => {
-              if (entry.date !== todayKey) {
-                pastTodosCompleted += entry.completedTodos || 0;
-                pastHabitsCompleted += entry.completedHabits || 0;
-              }
-            });
-          }
-        } catch (e) {
-          // ignore
-        }
       }
 
       const actualTodosCompleted = pastTodosCompleted + totalCompletedTodos;
@@ -230,13 +236,13 @@ export default function StatsScreen() {
         strongestHabitStreak,
       });
 
-      // Weekly Momentum Trends
+      // Weekly Momentum Trends (using full historyList to support month boundaries)
       const trends = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date(now);
         d.setDate(now.getDate() - i);
         const key = getDateKey(d);
-        const entry = history.find((h) => h.date === key);
+        const entry = historyList.find((h: any) => h.date === key);
         const score = entry ? entry.score : 0;
         trends.push({
           dayName: WEEKDAY_NAMES[d.getDay()][0],

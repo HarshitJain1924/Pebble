@@ -26,6 +26,8 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { cancelReminderIds } from "@/services/reminders";
 import { addXp, handleTaskXpChange, handleHabitXpChange, type UserProfile } from "@/services/settingsService";
 import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { normalizeHabitsForToday } from "@/services/habitService";
+import { isRecurringOccurrenceForDate } from "@/services/recurrence";
 import {
     normalizeTaskCategory,
     TASK_CATEGORY_KEYS,
@@ -100,8 +102,23 @@ type Habit = {
   bestStreak: number;
   completedToday: boolean;
   lastCompletedDate?: string;
+  reminderHour?: number;
+  reminderMinute?: number;
+  reminderDays?: number[];
+  notificationIds?: string[];
+  escalationMinutes?: number[];
   priority?: "low" | "medium" | "high";
+  recurrence?: {
+    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
+    interval?: number;
+    unit?: "hours" | "days";
+    days?: number[];
+    dayOfMonth?: number;
+  };
+  recurrenceExceptions?: string[];
   archived?: boolean;
+  createdDate?: string;
+  startDate?: string;
   previousStreak?: number;
   streakBrokenDate?: string;
 };
@@ -131,22 +148,6 @@ export default function DashboardScreen() {
   const [fallingPebbleType, setFallingPebbleType] = useState<"task" | "habit" | "focus" | undefined>(undefined);
   const [streak, setStreak] = useState<number>(0);
   const [weeklyStatus, setWeeklyStatus] = useState<any[]>([]);
-  const [isMascotExpanded, setIsMascotExpanded] = useState<boolean>(true);
-
-  useEffect(() => {
-    AsyncStorage.getItem("todoapp:mascot_expanded").then((val) => {
-      if (val !== null) {
-        setIsMascotExpanded(val === "true");
-      }
-    });
-  }, []);
-
-  const toggleMascotExpansion = async () => {
-    const nextVal = !isMascotExpanded;
-    setIsMascotExpanded(nextVal);
-    await AsyncStorage.setItem("todoapp:mascot_expanded", String(nextVal));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  };
   const [pebbleJarModalVisible, setPebbleJarModalVisible] = useState(false);
   const [showRewardOverlay, setShowRewardOverlay] = useState(false);
   const [rewardStartCount, setRewardStartCount] = useState(0);
@@ -171,6 +172,9 @@ export default function DashboardScreen() {
   const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<
     "all" | "high" | "medium" | "low"
   >("all");
+  const [isFilterSheetVisible, setIsFilterSheetVisible] = useState<boolean>(false);
+  const [selectedFolderFilter, setSelectedFolderFilter] = useState<string>("all");
+  const [selectedSortOption, setSelectedSortOption] = useState<"default" | "priority" | "alphabetical">("default");
   const [nextReminder, setNextReminder] = useState<string | null>(null);
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>(
     {},
@@ -183,6 +187,7 @@ export default function DashboardScreen() {
 
   const loadDashboardData = useCallback(async () => {
     try {
+      const todayStr = getDateKey();
       // 1. Load Todos
       const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
       let tCompleted = 0;
@@ -217,8 +222,6 @@ export default function DashboardScreen() {
             ? parsed.lists
             : defaultFolders;
         setFolders(loadedFolders);
-
-        const todayStr = getDateKey();
 
         const rawList: Todo[] = [];
         Object.entries(parsed.todos || {}).forEach(([folderId, listTodos]) => {
@@ -305,7 +308,23 @@ export default function DashboardScreen() {
 
       if (rawHabits) {
         const parsed = JSON.parse(rawHabits) as { dailyHabits: Habit[] };
-        const allHabits = (parsed.dailyHabits || []).filter((h) => !h.archived);
+        const normalized = normalizeHabitsForToday(parsed.dailyHabits || []);
+        if (JSON.stringify(normalized) !== JSON.stringify(parsed.dailyHabits)) {
+          await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify({ dailyHabits: normalized }));
+        }
+        const todayDate = new Date();
+        const dayOfWeek = todayDate.getDay();
+        const allHabits = normalized.filter((h) => {
+          if (h.archived) return false;
+          if (h.recurrence) {
+            return isRecurringOccurrenceForDate(h, todayStr);
+          }
+          return (
+            !h.reminderDays ||
+            h.reminderDays.length === 0 ||
+            h.reminderDays.includes(dayOfWeek)
+          );
+        });
         hTotal = allHabits.length;
         hCompleted = allHabits.filter((h) => h.completedToday).length;
 
@@ -516,19 +535,28 @@ export default function DashboardScreen() {
 
         const parsed = JSON.parse(rawHabits) as { dailyHabits: Habit[] };
         const today = getDateKey();
+        const yesterday = getDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
 
-        const target = (parsed.dailyHabits || []).find((h) => h.id === habitId);
+        const normalizedHabits = normalizeHabitsForToday(parsed.dailyHabits || []);
+
+        const target = normalizedHabits.find((h) => h.id === habitId);
         if (!target) return;
 
         const nextCompleted = !target.completedToday;
         const { xpAwardedDate } = await handleHabitXpChange(target, nextCompleted, today);
 
-        const nextHabits = (parsed.dailyHabits || []).map((habit) => {
+        const nextHabits = normalizedHabits.map((habit) => {
           if (habit.id !== habitId) return habit;
 
           let streak = habit.streak || 0;
           if (nextCompleted) {
-            streak += 1;
+            let nextStreak = 1;
+            if (habit.lastCompletedDate === today) {
+              nextStreak = habit.streak || 1;
+            } else if (habit.lastCompletedDate === yesterday) {
+              nextStreak = habit.streak + 1;
+            }
+            streak = nextStreak;
           } else {
             streak = Math.max(0, streak - 1);
           }
@@ -538,7 +566,9 @@ export default function DashboardScreen() {
             completedToday: nextCompleted,
             streak,
             bestStreak: Math.max(habit.bestStreak || 0, streak),
-            lastCompletedDate: nextCompleted ? today : habit.lastCompletedDate,
+            lastCompletedDate: nextCompleted
+              ? today
+              : (streak > 0 ? yesterday : undefined),
             xpAwardedDate,
           };
         });
@@ -620,66 +650,141 @@ export default function DashboardScreen() {
     return text?.toLowerCase().includes(query.toLowerCase());
   };
 
-  const displayedTodos = todoStats.pending.filter((todo) => {
-    const folder = folders.find((f) => f.id === todo.folderId);
-    const folderName = folder?.name || "";
-    const tagsStr = todo.tags?.join(" ") || "";
-    const queryMatches =
-      searchQuery.trim() === "" ||
-      matchesSearch(todo.title, searchQuery) ||
-      matchesSearch(todo.description || "", searchQuery) ||
-      matchesSearch(folderName, searchQuery) ||
-      matchesSearch(tagsStr, searchQuery);
+  const displayedTodos = useMemo(() => {
+    const filtered = todoStats.pending.filter((todo) => {
+      const folder = folders.find((f) => f.id === todo.folderId);
+      const folderName = folder?.name || "";
+      const tagsStr = todo.tags?.join(" ") || "";
+      const queryMatches =
+        searchQuery.trim() === "" ||
+        matchesSearch(todo.title, searchQuery) ||
+        matchesSearch(todo.description || "", searchQuery) ||
+        matchesSearch(folderName, searchQuery) ||
+        matchesSearch(tagsStr, searchQuery);
 
-    if (!queryMatches) return false;
+      if (!queryMatches) return false;
 
-    if (activeFilter === "high") return todo.priority === "high";
-    return todo.folderId === activeFilter;
-  });
+      if (activeFilter === "habits") return false;
 
-  const displayedOverdue = todoStats.overdue.filter((todo) => {
-    const folder = folders.find((f) => f.id === todo.folderId);
-    const folderName = folder?.name || "";
-    const tagsStr = todo.tags?.join(" ") || "";
-    const queryMatches =
-      searchQuery.trim() === "" ||
-      matchesSearch(todo.title, searchQuery) ||
-      matchesSearch(todo.description || "", searchQuery) ||
-      matchesSearch(folderName, searchQuery) ||
-      matchesSearch(tagsStr, searchQuery);
+      if (selectedFolderFilter !== "all" && todo.folderId !== selectedFolderFilter) {
+        return false;
+      }
 
-    if (!queryMatches) return false;
+      if (selectedPriorityFilter !== "all" && todo.priority !== selectedPriorityFilter) {
+        return false;
+      }
 
-    if (activeFilter === "all") return true;
-    if (activeFilter === "tasks") return true;
-    if (activeFilter === "habits") return false;
-    if (activeFilter === "high") return todo.priority === "high";
-    return todo.folderId === activeFilter;
-  });
+      return true;
+    });
 
-  const displayedPendingHabits = pendingHabits.filter((habit) => {
-    const queryMatches =
-      searchQuery.trim() === "" || matchesSearch(habit.title, searchQuery);
-    if (!queryMatches) return false;
+    if (selectedSortOption === "priority") {
+      return [...filtered].sort((a, b) => {
+        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
+        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
+        return orderA - orderB;
+      });
+    } else if (selectedSortOption === "alphabetical") {
+      return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return filtered;
+  }, [todoStats.pending, folders, searchQuery, activeFilter, selectedFolderFilter, selectedPriorityFilter, selectedSortOption]);
 
-    if (activeFilter === "all") return true;
-    if (activeFilter === "tasks") return false;
-    if (activeFilter === "habits") return true;
-    if (activeFilter === "high") return habit.priority === "high";
-    return false;
-  });
+  const displayedOverdue = useMemo(() => {
+    const filtered = todoStats.overdue.filter((todo) => {
+      const folder = folders.find((f) => f.id === todo.folderId);
+      const folderName = folder?.name || "";
+      const tagsStr = todo.tags?.join(" ") || "";
+      const queryMatches =
+        searchQuery.trim() === "" ||
+        matchesSearch(todo.title, searchQuery) ||
+        matchesSearch(todo.description || "", searchQuery) ||
+        matchesSearch(folderName, searchQuery) ||
+        matchesSearch(tagsStr, searchQuery);
 
-  const displayedCompletedHabits = completedHabits.filter((habit) => {
-    const queryMatches =
-      searchQuery.trim() === "" || matchesSearch(habit.title, searchQuery);
-    if (!queryMatches) return false;
+      if (!queryMatches) return false;
 
-    if (activeFilter === "all") return true;
-    if (activeFilter === "tasks") return false;
-    if (activeFilter === "habits") return true;
-    if (activeFilter === "high") return habit.priority === "high";
-    return false;
-  });
+      if (activeFilter === "habits") return false;
+
+      if (selectedFolderFilter !== "all" && todo.folderId !== selectedFolderFilter) {
+        return false;
+      }
+
+      if (selectedPriorityFilter !== "all" && todo.priority !== selectedPriorityFilter) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (selectedSortOption === "priority") {
+      return [...filtered].sort((a, b) => {
+        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
+        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
+        return orderA - orderB;
+      });
+    } else if (selectedSortOption === "alphabetical") {
+      return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return filtered;
+  }, [todoStats.overdue, folders, searchQuery, activeFilter, selectedFolderFilter, selectedPriorityFilter, selectedSortOption]);
+
+  const displayedPendingHabits = useMemo(() => {
+    const filtered = pendingHabits.filter((habit) => {
+      const queryMatches =
+        searchQuery.trim() === "" || matchesSearch(habit.title, searchQuery);
+      if (!queryMatches) return false;
+
+      if (activeFilter === "tasks") return false;
+
+      if (selectedFolderFilter !== "all") return false;
+
+      if (selectedPriorityFilter !== "all" && habit.priority !== selectedPriorityFilter) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (selectedSortOption === "priority") {
+      return [...filtered].sort((a, b) => {
+        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
+        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
+        return orderA - orderB;
+      });
+    } else if (selectedSortOption === "alphabetical") {
+      return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return filtered;
+  }, [pendingHabits, searchQuery, activeFilter, selectedFolderFilter, selectedPriorityFilter, selectedSortOption]);
+
+  const displayedCompletedHabits = useMemo(() => {
+    const filtered = completedHabits.filter((habit) => {
+      const queryMatches =
+        searchQuery.trim() === "" || matchesSearch(habit.title, searchQuery);
+      if (!queryMatches) return false;
+
+      if (activeFilter === "tasks") return false;
+
+      if (selectedFolderFilter !== "all") return false;
+
+      if (selectedPriorityFilter !== "all" && habit.priority !== selectedPriorityFilter) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (selectedSortOption === "priority") {
+      return [...filtered].sort((a, b) => {
+        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
+        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
+        return orderA - orderB;
+      });
+    } else if (selectedSortOption === "alphabetical") {
+      return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return filtered;
+  }, [completedHabits, searchQuery, activeFilter, selectedFolderFilter, selectedPriorityFilter, selectedSortOption]);
 
   const getGreetingTime = () => {
     const hour = new Date().getHours();
@@ -739,358 +844,144 @@ export default function DashboardScreen() {
             }}
           />
 
-          {/* Collapsible Mascot & Streak Banner */}
+          {/* Compact Streak Banner */}
           {(() => {
-            let crowStage: "beginner" | "advanced" | "power" = "beginner";
-            if (lifetimePebbles >= 101) {
-              crowStage = "power";
-            } else if (lifetimePebbles >= 26) {
-              crowStage = "advanced";
-            }
-
-            const totalItems = todoStats.total + habitStats.total;
-            const completedItems = todoStats.completed + habitStats.completed;
-            const pendingCount = totalItems - completedItems;
-
-            let crowSpeech = "The sanctuary is quiet today. Ready to drop your first pebble?";
-            if (totalItems > 0) {
-              if (pendingCount === 0) {
-                crowSpeech = "Sensational! All goals complete today. I'm fully refreshed! 💧";
-              } else if (completedItems > 0) {
-                crowSpeech = `Superb! Just ${pendingCount} more goal${pendingCount === 1 ? "" : "s"} to make the jar visual rise today.`;
-              } else {
-                crowSpeech = `The crow is waiting patiently. Let's start with a single pebble!`;
-              }
-            }
-
             let streakMotivation = "Start your goals today to build consistency!";
             if (streak > 0) {
               if (streak < 3) {
-                streakMotivation = "Flame sparked! Complete goals to keep the fire burning.";
+                streakMotivation = "Flame sparked! Keep it burning.";
               } else if (streak < 7) {
-                streakMotivation = "Consistency is key. You're building solid momentum!";
+                streakMotivation = "You're building solid momentum!";
               } else if (streak < 14) {
-                streakMotivation = "Double digits soon! Don't break this beautiful chain.";
+                streakMotivation = "Don't break this beautiful chain.";
               } else {
-                streakMotivation = "Incredible dedication. You're mastering your routines!";
+                streakMotivation = "You're mastering your routines!";
               }
             }
 
-            if (!isMascotExpanded) {
-              return (
-                <Pressable
-                  onPress={toggleMascotExpansion}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    backgroundColor: colors.card,
-                    borderColor: streak > 0 ? (colorScheme === "light" ? "#D97706" : "#B45309") : colors.border,
-                    borderWidth: 1.5,
-                    borderRadius: 14,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    marginHorizontal: 4,
-                    marginTop: 12,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ fontSize: 16 }}>🔥</Text>
-                    <Text style={{ fontSize: 13, fontWeight: "800", color: colors.text }}>
-                      {streak} Day Streak
-                    </Text>
-                    <Text style={{ fontSize: 12, color: colors.textMuted }}>
-                      • Tap to view motivation
-                    </Text>
-                  </View>
-                  <Feather name="chevron-down" size={16} color={colors.textMuted} />
-                </Pressable>
-              );
-            }
-
             return (
-              <Animated.View
-                entering={FadeInDown.duration(350)}
+              <View
                 style={{
-                  backgroundColor: colorScheme === "light" 
-                    ? (streak > 0 ? "rgba(245, 158, 11, 0.04)" : "rgba(99, 102, 241, 0.03)") 
-                    : (streak > 0 ? "rgba(245, 158, 11, 0.025)" : "rgba(99, 102, 241, 0.05)"),
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  backgroundColor: colors.card,
                   borderColor: streak > 0 ? (colorScheme === "light" ? "#D97706" : "#B45309") : colors.border,
                   borderWidth: 1.5,
-                  borderRadius: 20,
-                  padding: 16,
+                  borderRadius: 14,
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
                   marginHorizontal: 4,
                   marginTop: 12,
-                  position: "relative",
-                  gap: 12,
                 }}
               >
-                {/* Close/Minimize Button */}
-                <Pressable
-                  onPress={toggleMascotExpansion}
-                  style={{
-                    position: "absolute",
-                    top: 14,
-                    right: 14,
-                    zIndex: 10,
-                  }}
-                >
-                  <Feather name="chevron-up" size={16} color={colors.textMuted} />
-                </Pressable>
-
-                {/* Banner Content Split */}
-                <View style={{ flexDirection: "row", gap: 12, alignItems: "center", width: "100%" }}>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text style={{ fontSize: 24 }}>🔥</Text>
-                      <Text style={{ fontSize: 22, fontWeight: "900", color: colors.text, letterSpacing: -0.5 }}>
-                        {streak} Day Streak
-                      </Text>
-                    </View>
-                    <Text style={{ fontSize: 13, fontWeight: "600", color: colors.textMuted }}>
-                      {streakMotivation}
-                    </Text>
-                    
-                    {/* Crow Speech Bubble */}
-                    <View
-                      style={{
-                        backgroundColor: colors.card,
-                        borderColor: colors.border,
-                        borderWidth: 1,
-                        borderRadius: 12,
-                        padding: 10,
-                        marginTop: 8,
-                        position: "relative",
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, fontWeight: "600", color: colors.text, lineHeight: 14 }}>
-                        {crowSpeech}
-                      </Text>
-                    </View>
-
-                    {/* Main Streak Recovery Panel */}
-                    {mainStreakRecoveryInfo?.eligible && (
-                      <View
-                        style={{
-                          marginTop: 10,
-                          padding: 12,
-                          backgroundColor: colorScheme === "light" ? "rgba(239, 68, 68, 0.05)" : "rgba(239, 68, 68, 0.08)",
-                          borderColor: colorScheme === "light" ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.2)",
-                          borderWidth: 1.2,
-                          borderRadius: 12,
-                          gap: 6,
-                        }}
-                      >
-                        <Text style={{ fontSize: 13, fontWeight: "800", color: colors.error }}>
-                          💔 Main Streak of {mainStreakRecoveryInfo.previousStreak} Broken!
-                        </Text>
-                        <Text style={{ fontSize: 11, color: colors.textMuted, lineHeight: 14 }}>
-                          Use a Gem to restore your streak before it expires.
-                        </Text>
-                        <PressableScale
-                          onPress={handleRecoverMainStreak}
-                          style={{
-                            backgroundColor: colorScheme === "light" ? "#FEF3C7" : "rgba(245, 158, 11, 0.15)",
-                            borderColor: "#F59E0B",
-                            borderWidth: 1,
-                            borderRadius: 8,
-                            paddingVertical: 6,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginTop: 4,
-                          }}
-                        >
-                          <Text style={{ fontSize: 11, fontWeight: "700", color: "#F59E0B" }}>
-                            💎 Spend 1 Gem to Restore
-                          </Text>
-                        </PressableScale>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Mascot Avatar */}
-                  <View style={{ alignItems: "center", justifyContent: "center", width: 75, height: 75 }}>
-                    {streak > 0 ? (
-                      <CrowStreakMascot size={75} />
-                    ) : profile?.avatar && profile.avatar.startsWith("avatar_") ? (
-                      <RenderAvatar avatar={profile.avatar} size={75} />
-                    ) : (
-                      <CrowMascot
-                        stage={crowStage}
-                        colors={colors}
-                        colorScheme={colorScheme ?? "dark"}
-                        size={75}
-                      />
-                    )}
-                  </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+                  <Text style={{ fontSize: 16 }}>🔥</Text>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.text }}>
+                    {streak} Day Streak
+                  </Text>
+                  <Text style={{ fontSize: 12, color: colors.textMuted, flex: 1 }} numberOfLines={1}>
+                    • {streakMotivation}
+                  </Text>
                 </View>
-
-                {/* Weekly Completion Track */}
-                {weeklyStatus && weeklyStatus.length > 0 && (
-                  <View style={{ width: "100%", gap: 6, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
-                    <Text style={{ fontSize: 9, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                      Weekly Goal Progress
-                    </Text>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%", marginTop: 4 }}>
-                      {weeklyStatus.map((day: any, idx: number) => {
-                        const isCompleted = day.completed;
-                        const isToday = day.isToday;
-                        const isPrevCompleted = idx > 0 && weeklyStatus[idx - 1].completed;
-
-                        return (
-                          <Fragment key={day.dateKey}>
-                            {/* Connecting Line Segment */}
-                            {idx > 0 && (
-                              <View
-                                style={{
-                                  flex: 1,
-                                  height: 3,
-                                  backgroundColor: isPrevCompleted ? "#F59E0B" : colors.border,
-                                  marginHorizontal: -2,
-                                  zIndex: 1,
-                                }}
-                              />
-                            )}
-
-                            {/* Day Node */}
-                            <View style={{ alignItems: "center", zIndex: 2 }}>
-                              <Text
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: "700",
-                                  color: isToday ? "#F59E0B" : colors.textMuted,
-                                  marginBottom: 6,
-                                }}
-                              >
-                                {day.label}
-                              </Text>
-                              <View
-                                style={{
-                                  width: 24,
-                                  height: 24,
-                                  borderRadius: 12,
-                                  borderWidth: isToday ? 2 : 1.5,
-                                  borderColor: isCompleted ? "#F59E0B" : isToday ? "#F59E0B" : colors.border,
-                                  backgroundColor: isCompleted ? "#F59E0B" : colors.card,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                {isCompleted ? (
-                                  <Feather name="check" size={12} color="#ffffff" style={{ fontWeight: "900" }} />
-                                ) : isToday ? (
-                                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#F59E0B" }} />
-                                ) : null}
-                              </View>
-                            </View>
-                          </Fragment>
-                        );
-                      })}
-                    </View>
-                  </View>
-                )}
-              </Animated.View>
-            );
-          })()}
-
-          {/* Search Bar */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              backgroundColor: colors.card,
-              borderRadius: 16,
-              borderWidth: 1.5,
-              borderColor: colors.border,
-              paddingHorizontal: 12,
-              height: 46,
-              marginHorizontal: 4,
-              marginTop: 12,
-            }}
-          >
-            <Feather
-              name="search"
-              size={16}
-              color={colors.textMuted}
-              style={{ marginRight: 8 }}
-            />
-            <TextInput
-              style={{ flex: 1, color: colors.text, fontSize: 14, padding: 0 }}
-              placeholder="Search tasks & habits..."
-              placeholderTextColor={colors.textMuted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCorrect={false}
-            />
-            {searchQuery.length > 0 && (
-              <Pressable onPress={() => setSearchQuery("")}>
-                <Feather name="x" size={16} color={colors.textMuted} />
-              </Pressable>
-            )}
-          </View>
-
-          {/* Filter Chips ScrollView */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              flexDirection: "row",
-              gap: 8,
-              paddingHorizontal: 4,
-              paddingVertical: 12,
-            }}
-          >
-            {(() => {
-              const staticChips: { id: string; name: string; icon?: string }[] =
-                [
-                  { id: "all", name: "All" },
-                  { id: "tasks", name: "Tasks" },
-                  { id: "habits", name: "Habits" },
-                  { id: "high", name: "High Priority" },
-                ];
-              const folderChips: { id: string; name: string; icon?: string }[] =
-                folders.map((f) => ({ id: f.id, name: f.name, icon: f.emoji }));
-
-              return [...staticChips, ...folderChips].map((chip) => {
-                const isSel = activeFilter === chip.id;
-                return (
+                {mainStreakRecoveryInfo?.eligible && (
                   <PressableScale
-                    key={chip.id}
-                    onPress={() => setActiveFilter(chip.id)}
+                    onPress={handleRecoverMainStreak}
                     haptic
-                    contentStyle={{
-                      paddingHorizontal: 14,
-                      paddingVertical: 8,
-                      borderRadius: 12,
+                    style={{
+                      backgroundColor: colorScheme === "light" ? "#FEF3C7" : "rgba(245, 158, 11, 0.15)",
+                      borderColor: "#F59E0B",
+                      borderWidth: 1,
+                      borderRadius: 8,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 4,
                     }}
-                    style={{
-                      backgroundColor: isSel ? colors.primary : colors.card,
-                      borderColor: isSel ? colors.primary : colors.border,
-                      borderWidth: 1.5,
-                      marginRight: 8,
-                    }}
                   >
-                    {chip.icon && (
-                      <Text style={{ fontSize: 12 }}>{chip.icon}</Text>
-                    )}
-                    <Text
-                      style={{
-                        color: isSel ? "#FFFFFF" : colors.text,
-                        fontSize: 12,
-                        fontWeight: "700",
-                        marginLeft: chip.icon ? 6 : 0,
-                      }}
-                    >
-                      {chip.name}
+                    <Text style={{ fontSize: 10, fontWeight: "700", color: "#F59E0B" }}>
+                      💎 Spend 1 Gem to Restore
                     </Text>
                   </PressableScale>
-                );
-              });
-            })()}
-          </ScrollView>
+                )}
+              </View>
+            );
+          })()}
+
+          {/* Search & Filter Bar */}
+          <View style={{ flexDirection: "row", gap: 8, marginHorizontal: 4, marginTop: 12, alignItems: "center" }}>
+            <View
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: colors.card,
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: colors.border,
+                paddingHorizontal: 12,
+                height: 46,
+              }}
+            >
+              <Feather
+                name="search"
+                size={16}
+                color={colors.textMuted}
+                style={{ marginRight: 8 }}
+              />
+              <TextInput
+                style={{ flex: 1, color: colors.text, fontSize: 14, padding: 0 }}
+                placeholder="Search tasks & habits..."
+                placeholderTextColor={colors.textMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <Pressable onPress={() => setSearchQuery("")}>
+                  <Feather name="x" size={16} color={colors.textMuted} />
+                </Pressable>
+              )}
+            </View>
+            <PressableScale
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setIsFilterSheetVisible(true);
+              }}
+              haptic
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 16,
+                backgroundColor: colors.card,
+                borderWidth: 1.5,
+                borderColor: colors.border,
+                alignItems: "center",
+                justifyContent: "center",
+                position: "relative",
+              }}
+            >
+              <Feather
+                name="sliders"
+                size={18}
+                color={activeFilter !== "all" || selectedPriorityFilter !== "all" || selectedFolderFilter !== "all" || selectedSortOption !== "default" ? colors.primary : colors.text}
+              />
+              {(activeFilter !== "all" || selectedPriorityFilter !== "all" || selectedFolderFilter !== "all" || selectedSortOption !== "default") && (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 10,
+                    right: 10,
+                    width: 7,
+                    height: 7,
+                    borderRadius: 3.5,
+                    backgroundColor: colors.primary,
+                  }}
+                />
+              )}
+            </PressableScale>
+          </View>
 
           {/* Continue Working In Recommendation Card */}
           {continueWorkspace && (
@@ -1360,7 +1251,8 @@ export default function DashboardScreen() {
             )}
 
             {/* Today's Tasks Section */}
-            <View style={{ gap: 10 }}>
+            {activeFilter !== "habits" && (
+              <View style={{ gap: 10 }}>
               <View style={styles.sectionHeader}>
                 <View
                   style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
@@ -1578,26 +1470,33 @@ export default function DashboardScreen() {
                 </View>
               ) : (
                 <View
-                  style={[
-                    styles.emptyTasks,
-                    { borderColor: colors.border, paddingVertical: 20 },
-                  ]}
+                  style={{
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    borderWidth: 1.5,
+                    borderRadius: 16,
+                    paddingVertical: 18,
+                    marginHorizontal: 4,
+                    flexDirection: "row",
+                    gap: 8,
+                  }}
                 >
-                  <Feather name="check" size={20} color={colors.success} />
+                  <Feather name="check" size={16} color={colors.success} />
                   <Text
-                    style={[
-                      styles.emptyText,
-                      { color: colors.text, fontSize: 13, fontWeight: "600" },
-                    ]}
+                    style={{ color: colors.textMuted, fontSize: 13, fontWeight: "600" }}
                   >
                     Drop your first pebble.
                   </Text>
                 </View>
               )}
             </View>
+            )}
 
             {/* Today's Habits Section */}
-            <View style={{ gap: 10 }}>
+            {activeFilter !== "tasks" && (
+              <View style={{ gap: 10 }}>
               <View style={styles.sectionHeader}>
                 <View
                   style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
@@ -1677,26 +1576,237 @@ export default function DashboardScreen() {
                 </View>
               ) : (
                 <View
-                  style={[
-                    styles.emptyTasks,
-                    { borderColor: colors.border, paddingVertical: 20 },
-                  ]}
+                  style={{
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    borderWidth: 1.5,
+                    borderRadius: 16,
+                    paddingVertical: 18,
+                    marginHorizontal: 4,
+                    flexDirection: "row",
+                    gap: 8,
+                  }}
                 >
-                  <Feather name="zap" size={20} color={colors.textMuted} />
+                  <Feather name="zap" size={16} color={colors.textMuted} />
                   <Text
-                    style={[
-                      styles.emptyText,
-                      { color: colors.textMuted, fontSize: 13 },
-                    ]}
+                    style={{ color: colors.textMuted, fontSize: 13, fontWeight: "600" }}
                   >
                     Consistency starts with one pebble.
                   </Text>
                 </View>
               )}
             </View>
+            )}
           </View>
         </ScrollView>
       </Animated.View>
+
+      {/* Bottom Sheet Filter Modal */}
+      <Modal
+        visible={isFilterSheetVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsFilterSheetVisible(false)}
+      >
+        <View style={localStyles.modalContainer}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setIsFilterSheetVisible(false)}
+          >
+            <BlurView
+              intensity={colorScheme === "light" ? 30 : 50}
+              style={StyleSheet.absoluteFill}
+              tint={colorScheme === "light" ? "light" : "dark"}
+            />
+          </Pressable>
+          
+          <View
+            style={[
+              localStyles.modalContent,
+              {
+                backgroundColor:
+                  colorScheme === "light"
+                    ? "rgba(255,255,255,0.98)"
+                    : "rgba(24,24,27,0.98)",
+                borderColor: colors.border,
+                alignItems: "stretch",
+                gap: 20,
+              },
+            ]}
+          >
+            {/* Header */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ fontSize: 18, fontWeight: "800", color: colors.text }}>Filters & Sorting</Text>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setActiveFilter("all");
+                  setSelectedPriorityFilter("all");
+                  setSelectedFolderFilter("all");
+                  setSelectedSortOption("default");
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "600", color: colors.primary }}>Reset All</Text>
+              </Pressable>
+            </View>
+
+            {/* 1. Item Type */}
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>Item Type</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[
+                  { key: "all", label: "⚡ All" },
+                  { key: "tasks", label: "📋 Tasks" },
+                  { key: "habits", label: "🔄 Habits" },
+                ].map((item) => {
+                  const isSel = activeFilter === item.key;
+                  return (
+                    <PressableScale
+                      key={item.key}
+                      onPress={() => setActiveFilter(item.key as any)}
+                      haptic
+                      style={{
+                        flex: 1,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        backgroundColor: isSel ? `${colors.primary}15` : colors.card,
+                        borderColor: isSel ? colors.primary : colors.border,
+                        borderWidth: 1.5,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: isSel ? colors.primary : colors.text, fontWeight: "700", fontSize: 13 }}>{item.label}</Text>
+                    </PressableScale>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* 2. Priority Level */}
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>Priority Level</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[
+                  { key: "all", label: "All" },
+                  { key: "high", label: "🔴 High" },
+                  { key: "medium", label: "🟡 Med" },
+                  { key: "low", label: "🟢 Low" },
+                ].map((item) => {
+                  const isSel = selectedPriorityFilter === item.key;
+                  return (
+                    <PressableScale
+                      key={item.key}
+                      onPress={() => setSelectedPriorityFilter(item.key as any)}
+                      haptic
+                      style={{
+                        flex: 1,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        backgroundColor: isSel ? `${colors.primary}15` : colors.card,
+                        borderColor: isSel ? colors.primary : colors.border,
+                        borderWidth: 1.5,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: isSel ? colors.primary : colors.text, fontWeight: "700", fontSize: 12 }}>{item.label}</Text>
+                    </PressableScale>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* 3. Workspaces / Folders */}
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>Workspace Filter</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {[
+                  { id: "all", name: "All Workspaces", emoji: "📁" },
+                  ...folders
+                ].map((f) => {
+                  const isSel = selectedFolderFilter === f.id;
+                  return (
+                    <PressableScale
+                      key={f.id}
+                      onPress={() => setSelectedFolderFilter(f.id)}
+                      haptic
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        backgroundColor: isSel ? `${colors.primary}15` : colors.card,
+                        borderColor: isSel ? colors.primary : colors.border,
+                        borderWidth: 1.5,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <Text style={{ fontSize: 14 }}>{f.emoji || "📁"}</Text>
+                      <Text style={{ color: isSel ? colors.primary : colors.text, fontWeight: "700", fontSize: 13 }}>{f.name}</Text>
+                    </PressableScale>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* 4. Sort Order */}
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>Sort Order</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[
+                  { key: "default", label: "Default" },
+                  { key: "priority", label: "Priority" },
+                  { key: "alphabetical", label: "A-Z" },
+                ].map((item) => {
+                  const isSel = selectedSortOption === item.key;
+                  return (
+                    <PressableScale
+                      key={item.key}
+                      onPress={() => setSelectedSortOption(item.key as any)}
+                      haptic
+                      style={{
+                        flex: 1,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        backgroundColor: isSel ? `${colors.primary}15` : colors.card,
+                        borderColor: isSel ? colors.primary : colors.border,
+                        borderWidth: 1.5,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: isSel ? colors.primary : colors.text, fontWeight: "700", fontSize: 13 }}>{item.label}</Text>
+                    </PressableScale>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Apply Button */}
+            <PressableScale
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                setIsFilterSheetVisible(false);
+              }}
+              haptic
+              style={{
+                backgroundColor: colors.primary,
+                borderRadius: 16,
+                paddingVertical: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: 10,
+              }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 15 }}>Apply & Show Items</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
 
       {/* Reward Overlay Modal */}
       <Modal

@@ -263,6 +263,13 @@ function PebbleJarIllustration() {
 }
 
 // Slide 2: Pebble Capture Illustration with Equalizer Waveform & Morphing Task Card
+// Tiny animated equalizer bar — uses useAnimatedStyle so Reanimated can
+// reactively update height without triggering the inline-.value warning.
+function EqBar({ h }: { h: import("react-native-reanimated").SharedValue<number> }) {
+  const animStyle = useAnimatedStyle(() => ({ height: h.value }));
+  return <Animated.View style={[styles.eqBar, animStyle]} />;
+}
+
 function PebbleCaptureIllustration() {
   const timeline = useSharedValue(0);
   const h1 = useSharedValue(4);
@@ -376,11 +383,11 @@ function PebbleCaptureIllustration() {
           <Feather name="mic" size={20} color="#fff" />
         </View>
         <View style={styles.equalizerRow}>
-          <Animated.View style={[styles.eqBar, { height: h1.value }]} />
-          <Animated.View style={[styles.eqBar, { height: h2.value }]} />
-          <Animated.View style={[styles.eqBar, { height: h3.value }]} />
-          <Animated.View style={[styles.eqBar, { height: h4.value }]} />
-          <Animated.View style={[styles.eqBar, { height: h5.value }]} />
+          <EqBar h={h1} />
+          <EqBar h={h2} />
+          <EqBar h={h3} />
+          <EqBar h={h4} />
+          <EqBar h={h5} />
         </View>
       </Animated.View>
 

@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -30,6 +30,9 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
 import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
 import { DAILY_STORAGE_KEY } from "@/services/storage";
+import { normalizeHabitsForToday } from "@/services/habitService";
+import { isRecurringOccurrenceForDate } from "@/services/recurrence";
+import { addStateListener } from "@/services/stateEvents";
 
 export type Habit = {
   id: string;
@@ -44,6 +47,19 @@ export type Habit = {
   notificationIds?: string[];
   escalationMinutes?: number[];
   priority?: "low" | "medium" | "high";
+  recurrence?: {
+    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
+    interval?: number;
+    unit?: "hours" | "days";
+    days?: number[];
+    dayOfMonth?: number;
+  };
+  recurrenceExceptions?: string[];
+  archived?: boolean;
+  createdDate?: string;
+  startDate?: string;
+  previousStreak?: number;
+  streakBrokenDate?: string;
 };
 
 type DailyPayload = {
@@ -68,47 +84,6 @@ const getDateKey = (date = new Date()) => {
   const m = `${date.getMonth() + 1}`.padStart(2, "0");
   const d = `${date.getDate()}`.padStart(2, "0");
   return `${y}-${m}-${d}`;
-};
-
-const parseDateKey = (value: string) => {
-  const [y, m, d] = value.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-};
-
-const dayDiff = (fromDateKey: string, toDateKey: string) => {
-  const from = parseDateKey(fromDateKey).getTime();
-  const to = parseDateKey(toDateKey).getTime();
-  return Math.floor((to - from) / DAY_MS);
-};
-
-const normalizeHabitsForToday = (habits: Habit[]) => {
-  const today = getDateKey();
-
-  return habits.map((habit) => {
-    if (!habit.lastCompletedDate) {
-      return { ...habit, completedToday: false };
-    }
-
-    const diff = dayDiff(habit.lastCompletedDate, today);
-
-    if (diff <= 0) {
-      return {
-        ...habit,
-        completedToday:
-          habit.completedToday && habit.lastCompletedDate === today,
-      };
-    }
-
-    if (diff === 1) {
-      return { ...habit, completedToday: false };
-    }
-
-    return {
-      ...habit,
-      completedToday: false,
-      streak: 0,
-    };
-  });
 };
 
 const formatReminder = (hour?: number, minute?: number) => {
@@ -158,19 +133,6 @@ export default function DailyScreen() {
   const celebrateDateRef = useRef<string | null>(null);
   const habitListRef = useRef<FlatList<Habit>>(null);
 
-  const completedCount = useMemo(
-    () => habits.filter((habit) => habit.completedToday).length,
-    [habits],
-  );
-  const unfinishedCount = habits.length - completedCount;
-  const completionPct =
-    habits.length === 0 ? 0 : completedCount / habits.length;
-  const completionPctLabel = Math.round(completionPct * 100);
-  const longestStreak = useMemo(
-    () => habits.reduce((max, habit) => Math.max(max, habit.bestStreak), 0),
-    [habits],
-  );
-
   const getPriorityWeight = (priority?: string) => {
     if (priority === "high") return 0;
     if (priority === "low") return 2;
@@ -178,11 +140,45 @@ export default function DailyScreen() {
   };
 
   const displayedHabits = useMemo(() => {
-    const filtered = selectedHabitPriorityFilter === "all"
-      ? habits
-      : habits.filter((habit) => habit.priority === selectedHabitPriorityFilter);
-    return [...filtered].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
+    const today = getDateKey();
+    const todayDate = new Date();
+    const dayOfWeek = todayDate.getDay(); // Sunday is 0, Monday is 1, etc.
+
+    // Step 1: Filter by recurrence, reminderDays, and archived status
+    const todayHabits = habits.filter((h) => {
+      if (h.archived) return false;
+      if (h.recurrence) {
+        return isRecurringOccurrenceForDate(h, today);
+      }
+      return (
+        !h.reminderDays ||
+        h.reminderDays.length === 0 ||
+        h.reminderDays.includes(dayOfWeek)
+      );
+    });
+    // Step 2: Filter by priority if a filter is active
+    const filtered =
+      selectedHabitPriorityFilter === "all"
+        ? todayHabits
+        : todayHabits.filter((h) => h.priority === selectedHabitPriorityFilter);
+    // Step 3: Sort — high > medium > low
+    return [...filtered].sort(
+      (a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority),
+    );
   }, [habits, selectedHabitPriorityFilter]);
+
+  const completedCount = useMemo(
+    () => displayedHabits.filter((h) => h.completedToday).length,
+    [displayedHabits],
+  );
+  const unfinishedCount = displayedHabits.length - completedCount;
+  const completionPct =
+    displayedHabits.length === 0 ? 0 : completedCount / displayedHabits.length;
+  const completionPctLabel = Math.round(completionPct * 100);
+  const longestStreak = useMemo(
+    () => habits.reduce((max, h) => Math.max(max, h.bestStreak), 0),
+    [habits],
+  );
 
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
     try {
@@ -249,8 +245,24 @@ export default function DailyScreen() {
 
   useEffect(() => {
     initializeNotifications();
-    loadHabits();
-  }, [initializeNotifications, loadHabits]);
+  }, [initializeNotifications]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadHabits();
+    }, [loadHabits])
+  );
+
+  useEffect(() => {
+    const unsubscribe = addStateListener("habits_changed", (emitterId) => {
+      if (emitterId !== "daily_screen") {
+        void loadHabits();
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [loadHabits]);
 
   useEffect(() => {
     if (!focusHabitId) {
@@ -345,45 +357,71 @@ export default function DailyScreen() {
     });
   };
 
-  const toggleHabit = (id: string) => {
+  const toggleHabit = async (id: string) => {
     const today = getDateKey();
     const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
+    const habit = habits.find((h) => h.id === id);
+    if (!habit) return;
 
-    setHabits((current) => {
-      const updated = current.map((habit) => {
-        if (habit.id !== id) {
-          return habit;
-        }
+    let updatedHabit;
+    const isCompleting = !habit.completedToday;
+    let xpAwardedDate: string | undefined;
+    try {
+      const { handleHabitXpChange } = require("@/services/settingsService");
+      const res = await handleHabitXpChange(habit, isCompleting, today);
+      xpAwardedDate = res.xpAwardedDate;
+    } catch {}
 
-        if (!habit.completedToday) {
-          let nextStreak = 1;
-          if (habit.lastCompletedDate === today) {
-            nextStreak = habit.streak || 1;
-          } else if (habit.lastCompletedDate === yesterday) {
-            nextStreak = habit.streak + 1;
-          }
+    if (isCompleting) {
+      let nextStreak = 1;
+      if (habit.lastCompletedDate === today) {
+        nextStreak = habit.streak || 1;
+      } else if (habit.lastCompletedDate === yesterday) {
+        nextStreak = habit.streak + 1;
+      }
 
-          return {
-            ...habit,
-            completedToday: true,
-            lastCompletedDate: today,
-            streak: nextStreak,
-            bestStreak: Math.max(habit.bestStreak, nextStreak),
-          };
-        }
+      updatedHabit = {
+        ...habit,
+        completedToday: true,
+        lastCompletedDate: today,
+        streak: nextStreak,
+        bestStreak: Math.max(habit.bestStreak, nextStreak),
+        xpAwardedDate,
+      };
 
-        const rolledBackStreak = Math.max(0, habit.streak - 1);
-        return {
-          ...habit,
-          completedToday: false,
-          streak: rolledBackStreak,
-          lastCompletedDate: rolledBackStreak > 0 ? yesterday : undefined,
-        };
-      });
+      try {
+        const Haptics = require("expo-haptics");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      } catch {}
+    } else {
+      const rolledBackStreak = Math.max(0, habit.streak - 1);
+      updatedHabit = {
+        ...habit,
+        completedToday: false,
+        streak: rolledBackStreak,
+        lastCompletedDate: rolledBackStreak > 0 ? yesterday : undefined,
+        xpAwardedDate,
+      };
+    }
 
-      persistHabits(updated);
-      return updated;
-    });
+    const nextHabits = habits.map((h) => (h.id === id ? updatedHabit : h));
+    setHabits(nextHabits);
+    await persistHabits(nextHabits);
+
+    try {
+      const { earnPebble, undoLastPebble } = require("@/services/pebbleService");
+      if (isCompleting) {
+        await earnPebble("habit");
+      } else {
+        await undoLastPebble("habit");
+      }
+    } catch {}
+
+    try {
+      const { emitStateChange } = require("@/services/stateEvents");
+      emitStateChange("habits_changed", "daily_screen");
+    } catch {}
+    void recordDailyHistorySnapshot();
   };
 
 

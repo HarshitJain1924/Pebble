@@ -128,12 +128,11 @@ export function HabitItem({
     return (
       <View style={styles.weekGrid}>
         {DAY_LABELS.map((label, idx) => {
-          // Highlight completed days + today if completed
           const isToday = idx === today;
-          const isDone =
-            item.completedToday && isToday
-              ? true
-              : idx < today && item.streak > today - idx;
+          // Highlight completed days + today if completed
+          const isDone = isToday
+            ? item.completedToday
+            : idx < today && (item.completedToday ? (today - idx < item.streak) : (today - idx <= item.streak));
 
           return (
             <View key={idx} style={styles.weekDayCol}>
