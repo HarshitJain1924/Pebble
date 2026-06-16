@@ -1,39 +1,59 @@
-import React, { useEffect, useState, useRef } from "react";
-import { View, StyleSheet, Dimensions, Pressable, Platform, PanResponder, Image } from "react-native";
-import { usePathname } from "expo-router";
-import { BlurView } from "expo-blur";
-import { Feather } from "@expo/vector-icons";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  withRepeat,
-  withSequence,
-  runOnJS,
-} from "react-native-reanimated";
 import { AppText as Text } from "@/components/ui/AppText";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { Colors } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { getPebbleCounts } from "@/services/pebbleService";
 import { getProfile } from "@/services/settingsService";
 import { addStateListener } from "@/services/stateEvents";
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
+import { usePathname } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Dimensions,
+  Image,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const MASCOT_WIDTH = 120;
-const OFFSET_REST = 50;    // State 1: 58.3% visible (hides 50px of 120px) - Head + wing visible
-const OFFSET_TAPPED = 15;  // State 2: 87.5% visible (hides 15px of 120px) - Peeks more, shows body
-const OFFSET_EVENT = 0;    // State 3: 100% visible (hides 0px of 120px) - Full pop out
+const OFFSET_IDLE = 30; // more visible for thinner idle crow
+const OFFSET_PEEK = 24; // default peeking
+const OFFSET_CHATTING = 24; // tapping chatting
+const OFFSET_EVENT = 0; // full pop out
+
+const getOffset = (state: MascotState) => {
+  switch (state) {
+    case "idle":
+      return OFFSET_IDLE;
+    case "peek":
+      return OFFSET_PEEK;
+    case "chatting":
+      return OFFSET_CHATTING;
+    default:
+      return OFFSET_IDLE;
+  }
+};
 
 const MASCOT_ASSET_MAP: Record<string, any> = {
   idle: require("@/assets/images/mascot/mascot_idle.png"),
-  celebrating: require("@/assets/images/mascot/mascot_celebrating.png"),
-  sleeping: require("@/assets/images/mascot/mascot_sleeping.png"),
+  peek: require("@/assets/images/mascot/mascot_peek.png"),
+  chatting: require("@/assets/images/mascot/mascot_chatting.png"),
 };
 
-type MascotState = "idle" | "celebrating" | "sleeping";
+type MascotState = "idle" | "peek" | "chatting";
 
 export function MascotOverlay() {
   const pathname = usePathname();
@@ -114,42 +134,61 @@ export function MascotOverlay() {
 
   useEffect(() => {
     loadStats();
-    
+
     // Listen to changes to keep counts updated dynamically
-    const unsubscribeTasks = addStateListener("tasks_changed", () => void loadStats());
-    const unsubscribeHabits = addStateListener("habits_changed", () => void loadStats());
-    const unsubscribeProfile = addStateListener("profile_changed", () => void loadStats());
-    
+    const unsubscribeTasks = addStateListener(
+      "tasks_changed",
+      () => void loadStats(),
+    );
+    const unsubscribeHabits = addStateListener(
+      "habits_changed",
+      () => void loadStats(),
+    );
+    const unsubscribeProfile = addStateListener(
+      "profile_changed",
+      () => void loadStats(),
+    );
+
     const unsubscribePebbles = addStateListener("pebbles_changed", () => {
       loadStats();
-      
-      // State 3: Important Event (Task completed) -> Full Pop Out with slight bounce and celebrating sprite
-      setMascotState("celebrating");
-      translateX.value = withSpring(OFFSET_EVENT, { damping: 12, stiffness: 100 });
-      
+
+      // State 3: Important Event (Task completed) -> Full Pop Out with slight bounce and chatting sprite
+      setMascotState("chatting");
+      translateX.value = withSpring(OFFSET_EVENT, {
+        damping: 12,
+        stiffness: 100,
+      });
+
       const completionPhrases = [
         "Caw! Another pebble in the jar! 🥳",
         "Brilliant! The nest is growing. ✨",
         "Splendid drop! Keep it up! 🎉",
-        "Every pebble counts! Fantastic! 🌟"
+        "Every pebble counts! Fantastic! 🌟",
       ];
-      triggerBubble(completionPhrases[Math.floor(Math.random() * completionPhrases.length)], 4000);
-      
+      triggerBubble(
+        completionPhrases[Math.floor(Math.random() * completionPhrases.length)],
+        4000,
+      );
+
       // Revert to rest state after 4 seconds
       setTimeout(() => {
         setMascotState("idle");
-        translateX.value = withSpring(OFFSET_REST, { damping: 18 });
-        
-        // Reset focus sleep timer if applicable
+        translateX.value = withSpring(getOffset("idle"), { damping: 18 });
+
+        // Reset focus peek timer if applicable
         const currentPath = pathnameRef.current;
         if (currentPath === "/focus") {
           if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
           focusTimerRef.current = setTimeout(() => {
-            setMascotState("sleeping");
+            setMascotState("peek");
             translateX.value = withSpring(OFFSET_EVENT, { damping: 18 });
-            triggerBubble("💤 Zzz... sleeping during your active focus session.", 4000);
+            triggerBubble(
+              "💤 Zzz... sleeping during your active focus session.",
+              4000,
+            );
             setTimeout(() => {
-              translateX.value = withSpring(OFFSET_REST, { damping: 18 });
+              translateX.value = withSpring(getOffset("idle"), { damping: 18 });
+              setMascotState("idle");
             }, 4000);
           }, 15000);
         }
@@ -172,23 +211,23 @@ export function MascotOverlay() {
     breathingY.value = withRepeat(
       withSequence(
         withTiming(-3, { duration: 2400 }),
-        withTiming(0, { duration: 2400 })
+        withTiming(0, { duration: 2400 }),
       ),
       -1,
-      true
+      true,
     );
   }, []);
 
   // Micro Animations: Periodic Eye Blinks
   useEffect(() => {
     let blinkTimeout: ReturnType<typeof setTimeout>;
-    
+
     const triggerBlink = () => {
       scaleY.value = withSequence(
         withTiming(0.1, { duration: 80 }),
-        withTiming(1, { duration: 80 })
+        withTiming(1, { duration: 80 }),
       );
-      
+
       const nextDelay = 4000 + Math.random() * 4000;
       blinkTimeout = setTimeout(triggerBlink, nextDelay);
     };
@@ -207,10 +246,11 @@ export function MascotOverlay() {
 
     const triggerTilt = () => {
       if (mascotState === "idle") {
-        const angle = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 10);
+        const angle =
+          (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 10);
         rotation.value = withSequence(
           withTiming(angle, { duration: 250 }),
-          withTiming(0, { duration: 250 })
+          withTiming(0, { duration: 250 }),
         );
       }
 
@@ -226,6 +266,52 @@ export function MascotOverlay() {
     };
   }, [mascotState]);
 
+  // Periodic Peeking Behavior (peeking crow in between sometimes)
+  useEffect(() => {
+    if (isDismissed) return;
+
+    let peekTimeout: ReturnType<typeof setTimeout>;
+
+    const triggerPeriodicPeek = () => {
+      if (mascotState === "idle" && !bubbleText) {
+        setMascotState("peek");
+        translateX.value = withSpring(getOffset("peek"), { damping: 15 });
+
+        const shouldSpeak = Math.random() < 0.35;
+        if (shouldSpeak) {
+          const peekPhrases = [
+            "Caw! Keeping an eye on your progress! 👀",
+            "Still working? You're doing great! 💪",
+            "Just peeking in. Let's make today count! ✨",
+            "Pssst... checked off any goals lately? 📋",
+            "A clean jar is a happy nest! 🦅",
+          ];
+          triggerBubble(
+            peekPhrases[Math.floor(Math.random() * peekPhrases.length)],
+            4000,
+          );
+        }
+
+        setTimeout(() => {
+          translateX.value = withSpring(getOffset("idle"), { damping: 18 });
+          setTimeout(() => {
+            setMascotState("idle");
+          }, 300);
+        }, 4000);
+      }
+
+      const nextDelay = 30000 + Math.random() * 20000; // 30-50s
+      peekTimeout = setTimeout(triggerPeriodicPeek, nextDelay);
+    };
+
+    const initialDelay = 20000 + Math.random() * 10000;
+    peekTimeout = setTimeout(triggerPeriodicPeek, initialDelay);
+
+    return () => {
+      clearTimeout(peekTimeout);
+    };
+  }, [mascotState, bubbleText, isDismissed]);
+
   // Pan Responder for Swipe-to-Dismiss Gesture
   const panResponder = useRef(
     PanResponder.create({
@@ -235,11 +321,13 @@ export function MascotOverlay() {
       },
       onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dx > 40) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+            () => {},
+          );
           dismissMascot();
         }
       },
-    })
+    }),
   ).current;
 
   const dismissMascot = () => {
@@ -256,6 +344,7 @@ export function MascotOverlay() {
     }
     bubbleScale.value = withTiming(0, { duration: 150 }, () => {
       runOnJS(setBubbleText)(null);
+      runOnJS(setMascotState)("idle");
     });
   };
 
@@ -276,7 +365,7 @@ export function MascotOverlay() {
     if (isDismissed) return;
 
     // Anchor at Idle Peek (State 1) - 38% visible showing head + wing
-    translateX.value = withSpring(OFFSET_REST, { damping: 18 });
+    translateX.value = withSpring(getOffset("idle"), { damping: 18 });
     rotation.value = withSpring(0, { damping: 15 });
 
     if (focusTimerRef.current) {
@@ -288,12 +377,16 @@ export function MascotOverlay() {
 
     if (pathname === "/focus") {
       focusTimerRef.current = setTimeout(() => {
-        setMascotState("sleeping");
+        setMascotState("peek");
         // State 3: Focus Sleep important event (slide fully out)
         translateX.value = withSpring(OFFSET_EVENT, { damping: 18 });
-        triggerBubble("💤 Zzz... sleeping during your active focus session.", 4000);
+        triggerBubble(
+          "💤 Zzz... sleeping during your active focus session.",
+          4000,
+        );
         setTimeout(() => {
-          translateX.value = withSpring(OFFSET_REST, { damping: 18 });
+          translateX.value = withSpring(getOffset("idle"), { damping: 18 });
+          setMascotState("idle");
         }, 4000);
       }, 15000);
     }
@@ -308,15 +401,23 @@ export function MascotOverlay() {
     if (pathname !== "/") {
       if (isEvening && todayPebbles === 0 && streak > 0) {
         // High priority streak warning - State 3 (Full Pop Out)
-        translateX.value = withSpring(OFFSET_EVENT, { damping: 12, stiffness: 100 });
+        setMascotState("peek");
+        translateX.value = withSpring(OFFSET_EVENT, {
+          damping: 12,
+          stiffness: 100,
+        });
         rotation.value = withSpring(12, { damping: 12 }); // worried head tilt
-        
+
         setTimeout(() => {
-          triggerBubble(`Oh! Our ${streak}-day streak is at risk! Let's do one small goal.`, 4500);
-          
+          triggerBubble(
+            `Oh! Our ${streak}-day streak is at risk! Let's do one small goal.`,
+            4500,
+          );
+
           setTimeout(() => {
-            translateX.value = withSpring(OFFSET_REST, { damping: 18 });
+            translateX.value = withSpring(getOffset("idle"), { damping: 18 });
             rotation.value = withSpring(0, { damping: 15 });
+            setMascotState("idle");
           }, 4500);
         }, 1000);
       }
@@ -325,47 +426,25 @@ export function MascotOverlay() {
 
   const handleTapMascot = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    
+
     if (bubbleText) {
       hideBubble();
-      translateX.value = withSpring(OFFSET_REST, { damping: 18 });
+      translateX.value = withSpring(getOffset("idle"), { damping: 18 });
       rotation.value = withSpring(0, { damping: 15 });
+      setMascotState("idle");
       return;
     }
 
-    // State 2: Crow slides further out (75% visible) showing more body without texture swapping
-    translateX.value = withSpring(OFFSET_TAPPED, { damping: 15 });
+    // State 2: Crow slides further out (75% visible) showing more body
+    translateX.value = withSpring(getOffset("chatting"), { damping: 15 });
     rotation.value = withSpring(-10, { damping: 12 }); // Curious head tilt
+    setMascotState("chatting");
 
     if (tapDelayTimerRef.current) clearTimeout(tapDelayTimerRef.current);
     if (tapRevertTimerRef.current) clearTimeout(tapRevertTimerRef.current);
 
     // Wait 200ms before trigger speech bubble
     tapDelayTimerRef.current = setTimeout(() => {
-      if (mascotState === "sleeping") {
-        setMascotState("idle");
-        triggerBubble("Welcome back. Ready for another round? 💤", 4500);
-
-        if (pathname === "/focus") {
-          if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
-          focusTimerRef.current = setTimeout(() => {
-            setMascotState("sleeping");
-            translateX.value = withSpring(OFFSET_EVENT, { damping: 18 });
-            triggerBubble("💤 Zzz... sleeping during your active focus session.", 4000);
-            setTimeout(() => {
-              translateX.value = withSpring(OFFSET_REST, { damping: 18 });
-            }, 4000);
-          }, 15000);
-        }
-        
-        // Slide back to rest when bubble closes
-        tapRevertTimerRef.current = setTimeout(() => {
-          translateX.value = withSpring(OFFSET_REST, { damping: 18 });
-          rotation.value = withSpring(0, { damping: 15 });
-        }, 4500);
-        return;
-      }
-
       let phrase = "Caw! One pebble at a time.";
       const rand = Math.random();
 
@@ -376,7 +455,8 @@ export function MascotOverlay() {
         rotation.value = withSpring(12, { damping: 12 }); // Worried head tilt
         phrase = `Oh no! Our ${streak}-day streak is at risk. Let's check off one pebble! 😰`;
       } else if (todayPebbles >= 5 && rand < 0.25) {
-        phrase = "Wow, 5+ pebbles dropped! We're building a beautiful sanctuary. 🥳";
+        phrase =
+          "Wow, 5+ pebbles dropped! We're building a beautiful sanctuary. 🥳";
       } else if (yesterdayPebbles > 0 && todayPebbles === 0 && rand < 0.4) {
         phrase = `You completed ${yesterdayPebbles} pebbles yesterday! Let's get our first drop today. 🌟`;
       } else {
@@ -405,8 +485,9 @@ export function MascotOverlay() {
 
       // Revert position and rotation back after bubble closes
       tapRevertTimerRef.current = setTimeout(() => {
-        translateX.value = withSpring(OFFSET_REST, { damping: 18 });
+        translateX.value = withSpring(getOffset("idle"), { damping: 18 });
         rotation.value = withSpring(0, { damping: 15 });
+        setMascotState("idle");
       }, 4500);
     }, 200);
   };
@@ -428,7 +509,7 @@ export function MascotOverlay() {
     return {
       transform: [{ scale: bubbleScale.value }],
       opacity: bubbleScale.value,
-      right: 88 + translateX.value,
+      right: 85 - translateX.value,
     };
   });
 
@@ -436,7 +517,13 @@ export function MascotOverlay() {
     <View style={styles.container} pointerEvents="box-none">
       {/* Dynamic Bubble Box */}
       {bubbleText && (
-        <Animated.View style={[styles.bubbleContainer, animatedBubbleStyle]}>
+        <Animated.View
+          style={[
+            styles.bubbleContainer,
+            { top: SCREEN_HEIGHT - 190 - 120 + 31 },
+            animatedBubbleStyle,
+          ]}
+        >
           <BlurView
             intensity={colorScheme === "light" ? 65 : 85}
             tint={colorScheme === "light" ? "light" : "dark"}
@@ -444,18 +531,26 @@ export function MascotOverlay() {
               styles.bubbleContent,
               {
                 borderColor: colors.border,
-                backgroundColor: colorScheme === "light" ? "rgba(255, 255, 255, 0.94)" : "rgba(24, 24, 27, 0.94)",
+                backgroundColor:
+                  colorScheme === "light"
+                    ? "rgba(255, 255, 255, 0.94)"
+                    : "rgba(24, 24, 27, 0.94)",
               },
             ]}
           >
-            <Text style={[styles.bubbleText, { color: colors.text }]}>{bubbleText}</Text>
+            <Text style={[styles.bubbleText, { color: colors.text }]}>
+              {bubbleText}
+            </Text>
           </BlurView>
           {/* Custom Arrow */}
           <View
             style={[
               styles.bubbleArrow,
               {
-                borderLeftColor: colorScheme === "light" ? "rgba(255, 255, 255, 0.94)" : "rgba(24, 24, 27, 0.94)",
+                borderLeftColor:
+                  colorScheme === "light"
+                    ? "rgba(255, 255, 255, 0.94)"
+                    : "rgba(24, 24, 27, 0.94)",
               },
             ]}
           />
@@ -464,11 +559,18 @@ export function MascotOverlay() {
 
       {/* Peeking Mascot Head */}
       <Animated.View
-        style={[styles.mascotWrapper, animatedMascotStyle]}
+        style={[
+          styles.mascotWrapper,
+          { top: SCREEN_HEIGHT - 190 - 120 },
+          animatedMascotStyle,
+        ]}
         {...panResponder.panHandlers}
       >
         <Pressable onPress={handleTapMascot} style={styles.mascotButton}>
-          <Image source={MASCOT_ASSET_MAP[mascotState]} style={styles.avatarImage} />
+          <Image
+            source={MASCOT_ASSET_MAP[mascotState]}
+            style={styles.avatarImage}
+          />
         </Pressable>
       </Animated.View>
     </View>
@@ -490,7 +592,6 @@ const styles = StyleSheet.create({
   mascotWrapper: {
     position: "absolute",
     right: 0,
-    top: "60%", // Anchor vertically near tasks/habits at 60% screen height
     width: 120,
     height: 120,
   },
@@ -505,8 +606,6 @@ const styles = StyleSheet.create({
   },
   bubbleContainer: {
     position: "absolute",
-    top: "60%",
-    marginTop: 31,
     width: 175,
     alignItems: "flex-end",
   },
