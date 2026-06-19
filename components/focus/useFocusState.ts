@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, AppState, AppStateStatus, Platform } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
-import { earnPebble } from "@/services/pebbleService";
-import { syncWidgetData } from "@/services/widgetData";
-import { TODOS_STORAGE_KEY } from "@/services/storage";
-import { emitStateChange } from "@/services/stateEvents";
-import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { AMBIENT_SOUNDS } from "@/constants/sounds";
+import { earnPebble } from "@/services/pebbleService";
+import { emitStateChange } from "@/services/stateEvents";
+import { TODOS_STORAGE_KEY } from "@/services/storage";
+import { syncWidgetData } from "@/services/widgetData";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, AppState, AppStateStatus } from "react-native";
 
 export function useFocusState() {
   // Core states
@@ -88,7 +88,9 @@ export function useFocusState() {
       const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
       if (rawHabits) {
         const parsed = JSON.parse(rawHabits);
-        const allHabits = (parsed.dailyHabits || []).filter((h: any) => !h.archived);
+        const allHabits = (parsed.dailyHabits || []).filter(
+          (h: any) => !h.archived,
+        );
         setHabitList(allHabits);
       } else {
         setHabitList([]);
@@ -107,7 +109,10 @@ export function useFocusState() {
     }
     setLikedSoundIds(nextLiked);
     try {
-      await AsyncStorage.setItem("todoapp:focus:liked_sound_ids", JSON.stringify(nextLiked));
+      await AsyncStorage.setItem(
+        "todoapp:focus:liked_sound_ids",
+        JSON.stringify(nextLiked),
+      );
     } catch {}
   };
 
@@ -128,7 +133,10 @@ export function useFocusState() {
         };
         const updated = [...customTracks, newTrack];
         setCustomTracks(updated);
-        await AsyncStorage.setItem("todoapp:focus:custom_tracks", JSON.stringify(updated));
+        await AsyncStorage.setItem(
+          "todoapp:focus:custom_tracks",
+          JSON.stringify(updated),
+        );
         handleSelectSound(newTrack.id);
       }
     } catch (err) {
@@ -139,7 +147,10 @@ export function useFocusState() {
   const handleDeleteCustomTrack = async (id: string) => {
     const nextTracks = customTracks.filter((t) => t.id !== id);
     setCustomTracks(nextTracks);
-    await AsyncStorage.setItem("todoapp:focus:custom_tracks", JSON.stringify(nextTracks));
+    await AsyncStorage.setItem(
+      "todoapp:focus:custom_tracks",
+      JSON.stringify(nextTracks),
+    );
     if (selectedSoundId === id) {
       handleSelectSound("none");
     }
@@ -172,7 +183,8 @@ export function useFocusState() {
       handleSelectSound(allTracks[rand].id);
     } else {
       const currentIndex = allTracks.findIndex((s) => s.id === selectedSoundId);
-      const prevIndex = (currentIndex - 1 + allTracks.length) % allTracks.length;
+      const prevIndex =
+        (currentIndex - 1 + allTracks.length) % allTracks.length;
       handleSelectSound(allTracks[prevIndex].id);
     }
   };
@@ -238,8 +250,10 @@ export function useFocusState() {
       AsyncStorage.getItem("todoapp:focus:stats").then((raw) => {
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed.completedToday !== undefined) setCompletedToday(parsed.completedToday);
-          if (parsed.totalFocusTime !== undefined) setTotalFocusTime(parsed.totalFocusTime);
+          if (parsed.completedToday !== undefined)
+            setCompletedToday(parsed.completedToday);
+          if (parsed.totalFocusTime !== undefined)
+            setTotalFocusTime(parsed.totalFocusTime);
         } else {
           setCompletedToday(0);
           setTotalFocusTime(0);
@@ -256,7 +270,7 @@ export function useFocusState() {
       return () => {
         setIsScreenFocused(false);
       };
-    }, [])
+    }, []),
   );
 
   // AppState listening for background/kill resilience
@@ -268,7 +282,9 @@ export function useFocusState() {
         syncStopwatchFromState();
       } else if (nextState === "background" || nextState === "inactive") {
         if (isActive && mode === "pomodoro") {
-          const elapsed = elapsedBeforeStartRef.current + Math.floor((Date.now() - startTimeRef.current) / 1000);
+          const elapsed =
+            elapsedBeforeStartRef.current +
+            Math.floor((Date.now() - startTimeRef.current) / 1000);
           logPartialMinutes(elapsed);
           saveActiveSession(
             pomodoroMode,
@@ -277,18 +293,32 @@ export function useFocusState() {
             elapsedBeforeStartRef.current,
             true,
             breakType,
-            focusedTaskId
+            focusedTaskId,
           );
         }
         if (swRunning && mode === "stopwatch") {
-          saveStopwatchState(swStartTimeRef.current, swElapsedBeforeStartRef.current, true, swLaps);
+          saveStopwatchState(
+            swStartTimeRef.current,
+            swElapsedBeforeStartRef.current,
+            true,
+            swLaps,
+          );
         }
       }
     };
 
     const sub = AppState.addEventListener("change", handleAppStateChange);
     return () => sub.remove();
-  }, [isActive, pomodoroMode, totalSessionTime, breakType, focusedTaskId, mode, swRunning, swLaps]);
+  }, [
+    isActive,
+    pomodoroMode,
+    totalSessionTime,
+    breakType,
+    focusedTaskId,
+    mode,
+    swRunning,
+    swLaps,
+  ]);
 
   // Ambient sound playback control
   useEffect(() => {
@@ -404,7 +434,16 @@ export function useFocusState() {
         }
       }
     };
-  }, [isActive, pomodoroMode, swRunning, mode, selectedSoundId, isScreenFocused, appState, customTracks]);
+  }, [
+    isActive,
+    pomodoroMode,
+    swRunning,
+    mode,
+    selectedSoundId,
+    isScreenFocused,
+    appState,
+    customTracks,
+  ]);
 
   // Update player volume dynamically
   useEffect(() => {
@@ -418,7 +457,9 @@ export function useFocusState() {
     if (!isActive) return;
 
     const interval = setInterval(() => {
-      const elapsed = elapsedBeforeStartRef.current + Math.floor((Date.now() - startTimeRef.current) / 1000);
+      const elapsed =
+        elapsedBeforeStartRef.current +
+        Math.floor((Date.now() - startTimeRef.current) / 1000);
       const remaining = Math.max(0, totalSessionTimeRef.current - elapsed);
       setSessionTime(remaining);
 
@@ -471,7 +512,7 @@ export function useFocusState() {
     elapsedBeforeStart: number,
     isActive: boolean,
     bType: "short" | "long",
-    taskId: string | null
+    taskId: string | null,
   ) => {
     try {
       await AsyncStorage.setItem(
@@ -486,23 +527,31 @@ export function useFocusState() {
           focusedTaskId: taskId,
           loggedMinutes: loggedMinutesInCurrentSessionRef.current,
           lastSaved: Date.now(),
-        })
+        }),
       );
+      emitStateChange("focus_changed");
     } catch {}
   };
 
   const clearActiveSession = async () => {
     try {
       await AsyncStorage.removeItem("todoapp:focus:current_session");
+      emitStateChange("focus_changed");
     } catch {}
   };
 
   const syncTimerFromSessionState = async () => {
     try {
       const raw = await AsyncStorage.getItem("todoapp:focus:current_session");
-      if (!raw) return;
+      if (!raw) {
+        emitStateChange("focus_changed");
+        return;
+      }
       const session = JSON.parse(raw);
-      if (!session) return;
+      if (!session) {
+        emitStateChange("focus_changed");
+        return;
+      }
 
       const now = Date.now();
       let elapsed = session.elapsedBeforeStart;
@@ -548,10 +597,16 @@ export function useFocusState() {
           startTimeRef.current = session.startTime;
         }
       }
+      emitStateChange("focus_changed");
     } catch {}
   };
 
-  const saveStopwatchState = async (startTime: number, elapsed: number, running: boolean, laps: number[]) => {
+  const saveStopwatchState = async (
+    startTime: number,
+    elapsed: number,
+    running: boolean,
+    laps: number[],
+  ) => {
     try {
       await AsyncStorage.setItem(
         "todoapp:focus:current_stopwatch",
@@ -560,7 +615,7 @@ export function useFocusState() {
           elapsedBeforeStart: elapsed,
           isRunning: running,
           laps,
-        })
+        }),
       );
     } catch {}
   };
@@ -584,7 +639,8 @@ export function useFocusState() {
 
       if (sw.isRunning) {
         const now = Date.now();
-        const elapsed = sw.elapsedBeforeStart + Math.floor((now - sw.startTime) / 1000);
+        const elapsed =
+          sw.elapsedBeforeStart + Math.floor((now - sw.startTime) / 1000);
         setSwTime(elapsed);
         swStartTimeRef.current = sw.startTime;
       } else {
@@ -610,7 +666,7 @@ export function useFocusState() {
         JSON.stringify({
           completedToday: completedTodayVal,
           totalFocusTime: nextTotalFocusTime,
-        })
+        }),
       );
       void syncWidgetData(nextTotalFocusTime).catch(() => {});
     } catch {}
@@ -633,7 +689,7 @@ export function useFocusState() {
         JSON.stringify({
           completedToday: nextCompleted,
           totalFocusTime: totalFocusTimeVal,
-        })
+        }),
       );
     } catch {}
   };
@@ -641,7 +697,8 @@ export function useFocusState() {
   const logPartialMinutes = (totalElapsedSeconds: number) => {
     if (pomodoroMode !== "work") return;
     const totalMinutesElapsed = Math.floor(totalElapsedSeconds / 60);
-    const newMinutesToLog = totalMinutesElapsed - loggedMinutesInCurrentSessionRef.current;
+    const newMinutesToLog =
+      totalMinutesElapsed - loggedMinutesInCurrentSessionRef.current;
     if (newMinutesToLog > 0) {
       creditFocusTime(newMinutesToLog);
       loggedMinutesInCurrentSessionRef.current = totalMinutesElapsed;
@@ -672,7 +729,12 @@ export function useFocusState() {
   const swLap = () => {
     const nextLaps = [swTime, ...swLaps];
     setSwLaps(nextLaps);
-    saveStopwatchState(swRunning ? swStartTimeRef.current : 0, swTime, swRunning, nextLaps);
+    saveStopwatchState(
+      swRunning ? swStartTimeRef.current : 0,
+      swTime,
+      swRunning,
+      nextLaps,
+    );
   };
 
   // Focus completion alerts & prompts
@@ -697,13 +759,16 @@ export function useFocusState() {
     if (isHabit && habitObj) {
       const today = new Date();
       const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-      
+
       const parseDateKey = (val: string) => {
         const [y, m, d] = val.split("-").map(Number);
         return new Date(y, (m || 1) - 1, d || 1);
       };
       const dayDiff = (from: string, to: string) => {
-        return Math.floor((parseDateKey(to).getTime() - parseDateKey(from).getTime()) / (24 * 60 * 60 * 1000));
+        return Math.floor(
+          (parseDateKey(to).getTime() - parseDateKey(from).getTime()) /
+            (24 * 60 * 60 * 1000),
+        );
       };
 
       const isEligibleForRecovery =
@@ -723,17 +788,23 @@ export function useFocusState() {
               text: "Awesome",
               onPress: async () => {
                 try {
-                  const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
+                  const rawHabits =
+                    await AsyncStorage.getItem("todoapp:daily:v1");
                   if (rawHabits) {
                     const parsed = JSON.parse(rawHabits);
-                    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                    const yesterday = new Date(
+                      today.getTime() - 24 * 60 * 60 * 1000,
+                    );
                     const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
                     const updatedHabits = parsed.dailyHabits.map((h: any) => {
                       if (h.id === taskId) {
                         return {
                           ...h,
                           streak: h.previousStreak,
-                          bestStreak: Math.max(h.bestStreak || 0, h.previousStreak),
+                          bestStreak: Math.max(
+                            h.bestStreak || 0,
+                            h.previousStreak,
+                          ),
                           lastCompletedDate: yesterdayKey,
                           previousStreak: undefined,
                           streakBrokenDate: undefined,
@@ -741,7 +812,10 @@ export function useFocusState() {
                       }
                       return h;
                     });
-                    await AsyncStorage.setItem("todoapp:daily:v1", JSON.stringify({ ...parsed, dailyHabits: updatedHabits }));
+                    await AsyncStorage.setItem(
+                      "todoapp:daily:v1",
+                      JSON.stringify({ ...parsed, dailyHabits: updatedHabits }),
+                    );
                     emitStateChange("habits_changed");
                     emitStateChange("pebbles_changed");
                   }
@@ -750,9 +824,9 @@ export function useFocusState() {
                 }
                 setFocusedTaskId(null);
                 transitionToBreak();
-              }
-            }
-          ]
+              },
+            },
+          ],
         );
       } else {
         Alert.alert(
@@ -764,9 +838,9 @@ export function useFocusState() {
               onPress: () => {
                 setFocusedTaskId(null);
                 transitionToBreak();
-              }
-            }
-          ]
+              },
+            },
+          ],
         );
       }
     } else if (taskTitle) {
@@ -788,18 +862,22 @@ export function useFocusState() {
               transitionToBreak();
             },
           },
-        ]
+        ],
       );
     } else {
-      Alert.alert("🎉 Focus Session Complete!", "Great work! Time for a short break.", [
-        {
-          text: "Start Break",
-          onPress: () => {
-            transitionToBreak();
+      Alert.alert(
+        "🎉 Focus Session Complete!",
+        "Great work! Time for a short break.",
+        [
+          {
+            text: "Start Break",
+            onPress: () => {
+              transitionToBreak();
+            },
           },
-        },
-        { text: "Dismiss" },
-      ]);
+          { text: "Dismiss" },
+        ],
+      );
     }
   };
 
@@ -817,6 +895,7 @@ export function useFocusState() {
           elapsedBeforeStartRef.current = 0;
           setIsActive(true);
           startTimeRef.current = Date.now();
+          emitStateChange("focus_changed");
         },
       },
       {
@@ -830,6 +909,7 @@ export function useFocusState() {
           loggedMinutesInCurrentSessionRef.current = 0;
           elapsedBeforeStartRef.current = 0;
           setIsActive(false);
+          emitStateChange("focus_changed");
         },
       },
     ]);
@@ -844,6 +924,7 @@ export function useFocusState() {
     elapsedBeforeStartRef.current = 0;
     loggedMinutesInCurrentSessionRef.current = 0;
     setIsActive(false);
+    emitStateChange("focus_changed");
   };
 
   const handleTimerExpiration = async () => {
@@ -878,7 +959,11 @@ export function useFocusState() {
         updatedTodos[listId] = updatedTodos[listId].map((todo: any) => {
           if (todo.id === taskId) {
             updated = true;
-            return { ...todo, completed: true, lastUpdated: new Date().toISOString() };
+            return {
+              ...todo,
+              completed: true,
+              lastUpdated: new Date().toISOString(),
+            };
           }
           return todo;
         });
@@ -905,14 +990,24 @@ export function useFocusState() {
         elapsedBeforeStartRef.current,
         true,
         breakType,
-        focusedTaskId
+        focusedTaskId,
       );
     } else {
-      const elapsedThisPeriod = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      const elapsedThisPeriod = Math.floor(
+        (Date.now() - startTimeRef.current) / 1000,
+      );
       const newElapsed = elapsedBeforeStartRef.current + elapsedThisPeriod;
       elapsedBeforeStartRef.current = newElapsed;
       logPartialMinutes(newElapsed);
-      void saveActiveSession(pomodoroMode, 0, totalSessionTime, newElapsed, false, breakType, focusedTaskId);
+      void saveActiveSession(
+        pomodoroMode,
+        0,
+        totalSessionTime,
+        newElapsed,
+        false,
+        breakType,
+        focusedTaskId,
+      );
     }
   };
 

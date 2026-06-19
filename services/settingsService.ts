@@ -16,6 +16,7 @@ export type AppSettings = {
   showReminder?: boolean;
   showTags?: boolean;
   showNotes?: boolean;
+  showMascot?: boolean;
   editorRowOrder?: string[];
 };
 
@@ -49,6 +50,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   showReminder: true,
   showTags: true,
   showNotes: true,
+  showMascot: true,
   editorRowOrder: ["date", "workspace", "priority", "reminder", "repeat", "duration", "tags"],
 };
 
@@ -209,10 +211,10 @@ export function isCurrentlyInQuietHours(
   settings: AppSettings,
   targetHour: number,
 ): boolean {
-  if (!settings.quietHours.enabled) return false;
+  if (!settings?.quietHours?.enabled) return false;
   
   const { startHour, endHour } = settings.quietHours;
-  if (startHour === endHour) return false;
+  if (startHour === undefined || endHour === undefined || startHour === endHour) return false;
   
   if (startHour < endHour) {
     // Normal interval (e.g. 22 to 7 -> startHour > endHour usually, but let's handle normal interval 9 to 17)

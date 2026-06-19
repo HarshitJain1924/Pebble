@@ -118,6 +118,7 @@ export default function SettingsScreen() {
     };
     await saveSettings(next);
     setSettings(next);
+    emitStateChange("settings_changed");
   };
 
   const updateQuietHoursTimes = async (startHour: number, endHour: number) => {
@@ -132,6 +133,7 @@ export default function SettingsScreen() {
     };
     await saveSettings(next);
     setSettings(next);
+    emitStateChange("settings_changed");
   };
 
   const updateCategoryToggle = async (catKey: string, val: boolean) => {
@@ -167,6 +169,17 @@ export default function SettingsScreen() {
     };
     await saveSettings(next);
     setSettings(next);
+  };
+
+  const updateMascotToggle = async (enabled: boolean) => {
+    if (!settings) return;
+    const next = {
+      ...settings,
+      showMascot: enabled,
+    };
+    await saveSettings(next);
+    setSettings(next);
+    emitStateChange("settings_changed");
   };
 
   // --- DATA CONSOLE UTILITIES ---
@@ -796,6 +809,42 @@ export default function SettingsScreen() {
                   </Text>
                 </Pressable>
               ))}
+            </View>
+          </AppCard>
+        </Animated.View>
+
+        {/* Mascot Companion Card */}
+        <Animated.View entering={FadeInDown.delay(110).duration(450)}>
+          <AppCard style={styles.sectionCard}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Mascot Companion
+            </Text>
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleInfo}>
+                <Text style={[styles.toggleTitle, { color: colors.text }]}>
+                  Enable Companion Crow
+                </Text>
+                <Text style={[styles.toggleDesc, { color: colors.textMuted }]}>
+                  Display the interactive Raven companion on the screen edge.
+                  You can also shake your phone to summon or dismiss it.
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => updateMascotToggle(!settings.showMascot)}
+                style={[
+                  styles.switchTrack,
+                  {
+                    backgroundColor: settings.showMascot
+                      ? colors.success
+                      : "rgba(255,255,255,0.08)",
+                    alignItems: settings.showMascot
+                      ? "flex-end"
+                      : "flex-start",
+                  },
+                ]}
+              >
+                <View style={styles.switchThumb} />
+              </Pressable>
             </View>
           </AppCard>
         </Animated.View>

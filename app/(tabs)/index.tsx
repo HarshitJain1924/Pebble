@@ -470,11 +470,7 @@ export default function DashboardScreen() {
         const { earnPebble } = require("@/services/pebbleService");
         await earnPebble("task");
 
-        // Trigger Pebble Jar animation overlay
-        setFallingPebbleType("task");
-        setRewardStartCount(lifetimePebbles);
-        setRewardTargetCount(lifetimePebbles + 1);
-        setShowRewardOverlay(true);
+        // Pebble Jar animation is triggered globally by MascotOverlay listening to pebbles_changed
 
         await loadDashboardData();
         emitStateChange("tasks_changed");
@@ -593,10 +589,7 @@ export default function DashboardScreen() {
         const { earnPebble, undoLastPebble } = require("@/services/pebbleService");
         if (nextCompleted) {
           await earnPebble("habit");
-          setFallingPebbleType("habit");
-          setRewardStartCount(lifetimePebbles);
-          setRewardTargetCount(lifetimePebbles + 1);
-          setShowRewardOverlay(true);
+          // Pebble Jar animation is triggered globally by MascotOverlay listening to pebbles_changed
         } else {
           await undoLastPebble("habit");
         }
@@ -1808,58 +1801,7 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
-      {/* Reward Overlay Modal */}
-      <Modal
-        visible={showRewardOverlay}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowRewardOverlay(false)}
-      >
-        <View style={localStyles.overlayContainer}>
-          <BlurView
-            intensity={colorScheme === "light" ? 40 : 60}
-            style={StyleSheet.absoluteFill}
-            tint={colorScheme === "light" ? "light" : "dark"}
-          />
-          <View
-            style={[
-              localStyles.overlayContent,
-              {
-                backgroundColor:
-                  colorScheme === "light"
-                    ? "rgba(255,255,255,0.9)"
-                    : "rgba(24,24,27,0.85)",
-                borderColor:
-                  colorScheme === "light"
-                    ? "rgba(0,0,0,0.08)"
-                    : "rgba(255,255,255,0.08)",
-              },
-            ]}
-          >
-            <Text style={[localStyles.rewardTitle, { color: colors.primaryLight }]}>
-              +1 PEBBLE!
-            </Text>
-            <InteractivePebbleJar
-              mode="reward"
-              startCount={rewardStartCount}
-              targetCount={rewardTargetCount}
-              onComplete={() => {
-                setTimeout(() => {
-                  setShowRewardOverlay(false);
-                }, 400);
-              }}
-              colors={colors}
-              colorScheme={colorScheme ?? "dark"}
-              monthlyTypes={monthlyTypes}
-              fallingPebbleType={fallingPebbleType}
-              profileAvatar={profile?.avatar}
-            />
-            <Text style={[localStyles.rewardSubtitle, { color: colors.textMuted }]}>
-              Adding pebble to your sanctuary jar
-            </Text>
-          </View>
-        </View>
-      </Modal>
+      {/* Reward Overlay Modal is rendered globally by MascotOverlay */}
 
       {/* Sanctuary Jar Modal */}
       <Modal
