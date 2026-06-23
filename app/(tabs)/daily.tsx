@@ -34,33 +34,8 @@ import { normalizeHabitsForToday } from "@/services/habitService";
 import { isRecurringOccurrenceForDate } from "@/services/recurrence";
 import { addStateListener } from "@/services/stateEvents";
 
-export type Habit = {
-  id: string;
-  title: string;
-  streak: number;
-  bestStreak: number;
-  completedToday: boolean;
-  lastCompletedDate?: string;
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[]; // 0 = Sunday .. 6 = Saturday
-  notificationIds?: string[];
-  escalationMinutes?: number[];
-  priority?: "low" | "medium" | "high";
-  recurrence?: {
-    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-    interval?: number;
-    unit?: "hours" | "days";
-    days?: number[];
-    dayOfMonth?: number;
-  };
-  recurrenceExceptions?: string[];
-  archived?: boolean;
-  createdDate?: string;
-  startDate?: string;
-  previousStreak?: number;
-  streakBrokenDate?: string;
-};
+import { type Habit as SharedHabit } from "@/modules/types";
+export type Habit = SharedHabit;
 
 type DailyPayload = {
   dailyHabits: Habit[];
@@ -228,6 +203,7 @@ export default function DailyScreen() {
           streak: 0,
           bestStreak: 0,
           completedToday: false,
+          folderId: "default",
         }));
         setHabits(starter);
         await persistHabits(starter);
@@ -235,7 +211,13 @@ export default function DailyScreen() {
       }
 
       const parsed = JSON.parse(raw) as DailyPayload;
-      const normalized = normalizeHabitsForToday(parsed.dailyHabits ?? []);
+      const migrated = (parsed.dailyHabits ?? []).map((h) => {
+        if (!h.folderId) {
+          return { ...h, folderId: "default" };
+        }
+        return h;
+      });
+      const normalized = normalizeHabitsForToday(migrated);
       setHabits(normalized);
       await persistHabits(normalized);
     } catch {
@@ -335,6 +317,7 @@ export default function DailyScreen() {
       bestStreak: 0,
       completedToday: false,
       priority: selectedHabitPriority,
+      folderId: "default",
     };
 
     setHabits((current) => {

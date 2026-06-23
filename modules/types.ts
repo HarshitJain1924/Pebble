@@ -39,6 +39,7 @@ export type Todo = {
   recurrenceExceptions?: string[];
   createdAt?: number;
   xpAwarded?: boolean;
+  linkedCollectionIds?: string[];
 };
 
 export type Habit = {
@@ -73,6 +74,7 @@ export type Habit = {
   xpAwardedDate?: string;
   previousStreak?: number;
   streakBrokenDate?: string;
+  linkedCollectionIds?: string[];
 };
 
 export type TaskList = {
@@ -85,11 +87,34 @@ export type TaskList = {
   createdAt?: number;
 };
 
+export type CollectionItemType = "link" | "note" | "image" | "file";
+
+export type CollectionItem = {
+  id: string;
+  type: CollectionItemType;
+  title: string;
+  content?: string;
+  url?: string;
+  mediaUri?: string;
+  createdAt: number;
+  archived?: boolean;
+};
+
+export type Collection = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  emoji: string;
+  createdAt: number;
+  items: CollectionItem[];
+  archived?: boolean;
+};
+
 export type RecycleBinItem = {
   id: string;
   title: string;
   deletedAt: number;
-  itemType: "task" | "habit" | "workspace";
+  itemType: "task" | "habit" | "workspace" | "vault" | "collection" | "collection_item";
   originalLocation: string;
   data: any;
 };

@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { type RecycleBinItem, type Todo, type Habit } from "@/modules/types";
+import { type RecycleBinItem, type Todo, type Habit, type Collection, type CollectionItem } from "@/modules/types";
 
 export const TODOS_STORAGE_KEY = "todoapp:v1";
 export const DAILY_STORAGE_KEY = "todoapp:daily:v1";
@@ -8,6 +8,8 @@ export const PROFILE_STORAGE_KEY = "todoapp:profile:v1";
 export const SETTINGS_STORAGE_KEY = "todoapp:settings:v1";
 export const NOTIF_LOG_STORAGE_KEY = "todoapp:notifications:log:v1";
 export const RECYCLE_BIN_STORAGE_KEY = "todoapp:recycle_bin:v1";
+export const VAULT_STORAGE_KEY = "todoapp:vault:v1";
+export const COLLECTIONS_STORAGE_KEY = "todoapp:collections:v1";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -68,7 +70,7 @@ export async function cleanupRecycleBin(): Promise<void> {
 }
 
 export async function addToRecycleBin(
-  itemType: "task" | "habit" | "workspace",
+  itemType: "task" | "habit" | "workspace" | "vault" | "collection" | "collection_item",
   data: any,
   originalLocation: string
 ): Promise<void> {
@@ -76,7 +78,12 @@ export async function addToRecycleBin(
     const items = await getRecycleBinItems();
     const newItem: RecycleBinItem = {
       id: itemType === "workspace" ? data.list?.id : (data.id || String(Date.now())),
-      title: itemType === "workspace" ? data.list?.name : (data.title || "Untitled"),
+      title:
+        itemType === "workspace"
+          ? data.list?.name
+          : itemType === "collection"
+            ? data.name
+            : (data.title || "Untitled"),
       deletedAt: Date.now(),
       itemType,
       originalLocation,
@@ -136,10 +143,84 @@ export async function getRecycledIds(): Promise<RecycledIds> {
   return { workspaceIds, taskIds, habitIds, titles };
 }
 
+export async function getVaultItems(): Promise<Record<string, any[]>> {
+  try {
+    const raw = await AsyncStorage.getItem(VAULT_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch (e) {
+    console.warn("Failed to read vault items", e);
+    return {};
+  }
+}
+
+export async function saveVaultItems(items: Record<string, any[]>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(items));
+  } catch (e) {
+    console.warn("Failed to save vault items", e);
+  }
+}
+
+export async function getCollections(): Promise<Record<string, Collection[]>> {
+  try {
+    const collectionsRaw = await AsyncStorage.getItem(COLLECTIONS_STORAGE_KEY);
+    if (collectionsRaw) {
+      return JSON.parse(collectionsRaw) || {};
+    }
+
+    // Trigger migration if collections do not exist yet but legacy vault items do
+    const legacyVaultRaw = await AsyncStorage.getItem(VAULT_STORAGE_KEY);
+    if (legacyVaultRaw) {
+      const legacyVault: Record<string, any[]> = JSON.parse(legacyVaultRaw) || {};
+      const migratedCollections: Record<string, Collection[]> = {};
+
+      Object.entries(legacyVault).forEach(([folderId, items]) => {
+        if (!items || items.length === 0) return;
+
+        const defaultCollection: Collection = {
+          id: `migrated-quick-captures-${folderId}-${Date.now()}`,
+          workspaceId: folderId,
+          name: "Quick Captures",
+          emoji: "⚡",
+          createdAt: Date.now(),
+          items: items.map((item: any) => ({
+            id: item.id || String(Date.now() + Math.random()),
+            type: (item.type === "idea" ? "note" : item.type) || "note",
+            title: item.title,
+            content: item.content || undefined,
+            url: item.url || undefined,
+            createdAt: item.createdAt || Date.now(),
+            archived: item.archived || false,
+          })),
+        };
+        migratedCollections[folderId] = [defaultCollection];
+      });
+
+      await AsyncStorage.setItem(COLLECTIONS_STORAGE_KEY, JSON.stringify(migratedCollections));
+      return migratedCollections;
+    }
+
+    return {};
+  } catch (e) {
+    console.warn("Failed to read collections", e);
+    return {};
+  }
+}
+
+export async function saveCollections(collections: Record<string, Collection[]>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(COLLECTIONS_STORAGE_KEY, JSON.stringify(collections));
+  } catch (e) {
+    console.warn("Failed to save collections", e);
+  }
+}
+
 export async function restoreRecycleBinItems(itemsToRestore: RecycleBinItem[]): Promise<void> {
   if (itemsToRestore.length === 0) return;
 
   const { rescheduleTodoReminders, rescheduleHabitReminders } = await import("./reminders");
+  const { emitStateChange } = await import("./stateEvents");
 
   const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
   const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
@@ -153,6 +234,7 @@ export async function restoreRecycleBinItems(itemsToRestore: RecycleBinItem[]): 
 
   let tasksRestored = false;
   let habitsRestored = false;
+  let vaultRestored = false;
 
   for (const item of itemsToRestore) {
     if (item.itemType === "task") {
@@ -196,6 +278,58 @@ export async function restoreRecycleBinItems(itemsToRestore: RecycleBinItem[]): 
       const filteredHabits = habitsState.dailyHabits.filter((h: any) => h.folderId !== workspaceId);
       habitsState.dailyHabits = [...filteredHabits, ...rescheduledHabits];
       habitsRestored = true;
+    } else if (item.itemType === "collection") {
+      const workspaceId = item.data.workspaceId || "unassigned";
+      const allCollections = await getCollections();
+      if (!allCollections[workspaceId]) allCollections[workspaceId] = [];
+      if (!allCollections[workspaceId].some((c: Collection) => c.id === item.data.id)) {
+        allCollections[workspaceId] = [item.data, ...allCollections[workspaceId]];
+        await saveCollections(allCollections);
+        vaultRestored = true;
+      }
+    } else if (item.itemType === "collection_item") {
+      const workspaceId = item.originalLocation.split(":")[0] || "unassigned";
+      const collectionId = item.originalLocation.split(":")[1];
+      const allCollections = await getCollections();
+      if (allCollections[workspaceId]) {
+        const collection = allCollections[workspaceId].find((c: Collection) => c.id === collectionId);
+        if (collection) {
+          if (!collection.items.some((i: CollectionItem) => i.id === item.data.id)) {
+            collection.items = [item.data, ...collection.items];
+            await saveCollections(allCollections);
+            vaultRestored = true;
+          }
+        }
+      }
+    } else if (item.itemType === "vault") {
+      const folderId = item.data.folderId || "unassigned";
+      const allCollections = await getCollections();
+      if (!allCollections[folderId]) allCollections[folderId] = [];
+      let defaultColl = allCollections[folderId].find((c: Collection) => c.name === "Quick Captures");
+      if (!defaultColl) {
+        defaultColl = {
+          id: `quick-captures-${folderId}-${Date.now()}`,
+          workspaceId: folderId,
+          name: "Quick Captures",
+          emoji: "⚡",
+          createdAt: Date.now(),
+          items: [],
+        };
+        allCollections[folderId].push(defaultColl);
+      }
+      if (!defaultColl.items.some((i: CollectionItem) => i.id === item.data.id)) {
+        defaultColl.items.push({
+          id: item.data.id,
+          type: (item.data.type === "idea" ? "note" : item.data.type) || "note",
+          title: item.data.title,
+          content: item.data.content,
+          url: item.data.url,
+          createdAt: item.data.createdAt || Date.now(),
+          archived: item.data.archived || false,
+        });
+        await saveCollections(allCollections);
+        vaultRestored = true;
+      }
     }
   }
 
@@ -210,6 +344,10 @@ export async function restoreRecycleBinItems(itemsToRestore: RecycleBinItem[]): 
   if (keyValuePairs.length > 0) {
     await AsyncStorage.multiSet(keyValuePairs);
   }
+
+  if (tasksRestored) emitStateChange("tasks_changed");
+  if (habitsRestored) emitStateChange("habits_changed");
+  if (vaultRestored) emitStateChange("vault_changed");
 
   const binItems = await getRecycleBinItems();
   const restoreIds = new Set(itemsToRestore.map((i) => i.id));

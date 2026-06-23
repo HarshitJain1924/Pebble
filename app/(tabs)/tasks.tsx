@@ -37,6 +37,7 @@ import { TaskSections } from "../../modules/tasks/TaskSections";
 import { HabitSection } from "../../modules/habits/HabitSection";
 import { SuggestionBanner } from "../../modules/suggestions/SuggestionBanner";
 import { ProgressSection } from "../../modules/stats/ProgressSection";
+import { VaultSection } from "../../modules/vault/VaultSection";
 
 import { useTasksState, getDateKey } from "../../modules/tasks/useTasksState";
 import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/services/taskCategories";
@@ -48,6 +49,17 @@ export default function TasksScreen() {
   const isDark = colorScheme === "dark";
 
   const state = useTasksState();
+
+  const folderHabits = React.useMemo(() => {
+    const raw = state.habits.filter((h) => !h.archived && (h.folderId || "default") === state.openedFolderId);
+    if (state.searchQuery.trim() === "") return raw;
+    return raw.filter((h) => {
+      const matchesTitle = h.title.toLowerCase().includes(state.searchQuery.toLowerCase());
+      const matchesDesc = h.description?.toLowerCase().includes(state.searchQuery.toLowerCase()) || false;
+      const matchesCategory = h.category?.toLowerCase().includes(state.searchQuery.toLowerCase()) || false;
+      return matchesTitle || matchesDesc || matchesCategory;
+    });
+  }, [state.habits, state.openedFolderId, state.searchQuery]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -191,7 +203,78 @@ export default function TasksScreen() {
                   <TextInput
                     value={state.searchQuery}
                     onChangeText={state.setSearchQuery}
-                    placeholder="Search tasks..."
+                    placeholder={
+                      state.folderSegment === "tasks"
+                        ? "Search tasks..."
+                        : state.folderSegment === "habits"
+                        ? "Search habits..."
+                        : "Search references..."
+                    }
+                    placeholderTextColor={colors.textMuted}
+                    style={{
+                      flex: 1,
+                      color: colors.text,
+                      fontSize: 13,
+                      height: "100%",
+                      padding: 0,
+                    }}
+                  />
+                  {state.searchQuery.length > 0 && (
+                    <Pressable onPress={() => state.setSearchQuery("")} hitSlop={10}>
+                      <Feather name="x" size={16} color={colors.textMuted} />
+                    </Pressable>
+                  )}
+                </View>
+
+                {/* Folder Sub-segment Switcher */}
+                <View style={{ marginTop: 8 }}>
+                  <SegmentedSwitcher
+                    options={[
+                      { key: "tasks", label: "Tasks" },
+                      { key: "habits", label: "Habits" },
+                      { key: "vault", label: "Collections" },
+                    ]}
+                    activeKey={state.folderSegment}
+                    onChange={(val) => {
+                      state.setFolderSegment(val as any);
+                      state.setSearchQuery("");
+                    }}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View style={{ marginBottom: 4 }}>
+                <AppHeader
+                  kicker="Planner"
+                  title="Workspaces"
+                  subtitle={`${state.lists.length} workspaces active`}
+                  profile={state.profile}
+                  hasUnreadNotifs={state.hasUnreadNotifs}
+                  showProfile={false}
+                  showNotifications={false}
+                  showArchive={true}
+                  showTrash={true}
+                />
+
+                {/* Workspaces Search Bar */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: colors.card,
+                    borderRadius: 12,
+                    paddingHorizontal: 12,
+                    height: 40,
+                    marginVertical: 4,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Feather name="search" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+                  <TextInput
+                    value={state.searchQuery}
+                    onChangeText={state.setSearchQuery}
+                    placeholder="Search workspaces..."
                     placeholderTextColor={colors.textMuted}
                     style={{
                       flex: 1,
@@ -208,400 +291,200 @@ export default function TasksScreen() {
                   )}
                 </View>
               </View>
-            ) : (
-              <View style={{ marginBottom: 4 }}>
-                <AppHeader
-                  kicker="Planner"
-                  title={state.activeSegment === "tasks" ? "Workspaces" : "Habits"}
-                  subtitle={
-                    state.activeSegment === "tasks"
-                      ? `${state.lists.length} workspaces active`
-                      : `${state.unfinishedHabitCount} habits remaining`
-                  }
-                  profile={state.profile}
-                  hasUnreadNotifs={state.hasUnreadNotifs}
-                  showProfile={false}
-                  showNotifications={false}
-                  showArchive={true}
-                  showTrash={true}
-                />
-
-                {/* Segment Selector Row */}
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginVertical: 4,
-                    gap: 10,
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <SegmentedSwitcher
-                      options={[
-                        { key: "tasks", label: "Workspaces" },
-                        { key: "habits", label: "All Habits" },
-                      ]}
-                      activeKey={state.activeSegment}
-                      onChange={(val) => {
-                        state.setActiveSegment(val as any);
-                        state.setSearchQuery("");
-                      }}
-                    />
-                  </View>
-                  {state.activeSegment === "habits" && (
-                    <Pressable
-                      onPress={() => {
-                        state.setIsBulkSelectActive(!state.isBulkSelectActive);
-                        state.setSelectedItemIds(new Set());
-                      }}
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: state.isBulkSelectActive ? `${colors.primary}22` : colors.cardLight,
-                      }}
-                    >
-                      <Feather
-                        name={state.isBulkSelectActive ? "x" : "check-square"}
-                        size={16}
-                        color={state.isBulkSelectActive ? colors.primary : colors.textMuted}
-                      />
-                    </Pressable>
-                  )}
-                </View>
-
-                {/* Heuristic Quick NLP Capture Pill */}
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    state.setNlpVisible(true);
-                  }}
-                  activeOpacity={0.8}
-                  style={{
-                    backgroundColor: colors.card,
-                    borderWidth: 1.5,
-                    borderColor: colors.border,
-                    borderRadius: 14,
-                    paddingVertical: 10,
-                    paddingHorizontal: 16,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    marginVertical: 4,
-                  }}
-                >
-                  <Feather name="zap" size={14} color={colors.primary} />
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 13,
-                      fontWeight: "700",
-                    }}
-                  >
-                    Pebble Capture
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Workspaces Search Bar */}
-                {state.activeSegment === "tasks" && (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      backgroundColor: colors.card,
-                      borderRadius: 12,
-                      paddingHorizontal: 12,
-                      height: 40,
-                      marginVertical: 4,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    }}
-                  >
-                    <Feather name="search" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                    <TextInput
-                      value={state.searchQuery}
-                      onChangeText={state.setSearchQuery}
-                      placeholder="Search workspaces..."
-                      placeholderTextColor={colors.textMuted}
-                      style={{
-                        flex: 1,
-                        color: colors.text,
-                        fontSize: 13,
-                        height: "100%",
-                        padding: 0,
-                      }}
-                    />
-                    {state.searchQuery.length > 0 && (
-                      <Pressable onPress={() => state.setSearchQuery("")} hitSlop={10}>
-                        <Feather name="x" size={16} color={colors.textMuted} />
-                      </Pressable>
-                    )}
-                  </View>
-                )}
-              </View>
             )}
 
             {/* Active Content Screens */}
-            {state.activeSegment === "tasks" ? (
-              state.openedFolderId === null ? (
-                <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
-                  <SuggestionBanner
-                    activeSuggestions={state.activeSuggestions}
-                    loadSuggestions={state.loadSuggestions}
-                    setHabits={state.setHabits}
-                    persistHabits={state.persistHabits}
-                    setTodos={state.setTodos}
-                    persistState={state.persistState}
-                    lists={state.lists}
-                    selectedList={state.selectedList}
-                    openedFolderId={state.openedFolderId}
-                    getDateKey={getDateKey}
-                  />
-                  <WorkspaceGrid
-                    lists={state.lists}
-                    todos={state.todos}
-                    searchQuery={state.searchQuery}
-                    onSelectWorkspace={(id) => {
-                      state.setOpenedFolderId(id);
-                      state.setSelectedList(id);
-                    }}
-                    onEditWorkspace={(id) => {
-                      state.setEditingFolderId(id);
-                      state.setFolderModalVisible(true);
-                    }}
-                    onCreateWorkspace={() => {
-                      state.setEditingFolderId(null);
-                      state.setFolderModalVisible(true);
-                    }}
-                  />
-                </ScrollView>
-              ) : (
-                <ScrollView
-                  ref={state.scrollViewRef}
-                  style={styles.flex}
-                  contentContainerStyle={{ gap: 16, paddingBottom: 120 }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {/* Add task bar */}
-                  <Pressable
-                    onPress={() => {
-                      state.setAddingTask({
-                        id: String(Date.now()),
-                        title: "",
-                        completed: false,
-                        category: DEFAULT_TASK_CATEGORY,
-                        priority: "medium",
-                        scheduledDate: getDateKey(),
-                        folderId: state.openedFolderId || "default",
-                        createdAt: Date.now(),
-                      });
-                    }}
-                  >
-                    <AppCard style={styles.addTaskCard}>
-                      <View style={[styles.addTaskInput, { justifyContent: "center" }]}>
-                        <Text style={{ color: colors.textMuted }}>
-                          {`Add a task to ${state.lists.find((l) => l.id === state.openedFolderId)?.name}`}
-                        </Text>
-                      </View>
-                      <View style={[styles.addBtn, { backgroundColor: colors.primary }]}>
-                        <Feather name="plus" size={20} color="#ffffff" />
-                      </View>
-                    </AppCard>
-                  </Pressable>
-
-                  {/* Tasks List */}
-                  <TaskSections
-                    overdueTodos={state.overdueTodos}
-                    todayTodos={state.todayTodos}
-                    upcomingTodos={state.upcomingTodos}
-                    inboxTodos={state.inboxTodos}
-                    lists={state.lists}
-                    selectedList={state.selectedList}
-                    selectedDate={state.selectedDate}
-                    completedCount={state.completedCount}
-                    onClearCompleted={state.clearCompleted}
-                    onToggleTodo={state.toggleTodo}
-                    onDeleteTodo={state.deleteTodo}
-                    onEditTodo={(todo) => {
-                      router.push(`/task-details?id=${todo.id}&type=task&date=${state.selectedDate}`);
-                    }}
-                    onSetAlarm={state.setAlarmMenu}
-                    onTaskLayout={(todoId, y) => {
-                      state.setTaskPositions((prev) => ({ ...prev, [todoId]: y }));
-                    }}
-                    isSelectionMode={state.isBulkSelectActive}
-                    selectedItemIds={state.selectedItemIds}
-                    onToggleSelectItem={(id) => {
-                      state.setSelectedItemIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(id)) next.delete(id);
-                        else next.add(id);
-                        return next;
-                      });
-                    }}
-                  />
-                </ScrollView>
-              )
-            ) : (
-              <ScrollView style={styles.flex} contentContainerStyle={{ gap: 16, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
-                <ProgressSection
-                  statsExpanded={state.statsExpanded}
-                  setStatsExpanded={state.setStatsExpanded}
-                  habitCompletionPct={state.habitCompletionPct}
-                  unfinishedHabitCount={state.unfinishedHabitCount}
-                  showCelebrate={state.showCelebrate}
-                  completedHabitCount={state.completedHabitCount}
-                  totalHabitsCount={state.habits.length}
-                  longestStreak={state.longestStreak}
+            {state.openedFolderId === null ? (
+              <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+                <SuggestionBanner
+                  activeSuggestions={state.activeSuggestions}
+                  loadSuggestions={state.loadSuggestions}
+                  setHabits={state.setHabits}
+                  persistHabits={state.persistHabits}
+                  setTodos={state.setTodos}
+                  persistState={state.persistState}
+                  lists={state.lists}
+                  selectedList={state.selectedList}
+                  openedFolderId={state.openedFolderId}
+                  getDateKey={getDateKey}
                 />
+                <WorkspaceGrid
+                  lists={state.lists}
+                  todos={state.todos}
+                  habits={state.habits}
+                  collections={state.collections}
+                  searchQuery={state.searchQuery}
+                  onSelectWorkspace={(id) => {
+                    state.setOpenedFolderId(id);
+                    state.setSelectedList(id);
+                  }}
+                  onEditWorkspace={(id) => {
+                    state.setEditingFolderId(id);
+                    state.setFolderModalVisible(true);
+                  }}
+                  onCreateWorkspace={() => {
+                    state.setEditingFolderId(null);
+                    state.setFolderModalVisible(true);
+                  }}
+                />
+              </ScrollView>
+            ) : (
+              <ScrollView
+                ref={state.scrollViewRef}
+                style={styles.flex}
+                contentContainerStyle={{ gap: 20, paddingBottom: 120 }}
+                showsVerticalScrollIndicator={false}
+              >
+                {/* Tasks Section */}
+                {state.folderSegment === "tasks" && (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
+                      Tasks
+                    </Text>
+                    
+                    {/* Add task bar */}
+                    <Pressable
+                      onPress={() => {
+                        state.setAddingTask({
+                          id: String(Date.now()),
+                          title: "",
+                          completed: false,
+                          category: DEFAULT_TASK_CATEGORY,
+                          priority: "medium",
+                          scheduledDate: getDateKey(),
+                          folderId: state.openedFolderId || "default",
+                          createdAt: Date.now(),
+                        });
+                      }}
+                    >
+                      <AppCard style={styles.addTaskCard}>
+                        <View style={[styles.addTaskInput, { justifyContent: "center" }]}>
+                          <Text style={{ color: colors.textMuted }}>
+                            {`Add a task to ${state.lists.find((l) => l.id === state.openedFolderId)?.name || (state.openedFolderId === "unassigned" ? "Inbox" : "Workspace")}`}
+                          </Text>
+                        </View>
+                        <View style={[styles.addBtn, { backgroundColor: colors.primary }]}>
+                          <Feather name="plus" size={20} color="#ffffff" />
+                        </View>
+                      </AppCard>
+                    </Pressable>
 
-                {/* Add Habit input */}
-                <AppCard style={styles.addTaskCard}>
-                  <TextInput
-                    value={state.habitTitle}
-                    onChangeText={state.setHabitTitle}
-                    placeholder="Add a new habit"
-                    placeholderTextColor={colors.textMuted}
-                    onSubmitEditing={state.addHabit}
-                    onFocus={() => {
-                      state.setIsAddingHabit(true);
-                    }}
-                    onBlur={() => {
-                      if (state.habitTitle.trim() === "") state.setIsAddingHabit(false);
-                    }}
-                    style={[styles.addTaskInput, { color: colors.text }]}
-                  />
-                  <Pressable onPress={state.addHabit} style={[styles.addBtn, { backgroundColor: colors.primary }]}>
-                    <Feather name="plus" size={20} color="#ffffff" />
-                  </Pressable>
-                </AppCard>
-
-                {/* Habit Priority Selector */}
-                {(state.isAddingHabit || state.habitTitle.trim().length > 0) && (
-                  <View style={styles.categoryChoiceRow}>
-                    <Text style={[styles.categoryChoiceLabel, { color: colors.textMuted }]}>Priority</Text>
-                    <View style={{ flexDirection: "row", gap: 8 }}>
-                      {[
-                        {
-                          key: "high",
-                          label: "🔴 High",
-                          color: colors.error,
-                          softColor:
-                            colorScheme === "light" ? "rgba(220, 38, 38, 0.08)" : "rgba(239, 68, 68, 0.12)",
-                        },
-                        {
-                          key: "medium",
-                          label: "🟡 Medium",
-                          color: colors.warning,
-                          softColor:
-                            colorScheme === "light" ? "rgba(217, 119, 6, 0.08)" : "rgba(245, 158, 11, 0.12)",
-                        },
-                        {
-                          key: "low",
-                          label: "🟢 Low",
-                          color: colors.success,
-                          softColor:
-                            colorScheme === "light" ? "rgba(5, 150, 105, 0.08)" : "rgba(16, 185, 129, 0.12)",
-                        },
-                      ].map((p) => {
-                        const isSelected = state.selectedHabitPriority === p.key;
-                        return (
-                          <Pressable
-                            key={p.key}
-                            onPress={() => state.setSelectedHabitPriority(p.key as any)}
-                            style={({ pressed }) => [
-                              styles.categoryChoicePill,
-                              {
-                                backgroundColor: isSelected ? p.softColor : colors.cardLight,
-                                borderColor: isSelected ? p.color : colors.border,
-                                opacity: pressed ? 0.9 : 1,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={{
-                                color: isSelected ? p.color : colors.text,
-                                fontWeight: "700",
-                                fontSize: 12,
-                              }}
-                            >
-                              {p.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                    {/* Tasks List */}
+                    <TaskSections
+                      overdueTodos={state.overdueTodos}
+                      todayTodos={state.todayTodos}
+                      upcomingTodos={state.upcomingTodos}
+                      inboxTodos={state.inboxTodos}
+                      lists={state.lists}
+                      selectedList={state.selectedList}
+                      selectedDate={state.selectedDate}
+                      completedCount={state.completedCount}
+                      onClearCompleted={state.clearCompleted}
+                      onToggleTodo={state.toggleTodo}
+                      onDeleteTodo={state.deleteTodo}
+                      onEditTodo={(todo) => {
+                        router.push(`/task-details?id=${todo.id}&type=task&date=${state.selectedDate}`);
+                      }}
+                      onSetAlarm={state.setAlarmMenu}
+                      onTaskLayout={(todoId, y) => {
+                        state.setTaskPositions((prev) => ({ ...prev, [todoId]: y }));
+                      }}
+                      isSelectionMode={state.isBulkSelectActive}
+                      selectedItemIds={state.selectedItemIds}
+                      onToggleSelectItem={(id) => {
+                        state.setSelectedItemIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(id)) next.delete(id);
+                          else next.add(id);
+                          return next;
+                        });
+                      }}
+                    />
                   </View>
                 )}
 
-                {/* Habit Priority Filter Row */}
-                <View style={[styles.categoryChoiceRow, { marginBottom: 8, marginTop: 10 }]}>
-                  <Text style={[styles.categoryChoiceLabel, { color: colors.textMuted }]}>Filter Priority</Text>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    {[
-                      { key: "all", label: "All" },
-                      { key: "high", label: "🔴 High" },
-                      { key: "medium", label: "🟡 Medium" },
-                      { key: "low", label: "🟢 Low" },
-                    ].map((p) => {
-                      const isSelected = state.selectedListHabitPriorityFilter === p.key;
-                      return (
-                        <Pressable
-                          key={p.key}
-                          onPress={() => state.setSelectedListHabitPriorityFilter(p.key as any)}
-                          style={({ pressed }) => [
-                            styles.categoryChoicePill,
-                            {
-                              backgroundColor: isSelected
-                                ? colorScheme === "light"
-                                  ? "#E2E8F0"
-                                  : "#27272A"
-                                : colors.cardLight,
-                              borderColor: isSelected ? colors.primary : colors.border,
-                              opacity: pressed ? 0.9 : 1,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={{
-                              color: isSelected ? colors.text : colors.textMuted,
-                              fontWeight: isSelected ? "700" : "500",
-                              fontSize: 12,
-                            }}
-                          >
-                            {p.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
+                {/* Habits Section */}
+                {state.folderSegment === "habits" && (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
+                      Habits
+                    </Text>
 
-                {/* Habits List View */}
-                <HabitSection
-                  displayedHabits={state.displayedHabits}
-                  habits={state.habits}
-                  setHabits={state.setHabits}
-                  persistHabits={state.persistHabits}
-                  toggleHabit={state.toggleHabit}
-                  deleteHabit={state.deleteHabit}
-                  unfinishedHabitCount={state.unfinishedHabitCount}
-                  isSelectionMode={state.isBulkSelectActive}
-                  selectedItemIds={state.selectedItemIds}
-                  onToggleSelectItem={(id) => {
-                    state.setSelectedItemIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(id)) next.delete(id);
-                      else next.add(id);
-                      return next;
-                    });
-                  }}
-                  onEditHabit={(item) => state.setEditingHabit(item)}
-                />
+                    {/* Add habit bar */}
+                    <Pressable
+                      onPress={() => {
+                        state.setIsAddingHabit(true);
+                        state.setEditingHabit({
+                          id: `habit-${Date.now()}`,
+                          title: "",
+                          streak: 0,
+                          bestStreak: 0,
+                          completedToday: false,
+                          priority: "medium",
+                          folderId: state.openedFolderId || "default",
+                          category: "health",
+                          createdAt: Date.now(),
+                        } as any);
+                      }}
+                    >
+                      <AppCard style={styles.addTaskCard}>
+                        <View style={[styles.addTaskInput, { justifyContent: "center" }]}>
+                          <Text style={{ color: colors.textMuted }}>
+                            {`Add a habit to ${state.lists.find((l) => l.id === state.openedFolderId)?.name || "Workspace"}`}
+                          </Text>
+                        </View>
+                        <View style={[styles.addBtn, { backgroundColor: colors.primary }]}>
+                          <Feather name="plus" size={20} color="#ffffff" />
+                        </View>
+                      </AppCard>
+                    </Pressable>
+
+                    {/* Habits List */}
+                    <HabitSection
+                      displayedHabits={folderHabits}
+                      habits={state.habits}
+                      setHabits={state.setHabits}
+                      persistHabits={state.persistHabits}
+                      toggleHabit={state.toggleHabit}
+                      deleteHabit={state.deleteHabit}
+                      unfinishedHabitCount={state.unfinishedHabitCount}
+                      isSelectionMode={state.isBulkSelectActive}
+                      selectedItemIds={state.selectedItemIds}
+                      onToggleSelectItem={(id) => {
+                        state.setSelectedItemIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(id)) next.delete(id);
+                          else next.add(id);
+                          return next;
+                        });
+                      }}
+                      onEditHabit={(item) => state.setEditingHabit(item)}
+                    />
+                  </View>
+                )}
+
+                {/* Collections Section */}
+                {state.folderSegment === "vault" && (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
+                      Collections
+                    </Text>
+
+                    <VaultSection
+                      collections={state.collections}
+                      lists={state.lists}
+                      createCollection={state.createCollection}
+                      deleteCollection={state.deleteCollection}
+                      renameCollection={state.renameCollection}
+                      addCollectionItem={state.addCollectionItem}
+                      deleteCollectionItem={state.deleteCollectionItem}
+                      toggleArchiveCollectionItem={state.toggleArchiveCollectionItem}
+                      convertCollectionItemToTask={state.convertCollectionItemToTask}
+                      searchQuery={state.searchQuery}
+                      activeFolderId={state.openedFolderId || "unassigned"}
+                    />
+                  </View>
+                )}
               </ScrollView>
             )}
 

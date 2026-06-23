@@ -25,6 +25,8 @@ const getDateKey = (date = new Date()) => {
 interface WorkspaceGridProps {
   lists: TaskList[];
   todos: Record<string, Todo[]>;
+  habits: any[];
+  collections?: Record<string, any[]>;
   searchQuery: string;
   onSelectWorkspace: (id: string) => void;
   onEditWorkspace: (id: string) => void;
@@ -34,6 +36,8 @@ interface WorkspaceGridProps {
 export function WorkspaceGrid({
   lists,
   todos,
+  habits,
+  collections,
   searchQuery,
   onSelectWorkspace,
   onEditWorkspace,
@@ -42,6 +46,19 @@ export function WorkspaceGrid({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
+
+  const showInbox = searchQuery.trim() === "" || "inbox".includes(searchQuery.toLowerCase());
+  const inboxCollections = collections ? (collections["unassigned"] || []) : [];
+  const inboxRefsCount = inboxCollections.reduce(
+    (sum: number, c: any) => sum + (c.items ? c.items.filter((i: any) => !i.archived).length : 0),
+    0
+  );
+
+  const inboxTasks = todos["unassigned"] ?? [];
+  const inboxActiveTasksCount = inboxTasks.filter((t) => !t.completed).length;
+
+  const inboxHabits = habits ? habits.filter((h) => h.folderId === "unassigned") : [];
+  const inboxActiveHabitsCount = inboxHabits.filter((h) => !h.completedToday).length;
 
   const filteredLists =
     searchQuery.trim() === ""
@@ -53,14 +70,100 @@ export function WorkspaceGrid({
   return (
     <View style={{ flex: 1, paddingVertical: 10 }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+        {showInbox && (
+          <TouchableOpacity
+            key="unassigned"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              onSelectWorkspace("unassigned");
+            }}
+            delayPressIn={80}
+            activeOpacity={0.88}
+            style={gridStyles.workspaceGridCard}
+          >
+            {/* Nub */}
+            <View
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "55%",
+                height: 10,
+                backgroundColor: colors.primary + "CC",
+                borderTopLeftRadius: 18,
+                borderTopRightRadius: 14,
+                zIndex: 2,
+              }}
+            />
+            {/* Body */}
+            <View
+              style={{
+                backgroundColor: colors.primary,
+                paddingTop: 18,
+                paddingBottom: 20,
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                minHeight: 88,
+              }}
+            >
+              <View
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 16,
+                  backgroundColor: "rgba(255,255,255,0.22)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ fontSize: 26 }}>📥</Text>
+              </View>
+            </View>
+            {/* Footer */}
+            <View
+              style={{
+                backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF",
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                gap: 2,
+              }}
+            >
+              <Text
+                style={[
+                  gridStyles.workspaceName,
+                  { color: isDark ? "#FFFFFF" : "#111111" },
+                ]}
+                numberOfLines={1}
+              >
+                Inbox
+              </Text>
+              <Text style={[gridStyles.workspaceCount, { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" }]}>
+                {inboxActiveTasksCount} task{inboxActiveTasksCount !== 1 ? "s" : ""}
+              </Text>
+              <Text style={[gridStyles.workspaceCount, { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" }]}>
+                {inboxActiveHabitsCount} habit{inboxActiveHabitsCount !== 1 ? "s" : ""}
+              </Text>
+              <Text style={[gridStyles.workspaceCount, { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" }]}>
+                {inboxRefsCount} resource{inboxRefsCount !== 1 ? "s" : ""}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {filteredLists.map((folder) => {
           const folderColor = folder.color || "#6366F1";
           const folderTasks = todos[folder.id] ?? [];
           const activeCount = folderTasks.filter((t) => !t.completed).length;
-          const todayStr = getDateKey();
-          const dueTodayCount = folderTasks.filter(
-            (t) => !t.completed && t.scheduledDate === todayStr,
-          ).length;
+          
+          const folderHabits = habits ? habits.filter((h) => h.folderId === folder.id) : [];
+          const habitCount = folderHabits.filter((h) => !h.completedToday).length;
+
+          const folderCollections = collections ? (collections[folder.id] || []) : [];
+          const resourceCount = folderCollections.reduce(
+            (sum: number, col: any) => sum + (col.items ? col.items.filter((i: any) => !i.archived).length : 0),
+            0
+          );
 
           // Derive a slightly darker shade for depth
           const darkerShade = folderColor + "CC";
@@ -140,24 +243,15 @@ export function WorkspaceGrid({
                 >
                   {folder.name}
                 </Text>
-                {dueTodayCount > 0 ? (
-                  <Text style={[gridStyles.workspaceCount, { color: "#EF4444" }]}>
-                    {dueTodayCount} due today
-                  </Text>
-                ) : (
-                  <Text
-                    style={[
-                      gridStyles.workspaceCount,
-                      {
-                        color: isDark
-                          ? "rgba(255,255,255,0.4)"
-                          : "rgba(0,0,0,0.4)",
-                      },
-                    ]}
-                  >
-                    {activeCount} task{activeCount !== 1 ? "s" : ""}
-                  </Text>
-                )}
+                <Text style={[gridStyles.workspaceCount, { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" }]}>
+                  {activeCount} task{activeCount !== 1 ? "s" : ""}
+                </Text>
+                <Text style={[gridStyles.workspaceCount, { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" }]}>
+                  {habitCount} habit{habitCount !== 1 ? "s" : ""}
+                </Text>
+                <Text style={[gridStyles.workspaceCount, { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" }]}>
+                  {resourceCount} resource{resourceCount !== 1 ? "s" : ""}
+                </Text>
               </View>
 
               {/* Edit button */}

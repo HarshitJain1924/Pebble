@@ -11,7 +11,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 
 type AnimatedCheckboxProps = {
   checked: boolean;
-  onToggle?: () => void;
+  onToggle?: (event?: any) => void;
   size?: number;
 };
 
@@ -58,9 +58,15 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
     }
   };
 
+  const handlePress = (event: any) => {
+    if (onToggle) {
+      onToggle(event);
+    }
+  };
+
   return (
     <Pressable
-      onPress={onToggle}
+      onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={!onToggle}

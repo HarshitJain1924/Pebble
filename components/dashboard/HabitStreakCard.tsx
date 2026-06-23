@@ -13,7 +13,7 @@ type HabitStreakCardProps = {
   bestStreak: number;
   completedToday: boolean;
   priority?: "low" | "medium" | "high";
-  onPressToggle: () => void;
+  onPressToggle: (event?: any) => void;
   onCardPress?: () => void;
 };
 
@@ -52,7 +52,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       onPress={onCardPress}
     >
       {/* Left aligned Progress Check Ring */}
-      <Pressable onPress={onPressToggle} style={styles.checkButton}>
+      <Pressable onPress={(event) => onPressToggle(event)} style={styles.checkButton}>
         <ProgressRing
           progress={completedToday ? 1 : 0}
           size={24}

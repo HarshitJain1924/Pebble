@@ -127,6 +127,58 @@ const MASCOT_ASSET_MAP: Record<string, any> = {
   worried: require("@/assets/images/mascot/mascot_worried.png"),
 };
 
+const checkIfDailyClear = async (): Promise<boolean> => {
+  try {
+    const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+    const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+    const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+
+    let pendingCount = 0;
+    let completedCount = 0;
+
+    if (rawTodos) {
+      const parsed = JSON.parse(rawTodos);
+      const todosMap = parsed.todos || {};
+      Object.values(todosMap).forEach((list: any) => {
+        list.forEach((todo: any) => {
+          if (!todo.archived) {
+            const todoDate = todo.scheduledDate || (todo.alarmTime ? `${new Date(todo.alarmTime).getFullYear()}-${String(new Date(todo.alarmTime).getMonth() + 1).padStart(2, "0")}-${String(new Date(todo.alarmTime).getDate()).padStart(2, "0")}` : todayStr);
+            if (todoDate <= todayStr || todo.scheduledDate === "inbox") {
+              if (todo.completed) {
+                completedCount++;
+              } else {
+                pendingCount++;
+              }
+            }
+          }
+        });
+      });
+    }
+
+    if (rawHabits) {
+      const parsed = JSON.parse(rawHabits);
+      const habits = parsed.dailyHabits || [];
+      const dayOfWeek = new Date().getDay();
+      habits.forEach((h: any) => {
+        if (!h.archived) {
+          const isActive = !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
+          if (isActive) {
+            if (h.completedToday) {
+              completedCount++;
+            } else {
+              pendingCount++;
+            }
+          }
+        }
+      });
+    }
+
+    return completedCount > 0 && pendingCount === 0;
+  } catch {
+    return false;
+  }
+};
+
 export function MascotOverlay() {
   const pathname = usePathname();
   const colorScheme = useColorScheme();
@@ -182,6 +234,7 @@ export function MascotOverlay() {
   });
 
   const lifetimePebblesRef = useRef(0);
+  const prevLevelRef = useRef(0);
   const prevTodayPebblesRef = useRef(0);
   const lastActiveTimeRef = useRef<number>(0);
   const activityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -299,6 +352,9 @@ export function MascotOverlay() {
     try {
       const prof = await getProfile();
       setProfile(prof);
+      if (prevLevelRef.current === 0 && prof) {
+        prevLevelRef.current = prof.level;
+      }
 
       const settings = await getSettings();
       if (isInitial) {
@@ -427,6 +483,7 @@ export function MascotOverlay() {
       const newLifetime = pebbleStats.lifetime || 0;
       const prevLifetime = lifetimePebblesRef.current;
 
+      const prevLevel = prevLevelRef.current;
       await loadStats();
 
       if (newLifetime > prevLifetime) {
@@ -434,10 +491,27 @@ export function MascotOverlay() {
         const lastEntry = log[log.length - 1];
         const pType = lastEntry ? lastEntry.type : "task";
 
-        setRewardStartCount(prevLifetime);
-        setRewardTargetCount(newLifetime);
-        setFallingPebbleType(pType);
-        setShowRewardOverlay(true);
+        // Check Big Win Triggers:
+        // 1. Level up
+        const currentProf = await getProfile();
+        const isLevelUp = currentProf && prevLevel > 0 && currentProf.level > prevLevel;
+        if (currentProf) {
+          prevLevelRef.current = currentProf.level;
+        }
+
+        // 2. Stage/milestone update
+        const milestones = [10, 25, 50, 100, 250, 500];
+        const isMilestone = milestones.includes(newLifetime);
+
+        // 3. Daily Clear (all tasks/habits checked)
+        const isDailyClear = await checkIfDailyClear();
+
+        if (isLevelUp || isMilestone || isDailyClear) {
+          setRewardStartCount(prevLifetime);
+          setRewardTargetCount(newLifetime);
+          setFallingPebbleType(pType);
+          setShowRewardOverlay(true);
+        }
       }
     });
 
@@ -1016,7 +1090,7 @@ export function MascotOverlay() {
             lastSaved: Date.now(),
           }),
         );
-        emitStateChange("focus_changed");
+        emitStateChange("focus_changed", "MascotOverlay");
       } else if (type === "focus") {
         router.push("/focus");
         await AsyncStorage.setItem(
@@ -1033,7 +1107,7 @@ export function MascotOverlay() {
             lastSaved: Date.now(),
           }),
         );
-        emitStateChange("focus_changed");
+        emitStateChange("focus_changed", "MascotOverlay");
       } else if (type === "add_task" && payload) {
         ignoreNextEventRef.current = true;
         setTimeout(() => {

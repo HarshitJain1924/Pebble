@@ -17,6 +17,8 @@ import {
   TODOS_STORAGE_KEY,
   RECYCLE_BIN_STORAGE_KEY,
   NOTIF_LOG_STORAGE_KEY,
+  VAULT_STORAGE_KEY,
+  COLLECTIONS_STORAGE_KEY,
 } from "@/services/storage";
 import { PEBBLE_LOG_KEY, GEMS_BONUS_KEY, GEMS_SPENT_KEY, PEBBLE_SPENT_KEY } from "@/services/pebbleService";
 import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/services/quickSuggestions";
@@ -431,11 +433,15 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem("todoapp:focus:is_shuffle"),
                 AsyncStorage.removeItem("todoapp:focus:is_repeat"),
                 AsyncStorage.removeItem("todoapp:focus:glow_enabled"),
+                AsyncStorage.removeItem("todoapp:mascot:dismissed"),
+                AsyncStorage.removeItem(VAULT_STORAGE_KEY),
+                AsyncStorage.removeItem(COLLECTIONS_STORAGE_KEY),
                 cancelAllScheduledNotifications(),
               ]);
               emitStateChange("tasks_changed");
               emitStateChange("habits_changed");
               emitStateChange("pebbles_changed");
+              emitStateChange("vault_changed");
               await loadSettingsData();
               Alert.alert(
                 "Storage Wiped",

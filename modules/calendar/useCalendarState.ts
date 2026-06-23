@@ -215,12 +215,18 @@ export function useCalendarState() {
     useCallback(() => {
       void loadMonth(month.year, month.month);
       void loadDataFromStorage();
+      AsyncStorage.getItem("todoapp:calendar:selectedDate").then((storedDate) => {
+        if (storedDate) setSelectedDate(storedDate);
+      });
     }, [loadMonth, loadDataFromStorage, month.month, month.year])
   );
 
   useEffect(() => {
     const unsubTasks = addStateListener("tasks_changed", () => {
       loadDataFromStorage();
+      AsyncStorage.getItem("todoapp:calendar:selectedDate").then((storedDate) => {
+        if (storedDate) setSelectedDate(storedDate);
+      });
     });
     const unsubHabits = addStateListener("habits_changed", () => {
       loadDataFromStorage();

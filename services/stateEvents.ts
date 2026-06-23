@@ -4,7 +4,12 @@ type EventType =
   | "profile_changed"
   | "pebbles_changed"
   | "settings_changed"
-  | "focus_changed";
+  | "focus_changed"
+  | "vault_changed"
+  | "close_drawer"
+  | "dashboard_filter_changed"
+  | "zen_mode_toggle"
+  | "review_day_open";
 type Listener = (emitterId?: string) => void;
 
 const listeners: Record<EventType, Set<Listener>> = {
@@ -14,6 +19,11 @@ const listeners: Record<EventType, Set<Listener>> = {
   pebbles_changed: new Set<Listener>(),
   settings_changed: new Set<Listener>(),
   focus_changed: new Set<Listener>(),
+  vault_changed: new Set<Listener>(),
+  close_drawer: new Set<Listener>(),
+  dashboard_filter_changed: new Set<Listener>(),
+  zen_mode_toggle: new Set<Listener>(),
+  review_day_open: new Set<Listener>(),
 };
 
 /**

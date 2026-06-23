@@ -18,9 +18,8 @@ export type AppHeaderProps = {
   nextReminder?: string | null;
   hasUnreadNotifs?: boolean;
   profile?: { name: string; avatar: string; level: number } | null;
-  totalPebbles?: number;
-  gemsBalance?: number;
-  onPebblePress?: () => void;
+  streak?: number;
+  onStreakPress?: () => void;
 };
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -34,9 +33,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   nextReminder,
   hasUnreadNotifs,
   profile,
-  totalPebbles,
-  gemsBalance,
-  onPebblePress,
+  streak,
+  onStreakPress,
 }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -50,7 +48,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {title && <Text style={[styles.title, { color: colors.text }]}>{title}</Text>}
         {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
       </View>
-      {(showNotifications || showProfile || showArchive || showTrash || totalPebbles !== undefined) && (
+      {(showNotifications || showProfile || showArchive || showTrash || streak !== undefined) && (
         <View style={styles.right}>
           {showTrash && (
             <Pressable
@@ -88,56 +86,29 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </Pressable>
           )}
 
-          {totalPebbles !== undefined && (
+          {streak !== undefined && (
             <Pressable
               style={({ pressed }) => [
                 styles.pebbleCapsule,
                 {
                   borderColor: colors.border,
-                  backgroundColor: isLight ? "rgba(99,102,241,0.06)" : "rgba(99,102,241,0.12)",
+                  backgroundColor: isLight ? "rgba(249,115,22,0.06)" : "rgba(249,115,22,0.12)",
                   opacity: pressed ? 0.75 : 1,
                 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Open pebble jar details"
-              onPress={onPebblePress}
+              accessibilityLabel="View streak"
+              onPress={onStreakPress}
             >
-              <Text style={{ fontSize: 13, marginRight: 3 }}>🫙</Text>
+              <Text style={{ fontSize: 13, marginRight: 3 }}>🔥</Text>
               <Text
                 style={{
-                  color: colors.primaryLight,
+                  color: isLight ? "#D97706" : "#F97316",
                   fontSize: 12,
                   fontWeight: "800",
                 }}
               >
-                {totalPebbles}
-              </Text>
-            </Pressable>
-          )}
-
-          {gemsBalance !== undefined && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.pebbleCapsule,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: isLight ? "rgba(245,158,11,0.06)" : "rgba(245,158,11,0.12)",
-                  opacity: pressed ? 0.75 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="View gems"
-              onPress={() => router.push("/profile")}
-            >
-              <Text style={{ fontSize: 13, marginRight: 3 }}>💎</Text>
-              <Text
-                style={{
-                  color: "#F59E0B",
-                  fontSize: 12,
-                  fontWeight: "800",
-                }}
-              >
-                {gemsBalance}
+                {streak}
               </Text>
             </Pressable>
           )}

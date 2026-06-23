@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useUndo } from "@/components/ui/UndoContext";
 
-import { Todo, Habit, TaskList } from "../types";
+import { Todo, Habit, TaskList, Collection, CollectionItem } from "../types";
 
 import { pluginManager } from "@/plugin";
 import { type ParsedProductivityItem } from "@/services/nlpParser";
@@ -22,6 +22,9 @@ import {
     addToRecycleBin,
     getRecycleBinItems,
     saveRecycleBinItems,
+    getCollections,
+    saveCollections,
+    COLLECTIONS_STORAGE_KEY,
 } from "@/services/storage";
 import { getActiveSuggestions, logTaskCreation, type SmartSuggestion } from "@/services/suggestions";
 import { DEFAULT_TASK_CATEGORY, normalizeTaskCategory, TASK_CATEGORY_META, type TaskCategory } from "@/services/taskCategories";
@@ -131,8 +134,10 @@ export function useTasksState() {
       : null;
 
   // Segment Selector
-  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits">("tasks");
+  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits" | "vault">("tasks");
+  const [folderSegment, setFolderSegment] = useState<"tasks" | "habits" | "vault">("tasks");
   const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
+  const [collections, setCollections] = useState<Record<string, Collection[]>>({});
 
   // Tasks Screen State
   const [searchQuery, setSearchQuery] = useState("");
@@ -140,6 +145,13 @@ export function useTasksState() {
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
   const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (openedFolderId !== null) {
+      setFolderSegment("tasks");
+    }
+  }, [openedFolderId]);
+
   const [folderModalVisible, setFolderModalVisible] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(null);
@@ -330,6 +342,9 @@ export function useTasksState() {
     console.log("🔍 [displayedHabits] Filtering habits. habits count:", habits.length, "selectedDate:", selectedDate, "dayOfWeek:", dayOfWeek);
 
     const activeHabits = habits.filter((habit) => {
+      if ((habit.folderId || "default") !== selectedList) {
+        return false;
+      }
       if (habit.archived) {
         console.log(`🔍 [displayedHabits] Habit "${habit.title}" is archived`);
         return false;
@@ -369,7 +384,7 @@ export function useTasksState() {
 
     console.log("🔍 [displayedHabits] Final filtered habits:", searchFiltered.map(h => h.title));
     return [...searchFiltered].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [habits, selectedListHabitPriorityFilter, selectedDate, searchQuery, lists]);
+  }, [habits, selectedListHabitPriorityFilter, selectedDate, searchQuery, lists, selectedList]);
 
   const completedHabitCount = habits.length - unfinishedHabitCount;
   const habitCompletionPct = habits.length === 0 ? 0 : completedHabitCount / habits.length;
@@ -507,7 +522,14 @@ export function useTasksState() {
       }
 
       const parsed = JSON.parse(raw) as { dailyHabits: Habit[] };
-      const normalized = normalizeHabitsForToday(parsed.dailyHabits ?? []);
+      // Migrate legacy habits without a folderId to default workspace
+      const migrated = (parsed.dailyHabits ?? []).map((h) => {
+        if (!h.folderId) {
+          return { ...h, folderId: "default" };
+        }
+        return h;
+      });
+      const normalized = normalizeHabitsForToday(migrated);
       console.log("🔍 [loadHabits] Normalized habits:", JSON.stringify(normalized, null, 2));
       setHabits(normalized);
       await persistHabits(normalized);
@@ -670,6 +692,8 @@ export function useTasksState() {
         }
       }
 
+      const destinationWorkspaceId = targetWorkspaceId || openedFolderId || "default";
+
       const newHabit: Habit = {
         id: generatedHabitId,
         title: parsed.title,
@@ -683,7 +707,7 @@ export function useTasksState() {
         recurrence: parsed.recurrence,
         notificationIds,
         category: parsed.category || "health",
-        folderId: targetWorkspaceId || "default",
+        folderId: destinationWorkspaceId,
         createdAt: Date.now(),
         createdDate: getDateKey(),
         startDate: getDateKey(),
@@ -698,7 +722,6 @@ export function useTasksState() {
       showToast(`✓ Habit added to ${catLabel}`);
 
       emitStateChange("habits_changed", "tasks_screen");
-      pluginManager.dispatchHabitCompleted(newHabit);
     }
 
     void syncWidgetData().catch(() => {});
@@ -818,7 +841,13 @@ export function useTasksState() {
       notificationIds,
     };
 
-    const nextHabits = habits.map((h) => (h.id === finalHabit.id ? finalHabit : h));
+    const exists = habits.some((h) => h.id === finalHabit.id);
+    let nextHabits;
+    if (exists) {
+      nextHabits = habits.map((h) => (h.id === finalHabit.id ? finalHabit : h));
+    } else {
+      nextHabits = [finalHabit, ...habits];
+    }
     setHabits(nextHabits);
     await persistHabits(nextHabits);
 
@@ -853,12 +882,22 @@ export function useTasksState() {
     return newId;
   };
 
+  const loadVaultState = useCallback(async () => {
+    try {
+      const items = await getCollections();
+      setCollections(items);
+    } catch (e) {
+      console.warn("Failed to load collections", e);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       void loadState();
       void loadHabits();
       void loadSuggestions();
-    }, [loadState, loadHabits, loadSuggestions])
+      void loadVaultState();
+    }, [loadState, loadHabits, loadSuggestions, loadVaultState])
   );
 
   // Sync notification permissions and channels
@@ -924,6 +963,7 @@ export function useTasksState() {
     setSearchQuery("");
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
+    setFolderSegment(openedFolderId === "unassigned" ? "vault" : "tasks");
   }, [openedFolderId, activeSegment]);
 
   // Listen for global task and habit updates to sync state immediately
@@ -940,11 +980,18 @@ export function useTasksState() {
       }
     });
 
+    const unsubscribeVault = addStateListener("vault_changed", (emitterId) => {
+      if (emitterId !== "tasks_screen") {
+        void loadVaultState();
+      }
+    });
+
     return () => {
       unsubscribeTasks();
       unsubscribeHabits();
+      unsubscribeVault();
     };
-  }, [loadState, loadHabits]);
+  }, [loadState, loadHabits, loadVaultState]);
 
   // Alarms highlight scroll triggers
   useEffect(() => {
@@ -968,14 +1015,19 @@ export function useTasksState() {
   }, [focusTodoId, taskPositions]);
 
   useEffect(() => {
-    if (focusHabitId) {
-      setActiveSegment("habits");
-      setHighlightedHabitId(focusHabitId);
-      const timer = setTimeout(() => setHighlightedHabitId(null), 2200);
-      return () => clearTimeout(timer);
+    if (focusHabitId && habits.length > 0) {
+      const habit = habits.find((h) => h.id === focusHabitId);
+      if (habit) {
+        const folderId = habit.folderId || "default";
+        setOpenedFolderId(folderId);
+        setSelectedList(folderId);
+        setHighlightedHabitId(focusHabitId);
+        const timer = setTimeout(() => setHighlightedHabitId(null), 2200);
+        return () => clearTimeout(timer);
+      }
     }
     return undefined;
-  }, [focusHabitId]);
+  }, [focusHabitId, habits]);
 
   // Task Actions
   const persistState = async (listsToSave: TaskList[], selected: string, todosToSave: Record<string, Todo[]>) => {
@@ -1345,6 +1397,7 @@ export function useTasksState() {
       completedToday: false,
       priority: selectedHabitPriority,
       category: selectedTodoCategory || "health",
+      folderId: selectedList || "default", // Enforce active folder ownership
       createdAt: Date.now(),
       createdDate: getDateKey(),
       startDate: getDateKey(),
@@ -1525,8 +1578,11 @@ export function useTasksState() {
   };
 
   const handleBulkComplete = async () => {
-    const isTask = activeSegment === "tasks";
-    if (isTask) {
+    const selectedIdsArray = Array.from(selectedItemIds);
+    const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
+    const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
+
+    if (taskIds.length > 0) {
       const nextTodos = { ...todos };
       for (const listId in nextTodos) {
         nextTodos[listId] = nextTodos[listId].map((t) => {
@@ -1539,7 +1595,9 @@ export function useTasksState() {
       setTodos(nextTodos);
       await persistState(lists, selectedList, nextTodos);
       emitStateChange("tasks_changed", "tasks_screen");
-    } else {
+    }
+
+    if (habitIds.length > 0) {
       const today = getDateKey();
       const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
       const nextHabits = habits.map((h) => {
@@ -1565,14 +1623,18 @@ export function useTasksState() {
       await persistHabits(nextHabits);
       emitStateChange("habits_changed", "tasks_screen");
     }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
   };
 
   const handleBulkArchive = async () => {
-    const isTask = activeSegment === "tasks";
-    if (isTask) {
+    const selectedIdsArray = Array.from(selectedItemIds);
+    const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
+    const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
+
+    if (taskIds.length > 0) {
       const nextTodos = { ...todos };
       for (const listId in nextTodos) {
         nextTodos[listId] = nextTodos[listId].map((t) => {
@@ -1586,7 +1648,9 @@ export function useTasksState() {
       setTodos(nextTodos);
       await persistState(lists, selectedList, nextTodos);
       emitStateChange("tasks_changed", "tasks_screen");
-    } else {
+    }
+
+    if (habitIds.length > 0) {
       const nextHabits = habits.map((h) => {
         if (selectedItemIds.has(h.id)) {
           void cancelReminderIds(h.notificationIds || []);
@@ -1598,6 +1662,7 @@ export function useTasksState() {
       await persistHabits(nextHabits);
       emitStateChange("habits_changed", "tasks_screen");
     }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
@@ -1614,10 +1679,12 @@ export function useTasksState() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            const isTask = activeSegment === "tasks";
+            const selectedIdsArray = Array.from(selectedItemIds);
+            const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
+            const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
             const originalWorkspaceName = lists.find((l) => l.id === selectedList)?.name || "Default";
 
-            if (isTask) {
+            if (taskIds.length > 0) {
               const listTodos = todos[selectedList] ?? [];
               const todosToDelete = listTodos.filter((t) => selectedItemIds.has(t.id));
 
@@ -1636,7 +1703,7 @@ export function useTasksState() {
               emitStateChange("tasks_changed", "tasks_screen");
 
               showUndo({
-                message: `Deleted ${itemCount} task(s)`,
+                message: `Deleted ${taskIds.length} task(s)`,
                 onUndo: async () => {
                   const binItems = await getRecycleBinItems();
                   await saveRecycleBinItems(binItems.filter((item) => !selectedItemIds.has(item.id)));
@@ -1665,7 +1732,9 @@ export function useTasksState() {
                   emitStateChange("tasks_changed", "tasks_screen");
                 },
               });
-            } else {
+            }
+
+            if (habitIds.length > 0) {
               const habitsToDelete = habits.filter((h) => selectedItemIds.has(h.id));
 
               for (const habit of habitsToDelete) {
@@ -1680,7 +1749,7 @@ export function useTasksState() {
               emitStateChange("habits_changed", "tasks_screen");
 
               showUndo({
-                message: `Deleted ${itemCount} habit(s)`,
+                message: `Deleted ${habitIds.length} habit(s)`,
                 onUndo: async () => {
                   const binItems = await getRecycleBinItems();
                   await saveRecycleBinItems(binItems.filter((item) => !selectedItemIds.has(item.id)));
@@ -1703,6 +1772,7 @@ export function useTasksState() {
                 },
               });
             }
+
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
             setIsBulkSelectActive(false);
             setSelectedItemIds(new Set());
@@ -1714,8 +1784,11 @@ export function useTasksState() {
 
   const handleBulkMove = async (targetFolderId: string) => {
     setIsMoveModalVisible(false);
-    const isTask = activeSegment === "tasks";
-    if (isTask) {
+    const selectedIdsArray = Array.from(selectedItemIds);
+    const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
+    const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
+
+    if (taskIds.length > 0) {
       const nextTodos = { ...todos };
       const itemsToMove: Todo[] = [];
       for (const listId in nextTodos) {
@@ -1736,7 +1809,9 @@ export function useTasksState() {
       setTodos(nextTodos);
       await persistState(lists, selectedList, nextTodos);
       emitStateChange("tasks_changed", "tasks_screen");
-    } else {
+    }
+
+    if (habitIds.length > 0) {
       const nextHabits = habits.map((h) => {
         if (selectedItemIds.has(h.id)) {
           return { ...h, folderId: targetFolderId, lastUpdated: getDateKey() };
@@ -1747,14 +1822,205 @@ export function useTasksState() {
       await persistHabits(nextHabits);
       emitStateChange("habits_changed", "tasks_screen");
     }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
   };
 
+  const createCollection = async (workspaceId: string, name: string, emoji: string) => {
+    try {
+      const allCollections = { ...collections };
+      if (!allCollections[workspaceId]) {
+        allCollections[workspaceId] = [];
+      }
+      const newColl: Collection = {
+        id: `coll-${Date.now()}`,
+        workspaceId,
+        name,
+        emoji,
+        createdAt: Date.now(),
+        items: [],
+        archived: false
+      };
+      allCollections[workspaceId] = [...allCollections[workspaceId], newColl];
+      setCollections(allCollections);
+      await saveCollections(allCollections);
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      showToast(`✓ Collection "${name}" created`);
+    } catch (e) {
+      console.warn("Failed to create collection", e);
+    }
+  };
+
+  const deleteCollection = async (collectionId: string, workspaceId: string) => {
+    try {
+      const allCollections = { ...collections };
+      const list = allCollections[workspaceId] || [];
+      const collToDelete = list.find((c) => c.id === collectionId);
+      if (collToDelete) {
+        await addToRecycleBin("collection", collToDelete, `${workspaceId}`);
+      }
+      allCollections[workspaceId] = list.filter((c) => c.id !== collectionId);
+      setCollections(allCollections);
+      await saveCollections(allCollections);
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      showToast("✓ Collection deleted (Recycle Bin)");
+    } catch (e) {
+      console.warn("Failed to delete collection", e);
+    }
+  };
+
+  const renameCollection = async (collectionId: string, workspaceId: string, newName: string, newEmoji: string) => {
+    try {
+      const allCollections = { ...collections };
+      const list = allCollections[workspaceId] || [];
+      allCollections[workspaceId] = list.map((c) =>
+        c.id === collectionId ? { ...c, name: newName, emoji: newEmoji } : c
+      );
+      setCollections(allCollections);
+      await saveCollections(allCollections);
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      showToast("✓ Collection renamed");
+    } catch (e) {
+      console.warn("Failed to rename collection", e);
+    }
+  };
+
+  const addCollectionItem = async (
+    workspaceId: string,
+    collectionId: string,
+    item: Omit<CollectionItem, "id" | "createdAt">
+  ) => {
+    try {
+      const allCollections = { ...collections };
+      const list = allCollections[workspaceId] || [];
+      const collectionIndex = list.findIndex((c) => c.id === collectionId);
+      if (collectionIndex > -1) {
+        const newItem: CollectionItem = {
+          ...item,
+          id: `item-${Date.now()}`,
+          createdAt: Date.now(),
+          archived: false,
+        };
+        const targetCollection = { ...list[collectionIndex] };
+        targetCollection.items = [newItem, ...targetCollection.items];
+        
+        const updatedList = [...list];
+        updatedList[collectionIndex] = targetCollection;
+        allCollections[workspaceId] = updatedList;
+        
+        setCollections(allCollections);
+        await saveCollections(allCollections);
+        emitStateChange("vault_changed", "tasks_screen");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        showToast("✓ Reference added to collection");
+      }
+    } catch (e) {
+      console.warn("Failed to add collection item", e);
+    }
+  };
+
+  const deleteCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
+    try {
+      const allCollections = { ...collections };
+      const list = allCollections[workspaceId] || [];
+      const collectionIndex = list.findIndex((c) => c.id === collectionId);
+      if (collectionIndex > -1) {
+        const targetCollection = { ...list[collectionIndex] };
+        const itemToDelete = targetCollection.items.find((i) => i.id === itemId);
+        if (itemToDelete) {
+          await addToRecycleBin("collection_item", itemToDelete, `${workspaceId}:${collectionId}`);
+        }
+        targetCollection.items = targetCollection.items.filter((i) => i.id !== itemId);
+        
+        const updatedList = [...list];
+        updatedList[collectionIndex] = targetCollection;
+        allCollections[workspaceId] = updatedList;
+        
+        setCollections(allCollections);
+        await saveCollections(allCollections);
+        emitStateChange("vault_changed", "tasks_screen");
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+        showToast("✓ Item deleted (Recycle Bin)");
+      }
+    } catch (e) {
+      console.warn("Failed to delete collection item", e);
+    }
+  };
+
+  const toggleArchiveCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
+    try {
+      const allCollections = { ...collections };
+      const list = allCollections[workspaceId] || [];
+      const collectionIndex = list.findIndex((c) => c.id === collectionId);
+      if (collectionIndex > -1) {
+        const targetCollection = { ...list[collectionIndex] };
+        targetCollection.items = targetCollection.items.map((i) =>
+          i.id === itemId ? { ...i, archived: !i.archived } : i
+        );
+        
+        const updatedList = [...list];
+        updatedList[collectionIndex] = targetCollection;
+        allCollections[workspaceId] = updatedList;
+        
+        setCollections(allCollections);
+        await saveCollections(allCollections);
+        emitStateChange("vault_changed", "tasks_screen");
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        const isArchived = targetCollection.items.find((i) => i.id === itemId)?.archived;
+        showToast(isArchived ? "✓ Item archived" : "✓ Item unarchived");
+      }
+    } catch (e) {
+      console.warn("Failed to toggle archive on collection item", e);
+    }
+  };
+
+  const convertCollectionItemToTask = async (item: CollectionItem, targetWorkspaceId?: string) => {
+    try {
+      const destinationWorkspaceId = targetWorkspaceId || "default";
+      const newTask: Todo = {
+        id: String(Date.now()),
+        title: item.title,
+        description: item.content || undefined,
+        completed: false,
+        category: "work",
+        priority: "medium",
+        scheduledDate: getDateKey(),
+        folderId: destinationWorkspaceId === "unassigned" ? "default" : destinationWorkspaceId,
+        createdAt: Date.now(),
+        createdDate: getDateKey(),
+      };
+
+      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+      const todosState = rawTodos ? JSON.parse(rawTodos) : { lists: [], selectedList: "default", todos: {} };
+      if (!todosState.todos) todosState.todos = {};
+      const targetListId = newTask.folderId || "default";
+      if (!todosState.todos[targetListId]) todosState.todos[targetListId] = [];
+      todosState.todos[targetListId] = [newTask, ...todosState.todos[targetListId]];
+
+      await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(todosState));
+      setTodos(todosState.todos);
+
+      await earnPebble("task");
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      emitStateChange("tasks_changed", "tasks_screen");
+      emitStateChange("profile_changed", "tasks_screen");
+      showToast("✓ Task created from reference (+10 XP!)");
+    } catch (e) {
+      console.warn("Failed to convert collection item to task", e);
+    }
+  };
+
   return {
     activeSegment,
     setActiveSegment,
+    folderSegment,
+    setFolderSegment,
     selectedDate,
     setSelectedDate,
     searchQuery,
@@ -1829,6 +2095,8 @@ export function useTasksState() {
     setNlpVisible,
     activeSuggestions,
     setActiveSuggestions,
+    collections,
+    setCollections,
 
     // Refs
     scrollViewRef,
@@ -1887,5 +2155,13 @@ export function useTasksState() {
     handleBulkArchive,
     handleBulkDelete,
     handleBulkMove,
+    createCollection,
+    deleteCollection,
+    renameCollection,
+    addCollectionItem,
+    deleteCollectionItem,
+    toggleArchiveCollectionItem,
+    convertCollectionItemToTask,
+    loadVaultState,
   };
 }

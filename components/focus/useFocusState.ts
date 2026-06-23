@@ -1,6 +1,6 @@
 import { AMBIENT_SOUNDS } from "@/constants/sounds";
 import { earnPebble } from "@/services/pebbleService";
-import { emitStateChange } from "@/services/stateEvents";
+import { emitStateChange, addStateListener } from "@/services/stateEvents";
 import { TODOS_STORAGE_KEY } from "@/services/storage";
 import { syncWidgetData } from "@/services/widgetData";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -273,6 +273,16 @@ export function useFocusState() {
     }, []),
   );
 
+  // Synchronize focus timer immediately when focus_changed is emitted (e.g. from bottom tab drawer presets)
+  useEffect(() => {
+    const unsub = addStateListener("focus_changed", (emitterId) => {
+      if (emitterId === "useFocusState") return;
+      syncTimerFromSessionState();
+      syncStopwatchFromState();
+    });
+    return unsub;
+  }, []);
+
   // AppState listening for background/kill resilience
   useEffect(() => {
     const handleAppStateChange = (nextState: AppStateStatus) => {
@@ -529,14 +539,14 @@ export function useFocusState() {
           lastSaved: Date.now(),
         }),
       );
-      emitStateChange("focus_changed");
+      emitStateChange("focus_changed", "useFocusState");
     } catch {}
   };
 
   const clearActiveSession = async () => {
     try {
       await AsyncStorage.removeItem("todoapp:focus:current_session");
-      emitStateChange("focus_changed");
+      emitStateChange("focus_changed", "useFocusState");
     } catch {}
   };
 
@@ -544,12 +554,12 @@ export function useFocusState() {
     try {
       const raw = await AsyncStorage.getItem("todoapp:focus:current_session");
       if (!raw) {
-        emitStateChange("focus_changed");
+        emitStateChange("focus_changed", "useFocusState");
         return;
       }
       const session = JSON.parse(raw);
       if (!session) {
-        emitStateChange("focus_changed");
+        emitStateChange("focus_changed", "useFocusState");
         return;
       }
 
@@ -597,7 +607,7 @@ export function useFocusState() {
           startTimeRef.current = session.startTime;
         }
       }
-      emitStateChange("focus_changed");
+      emitStateChange("focus_changed", "useFocusState");
     } catch {}
   };
 
@@ -895,7 +905,7 @@ export function useFocusState() {
           elapsedBeforeStartRef.current = 0;
           setIsActive(true);
           startTimeRef.current = Date.now();
-          emitStateChange("focus_changed");
+          emitStateChange("focus_changed", "useFocusState");
         },
       },
       {
@@ -909,7 +919,7 @@ export function useFocusState() {
           loggedMinutesInCurrentSessionRef.current = 0;
           elapsedBeforeStartRef.current = 0;
           setIsActive(false);
-          emitStateChange("focus_changed");
+          emitStateChange("focus_changed", "useFocusState");
         },
       },
     ]);
@@ -924,7 +934,7 @@ export function useFocusState() {
     elapsedBeforeStartRef.current = 0;
     loggedMinutesInCurrentSessionRef.current = 0;
     setIsActive(false);
-    emitStateChange("focus_changed");
+    emitStateChange("focus_changed", "useFocusState");
   };
 
   const handleTimerExpiration = async () => {

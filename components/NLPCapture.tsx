@@ -213,11 +213,19 @@ export default function NLPCapture({
     }
 
     const fetchSuggestions = async () => {
+      // Merge tasks and habits for suggestion scoring
+      const combinedItems: Record<string, { title: string; category?: string }[]> = {};
+      for (const ws of filteredWorkspaces) {
+        const wsTodos = filteredTodos[ws.id] || [];
+        const wsHabits = filteredHabits.filter(h => (h.folderId || "default") === ws.id);
+        combinedItems[ws.id] = [...wsTodos, ...wsHabits];
+      }
+
       const results = await getWorkspaceSuggestions(
         parsedItem.title,
         parsedItem.category || (parsedItem.type === "habit" ? "health" : "work"),
         filteredWorkspaces,
-        filteredTodos
+        combinedItems
       );
       
       const top = results[0];
@@ -819,8 +827,8 @@ export default function NLPCapture({
                       </Text>
                     </View>
                   )}
-                  {/* Workspace Selector — tasks only; habits live on Daily screen */}
-                {parsedItem.type === "task" && filteredWorkspaces.length > 0 && (
+                  {/* Workspace Selector — enabled for tasks and habits */}
+                {filteredWorkspaces.length > 0 && (
                   <View style={styles.workspaceSelectorContainer}>
                     <Text style={[styles.workspaceLabel, { color: textMuted }]}>📂 Workspace</Text>
                     
@@ -1004,16 +1012,14 @@ export default function NLPCapture({
                     </View>
                   </View>
                 )}
-                </View>
 
-                {/* Visual Feedback Badge — tasks only */}
-                {parsedItem.type === "task" && (
-                  <View style={styles.destinationBadge}>
-                    <Text style={[styles.destinationBadgeText, { color: textMuted }]}>
-                      Saving to {filteredWorkspaces.find(w => w.id === selectedWorkspaceId)?.name || "My Pebbles"}
-                    </Text>
-                  </View>
-                )}
+                {/* Visual Feedback Badge */}
+                <View style={styles.destinationBadge}>
+                  <Text style={[styles.destinationBadgeText, { color: textMuted }]}>
+                    Saving to {filteredWorkspaces.find(w => w.id === selectedWorkspaceId)?.name || "My Pebbles"}
+                  </Text>
+                </View>
+                </View>
 
                 {/* ── Duplicate Warning Card ──────────────────────────────── */}
                 {duplicateMatch && (
@@ -1195,7 +1201,7 @@ export default function NLPCapture({
                 >
                   <Feather name="plus-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
                   <Text style={styles.saveBtnText}>
-                    {parsedItem.type === "task" && selectedWorkspaceId !== "default"
+                    {selectedWorkspaceId !== "default"
                       ? `Add to ${filteredWorkspaces.find(w => w.id === selectedWorkspaceId)?.name || "Workspace"}`
                       : parsedItem.type === "task" ? "Add to Workspace" : "Add Habit"}
                   </Text>

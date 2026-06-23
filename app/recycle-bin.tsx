@@ -38,7 +38,7 @@ export default function RecycleBinScreen() {
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<RecycleBinItem[]>([]);
-  const [activeTab, setActiveTab] = useState<"task" | "habit" | "workspace">("task");
+  const [activeTab, setActiveTab] = useState<"task" | "habit" | "workspace" | "vault">("task");
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
@@ -71,6 +71,14 @@ export default function RecycleBinScreen() {
       }
       if (item.itemType === "habit" || item.itemType === "workspace") {
         emitStateChange("habits_changed");
+      }
+      if (
+        item.itemType === "vault" ||
+        item.itemType === "collection" ||
+        item.itemType === "collection_item" ||
+        item.itemType === "workspace"
+      ) {
+        emitStateChange("vault_changed");
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -129,12 +137,17 @@ export default function RecycleBinScreen() {
   };
 
   const handleRestoreAll = async () => {
-    const tabItems = filteredItems.filter((i) => i.itemType === activeTab);
+    const tabItems = filteredItems.filter((i) => {
+      if (activeTab === "vault") {
+        return i.itemType === "vault" || i.itemType === "collection" || i.itemType === "collection_item";
+      }
+      return i.itemType === activeTab;
+    });
     if (tabItems.length === 0) return;
 
     Alert.alert(
       "Restore All",
-      `Are you sure you want to restore all ${tabItems.length} selected ${activeTab}(s)?`,
+      `Are you sure you want to restore all ${tabItems.length} selected ${activeTab === "vault" ? "collection" : activeTab}(s)?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -154,6 +167,9 @@ export default function RecycleBinScreen() {
               }
               if (activeTab === "habit" || activeTab === "workspace") {
                 emitStateChange("habits_changed");
+              }
+              if (activeTab === "vault" || activeTab === "workspace") {
+                emitStateChange("vault_changed");
               }
 
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -222,7 +238,12 @@ export default function RecycleBinScreen() {
   }, [items, searchQuery]);
 
   const activeTabItems = useMemo(() => {
-    return filteredItems.filter((i) => i.itemType === activeTab);
+    return filteredItems.filter((i) => {
+      if (activeTab === "vault") {
+        return i.itemType === "vault" || i.itemType === "collection" || i.itemType === "collection_item";
+      }
+      return i.itemType === activeTab;
+    });
   }, [filteredItems, activeTab]);
 
   const formatDate = (timestamp: number) => {
@@ -279,8 +300,13 @@ export default function RecycleBinScreen() {
       {/* Tabs */}
       <View style={styles.tabsWrapper}>
         <View style={[styles.tabsContainer, { backgroundColor: isLight ? "#E2E8F0" : "#27272A" }]}>
-          {(["task", "habit", "workspace"] as const).map((tab) => {
-            const count = items.filter((i) => i.itemType === tab).length;
+          {(["task", "habit", "workspace", "vault"] as const).map((tab) => {
+            const count = items.filter((i) => {
+              if (tab === "vault") {
+                return i.itemType === "vault" || i.itemType === "collection" || i.itemType === "collection_item";
+              }
+              return i.itemType === tab;
+            }).length;
             const isActive = activeTab === tab;
             return (
               <TouchableOpacity
@@ -310,7 +336,7 @@ export default function RecycleBinScreen() {
                     },
                   ]}
                 >
-                  {tab === "task" ? "Tasks" : tab === "habit" ? "Habits" : "Workspaces"}
+                  {tab === "task" ? "Tasks" : tab === "habit" ? "Habits" : tab === "workspace" ? "Workspaces" : "Collections"}
                   {count > 0 && ` (${count})`}
                 </Text>
               </TouchableOpacity>
@@ -323,7 +349,7 @@ export default function RecycleBinScreen() {
       {activeTabItems.length > 0 && (
         <View style={styles.bulkRow}>
           <Text style={[styles.tabSummary, { color: colors.textMuted }]}>
-            Showing {activeTabItems.length} deleted {activeTab}(s)
+            Showing {activeTabItems.length} deleted {activeTab === "vault" ? "collection" : activeTab}(s)
           </Text>
           <TouchableOpacity
             style={[styles.restoreAllBtn, { borderColor: colors.primary }]}

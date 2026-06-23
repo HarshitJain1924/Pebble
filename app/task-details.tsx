@@ -9,6 +9,8 @@ import {
   Platform,
   Alert,
   Modal,
+  Linking,
+  Pressable,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -19,8 +21,8 @@ import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/components/ui/AppText";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { type Todo, type Habit, type TaskList } from "@/modules/types";
-import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY, HISTORY_STORAGE_KEY, addToRecycleBin, getRecycleBinItems, saveRecycleBinItems } from "@/services/storage";
+import { type Todo, type Habit, type TaskList, type Collection, type CollectionItem } from "@/modules/types";
+import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY, HISTORY_STORAGE_KEY, addToRecycleBin, getRecycleBinItems, saveRecycleBinItems, getCollections, saveCollections } from "@/services/storage";
 import { emitStateChange } from "@/services/stateEvents";
 import { cancelReminderIds, scheduleReminderBatch, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
 import { TimeSelectorDial } from "@/components/TimeSelectorDial";
@@ -98,6 +100,60 @@ export default function TaskDetailsScreen() {
   const [showDeleteSafetyModal, setShowDeleteSafetyModal] = useState(false);
   const [showEditRecurringModal, setShowEditRecurringModal] = useState(false);
 
+  // Resources state
+  const [resourcesSheetVisible, setResourcesSheetVisible] = useState(false);
+  const [linkPickerVisible, setLinkPickerVisible] = useState(false);
+  const [collections, setCollections] = useState<Record<string, Collection[]>>({});
+  const [linkedCollectionIds, setLinkedCollectionIds] = useState<string[]>([]);
+  const [activeFilter, setActiveFilter] = useState<"All" | "Links" | "Notes" | "Images">("All");
+  
+  // Quick Add Collection State
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [isCreatingCollection, setIsCreatingCollection] = useState(false);
+
+  // Viewing/Preview states
+  const [viewingNote, setViewingNote] = useState<CollectionItem | null>(null);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
+
+  const allCollectionsList = useMemo(() => {
+    return Object.values(collections).flat();
+  }, [collections]);
+
+  const linkedCollections = useMemo(() => {
+    return allCollectionsList.filter(col => linkedCollectionIds.includes(col.id));
+  }, [allCollectionsList, linkedCollectionIds]);
+
+  const totalResourceItems = useMemo(() => {
+    return linkedCollections.reduce((sum, col) => sum + (col.items?.filter(item => !item.archived).length || 0), 0);
+  }, [linkedCollections]);
+
+  const resourcePreviewText = useMemo(() => {
+    if (linkedCollections.length === 0) return "";
+    return linkedCollections.map(col => col.name).join(", ");
+  }, [linkedCollections]);
+
+  const allResourceItems = useMemo(() => {
+    const list: (CollectionItem & { collectionName: string })[] = [];
+    linkedCollections.forEach(col => {
+      if (col.items) {
+        col.items.forEach(item => {
+          if (!item.archived) {
+            list.push({ ...item, collectionName: col.name });
+          }
+        });
+      }
+    });
+    return list.sort((a, b) => b.createdAt - a.createdAt);
+  }, [linkedCollections]);
+
+  const filteredResourceItems = useMemo(() => {
+    if (activeFilter === "All") return allResourceItems;
+    if (activeFilter === "Links") return allResourceItems.filter(item => item.type === "link" || item.url);
+    if (activeFilter === "Notes") return allResourceItems.filter(item => item.type === "note");
+    if (activeFilter === "Images") return allResourceItems.filter(item => item.type === "image");
+    return allResourceItems;
+  }, [allResourceItems, activeFilter]);
+
   const hasChanges = useMemo(() => {
     if (!item) return false;
     
@@ -116,6 +172,11 @@ export default function TaskDetailsScreen() {
     const sortedDaysCurrent = [...reminderDays].sort();
     const sortedDaysItem = [...(item.reminderDays || [])].sort();
     if (JSON.stringify(sortedDaysCurrent) !== JSON.stringify(sortedDaysItem)) return true;
+
+    // Compare linked collections
+    const sortedLinkedCurrent = [...linkedCollectionIds].sort();
+    const sortedLinkedItem = [...(item.linkedCollectionIds || [])].sort();
+    if (JSON.stringify(sortedLinkedCurrent) !== JSON.stringify(sortedLinkedItem)) return true;
 
     // Compare recurrence
     const itemRecType = item.recurrence?.type || "none";
@@ -149,6 +210,7 @@ export default function TaskDetailsScreen() {
     reminderHour,
     reminderMinute,
     reminderDays,
+    linkedCollectionIds,
     recurrenceType,
     intervalVal,
     intervalUnit,
@@ -173,6 +235,10 @@ export default function TaskDetailsScreen() {
         loadedWorkspaces = parsed.lists || [];
         setWorkspaces(loadedWorkspaces);
       }
+
+      // Load collections
+      const loadedCollections = await getCollections();
+      setCollections(loadedCollections);
 
       if (itemType === "task") {
         if (rawTodosObj) {
@@ -257,6 +323,7 @@ export default function TaskDetailsScreen() {
     setReminderHour(data.reminderHour);
     setReminderMinute(data.reminderMinute);
     setReminderDays(data.reminderDays || []);
+    setLinkedCollectionIds(data.linkedCollectionIds || []);
 
     if (data.recurrence) {
       setRecurrenceType(data.recurrence.type);
@@ -323,6 +390,7 @@ export default function TaskDetailsScreen() {
           completed: false,
           completedToday: false,
           streak: 0,
+          linkedCollectionIds, // Add linked collections to the copy
         };
 
         // 2. Add current date to exceptions of the master
@@ -389,6 +457,7 @@ export default function TaskDetailsScreen() {
           reminderDays: recurrenceType === "weekly" ? recurrenceDays : recurrenceType === "weekdays" ? [1, 2, 3, 4, 5] : reminderDays,
           recurrence: updatedRecurrence,
           lastUpdated: getDateKey(),
+          linkedCollectionIds, // Save linked collections
         };
 
         // Cancel previous notifications
@@ -762,6 +831,42 @@ export default function TaskDetailsScreen() {
     );
   };
 
+  const availableCollectionsForPicker = useMemo(() => {
+    return Object.values(collections).flat().filter(c => !c.archived);
+  }, [collections]);
+
+  const handleCreateNewCollection = async () => {
+    if (!newCollectionName.trim()) return;
+    try {
+      const newColId = `collection-${Date.now()}`;
+      const newCol: Collection = {
+        id: newColId,
+        workspaceId: workspaceId || "default",
+        name: newCollectionName.trim(),
+        emoji: "📚",
+        createdAt: Date.now(),
+        items: [],
+      };
+      
+      const allCols = { ...collections };
+      const fId = workspaceId || "default";
+      if (!allCols[fId]) allCols[fId] = [];
+      allCols[fId].push(newCol);
+      
+      await saveCollections(allCols);
+      setCollections(allCols);
+      
+      // Auto-select the newly created collection
+      setLinkedCollectionIds(prev => [...prev, newColId]);
+      
+      setNewCollectionName("");
+      setIsCreatingCollection(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } catch (e) {
+      console.warn("Failed to create collection", e);
+    }
+  };
+
   if (loading || !item) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
@@ -1021,6 +1126,47 @@ export default function TaskDetailsScreen() {
                 </>
               )}
             </View>
+
+            {/* Resources Card (Tappable) */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: colors.card,
+                borderRadius: 20,
+                borderWidth: 1.5,
+                borderColor: colors.border,
+                padding: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginTop: 8,
+              }}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setResourcesSheetVisible(true);
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  backgroundColor: `${colors.primary}15`,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}>
+                  <Feather name="folder" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>
+                    {linkedCollectionIds.length} {linkedCollectionIds.length === 1 ? "Resource" : "Resources"}
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
+                    {resourcePreviewText || "No resources attached"}
+                  </Text>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
 
             {/* Completion History Calendar (Habits Only) */}
             {!isTask && (
@@ -1498,6 +1644,73 @@ export default function TaskDetailsScreen() {
               )}
             </View>
 
+            {/* Linked Resources Section */}
+            <View style={[styles.metaCard, { backgroundColor: colors.card, borderColor: colors.border, padding: 12, gap: 10 }]}>
+              <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>
+                Linked Resources (Optional)
+              </Text>
+              
+              <View style={{ gap: 8 }}>
+                {linkedCollections.map((col) => (
+                  <View
+                    key={col.id}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff",
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      padding: 10,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text style={{ fontSize: 16 }}>{col.emoji || "📚"}</Text>
+                      <View>
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>{col.name}</Text>
+                        <Text style={{ color: colors.textMuted, fontSize: 12 }}>{col.items?.filter(i => !i.archived).length || 0} items</Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        setLinkedCollectionIds(prev => prev.filter(id => id !== col.id));
+                      }}
+                      style={{ padding: 4 }}
+                    >
+                      <Feather name="x" size={16} color={colors.error} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    padding: 12,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderStyle: "dashed",
+                    borderColor: colors.primary,
+                    backgroundColor: `${colors.primary}05`,
+                    marginTop: 4,
+                  }}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    setLinkPickerVisible(true);
+                  }}
+                >
+                  <Feather name="plus" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
+                    Link a Resource List
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {/* Cancel Button */}
             <TouchableOpacity
               style={[styles.actionButton, { borderColor: colors.border, alignSelf: "center", width: "50%", marginTop: 12 }]}
@@ -1633,6 +1846,422 @@ export default function TaskDetailsScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Resources Bottom Sheet */}
+      <Modal
+        visible={resourcesSheetVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setResourcesSheetVisible(false)}
+      >
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <Pressable
+            style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0, 0, 0, 0.4)" }}
+            onPress={() => setResourcesSheetVisible(false)}
+          />
+          <View style={{
+            backgroundColor: colors.card,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingTop: 16,
+            paddingHorizontal: 20,
+            paddingBottom: Platform.OS === "ios" ? 36 : 24,
+            maxHeight: "80%",
+            borderWidth: 1.5,
+            borderColor: colors.border,
+          }}>
+            {/* Header */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                  {title} Resources
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                  {totalResourceItems} {totalResourceItems === 1 ? "item" : "items"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setResourcesSheetVisible(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: isDark ? "#27272A" : "#F1F5F9",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <Feather name="x" size={16} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Filter Chips Bar */}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+              {(["All", "Links", "Notes", "Images"] as const).map((filter) => {
+                const isActive = activeFilter === filter;
+                return (
+                  <TouchableOpacity
+                    key={filter}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 8,
+                      borderRadius: 20,
+                      backgroundColor: isActive ? colors.primary : (isDark ? "#27272A" : "#E4E4E7"),
+                    }}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setActiveFilter(filter);
+                    }}
+                  >
+                    <Text style={{ color: isActive ? "#FFFFFF" : colors.text, fontSize: 13, fontWeight: "600" }}>
+                      {filter}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Resource Items List */}
+            <ScrollView showsVerticalScrollIndicator={false} style={{ minHeight: 180, marginBottom: 16 }}>
+              {filteredResourceItems.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: "center" }}>
+                  <Feather name="folder" size={32} color={colors.textMuted} />
+                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
+                    No matching resources found
+                  </Text>
+                </View>
+              ) : (
+                filteredResourceItems.map((res) => {
+                  let icon = "file-text";
+                  let iconColor = "#10B981"; // green
+                  if (res.type === "link" || res.url) {
+                    icon = "play";
+                    iconColor = "#EF4444"; // red
+                  } else if (res.type === "image" || res.mediaUri) {
+                    icon = "image";
+                    iconColor = "#3B82F6"; // blue
+                  }
+
+                  return (
+                    <TouchableOpacity
+                      key={res.id}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingVertical: 12,
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: colors.border,
+                      }}
+                      onPress={async () => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        if (res.type === "link" || res.url) {
+                          let destUrl = res.url || res.content;
+                          if (destUrl) {
+                            if (!/^https?:\/\//i.test(destUrl)) {
+                              destUrl = "https://" + destUrl;
+                            }
+                            try {
+                              await Linking.openURL(destUrl);
+                            } catch (err) {
+                              Alert.alert("Error", "Could not open link: " + destUrl);
+                            }
+                          }
+                        } else if (res.type === "note") {
+                          setViewingNote(res);
+                        } else if (res.type === "image" && res.mediaUri) {
+                          setViewingImage(res.mediaUri);
+                        }
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                        <View style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 8,
+                          backgroundColor: `${iconColor}15`,
+                          alignItems: "center",
+                          justifyContent: "center"
+                        }}>
+                          <Feather name={icon as any} size={16} color={iconColor} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }} numberOfLines={1}>
+                            {res.title}
+                          </Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                            {res.collectionName} • {res.type}
+                          </Text>
+                        </View>
+                      </View>
+                      <Feather name="chevron-right" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            {/* Footer */}
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                paddingVertical: 12,
+                borderWidth: 1.5,
+                borderColor: colors.border,
+                borderRadius: 14,
+                gap: 8,
+              }}
+              onPress={() => {
+                setResourcesSheetVisible(false);
+                router.push("/(tabs)/tasks");
+              }}
+            >
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 14 }}>
+                Open in Workspace →
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Link Resources Picker Modal */}
+      <Modal
+        visible={linkPickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setLinkPickerVisible(false)}
+      >
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <Pressable
+            style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0, 0, 0, 0.4)" }}
+            onPress={() => {
+              setLinkPickerVisible(false);
+              setIsCreatingCollection(false);
+            }}
+          />
+          <View style={{
+            backgroundColor: colors.card,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingTop: 16,
+            paddingHorizontal: 20,
+            paddingBottom: Platform.OS === "ios" ? 36 : 24,
+            maxHeight: "75%",
+            borderWidth: 1.5,
+            borderColor: colors.border,
+          }}>
+            {/* Header */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <View>
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                  Link Resources
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                  Select existing collections or create a new one
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setLinkPickerVisible(false);
+                  setIsCreatingCollection(false);
+                }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: isDark ? "#27272A" : "#F1F5F9",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <Feather name="x" size={16} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* List */}
+            <ScrollView showsVerticalScrollIndicator={false} style={{ minHeight: 180, marginBottom: 16 }}>
+              {availableCollectionsForPicker.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: "center" }}>
+                  <Feather name="folder" size={32} color={colors.textMuted} />
+                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
+                    No collections found. Create one below!
+                  </Text>
+                </View>
+              ) : (
+                availableCollectionsForPicker.map((col) => {
+                  const isChecked = linkedCollectionIds.includes(col.id);
+                  return (
+                    <TouchableOpacity
+                      key={col.id}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingVertical: 12,
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: colors.border,
+                      }}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        setLinkedCollectionIds(prev =>
+                          isChecked ? prev.filter(id => id !== col.id) : [...prev, col.id]
+                        );
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <Text style={{ fontSize: 18 }}>{col.emoji || "📚"}</Text>
+                        <View>
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
+                            {col.name}
+                          </Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                            {col.items?.filter(i => !i.archived).length || 0} items
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 11,
+                        borderWidth: 1.5,
+                        borderColor: isChecked ? colors.primary : colors.textMuted,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: isChecked ? colors.primary : "transparent",
+                      }}>
+                        {isChecked && <Feather name="check" size={12} color="#FFFFFF" />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            {/* Quick Create Collection Form */}
+            {isCreatingCollection ? (
+              <View style={{ gap: 10, marginTop: 8, padding: 12, backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#F8FAFC", borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700" }}>Create New Collection</Text>
+                <TextInput
+                  style={[styles.textInput, { height: 40, color: colors.text, borderColor: colors.border, backgroundColor: isDark ? "#000" : "#fff", paddingVertical: 0 }]}
+                  value={newCollectionName}
+                  onChangeText={setNewCollectionName}
+                  placeholder="Collection Name (e.g. Chord Sheets)"
+                  placeholderTextColor={colors.textMuted}
+                />
+                <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+                  <TouchableOpacity
+                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: isDark ? "#27272A" : "#E2E8F0" }}
+                    onPress={() => {
+                      setIsCreatingCollection(false);
+                      setNewCollectionName("");
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: "600" }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.primary }}
+                    onPress={handleCreateNewCollection}
+                  >
+                    <Text style={{ color: "#FFF", fontSize: 12, fontWeight: "600" }}>Create</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingVertical: 12,
+                }}
+                onPress={() => setIsCreatingCollection(true)}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 14 }}>
+                  + Create New Collection
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Note Reader Modal */}
+      <Modal
+        visible={!!viewingNote}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewingNote(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <View style={{
+            width: "100%",
+            backgroundColor: colors.card,
+            borderRadius: 24,
+            borderWidth: 1.5,
+            borderColor: colors.border,
+            padding: 20,
+            maxHeight: "70%",
+          }}>
+            <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 4 }}>
+              {viewingNote?.title}
+            </Text>
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 16 }}>
+              {(viewingNote as any)?.collectionName} • Note
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={true} style={{ marginBottom: 16 }}>
+              <Text style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}>
+                {viewingNote?.content || "No content added to this note."}
+              </Text>
+            </ScrollView>
+            <TouchableOpacity
+              style={{
+                backgroundColor: colors.primary,
+                borderRadius: 12,
+                paddingVertical: 12,
+                alignItems: "center",
+              }}
+              onPress={() => setViewingNote(null)}
+            >
+              <Text style={{ color: "#FFF", fontWeight: "700" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Lightbox Modal */}
+      <Modal
+        visible={!!viewingImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewingImage(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", alignItems: "center" }}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setViewingImage(null)} />
+          {viewingImage && (
+            <View style={{ width: "90%", height: "70%", justifyContent: "center", alignItems: "center" }}>
+              <Feather name="image" size={64} color="#FFF" style={{ opacity: 0.3 }} />
+              <Text style={{ color: "#FFF", marginTop: 12, textAlign: "center" }}>Image preview matches: {viewingImage}</Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={{
+              position: "absolute",
+              top: Platform.OS === "ios" ? 60 : 30,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: "rgba(255,255,255,0.2)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onPress={() => setViewingImage(null)}
+          >
+            <Feather name="x" size={20} color="#FFF" />
+          </TouchableOpacity>
         </View>
       </Modal>
     </SafeAreaView>
