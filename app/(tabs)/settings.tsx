@@ -19,7 +19,11 @@ import {
   NOTIF_LOG_STORAGE_KEY,
   VAULT_STORAGE_KEY,
   COLLECTIONS_STORAGE_KEY,
+  CHECKLISTS_STORAGE_KEY,
+  DASHBOARD_FILTER_STORAGE_KEY,
+  DASHBOARD_PRIORITY_STORAGE_KEY,
 } from "@/services/storage";
+import { clearV3RepositoryStorage } from "@/services/v3/repositories";
 import { PEBBLE_LOG_KEY, GEMS_BONUS_KEY, GEMS_SPENT_KEY, PEBBLE_SPENT_KEY } from "@/services/pebbleService";
 import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/services/quickSuggestions";
 import { WIDGET_PAYLOAD_KEY } from "@/services/widgetData";
@@ -186,212 +190,6 @@ export default function SettingsScreen() {
 
   // --- DATA CONSOLE UTILITIES ---
 
-  // A. Load Demo Data
-  const loadDemoData = async () => {
-    Alert.alert(
-      "Load Demo Data",
-      "This will overwrite your current lists, tasks, habits, and history logs with high-fidelity simulated achievements. Continue?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Load",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              // 1. Create dummy todos
-              const demoTodos = {
-                lists: [
-                  { id: "default", name: "📋 My Pebbles" },
-                  { id: "work", name: "💼 Work Pebbles" },
-                  { id: "learning", name: "🎓 Learning Pebbles" },
-                ],
-                selectedList: "default",
-                todos: {
-                  default: [
-                    {
-                      id: "t1",
-                      title: "Complete design audit of mobile UI",
-                      completed: true,
-                      category: "creative",
-                      folderId: "default",
-                    },
-                    {
-                      id: "t2",
-                      title: "Schedule alignment session with team",
-                      completed: false,
-                      category: "work",
-                      alarmTime: Date.now() + 7200000,
-                      folderId: "default",
-                    },
-                    {
-                      id: "t3",
-                      title: "Buy fresh groceries & organic tea",
-                      completed: false,
-                      category: "health",
-                      folderId: "default",
-                    },
-                  ],
-                  work: [
-                    {
-                      id: "tw1",
-                      title: "Deploy initial production bundle to cloud",
-                      completed: true,
-                      category: "work",
-                      folderId: "work",
-                    },
-                    {
-                      id: "tw2",
-                      title: "Write technical API routing docs",
-                      completed: false,
-                      category: "work",
-                      alarmTime: Date.now() + 18000000,
-                      folderId: "work",
-                    },
-                  ],
-                  learning: [
-                    {
-                      id: "tl1",
-                      title: "Read Chapter 4 on Advanced React Design Patterns",
-                      completed: true,
-                      category: "learning",
-                      folderId: "learning",
-                    },
-                    {
-                      id: "tl2",
-                      title: "Practice Rust macro syntax exercises",
-                      completed: false,
-                      category: "learning",
-                      folderId: "learning",
-                    },
-                  ],
-                },
-              };
-
-              // 2. Create dummy habits
-              const demoHabits = {
-                dailyHabits: [
-                  {
-                    id: "h1",
-                    title: "Drink 3L Alkaline Water",
-                    completedToday: true,
-                    streak: 8,
-                    bestStreak: 12,
-                    reminderHour: 9,
-                    reminderMinute: 0,
-                  },
-                  {
-                    id: "h2",
-                    title: "15-Minute Deep Focus Meditation",
-                    completedToday: true,
-                    streak: 5,
-                    bestStreak: 8,
-                    reminderHour: 8,
-                    reminderMinute: 0,
-                  },
-                  {
-                    id: "h3",
-                    title: "Write 100 lines of Rust/C++ code",
-                    completedToday: false,
-                    streak: 3,
-                    bestStreak: 5,
-                    reminderHour: 20,
-                    reminderMinute: 30,
-                  },
-                ],
-              };
-
-              // 3. Create simulated history log (to make heatmap look awesome)
-              const demoHistory = [
-                {
-                  date: "2026-05-27",
-                  completedHabits: 2,
-                  totalHabits: 3,
-                  completedTodos: 3,
-                  totalTodos: 5,
-                  score: 62,
-                  completedHabitTitles: ["Drink 3L Water"],
-                  completedTodoTitles: ["UI Audit"],
-                },
-                {
-                  date: "2026-05-26",
-                  completedHabits: 3,
-                  totalHabits: 3,
-                  completedTodos: 4,
-                  totalTodos: 4,
-                  score: 100,
-                  completedHabitTitles: ["Water", "Meditation", "Code"],
-                  completedTodoTitles: ["Deploy API"],
-                },
-                {
-                  date: "2026-05-25",
-                  completedHabits: 1,
-                  totalHabits: 3,
-                  completedTodos: 2,
-                  totalTodos: 4,
-                  score: 42,
-                  completedHabitTitles: ["Meditation"],
-                  completedTodoTitles: ["Groceries"],
-                },
-                {
-                  date: "2026-05-24",
-                  completedHabits: 3,
-                  totalHabits: 3,
-                  completedTodos: 5,
-                  totalTodos: 5,
-                  score: 100,
-                  completedHabitTitles: ["Water", "Meditation", "Code"],
-                  completedTodoTitles: ["Write tests"],
-                },
-              ];
-
-              // 4. Create premium Profile with high level/XP
-              const demoProfile: UserProfile = {
-                name: "Test User",
-                email: "test@user",
-                avatar: "🚀",
-                level: 5,
-                xp: 1450, // Lvl 5, progress: 450 / 500 XP
-              };
-
-              await Promise.all([
-                AsyncStorage.setItem(
-                  TODOS_STORAGE_KEY,
-                  JSON.stringify(demoTodos),
-                ),
-                AsyncStorage.setItem(
-                  DAILY_STORAGE_KEY,
-                  JSON.stringify(demoHabits),
-                ),
-                AsyncStorage.setItem(
-                  HISTORY_STORAGE_KEY,
-                  JSON.stringify(demoHistory),
-                ),
-                AsyncStorage.setItem(
-                  PROFILE_STORAGE_KEY,
-                  JSON.stringify(demoProfile),
-                ),
-              ]);
-
-              emitStateChange("tasks_changed");
-              emitStateChange("habits_changed");
-
-              await loadSettingsData();
-              Alert.alert(
-                "Success",
-                "Simulated environments and gamified profile achievements loaded successfully! Visit other tabs to explore.",
-              );
-            } catch {
-              Alert.alert("Error", "Could not populate demo environment.");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  // B. Clear All Data
   const clearAllData = async () => {
     Alert.alert(
       "⚠️ Dangerous Action",
@@ -405,11 +203,13 @@ export default function SettingsScreen() {
             setLoading(true);
             try {
               await Promise.all([
+                clearV3RepositoryStorage(),
                 AsyncStorage.removeItem(TODOS_STORAGE_KEY),
                 AsyncStorage.removeItem(DAILY_STORAGE_KEY),
                 AsyncStorage.removeItem(HISTORY_STORAGE_KEY),
                 AsyncStorage.removeItem(PROFILE_STORAGE_KEY),
                 AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
+                AsyncStorage.removeItem("pebble:schema_version"),
                 AsyncStorage.removeItem("todoapp:onboarding_completed"),
                 AsyncStorage.removeItem("todoapp:workspace:history:v1"),
                 AsyncStorage.removeItem("PEBBLE_CAPTURE_CREATION_HISTORY"),
@@ -419,6 +219,8 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem(PEBBLE_LOG_KEY),
                 AsyncStorage.removeItem(QUICK_SUGGESTIONS_SEEN_KEY),
                 AsyncStorage.removeItem(WIDGET_PAYLOAD_KEY),
+                AsyncStorage.removeItem(DASHBOARD_FILTER_STORAGE_KEY),
+                AsyncStorage.removeItem(DASHBOARD_PRIORITY_STORAGE_KEY),
                 AsyncStorage.removeItem("todoapp:focus:stats"),
                 AsyncStorage.removeItem(GEMS_BONUS_KEY),
                 AsyncStorage.removeItem(GEMS_SPENT_KEY),
@@ -436,6 +238,7 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem("todoapp:mascot:dismissed"),
                 AsyncStorage.removeItem(VAULT_STORAGE_KEY),
                 AsyncStorage.removeItem(COLLECTIONS_STORAGE_KEY),
+                AsyncStorage.removeItem(CHECKLISTS_STORAGE_KEY),
                 cancelAllScheduledNotifications(),
               ]);
               emitStateChange("tasks_changed");
@@ -1141,29 +944,11 @@ export default function SettingsScreen() {
                 { color: colors.textMuted, marginBottom: 12 },
               ]}
             >
-              Manage underlying JSON datastores, backup archives, or load
-              pre-populated achievements.
+              Manage underlying JSON datastores, backup archives, or reset the
+              app to a fresh install state.
             </Text>
 
             <View style={styles.dataButtonsGrid}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { borderColor: colors.primary, opacity: pressed ? 0.8 : 1 },
-                ]}
-                onPress={loadDemoData}
-              >
-                <Feather name="database" size={14} color={colors.primary} />
-                <Text
-                  style={[
-                    styles.secondaryButtonText,
-                    { color: colors.primary },
-                  ]}
-                >
-                  Load Demo Data
-                </Text>
-              </Pressable>
-
               <Pressable
                 style={({ pressed }) => [
                   styles.secondaryButton,

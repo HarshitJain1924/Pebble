@@ -404,6 +404,15 @@ export class GraphRepository {
   };
   private static loaded = false;
 
+  static resetCache() {
+    this.relationships = {};
+    this.index = {
+      sourceIndex: {},
+      targetIndex: {},
+    };
+    this.loaded = false;
+  }
+
   private static async ensureLoaded() {
     if (this.loaded) return;
     try {
@@ -608,6 +617,19 @@ export class RecycleBinRepository {
     } catch (e) {
       console.warn("Recycle bin cleanup failed", e);
     }
+  }
+}
+
+export async function clearV3RepositoryStorage(): Promise<void> {
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const keysToRemove = allKeys.filter((key) => key.startsWith("pebble:v3:"));
+    const extraKeys = ["pebble:schema_version"];
+
+    await AsyncStorage.multiRemove([...keysToRemove, ...extraKeys]);
+    GraphRepository.resetCache();
+  } catch (e) {
+    console.warn("Failed to clear V3 repository storage", e);
   }
 }
 
