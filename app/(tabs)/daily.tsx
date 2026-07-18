@@ -1,5 +1,4 @@
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,16 +22,18 @@ import { HabitsEmptyGraphic } from "@/components/AppGraphics";
 import { HabitItem } from "@/components/HabitItem";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ScreenSwipeWrapper } from "@/components/ScreenSwipeWrapper";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Spacing } from "@/constants/spacing";
 import { Colors } from "@/constants/theme";
 import { Typography } from "@/constants/typography";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
 import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
-import { DAILY_STORAGE_KEY } from "@/services/storage";
 import { normalizeHabitsForToday } from "@/services/habitService";
 import { isRecurringOccurrenceForDate } from "@/services/recurrence";
 import { addStateListener } from "@/services/stateEvents";
+import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
+import { normalizeTaskCategory } from "@/services/taskCategories";
 
 import { type Habit as SharedHabit } from "@/modules/types";
 export type Habit = SharedHabit;
@@ -157,8 +158,14 @@ export default function DailyScreen() {
 
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
     try {
-      const payload: DailyPayload = { dailyHabits: nextHabits };
-      await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(payload));
+      await Promise.all(
+        nextHabits.map((habit) =>
+          ActivityRepository.saveHabit({
+            ...habit,
+            folderId: habit.folderId || "default",
+          }),
+        ),
+      );
       void recordDailyHistorySnapshot();
     } catch {
       // Ignore
@@ -195,29 +202,39 @@ export default function DailyScreen() {
 
   const loadHabits = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-      if (!raw) {
-        const starter = STARTER_HABITS.map((habitTitle) => ({
+      const folders = await FolderRepository.getFolders();
+      const folderIds = Array.from(new Set(["default", "unassigned", ...folders.map((folder) => folder.id)]));
+      const allHabits: Habit[] = [];
+
+      for (const folderId of folderIds) {
+        const habitsMap = await ActivityRepository.getHabits(folderId);
+        Object.values(habitsMap).forEach((habit) => {
+          allHabits.push({
+            ...habit,
+            folderId: habit.folderId || folderId,
+            category: normalizeTaskCategory(habit.category),
+            completedToday: habit.completedDates?.includes(getDateKey()) || false,
+          });
+        });
+      }
+
+      if (allHabits.length === 0) {
+        const starter: Habit[] = STARTER_HABITS.map((habitTitle): Habit => ({
           id: `${habitTitle.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           title: habitTitle,
           streak: 0,
           bestStreak: 0,
           completedToday: false,
           folderId: "default",
+          recurrence: { type: "daily" },
+          category: "health",
         }));
-        setHabits(starter);
         await persistHabits(starter);
+        setHabits(starter);
         return;
       }
 
-      const parsed = JSON.parse(raw) as DailyPayload;
-      const migrated = (parsed.dailyHabits ?? []).map((h) => {
-        if (!h.folderId) {
-          return { ...h, folderId: "default" };
-        }
-        return h;
-      });
-      const normalized = normalizeHabitsForToday(migrated);
+      const normalized = normalizeHabitsForToday(allHabits);
       setHabits(normalized);
       await persistHabits(normalized);
     } catch {
@@ -668,22 +685,11 @@ export default function DailyScreen() {
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
-                  <View
-                    style={[styles.emptyState, { borderColor: colors.border }]}
-                  >
-                    <HabitsEmptyGraphic />
-                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      Every goal starts with one pebble.
-                    </Text>
-                    <Text
-                      style={[
-                        styles.emptySubtitle,
-                        { color: colors.textMuted },
-                      ]}
-                    >
-                      Add one above and start your streaks.
-                    </Text>
-                  </View>
+                  <EmptyState
+                    graphic={<HabitsEmptyGraphic />}
+                    title="Every goal starts with one pebble."
+                    description="Add one above and start your streaks."
+                  />
                 }
                 renderItem={({ item }) => (
                   <HabitItem

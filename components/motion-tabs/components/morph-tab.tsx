@@ -1,4 +1,4 @@
-﻿import {
+import {
   JSX,
   memo,
   useState,
@@ -26,8 +26,9 @@ const MorphTab: FC<IMorphTabProps> & FunctionComponent<IMorphTabProps> = memo<
   }: IMorphTabProps & ComponentProps<typeof MorphTab>):
     | (ReactNode & ReactElement & JSX.Element)
     | null => {
+    const hasLabel = !!item.label;
     const [labelW, setLabelW] = useState(0);
-    const motion = useMorphTabMotion(active, colors, labelW);
+    const motion = useMorphTabMotion(active, colors, hasLabel ? labelW : 0);
 
     return (
       <Pressable
@@ -36,16 +37,19 @@ const MorphTab: FC<IMorphTabProps> & FunctionComponent<IMorphTabProps> = memo<
         onPressIn={motion.hold}
         onPressOut={motion.release}
       >
-        <Text
-          numberOfLines={1}
-          onLayout={(event: LayoutChangeEvent) => {
-            const width = Math.ceil(event.nativeEvent.layout.width);
-            if (width > 0 && width !== labelW) setLabelW(width);
-          }}
-          style={[styles.tabLabel, styles.measureLabel]}
-        >
-          {item.label}
-        </Text>
+        {/* Invisible label measurement node — only rendered when a label exists */}
+        {hasLabel && (
+          <Text
+            numberOfLines={1}
+            onLayout={(event: LayoutChangeEvent) => {
+              const width = Math.ceil(event.nativeEvent.layout.width);
+              if (width > 0 && width !== labelW) setLabelW(width);
+            }}
+            style={[styles.tabLabel, styles.measureLabel]}
+          >
+            {item.label}
+          </Text>
+        )}
 
         <Animated.View style={[styles.tabMorph, motion.containerStyle]}>
           <Animated.View
@@ -76,19 +80,22 @@ const MorphTab: FC<IMorphTabProps> & FunctionComponent<IMorphTabProps> = memo<
               {item.icon(true, colors.foreground, 22)}
             </Animated.View>
           </View>
-          <Animated.View style={[styles.tabLabelWrap, motion.labelStyle]}>
-            <Text
-              ellipsizeMode="clip"
-              numberOfLines={1}
-              style={[
-                styles.tabLabel,
-                styles.fixedLabel,
-                { color: colors.foreground, width: labelW },
-              ]}
-            >
-              {item.label}
-            </Text>
-          </Animated.View>
+          {/* Only render the label slot when there is a label */}
+          {hasLabel && (
+            <Animated.View style={[styles.tabLabelWrap, motion.labelStyle]}>
+              <Text
+                ellipsizeMode="clip"
+                numberOfLines={1}
+                style={[
+                  styles.tabLabel,
+                  styles.fixedLabel,
+                  { color: colors.foreground, width: labelW },
+                ]}
+              >
+                {item.label}
+              </Text>
+            </Animated.View>
+          )}
         </Animated.View>
       </Pressable>
     );

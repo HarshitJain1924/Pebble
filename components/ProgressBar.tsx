@@ -24,8 +24,9 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
 
   useEffect(() => {
     width.value = withSpring(Math.min(Math.max(progress, 0), 1), {
-      damping: 18,
-      stiffness: 120,
+      damping: 15,
+      stiffness: 170,
+      mass: 0.6,
     });
   }, [progress, width]);
 

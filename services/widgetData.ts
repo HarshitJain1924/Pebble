@@ -54,34 +54,43 @@ export async function exportWidgetPayload(
 export async function syncWidgetData(focusTimeToday = 0): Promise<WidgetPayload> {
   let completedTasks = 0;
   let totalTasks = 0;
-  try {
-    const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-    if (rawTodos) {
-      const parsed = JSON.parse(rawTodos);
-      const allTodos = (Object.values(parsed.todos || {}).flat() as any[]).filter(t => !t.archived);
-      totalTasks = allTodos.length;
-      completedTasks = allTodos.filter((t) => t.completed).length;
-    }
-  } catch (e) {
-    console.warn("Failed to read todos for widget sync", e);
-  }
-
   let pendingHabitTitles: string[] = [];
   let currentStreak = 0;
   let summaryPending: string | null = null;
+
   try {
-    const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+    const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+    
+    // Load Tasks
+    const rawTodos = await AsyncStorage.getItem(`pebble:v3:tasks:${activeWorkspace}`);
+    if (rawTodos) {
+      const parsed = JSON.parse(rawTodos);
+      const allTodos = Object.values(parsed || {}).filter((t: any) => !t.archived);
+      totalTasks = allTodos.length;
+      completedTasks = allTodos.filter((t: any) => t.completed).length;
+    }
+
+    // Load Habits
+    const rawHabits = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
     if (rawHabits) {
       const parsed = JSON.parse(rawHabits);
-      const allHabits = ((parsed.dailyHabits || []) as any[]).filter(h => !h.archived);
-      pendingHabitTitles = allHabits.filter((h) => !h.completedToday).map((h) => h.title);
-      currentStreak = allHabits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
+      const allHabits = (Object.values(parsed || {}) as any[]).filter((h: any) => !h.archived);
+      
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = `${today.getMonth() + 1}`.padStart(2, "0");
+      const d = `${today.getDate()}`.padStart(2, "0");
+      const todayStr = `${y}-${m}-${d}`;
+
+      const pendingHabits = allHabits.filter((h: any) => !h.completedDates?.includes(todayStr));
+      pendingHabitTitles = pendingHabits.map((h: any) => h.title);
+      currentStreak = allHabits.reduce((max, h: any) => Math.max(max, h.streak || 0), 0);
       if (pendingHabitTitles.length > 0) {
         summaryPending = pendingHabitTitles[0];
       }
     }
   } catch (e) {
-    console.warn("Failed to read habits for widget sync", e);
+    console.warn("Failed to aggregate Pebble V3 data for widget sync", e);
   }
 
   const payload: WidgetPayload = {

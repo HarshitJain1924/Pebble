@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { View, ScrollView, Platform, Dimensions } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
+import { ActivityRepository } from "@/services/v3/repositories";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -61,7 +62,7 @@ export function useCalendarState() {
   const [selectedDate, setSelectedDate] = useState(getDateKey());
   const [allTodos, setAllTodos] = useState<any[]>([]);
   const [allHabits, setAllHabits] = useState<any[]>([]);
-  const [calendarViewMode, setCalendarViewMode] = useState<"month" | "week">("month");
+  const [calendarViewMode, setCalendarViewMode] = useState<"month" | "week" | "timeline">("month");
 
   // Workspaces list
   const [lists, setLists] = useState<{ id: string; name: string }[]>([]);
@@ -150,55 +151,72 @@ export function useCalendarState() {
 
   const loadDataFromStorage = useCallback(async () => {
     try {
-      const rawTodos = await AsyncStorage.getItem("todoapp:v1");
-      if (rawTodos) {
-        const state = JSON.parse(rawTodos);
-        const listTodos = (Object.values(state.todos ?? {}).flat() as any[]).filter(t => !t.archived);
-        setAllTodos(listTodos);
-        if (state.lists) {
-          setLists(state.lists);
-        } else {
-          setLists([{ id: "default", name: "Default" }]);
-        }
-      } else {
-        setAllTodos([]);
-        setLists([{ id: "default", name: "Default" }]);
-      }
+      const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
+      const currentLists = rawLists ? JSON.parse(rawLists) : [{ id: "default", name: "Default" }];
+      setLists(currentLists);
 
-      const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
-      if (rawHabits) {
-        const state = JSON.parse(rawHabits);
-        const listHabits = (state.dailyHabits ?? []).filter((h: any) => !h.archived);
-        setAllHabits(listHabits);
-      } else {
-        setAllHabits([]);
-      }
+      // Fetch from V3 repository
+      const tasksMap = await ActivityRepository.getTasks(activeWorkspace);
+      const habitsMap = await ActivityRepository.getHabits(activeWorkspace);
+
+      const listTodos = Object.values(tasksMap)
+        .filter((t) => !t.archived)
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          completed: t.completed,
+          priority: t.priority,
+          scheduledDate: t.dueDate,
+          folderId: activeWorkspace,
+          createdAt: t.createdAt,
+          category: t.category,
+        }));
+
+      const listHabits = Object.values(habitsMap)
+        .filter((h) => !h.archived)
+        .map((h) => ({
+          id: h.id,
+          title: h.title,
+          streak: h.streak,
+          bestStreak: h.bestStreak,
+          completedToday: h.completedDates.includes(getDateKey()),
+          folderId: activeWorkspace,
+          createdAt: h.createdAt,
+        }));
+
+      setAllTodos(listTodos as any[]);
+      setAllHabits(listHabits as any[]);
     } catch (e) {
-      console.log("Error loading storage data in calendar", e);
+      console.log("Error loading storage data in calendar V3", e);
     }
   }, []);
 
   // Save Quick Add Task
   const onSaveNewTask = async (newTask: any) => {
     if (!newTask.title || newTask.title.trim() === "") return;
-    const targetFolderId = newTask.folderId || "default";
+    const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+
     const taskWithCreatedAt = {
       ...newTask,
+      id: newTask.id || String(Date.now()),
       createdAt: newTask.createdAt || Date.now(),
+      folderId: activeWorkspace,
     };
 
-    const rawTodos = await AsyncStorage.getItem("todoapp:v1");
-    let stateObj = { todos: {} as Record<string, any[]>, lists: [] as any[] };
-    if (rawTodos) {
-      stateObj = JSON.parse(rawTodos);
-    }
-    const listTodos = stateObj.todos[targetFolderId] ?? [];
-    const updatedTodos = {
-      ...stateObj.todos,
-      [targetFolderId]: [{ ...taskWithCreatedAt, folderId: targetFolderId }, ...listTodos],
-    };
-
-    await AsyncStorage.setItem("todoapp:v1", JSON.stringify({ ...stateObj, todos: updatedTodos }));
+    // Save using V3 Repository
+    await ActivityRepository.saveTask({
+      id: taskWithCreatedAt.id,
+      workspaceId: activeWorkspace,
+      title: taskWithCreatedAt.title,
+      createdAt: taskWithCreatedAt.createdAt,
+      updatedAt: Date.now(),
+      archived: false,
+      completed: taskWithCreatedAt.completed || false,
+      priority: taskWithCreatedAt.priority || "medium",
+      dueDate: taskWithCreatedAt.scheduledDate,
+      category: taskWithCreatedAt.category || "work",
+    });
 
     // Reschedule alarms if alarmTime is set
     await rescheduleTodoReminders(taskWithCreatedAt);
@@ -216,7 +234,12 @@ export function useCalendarState() {
       void loadMonth(month.year, month.month);
       void loadDataFromStorage();
       AsyncStorage.getItem("todoapp:calendar:selectedDate").then((storedDate) => {
-        if (storedDate) setSelectedDate(storedDate);
+        if (storedDate) {
+          setSelectedDate(storedDate);
+          const [year, monthVal] = storedDate.split("-").map(Number);
+          setMonth({ year, month: monthVal - 1 });
+          AsyncStorage.removeItem("todoapp:calendar:selectedDate");
+        }
       });
     }, [loadMonth, loadDataFromStorage, month.month, month.year])
   );
@@ -225,7 +248,12 @@ export function useCalendarState() {
     const unsubTasks = addStateListener("tasks_changed", () => {
       loadDataFromStorage();
       AsyncStorage.getItem("todoapp:calendar:selectedDate").then((storedDate) => {
-        if (storedDate) setSelectedDate(storedDate);
+        if (storedDate) {
+          setSelectedDate(storedDate);
+          const [year, monthVal] = storedDate.split("-").map(Number);
+          setMonth({ year, month: monthVal - 1 });
+          AsyncStorage.removeItem("todoapp:calendar:selectedDate");
+        }
       });
     });
     const unsubHabits = addStateListener("habits_changed", () => {
@@ -703,63 +731,55 @@ export function useCalendarState() {
       if (hHour !== null) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         try {
+          const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
           if (dragItem.type === "task") {
-            const rawTodos = await AsyncStorage.getItem("todoapp:v1");
-            if (rawTodos) {
-              const state = JSON.parse(rawTodos);
-              const updatedTodos = { ...state.todos };
+            const taskMap = await ActivityRepository.getTasks(activeWorkspace);
+            const todo = taskMap[dragItem.id] as any;
+            if (todo) {
+              await cancelReminderIds(todo.notificationIds || []);
 
-              let found = false;
-              for (const listId in updatedTodos) {
-                updatedTodos[listId] = await Promise.all(
-                  updatedTodos[listId].map(async (todo: any) => {
-                    if (todo.id === dragItem.id) {
-                      found = true;
-                      await cancelReminderIds(todo.notificationIds || []);
+              // Re-set alarm time using current selectedDate + hoveredHour
+              const [year, monthVal, dayVal] = selDate.split("-").map(Number);
+              const newAlarmDate = new Date(year, monthVal - 1, dayVal, hHour, 0, 0, 0);
 
-                      // Re-set alarm time using current selectedDate + hoveredHour
-                      const [year, monthVal, dayVal] = selDate.split("-").map(Number);
-                      const newAlarmDate = new Date(year, monthVal - 1, dayVal, hHour, 0, 0, 0);
+              const todoToReschedule = {
+                ...todo,
+                reminderHour: hHour,
+                reminderMinute: 0,
+                alarmTime: newAlarmDate.getTime(),
+                scheduledDate: selDate,
+              };
 
-                      const todoToReschedule = {
-                        ...todo,
-                        reminderHour: hHour,
-                        reminderMinute: 0,
-                        alarmTime: newAlarmDate.getTime(),
-                        scheduledDate: selDate,
-                      };
-
-                      const rescheduled = await rescheduleTodoReminders(todoToReschedule);
-                      return rescheduled;
-                    }
-                    return todo;
-                  })
-                );
-              }
-
-              if (found) {
-                await AsyncStorage.setItem("todoapp:v1", JSON.stringify({ ...state, todos: updatedTodos }));
-              }
+              const rescheduled = await rescheduleTodoReminders(todoToReschedule);
+              await ActivityRepository.saveTask({
+                ...todo,
+                dueDate: selDate,
+                updatedAt: Date.now(),
+                notificationIds: rescheduled.notificationIds,
+                alarmId: rescheduled.alarmId,
+                reminderHour: hHour,
+                reminderMinute: 0,
+                alarmTime: newAlarmDate.getTime(),
+              } as any);
             }
           } else if (dragItem.type === "habit") {
-            const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
-            if (rawHabits) {
-              const state = JSON.parse(rawHabits);
-              const updatedHabits = await Promise.all(
-                state.dailyHabits.map(async (habit: any) => {
-                  if (habit.id === dragItem.id) {
-                    await cancelReminderIds(habit.notificationIds || []);
-                    const rescheduled = await rescheduleHabitReminders({
-                      ...habit,
-                      reminderHour: hHour,
-                      reminderMinute: 0,
-                    });
-                    return rescheduled;
-                  }
-                  return habit;
-                })
-              );
-              await AsyncStorage.setItem("todoapp:daily:v1", JSON.stringify({ ...state, dailyHabits: updatedHabits }));
+            const habitMap = await ActivityRepository.getHabits(activeWorkspace);
+            const habit = habitMap[dragItem.id] as any;
+            if (habit) {
+              await cancelReminderIds(habit.notificationIds || []);
+              const rescheduled = await rescheduleHabitReminders({
+                ...habit,
+                reminderHour: hHour,
+                reminderMinute: 0,
+              });
+              await ActivityRepository.saveHabit({
+                ...habit,
+                reminderHour: hHour,
+                reminderMinute: 0,
+                updatedAt: Date.now(),
+                notificationIds: rescheduled.notificationIds,
+                completedToday: habit.completedToday || false,
+              } as any);
             }
           }
 
@@ -779,81 +799,69 @@ export function useCalendarState() {
       else if (hDate) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         try {
+          const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
           if (dragItem.type === "task") {
-            const rawTodos = await AsyncStorage.getItem("todoapp:v1");
-            if (rawTodos) {
-              const state = JSON.parse(rawTodos);
-              const updatedTodos = { ...state.todos };
+            const taskMap = await ActivityRepository.getTasks(activeWorkspace);
+            const todo = taskMap[dragItem.id] as any;
+            if (todo) {
+              // Cancel old reminders
+              await cancelReminderIds(todo.notificationIds || []);
 
-              let found = false;
-              for (const listId in updatedTodos) {
-                updatedTodos[listId] = await Promise.all(
-                  updatedTodos[listId].map(async (todo: any) => {
-                    if (todo.id === dragItem.id) {
-                      found = true;
-
-                      // Cancel old reminders
-                      await cancelReminderIds(todo.notificationIds || []);
-
-                      // Reschedule alarm time if it exists
-                      let newAlarmTime = todo.alarmTime;
-                      if (todo.alarmTime) {
-                        const alarmDate = new Date(todo.alarmTime);
-                        const [hours, minutes] = [alarmDate.getHours(), alarmDate.getMinutes()];
-                        const [year, monthVal, dayVal] = hDate.split("-").map(Number);
-                        const newAlarmDate = new Date(year, monthVal - 1, dayVal, hours, minutes, 0, 0);
-                        newAlarmTime = newAlarmDate.getTime();
-                      }
-
-                      const todoToReschedule = {
-                        ...todo,
-                        scheduledDate: hDate,
-                        alarmTime: newAlarmTime,
-                      };
-
-                      const rescheduled = await rescheduleTodoReminders(todoToReschedule);
-                      return rescheduled;
-                    }
-                    return todo;
-                  })
-                );
+              // Reschedule alarm time if it exists
+              let newAlarmTime = todo.alarmTime;
+              if (todo.alarmTime) {
+                const alarmDate = new Date(todo.alarmTime);
+                const [hours, minutes] = [alarmDate.getHours(), alarmDate.getMinutes()];
+                const [year, monthVal, dayVal] = hDate.split("-").map(Number);
+                const newAlarmDate = new Date(year, monthVal - 1, dayVal, hours, minutes, 0, 0);
+                newAlarmTime = newAlarmDate.getTime();
               }
 
-              if (found) {
-                await AsyncStorage.setItem("todoapp:v1", JSON.stringify({ ...state, todos: updatedTodos }));
-              }
+              const todoToReschedule = {
+                ...todo,
+                scheduledDate: hDate,
+                alarmTime: newAlarmTime,
+              };
+
+              const rescheduled = await rescheduleTodoReminders(todoToReschedule);
+              await ActivityRepository.saveTask({
+                ...todo,
+                dueDate: hDate,
+                alarmTime: newAlarmTime,
+                updatedAt: Date.now(),
+                notificationIds: rescheduled.notificationIds,
+                alarmId: rescheduled.alarmId,
+              } as any);
             }
           } else if (dragItem.type === "habit") {
             const dateParts = hDate.split("-").map(Number);
             const selDateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
             const dayOfWeek = selDateObj.getDay();
 
-            const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
-            if (rawHabits) {
-              const state = JSON.parse(rawHabits);
-              const updatedHabits = await Promise.all(
-                state.dailyHabits.map(async (habit: any) => {
-                  if (habit.id === dragItem.id) {
-                    const reminderDays = habit.reminderDays || [];
-                    let updatedDays = reminderDays;
-                    if (!reminderDays.includes(dayOfWeek)) {
-                      updatedDays = [...reminderDays, dayOfWeek];
-                    }
+            const habitMap = await ActivityRepository.getHabits(activeWorkspace);
+            const habit = habitMap[dragItem.id] as any;
+            if (habit) {
+              const reminderDays = habit.reminderDays || [];
+              let updatedDays = reminderDays;
+              if (!reminderDays.includes(dayOfWeek)) {
+                updatedDays = [...reminderDays, dayOfWeek];
+              }
 
-                    // Cancel old reminders
-                    await cancelReminderIds(habit.notificationIds || []);
+              // Cancel old reminders
+              await cancelReminderIds(habit.notificationIds || []);
 
-                    // Reschedule
-                    const rescheduled = await rescheduleHabitReminders({
-                      ...habit,
-                      reminderDays: updatedDays,
-                    });
-                    return rescheduled;
-                  }
-                  return habit;
-                })
-              );
-              await AsyncStorage.setItem("todoapp:daily:v1", JSON.stringify({ ...state, dailyHabits: updatedHabits }));
+              // Reschedule
+              const rescheduled = await rescheduleHabitReminders({
+                ...habit,
+                reminderDays: updatedDays,
+              });
+              await ActivityRepository.saveHabit({
+                ...habit,
+                reminderDays: updatedDays,
+                updatedAt: Date.now(),
+                notificationIds: rescheduled.notificationIds,
+                completedToday: habit.completedToday || false,
+              } as any);
             }
           }
 

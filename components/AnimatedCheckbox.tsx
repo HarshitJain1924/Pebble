@@ -4,6 +4,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  interpolate,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "@/constants/theme";
@@ -41,7 +42,7 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
 
   const checkMarkStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ scale: checkedScale.value }],
+      transform: [{ scale: interpolate(checkedScale.value, [0, 1], [0.85, 1]) }],
       opacity: checkedScale.value,
     };
   });

@@ -9,7 +9,14 @@ type EventType =
   | "close_drawer"
   | "dashboard_filter_changed"
   | "zen_mode_toggle"
-  | "review_day_open";
+  | "review_day_open"
+  | "checklists_changed"
+  | "workspace_changed"
+  | "workspace_mode_changed"
+  | "workspace_segment_changed"
+  | "workspace_segment_request"
+  | "workspace_nav_mode_changed"
+  | "open_quick_add";
 type Listener = (emitterId?: string) => void;
 
 const listeners: Record<EventType, Set<Listener>> = {
@@ -24,6 +31,13 @@ const listeners: Record<EventType, Set<Listener>> = {
   dashboard_filter_changed: new Set<Listener>(),
   zen_mode_toggle: new Set<Listener>(),
   review_day_open: new Set<Listener>(),
+  checklists_changed: new Set<Listener>(),
+  workspace_changed: new Set<Listener>(),
+  workspace_mode_changed: new Set<Listener>(),
+  workspace_segment_changed: new Set<Listener>(),
+  workspace_segment_request: new Set<Listener>(),
+  workspace_nav_mode_changed: new Set<Listener>(),
+  open_quick_add: new Set<Listener>(),
 };
 
 /**

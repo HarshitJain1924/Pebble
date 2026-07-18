@@ -133,6 +133,8 @@ export default function FocusScreen() {
             <FocusStatsCard
               completedToday={state.completedToday}
               totalFocusTime={state.totalFocusTime}
+              averageSessionLength={state.averageSessionLength}
+              longestSession={state.longestSession}
               colors={colors}
             />
           </ScrollView>

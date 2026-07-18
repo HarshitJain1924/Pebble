@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useRouter, Stack } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Still needed for history + focus stats
 import * as Haptics from "expo-haptics";
 
 import { AppText as Text } from "@/components/ui/AppText";
@@ -20,7 +20,9 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { FloatingGlow } from "@/components/AmbientBackground";
 import { getProfile } from "@/services/settingsService";
 import { getHistoryForMonth } from "@/services/productivityHistory";
-import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
+import { TASK_CATEGORY_META } from "@/services/taskCategories";
+import { CategoryChip } from "@/components/design";
 
 // Import existing modular components
 import { ProductivityDashboard } from "@/components/profile/ProductivityDashboard";
@@ -81,70 +83,62 @@ export default function StatsScreen() {
     try {
       const now = new Date();
       
-      // Load Completed Todos
-      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+      // Load Completed Todos via V3 repository
+      const folderList = await FolderRepository.getFolders();
+      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+      const folderNameMap: Record<string, string> = { default: "My Pebbles", unassigned: "My Pebbles" };
+      folderList.forEach((f) => { folderNameMap[f.id] = f.name; });
+
       let totalCompletedTodos = 0;
       let totalTasks = 0;
       const categoryCounts: Record<string, number> = {};
       const workspaceCounts: Record<string, number> = {};
       let mostProductiveWorkspace = "Default";
 
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-        totalTasks = allTodos.length;
-        totalCompletedTodos = allTodos.filter((t) => t.completed).length;
-
-        allTodos.forEach((todo) => {
+      for (const fId of folderIds) {
+        const tasksMap = await ActivityRepository.getTasks(fId);
+        const tasks = Object.values(tasksMap);
+        totalTasks += tasks.length;
+        tasks.forEach((todo: any) => {
           if (todo.completed) {
+            totalCompletedTodos++;
             if (todo.category) {
               const cat = todo.category.toLowerCase();
               categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
             }
-            const folderId = todo.folderId || "default";
-            workspaceCounts[folderId] = (workspaceCounts[folderId] ?? 0) + 1;
+            workspaceCounts[fId] = (workspaceCounts[fId] ?? 0) + 1;
           }
         });
-
-        let maxCount = 0;
-        let bestFolderId = "default";
-        Object.entries(workspaceCounts).forEach(([fId, cnt]) => {
-          if (cnt > maxCount) {
-            maxCount = cnt;
-            bestFolderId = fId;
-          }
-        });
-
-        if (parsed.lists) {
-          const listObj = parsed.lists.find((l: any) => l.id === bestFolderId);
-          if (listObj) {
-            mostProductiveWorkspace = listObj.name;
-          }
-        }
       }
 
-      // Load Habits
-      const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+      let maxCount = 0;
+      let bestFolderId = "default";
+      Object.entries(workspaceCounts).forEach(([fId, cnt]) => {
+        if (cnt > maxCount) {
+          maxCount = cnt;
+          bestFolderId = fId;
+        }
+      });
+      mostProductiveWorkspace = folderNameMap[bestFolderId] || "Default";
+
+      // Load Habits via V3 repository
+      const todayStr = getDateKey();
       let totalCompletedHabits = 0;
       let streak = 0;
       let bestStreak = 0;
       let strongestHabitName = "None yet";
       let strongestHabitStreak = 0;
 
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const allHabits = (parsed.dailyHabits || []) as any[];
-        totalCompletedHabits = allHabits.filter((h) => h.completedToday).length;
-        streak = allHabits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
-        bestStreak = allHabits.reduce((max, h) => Math.max(max, h.bestStreak || 0), 0);
-
-        let maxHabitStreak = 0;
-        allHabits.forEach((h) => {
+      for (const fId of folderIds) {
+        const habitsMap = await ActivityRepository.getHabits(fId);
+        Object.values(habitsMap).forEach((h: any) => {
+          if (h.completedDates?.includes(todayStr)) totalCompletedHabits++;
+          streak = Math.max(streak, h.streak || 0);
+          bestStreak = Math.max(bestStreak, h.bestStreak || 0);
           const hStreak = Math.max(h.streak || 0, h.bestStreak || 0);
-          if (hStreak > maxHabitStreak) {
-            maxHabitStreak = hStreak;
-            strongestHabitName = h.title;
+          if (hStreak > strongestHabitStreak) {
             strongestHabitStreak = hStreak;
+            strongestHabitName = h.title;
           }
         });
       }
@@ -264,14 +258,10 @@ export default function StatsScreen() {
       });
 
       // Category breakdowns
-      const catColors: Record<string, string> = {
-        work: "#6366F1",
-        personal: "#10B981",
-        health: "#F59E0B",
-        learning: "#3B82F6",
-        creative: "#A855F7",
-        focus: "#06B6D4",
-      };
+      const catColors: Record<string, string> = {};
+      TASK_CATEGORY_META.forEach((cat) => {
+        catColors[cat.key] = cat.tint;
+      });
 
       const totalCategoryTasks = Object.values(categoryCounts).reduce((a, b) => a + b, 0) || 1;
       const breakdowns = Object.entries(categoryCounts).map(([name, count]) => ({
@@ -425,9 +415,12 @@ export default function StatsScreen() {
               {categoryStats.map((cat, idx) => (
                 <View key={cat.name} style={[styles.catRow, idx !== 0 && { marginTop: 12 }]}>
                   <View style={styles.catInfoRow}>
-                    <Text style={[styles.catNameText, { color: colors.text }]}>
-                      {cat.name}
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <CategoryChip category={cat.name.toLowerCase()} size="xs" />
+                      <Text style={[styles.catNameText, { color: colors.text }]}>
+                        {cat.name}
+                      </Text>
+                    </View>
                     <Text style={[styles.catCountText, { color: colors.textMuted }]}>
                       {cat.count} tasks
                     </Text>

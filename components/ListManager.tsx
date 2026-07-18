@@ -165,7 +165,7 @@ export function ListManager({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.listPills}
           >
-            {lists.map((list) => {
+            {lists.filter((l) => !(l as any).archived).map((list) => {
               const isSelected = list.id === selectedList;
               const isEditing = editingListId === list.id;
 

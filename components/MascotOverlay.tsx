@@ -16,7 +16,7 @@ import * as Haptics from "expo-haptics";
 import { usePathname, useRouter } from "expo-router";
 import { getSmartQuickSuggestions } from "@/services/quickSuggestions";
 import type { Todo, Habit, TaskList } from "@/modules/types";
-import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY } from "@/services/storage";
+import { ActivityRepository } from "@/services/v3/repositories";
 import { Accelerometer } from "expo-sensors";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -129,8 +129,9 @@ const MASCOT_ASSET_MAP: Record<string, any> = {
 
 const checkIfDailyClear = async (): Promise<boolean> => {
   try {
-    const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-    const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+    const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+    const rawTodos = await AsyncStorage.getItem(`pebble:v3:tasks:${activeWorkspace}`);
+    const rawHabits = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
     const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
 
     let pendingCount = 0;
@@ -138,32 +139,30 @@ const checkIfDailyClear = async (): Promise<boolean> => {
 
     if (rawTodos) {
       const parsed = JSON.parse(rawTodos);
-      const todosMap = parsed.todos || {};
-      Object.values(todosMap).forEach((list: any) => {
-        list.forEach((todo: any) => {
-          if (!todo.archived) {
-            const todoDate = todo.scheduledDate || (todo.alarmTime ? `${new Date(todo.alarmTime).getFullYear()}-${String(new Date(todo.alarmTime).getMonth() + 1).padStart(2, "0")}-${String(new Date(todo.alarmTime).getDate()).padStart(2, "0")}` : todayStr);
-            if (todoDate <= todayStr || todo.scheduledDate === "inbox") {
-              if (todo.completed) {
-                completedCount++;
-              } else {
-                pendingCount++;
-              }
+      Object.values(parsed).forEach((todo: any) => {
+        if (!todo.archived) {
+          const todoDate = todo.dueDate || todayStr;
+          if (todoDate <= todayStr || todo.dueDate === "inbox") {
+            if (todo.completed) {
+              completedCount++;
+            } else {
+              pendingCount++;
             }
           }
-        });
+        }
       });
     }
 
     if (rawHabits) {
       const parsed = JSON.parse(rawHabits);
-      const habits = parsed.dailyHabits || [];
+      const habits = Object.values(parsed);
       const dayOfWeek = new Date().getDay();
       habits.forEach((h: any) => {
         if (!h.archived) {
           const isActive = !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
           if (isActive) {
-            if (h.completedToday) {
+            const completedToday = h.completedDates?.includes(todayStr) || false;
+            if (completedToday) {
               completedCount++;
             } else {
               pendingCount++;
@@ -944,15 +943,22 @@ export function MascotOverlay() {
 
   const fetchSmartActionSuggestion = async (): Promise<{ title: string; type: "task" | "habit" } | null> => {
     try {
-      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-      const parsedTodos = rawTodos ? JSON.parse(rawTodos) : { lists: [], todos: {} };
-      const tasks = Object.values(parsedTodos.todos || {}).flat() as Todo[];
-      const workspaces = (parsedTodos.lists || []) as TaskList[];
+      const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+      
+      const rawTodos = await AsyncStorage.getItem(`pebble:v3:tasks:${activeWorkspace}`);
+      const parsedTodos = rawTodos ? JSON.parse(rawTodos) : {};
+      const tasks = Object.values(parsedTodos).map((t: any) => ({
+        ...t,
+        scheduledDate: t.dueDate,
+      })) as Todo[];
 
-      const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-      const habits = rawHabits ? JSON.parse(rawHabits).dailyHabits || [] : [];
+      const rawHabits = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
+      const habits = rawHabits ? Object.values(JSON.parse(rawHabits)) : [];
 
-      const smartSugInput = { tasks, habits, workspaces };
+      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
+      const workspaces = rawLists ? JSON.parse(rawLists) : [];
+
+      const smartSugInput = { tasks, habits: habits as any[], workspaces };
       const recs = await getSmartQuickSuggestions(smartSugInput);
 
       if (recs && recs.length > 0) {
@@ -1114,28 +1120,19 @@ export function MascotOverlay() {
           ignoreNextEventRef.current = false;
         }, 1500);
 
-        const newTodo: Todo = {
+        const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+
+        await ActivityRepository.saveTask({
           id: String(Date.now()),
+          workspaceId: activeWorkspace,
           title: payload.title,
           completed: false,
           category: "learning",
           priority: "medium",
-          folderId: "default",
-        };
-        const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-        const parsedTodos = rawTodos ? JSON.parse(rawTodos) : { lists: [], todos: {} };
-        const currentTodos = parsedTodos.todos || {};
-        const listTodos = currentTodos["default"] ?? [];
-        
-        const updated = {
-          ...currentTodos,
-          ["default"]: [newTodo, ...listTodos],
-        };
-        await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify({
-          lists: parsedTodos.lists || [{ id: "default", name: "📋 My Pebbles" }],
-          selectedList: parsedTodos.selectedList || "default",
-          todos: updated
-        }));
+          dueDate: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
         emitStateChange("tasks_changed");
         setTimeout(() => {
           triggerBubble("Caw! Suggestion added to tasks! 📋✨", 4000);
@@ -1146,22 +1143,19 @@ export function MascotOverlay() {
           ignoreNextEventRef.current = false;
         }, 1500);
 
-        const newHabit: Habit = {
+        const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+
+        await ActivityRepository.saveHabit({
           id: `habit-${Date.now()}`,
+          workspaceId: activeWorkspace,
           title: payload.title,
           streak: 0,
           bestStreak: 0,
-          completedToday: false,
-          priority: "medium",
-        };
-        const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        let currentHabits: Habit[] = [];
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          currentHabits = parsed.dailyHabits ?? [];
-        }
-        const updated = [newHabit, ...currentHabits];
-        await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify({ dailyHabits: updated }));
+          completedDates: [],
+          recurrenceRule: "FREQ=DAILY",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
         emitStateChange("habits_changed");
         setTimeout(() => {
           triggerBubble("Caw! Suggestion added to habits! 🔥✨", 4000);

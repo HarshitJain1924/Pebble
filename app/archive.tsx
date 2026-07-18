@@ -1,27 +1,32 @@
+import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  View,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-  Platform,
+    ActivityIndicator,
+    Alert,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    TouchableOpacity,
+    View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { AppText as Text } from "@/components/ui/AppText";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { type Todo, type Habit } from "@/modules/types";
-import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY } from "@/services/storage";
-import { emitStateChange } from "@/services/stateEvents";
-import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
+import { type Habit, type Todo } from "@/modules/types";
+import { normalizeTaskCategory } from "@/services/taskCategories";
+
 import { AppCard } from "@/components/AppCard";
+import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
+import { emitStateChange } from "@/services/stateEvents";
+import {
+    ActivityRepository,
+    FolderRepository,
+} from "@/services/v3/repositories";
 
 export default function ArchiveScreen() {
   const router = useRouter();
@@ -41,41 +46,51 @@ export default function ArchiveScreen() {
   const loadArchivedData = async () => {
     setLoading(true);
     try {
-      // Load tasks
-      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-      const tasks: Todo[] = [];
-      const workspaceNames: Record<string, string> = {};
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        if (parsed.lists) {
-          parsed.lists.forEach((list: any) => {
-            workspaceNames[list.id] = list.name;
-          });
-        }
-        for (const listId in parsed.todos) {
-          const listTodos = parsed.todos[listId] || [];
-          listTodos.forEach((todo: Todo) => {
-            if (todo.archived) {
-              tasks.push(todo);
-            }
-          });
-        }
-      }
-      setWorkspaces(workspaceNames);
-      setArchivedTasks(tasks);
+      const folderList = await FolderRepository.getFolders();
+      const folderIds = Array.from(
+        new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
+      );
 
-      // Load habits
-      const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+      const workspaceNames: Record<string, string> = {};
+      folderList.forEach((f) => {
+        workspaceNames[f.id] = f.name;
+      });
+      workspaceNames["default"] = "My Pebbles";
+      workspaceNames["unassigned"] = "My Pebbles";
+
+      const tasks: Todo[] = [];
       const habits: Habit[] = [];
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const listHabits = parsed.dailyHabits || [];
-        listHabits.forEach((habit: Habit) => {
-          if (habit.archived) {
-            habits.push(habit);
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      for (const fId of folderIds) {
+        // Load tasks
+        const tasksMap = await ActivityRepository.getTasks(fId);
+        Object.values(tasksMap).forEach((t) => {
+          if (t.archived) {
+            tasks.push({
+              ...t,
+              folderId: fId,
+              scheduledDate: t.scheduledDate || t.dueDate,
+            } as Todo);
+          }
+        });
+
+        // Load habits
+        const habitsMap = await ActivityRepository.getHabits(fId);
+        Object.values(habitsMap).forEach((h) => {
+          if (h.archived) {
+            habits.push({
+              ...h,
+              folderId: fId,
+              completedToday: h.completedDates?.includes(todayStr) || false,
+              category: normalizeTaskCategory(h.category),
+            });
           }
         });
       }
+
+      setWorkspaces(workspaceNames);
+      setArchivedTasks(tasks);
       setArchivedHabits(habits);
     } catch (e) {
       console.warn("Failed to load archived items", e);
@@ -95,7 +110,10 @@ export default function ArchiveScreen() {
 
       // Reschedule reminders
       let notificationIds: string[] = [];
-      if (item.reminderHour !== undefined && item.reminderMinute !== undefined) {
+      if (
+        item.reminderHour !== undefined &&
+        item.reminderMinute !== undefined
+      ) {
         const scheduled = await scheduleReminderBatch({
           kind: type === "task" ? "todo" : "habit",
           itemId: item.id,
@@ -105,34 +123,33 @@ export default function ArchiveScreen() {
           dailyDays: item.reminderDays,
           recurrence: item.recurrence,
           escalationMinutes: [120, 240],
-          channelId: Platform.OS === "android" ? (isTask ? "todo-reminders" : "daily-habits") : undefined,
+          channelId:
+            Platform.OS === "android"
+              ? isTask
+                ? "todo-reminders"
+                : "daily-habits"
+              : undefined,
         });
         notificationIds = scheduled.ids;
       }
       updatedItem.notificationIds = notificationIds;
 
       if (isTask) {
-        const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-        if (raw) {
-          const state = JSON.parse(raw);
-          const fId = item.folderId || "default";
-          state.todos[fId] = (state.todos[fId] || []).map((t: Todo) =>
-            t.id === item.id ? updatedItem : t
-          );
-          await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-        }
+        await ActivityRepository.saveTask({
+          ...updatedItem,
+          folderId: item.folderId || "default",
+          scheduledDate: updatedItem.scheduledDate || updatedItem.dueDate,
+        });
       } else {
-        const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        if (raw) {
-          const state = JSON.parse(raw);
-          state.dailyHabits = state.dailyHabits.map((h: Habit) =>
-            h.id === item.id ? updatedItem : h
-          );
-          await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-        }
+        await ActivityRepository.saveHabit({
+          ...updatedItem,
+          folderId: item.folderId || "default",
+        });
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
       emitStateChange(isTask ? "tasks_changed" : "habits_changed");
       Alert.alert("Success", `"${item.title}" has been restored successfully!`);
       loadArchivedData();
@@ -156,23 +173,20 @@ export default function ArchiveScreen() {
               await cancelReminderIds(item.notificationIds || []);
 
               if (isTask) {
-                const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-                if (raw) {
-                  const state = JSON.parse(raw);
-                  const fId = item.folderId || "default";
-                  state.todos[fId] = (state.todos[fId] || []).filter((t: Todo) => t.id !== item.id);
-                  await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-                }
+                await ActivityRepository.deleteTask(
+                  item.id,
+                  item.folderId || "default",
+                );
               } else {
-                const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-                if (raw) {
-                  const state = JSON.parse(raw);
-                  state.dailyHabits = state.dailyHabits.filter((h: Habit) => h.id !== item.id);
-                  await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-                }
+                await ActivityRepository.deleteHabit(
+                  item.id,
+                  item.folderId || "default",
+                );
               }
 
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Warning,
+              ).catch(() => {});
               emitStateChange(isTask ? "tasks_changed" : "habits_changed");
               loadArchivedData();
             } catch (e) {
@@ -180,48 +194,107 @@ export default function ArchiveScreen() {
             }
           },
         },
-      ]
+      ],
     );
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+    >
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.headerBtn}
+        >
           <Feather name="arrow-left" size={22} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Archived Items</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Archived Items
+        </Text>
         <View style={{ width: 34 }} />
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <View
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+        >
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Archived Tasks */}
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.primary }]}>Archived Tasks</Text>
+            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+              Archived Tasks
+            </Text>
             {archivedTasks.length === 0 ? (
-              <View style={[styles.emptyCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                <Text style={{ color: colors.textMuted, fontSize: 14 }}>No archived tasks</Text>
+              <View
+                style={[
+                  styles.emptyCard,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                ]}
+              >
+                <Text style={{ color: colors.textMuted, fontSize: 14 }}>
+                  No archived tasks
+                </Text>
               </View>
             ) : (
               archivedTasks.map((todo) => (
-                <AppCard key={todo.id} style={[styles.itemCard, { borderColor: colors.border }]}>
+                <AppCard
+                  key={todo.id}
+                  style={[styles.itemCard, { borderColor: colors.border }]}
+                >
                   <View style={styles.itemInfo}>
-                    <Text style={[styles.itemTitle, { color: colors.text }]}>{todo.title}</Text>
+                    <Text style={[styles.itemTitle, { color: colors.text }]}>
+                      {todo.title}
+                    </Text>
                     <View style={styles.metaRow}>
-                      <View style={[styles.badge, { backgroundColor: isLight ? "#E2E8F8" : "rgba(255,255,255,0.03)" }]}>
-                        <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>
+                      <View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: isLight
+                              ? "#E2E8F8"
+                              : "rgba(255,255,255,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 10,
+                            fontWeight: "700",
+                          }}
+                        >
                           💼 {workspaces[todo.folderId || ""] || "Default"}
                         </Text>
                       </View>
                       {todo.priority && (
-                        <View style={[styles.badge, { backgroundColor: isLight ? "#F8E2E2" : "rgba(255,255,255,0.03)" }]}>
-                          <Text style={{ color: todo.priority === "high" ? colors.error : colors.textMuted, fontSize: 10, fontWeight: "700" }}>
+                        <View
+                          style={[
+                            styles.badge,
+                            {
+                              backgroundColor: isLight
+                                ? "#F8E2E2"
+                                : "rgba(255,255,255,0.03)",
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color:
+                                todo.priority === "high"
+                                  ? colors.error
+                                  : colors.textMuted,
+                              fontSize: 10,
+                              fontWeight: "700",
+                            }}
+                          >
                             {todo.priority.toUpperCase()}
                           </Text>
                         </View>
@@ -229,10 +302,26 @@ export default function ArchiveScreen() {
                     </View>
                   </View>
                   <View style={styles.actions}>
-                    <TouchableOpacity onPress={() => handleRestore(todo, "task")} style={[styles.actionBtn, { backgroundColor: `${colors.success}15` }]}>
-                      <Feather name="rotate-ccw" size={16} color={colors.success} />
+                    <TouchableOpacity
+                      onPress={() => handleRestore(todo, "task")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.success}15` },
+                      ]}
+                    >
+                      <Feather
+                        name="rotate-ccw"
+                        size={16}
+                        color={colors.success}
+                      />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeletePermanently(todo, "task")} style={[styles.actionBtn, { backgroundColor: `${colors.error}15` }]}>
+                    <TouchableOpacity
+                      onPress={() => handleDeletePermanently(todo, "task")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.error}15` },
+                      ]}
+                    >
                       <Feather name="trash-2" size={16} color={colors.error} />
                     </TouchableOpacity>
                   </View>
@@ -243,25 +332,72 @@ export default function ArchiveScreen() {
 
           {/* Archived Habits */}
           <View style={[styles.section, { marginTop: 24 }]}>
-            <Text style={[styles.sectionTitle, { color: colors.primary }]}>Archived Habits</Text>
+            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+              Archived Habits
+            </Text>
             {archivedHabits.length === 0 ? (
-              <View style={[styles.emptyCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                <Text style={{ color: colors.textMuted, fontSize: 14 }}>No archived habits</Text>
+              <View
+                style={[
+                  styles.emptyCard,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                ]}
+              >
+                <Text style={{ color: colors.textMuted, fontSize: 14 }}>
+                  No archived habits
+                </Text>
               </View>
             ) : (
               archivedHabits.map((habit) => (
-                <AppCard key={habit.id} style={[styles.itemCard, { borderColor: colors.border }]}>
+                <AppCard
+                  key={habit.id}
+                  style={[styles.itemCard, { borderColor: colors.border }]}
+                >
                   <View style={styles.itemInfo}>
-                    <Text style={[styles.itemTitle, { color: colors.text }]}>{habit.title}</Text>
+                    <Text style={[styles.itemTitle, { color: colors.text }]}>
+                      {habit.title}
+                    </Text>
                     <View style={styles.metaRow}>
-                      <View style={[styles.badge, { backgroundColor: isLight ? "#E2E8F8" : "rgba(255,255,255,0.03)" }]}>
-                        <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>
+                      <View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: isLight
+                              ? "#E2E8F8"
+                              : "rgba(255,255,255,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 10,
+                            fontWeight: "700",
+                          }}
+                        >
                           🔥 Streak: {habit.streak}
                         </Text>
                       </View>
                       {habit.priority && (
-                        <View style={[styles.badge, { backgroundColor: isLight ? "#F8E2E2" : "rgba(255,255,255,0.03)" }]}>
-                          <Text style={{ color: habit.priority === "high" ? colors.error : colors.textMuted, fontSize: 10, fontWeight: "700" }}>
+                        <View
+                          style={[
+                            styles.badge,
+                            {
+                              backgroundColor: isLight
+                                ? "#F8E2E2"
+                                : "rgba(255,255,255,0.03)",
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color:
+                                habit.priority === "high"
+                                  ? colors.error
+                                  : colors.textMuted,
+                              fontSize: 10,
+                              fontWeight: "700",
+                            }}
+                          >
                             {habit.priority.toUpperCase()}
                           </Text>
                         </View>
@@ -269,10 +405,26 @@ export default function ArchiveScreen() {
                     </View>
                   </View>
                   <View style={styles.actions}>
-                    <TouchableOpacity onPress={() => handleRestore(habit, "habit")} style={[styles.actionBtn, { backgroundColor: `${colors.success}15` }]}>
-                      <Feather name="rotate-ccw" size={16} color={colors.success} />
+                    <TouchableOpacity
+                      onPress={() => handleRestore(habit, "habit")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.success}15` },
+                      ]}
+                    >
+                      <Feather
+                        name="rotate-ccw"
+                        size={16}
+                        color={colors.success}
+                      />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeletePermanently(habit, "habit")} style={[styles.actionBtn, { backgroundColor: `${colors.error}15` }]}>
+                    <TouchableOpacity
+                      onPress={() => handleDeletePermanently(habit, "habit")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.error}15` },
+                      ]}
+                    >
                       <Feather name="trash-2" size={16} color={colors.error} />
                     </TouchableOpacity>
                   </View>
@@ -300,7 +452,12 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: "700" },
   scrollContent: { padding: 18, paddingBottom: 60 },
   section: { gap: 10 },
-  sectionTitle: { fontSize: 14, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
   emptyCard: {
     padding: 24,
     borderRadius: 18,

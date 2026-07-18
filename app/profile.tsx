@@ -11,7 +11,7 @@ import {
   type UserProfile,
 } from "@/services/settingsService";
 import { getPebbleCounts } from "@/services/pebbleService";
-import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
 import { addStateListener, emitStateChange } from "@/services/stateEvents";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -35,6 +35,8 @@ import Animated, {
 import { RankTiersModal } from "@/components/profile/RankTiersModal";
 import { RenderAvatar, AVATAR_OPTIONS, EMOJI_OPTIONS } from "@/components/profile/RenderAvatar";
 import { BlurView } from "expo-blur";
+import { normalizeHabitsForToday } from "@/services/habitService";
+import { normalizeTaskCategory } from "@/services/taskCategories";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -92,33 +94,41 @@ export default function ProfileScreen() {
       const userProf = await getProfile();
       setProfile(userProf);
 
-      // 2. Query Completed Todos
-      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+      // 2. Query task and habit stats from V3 repositories
+      const folders = await FolderRepository.getFolders();
+      const folderIds = Array.from(new Set(["default", "unassigned", ...folders.map((folder) => folder.id)]));
+      const todayKey = getDateKey();
       let totalCompletedTodos = 0;
       let totalTasks = 0;
-
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-        totalTasks = allTodos.length;
-        totalCompletedTodos = allTodos.filter((t) => t.completed).length;
-      }
-
-      // 3. Query Habit completed stats and streaks
-      const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
       let totalCompletedHabits = 0;
       let streak = 0;
       let bestStreak = 0;
+      let todayPebblesCount = 0;
 
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const allHabits = (parsed.dailyHabits || []) as any[];
-        totalCompletedHabits = allHabits.filter((h) => h.completedToday).length;
-        streak = allHabits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
-        bestStreak = allHabits.reduce(
-          (max, h) => Math.max(max, h.bestStreak || 0),
-          0,
+      for (const folderId of folderIds) {
+        const [tasksMap, habitsMap] = await Promise.all([
+          ActivityRepository.getTasks(folderId),
+          ActivityRepository.getHabits(folderId),
+        ]);
+
+        const tasks = Object.values(tasksMap);
+        totalTasks += tasks.length;
+        totalCompletedTodos += tasks.filter((task) => task.completed).length;
+        todayPebblesCount += tasks.filter(
+          (task) => task.completed && task.completedAt && getDateKey(new Date(task.completedAt)) === todayKey,
+        ).length;
+
+        const habits = normalizeHabitsForToday(
+          Object.values(habitsMap).map((habit) => ({
+            ...habit,
+            category: normalizeTaskCategory(habit.category),
+            completedToday: habit.completedDates?.includes(todayKey) || false,
+          })),
         );
+        totalCompletedHabits += habits.filter((habit) => habit.completedToday).length;
+        streak = Math.max(streak, ...habits.map((habit) => habit.streak || 0), streak);
+        bestStreak = Math.max(bestStreak, ...habits.map((habit) => habit.bestStreak || 0), bestStreak);
+        todayPebblesCount += habits.filter((habit) => habit.completedToday).length;
       }
 
       // 4. Calculate Average Productivity Score (last 3 months)
@@ -148,7 +158,6 @@ export default function ProfileScreen() {
       const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
       let pastTodosCompleted = 0;
       let pastHabitsCompleted = 0;
-      const todayKey = getDateKey();
       if (rawHistory) {
         try {
           const historyList = JSON.parse(rawHistory);
@@ -192,20 +201,6 @@ export default function ProfileScreen() {
       });
 
       // Calculate pebbles earned today
-      let todayPebblesCount = 0;
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-        todayPebblesCount += allTodos.filter((t) => t.completed && t.completedAt && t.completedAt.startsWith(todayKey)).length;
-      }
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const allHabits = (parsed.dailyHabits || []) as any[];
-        // Habits completed today count as 1 pebble each
-        todayPebblesCount += allHabits.filter((h) => h.completedToday).length;
-      }
-      setPebblesToday(todayPebblesCount);
-
       const { getGemsBalance } = require("@/services/pebbleService");
       const balance = await getGemsBalance();
       setGemsBalance(balance);

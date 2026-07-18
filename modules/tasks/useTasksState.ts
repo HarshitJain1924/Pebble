@@ -4,8 +4,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useUndo } from "@/components/ui/UndoContext";
+import { ActivityRepository, ResourceRepository } from "@/services/v3/repositories";
+import { DEFAULT_FOLDER_ID } from "@/services/v3/v3Types";
 
-import { Todo, Habit, TaskList, Collection, CollectionItem } from "../types";
+import { Todo, Habit, TaskList, Collection, CollectionItem, Checklist, ChecklistItem } from "../types";
 
 import { pluginManager } from "@/plugin";
 import { type ParsedProductivityItem } from "@/services/nlpParser";
@@ -16,15 +18,14 @@ import { cancelReminderIds, scheduleReminderBatch, rescheduleTodoReminders, resc
 import { getProfile, handleTaskXpChange, handleHabitXpChange, type UserProfile } from "@/services/settingsService";
 import { addStateListener, emitStateChange } from "@/services/stateEvents";
 import {
-    DAILY_STORAGE_KEY,
     DAY_MS,
-    TODOS_STORAGE_KEY,
     addToRecycleBin,
     getRecycleBinItems,
     saveRecycleBinItems,
     getCollections,
     saveCollections,
-    COLLECTIONS_STORAGE_KEY,
+    getChecklists,
+    saveChecklists,
 } from "@/services/storage";
 import { getActiveSuggestions, logTaskCreation, type SmartSuggestion } from "@/services/suggestions";
 import { DEFAULT_TASK_CATEGORY, normalizeTaskCategory, TASK_CATEGORY_META, type TaskCategory } from "@/services/taskCategories";
@@ -32,7 +33,7 @@ import { syncWidgetData } from "@/services/widgetData";
 import { isRecurringOccurrenceForDate, getRecurrenceLabel, parseDateKey, dayDiff } from "@/services/recurrence";
 import { normalizeHabitsForToday } from "@/services/habitService";
 
-const STORAGE_KEY = TODOS_STORAGE_KEY;
+
 
 const initialTodos: Todo[] = [
   {
@@ -110,6 +111,13 @@ export const getTodoDateKey = (todo: Todo) => {
   return getDateKey();
 };
 
+// Global in-memory cache to keep tab states warm on switch and prevent 1s counts flashing
+let globalLists: TaskList[] | null = null;
+let globalTodos: Record<string, Todo[]> | null = null;
+let globalHabits: Habit[] | null = null;
+let globalCollections: Record<string, Collection[]> | null = null;
+let globalChecklists: Record<string, Checklist[]> | null = null;
+
 export function useTasksState() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -135,9 +143,10 @@ export function useTasksState() {
 
   // Segment Selector
   const [activeSegment, setActiveSegment] = useState<"tasks" | "habits" | "vault">("tasks");
-  const [folderSegment, setFolderSegment] = useState<"tasks" | "habits" | "vault">("tasks");
+  const [folderSegment, setFolderSegment] = useState<"tasks" | "habits" | "checklists" | "vault">("tasks");
   const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
-  const [collections, setCollections] = useState<Record<string, Collection[]>>({});
+  const [collections, setCollections] = useState<Record<string, Collection[]>>(() => globalCollections || {});
+  const [checklists, setChecklists] = useState<Record<string, Checklist[]>>(() => globalChecklists || {});
 
   // Tasks Screen State
   const [searchQuery, setSearchQuery] = useState("");
@@ -147,17 +156,38 @@ export function useTasksState() {
   const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (openedFolderId !== null) {
-      setFolderSegment("tasks");
-    }
+    emitStateChange("workspace_mode_changed", openedFolderId || "null");
   }, [openedFolderId]);
+
+  useEffect(() => {
+    emitStateChange("workspace_segment_changed", folderSegment);
+  }, [folderSegment]);
+
+  useEffect(() => {
+    const unsub = addStateListener("workspace_segment_request", (seg) => {
+      if (seg && ["tasks", "habits", "checklists", "vault"].includes(seg)) {
+        setFolderSegment(seg as any);
+      }
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (openedFolderId !== null) {
+      if (params.segment && ["tasks", "habits", "checklists", "vault"].includes(params.segment)) {
+        setFolderSegment(params.segment as any);
+      } else {
+        setFolderSegment("tasks");
+      }
+    }
+  }, [openedFolderId, params.segment]);
 
   const [folderModalVisible, setFolderModalVisible] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(null);
-  const [lists, setLists] = useState<TaskList[]>([{ id: "default", name: "My Pebbles" }]);
+  const [lists, setLists] = useState<TaskList[]>(() => globalLists || [{ id: "default", name: "My Pebbles" }]);
   const [selectedList, setSelectedList] = useState<string>("default");
-  const [todos, setTodos] = useState<Record<string, Todo[]>>({
+  const [todos, setTodos] = useState<Record<string, Todo[]>>(() => globalTodos || {
     default: initialTodos,
   });
   const [title, setTitle] = useState("");
@@ -173,7 +203,7 @@ export function useTasksState() {
   const [taskPositions, setTaskPositions] = useState<Record<string, number>>({});
 
   // Habits Screen State
-  const [habits, setHabits] = useState<Habit[]>([]);
+  const [habits, setHabits] = useState<Habit[]>(() => globalHabits || []);
   const [habitTitle, setHabitTitle] = useState("");
   const [selectedHabitPriority, setSelectedHabitPriority] = useState<"low" | "medium" | "high">("medium");
   const [selectedListHabitPriorityFilter, setSelectedListHabitPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
@@ -199,16 +229,52 @@ export function useTasksState() {
 
   const { showUndo, showToast } = useUndo();
 
+  // Synchronize state changes to in-memory global cache to keep tab switching instant
+  useEffect(() => {
+    globalLists = lists;
+  }, [lists]);
+
+  useEffect(() => {
+    globalTodos = todos;
+  }, [todos]);
+
+  useEffect(() => {
+    globalHabits = habits;
+  }, [habits]);
+
+  useEffect(() => {
+    globalCollections = collections;
+  }, [collections]);
+
+  useEffect(() => {
+    globalChecklists = checklists;
+  }, [checklists]);
+
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
-    console.log("🔍 [persistHabits] Saving habits to storage:", JSON.stringify(nextHabits, null, 2));
+    console.log("🔍 [persistHabits] Saving habits to V3 storage:", JSON.stringify(nextHabits, null, 2));
     try {
-      const payload = { dailyHabits: nextHabits };
-      await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(payload));
+      const key = `pebble:v3:habits:${selectedList}`;
+      const records: Record<string, any> = {};
+      nextHabits.forEach((h) => {
+        records[h.id] = {
+          id: h.id,
+          workspaceId: selectedList,
+          title: h.title,
+          createdAt: h.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          archived: h.archived || false,
+          streak: h.streak || 0,
+          bestStreak: h.bestStreak || 0,
+          completedDates: h.completedToday ? [getDateKey()] : [],
+          recurrenceRule: "FREQ=DAILY",
+        };
+      });
+      await AsyncStorage.setItem(key, JSON.stringify(records));
       void recordDailyHistorySnapshot();
     } catch (e) {
-      console.warn("Failed to persist habits:", e);
+      console.warn("Failed to persist V3 habits:", e);
     }
-  }, []);
+  }, [selectedList]);
 
   // 14-Day Scrollable Week Strip
   const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -396,8 +462,14 @@ export function useTasksState() {
   useEffect(() => {
     if (params.segment === "habits") {
       setActiveSegment("habits");
+      setFolderSegment("habits");
     } else if (params.segment === "tasks") {
       setActiveSegment("tasks");
+      setFolderSegment("tasks");
+    } else if (params.segment === "checklists") {
+      setFolderSegment("checklists");
+    } else if (params.segment === "vault") {
+      setFolderSegment("vault");
     }
   }, [params.segment]);
 
@@ -431,49 +503,136 @@ export function useTasksState() {
 
   const loadState = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        const defaultFolders = [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
-        const defaultTodos = { default: [] };
-        setLists(defaultFolders as any);
-        setTodos(defaultTodos as any);
-        setSelectedList("default");
-        await AsyncStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({
-            lists: defaultFolders,
-            selectedList: "default",
-            todos: defaultTodos,
-          })
-        );
-        return;
+      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
+      const rawActive = await AsyncStorage.getItem("pebble:v3:active_workspace");
+      
+      let currentLists: TaskList[] = rawLists ? JSON.parse(rawLists) : [];
+      if (currentLists.length === 0) {
+        // Fallback to V3 FolderRepository
+        const { FolderRepository } = require("@/services/v3/repositories");
+        const v3Folders = await FolderRepository.getFolders();
+        if (v3Folders.length > 0) {
+          currentLists = v3Folders.map((f: any) => ({ id: f.id, name: f.name, emoji: f.emoji || "📁", color: f.color || "#6366F1" }));
+        }
       }
-      const parsed = JSON.parse(raw) as {
-        lists: TaskList[];
-        selectedList: string;
-        todos: Record<string, Todo[]>;
-      };
-      if (parsed?.lists) setLists(parsed.lists);
-      if (openedFolderId) {
-        setSelectedList(openedFolderId);
-      } else if (parsed?.selectedList) {
-        setSelectedList(parsed.selectedList);
+      if (currentLists.length === 0) {
+        currentLists = [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
       }
-      if (parsed?.todos) {
-        const normalizedTodos = Object.fromEntries(
-          Object.entries(parsed.todos).map(([listId, listTodos]) => {
-            const normalized = listTodos.map((todo) => {
-              return {
-                ...todo,
-                category: normalizeTaskCategory(todo.category),
-                folderId: listId,
-              };
-            });
-            return [listId, normalized];
-          })
-        ) as Record<string, Todo[]>;
-        setTodos(normalizedTodos);
+      
+      const activeList = openedFolderId || rawActive || currentLists[0]?.id || "default";
+
+      // Query V3 ActivityRepository for ALL folders to preserve counts in WorkspaceGrid
+      const allTodosMap: Record<string, Todo[]> = {};
+      const allHabits: Habit[] = [];
+      const allChecklistsMap: Record<string, Checklist[]> = {};
+      const allCollectionsMap: Record<string, Collection[]> = {};
+
+      for (const folder of currentLists) {
+        const folderId = folder.id;
+
+        // Load tasks
+        const folderTasksMap = await ActivityRepository.getTasks(folderId);
+        allTodosMap[folderId] = Object.values(folderTasksMap).map((t) => ({
+          id: t.id,
+          title: t.title,
+          completed: t.completed,
+          priority: t.priority,
+          scheduledDate: t.dueDate,
+          folderId,
+          createdAt: t.createdAt,
+          category: t.category as any,
+        }));
+
+        // Load habits
+        const folderHabitsMap = await ActivityRepository.getHabits(folderId);
+        const folderHabitsList = Object.values(folderHabitsMap).map((h) => ({
+          id: h.id,
+          title: h.title,
+          streak: h.streak,
+          bestStreak: h.bestStreak,
+          completedToday: h.completedDates.includes(getDateKey()),
+          folderId,
+          createdAt: h.createdAt,
+        }));
+        allHabits.push(...folderHabitsList);
+
+        // Load checklists
+        const checklistsMap = await ActivityRepository.getChecklists(folderId);
+        allChecklistsMap[folderId] = Object.values(checklistsMap).map((c) => ({
+          id: c.id,
+          folderId,
+          title: c.title,
+          items: c.items || [],
+          createdAt: c.createdAt,
+          archived: c.archived || false,
+        }));
+
+        // Load collections
+        const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${folderId}`);
+        const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
+        
+        if (collectionsMeta.length === 0) {
+          collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
+        }
+
+        const resourcesMap = await ResourceRepository.getResources(folderId);
+        const v3Resources = Object.values(resourcesMap);
+
+        allCollectionsMap[folderId] = collectionsMeta.map((meta) => {
+          const matchingItems: CollectionItem[] = v3Resources
+            .filter((r) => r.tags?.includes(`collection_${meta.id}`))
+            .map((r) => ({
+              id: r.id,
+              type: r.resourceType as any,
+              title: r.title,
+              content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
+              url: r.resourceType === "link" ? (r.payload as any).url : undefined,
+              localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
+              fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
+              mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
+              createdAt: r.createdAt,
+              pinned: r.pinned || false,
+              archived: r.archived || false,
+              kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
+            }));
+
+          if (meta.id === "default_vault") {
+            const untagged = v3Resources
+              .filter((r) => !r.tags?.some((t) => t.startsWith("collection_")))
+              .map((r) => ({
+                id: r.id,
+                type: r.resourceType as any,
+                title: r.title,
+                content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
+                url: r.resourceType === "link" ? (r.payload as any).url : undefined,
+                localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
+                fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
+                mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
+                createdAt: r.createdAt,
+                pinned: r.pinned || false,
+                archived: r.archived || false,
+                kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
+              }));
+            matchingItems.push(...untagged);
+          }
+
+          return {
+            id: meta.id,
+            workspaceId: folderId,
+            name: meta.name,
+            emoji: meta.emoji,
+            createdAt: Date.now(),
+            items: matchingItems,
+          };
+        });
       }
+
+      setLists(currentLists);
+      setSelectedList(activeList);
+      setTodos(allTodosMap);
+      setHabits(allHabits);
+      setChecklists(allChecklistsMap);
+      setCollections(allCollectionsMap);
 
       try {
         const userProfile = await getProfile();
@@ -484,8 +643,8 @@ export function useTasksState() {
       } catch {}
 
       if (Platform.OS === "web") {
-        Object.values(parsed.todos || {}).forEach((listTodos) => {
-          listTodos.forEach((t) => {
+        Object.values(allTodosMap).forEach((listTodos) => {
+          listTodos.forEach((t: any) => {
             if (t.alarmTime && !t.alarmId && t.alarmTime > Date.now()) {
               const delay = t.alarmTime - Date.now();
               const timeoutId = setTimeout(() => {
@@ -502,42 +661,41 @@ export function useTasksState() {
                     tt.id === t.id ? { ...tt, alarmId: `web-${String(timeoutId)}` } : tt
                   );
                 }
-                persistState(parsed.lists || [], parsed.selectedList || "default", updatedLists);
+                persistState(currentLists, activeList, updatedLists);
                 return updatedLists;
               });
             }
           });
         });
       }
-    } catch {}
+    } catch (e) {
+      console.warn("Failed to load state", e);
+    }
   }, [openedFolderId]);
 
   const loadHabits = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-      console.log("🔍 [loadHabits] Loaded raw habits from storage:", raw);
-      if (!raw) {
-        setHabits([]);
-        return;
+      const allHabits: Habit[] = [];
+      for (const folder of lists) {
+        const folderId = folder.id;
+        const folderHabitsMap = await ActivityRepository.getHabits(folderId);
+        const folderHabitsList = Object.values(folderHabitsMap).map((h) => ({
+          id: h.id,
+          title: h.title,
+          streak: h.streak,
+          bestStreak: h.bestStreak,
+          completedToday: h.completedDates.includes(getDateKey()),
+          folderId,
+          createdAt: h.createdAt,
+        }));
+        allHabits.push(...folderHabitsList);
       }
-
-      const parsed = JSON.parse(raw) as { dailyHabits: Habit[] };
-      // Migrate legacy habits without a folderId to default workspace
-      const migrated = (parsed.dailyHabits ?? []).map((h) => {
-        if (!h.folderId) {
-          return { ...h, folderId: "default" };
-        }
-        return h;
-      });
-      const normalized = normalizeHabitsForToday(migrated);
-      console.log("🔍 [loadHabits] Normalized habits:", JSON.stringify(normalized, null, 2));
-      setHabits(normalized);
-      await persistHabits(normalized);
+      setHabits(allHabits);
     } catch (e) {
-      console.warn("Failed to load habits:", e);
+      console.warn("Failed to load V3 habits", e);
       setHabits([]);
     }
-  }, []);
+  }, [lists]);
 
   const loadSuggestions = useCallback(async () => {
     try {
@@ -884,20 +1042,106 @@ export function useTasksState() {
 
   const loadVaultState = useCallback(async () => {
     try {
-      const items = await getCollections();
-      setCollections(items);
+      const activeList = selectedList || "default";
+      
+      // Load custom collections metadata mapping
+      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${activeList}`);
+      const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
+      
+      // If metadata is empty, add a default folder
+      if (collectionsMeta.length === 0) {
+        collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
+      }
+
+      // Fetch all flat V3 resources
+      const resourcesMap = await ResourceRepository.getResources(activeList);
+      const v3Resources = Object.values(resourcesMap);
+
+      // Map resources to old CollectionItem format and group by tag
+      const builtCollections: Collection[] = collectionsMeta.map((meta) => {
+        const matchingItems: CollectionItem[] = v3Resources
+          .filter((r) => r.tags?.includes(`collection_${meta.id}`))
+          .map((r) => ({
+            id: r.id,
+            type: r.resourceType as any,
+            title: r.title,
+            content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
+            url: r.resourceType === "link" ? (r.payload as any).url : undefined,
+            localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
+            fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
+            mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
+            createdAt: r.createdAt,
+            pinned: r.pinned || false,
+            archived: r.archived || false,
+            kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
+          }));
+
+        // If default folder, also include resources without any collection tag
+        if (meta.id === "default_vault") {
+          const untagged = v3Resources
+            .filter((r) => !r.tags?.some((t) => t.startsWith("collection_")))
+            .map((r) => ({
+              id: r.id,
+              type: r.resourceType as any,
+              title: r.title,
+              content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
+              url: r.resourceType === "link" ? (r.payload as any).url : undefined,
+              localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
+              fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
+              mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
+              createdAt: r.createdAt,
+              pinned: r.pinned || false,
+              archived: r.archived || false,
+              kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
+            }));
+          matchingItems.push(...untagged);
+        }
+
+        return {
+          id: meta.id,
+          workspaceId: activeList,
+          name: meta.name,
+          emoji: meta.emoji,
+          createdAt: Date.now(),
+          items: matchingItems,
+        };
+      });
+
+      setCollections((prev) => ({
+        ...prev,
+        [activeList]: builtCollections,
+      }));
     } catch (e) {
-      console.warn("Failed to load collections", e);
+      console.warn("Failed to load V3 collections", e);
     }
-  }, []);
+  }, [selectedList]);
+
+  const loadChecklistsState = useCallback(async () => {
+    try {
+      const activeList = selectedList || "default";
+      const checklistsMap = await ActivityRepository.getChecklists(activeList);
+      const activeChecklists = Object.values(checklistsMap).map((c) => ({
+        id: c.id,
+        folderId: activeList,
+        title: c.title,
+        items: c.items || [],
+        createdAt: c.createdAt,
+        archived: c.archived || false,
+      }));
+      setChecklists((prev) => ({
+        ...prev,
+        [activeList]: activeChecklists,
+      }));
+    } catch (e) {
+      console.warn("Failed to load V3 checklists", e);
+    }
+  }, [selectedList]);
 
   useFocusEffect(
     useCallback(() => {
       void loadState();
-      void loadHabits();
       void loadSuggestions();
-      void loadVaultState();
-    }, [loadState, loadHabits, loadSuggestions, loadVaultState])
+    }, [loadState, loadSuggestions])
   );
 
   // Sync notification permissions and channels
@@ -986,12 +1230,19 @@ export function useTasksState() {
       }
     });
 
+    const unsubscribeChecklists = addStateListener("checklists_changed", (emitterId) => {
+      if (emitterId !== "tasks_screen") {
+        void loadChecklistsState();
+      }
+    });
+
     return () => {
       unsubscribeTasks();
       unsubscribeHabits();
       unsubscribeVault();
+      unsubscribeChecklists();
     };
-  }, [loadState, loadHabits, loadVaultState]);
+  }, [loadState, loadHabits, loadVaultState, loadChecklistsState]);
 
   // Alarms highlight scroll triggers
   useEffect(() => {
@@ -1032,19 +1283,72 @@ export function useTasksState() {
   // Task Actions
   const persistState = async (listsToSave: TaskList[], selected: string, todosToSave: Record<string, Todo[]>) => {
     try {
-      const payload = JSON.stringify({
-        lists: listsToSave,
-        selectedList: selected,
-        todos: todosToSave,
+      await AsyncStorage.setItem("pebble:v3:active_workspace", selected);
+      await AsyncStorage.setItem("pebble:v3:workspaces", JSON.stringify(listsToSave));
+
+      const activeTodos = todosToSave[selected] || [];
+      const records: Record<string, any> = {};
+      activeTodos.forEach((todo) => {
+        records[todo.id] = {
+          id: todo.id,
+          workspaceId: selected,
+          title: todo.title,
+          createdAt: todo.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          archived: todo.archived || false,
+          completed: todo.completed,
+          completedAt: todo.completed ? Date.now() : undefined,
+          priority: todo.priority || "medium",
+          dueDate: todo.scheduledDate,
+          category: todo.category,
+        };
       });
-      await AsyncStorage.setItem(STORAGE_KEY, payload);
+      await AsyncStorage.setItem(`pebble:v3:tasks:${selected}`, JSON.stringify(records));
       void recordDailyHistorySnapshot();
-    } catch {}
+    } catch (e) {
+      console.warn("Failed to persist V3 state:", e);
+    }
   };
 
-  const selectList = (listId: string) => {
+  const selectList = async (listId: string) => {
     setSelectedList(listId);
-    persistState(lists, listId, todos);
+    await AsyncStorage.setItem("pebble:v3:active_workspace", listId);
+
+    try {
+      // Reload V3 active workspace data
+      const activeTasksMap = await ActivityRepository.getTasks(listId);
+      const activeHabitsMap = await ActivityRepository.getHabits(listId);
+
+      const activeTodos: Todo[] = Object.values(activeTasksMap).map((t) => ({
+        id: t.id,
+        title: t.title,
+        completed: t.completed,
+        priority: t.priority,
+        scheduledDate: t.dueDate,
+        folderId: listId,
+        createdAt: t.createdAt,
+        category: t.category as any,
+      }));
+
+      const activeHabits: Habit[] = Object.values(activeHabitsMap).map((h) => ({
+        id: h.id,
+        title: h.title,
+        streak: h.streak,
+        bestStreak: h.bestStreak,
+        completedToday: h.completedDates.includes(getDateKey()),
+        folderId: listId,
+        createdAt: h.createdAt,
+      }));
+
+      setTodos((prev) => ({
+        ...prev,
+        [listId]: activeTodos,
+      }));
+      setHabits(activeHabits);
+      emitStateChange("workspace_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to reload on workspace switch:", e);
+    }
   };
 
   const cycleCategory = () => {
@@ -1208,21 +1512,22 @@ export function useTasksState() {
 
         const rescheduled = await rescheduleTodoReminders(toDelete);
 
-        const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-        let currentTodos: Record<string, Todo[]> = {};
-        let currentLists = lists;
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          currentTodos = parsed.todos || {};
-          currentLists = parsed.lists || lists;
-        }
-        const listTodos = currentTodos[selectedList] ?? [];
+        const currentTasksMap = await ActivityRepository.getTasks(selectedList);
+        const listTodos = Object.values(currentTasksMap).map((t: any) => ({
+          ...t,
+          folderId: selectedList,
+          scheduledDate: t.scheduledDate || t.dueDate,
+        })) as Todo[];
         if (!listTodos.some((t) => t.id === id)) {
-          const updated = {
-            ...currentTodos,
-            [selectedList]: [...listTodos, rescheduled],
-          };
-          await persistState(currentLists, selectedList, updated);
+          await ActivityRepository.saveTask({ ...rescheduled, folderId: selectedList });
+          const updatedTodosMap = await ActivityRepository.getTasks(selectedList);
+          const updatedList = Object.values(updatedTodosMap).map((t: any) => ({
+            ...t,
+            folderId: selectedList,
+            scheduledDate: t.scheduledDate || t.dueDate,
+          })) as Todo[];
+          const updated = { ...todos, [selectedList]: updatedList };
+          await persistState(lists, selectedList, updated);
           setTodos(updated);
         }
 
@@ -1439,13 +1744,14 @@ export function useTasksState() {
 
         const rescheduled = await rescheduleHabitReminders(target);
 
-        const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        let currentHabits: Habit[] = [];
-        if (raw) {
-          const parsed = JSON.parse(raw) as { dailyHabits?: Habit[] };
-          currentHabits = parsed.dailyHabits ?? [];
-        }
+        const currentHabitsMap = await ActivityRepository.getHabits(selectedList);
+        const currentHabits = Object.values(currentHabitsMap).map((h: any) => ({
+          ...h,
+          folderId: selectedList,
+          completedToday: h.completedDates?.includes(getDateKey()) || false,
+        })) as Habit[];
         if (!currentHabits.some((h) => h.id === id)) {
+          await ActivityRepository.saveHabit({ ...rescheduled, folderId: selectedList });
           const restored = [...currentHabits, rescheduled];
           await persistHabits(restored);
           setHabits(restored);
@@ -1712,22 +2018,19 @@ export function useTasksState() {
                     todosToDelete.map((t) => rescheduleTodoReminders(t))
                   );
 
-                  const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-                  let currentTodos: Record<string, Todo[]> = {};
-                  let currentLists = lists;
-                  if (raw) {
-                    const parsed = JSON.parse(raw);
-                    currentTodos = parsed.todos || {};
-                    currentLists = parsed.lists || lists;
-                  }
-                  rescheduledTodos.forEach((todo) => {
+                  for (const todo of rescheduledTodos) {
                     const listId = todo.folderId || selectedList;
-                    if (!currentTodos[listId]) currentTodos[listId] = [];
-                    if (!currentTodos[listId].some((t) => t.id === todo.id)) {
-                      currentTodos[listId] = [...currentTodos[listId], todo];
-                    }
-                  });
-                  await persistState(currentLists, selectedList, currentTodos);
+                    await ActivityRepository.saveTask({ ...todo, folderId: listId });
+                  }
+                  // Re-read state from V3
+                  const refreshedMap = await ActivityRepository.getTasks(selectedList);
+                  const refreshedTodos = Object.values(refreshedMap).map((t: any) => ({
+                    ...t,
+                    folderId: selectedList,
+                    scheduledDate: t.scheduledDate || t.dueDate,
+                  })) as Todo[];
+                  const currentTodos = { ...todos, [selectedList]: refreshedTodos };
+                  await persistState(lists, selectedList, currentTodos);
                   setTodos(currentTodos);
                   emitStateChange("tasks_changed", "tasks_screen");
                 },
@@ -1758,14 +2061,16 @@ export function useTasksState() {
                     habitsToDelete.map((h) => rescheduleHabitReminders(h))
                   );
 
-                  const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-                  let currentHabits: Habit[] = [];
-                  if (raw) {
-                    const parsed = JSON.parse(raw) as { dailyHabits?: Habit[] };
-                    currentHabits = parsed.dailyHabits ?? [];
+                  for (const habit of rescheduledHabits) {
+                    await ActivityRepository.saveHabit({ ...habit, folderId: selectedList });
                   }
-                  const filtered = currentHabits.filter((h) => !selectedItemIds.has(h.id));
-                  const restored = [...filtered, ...rescheduledHabits];
+                  // Re-read state from V3
+                  const refreshedHabitsMap = await ActivityRepository.getHabits(selectedList);
+                  const restored = Object.values(refreshedHabitsMap).map((h: any) => ({
+                    ...h,
+                    folderId: selectedList,
+                    completedToday: h.completedDates?.includes(getDateKey()) || false,
+                  })) as Habit[];
                   await persistHabits(restored);
                   setHabits(restored);
                   emitStateChange("habits_changed", "tasks_screen");
@@ -1830,22 +2135,14 @@ export function useTasksState() {
 
   const createCollection = async (workspaceId: string, name: string, emoji: string) => {
     try {
-      const allCollections = { ...collections };
-      if (!allCollections[workspaceId]) {
-        allCollections[workspaceId] = [];
-      }
-      const newColl: Collection = {
-        id: `coll-${Date.now()}`,
-        workspaceId,
-        name,
-        emoji,
-        createdAt: Date.now(),
-        items: [],
-        archived: false
-      };
-      allCollections[workspaceId] = [...allCollections[workspaceId], newColl];
-      setCollections(allCollections);
-      await saveCollections(allCollections);
+      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${workspaceId}`);
+      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
+      
+      const newId = `coll-${Date.now()}`;
+      collectionsMeta.push({ id: newId, name, emoji });
+      await AsyncStorage.setItem(`pebble:v3:collections_metadata:${workspaceId}`, JSON.stringify(collectionsMeta));
+
+      await loadVaultState();
       emitStateChange("vault_changed", "tasks_screen");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       showToast(`✓ Collection "${name}" created`);
@@ -1856,18 +2153,23 @@ export function useTasksState() {
 
   const deleteCollection = async (collectionId: string, workspaceId: string) => {
     try {
-      const allCollections = { ...collections };
-      const list = allCollections[workspaceId] || [];
-      const collToDelete = list.find((c) => c.id === collectionId);
-      if (collToDelete) {
-        await addToRecycleBin("collection", collToDelete, `${workspaceId}`);
+      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${workspaceId}`);
+      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
+      const updatedMeta = collectionsMeta.filter((c) => c.id !== collectionId);
+      await AsyncStorage.setItem(`pebble:v3:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
+
+      // Cascade delete resources in this collection
+      const resourcesMap = await ResourceRepository.getResources(workspaceId);
+      for (const res of Object.values(resourcesMap)) {
+        if (res.tags?.includes(`collection_${collectionId}`)) {
+          await ResourceRepository.deleteResource(res.id, workspaceId);
+        }
       }
-      allCollections[workspaceId] = list.filter((c) => c.id !== collectionId);
-      setCollections(allCollections);
-      await saveCollections(allCollections);
+
+      await loadVaultState();
       emitStateChange("vault_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      showToast("✓ Collection deleted (Recycle Bin)");
+      showToast("✓ Collection deleted");
     } catch (e) {
       console.warn("Failed to delete collection", e);
     }
@@ -1875,13 +2177,14 @@ export function useTasksState() {
 
   const renameCollection = async (collectionId: string, workspaceId: string, newName: string, newEmoji: string) => {
     try {
-      const allCollections = { ...collections };
-      const list = allCollections[workspaceId] || [];
-      allCollections[workspaceId] = list.map((c) =>
+      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${workspaceId}`);
+      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
+      const updatedMeta = collectionsMeta.map((c) =>
         c.id === collectionId ? { ...c, name: newName, emoji: newEmoji } : c
       );
-      setCollections(allCollections);
-      await saveCollections(allCollections);
+      await AsyncStorage.setItem(`pebble:v3:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
+
+      await loadVaultState();
       emitStateChange("vault_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       showToast("✓ Collection renamed");
@@ -1896,57 +2199,83 @@ export function useTasksState() {
     item: Omit<CollectionItem, "id" | "createdAt">
   ) => {
     try {
-      const allCollections = { ...collections };
-      const list = allCollections[workspaceId] || [];
-      const collectionIndex = list.findIndex((c) => c.id === collectionId);
-      if (collectionIndex > -1) {
-        const newItem: CollectionItem = {
-          ...item,
-          id: `item-${Date.now()}`,
-          createdAt: Date.now(),
-          archived: false,
-        };
-        const targetCollection = { ...list[collectionIndex] };
-        targetCollection.items = [newItem, ...targetCollection.items];
-        
-        const updatedList = [...list];
-        updatedList[collectionIndex] = targetCollection;
-        allCollections[workspaceId] = updatedList;
-        
-        setCollections(allCollections);
-        await saveCollections(allCollections);
-        emitStateChange("vault_changed", "tasks_screen");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        showToast("✓ Reference added to collection");
-      }
+      const itemId = `item-${Date.now()}`;
+      const payload = item.type === "link" ? { url: item.url || "" } :
+                      item.type === "file" ? { localUri: item.localUri || "", mimeType: item.mimeType || "", fileSize: item.fileSize || 0 } :
+                      { content: item.content || "" };
+
+      await ResourceRepository.saveResource({
+        id: itemId,
+        workspaceId,
+        title: item.title,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        resourceType: item.type as any,
+        payload,
+        pinned: item.pinned || false,
+        archived: item.archived || false,
+        tags: [`collection_${collectionId}`],
+      });
+
+      await loadVaultState();
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      showToast("✓ Reference added to collection");
     } catch (e) {
       console.warn("Failed to add collection item", e);
     }
   };
 
+  const updateCollectionItem = async (
+    itemId: string,
+    collectionId: string,
+    workspaceId: string,
+    updates: Partial<Pick<CollectionItem, "title" | "url" | "content">>
+  ) => {
+    try {
+      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      if (!existing) return;
+
+      const payload = {
+        ...existing.payload,
+        content: updates.content !== undefined ? updates.content : (existing.payload as any).content,
+        url: updates.url !== undefined ? updates.url : (existing.payload as any).url,
+      };
+
+      await ResourceRepository.saveResource({
+        ...existing,
+        title: updates.title !== undefined ? updates.title : existing.title,
+        payload,
+        updatedAt: Date.now(),
+      });
+
+      await loadVaultState();
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      showToast("✓ Resource updated");
+    } catch (e) {
+      console.warn("Failed to update collection item", e);
+    }
+  };
+
   const deleteCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
     try {
-      const allCollections = { ...collections };
-      const list = allCollections[workspaceId] || [];
-      const collectionIndex = list.findIndex((c) => c.id === collectionId);
-      if (collectionIndex > -1) {
-        const targetCollection = { ...list[collectionIndex] };
-        const itemToDelete = targetCollection.items.find((i) => i.id === itemId);
-        if (itemToDelete) {
-          await addToRecycleBin("collection_item", itemToDelete, `${workspaceId}:${collectionId}`);
-        }
-        targetCollection.items = targetCollection.items.filter((i) => i.id !== itemId);
-        
-        const updatedList = [...list];
-        updatedList[collectionIndex] = targetCollection;
-        allCollections[workspaceId] = updatedList;
-        
-        setCollections(allCollections);
-        await saveCollections(allCollections);
-        emitStateChange("vault_changed", "tasks_screen");
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-        showToast("✓ Item deleted (Recycle Bin)");
+      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      if (existing) {
+        await addToRecycleBin("collection_item", {
+          id: existing.id,
+          type: existing.resourceType,
+          title: existing.title,
+          content: (existing.payload as any).content,
+          url: (existing.payload as any).url,
+          createdAt: existing.createdAt,
+        }, `${workspaceId}:${collectionId}`);
       }
+      await ResourceRepository.deleteResource(itemId, workspaceId);
+      await loadVaultState();
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      showToast("✓ Item deleted (Recycle Bin)");
     } catch (e) {
       console.warn("Failed to delete collection item", e);
     }
@@ -1954,28 +2283,43 @@ export function useTasksState() {
 
   const toggleArchiveCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
     try {
-      const allCollections = { ...collections };
-      const list = allCollections[workspaceId] || [];
-      const collectionIndex = list.findIndex((c) => c.id === collectionId);
-      if (collectionIndex > -1) {
-        const targetCollection = { ...list[collectionIndex] };
-        targetCollection.items = targetCollection.items.map((i) =>
-          i.id === itemId ? { ...i, archived: !i.archived } : i
-        );
-        
-        const updatedList = [...list];
-        updatedList[collectionIndex] = targetCollection;
-        allCollections[workspaceId] = updatedList;
-        
-        setCollections(allCollections);
-        await saveCollections(allCollections);
-        emitStateChange("vault_changed", "tasks_screen");
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        const isArchived = targetCollection.items.find((i) => i.id === itemId)?.archived;
-        showToast(isArchived ? "✓ Item archived" : "✓ Item unarchived");
-      }
+      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      if (!existing) return;
+
+      const nextArchived = !existing.archived;
+      await ResourceRepository.saveResource({
+        ...existing,
+        archived: nextArchived,
+        updatedAt: Date.now(),
+      });
+
+      await loadVaultState();
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      showToast(nextArchived ? "✓ Item archived" : "✓ Item unarchived");
     } catch (e) {
       console.warn("Failed to toggle archive on collection item", e);
+    }
+  };
+
+  const togglePinCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
+    try {
+      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      if (!existing) return;
+
+      const nextPinned = !existing.pinned;
+      await ResourceRepository.saveResource({
+        ...existing,
+        pinned: nextPinned,
+        updatedAt: Date.now(),
+      });
+
+      await loadVaultState();
+      emitStateChange("vault_changed", "tasks_screen");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      showToast(nextPinned ? "✓ Pinned to Quick Access" : "✓ Removed from Quick Access");
+    } catch (e) {
+      console.warn("Failed to toggle pin on collection item", e);
     }
   };
 
@@ -1995,15 +2339,19 @@ export function useTasksState() {
         createdDate: getDateKey(),
       };
 
-      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-      const todosState = rawTodos ? JSON.parse(rawTodos) : { lists: [], selectedList: "default", todos: {} };
-      if (!todosState.todos) todosState.todos = {};
-      const targetListId = newTask.folderId || "default";
-      if (!todosState.todos[targetListId]) todosState.todos[targetListId] = [];
-      todosState.todos[targetListId] = [newTask, ...todosState.todos[targetListId]];
-
-      await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(todosState));
-      setTodos(todosState.todos);
+      await ActivityRepository.saveTask({
+        ...newTask,
+        folderId: newTask.folderId || "default",
+        scheduledDate: newTask.scheduledDate,
+      });
+      // Refresh local state from V3
+      const refreshedTasksMap = await ActivityRepository.getTasks(newTask.folderId || "default");
+      const refreshedTodos = Object.values(refreshedTasksMap).map((t: any) => ({
+        ...t,
+        folderId: newTask.folderId || "default",
+        scheduledDate: t.scheduledDate || t.dueDate,
+      })) as Todo[];
+      setTodos({ ...todos, [newTask.folderId || "default"]: refreshedTodos });
 
       await earnPebble("task");
 
@@ -2016,7 +2364,174 @@ export function useTasksState() {
     }
   };
 
+  const addChecklist = async (title: string, itemTitles: string[], folderId: string) => {
+    try {
+      const activeList = folderId || selectedList || "default";
+      const newChecklist = {
+        id: `checklist-${Date.now()}`,
+        workspaceId: activeList,
+        title,
+        items: itemTitles.map((it, idx) => ({
+          id: `checklist-item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+          title: it,
+          completed: false,
+        })),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        archived: false,
+      };
+      await ActivityRepository.saveChecklist(newChecklist);
+      await loadChecklistsState();
+      emitStateChange("checklists_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to add checklist V3", e);
+    }
+  };
+
+  const updateChecklist = async (updated: Checklist) => {
+    try {
+      const activeList = updated.folderId || selectedList || "default";
+      await ActivityRepository.saveChecklist({
+        id: updated.id,
+        workspaceId: activeList,
+        title: updated.title,
+        items: updated.items,
+        createdAt: updated.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        archived: updated.archived || false,
+      });
+      await loadChecklistsState();
+      emitStateChange("checklists_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to update checklist V3", e);
+    }
+  };
+
+  const deleteChecklist = async (id: string, folderId: string) => {
+    try {
+      const activeList = folderId || selectedList || "default";
+      const existing = await ActivityRepository.getChecklist(id, activeList);
+      if (existing) {
+        await addToRecycleBin("checklist", existing, `${activeList}:${id}`);
+      }
+      await ActivityRepository.deleteChecklist(id, activeList);
+      await loadChecklistsState();
+      emitStateChange("checklists_changed", "tasks_screen");
+      showToast("✓ Checklist moved to Recycle Bin");
+    } catch (e) {
+      console.warn("Failed to delete checklist V3", e);
+    }
+  };
+
+  const toggleChecklistItem = async (checklistId: string, itemId: string, folderId: string) => {
+    try {
+      const activeList = folderId || selectedList || "default";
+      const existing = await ActivityRepository.getChecklist(checklistId, activeList);
+      if (existing) {
+        const nextItems = existing.items.map((i) =>
+          i.id === itemId ? { ...i, completed: !i.completed } : i
+        );
+        await ActivityRepository.saveChecklist({
+          ...existing,
+          items: nextItems,
+          updatedAt: Date.now(),
+        });
+        await loadChecklistsState();
+        emitStateChange("checklists_changed", "tasks_screen");
+      }
+    } catch (e) {
+      console.warn("Failed to toggle checklist item V3", e);
+    }
+  };
+
+  const toggleLinkResource = useCallback(async (itemId: string, itemType: "task" | "habit" | "checklist", resourceId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (itemType === "task") {
+      setTodos((current) => {
+        const next = { ...current };
+        const wsId = openedFolderId || selectedList || "default";
+        if (next[wsId]) {
+          next[wsId] = next[wsId].map((todo) => {
+            if (todo.id === itemId) {
+              const linked = todo.linkedCollectionIds || [];
+              const updated = linked.includes(resourceId)
+                ? linked.filter((id) => id !== resourceId)
+                : [...linked, resourceId];
+              return { ...todo, linkedCollectionIds: updated };
+            }
+            return todo;
+          });
+        }
+        // Persist to storage
+        persistState(lists, wsId, next);
+        return next;
+      });
+    } else if (itemType === "habit") {
+      const nextHabits = habits.map((habit) => {
+        if (habit.id === itemId) {
+          const linked = habit.linkedCollectionIds || [];
+          const updated = linked.includes(resourceId)
+            ? linked.filter((id) => id !== resourceId)
+            : [...linked, resourceId];
+          return { ...habit, linkedCollectionIds: updated };
+        }
+        return habit;
+      });
+      setHabits(nextHabits);
+      await persistHabits(nextHabits);
+    } else if (itemType === "checklist") {
+      setChecklists((current) => {
+        const next = { ...current };
+        const wsId = openedFolderId || "default";
+        if (next[wsId]) {
+          next[wsId] = next[wsId].map((chk) => {
+            if (chk.id === itemId) {
+              const linked = chk.linkedCollectionIds || [];
+              const updated = linked.includes(resourceId)
+                ? linked.filter((id) => id !== resourceId)
+                : [...linked, resourceId];
+              return { ...chk, linkedCollectionIds: updated };
+            }
+            return chk;
+          });
+        }
+        saveChecklists(next).catch(() => {});
+        return next;
+      });
+    }
+
+    // Update reverse link inside CollectionItem in Collections storage
+    try {
+      const allCollections = await getCollections();
+      const wsId = openedFolderId || "default";
+      const list = allCollections[wsId] || [];
+      const updatedList = list.map((coll) => {
+        if (coll.items) {
+          const updatedItems = coll.items.map((item) => {
+            if (item.id === resourceId) {
+              const linked = item.linkedItemIds || [];
+              const updated = linked.includes(itemId)
+                ? linked.filter((id) => id !== itemId)
+                : [...linked, itemId];
+              return { ...item, linkedItemIds: updated };
+            }
+            return item;
+          });
+          return { ...coll, items: updatedItems };
+        }
+        return coll;
+      });
+      allCollections[wsId] = updatedList;
+      await saveCollections(allCollections);
+      setCollections(allCollections);
+      emitStateChange("vault_changed");
+    } catch (e) {
+      console.warn("Failed to update reverse link on resource", e);
+    }
+  }, [selectedList, habits, openedFolderId, lists, collections]);
+
   return {
+    toggleLinkResource,
     activeSegment,
     setActiveSegment,
     folderSegment,
@@ -2097,6 +2612,8 @@ export function useTasksState() {
     setActiveSuggestions,
     collections,
     setCollections,
+    checklists,
+    setChecklists,
 
     // Refs
     scrollViewRef,
@@ -2159,9 +2676,16 @@ export function useTasksState() {
     deleteCollection,
     renameCollection,
     addCollectionItem,
+    updateCollectionItem,
     deleteCollectionItem,
     toggleArchiveCollectionItem,
+    togglePinCollectionItem,
     convertCollectionItemToTask,
     loadVaultState,
+    addChecklist,
+    updateChecklist,
+    deleteChecklist,
+    toggleChecklistItem,
+    loadChecklistsState,
   };
 }

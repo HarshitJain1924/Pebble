@@ -1,13 +1,16 @@
 import { AMBIENT_SOUNDS } from "@/constants/sounds";
 import { earnPebble } from "@/services/pebbleService";
 import { emitStateChange, addStateListener } from "@/services/stateEvents";
-import { TODOS_STORAGE_KEY } from "@/services/storage";
+
 import { syncWidgetData } from "@/services/widgetData";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
+import { GraphRepository, FolderRepository, ActivityRepository } from "@/services/v3/repositories";
+import { DomainEventBus } from "@/services/v3/domainEvents";
+import { DEFAULT_WORKSPACE_ID } from "@/services/v3/v3Types";
 
 export function useFocusState() {
   // Core states
@@ -16,6 +19,8 @@ export function useFocusState() {
   const [totalSessionTime, setTotalSessionTime] = useState(25 * 60);
   const [completedToday, setCompletedToday] = useState(0);
   const [totalFocusTime, setTotalFocusTime] = useState(0);
+  const [averageSessionLength, setAverageSessionLength] = useState(0);
+  const [longestSession, setLongestSession] = useState(0);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(25);
   const [customMinsText, setCustomMinsText] = useState("25");
@@ -68,34 +73,47 @@ export function useFocusState() {
   const swStartTimeRef = useRef<number>(0);
   const swElapsedBeforeStartRef = useRef<number>(0);
 
-  // Load active tasks and habits from AsyncStorage
+  // Load active tasks and habits from V3 Repositories
   const loadActiveTasks = async () => {
     try {
-      const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-        const incomplete = allTodos.filter((t) => !t.completed && !t.archived);
-        setTodoList(incomplete);
-      } else {
-        setTodoList([]);
-      }
-    } catch {
-      setTodoList([]);
-    }
+      const folderList = await FolderRepository.getFolders();
+      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+      
+      const incomplete: any[] = [];
+      const allHabits: any[] = [];
+      const todayStr = new Date().toISOString().split("T")[0];
 
-    try {
-      const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const allHabits = (parsed.dailyHabits || []).filter(
-          (h: any) => !h.archived,
-        );
-        setHabitList(allHabits);
-      } else {
-        setHabitList([]);
+      for (const fId of folderIds) {
+        // Load tasks
+        const tasksMap = await ActivityRepository.getTasks(fId);
+        Object.values(tasksMap).forEach((t) => {
+          if (!t.completed && !t.archived) {
+            incomplete.push({
+              ...t,
+              folderId: fId,
+              scheduledDate: t.scheduledDate || t.dueDate,
+            });
+          }
+        });
+
+        // Load habits
+        const habitsMap = await ActivityRepository.getHabits(fId);
+        Object.values(habitsMap).forEach((h) => {
+          if (!h.archived) {
+            allHabits.push({
+              ...h,
+              folderId: fId,
+              completedToday: h.completedDates?.includes(todayStr) || false,
+            });
+          }
+        });
       }
-    } catch {
+
+      setTodoList(incomplete);
+      setHabitList(allHabits);
+    } catch (e) {
+      console.warn("Failed to load active tasks/habits in focus state:", e);
+      setTodoList([]);
       setHabitList([]);
     }
   };
@@ -247,17 +265,31 @@ export function useFocusState() {
           setIsRepeat(val === "true");
         }
       });
-      AsyncStorage.getItem("todoapp:focus:stats").then((raw) => {
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed.completedToday !== undefined)
-            setCompletedToday(parsed.completedToday);
-          if (parsed.totalFocusTime !== undefined)
-            setTotalFocusTime(parsed.totalFocusTime);
-        } else {
-          setCompletedToday(0);
-          setTotalFocusTime(0);
-        }
+      GraphRepository.getFocusSessions().then((sessions) => {
+        const today = new Date().toDateString();
+        const todaySessions = sessions.filter(
+          (s) => new Date(s.endedAt).toDateString() === today
+        );
+        const finishedToday = todaySessions.length;
+        const totalTime = todaySessions.reduce(
+          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
+          0
+        );
+        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+        const longest = todaySessions.reduce(
+          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
+          0
+        );
+
+        setCompletedToday(finishedToday);
+        setTotalFocusTime(totalTime);
+        setAverageSessionLength(avg);
+        setLongestSession(longest);
+      }).catch(() => {
+        setCompletedToday(0);
+        setTotalFocusTime(0);
+        setAverageSessionLength(0);
+        setLongestSession(0);
       });
       AsyncStorage.getItem("todoapp:focus:glow_enabled").then((val) => {
         if (val !== null) {
@@ -729,11 +761,67 @@ export function useFocusState() {
     }
   };
 
-  const swReset = () => {
+  const swReset = async () => {
+    const elapsed = swTime;
     setSwRunning(false);
     setSwTime(0);
     setSwLaps([]);
-    clearStopwatchState();
+    await clearStopwatchState();
+
+    if (elapsed >= 10) {
+      try {
+        const focusSession = {
+          id: `focus_sw_${Date.now()}`,
+          workspaceId: DEFAULT_WORKSPACE_ID,
+          startedAt: Date.now() - elapsed * 1000,
+          endedAt: Date.now(),
+          durationSeconds: elapsed,
+        };
+
+        // 1. Save FocusSession
+        await GraphRepository.saveFocusSession(focusSession);
+
+        // 2. Log System Event
+        await GraphRepository.logSystemEvent({
+          id: `log_${focusSession.id}`,
+          workspaceId: DEFAULT_WORKSPACE_ID,
+          itemId: focusSession.id,
+          itemType: "focus_session",
+          action: "focused",
+          timestamp: Date.now(),
+          value: elapsed,
+        });
+
+        // 3. Emit Domain Event
+        DomainEventBus.emit("focus.session_ended", {
+          type: "focus.session_ended",
+          payload: { session: focusSession },
+        });
+
+        // 4. Update Stats
+        const sessions = await GraphRepository.getFocusSessions();
+        const today = new Date().toDateString();
+        const todaySessions = sessions.filter(
+          (s) => new Date(s.endedAt).toDateString() === today
+        );
+        const finishedToday = todaySessions.length;
+        const totalTime = todaySessions.reduce(
+          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
+          0
+        );
+        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+        const longest = todaySessions.reduce(
+          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
+          0
+        );
+        setCompletedToday(finishedToday);
+        setTotalFocusTime(totalTime);
+        setAverageSessionLength(avg);
+        setLongestSession(longest);
+      } catch (err) {
+        console.warn("Failed to save V3 stopwatch focus session:", err);
+      }
+    }
   };
 
   const swLap = () => {
@@ -798,34 +886,24 @@ export function useFocusState() {
               text: "Awesome",
               onPress: async () => {
                 try {
-                  const rawHabits =
-                    await AsyncStorage.getItem("todoapp:daily:v1");
-                  if (rawHabits) {
-                    const parsed = JSON.parse(rawHabits);
+                  if (!taskId) { setFocusedTaskId(null); transitionToBreak(); return; }
+                  const habit = await ActivityRepository.getHabit(taskId, habitObj.folderId || "default");
+                  if (habit) {
                     const yesterday = new Date(
                       today.getTime() - 24 * 60 * 60 * 1000,
                     );
                     const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-                    const updatedHabits = parsed.dailyHabits.map((h: any) => {
-                      if (h.id === taskId) {
-                        return {
-                          ...h,
-                          streak: h.previousStreak,
-                          bestStreak: Math.max(
-                            h.bestStreak || 0,
-                            h.previousStreak,
-                          ),
-                          lastCompletedDate: yesterdayKey,
-                          previousStreak: undefined,
-                          streakBrokenDate: undefined,
-                        };
-                      }
-                      return h;
-                    });
-                    await AsyncStorage.setItem(
-                      "todoapp:daily:v1",
-                      JSON.stringify({ ...parsed, dailyHabits: updatedHabits }),
-                    );
+                    await ActivityRepository.saveHabit({
+                      ...habit,
+                      streak: (habit as any).previousStreak || habit.streak,
+                      bestStreak: Math.max(
+                        habit.bestStreak || 0,
+                        (habit as any).previousStreak || 0,
+                      ),
+                      lastCompletedDate: yesterdayKey,
+                      previousStreak: undefined,
+                      streakBrokenDate: undefined,
+                    } as any);
                     emitStateChange("habits_changed");
                     emitStateChange("pebbles_changed");
                   }
@@ -943,14 +1021,73 @@ export function useFocusState() {
     await clearActiveSession();
 
     if (pomodoroMode === "work") {
-      const totalMinutes = Math.floor(totalSessionTime / 60);
-      const logged = loggedMinutesInCurrentSessionRef.current;
-      const remainingMinutes = Math.max(0, totalMinutes - logged);
-      if (remainingMinutes > 0) {
-        await creditFocusTime(remainingMinutes);
+      try {
+        const isHabit = habitList.some((h) => h.id === focusedTaskId);
+        const focusSession = {
+          id: `focus_${Date.now()}`,
+          workspaceId: DEFAULT_WORKSPACE_ID,
+          startedAt: Date.now() - totalSessionTime * 1000,
+          endedAt: Date.now(),
+          durationSeconds: totalSessionTime,
+          linkedItem: focusedTaskId ? { id: focusedTaskId, type: isHabit ? "habit" as const : "task" as const } : undefined,
+        };
+
+        // 1. Save Focus Session log
+        await GraphRepository.saveFocusSession(focusSession);
+
+        // 2. Save focuses_on relationship if linked
+        if (focusedTaskId) {
+          await GraphRepository.saveRelationship({
+            id: `rel_${focusSession.id}_${focusedTaskId}`,
+            source: { id: focusSession.id, type: "focus_session" },
+            target: { id: focusedTaskId, type: isHabit ? "habit" : "task" },
+            relationType: "focuses_on",
+            createdAt: Date.now(),
+          });
+        }
+
+        // 3. Log System Event
+        await GraphRepository.logSystemEvent({
+          id: `log_${focusSession.id}`,
+          workspaceId: DEFAULT_WORKSPACE_ID,
+          itemId: focusSession.id,
+          itemType: "focus_session",
+          action: "focused",
+          timestamp: Date.now(),
+          value: totalSessionTime,
+        });
+
+        // 4. Emit Domain Event
+        DomainEventBus.emit("focus.session_ended", {
+          type: "focus.session_ended",
+          payload: { session: focusSession },
+        });
+
+        // 5. Update Stats
+        const sessions = await GraphRepository.getFocusSessions();
+        const today = new Date().toDateString();
+        const todaySessions = sessions.filter(
+          (s) => new Date(s.endedAt).toDateString() === today
+        );
+        const finishedToday = todaySessions.length;
+        const totalTime = todaySessions.reduce(
+          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
+          0
+        );
+        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+        const longest = todaySessions.reduce(
+          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
+          0
+        );
+        setCompletedToday(finishedToday);
+        setTotalFocusTime(totalTime);
+        setAverageSessionLength(avg);
+        setLongestSession(longest);
+      } catch (err) {
+        console.warn("Failed to persist focus session:", err);
       }
+
       void earnPebble("focus");
-      await incrementCompletedSessions();
       AlertFinishWork(focusedTaskId);
     } else {
       AlertFinishBreak();
@@ -959,33 +1096,31 @@ export function useFocusState() {
 
   const completeLinkedTask = async (taskId: string) => {
     try {
-      const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-      if (!raw) return;
-      const state = JSON.parse(raw);
-      let updated = false;
-
-      const updatedTodos = { ...state.todos };
-      for (const listId in updatedTodos) {
-        updatedTodos[listId] = updatedTodos[listId].map((todo: any) => {
-          if (todo.id === taskId) {
-            updated = true;
-            return {
-              ...todo,
-              completed: true,
-              lastUpdated: new Date().toISOString(),
-            };
-          }
-          return todo;
-        });
+      const folderList = await FolderRepository.getFolders();
+      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+      let foundTask = null;
+      let targetFolderId = "default";
+      for (const fId of folderIds) {
+        const task = await ActivityRepository.getTask(taskId, fId);
+        if (task) {
+          foundTask = task;
+          targetFolderId = fId;
+          break;
+        }
       }
 
-      if (updated) {
-        state.todos = updatedTodos;
-        await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
+      if (foundTask) {
+        await ActivityRepository.saveTask({
+          ...foundTask,
+          completed: true,
+          completedAt: Date.now(),
+        });
         emitStateChange("tasks_changed");
         await loadActiveTasks();
       }
-    } catch {}
+    } catch (e) {
+      console.warn("Failed to complete focus linked task", e);
+    }
   };
 
   const handleStartPause = () => {
@@ -1101,6 +1236,8 @@ export function useFocusState() {
     setCompletedToday,
     totalFocusTime,
     setTotalFocusTime,
+    averageSessionLength,
+    longestSession,
     showCustomInput,
     setShowCustomInput,
     customMinutes,

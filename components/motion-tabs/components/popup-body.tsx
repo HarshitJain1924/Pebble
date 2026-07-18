@@ -7,6 +7,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import PressableScale from "@/components/ui/PressableScale";
 import { AppText as Text } from "@/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -62,43 +63,50 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     try {
       const todayStr = getDateKey();
 
-      // 1. Load Tasks & stats
-      const rawTodos = await AsyncStorage.getItem("todoapp:v1");
-      let listFolders: any[] = [];
+      // 1. Fetch workspaces lists
+      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
+      const listFolders: any[] = rawLists ? JSON.parse(rawLists) : [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
+
+      const workspaceCounts: Record<string, number> = {};
       let tTotal = 0;
       let tComp = 0;
-      const workspaceCounts: Record<string, number> = {};
       let overdueList: any[] = [];
+      let allV3Habits: any[] = [];
 
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        if (parsed.lists) {
-          listFolders = parsed.lists;
-        }
+      // Loop over each workspace to count tasks and load habits
+      for (const folder of listFolders) {
+        const wsId = folder.id;
+        const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${wsId}`);
+        const tasksMap = tasksRaw ? JSON.parse(tasksRaw) : {};
+        
+        let pendingCount = 0;
+        Object.values(tasksMap).forEach((todo: any) => {
+          if (todo.archived) return;
+          const todoDate = todo.dueDate || getDateKey();
+          const isTodayOrOverdue = todoDate <= todayStr || todo.dueDate === "inbox";
+          if (isTodayOrOverdue) {
+            if (todo.completed) {
+              tComp++;
+            } else {
+              pendingCount++;
+            }
+            tTotal++;
+          }
+          const isOverdue = !todo.completed && todoDate < todayStr && todo.dueDate !== "inbox";
+          if (isOverdue) {
+            overdueList.push({
+              ...todo,
+              scheduledDate: todo.dueDate,
+              folderId: wsId,
+            });
+          }
+        });
+        workspaceCounts[wsId] = pendingCount;
 
-        Object.entries(parsed.todos || {}).forEach(([wsId, wsTodos]: [string, any]) => {
-          let pendingCount = 0;
-          wsTodos.forEach((todo: any) => {
-            if (todo.archived) return;
-            const todoDate = getTodoDateKey(todo);
-            const isTodayOrOverdue = todoDate <= todayStr || todo.scheduledDate === "inbox";
-            if (isTodayOrOverdue) {
-              if (todo.completed) {
-                tComp++;
-              } else {
-                pendingCount++;
-              }
-              tTotal++;
-            }
-            const isOverdue = !todo.completed && todoDate < todayStr && todo.scheduledDate !== "inbox";
-            if (isOverdue) {
-              overdueList.push({
-                ...todo,
-                folderId: todo.folderId || wsId,
-              });
-            }
-          });
-          workspaceCounts[wsId] = pendingCount;
+        const habitsRaw = await AsyncStorage.getItem(`pebble:v3:habits:${wsId}`);
+        const habitsMap = habitsRaw ? JSON.parse(habitsRaw) : {};
+        Object.values(habitsMap).forEach((h: any) => {
+          allV3Habits.push(h);
         });
       }
 
@@ -110,23 +118,27 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       setOverdueTasksList(overdueList);
 
       // 2. Load Habits
-      const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
       let hTotal = 0;
       let hComp = 0;
       let todayActiveHabits: any[] = [];
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const dayOfWeek = new Date().getDay();
-        todayActiveHabits = (parsed.dailyHabits || []).filter((h: any) => {
-          if (h.archived) return false;
-          if (h.recurrence) {
-            return isRecurringOccurrenceForDate(h, todayStr);
-          }
-          return !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
-        });
-        hTotal = todayActiveHabits.length;
-        hComp = todayActiveHabits.filter((h: any) => h.completedToday).length;
-      }
+      const dayOfWeek = new Date().getDay();
+      
+      todayActiveHabits = allV3Habits.filter((h: any) => {
+        if (h.archived) return false;
+        if (h.recurrence) {
+          return isRecurringOccurrenceForDate(h, todayStr);
+        }
+        return !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
+      });
+      hTotal = todayActiveHabits.length;
+      hComp = todayActiveHabits.filter((h: any) => h.completedDates?.includes(todayStr)).length;
+
+      // Adjust completedToday property for the drawer UI to consume
+      todayActiveHabits = todayActiveHabits.map((h: any) => ({
+        ...h,
+        completedToday: h.completedDates?.includes(todayStr) || false,
+      }));
+
       setActiveHabitsList(todayActiveHabits);
 
       setStats({
@@ -137,10 +149,8 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       });
 
       // Standardize Workspaces
-      const defaultFolders = [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
-      const finalFolders = listFolders.length > 0 ? listFolders : defaultFolders;
       setWorkspaces(
-        finalFolders.map((lf) => ({
+        listFolders.map((lf) => ({
           ...lf,
           pendingTasks: workspaceCounts[lf.id] || 0,
         }))
@@ -192,41 +202,49 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const toggleHabitInDrawer = async (habitId: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
-      if (!rawHabits) return;
+      const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+      const habitsRaw = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
+      if (!habitsRaw) return;
 
-      const parsed = JSON.parse(rawHabits);
-      const habits = parsed.dailyHabits || [];
+      const habitsMap = JSON.parse(habitsRaw);
+      const h = habitsMap[habitId];
+      if (!h) return;
+
       const today = getDateKey();
       const yesterday = getDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
+      
+      const isCompletedToday = h.completedDates?.includes(today);
+      const nextCompleted = !isCompletedToday;
 
-      const nextHabits = habits.map((h: any) => {
-        if (h.id !== habitId) return h;
+      let streak = h.streak || 0;
+      let completedDates = [...(h.completedDates || [])];
 
-        const nextCompleted = !h.completedToday;
-        let streak = h.streak || 0;
-        if (nextCompleted) {
-          let nextStreak = 1;
-          if (h.lastCompletedDate === today) {
-            nextStreak = h.streak || 1;
-          } else if (h.lastCompletedDate === yesterday) {
-            nextStreak = (h.streak || 0) + 1;
-          }
-          streak = nextStreak;
-        } else {
-          streak = Math.max(0, streak - 1);
+      if (nextCompleted) {
+        let nextStreak = 1;
+        if (h.lastCompletedDate === today) {
+          nextStreak = h.streak || 1;
+        } else if (h.lastCompletedDate === yesterday) {
+          nextStreak = (h.streak || 0) + 1;
         }
+        streak = nextStreak;
+        if (!completedDates.includes(today)) {
+          completedDates.push(today);
+        }
+      } else {
+        streak = Math.max(0, streak - 1);
+        completedDates = completedDates.filter((d: string) => d !== today);
+      }
 
-        return {
-          ...h,
-          completedToday: nextCompleted,
-          streak,
-          bestStreak: Math.max(h.bestStreak || 0, streak),
-          lastCompletedDate: nextCompleted ? today : (streak > 0 ? yesterday : undefined),
-        };
-      });
+      habitsMap[habitId] = {
+        ...h,
+        streak,
+        bestStreak: Math.max(h.bestStreak || 0, streak),
+        completedDates,
+        lastCompletedDate: nextCompleted ? today : (streak > 0 ? yesterday : undefined),
+        updatedAt: Date.now(),
+      };
 
-      await AsyncStorage.setItem("todoapp:daily:v1", JSON.stringify({ dailyHabits: nextHabits }));
+      await AsyncStorage.setItem(`pebble:v3:habits:${activeWorkspace}`, JSON.stringify(habitsMap));
 
       try {
         const { recordDailyHistorySnapshot } = require("@/services/productivityHistory");
@@ -234,17 +252,15 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       } catch {}
 
       try {
-        const target = habits.find((h: any) => h.id === habitId);
         const { earnPebble, undoLastPebble } = require("@/services/pebbleService");
-        if (target) {
-          if (!target.completedToday) {
-            await earnPebble("habit");
-          } else {
-            await undoLastPebble("habit");
-          }
+        if (!isCompletedToday) {
+          await earnPebble("habit");
+        } else {
+          await undoLastPebble("habit");
         }
       } catch {}
 
+      await loadData();
       emitStateChange("habits_changed");
     } catch (e) {
       console.warn("Failed to toggle habit in drawer", e);
@@ -254,24 +270,22 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const completeTaskInDrawer = async (taskId: string, folderId: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const rawTodos = await AsyncStorage.getItem("todoapp:v1");
-      if (!rawTodos) return;
+      const wsId = folderId || "default";
+      const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${wsId}`);
+      if (!tasksRaw) return;
 
-      const parsed = JSON.parse(rawTodos);
-      const todos = parsed.todos || {};
-      
-      const listId = folderId || "default";
-      const listTodos = todos[listId] || [];
-      
-      const nextListTodos = listTodos.map((todo: any) => {
-        if (todo.id !== taskId) return todo;
-        return { ...todo, completed: true };
-      });
-      
-      todos[listId] = nextListTodos;
-      
-      await AsyncStorage.setItem("todoapp:v1", JSON.stringify({ ...parsed, todos }));
-      
+      const tasksMap = JSON.parse(tasksRaw);
+      const todo = tasksMap[taskId];
+      if (todo) {
+        tasksMap[taskId] = {
+          ...todo,
+          completed: true,
+          completedAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        await AsyncStorage.setItem(`pebble:v3:tasks:${wsId}`, JSON.stringify(tasksMap));
+      }
+
       try {
         const { earnPebble } = require("@/services/pebbleService");
         await earnPebble("task");
@@ -380,9 +394,10 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 : "A quiet day. Take a moment to reflect and set your intentions for tomorrow."}
             </Text>
 
-            <Pressable
+            <PressableScale
               onPress={handleOpenReview}
-              style={{
+              haptic
+              contentStyle={{
                 backgroundColor: "#F59E0B",
                 borderRadius: 16,
                 paddingVertical: 12,
@@ -404,7 +419,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
               <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13, letterSpacing: 0.5 }}>
                 REVIEW MY DAY
               </Text>
-            </Pressable>
+            </PressableScale>
           </View>
         ) : (
           // Daytime Mode (Focus & Overdue Tasks Check)
@@ -416,9 +431,10 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
               </Text>
             </View>
 
-            <Pressable
+            <PressableScale
               onPress={handleEnterZenMode}
-              style={{
+              haptic
+              contentStyle={{
                 alignSelf: "center",
                 backgroundColor: colors.accent,
                 borderRadius: 20,
@@ -441,7 +457,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
               <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12, letterSpacing: 0.5 }}>
                 ENTER ZEN MODE
               </Text>
-            </Pressable>
+            </PressableScale>
 
             <Text style={[styles.sectionTitle, { color: colors.muted, marginTop: 4, marginBottom: 8 }]}>
               OVERDUE TASKS
@@ -455,10 +471,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
               <ScrollView style={{ maxHeight: 150 }} showsVerticalScrollIndicator={false}>
                 <View style={{ gap: 6, paddingBottom: 4 }}>
                   {overdueTasksList.map((todo) => (
-                    <Pressable
+                    <PressableScale
                       key={todo.id}
                       onPress={() => completeTaskInDrawer(todo.id, todo.folderId)}
-                      style={{
+                      haptic
+                      contentStyle={{
                         flexDirection: "row",
                         alignItems: "center",
                         paddingVertical: 10,
@@ -511,7 +528,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                           OVERDUE
                         </Text>
                       </View>
-                    </Pressable>
+                    </PressableScale>
                   ))}
                 </View>
               </ScrollView>
@@ -536,10 +553,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         <ScrollView style={styles.workspaceScroll} showsVerticalScrollIndicator={false}>
           <View style={styles.workspaceGrid}>
             {workspaces.map((ws) => (
-              <Pressable
+              <PressableScale
                 key={ws.id}
                 onPress={() => selectWorkspace(ws.id)}
-                style={[
+                haptic
+                contentStyle={[
                   styles.workspaceCard,
                   {
                     backgroundColor: colors.input,
@@ -561,7 +579,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                   )}
                 </View>
                 <Feather name="chevron-right" size={14} color={colors.muted} />
-              </Pressable>
+              </PressableScale>
             ))}
           </View>
         </ScrollView>
@@ -584,10 +602,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
             { label: "Tomorrow", offset: 1, desc: "Prepare for tomorrow", icon: "arrow-right" },
             { label: "Day After", offset: 2, desc: "Look further ahead", icon: "chevrons-right" },
           ].map((item) => (
-            <Pressable
+            <PressableScale
               key={item.label}
               onPress={() => selectScheduleDate(item.offset)}
-              style={[
+              haptic
+              contentStyle={[
                 styles.agendaButton,
                 {
                   backgroundColor: colors.input,
@@ -602,7 +621,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 <Text style={[styles.agendaLabel, { color: colors.foreground }]}>{item.label}</Text>
                 <Text style={[styles.agendaDesc, { color: colors.muted }]}>{item.desc}</Text>
               </View>
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
       </View>
@@ -625,10 +644,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
             { label: "5m Break", duration: 5, isBreak: true, icon: "coffee", accent: "#10B981" },
             { label: "15m Break", duration: 15, isBreak: true, icon: "sun", accent: "#F59E0B" },
           ].map((item) => (
-            <Pressable
+            <PressableScale
               key={item.label}
               onPress={() => startFocusPreset(item.duration, item.isBreak)}
-              style={[
+              haptic
+              contentStyle={[
                 styles.focusPresetCard,
                 {
                   backgroundColor: colors.input,
@@ -640,7 +660,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 <Feather name={item.icon as any} size={18} color={item.accent} />
               </View>
               <Text style={[styles.presetLabel, { color: colors.foreground }]}>{item.label}</Text>
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
       </View>

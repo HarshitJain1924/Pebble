@@ -18,7 +18,6 @@ export type Todo = {
   reminderMinute?: number;
   reminderDays?: number[];
   escalationMinutes?: number[];
-  subtasks?: Subtask[];
   priority?: "low" | "medium" | "high";
   scheduledDate?: string;
 };

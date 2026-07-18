@@ -3,57 +3,95 @@ export const TASK_CATEGORY_KEYS = [
   "personal",
   "health",
   "learning",
+  "finance",
   "creative",
+  "travel",
+  "home",
   "focus",
 ] as const;
 
 export type TaskCategory = (typeof TASK_CATEGORY_KEYS)[number];
 
 export type TaskCategoryMeta = {
-  key: TaskCategory;
   label: string;
+  icon: string;
+  color: string;
   tint: string;
-  softTint: string;
 };
 
-export const TASK_CATEGORY_META: TaskCategoryMeta[] = [
-  {
-    key: "work",
+const TASK_CATEGORY_META_RECORD: Record<TaskCategory, TaskCategoryMeta> = {
+  work: {
     label: "Work",
-    tint: "#6366F1",
-    softTint: "rgba(99, 102, 241, 0.12)",
+    icon: "briefcase",
+    color: "#5E81F4",
+    tint: "rgba(94, 129, 244, 0.12)",
   },
-  {
-    key: "personal",
+  personal: {
     label: "Personal",
-    tint: "#10B981",
-    softTint: "rgba(16, 185, 129, 0.10)",
+    icon: "user",
+    color: "#8E8CD8",
+    tint: "rgba(142, 140, 216, 0.12)",
   },
-  {
-    key: "health",
+  health: {
     label: "Health",
-    tint: "#F59E0B",
-    softTint: "rgba(245, 158, 11, 0.10)",
+    icon: "activity",
+    color: "#4CAF7D",
+    tint: "rgba(76, 175, 125, 0.12)",
   },
-  {
-    key: "learning",
+  learning: {
     label: "Learning",
-    tint: "#3B82F6",
-    softTint: "rgba(59, 130, 246, 0.10)",
+    icon: "book-open",
+    color: "#FFB74D",
+    tint: "rgba(255, 183, 77, 0.12)",
   },
-  {
-    key: "creative",
+  finance: {
+    label: "Finance",
+    icon: "wallet",
+    color: "#81C784",
+    tint: "rgba(129, 199, 132, 0.12)",
+  },
+  creative: {
     label: "Creative",
-    tint: "#A855F7",
-    softTint: "rgba(168, 85, 247, 0.10)",
+    icon: "feather",
+    color: "#E57373",
+    tint: "rgba(229, 115, 115, 0.12)",
   },
-  {
-    key: "focus",
+  travel: {
+    label: "Travel",
+    icon: "map-pin",
+    color: "#64B5F6",
+    tint: "rgba(100, 181, 246, 0.12)",
+  },
+  home: {
+    label: "Home",
+    icon: "home",
+    color: "#A1887F",
+    tint: "rgba(161, 136, 127, 0.12)",
+  },
+  focus: {
     label: "Focus",
-    tint: "#06B6D4",
-    softTint: "rgba(6, 182, 212, 0.10)",
+    icon: "target",
+    color: "#818CF8",
+    tint: "rgba(129, 140, 248, 0.12)",
   },
-];
+};
+
+export const TASK_CATEGORY_META_ARRAY = TASK_CATEGORY_KEYS.map((key) => {
+  const meta = TASK_CATEGORY_META_RECORD[key];
+  return {
+    key,
+    label: meta.label,
+    icon: meta.icon,
+    color: meta.color,
+    tint: meta.color, // compatibility
+    softTint: meta.tint, // compatibility
+  };
+});
+
+// Build the hybrid array+object to maintain perfect compatibility
+const hybridMeta = Object.assign(TASK_CATEGORY_META_ARRAY, TASK_CATEGORY_META_RECORD);
+
+export const TASK_CATEGORY_META = hybridMeta as typeof TASK_CATEGORY_META_ARRAY & typeof TASK_CATEGORY_META_RECORD;
 
 export const DEFAULT_TASK_CATEGORY: TaskCategory = "work";
 
@@ -65,13 +103,34 @@ export function normalizeTaskCategory(value?: string | null): TaskCategory {
   if (value && isTaskCategory(value)) {
     return value;
   }
-
   return DEFAULT_TASK_CATEGORY;
 }
 
+export function getCategoryMeta(category?: string): TaskCategoryMeta | null {
+  if (category && isTaskCategory(category)) {
+    return TASK_CATEGORY_META_RECORD[category];
+  }
+  return null;
+}
+
+export function getCategoryColor(category?: string): string {
+  return getCategoryMeta(category)?.color ?? "#A1A1AA";
+}
+
+export function getCategoryIcon(category?: string): string {
+  return getCategoryMeta(category)?.icon ?? "folder";
+}
+
+export function getCategoryTint(category?: string): string {
+  return getCategoryMeta(category)?.tint ?? "rgba(161, 161, 170, 0.12)";
+}
+
+// For backwards compatibility:
 export function getTaskCategoryMeta(category: TaskCategory) {
-  return (
-    TASK_CATEGORY_META.find((item) => item.key === category) ??
-    TASK_CATEGORY_META[0]
-  );
+  return {
+    key: category,
+    ...TASK_CATEGORY_META_RECORD[category],
+    tint: TASK_CATEGORY_META_RECORD[category].color,
+    softTint: TASK_CATEGORY_META_RECORD[category].tint,
+  };
 }

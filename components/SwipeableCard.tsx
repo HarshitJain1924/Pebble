@@ -9,7 +9,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withTiming,
   runOnJS,
   interpolate,
   Extrapolation,
@@ -109,7 +108,7 @@ export function SwipeableCard({
         translateX.value = withSpring(SCREEN_WIDTH * 0.4, SNAP_SPRING, () => {
           runOnJS(triggerMediumHaptic)();
           runOnJS(onSwipeRight)();
-          translateX.value = withTiming(0, { duration: 250 });
+          translateX.value = withSpring(0, SPRING_CONFIG);
         });
       } else if (hasLeftActions && event.translationX < -35) {
         // Snap open to action buttons row
@@ -119,7 +118,7 @@ export function SwipeableCard({
         translateX.value = withSpring(-SCREEN_WIDTH * 0.4, SNAP_SPRING, () => {
           runOnJS(triggerMediumHaptic)();
           runOnJS(onSwipeLeft)();
-          translateX.value = withTiming(0, { duration: 250 });
+          translateX.value = withSpring(0, SPRING_CONFIG);
         });
       } else {
         // Snap closed

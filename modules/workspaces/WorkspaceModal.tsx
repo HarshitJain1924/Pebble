@@ -75,6 +75,7 @@ export function WorkspaceModal({
   const [folderIconTypeInput, setFolderIconTypeInput] = useState<"emoji" | "icon">("emoji");
   const [folderIconInput, setFolderIconInput] = useState("briefcase");
   const [folderColorInput, setFolderColorInput] = useState("#6366F1");
+  const [folderDescriptionInput, setFolderDescriptionInput] = useState("");
 
   // Populate inputs when visible or editingFolderId changes
   useEffect(() => {
@@ -87,6 +88,7 @@ export function WorkspaceModal({
           setFolderIconInput(folder.icon || "briefcase");
           setFolderIconTypeInput(folder.iconType || "emoji");
           setFolderColorInput(folder.color || "#6366F1");
+          setFolderDescriptionInput(folder.description || "");
         }
       } else {
         setFolderNameInput("");
@@ -94,6 +96,7 @@ export function WorkspaceModal({
         setFolderIconInput("briefcase");
         setFolderIconTypeInput("emoji");
         setFolderColorInput("#6366F1");
+        setFolderDescriptionInput("");
       }
     }
   }, [visible, editingFolderId, lists]);
@@ -116,6 +119,7 @@ export function WorkspaceModal({
               icon: folderIconInput,
               iconType: folderIconTypeInput,
               color: folderColorInput,
+              description: folderDescriptionInput.trim() || undefined,
             }
           : l,
       );
@@ -128,6 +132,7 @@ export function WorkspaceModal({
         icon: folderIconInput,
         iconType: folderIconTypeInput,
         color: folderColorInput,
+        description: folderDescriptionInput.trim() || undefined,
         createdAt: Date.now(),
       });
       updatedTodos[newId] = [];
@@ -140,6 +145,7 @@ export function WorkspaceModal({
     void persistState(updatedLists, activeListId, updatedTodos).then(() => {
       emitStateChange("tasks_changed");
       emitStateChange("habits_changed");
+      emitStateChange("workspace_changed");
     });
     onClose();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -148,9 +154,14 @@ export function WorkspaceModal({
   const handleDelete = () => {
     if (!editingFolderId) return;
 
+    if (editingFolderId === "default" || lists.filter((l) => !(l as any).archived).length <= 1) {
+      Alert.alert("Cannot Delete", "You must keep at least one active workspace.");
+      return;
+    }
+
     Alert.alert(
       "Delete Workspace",
-      "Are you sure you want to delete this workspace? It and all its tasks and habits will be moved to the Recycle Bin.",
+      "Are you sure you want to delete this workspace? This will permanently delete all tasks and habits in this workspace.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -184,7 +195,7 @@ export function WorkspaceModal({
               }
             }
 
-            // 2. Add to Recycle Bin
+            // 2. Add to Recycle Bin & Purge V3 Partitioned Storage Files
             await addToRecycleBin(
               "workspace",
               {
@@ -194,6 +205,14 @@ export function WorkspaceModal({
               },
               "Workspaces"
             );
+            try {
+              await AsyncStorage.removeItem(`pebble:v3:tasks:${editingFolderId}`);
+              await AsyncStorage.removeItem(`pebble:v3:habits:${editingFolderId}`);
+              await AsyncStorage.removeItem(`pebble:v3:checklists:${editingFolderId}`);
+              await AsyncStorage.removeItem(`pebble:v3:resources:${editingFolderId}`);
+            } catch (e) {
+              console.warn("Failed to clear V3 partitioned workspace storage files:", e);
+            }
 
             // 3. Update state
             const updatedLists = lists.filter((l) => l.id !== editingFolderId);
@@ -215,6 +234,7 @@ export function WorkspaceModal({
             await persistHabits(updatedHabits);
             emitStateChange("tasks_changed");
             emitStateChange("habits_changed");
+            emitStateChange("workspace_changed");
 
             if (openedFolderId === editingFolderId) {
               setOpenedFolderId(null);
@@ -239,16 +259,25 @@ export function WorkspaceModal({
                 );
 
                 // Restore state and persist
-                const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-                let currentLists: TaskList[] = [];
-                let currentTodos: Record<string, Todo[]> = {};
-                if (rawTodos) {
-                  const parsed = JSON.parse(rawTodos);
-                  currentLists = parsed.lists || [];
-                  currentTodos = parsed.todos || {};
+                const rawWorkspaces = await AsyncStorage.getItem("pebble:v3:workspaces");
+                const currentLists = rawWorkspaces ? JSON.parse(rawWorkspaces) : [{ id: "default", name: "📋 My Pebbles" }];
+                 
+                const currentTodos: Record<string, Todo[]> = {};
+                for (const folder of currentLists) {
+                  const wsId = folder.id;
+                  const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${wsId}`);
+                  if (tasksRaw) {
+                    const tasksMap = JSON.parse(tasksRaw);
+                    currentTodos[wsId] = Object.values(tasksMap).map((t: any) => ({
+                      ...t,
+                      scheduledDate: t.dueDate,
+                    })) as Todo[];
+                  } else {
+                    currentTodos[wsId] = [];
+                  }
                 }
 
-                const restoredLists = currentLists.some((l) => l.id === editingFolderId)
+                const restoredLists = currentLists.some((l: any) => l.id === editingFolderId)
                   ? currentLists
                   : [...currentLists, workspace];
 
@@ -257,12 +286,21 @@ export function WorkspaceModal({
                   [editingFolderId]: rescheduledTodos,
                 };
 
-                const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-                let currentHabits: Habit[] = [];
-                if (rawHabits) {
-                  const parsed = JSON.parse(rawHabits);
-                  currentHabits = parsed.dailyHabits ?? [];
+                const currentHabits: Habit[] = [];
+                for (const folder of currentLists) {
+                  const wsId = folder.id;
+                  const habitsRaw = await AsyncStorage.getItem(`pebble:v3:habits:${wsId}`);
+                  if (habitsRaw) {
+                    const habitsMap = JSON.parse(habitsRaw);
+                    Object.values(habitsMap).forEach((h: any) => {
+                      currentHabits.push({
+                        ...h,
+                        completedToday: h.completedDates?.includes(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`) || false,
+                      });
+                    });
+                  }
                 }
+
                 const restoredHabits = [
                   ...currentHabits.filter((h) => h.folderId !== editingFolderId),
                   ...rescheduledHabits,
@@ -331,6 +369,39 @@ export function WorkspaceModal({
               value={folderNameInput}
               onChangeText={setFolderNameInput}
               placeholder="E.g. Placement Prep, Gym..."
+              placeholderTextColor={colors.textMuted}
+              style={{
+                flex: 1,
+                color: colors.text,
+                fontSize: 14,
+                fontWeight: "600",
+              }}
+            />
+          </View>
+
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 10,
+              textTransform: "uppercase",
+              fontWeight: "700",
+              letterSpacing: 0.8,
+              marginBottom: 8,
+              marginTop: 4,
+            }}
+          >
+            Workspace Description
+          </Text>
+          <View
+            style={[
+              styles.addTaskCard,
+              { paddingHorizontal: 12, marginBottom: 16, height: 44 },
+            ]}
+          >
+            <TextInput
+              value={folderDescriptionInput}
+              onChangeText={setFolderDescriptionInput}
+              placeholder="E.g. Tasks and notes for my activities..."
               placeholderTextColor={colors.textMuted}
               style={{
                 flex: 1,

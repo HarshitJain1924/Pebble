@@ -15,11 +15,14 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
   let evening = 0;
 
   try {
-    const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+    const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+
+    // Load Tasks
+    const rawTodos = await AsyncStorage.getItem(`pebble:v3:tasks:${activeWorkspace}`);
     if (rawTodos) {
       const parsed = JSON.parse(rawTodos);
-      const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-      allTodos.forEach((todo) => {
+      const allTodos = Object.values(parsed || {}).filter((t: any) => !t.archived);
+      allTodos.forEach((todo: any) => {
         if (todo.alarmTime) {
           const hour = new Date(todo.alarmTime).getHours();
           if (hour >= 5 && hour < 12) morning++;
@@ -34,11 +37,12 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
       });
     }
 
-    const rawHabits = await AsyncStorage.getItem("todoapp:daily:v1");
+    // Load Habits
+    const rawHabits = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
     if (rawHabits) {
       const parsed = JSON.parse(rawHabits);
-      const allHabits = (parsed.dailyHabits || []) as any[];
-      allHabits.forEach((habit) => {
+      const allHabits = Object.values(parsed || {}).filter((h: any) => !h.archived);
+      allHabits.forEach((habit: any) => {
         if (habit.reminderHour !== undefined) {
           const hour = habit.reminderHour;
           if (hour >= 5 && hour < 12) morning++;

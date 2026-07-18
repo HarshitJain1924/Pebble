@@ -308,4 +308,37 @@ export const styles = StyleSheet.create({
   },
   reminderTitle: { fontSize: 14, fontWeight: "700" },
   reminderSub: { fontSize: 12, fontWeight: "500" },
+
+  // Redesigned Today Context Cards
+  lightweightRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    gap: 8,
+  },
+  lightweightRowContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  continueCardButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    marginTop: 10,
+    gap: 6,
+  },
+  continueCardText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  moreItemsText: {
+    fontSize: 11,
+    textAlign: "center",
+    marginVertical: 4,
+    fontStyle: "italic",
+  },
 });

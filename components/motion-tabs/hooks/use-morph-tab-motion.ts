@@ -32,8 +32,9 @@ function useMorphTabMotion<
     Pick<ViewStyle, "width" | "backgroundColor">
   >(() => {
     const p = progress.value;
+    const pad = labelW > 0 ? LABEL_PAD : 0;
     return {
-      width: ICON_BOX + p * (labelW + LABEL_PAD),
+      width: ICON_BOX + p * (labelW + pad),
       backgroundColor: interpolateColor(
         p,
         [0, 1],
@@ -51,11 +52,14 @@ function useMorphTabMotion<
 
   const labelStyle = useAnimatedStyle<
     Pick<ViewStyle, "width" | "opacity" | "transform">
-  >(() => ({
-    width: progress.value * (labelW + LABEL_PAD),
-    opacity: interpolate(progress.value, [0, 0.3, 1], [0, 0, 1]),
-    transform: [{ translateX: -8 * (1 - progress.value) }],
-  }));
+  >(() => {
+    const pad = labelW > 0 ? LABEL_PAD : 0;
+    return {
+      width: progress.value * (labelW + pad),
+      opacity: interpolate(progress.value, [0, 0.3, 1], [0, 0, 1]),
+      transform: [{ translateX: -8 * (1 - progress.value) }],
+    };
+  });
 
   const iconActiveStyle = useAnimatedStyle<Pick<ViewStyle, "opacity">>(() => ({
     opacity: progress.value,
@@ -82,10 +86,10 @@ function useMorphTabMotion<
   );
 
   const hold = () => {
-    held.value = withTiming<number>(1, { duration: 140, easing: EASING });
+    held.value = withSpring(1, { damping: 12, stiffness: 220 });
   };
   const release = () => {
-    held.value = withTiming(0, { duration: 220, easing: EASING });
+    held.value = withSpring(0, { damping: 15, stiffness: 180 });
   };
 
   return {

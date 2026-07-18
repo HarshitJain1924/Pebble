@@ -9,9 +9,8 @@ import {
     markNotificationLogsAsRead,
     type NotificationLogEntry,
 } from "@/services/notificationsLog";
-import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as IntentLauncher from "expo-intent-launcher";
 // NOTE: avoid importing `expo-notifications` at module top-level because
@@ -148,15 +147,14 @@ export default function NotificationsCenter() {
         }
       }
 
-      // B. Query Local AsyncStorage Tasks for future schedules
-      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-
-        allTodos.forEach((t) => {
+      // B. Query V3 Tasks and Habits for future schedules
+      const folderList = await FolderRepository.getFolders();
+      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+      
+      for (const fId of folderIds) {
+        const tasksMap = await ActivityRepository.getTasks(fId);
+        Object.values(tasksMap).forEach((t) => {
           if (!t.completed && t.alarmTime && t.alarmTime > Date.now()) {
-            // Only add if not already in native list
             if (!upcomingList.some((u) => u.title.includes(t.title))) {
               const alarmDate = new Date(t.alarmTime);
               const label = alarmDate.toLocaleString([], {
@@ -174,16 +172,10 @@ export default function NotificationsCenter() {
             }
           }
         });
-      }
 
-      // C. Query Local Habits for active alarm times
-      const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const allHabits = (parsed.dailyHabits || []) as any[];
-
-        allHabits.forEach((h) => {
-          if (h.reminderHour !== undefined && h.reminderMinute !== undefined) {
+        const habitsMap = await ActivityRepository.getHabits(fId);
+        Object.values(habitsMap).forEach((h) => {
+          if (!h.archived && h.reminderHour !== undefined && h.reminderMinute !== undefined) {
             const hourStr = String(h.reminderHour).padStart(2, "0");
             const minStr = String(h.reminderMinute).padStart(2, "0");
             upcomingList.push({

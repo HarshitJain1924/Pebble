@@ -18,7 +18,7 @@
  *   stays visually inside the card border. Use for description fields,
  *   tags, etc. so they are grouped with the title input.
  */
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   TextInput,
@@ -69,6 +69,8 @@ interface CaptureInputBoxProps {
    * Use for description fields, tags, or any secondary input grouped with title.
    */
   middleSlot?: React.ReactNode;
+  /** Called when paperclip attachment is pressed */
+  onAttachmentPress?: () => void;
 }
 
 export default function CaptureInputBox({
@@ -91,7 +93,34 @@ export default function CaptureInputBox({
   containerStyle,
   TextInputComponent = TextInput,
   middleSlot,
+  onAttachmentPress,
 }: CaptureInputBoxProps) {
+  const [localValue, setLocalValue] = useState(value);
+  const debounceRef = useRef<any>(null);
+
+  // Sync value when parent resets or updates (e.g. from voice transcript or suggestion tap)
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  const handleTextChange = (text: string) => {
+    setLocalValue(text);
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      onChangeText(text);
+    }, 80); // 80ms is short enough to feel fast but long enough to group keystrokes and prevent jank
+  };
+
+  const handleClear = () => {
+    setLocalValue("");
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    onChangeText("");
+  };
+
   return (
     <View
       style={[
@@ -101,8 +130,8 @@ export default function CaptureInputBox({
       ]}
     >
       <TextInputComponent
-        value={value}
-        onChangeText={onChangeText}
+        value={localValue}
+        onChangeText={handleTextChange}
         placeholder={placeholder}
         placeholderTextColor={placeholderTextColor}
         onFocus={onFocus}
@@ -117,9 +146,9 @@ export default function CaptureInputBox({
 
       {/* Action row — always below text (and middleSlot), never overlapping */}
       <View style={styles.actionRow}>
-        {value.length > 0 && (
+        {localValue.length > 0 && (
           <TouchableOpacity
-            onPress={() => onChangeText("")}
+            onPress={handleClear}
             style={styles.actionBtn}
             hitSlop={8}
             activeOpacity={0.7}
@@ -127,6 +156,18 @@ export default function CaptureInputBox({
             <Feather name="x-circle" size={20} color={placeholderTextColor} />
           </TouchableOpacity>
         )}
+        
+        {onAttachmentPress && (
+          <TouchableOpacity
+            onPress={onAttachmentPress}
+            style={styles.actionBtn}
+            hitSlop={8}
+            activeOpacity={0.7}
+          >
+            <Feather name="paperclip" size={20} color={placeholderTextColor} />
+          </TouchableOpacity>
+        )}
+
         <View style={styles.actionBtn}>
           <VoiceCaptureButton
             status={voiceStatus}

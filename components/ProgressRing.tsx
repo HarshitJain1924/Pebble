@@ -18,6 +18,7 @@ type ProgressRingProps = {
   strokeWidth?: number;
   showText?: boolean;
   color?: string;
+  trackColor?: string;
 };
 
 export const ProgressRing: React.FC<ProgressRingProps> = ({
@@ -26,6 +27,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
   strokeWidth = 10,
   showText = true,
   color,
+  trackColor,
 }) => {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? "dark"];
@@ -57,7 +59,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke={theme.cardLight}
+          stroke={trackColor || theme.cardLight}
           strokeWidth={strokeWidth}
           fill="transparent"
         />

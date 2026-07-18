@@ -1,11 +1,12 @@
-import React from "react";
-import { Platform, Pressable, StyleSheet,  View } from "react-native";
-import { AppText as Text } from "@/components/ui/AppText";
+import React, { useState } from "react";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { AppText as Text, AppTextInput as TextInput } from "@/components/ui/AppText";
 import { RenderAvatar } from "@/components/profile/RenderAvatar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import Animated, { FadeInRight, FadeOutRight } from "react-native-reanimated";
 
 export type AppHeaderProps = {
   kicker?: string;
@@ -20,6 +21,9 @@ export type AppHeaderProps = {
   profile?: { name: string; avatar: string; level: number } | null;
   streak?: number;
   onStreakPress?: () => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
+  showSearch?: boolean;
 };
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -35,154 +39,211 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   profile,
   streak,
   onStreakPress,
+  searchQuery = "",
+  onSearchQueryChange,
+  showSearch = false,
 }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const router = useRouter();
   const isLight = colorScheme === "light";
+  const [isSearching, setIsSearching] = useState(false);
 
   return (
     <View style={styles.header}>
-      <View style={styles.left}>
-        {kicker && <Text style={[styles.kicker, { color: colors.primary }]}>{kicker.toUpperCase()}</Text>}
-        {title && <Text style={[styles.title, { color: colors.text }]}>{title}</Text>}
-        {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
-      </View>
-      {(showNotifications || showProfile || showArchive || showTrash || streak !== undefined) && (
-        <View style={styles.right}>
-          {showTrash && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.bellButton,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
-                  opacity: pressed ? 0.75 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Open recycle bin"
-              onPress={() => router.push("/recycle-bin")}
-            >
-              <Feather name="trash-2" size={16} color={colors.textMuted} />
-            </Pressable>
-          )}
-
-          {showArchive && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.bellButton,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
-                  opacity: pressed ? 0.75 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Open archive"
-              onPress={() => router.push("/archive")}
-            >
-              <Feather name="archive" size={16} color={colors.textMuted} />
-            </Pressable>
-          )}
-
-          {streak !== undefined && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.pebbleCapsule,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: isLight ? "rgba(249,115,22,0.06)" : "rgba(249,115,22,0.12)",
-                  opacity: pressed ? 0.75 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="View streak"
-              onPress={onStreakPress}
-            >
-              <Text style={{ fontSize: 13, marginRight: 3 }}>🔥</Text>
-              <Text
-                style={{
-                  color: isLight ? "#D97706" : "#F97316",
-                  fontSize: 12,
-                  fontWeight: "800",
-                }}
-              >
-                {streak}
-              </Text>
-            </Pressable>
-          )}
-
-          {showNotifications && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.bellButton,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
-                  opacity: pressed ? 0.75 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Open notifications"
-              onPress={() => router.push("/notifications")}
-            >
-              <Feather name="bell" size={16} color={colors.textMuted} />
-              {(nextReminder || hasUnreadNotifs) && (
-                <View
-                  style={[
-                    styles.bellDot,
+      {isSearching ? (
+        <Animated.View
+          entering={FadeInRight.duration(200)}
+          exiting={FadeOutRight.duration(150)}
+          style={[
+            styles.searchContainer,
+            {
+              backgroundColor: isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)",
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <Feather name="search" size={14} color={colors.textMuted} style={{ marginRight: 8 }} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={onSearchQueryChange}
+            placeholder="Search today..."
+            placeholderTextColor={colors.textMuted}
+            style={[styles.searchInput, { color: colors.text }]}
+            autoFocus
+          />
+          <Pressable
+            onPress={() => {
+              setIsSearching(false);
+              onSearchQueryChange?.("");
+            }}
+            style={{ padding: 4 }}
+          >
+            <Feather name="x" size={16} color={colors.textMuted} />
+          </Pressable>
+        </Animated.View>
+      ) : (
+        <>
+          <View style={styles.left}>
+            {kicker && <Text style={[styles.kicker, { color: colors.primary }]}>{kicker.toUpperCase()}</Text>}
+            {title && <Text style={[styles.title, { color: colors.text }]}>{title}</Text>}
+            {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
+          </View>
+          {(showNotifications || showProfile || showArchive || showTrash || streak !== undefined || showSearch) && (
+            <View style={styles.right}>
+              {showSearch && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.bellButton,
                     {
-                      backgroundColor: colors.primary,
-                      borderColor: isLight ? "#FFFFFF" : "#18181B",
+                      borderColor: colors.border,
+                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      opacity: pressed ? 0.75 : 1,
                     },
                   ]}
-                />
+                  accessibilityRole="button"
+                  accessibilityLabel="Search"
+                  onPress={() => setIsSearching(true)}
+                >
+                  <Feather name="search" size={16} color={colors.textMuted} />
+                </Pressable>
               )}
-            </Pressable>
-          )}
 
-          {showProfile && (
-            <Pressable
-              style={styles.profileHeaderWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Open profile"
-              onPress={() => router.push("/profile")}
-            >
-              <View
-                style={[
-                  styles.profileHeaderCircle,
-                  {
-                    borderColor: colors.border,
-                    backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
-                  },
-                ]}
-              >
-                <RenderAvatar avatar={profile ? profile.avatar : "👨‍💻"} size={32} />
-                {hasUnreadNotifs && (
+              {showTrash && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.bellButton,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open recycle bin"
+                  onPress={() => router.push("/recycle-bin")}
+                >
+                  <Feather name="trash-2" size={16} color={colors.textMuted} />
+                </Pressable>
+              )}
+
+              {showArchive && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.bellButton,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open archive"
+                  onPress={() => router.push("/archive")}
+                >
+                  <Feather name="archive" size={16} color={colors.textMuted} />
+                </Pressable>
+              )}
+
+              {streak !== undefined && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.pebbleCapsule,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: isLight ? "rgba(249,115,22,0.06)" : "rgba(249,115,22,0.12)",
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="View streak"
+                  onPress={onStreakPress}
+                >
+                  <Text style={{ fontSize: 13, marginRight: 3 }}>🔥</Text>
+                  <Text
+                    style={{
+                      color: isLight ? "#D97706" : "#F97316",
+                      fontSize: 12,
+                      fontWeight: "800",
+                    }}
+                  >
+                    {streak}
+                  </Text>
+                </Pressable>
+              )}
+
+              {showNotifications && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.bellButton,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open notifications"
+                  onPress={() => router.push("/notifications")}
+                >
+                  <Feather name="bell" size={16} color={colors.textMuted} />
+                  {(nextReminder || hasUnreadNotifs) && (
+                    <View
+                      style={[
+                        styles.bellDot,
+                        {
+                          backgroundColor: colors.primary,
+                          borderColor: isLight ? "#FFFFFF" : "#18181B",
+                        },
+                      ]}
+                    />
+                  )}
+                </Pressable>
+              )}
+
+              {showProfile && (
+                <Pressable
+                  style={styles.profileHeaderWrap}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open profile"
+                  onPress={() => router.push("/profile")}
+                >
                   <View
                     style={[
-                      styles.avatarNotifDot,
-                      { backgroundColor: colors.primary },
+                      styles.profileHeaderCircle,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      },
                     ]}
-                  />
-                )}
-              </View>
-              <View
-                style={[
-                  styles.profileHeaderBadge,
-                  {
-                    backgroundColor: colors.primary,
-                  },
-                ]}
-              >
-                <Text style={styles.profileHeaderBadgeText}>
-                  {profile ? `Lvl ${profile.level}` : "Lvl 1"}
-                </Text>
-              </View>
-            </Pressable>
+                  >
+                    <RenderAvatar avatar={profile ? profile.avatar : "👨‍💻"} size={32} />
+                    {hasUnreadNotifs && (
+                      <View
+                        style={[
+                          styles.avatarNotifDot,
+                          { backgroundColor: colors.primary },
+                        ]}
+                      />
+                    )}
+                  </View>
+                  <View
+                    style={[
+                      styles.profileHeaderBadge,
+                      {
+                        backgroundColor: colors.primary,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.profileHeaderBadgeText}>
+                      {profile ? `Lvl ${profile.level}` : "Lvl 1"}
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
+            </View>
           )}
-        </View>
+        </>
       )}
     </View>
   );
@@ -278,5 +339,22 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     justifyContent: "center",
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    marginVertical: 4,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    padding: 0,
+    margin: 0,
   },
 });

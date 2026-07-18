@@ -1,42 +1,65 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  View,
-  TouchableOpacity,
-  TextInput,
-  Platform,
-  Alert,
-  Modal,
-  Linking,
-  Pressable,
+    Alert,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import {
+    ActivityRepository,
+    FolderRepository,
+} from "@/services/v3/repositories";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
+import { TimeSelectorDial } from "@/components/TimeSelectorDial";
 import { AppText as Text } from "@/components/ui/AppText";
+import { useUndo } from "@/components/ui/UndoContext";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { type Todo, type Habit, type TaskList, type Collection, type CollectionItem } from "@/modules/types";
-import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY, HISTORY_STORAGE_KEY, addToRecycleBin, getRecycleBinItems, saveRecycleBinItems, getCollections, saveCollections } from "@/services/storage";
+import {
+    type Collection,
+    type CollectionItem,
+    type Habit,
+    type TaskList,
+    type Todo,
+} from "@/modules/types";
+import { getAllHistory } from "@/services/productivityHistory";
+import { getDateKey, getRecurrenceLabel } from "@/services/recurrence";
+import {
+    cancelReminderIds,
+    rescheduleHabitReminders,
+    rescheduleTodoReminders,
+    scheduleReminderBatch,
+} from "@/services/reminders";
 import { emitStateChange } from "@/services/stateEvents";
-import { cancelReminderIds, scheduleReminderBatch, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
-import { TimeSelectorDial } from "@/components/TimeSelectorDial";
-import { getRecurrenceLabel, getDateKey } from "@/services/recurrence";
-import { useUndo } from "@/components/ui/UndoContext";
+import {
+    addToRecycleBin,
+    getCollections,
+    getRecycleBinItems,
+    saveCollections,
+    saveRecycleBinItems,
+} from "@/services/storage";
 
-const CATEGORY_OPTIONS = [
-  { key: "work", label: "Work", color: "#3B82F6", icon: "briefcase" as const },
-  { key: "personal", label: "Personal", color: "#10B981", icon: "user" as const },
-  { key: "health", label: "Health", color: "#F59E0B", icon: "activity" as const },
-  { key: "learning", label: "Learning", color: "#A855F7", icon: "book-open" as const },
-  { key: "creative", label: "Creative", color: "#EC4899", icon: "feather" as const },
-  { key: "focus", label: "Focus", color: "#6366F1", icon: "target" as const },
-];
+import { CategoryChip } from "@/components/design";
+import { TASK_CATEGORY_META } from "@/services/taskCategories";
+
+const CATEGORY_OPTIONS = TASK_CATEGORY_META.map((cat) => ({
+  key: cat.key,
+  label: cat.label,
+  color: cat.tint,
+  icon: cat.icon as any,
+}));
 
 const PRIORITY_OPTIONS = [
   { key: "low" as const, label: "Low", color: "#10B981" },
@@ -46,7 +69,11 @@ const PRIORITY_OPTIONS = [
 
 export default function TaskDetailsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id: string; type: "task" | "habit"; date?: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    type: "task" | "habit";
+    date?: string;
+  }>();
   const itemId = params.id;
   const itemType = params.type;
   const isTask = itemType === "task";
@@ -86,8 +113,12 @@ export default function TaskDetailsScreen() {
   const [workspaceId, setWorkspaceId] = useState("default");
   const [scheduledDate, setScheduledDate] = useState("inbox");
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [reminderHour, setReminderHour] = useState<number | undefined>(undefined);
-  const [reminderMinute, setReminderMinute] = useState<number | undefined>(undefined);
+  const [reminderHour, setReminderHour] = useState<number | undefined>(
+    undefined,
+  );
+  const [reminderMinute, setReminderMinute] = useState<number | undefined>(
+    undefined,
+  );
   const [reminderDays, setReminderDays] = useState<number[]>([]);
   const [recurrenceType, setRecurrenceType] = useState<string>("none");
   const [intervalVal, setIntervalVal] = useState<number>(1);
@@ -103,10 +134,14 @@ export default function TaskDetailsScreen() {
   // Resources state
   const [resourcesSheetVisible, setResourcesSheetVisible] = useState(false);
   const [linkPickerVisible, setLinkPickerVisible] = useState(false);
-  const [collections, setCollections] = useState<Record<string, Collection[]>>({});
+  const [collections, setCollections] = useState<Record<string, Collection[]>>(
+    {},
+  );
   const [linkedCollectionIds, setLinkedCollectionIds] = useState<string[]>([]);
-  const [activeFilter, setActiveFilter] = useState<"All" | "Links" | "Notes" | "Images">("All");
-  
+  const [activeFilter, setActiveFilter] = useState<
+    "All" | "Links" | "Notes" | "Images"
+  >("All");
+
   // Quick Add Collection State
   const [newCollectionName, setNewCollectionName] = useState("");
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
@@ -115,73 +150,88 @@ export default function TaskDetailsScreen() {
   const [viewingNote, setViewingNote] = useState<CollectionItem | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
-  const allCollectionsList = useMemo(() => {
-    return Object.values(collections).flat();
+  const allResources = useMemo(() => {
+    const items: any[] = [];
+    Object.keys(collections).forEach((wsId) => {
+      const folderColls = collections[wsId] || [];
+      folderColls.forEach((coll) => {
+        if (coll.items) {
+          coll.items.forEach((item) => {
+            items.push({
+              ...item,
+              collectionName: coll.name,
+              workspaceId: wsId,
+            });
+          });
+        }
+      });
+    });
+    return items;
   }, [collections]);
 
-  const linkedCollections = useMemo(() => {
-    return allCollectionsList.filter(col => linkedCollectionIds.includes(col.id));
-  }, [allCollectionsList, linkedCollectionIds]);
+  const linkedResources = useMemo(() => {
+    return allResources.filter((res) => linkedCollectionIds.includes(res.id));
+  }, [allResources, linkedCollectionIds]);
 
   const totalResourceItems = useMemo(() => {
-    return linkedCollections.reduce((sum, col) => sum + (col.items?.filter(item => !item.archived).length || 0), 0);
-  }, [linkedCollections]);
+    return linkedResources.length;
+  }, [linkedResources]);
 
   const resourcePreviewText = useMemo(() => {
-    if (linkedCollections.length === 0) return "";
-    return linkedCollections.map(col => col.name).join(", ");
-  }, [linkedCollections]);
+    if (linkedResources.length === 0) return "";
+    return linkedResources.map((res) => res.title).join(", ");
+  }, [linkedResources]);
 
   const allResourceItems = useMemo(() => {
-    const list: (CollectionItem & { collectionName: string })[] = [];
-    linkedCollections.forEach(col => {
-      if (col.items) {
-        col.items.forEach(item => {
-          if (!item.archived) {
-            list.push({ ...item, collectionName: col.name });
-          }
-        });
-      }
-    });
-    return list.sort((a, b) => b.createdAt - a.createdAt);
-  }, [linkedCollections]);
+    return [...linkedResources].sort((a, b) => b.createdAt - a.createdAt);
+  }, [linkedResources]);
 
   const filteredResourceItems = useMemo(() => {
     if (activeFilter === "All") return allResourceItems;
-    if (activeFilter === "Links") return allResourceItems.filter(item => item.type === "link" || item.url);
-    if (activeFilter === "Notes") return allResourceItems.filter(item => item.type === "note");
-    if (activeFilter === "Images") return allResourceItems.filter(item => item.type === "image");
+    if (activeFilter === "Links")
+      return allResourceItems.filter(
+        (item) => item.type === "link" || item.url,
+      );
+    if (activeFilter === "Notes")
+      return allResourceItems.filter((item) => item.type === "note");
+    if (activeFilter === "Images")
+      return allResourceItems.filter((item) => item.type === "image");
     return allResourceItems;
   }, [allResourceItems, activeFilter]);
 
   const hasChanges = useMemo(() => {
     if (!item) return false;
-    
+
     // Compare basic fields
     if (title.trim() !== (item.title || "").trim()) return true;
     if (description.trim() !== (item.description || "").trim()) return true;
     if (category !== (item.category || "work")) return true;
     if (priority !== (item.priority || "medium")) return true;
     if (workspaceId !== (item.folderId || "default")) return true;
-    if (isTask && scheduledDate !== (item.scheduledDate || "inbox")) return true;
-    
+    if (isTask && scheduledDate !== (item.scheduledDate || "inbox"))
+      return true;
+
     // Compare reminders
     if (reminderHour !== item.reminderHour) return true;
     if (reminderMinute !== item.reminderMinute) return true;
-    
+
     const sortedDaysCurrent = [...reminderDays].sort();
     const sortedDaysItem = [...(item.reminderDays || [])].sort();
-    if (JSON.stringify(sortedDaysCurrent) !== JSON.stringify(sortedDaysItem)) return true;
+    if (JSON.stringify(sortedDaysCurrent) !== JSON.stringify(sortedDaysItem))
+      return true;
 
     // Compare linked collections
     const sortedLinkedCurrent = [...linkedCollectionIds].sort();
     const sortedLinkedItem = [...(item.linkedCollectionIds || [])].sort();
-    if (JSON.stringify(sortedLinkedCurrent) !== JSON.stringify(sortedLinkedItem)) return true;
+    if (
+      JSON.stringify(sortedLinkedCurrent) !== JSON.stringify(sortedLinkedItem)
+    )
+      return true;
 
     // Compare recurrence
     const itemRecType = item.recurrence?.type || "none";
     if (recurrenceType !== itemRecType) return true;
-    
+
     if (recurrenceType !== "none") {
       const rec = item.recurrence || {};
       if (recurrenceType === "interval") {
@@ -191,13 +241,17 @@ export default function TaskDetailsScreen() {
       if (recurrenceType === "weekly") {
         const sortedRecDaysCurrent = [...recurrenceDays].sort();
         const sortedRecDaysItem = [...(rec.days || [])].sort();
-        if (JSON.stringify(sortedRecDaysCurrent) !== JSON.stringify(sortedRecDaysItem)) return true;
+        if (
+          JSON.stringify(sortedRecDaysCurrent) !==
+          JSON.stringify(sortedRecDaysItem)
+        )
+          return true;
       }
       if (recurrenceType === "monthly") {
         if (recurrenceDayOfMonth !== (rec.dayOfMonth || 1)) return true;
       }
     }
-    
+
     return false;
   }, [
     item,
@@ -216,7 +270,7 @@ export default function TaskDetailsScreen() {
     intervalUnit,
     recurrenceDays,
     recurrenceDayOfMonth,
-    isTask
+    isTask,
   ]);
 
   // Load Workspaces & Item Data
@@ -227,83 +281,99 @@ export default function TaskDetailsScreen() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load workspaces
-      const rawTodosObj = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-      let loadedWorkspaces: TaskList[] = [];
-      if (rawTodosObj) {
-        const parsed = JSON.parse(rawTodosObj);
-        loadedWorkspaces = parsed.lists || [];
-        setWorkspaces(loadedWorkspaces);
-      }
+      // Load workspaces via FolderRepository
+      const folderList = await FolderRepository.getFolders();
+      const loadedWorkspaces =
+        folderList.length > 0
+          ? folderList.map((f) => ({
+              id: f.id,
+              name: f.name,
+              emoji: f.emoji || "📁",
+              color: f.color || "#6366F1",
+            }))
+          : [
+              {
+                id: "default",
+                name: "My Pebbles",
+                emoji: "📋",
+                color: "#6366F1",
+              },
+            ];
+      setWorkspaces(loadedWorkspaces);
+      const folderIds = Array.from(
+        new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
+      );
 
       // Load collections
       const loadedCollections = await getCollections();
       setCollections(loadedCollections);
 
       if (itemType === "task") {
-        if (rawTodosObj) {
-          const parsed = JSON.parse(rawTodosObj);
-          let foundTask = null;
-          for (const listId in parsed.todos) {
-            const match = parsed.todos[listId].find((t: any) => t.id === itemId);
-            if (match) {
-              foundTask = match;
-              break;
-            }
+        let foundTask = null;
+        for (const fId of folderIds) {
+          const task = await ActivityRepository.getTask(itemId, fId);
+          if (task) {
+            foundTask = { ...task, folderId: fId };
+            break;
           }
-          if (foundTask) {
-            setItem(foundTask);
-            initForm(foundTask);
-          } else {
-            Alert.alert("Error", "Task not found.");
-            router.back();
-          }
+        }
+        if (foundTask) {
+          setItem(foundTask);
+          initForm(foundTask);
+        } else {
+          Alert.alert("Error", "Task not found.");
+          router.back();
         }
       } else {
         // habit
-        const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        if (rawHabits) {
-          const parsed = JSON.parse(rawHabits);
-          const foundHabit = parsed.dailyHabits?.find((h: any) => h.id === itemId);
-          if (foundHabit) {
-            setItem(foundHabit);
-            initForm(foundHabit);
-
-            // Load completion stats from history
-            try {
-              const historyRaw = await AsyncStorage.getItem(HISTORY_STORAGE_KEY);
-              if (historyRaw) {
-                const history = JSON.parse(historyRaw);
-                if (Array.isArray(history)) {
-                  const relevantEntries = history.filter((entry: any) => entry.totalHabits > 0);
-                  const completedEntries = history.filter((entry: any) =>
-                    entry.completedHabitTitles?.includes(foundHabit.title)
-                  );
-                  const completedCount = completedEntries.length;
-                  setTimesCompleted(completedCount);
-
-                  // Gather all unique date strings where the habit was completed
-                  const dates = completedEntries.map((entry: any) => entry.date).filter(Boolean);
-                  setCompletedDates(dates);
-
-                  if (relevantEntries.length > 0) {
-                    setCompletionRate(Math.round((completedCount / relevantEntries.length) * 100));
-                  } else {
-                    setCompletionRate(0);
-                  }
-                }
-              } else {
-                setTimesCompleted(0);
-                setCompletionRate(0);
-                setCompletedDates([]);
-              }
-            } catch (e) {
-              console.warn("Failed to load habit completion stats:", e);
-            }
-          } else {
-            Alert.alert("Error", "Habit not found.");
-            router.back();
+        let foundHabit = null;
+        for (const fId of folderIds) {
+          const habit = await ActivityRepository.getHabit(itemId, fId);
+          if (habit) {
+            foundHabit = {
+              ...habit,
+              folderId: fId,
+              completedToday:
+                habit.completedDates?.includes(getDateKey()) || false,
+            };
+            break;
           }
+        }
+        if (foundHabit) {
+          setItem(foundHabit);
+          initForm(foundHabit);
+
+          // Load completion stats from history
+          try {
+            const history = await getAllHistory();
+            const relevantEntries = history.filter(
+              (entry) => entry.totalHabits > 0,
+            );
+            const completedEntries = history.filter((entry) =>
+              entry.completedHabitTitles?.includes(foundHabit.title),
+            );
+            const completedCount = completedEntries.length;
+            setTimesCompleted(completedCount);
+
+            // Gather all unique date strings where the habit was completed
+            const dates = completedEntries
+              .map((entry) => entry.date)
+              .filter(Boolean);
+            setCompletedDates(dates);
+
+            if (relevantEntries.length > 0) {
+              setCompletionRate(
+                Math.round((completedCount / relevantEntries.length) * 100),
+              );
+            } else {
+              setCompletionRate(0);
+            }
+          } catch (e) {
+            console.warn("Failed to load habit completion stats:", e);
+          }
+        } else {
+          Alert.alert("Error", "Habit not found.");
+          router.back();
         }
       }
     } catch (e) {
@@ -365,7 +435,8 @@ export default function TaskDetailsScreen() {
           interval: recurrenceType === "interval" ? intervalVal : undefined,
           unit: recurrenceType === "interval" ? intervalUnit : undefined,
           days: recurrenceType === "weekly" ? recurrenceDays : undefined,
-          dayOfMonth: recurrenceType === "monthly" ? recurrenceDayOfMonth : undefined,
+          dayOfMonth:
+            recurrenceType === "monthly" ? recurrenceDayOfMonth : undefined,
         };
       }
 
@@ -396,38 +467,32 @@ export default function TaskDetailsScreen() {
         // 2. Add current date to exceptions of the master
         const updatedMaster = {
           ...item,
-          recurrenceExceptions: [...(item.recurrenceExceptions || []), selectedOccurrenceDate],
+          recurrenceExceptions: [
+            ...(item.recurrenceExceptions || []),
+            selectedOccurrenceDate,
+          ],
           lastUpdated: getDateKey(),
         };
 
-        // 3. Save both
+        // 3. Save both via V3 Repository
         if (isTask) {
-          const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            // Replace master
-            for (const listId in state.todos) {
-              state.todos[listId] = state.todos[listId].map((t: Todo) =>
-                t.id === item.id ? updatedMaster : t
-              );
-            }
-            // Add copy
-            if (!state.todos[workspaceId]) {
-              state.todos[workspaceId] = [];
-            }
-            state.todos[workspaceId].unshift(newCopy);
-            await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-          }
+          await ActivityRepository.saveTask({
+            ...updatedMaster,
+            folderId: item.folderId || "default",
+          });
+          await ActivityRepository.saveTask({
+            ...newCopy,
+            folderId: workspaceId,
+          });
         } else {
-          const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            state.dailyHabits = state.dailyHabits.map((h: Habit) =>
-              h.id === item.id ? updatedMaster : h
-            );
-            state.dailyHabits.unshift(newCopy);
-            await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-          }
+          await ActivityRepository.saveHabit({
+            ...updatedMaster,
+            folderId: item.folderId || "default",
+          });
+          await ActivityRepository.saveHabit({
+            ...newCopy,
+            folderId: workspaceId,
+          });
         }
 
         // 4. Schedule reminders for new copy
@@ -439,7 +504,12 @@ export default function TaskDetailsScreen() {
             category,
             dailyTime: { hour: reminderHour, minute: reminderMinute },
             escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? (isTask ? "todo-reminders" : "daily-habits") : undefined,
+            channelId:
+              Platform.OS === "android"
+                ? isTask
+                  ? "todo-reminders"
+                  : "daily-habits"
+                : undefined,
           });
         }
       } else {
@@ -454,7 +524,12 @@ export default function TaskDetailsScreen() {
           scheduledDate: isTask ? scheduledDate : undefined,
           reminderHour,
           reminderMinute,
-          reminderDays: recurrenceType === "weekly" ? recurrenceDays : recurrenceType === "weekdays" ? [1, 2, 3, 4, 5] : reminderDays,
+          reminderDays:
+            recurrenceType === "weekly"
+              ? recurrenceDays
+              : recurrenceType === "weekdays"
+                ? [1, 2, 3, 4, 5]
+                : reminderDays,
           recurrence: updatedRecurrence,
           lastUpdated: getDateKey(),
           linkedCollectionIds, // Save linked collections
@@ -469,8 +544,13 @@ export default function TaskDetailsScreen() {
         let alarmTime: number | undefined;
 
         if (reminderHour !== undefined && reminderMinute !== undefined) {
-          const dailyDays = recurrenceType === "weekly" ? recurrenceDays : recurrenceType === "weekdays" ? [1, 2, 3, 4, 5] : undefined;
-          
+          const dailyDays =
+            recurrenceType === "weekly"
+              ? recurrenceDays
+              : recurrenceType === "weekdays"
+                ? [1, 2, 3, 4, 5]
+                : undefined;
+
           const scheduled = await scheduleReminderBatch({
             kind: itemType === "task" ? "todo" : "habit",
             itemId: item.id,
@@ -478,9 +558,16 @@ export default function TaskDetailsScreen() {
             category,
             dailyTime: { hour: reminderHour, minute: reminderMinute },
             dailyDays,
-            recurrence: updatedRecurrence ? (updatedRecurrence as any) : undefined,
+            recurrence: updatedRecurrence
+              ? (updatedRecurrence as any)
+              : undefined,
             escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? (isTask ? "todo-reminders" : "daily-habits") : undefined,
+            channelId:
+              Platform.OS === "android"
+                ? isTask
+                  ? "todo-reminders"
+                  : "daily-habits"
+                : undefined,
           });
           notificationIds = scheduled.ids;
           alarmId = scheduled.primaryId;
@@ -492,31 +579,29 @@ export default function TaskDetailsScreen() {
         updatedItem.alarmTime = alarmTime;
 
         if (isTask) {
-          const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            // Delete from old list (if workspace changed)
-            for (const listId in state.todos) {
-              state.todos[listId] = state.todos[listId].filter((t: Todo) => t.id !== item.id);
-            }
-            // Add to new list
-            if (!state.todos[workspaceId]) state.todos[workspaceId] = [];
-            state.todos[workspaceId].push(updatedItem);
-            await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
+          const oldFolderId = item.folderId || item.workspaceId || "default";
+          if (oldFolderId !== workspaceId) {
+            await ActivityRepository.deleteTask(item.id, oldFolderId);
           }
+          await ActivityRepository.saveTask({
+            ...updatedItem,
+            folderId: workspaceId,
+          });
         } else {
-          const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            state.dailyHabits = state.dailyHabits.map((h: Habit) =>
-              h.id === item.id ? updatedItem : h
-            );
-            await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
+          const oldFolderId = item.folderId || item.workspaceId || "default";
+          if (oldFolderId !== workspaceId) {
+            await ActivityRepository.deleteHabit(item.id, oldFolderId);
           }
+          await ActivityRepository.saveHabit({
+            ...updatedItem,
+            folderId: workspaceId,
+          });
         }
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
       emitStateChange(isTask ? "tasks_changed" : "habits_changed");
       setIsEditing(false);
       showToast("Changes saved");
@@ -544,25 +629,22 @@ export default function TaskDetailsScreen() {
       };
 
       if (isTask) {
-        const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-        if (raw) {
-          const state = JSON.parse(raw);
-          const fId = item.folderId || "default";
-          if (!state.todos[fId]) state.todos[fId] = [];
-          state.todos[fId].unshift(duplicate);
-          await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-        }
+        await ActivityRepository.saveTask({
+          ...duplicate,
+          folderId: item.folderId || "default",
+        });
       } else {
-        const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        if (raw) {
-          const state = JSON.parse(raw);
-          state.dailyHabits.unshift(duplicate);
-          await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-        }
+        await ActivityRepository.saveHabit({
+          ...duplicate,
+          folderId: item.folderId || "default",
+        });
       }
 
       // Schedule reminders for duplicate if they exist
-      if (item.reminderHour !== undefined && item.reminderMinute !== undefined) {
+      if (
+        item.reminderHour !== undefined &&
+        item.reminderMinute !== undefined
+      ) {
         await scheduleReminderBatch({
           kind: itemType === "task" ? "todo" : "habit",
           itemId: newId,
@@ -572,7 +654,12 @@ export default function TaskDetailsScreen() {
           dailyDays: item.reminderDays,
           recurrence: item.recurrence,
           escalationMinutes: [120, 240],
-          channelId: Platform.OS === "android" ? (isTask ? "todo-reminders" : "daily-habits") : undefined,
+          channelId:
+            Platform.OS === "android"
+              ? isTask
+                ? "todo-reminders"
+                : "daily-habits"
+              : undefined,
         });
       }
 
@@ -618,30 +705,31 @@ export default function TaskDetailsScreen() {
         };
 
         // Remove from tasks storage
-        const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-        if (rawTodos) {
-          const state = JSON.parse(rawTodos);
-          const fId = item.folderId || "default";
-          if (state.todos[fId]) {
-            state.todos[fId] = state.todos[fId].filter((t: Todo) => t.id !== item.id);
-          }
-          await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-        }
+        await ActivityRepository.deleteTask(
+          item.id,
+          item.folderId || "default",
+        );
 
         // Add to habits storage
-        const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        const habitsState = rawHabits ? JSON.parse(rawHabits) : { dailyHabits: [] };
-        habitsState.dailyHabits.unshift(newHabit);
-        await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(habitsState));
+        await ActivityRepository.saveHabit({
+          ...newHabit,
+          folderId: item.folderId || "default",
+        });
 
         // Schedule new habit reminder
-        if (baseProperties.reminderHour !== undefined && baseProperties.reminderMinute !== undefined) {
+        if (
+          baseProperties.reminderHour !== undefined &&
+          baseProperties.reminderMinute !== undefined
+        ) {
           await scheduleReminderBatch({
             kind: "habit",
             itemId: newId,
             title: baseProperties.title,
             category: baseProperties.category,
-            dailyTime: { hour: baseProperties.reminderHour, minute: baseProperties.reminderMinute },
+            dailyTime: {
+              hour: baseProperties.reminderHour,
+              minute: baseProperties.reminderMinute,
+            },
             dailyDays: baseProperties.reminderDays,
             recurrence: baseProperties.recurrence,
             escalationMinutes: [120, 240],
@@ -651,7 +739,9 @@ export default function TaskDetailsScreen() {
 
         emitStateChange("tasks_changed");
         emitStateChange("habits_changed");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        ).catch(() => {});
         router.replace(`/task-details?id=${newId}&type=habit`);
       } else {
         // Convert Habit -> Task
@@ -663,31 +753,31 @@ export default function TaskDetailsScreen() {
         };
 
         // Remove from habits storage
-        const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        if (rawHabits) {
-          const state = JSON.parse(rawHabits);
-          state.dailyHabits = state.dailyHabits.filter((h: Habit) => h.id !== item.id);
-          await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-        }
+        await ActivityRepository.deleteHabit(
+          item.id,
+          item.folderId || "default",
+        );
 
         // Add to tasks storage
-        const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-        if (rawTodos) {
-          const state = JSON.parse(rawTodos);
-          const fId = item.folderId || "default";
-          if (!state.todos[fId]) state.todos[fId] = [];
-          state.todos[fId].unshift(newTodo);
-          await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-        }
+        await ActivityRepository.saveTask({
+          ...newTodo,
+          folderId: item.folderId || "default",
+        });
 
         // Schedule new task reminder
-        if (baseProperties.reminderHour !== undefined && baseProperties.reminderMinute !== undefined) {
+        if (
+          baseProperties.reminderHour !== undefined &&
+          baseProperties.reminderMinute !== undefined
+        ) {
           await scheduleReminderBatch({
             kind: "todo",
             itemId: newId,
             title: baseProperties.title,
             category: baseProperties.category,
-            dailyTime: { hour: baseProperties.reminderHour, minute: baseProperties.reminderMinute },
+            dailyTime: {
+              hour: baseProperties.reminderHour,
+              minute: baseProperties.reminderMinute,
+            },
             dailyDays: baseProperties.reminderDays,
             recurrence: baseProperties.recurrence,
             escalationMinutes: [120, 240],
@@ -697,7 +787,9 @@ export default function TaskDetailsScreen() {
 
         emitStateChange("tasks_changed");
         emitStateChange("habits_changed");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        ).catch(() => {});
         router.replace(`/task-details?id=${newId}&type=task`);
       }
     } catch (e) {
@@ -714,8 +806,12 @@ export default function TaskDetailsScreen() {
         "Are you sure you want to permanently delete this item?",
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Delete", style: "destructive", onPress: () => deleteItem(false) },
-        ]
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => deleteItem(false),
+          },
+        ],
       );
     }
   };
@@ -729,55 +825,48 @@ export default function TaskDetailsScreen() {
         // Exclude this occurrence date
         const updatedItem = {
           ...item,
-          recurrenceExceptions: [...(item.recurrenceExceptions || []), selectedOccurrenceDate],
+          recurrenceExceptions: [
+            ...(item.recurrenceExceptions || []),
+            selectedOccurrenceDate,
+          ],
           lastUpdated: getDateKey(),
         };
 
         if (isTask) {
-          const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            for (const listId in state.todos) {
-              state.todos[listId] = state.todos[listId].map((t: Todo) =>
-                t.id === item.id ? updatedItem : t
-              );
-            }
-            await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-          }
+          await ActivityRepository.saveTask({
+            ...updatedItem,
+            folderId: item.folderId || "default",
+          });
         } else {
-          const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            state.dailyHabits = state.dailyHabits.map((h: Habit) =>
-              h.id === item.id ? updatedItem : h
-            );
-            await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-          }
+          await ActivityRepository.saveHabit({
+            ...updatedItem,
+            folderId: item.folderId || "default",
+          });
         }
       } else {
         // Full delete
-        const originalWorkspace = workspaces.find((w) => w.id === (item.folderId || "default"))?.name || "Default";
+        const originalWorkspace =
+          workspaces.find((w) => w.id === (item.folderId || "default"))?.name ||
+          "Default";
 
         await cancelReminderIds(item.notificationIds || []);
 
-        await addToRecycleBin(isTask ? "task" : "habit", item, originalWorkspace);
+        await addToRecycleBin(
+          isTask ? "task" : "habit",
+          item,
+          originalWorkspace,
+        );
 
         if (isTask) {
-          const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            for (const listId in state.todos) {
-              state.todos[listId] = state.todos[listId].filter((t: Todo) => t.id !== item.id);
-            }
-            await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-          }
+          await ActivityRepository.deleteTask(
+            item.id,
+            item.folderId || "default",
+          );
         } else {
-          const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-          if (raw) {
-            const state = JSON.parse(raw);
-            state.dailyHabits = state.dailyHabits.filter((h: Habit) => h.id !== item.id);
-            await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-          }
+          await ActivityRepository.deleteHabit(
+            item.id,
+            item.folderId || "default",
+          );
         }
 
         showUndo({
@@ -785,39 +874,32 @@ export default function TaskDetailsScreen() {
           onUndo: async () => {
             // Remove from Recycle Bin
             const binItems = await getRecycleBinItems();
-            await saveRecycleBinItems(binItems.filter((bi) => bi.id !== item.id));
+            await saveRecycleBinItems(
+              binItems.filter((bi) => bi.id !== item.id),
+            );
 
             if (isTask) {
               const rescheduled = await rescheduleTodoReminders(item);
-              const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-              if (raw) {
-                const state = JSON.parse(raw);
-                const listId = rescheduled.folderId || "default";
-                if (!state.todos[listId]) state.todos[listId] = [];
-                if (!state.todos[listId].some((t: Todo) => t.id === item.id)) {
-                  state.todos[listId].push(rescheduled);
-                }
-                await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-              }
+              await ActivityRepository.saveTask({
+                ...rescheduled,
+                folderId: item.folderId || "default",
+              });
               emitStateChange("tasks_changed");
             } else {
               const rescheduled = await rescheduleHabitReminders(item);
-              const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-              if (raw) {
-                const state = JSON.parse(raw);
-                if (!state.dailyHabits) state.dailyHabits = [];
-                if (!state.dailyHabits.some((h: Habit) => h.id === item.id)) {
-                  state.dailyHabits.push(rescheduled);
-                }
-                await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-              }
+              await ActivityRepository.saveHabit({
+                ...rescheduled,
+                folderId: item.folderId || "default",
+              });
               emitStateChange("habits_changed");
             }
           },
         });
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
+        () => {},
+      );
       emitStateChange(isTask ? "tasks_changed" : "habits_changed");
       router.back();
     } catch (e) {
@@ -827,12 +909,14 @@ export default function TaskDetailsScreen() {
 
   const toggleDaySelection = (idx: number) => {
     setRecurrenceDays((curr) =>
-      curr.includes(idx) ? curr.filter((d) => d !== idx) : [...curr, idx]
+      curr.includes(idx) ? curr.filter((d) => d !== idx) : [...curr, idx],
     );
   };
 
   const availableCollectionsForPicker = useMemo(() => {
-    return Object.values(collections).flat().filter(c => !c.archived);
+    return Object.values(collections)
+      .flat()
+      .filter((c) => !c.archived);
   }, [collections]);
 
   const handleCreateNewCollection = async () => {
@@ -847,21 +931,23 @@ export default function TaskDetailsScreen() {
         createdAt: Date.now(),
         items: [],
       };
-      
+
       const allCols = { ...collections };
       const fId = workspaceId || "default";
       if (!allCols[fId]) allCols[fId] = [];
       allCols[fId].push(newCol);
-      
+
       await saveCollections(allCols);
       setCollections(allCols);
-      
+
       // Auto-select the newly created collection
-      setLinkedCollectionIds(prev => [...prev, newColId]);
-      
+      setLinkedCollectionIds((prev) => [...prev, newColId]);
+
       setNewCollectionName("");
       setIsCreatingCollection(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
     } catch (e) {
       console.warn("Failed to create collection", e);
     }
@@ -869,8 +955,19 @@ export default function TaskDetailsScreen() {
 
   if (loading || !item) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
-        <Text style={{ color: colors.textMuted }}>Loading premium details...</Text>
+      <SafeAreaView
+        style={[
+          styles.safeArea,
+          {
+            backgroundColor: colors.background,
+            justifyContent: "center",
+            alignItems: "center",
+          },
+        ]}
+      >
+        <Text style={{ color: colors.textMuted }}>
+          Loading premium details...
+        </Text>
       </SafeAreaView>
     );
   }
@@ -879,7 +976,11 @@ export default function TaskDetailsScreen() {
     if (item.createdAt) {
       try {
         const d = new Date(item.createdAt);
-        return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        return d.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
       } catch (e) {
         // fallback
       }
@@ -888,8 +989,16 @@ export default function TaskDetailsScreen() {
       try {
         const parts = item.createdDate.split("-");
         if (parts.length === 3) {
-          const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-          return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          const d = new Date(
+            parseInt(parts[0]),
+            parseInt(parts[1]) - 1,
+            parseInt(parts[2]),
+          );
+          return d.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
         }
         return item.createdDate;
       } catch (e) {
@@ -897,45 +1006,94 @@ export default function TaskDetailsScreen() {
       }
     }
     const d = new Date();
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
 
-  const itemCategoryMeta = CATEGORY_OPTIONS.find((c) => c.key === category) || CATEGORY_OPTIONS[0];
-  const itemPriorityMeta = PRIORITY_OPTIONS.find((p) => p.key === priority) || PRIORITY_OPTIONS[1];
+  const itemCategoryMeta =
+    CATEGORY_OPTIONS.find((c) => c.key === category) || CATEGORY_OPTIONS[0];
+  const itemPriorityMeta =
+    PRIORITY_OPTIONS.find((p) => p.key === priority) || PRIORITY_OPTIONS[1];
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+    >
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.headerBtn}
+        >
           <Feather name="arrow-left" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>
-          {isEditing ? `Edit ${isTask ? "Task" : "Habit"}` : `${isTask ? "Task" : "Habit"} Details`}
+          {isEditing
+            ? `Edit ${isTask ? "Task" : "Habit"}`
+            : `${isTask ? "Task" : "Habit"} Details`}
         </Text>
         <TouchableOpacity
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+              () => {},
+            );
             if (isEditing) {
               handleSave();
             } else {
               setIsEditing(true);
             }
           }}
-          style={[styles.headerBtnTextRow, { backgroundColor: isEditing ? `${colors.primary}22` : "transparent" }]}
+          style={[
+            styles.headerBtnTextRow,
+            {
+              backgroundColor: isEditing
+                ? `${colors.primary}22`
+                : "transparent",
+            },
+          ]}
         >
-          <Feather name={isEditing ? "check" : "edit-2"} size={16} color={colors.primary} />
-          <Text style={{ color: colors.primary, fontWeight: "700", marginLeft: 4 }}>
+          <Feather
+            name={isEditing ? "check" : "edit-2"}
+            size={16}
+            color={colors.primary}
+          />
+          <Text
+            style={{ color: colors.primary, fontWeight: "700", marginLeft: 4 }}
+          >
             {isEditing ? "Save" : "Edit"}
           </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: isEditing ? 120 : 40 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: isEditing ? 120 : 40 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {item.archived && (
-          <View style={[styles.archiveBanner, { backgroundColor: `${colors.warning}15`, borderColor: colors.warning }]}>
+          <View
+            style={[
+              styles.archiveBanner,
+              {
+                backgroundColor: `${colors.warning}15`,
+                borderColor: colors.warning,
+              },
+            ]}
+          >
             <Feather name="archive" size={16} color={colors.warning} />
-            <Text style={{ color: colors.warning, marginLeft: 8, fontSize: 13, fontWeight: "600" }}>
+            <Text
+              style={{
+                color: colors.warning,
+                marginLeft: 8,
+                fontSize: 13,
+                fontWeight: "600",
+              }}
+            >
               This item is currently archived.
             </Text>
           </View>
@@ -946,71 +1104,176 @@ export default function TaskDetailsScreen() {
           <View style={{ gap: 20 }}>
             {/* Title Section */}
             <View style={{ gap: 6 }}>
-              <Text style={[styles.itemTitle, { color: colors.text }]}>{item.title}</Text>
+              <Text style={[styles.itemTitle, { color: colors.text }]}>
+                {item.title}
+              </Text>
               {item.description ? (
-                <Text style={[styles.itemDesc, { color: colors.textMuted }]}>{item.description}</Text>
+                <Text style={[styles.itemDesc, { color: colors.textMuted }]}>
+                  {item.description}
+                </Text>
               ) : (
-                <Text style={[styles.itemDesc, { color: colors.textMuted, fontStyle: "italic" }]}>No notes added</Text>
+                <Text
+                  style={[
+                    styles.itemDesc,
+                    { color: colors.textMuted, fontStyle: "italic" },
+                  ]}
+                >
+                  No notes added
+                </Text>
               )}
             </View>
 
             {/* Badges Grid */}
             <View style={styles.badgeRow}>
               {/* Item Type */}
-              <View style={[styles.badge, {
-                backgroundColor: isTask ? "rgba(59, 130, 246, 0.12)" : "rgba(245, 158, 11, 0.12)",
-                borderColor: isTask ? "#3B82F6" : "#F59E0B"
-              }]}>
-                <Feather name={isTask ? "check-square" : "activity"} size={12} color={isTask ? "#3B82F6" : "#F59E0B"} />
-                <Text style={[styles.badgeText, { color: isTask ? "#3B82F6" : "#F59E0B", fontWeight: "700" }]}>
+              <View
+                style={[
+                  styles.badge,
+                  {
+                    backgroundColor: isTask
+                      ? "rgba(59, 130, 246, 0.12)"
+                      : "rgba(245, 158, 11, 0.12)",
+                    borderColor: isTask ? "#3B82F6" : "#F59E0B",
+                  },
+                ]}
+              >
+                <Feather
+                  name={isTask ? "check-square" : "activity"}
+                  size={12}
+                  color={isTask ? "#3B82F6" : "#F59E0B"}
+                />
+                <Text
+                  style={[
+                    styles.badgeText,
+                    {
+                      color: isTask ? "#3B82F6" : "#F59E0B",
+                      fontWeight: "700",
+                    },
+                  ]}
+                >
                   {isTask ? "Task" : "Habit"}
                 </Text>
               </View>
 
               {/* Priority */}
-              <View style={[styles.badge, { backgroundColor: `${itemPriorityMeta.color}15`, borderColor: itemPriorityMeta.color }]}>
+              <View
+                style={[
+                  styles.badge,
+                  {
+                    backgroundColor: `${itemPriorityMeta.color}15`,
+                    borderColor: itemPriorityMeta.color,
+                  },
+                ]}
+              >
                 <Feather name="flag" size={12} color={itemPriorityMeta.color} />
-                <Text style={[styles.badgeText, { color: itemPriorityMeta.color }]}>
+                <Text
+                  style={[styles.badgeText, { color: itemPriorityMeta.color }]}
+                >
                   {itemPriorityMeta.label}
                 </Text>
               </View>
 
               {/* Category */}
-              <View style={[styles.badge, { backgroundColor: `${itemCategoryMeta.color}15`, borderColor: itemCategoryMeta.color }]}>
-                <Feather name={itemCategoryMeta.icon} size={12} color={itemCategoryMeta.color} />
-                <Text style={[styles.badgeText, { color: itemCategoryMeta.color }]}>
+              <View
+                style={[
+                  styles.badge,
+                  {
+                    backgroundColor: `${itemCategoryMeta.color}15`,
+                    borderColor: itemCategoryMeta.color,
+                    paddingLeft: 4,
+                  },
+                ]}
+              >
+                <CategoryChip category={category} size="xs" />
+                <Text
+                  style={[
+                    styles.badgeText,
+                    { color: itemCategoryMeta.color, marginLeft: 4 },
+                  ]}
+                >
                   {itemCategoryMeta.label}
                 </Text>
               </View>
 
               {/* Workspace */}
               {isTask && (
-                <View style={[styles.badge, { backgroundColor: `${colors.primary}15`, borderColor: colors.primary }]}>
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: `${colors.primary}15`,
+                      borderColor: colors.primary,
+                    },
+                  ]}
+                >
                   <Feather name="folder" size={12} color={colors.primary} />
                   <Text style={[styles.badgeText, { color: colors.primary }]}>
-                    {workspaces.find((w) => w.id === item.folderId)?.name || "Default"}
+                    {workspaces.find((w) => w.id === item.folderId)?.name ||
+                      "Default"}
                   </Text>
                 </View>
               )}
 
               {/* Status */}
               {isTask ? (
-                <View style={[styles.badge, {
-                  backgroundColor: item.completed ? `${colors.success}15` : `${colors.error}15`,
-                  borderColor: item.completed ? colors.success : colors.error
-                }]}>
-                  <Feather name={item.completed ? "check-circle" : "circle"} size={12} color={item.completed ? colors.success : colors.error} />
-                  <Text style={[styles.badgeText, { color: item.completed ? colors.success : colors.error }]}>
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: item.completed
+                        ? `${colors.success}15`
+                        : `${colors.error}15`,
+                      borderColor: item.completed
+                        ? colors.success
+                        : colors.error,
+                    },
+                  ]}
+                >
+                  <Feather
+                    name={item.completed ? "check-circle" : "circle"}
+                    size={12}
+                    color={item.completed ? colors.success : colors.error}
+                  />
+                  <Text
+                    style={[
+                      styles.badgeText,
+                      { color: item.completed ? colors.success : colors.error },
+                    ]}
+                  >
                     {item.completed ? "Completed" : "Pending"}
                   </Text>
                 </View>
               ) : (
-                <View style={[styles.badge, {
-                  backgroundColor: item.completedToday ? `${colors.success}15` : `${colors.warning}15`,
-                  borderColor: item.completedToday ? colors.success : colors.warning
-                }]}>
-                  <Feather name={item.completedToday ? "check-circle" : "circle"} size={12} color={item.completedToday ? colors.success : colors.warning} />
-                  <Text style={[styles.badgeText, { color: item.completedToday ? colors.success : colors.warning }]}>
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: item.completedToday
+                        ? `${colors.success}15`
+                        : `${colors.warning}15`,
+                      borderColor: item.completedToday
+                        ? colors.success
+                        : colors.warning,
+                    },
+                  ]}
+                >
+                  <Feather
+                    name={item.completedToday ? "check-circle" : "circle"}
+                    size={12}
+                    color={
+                      item.completedToday ? colors.success : colors.warning
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.badgeText,
+                      {
+                        color: item.completedToday
+                          ? colors.success
+                          : colors.warning,
+                      },
+                    ]}
+                  >
                     {item.completedToday ? "Done Today" : "Not Done Today"}
                   </Text>
                 </View>
@@ -1018,20 +1281,40 @@ export default function TaskDetailsScreen() {
             </View>
 
             {/* Metadata Fields Section */}
-            <View style={[styles.metaCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View
+              style={[
+                styles.metaCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
               {/* Scheduled Date Row (Tasks Only) */}
               {isTask && (
                 <>
                   <View style={styles.metaRow}>
                     <View style={styles.metaRowLeft}>
-                      <Feather name="calendar" size={16} color={colors.textMuted} />
-                      <Text style={[styles.metaLabel, { color: colors.text }]}>Scheduled Date</Text>
+                      <Feather
+                        name="calendar"
+                        size={16}
+                        color={colors.textMuted}
+                      />
+                      <Text style={[styles.metaLabel, { color: colors.text }]}>
+                        Scheduled Date
+                      </Text>
                     </View>
-                    <Text style={[styles.metaValue, { color: colors.textMuted }]}>
-                      {scheduledDate === "inbox" ? "Inbox" : scheduledDate || "None"}
+                    <Text
+                      style={[styles.metaValue, { color: colors.textMuted }]}
+                    >
+                      {scheduledDate === "inbox"
+                        ? "Inbox"
+                        : scheduledDate || "None"}
                     </Text>
                   </View>
-                  <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+                  <View
+                    style={[
+                      styles.rowDivider,
+                      { backgroundColor: colors.border },
+                    ]}
+                  />
                 </>
               )}
 
@@ -1039,50 +1322,70 @@ export default function TaskDetailsScreen() {
               <View style={styles.metaRow}>
                 <View style={styles.metaRowLeft}>
                   <Feather name="bell" size={16} color={colors.textMuted} />
-                  <Text style={[styles.metaLabel, { color: colors.text }]}>Reminder</Text>
+                  <Text style={[styles.metaLabel, { color: colors.text }]}>
+                    Reminder
+                  </Text>
                 </View>
                 <Text style={[styles.metaValue, { color: colors.textMuted }]}>
-                  {item.reminderHour !== undefined && item.reminderMinute !== undefined
+                  {item.reminderHour !== undefined &&
+                  item.reminderMinute !== undefined
                     ? `${String(item.reminderHour).padStart(2, "0")}:${String(item.reminderMinute).padStart(2, "0")}`
                     : "No reminder scheduled"}
                 </Text>
               </View>
 
-              <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+              <View
+                style={[styles.rowDivider, { backgroundColor: colors.border }]}
+              />
 
               {/* Recurrence Row */}
               <View style={styles.metaRow}>
                 <View style={styles.metaRowLeft}>
                   <Feather name="repeat" size={16} color={colors.textMuted} />
-                  <Text style={[styles.metaLabel, { color: colors.text }]}>Recurrence</Text>
+                  <Text style={[styles.metaLabel, { color: colors.text }]}>
+                    Recurrence
+                  </Text>
                 </View>
                 <Text style={[styles.metaValue, { color: colors.textMuted }]}>
                   {getRecurrenceLabel(item.recurrence) || "None"}
                 </Text>
               </View>
 
-              <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+              <View
+                style={[styles.rowDivider, { backgroundColor: colors.border }]}
+              />
 
               {/* Dates */}
               <View style={styles.metaRow}>
                 <View style={styles.metaRowLeft}>
                   <Feather name="calendar" size={16} color={colors.textMuted} />
-                  <Text style={[styles.metaLabel, { color: colors.text }]}>Created Date</Text>
+                  <Text style={[styles.metaLabel, { color: colors.text }]}>
+                    Created Date
+                  </Text>
                 </View>
                 <Text style={[styles.metaValue, { color: colors.textMuted }]}>
                   {formatCreatedDate()}
                 </Text>
               </View>
-              
+
               {item.lastUpdated && (
                 <>
-                  <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+                  <View
+                    style={[
+                      styles.rowDivider,
+                      { backgroundColor: colors.border },
+                    ]}
+                  />
                   <View style={styles.metaRow}>
                     <View style={styles.metaRowLeft}>
                       <Feather name="edit" size={16} color={colors.textMuted} />
-                      <Text style={[styles.metaLabel, { color: colors.text }]}>Last Updated</Text>
+                      <Text style={[styles.metaLabel, { color: colors.text }]}>
+                        Last Updated
+                      </Text>
                     </View>
-                    <Text style={[styles.metaValue, { color: colors.textMuted }]}>
+                    <Text
+                      style={[styles.metaValue, { color: colors.textMuted }]}
+                    >
                       {item.lastUpdated}
                     </Text>
                   </View>
@@ -1091,36 +1394,83 @@ export default function TaskDetailsScreen() {
 
               {!isTask && (
                 <>
-                  <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+                  <View
+                    style={[
+                      styles.rowDivider,
+                      { backgroundColor: colors.border },
+                    ]}
+                  />
                   <View style={styles.metaRow}>
                     <View style={styles.metaRowLeft}>
                       <Feather name="zap" size={16} color={colors.textMuted} />
-                      <Text style={[styles.metaLabel, { color: colors.text }]}>Current Streak</Text>
+                      <Text style={[styles.metaLabel, { color: colors.text }]}>
+                        Current Streak
+                      </Text>
                     </View>
-                    <Text style={[styles.metaValue, { color: colors.warning, fontWeight: "700" }]}>
+                    <Text
+                      style={[
+                        styles.metaValue,
+                        { color: colors.warning, fontWeight: "700" },
+                      ]}
+                    >
                       🔥 {item.streak || 0} days
                     </Text>
                   </View>
 
-                  <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+                  <View
+                    style={[
+                      styles.rowDivider,
+                      { backgroundColor: colors.border },
+                    ]}
+                  />
                   <View style={styles.metaRow}>
                     <View style={styles.metaRowLeft}>
-                      <Feather name="award" size={16} color={colors.textMuted} />
-                      <Text style={[styles.metaLabel, { color: colors.text }]}>Best Streak</Text>
+                      <Feather
+                        name="award"
+                        size={16}
+                        color={colors.textMuted}
+                      />
+                      <Text style={[styles.metaLabel, { color: colors.text }]}>
+                        Best Streak
+                      </Text>
                     </View>
-                    <Text style={[styles.metaValue, { color: colors.warning, fontWeight: "700" }]}>
+                    <Text
+                      style={[
+                        styles.metaValue,
+                        { color: colors.warning, fontWeight: "700" },
+                      ]}
+                    >
                       🏆 {item.bestStreak || 0} days
                     </Text>
                   </View>
 
-                  <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+                  <View
+                    style={[
+                      styles.rowDivider,
+                      { backgroundColor: colors.border },
+                    ]}
+                  />
                   <View style={styles.metaRow}>
                     <View style={styles.metaRowLeft}>
-                      <Feather name="check-circle" size={16} color={colors.textMuted} />
-                      <Text style={[styles.metaLabel, { color: colors.text }]}>Total Completions</Text>
+                      <Feather
+                        name="check-circle"
+                        size={16}
+                        color={colors.textMuted}
+                      />
+                      <Text style={[styles.metaLabel, { color: colors.text }]}>
+                        Total Completions
+                      </Text>
                     </View>
-                    <Text style={[styles.metaValue, { color: colors.textMuted, fontWeight: "600" }]}>
-                      {timesCompleted ?? 0} completions{completionRate !== null ? ` (${completionRate}% rate)` : ""}
+                    <Text
+                      style={[
+                        styles.metaValue,
+                        { color: colors.textMuted, fontWeight: "600" },
+                      ]}
+                    >
+                      {timesCompleted ?? 0} completions
+                      {completionRate !== null
+                        ? ` (${completionRate}% rate)`
+                        : ""}
                     </Text>
                   </View>
                 </>
@@ -1141,47 +1491,87 @@ export default function TaskDetailsScreen() {
                 marginTop: 8,
               }}
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                  () => {},
+                );
                 setResourcesSheetVisible(true);
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-                <View style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  backgroundColor: `${colors.primary}15`,
+              <View
+                style={{
+                  flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "center",
-                }}>
+                  gap: 12,
+                  flex: 1,
+                }}
+              >
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    backgroundColor: `${colors.primary}15`,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
                   <Feather name="folder" size={20} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>
-                    {linkedCollectionIds.length} {linkedCollectionIds.length === 1 ? "Resource" : "Resources"}
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 15,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {linkedCollectionIds.length}{" "}
+                    {linkedCollectionIds.length === 1
+                      ? "Resource"
+                      : "Resources"}
                   </Text>
-                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 13,
+                      marginTop: 2,
+                    }}
+                    numberOfLines={1}
+                  >
                     {resourcePreviewText || "No resources attached"}
                   </Text>
                 </View>
               </View>
-              <Feather name="chevron-right" size={18} color={colors.textMuted} />
+              <Feather
+                name="chevron-right"
+                size={18}
+                color={colors.textMuted}
+              />
             </TouchableOpacity>
 
             {/* Completion History Calendar (Habits Only) */}
             {!isTask && (
               <View style={{ gap: 8, marginTop: 8 }}>
-                <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700", marginLeft: 4 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 14,
+                    fontWeight: "700",
+                    marginLeft: 4,
+                  }}
+                >
                   Completion Calendar
                 </Text>
-                <View style={{
-                  backgroundColor: colors.card,
-                  borderRadius: 20,
-                  borderWidth: 1.5,
-                  borderColor: colors.border,
-                  overflow: "hidden",
-                  padding: 8,
-                }}>
+                <View
+                  style={{
+                    backgroundColor: colors.card,
+                    borderRadius: 20,
+                    borderWidth: 1.5,
+                    borderColor: colors.border,
+                    overflow: "hidden",
+                    padding: 8,
+                  }}
+                >
                   <Calendar
                     theme={{
                       calendarBackground: colors.card,
@@ -1211,7 +1601,10 @@ export default function TaskDetailsScreen() {
             {/* Quick action buttons row */}
             <View style={{ gap: 12, marginTop: 12 }}>
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                style={[
+                  styles.actionButton,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
                 onPress={handleConvert}
               >
                 <Feather name="refresh-cw" size={16} color={colors.primary} />
@@ -1221,15 +1614,23 @@ export default function TaskDetailsScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                style={[
+                  styles.actionButton,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
                 onPress={handleDuplicate}
               >
                 <Feather name="copy" size={16} color={colors.primary} />
-                <Text style={[styles.actionBtnText, { color: colors.text }]}>Duplicate Item</Text>
+                <Text style={[styles.actionBtnText, { color: colors.text }]}>
+                  Duplicate Item
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                style={[
+                  styles.actionButton,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
                 onPress={async () => {
                   try {
                     const nextArchived = !item.archived;
@@ -1237,17 +1638,29 @@ export default function TaskDetailsScreen() {
 
                     await cancelReminderIds(item.notificationIds || []);
                     let notificationIds: string[] = [];
-                    if (!nextArchived && item.reminderHour !== undefined && item.reminderMinute !== undefined) {
+                    if (
+                      !nextArchived &&
+                      item.reminderHour !== undefined &&
+                      item.reminderMinute !== undefined
+                    ) {
                       const scheduled = await scheduleReminderBatch({
                         kind: itemType === "task" ? "todo" : "habit",
                         itemId: item.id,
                         title: item.title,
                         category: item.category,
-                        dailyTime: { hour: item.reminderHour, minute: item.reminderMinute },
+                        dailyTime: {
+                          hour: item.reminderHour,
+                          minute: item.reminderMinute,
+                        },
                         dailyDays: item.reminderDays,
                         recurrence: item.recurrence,
                         escalationMinutes: [120, 240],
-                        channelId: Platform.OS === "android" ? (isTask ? "todo-reminders" : "daily-habits") : undefined,
+                        channelId:
+                          Platform.OS === "android"
+                            ? isTask
+                              ? "todo-reminders"
+                              : "daily-habits"
+                            : undefined,
                       });
                       notificationIds = scheduled.ids;
                     }
@@ -1260,47 +1673,53 @@ export default function TaskDetailsScreen() {
                     };
 
                     if (isTask) {
-                      const raw = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-                      if (raw) {
-                        const state = JSON.parse(raw);
-                        for (const listId in state.todos) {
-                          state.todos[listId] = state.todos[listId].map((t: Todo) =>
-                            t.id === item.id ? updatedItem : t
-                          );
-                        }
-                        await AsyncStorage.setItem(TODOS_STORAGE_KEY, JSON.stringify(state));
-                      }
+                      await ActivityRepository.saveTask({
+                        ...updatedItem,
+                        folderId: item.folderId || "default",
+                      });
                     } else {
-                      const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-                      if (raw) {
-                        const state = JSON.parse(raw);
-                        state.dailyHabits = state.dailyHabits.map((h: Habit) =>
-                          h.id === item.id ? updatedItem : h
-                        );
-                        await AsyncStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(state));
-                      }
+                      await ActivityRepository.saveHabit({
+                        ...updatedItem,
+                        folderId: item.folderId || "default",
+                      });
                     }
 
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                    emitStateChange(isTask ? "tasks_changed" : "habits_changed");
+                    Haptics.notificationAsync(
+                      Haptics.NotificationFeedbackType.Success,
+                    ).catch(() => {});
+                    emitStateChange(
+                      isTask ? "tasks_changed" : "habits_changed",
+                    );
                     router.back();
                   } catch (e) {
                     console.warn("Failed to archive/restore", e);
                   }
                 }}
               >
-                <Feather name={item.archived ? "unlock" : "archive"} size={16} color={colors.primary} />
+                <Feather
+                  name={item.archived ? "unlock" : "archive"}
+                  size={16}
+                  color={colors.primary}
+                />
                 <Text style={[styles.actionBtnText, { color: colors.text }]}>
                   {item.archived ? "Restore from Archive" : "Archive Item"}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.deleteButton, { backgroundColor: `${colors.error}10`, borderColor: `${colors.error}33` }]}
+                style={[
+                  styles.deleteButton,
+                  {
+                    backgroundColor: `${colors.error}10`,
+                    borderColor: `${colors.error}33`,
+                  },
+                ]}
                 onPress={handleDeletePress}
               >
                 <Feather name="trash-2" size={16} color={colors.error} />
-                <Text style={[styles.deleteBtnText, { color: colors.error }]}>Delete Item</Text>
+                <Text style={[styles.deleteBtnText, { color: colors.error }]}>
+                  Delete Item
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1309,9 +1728,18 @@ export default function TaskDetailsScreen() {
           <View style={{ gap: 16 }}>
             {/* Title Input */}
             <View style={styles.inputWrap}>
-              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Name</Text>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                Name
+              </Text>
               <TextInput
-                style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff" }]}
+                style={[
+                  styles.textInput,
+                  {
+                    color: colors.text,
+                    borderColor: colors.border,
+                    backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff",
+                  },
+                ]}
                 value={title}
                 onChangeText={setTitle}
                 placeholder="Item Title"
@@ -1322,9 +1750,22 @@ export default function TaskDetailsScreen() {
             {/* Description Input */}
             {isTask && (
               <View style={styles.inputWrap}>
-                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Notes</Text>
+                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                  Notes
+                </Text>
                 <TextInput
-                  style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff", minHeight: 70, textAlignVertical: "top" }]}
+                  style={[
+                    styles.textInput,
+                    {
+                      color: colors.text,
+                      borderColor: colors.border,
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.02)"
+                        : "#fff",
+                      minHeight: 70,
+                      textAlignVertical: "top",
+                    },
+                  ]}
                   value={description}
                   onChangeText={setDescription}
                   placeholder="Add details..."
@@ -1336,21 +1777,35 @@ export default function TaskDetailsScreen() {
 
             {/* Category Selector */}
             <View style={styles.inputWrap}>
-              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Category</Text>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                Category
+              </Text>
               <View style={styles.pillsContainer}>
                 {CATEGORY_OPTIONS.map((cat) => {
                   const isSelected = category === cat.key;
                   return (
                     <TouchableOpacity
                       key={cat.key}
-                      style={[styles.pill, {
-                        backgroundColor: isSelected ? `${cat.color}22` : colors.card,
-                        borderColor: isSelected ? cat.color : colors.border
-                      }]}
+                      style={[
+                        styles.pill,
+                        {
+                          backgroundColor: isSelected
+                            ? `${cat.color}22`
+                            : colors.card,
+                          borderColor: isSelected ? cat.color : colors.border,
+                        },
+                      ]}
                       onPress={() => setCategory(cat.key)}
                     >
-                      <Feather name={cat.icon} size={12} color={isSelected ? cat.color : colors.textMuted} />
-                      <Text style={{ color: isSelected ? cat.color : colors.text, fontSize: 13, fontWeight: "600", marginLeft: 4 }}>
+                      <CategoryChip category={cat.key} size="xs" />
+                      <Text
+                        style={{
+                          color: isSelected ? cat.color : colors.text,
+                          fontSize: 13,
+                          fontWeight: "600",
+                          marginLeft: 6,
+                        }}
+                      >
                         {cat.label}
                       </Text>
                     </TouchableOpacity>
@@ -1361,20 +1816,33 @@ export default function TaskDetailsScreen() {
 
             {/* Priority Selector */}
             <View style={styles.inputWrap}>
-              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Priority</Text>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                Priority
+              </Text>
               <View style={styles.pillsContainer}>
                 {PRIORITY_OPTIONS.map((prio) => {
                   const isSelected = priority === prio.key;
                   return (
                     <TouchableOpacity
                       key={prio.key}
-                      style={[styles.pill, {
-                        backgroundColor: isSelected ? `${prio.color}22` : colors.card,
-                        borderColor: isSelected ? prio.color : colors.border
-                      }]}
+                      style={[
+                        styles.pill,
+                        {
+                          backgroundColor: isSelected
+                            ? `${prio.color}22`
+                            : colors.card,
+                          borderColor: isSelected ? prio.color : colors.border,
+                        },
+                      ]}
                       onPress={() => setPriority(prio.key)}
                     >
-                      <Text style={{ color: isSelected ? prio.color : colors.text, fontSize: 13, fontWeight: "700" }}>
+                      <Text
+                        style={{
+                          color: isSelected ? prio.color : colors.text,
+                          fontSize: 13,
+                          fontWeight: "700",
+                        }}
+                      >
                         {prio.label.toUpperCase()}
                       </Text>
                     </TouchableOpacity>
@@ -1386,20 +1854,35 @@ export default function TaskDetailsScreen() {
             {/* Workspace Selector */}
             {isTask && (
               <View style={styles.inputWrap}>
-                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Workspace</Text>
+                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                  Workspace
+                </Text>
                 <View style={styles.pillsContainer}>
                   {workspaces.map((ws) => {
                     const isSelected = workspaceId === ws.id;
                     return (
                       <TouchableOpacity
                         key={ws.id}
-                        style={[styles.pill, {
-                          backgroundColor: isSelected ? `${colors.primary}22` : colors.card,
-                          borderColor: isSelected ? colors.primary : colors.border
-                        }]}
+                        style={[
+                          styles.pill,
+                          {
+                            backgroundColor: isSelected
+                              ? `${colors.primary}22`
+                              : colors.card,
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
+                        ]}
                         onPress={() => setWorkspaceId(ws.id)}
                       >
-                        <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 13, fontWeight: "600" }}>
+                        <Text
+                          style={{
+                            color: isSelected ? colors.primary : colors.text,
+                            fontSize: 13,
+                            fontWeight: "600",
+                          }}
+                        >
                           {ws.name}
                         </Text>
                       </TouchableOpacity>
@@ -1412,51 +1895,111 @@ export default function TaskDetailsScreen() {
             {/* Scheduled Date Selector (Tasks Only) */}
             {isTask && (
               <View style={styles.inputWrap}>
-                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Scheduled Date</Text>
+                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                  Scheduled Date
+                </Text>
                 <View style={styles.pillsContainer}>
                   {[
                     { label: "Today", val: getDateKey() },
-                    { label: "Tomorrow", val: getDateKey(new Date(Date.now() + 86400000)) },
-                    { label: "Inbox", val: "inbox" }
+                    {
+                      label: "Tomorrow",
+                      val: getDateKey(new Date(Date.now() + 86400000)),
+                    },
+                    { label: "Inbox", val: "inbox" },
                   ].map((opt) => {
                     const isSelected = scheduledDate === opt.val;
                     return (
                       <TouchableOpacity
                         key={opt.val}
-                        style={[styles.pill, {
-                          backgroundColor: isSelected ? `${colors.primary}22` : colors.card,
-                          borderColor: isSelected ? colors.primary : colors.border
-                        }]}
+                        style={[
+                          styles.pill,
+                          {
+                            backgroundColor: isSelected
+                              ? `${colors.primary}22`
+                              : colors.card,
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
+                        ]}
                         onPress={() => {
                           setScheduledDate(opt.val);
                           setShowDatePicker(false);
                         }}
                       >
-                        <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 13, fontWeight: "600" }}>
+                        <Text
+                          style={{
+                            color: isSelected ? colors.primary : colors.text,
+                            fontSize: 13,
+                            fontWeight: "600",
+                          }}
+                        >
                           {opt.label}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
-                  
+
                   <TouchableOpacity
-                    style={[styles.pill, {
-                      backgroundColor: showDatePicker || !["inbox", getDateKey(), getDateKey(new Date(Date.now() + 86400000))].includes(scheduledDate) ? `${colors.primary}22` : colors.card,
-                      borderColor: showDatePicker || !["inbox", getDateKey(), getDateKey(new Date(Date.now() + 86400000))].includes(scheduledDate) ? colors.primary : colors.border
-                    }]}
+                    style={[
+                      styles.pill,
+                      {
+                        backgroundColor:
+                          showDatePicker ||
+                          ![
+                            "inbox",
+                            getDateKey(),
+                            getDateKey(new Date(Date.now() + 86400000)),
+                          ].includes(scheduledDate)
+                            ? `${colors.primary}22`
+                            : colors.card,
+                        borderColor:
+                          showDatePicker ||
+                          ![
+                            "inbox",
+                            getDateKey(),
+                            getDateKey(new Date(Date.now() + 86400000)),
+                          ].includes(scheduledDate)
+                            ? colors.primary
+                            : colors.border,
+                      },
+                    ]}
                     onPress={() => setShowDatePicker(!showDatePicker)}
                   >
                     <Feather name="calendar" size={12} color={colors.primary} />
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600", marginLeft: 4 }}>
-                      {!["inbox", getDateKey(), getDateKey(new Date(Date.now() + 86400000))].includes(scheduledDate) ? scheduledDate : "Custom..."}
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: 13,
+                        fontWeight: "600",
+                        marginLeft: 4,
+                      }}
+                    >
+                      {![
+                        "inbox",
+                        getDateKey(),
+                        getDateKey(new Date(Date.now() + 86400000)),
+                      ].includes(scheduledDate)
+                        ? scheduledDate
+                        : "Custom..."}
                     </Text>
                   </TouchableOpacity>
                 </View>
 
                 {showDatePicker && (
-                  <View style={{ marginTop: 12, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border }}>
+                  <View
+                    style={{
+                      marginTop: 12,
+                      borderRadius: 12,
+                      overflow: "hidden",
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
                     <Calendar
-                      current={scheduledDate !== "inbox" ? scheduledDate : undefined}
+                      current={
+                        scheduledDate !== "inbox" ? scheduledDate : undefined
+                      }
                       onDayPress={(day: any) => {
                         setScheduledDate(day.dateString);
                         setShowDatePicker(false);
@@ -1466,16 +2009,21 @@ export default function TaskDetailsScreen() {
                         calendarBackground: colors.card,
                         textSectionTitleColor: colors.textMuted,
                         selectedDayBackgroundColor: colors.primary,
-                        selectedDayTextColor: '#ffffff',
+                        selectedDayTextColor: "#ffffff",
                         todayTextColor: colors.primary,
                         dayTextColor: colors.text,
-                        textDisabledColor: colors.textMuted + '50',
+                        textDisabledColor: colors.textMuted + "50",
                         monthTextColor: colors.text,
                         arrowColor: colors.primary,
                       }}
                       markedDates={
                         scheduledDate && scheduledDate !== "inbox"
-                          ? { [scheduledDate]: { selected: true, selectedColor: colors.primary } }
+                          ? {
+                              [scheduledDate]: {
+                                selected: true,
+                                selectedColor: colors.primary,
+                              },
+                            }
                           : {}
                       }
                     />
@@ -1485,14 +2033,34 @@ export default function TaskDetailsScreen() {
             )}
 
             {/* Reminder Setting */}
-            <View style={[styles.metaCard, { backgroundColor: colors.card, borderColor: colors.border, padding: 12 }]}>
+            <View
+              style={[
+                styles.metaCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  padding: 12,
+                },
+              ]}
+            >
               <TouchableOpacity
                 onPress={() => setTimePickerVisible(!timePickerVisible)}
-                style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  paddingVertical: 4,
+                }}
               >
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   <Feather name="bell" size={16} color={colors.primary} />
-                  <Text style={{ color: colors.text, fontWeight: "600", marginLeft: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontWeight: "600",
+                      marginLeft: 8,
+                    }}
+                  >
                     Reminder Schedule
                   </Text>
                 </View>
@@ -1502,7 +2070,12 @@ export default function TaskDetailsScreen() {
                       ? `${String(reminderHour).padStart(2, "0")}:${String(reminderMinute).padStart(2, "0")}`
                       : "Off"}
                   </Text>
-                  <Feather name={timePickerVisible ? "chevron-up" : "chevron-down"} size={16} color={colors.textMuted} style={{ marginLeft: 6 }} />
+                  <Feather
+                    name={timePickerVisible ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color={colors.textMuted}
+                    style={{ marginLeft: 6 }}
+                  />
                 </View>
               </TouchableOpacity>
 
@@ -1530,32 +2103,73 @@ export default function TaskDetailsScreen() {
                       setTimePickerVisible(false);
                     }}
                   >
-                    <Text style={{ color: colors.error, fontSize: 12, fontWeight: "700" }}>Disable Reminder</Text>
+                    <Text
+                      style={{
+                        color: colors.error,
+                        fontSize: 12,
+                        fontWeight: "700",
+                      }}
+                    >
+                      Disable Reminder
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
             </View>
 
             {/* Recurrence Pattern Configuration */}
-            <View style={[styles.metaCard, { backgroundColor: colors.card, borderColor: colors.border, padding: 12, gap: 12 }]}>
-              <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>
+            <View
+              style={[
+                styles.metaCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  padding: 12,
+                  gap: 12,
+                },
+              ]}
+            >
+              <Text
+                style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}
+              >
                 Recurrence Pattern
               </Text>
 
               <View style={styles.recurrencePillsRow}>
-                {["none", "daily", "weekdays", "weekly", "monthly", "interval"].map((r) => {
+                {[
+                  "none",
+                  "daily",
+                  "weekdays",
+                  "weekly",
+                  "monthly",
+                  "interval",
+                ].map((r) => {
                   const isSelected = recurrenceType === r;
                   return (
                     <TouchableOpacity
                       key={r}
-                      style={[styles.recurrencePillBtn, {
-                        backgroundColor: isSelected ? `${colors.primary}22` : colors.cardLight,
-                        borderColor: isSelected ? colors.primary : "transparent",
-                        borderWidth: 1,
-                      }]}
+                      style={[
+                        styles.recurrencePillBtn,
+                        {
+                          backgroundColor: isSelected
+                            ? `${colors.primary}22`
+                            : colors.cardLight,
+                          borderColor: isSelected
+                            ? colors.primary
+                            : "transparent",
+                          borderWidth: 1,
+                        },
+                      ]}
                       onPress={() => setRecurrenceType(r)}
                     >
-                      <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 12, fontWeight: "600", textTransform: "capitalize" }}>
+                      <Text
+                        style={{
+                          color: isSelected ? colors.primary : colors.text,
+                          fontSize: 12,
+                          fontWeight: "600",
+                          textTransform: "capitalize",
+                        }}
+                      >
                         {r}
                       </Text>
                     </TouchableOpacity>
@@ -1565,21 +2179,42 @@ export default function TaskDetailsScreen() {
 
               {recurrenceType === "weekly" && (
                 <View style={{ gap: 8, marginTop: 4 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }}>Repeat on days:</Text>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 12,
+                      fontWeight: "600",
+                    }}
+                  >
+                    Repeat on days:
+                  </Text>
                   <View style={styles.daysSelectionRow}>
                     {["S", "M", "T", "W", "T", "F", "S"].map((day, idx) => {
                       const isDaySelected = recurrenceDays.includes(idx);
                       return (
                         <TouchableOpacity
                           key={idx}
-                          style={[styles.dayCircleBtn, {
-                            backgroundColor: isDaySelected ? colors.primary : colors.cardLight,
-                            borderColor: isDaySelected ? colors.primary : colors.border,
-                            borderWidth: 1,
-                          }]}
+                          style={[
+                            styles.dayCircleBtn,
+                            {
+                              backgroundColor: isDaySelected
+                                ? colors.primary
+                                : colors.cardLight,
+                              borderColor: isDaySelected
+                                ? colors.primary
+                                : colors.border,
+                              borderWidth: 1,
+                            },
+                          ]}
                           onPress={() => toggleDaySelection(idx)}
                         >
-                          <Text style={{ color: isDaySelected ? "#fff" : colors.text, fontSize: 11, fontWeight: "700" }}>
+                          <Text
+                            style={{
+                              color: isDaySelected ? "#fff" : colors.text,
+                              fontSize: 11,
+                              fontWeight: "700",
+                            }}
+                          >
                             {day}
                           </Text>
                         </TouchableOpacity>
@@ -1590,11 +2225,27 @@ export default function TaskDetailsScreen() {
               )}
 
               {recurrenceType === "monthly" && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>Repeat on day of month:</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    marginTop: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    Repeat on day of month:
+                  </Text>
                   <TextInput
                     keyboardType="number-pad"
-                    style={[styles.numInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.cardLight }]}
+                    style={[
+                      styles.numInput,
+                      {
+                        color: colors.text,
+                        borderColor: colors.border,
+                        backgroundColor: colors.cardLight,
+                      },
+                    ]}
                     value={String(recurrenceDayOfMonth)}
                     onChangeText={(val) => {
                       const num = Number(val);
@@ -1607,11 +2258,29 @@ export default function TaskDetailsScreen() {
               )}
 
               {recurrenceType === "interval" && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>Repeat every</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    marginTop: 4,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    Repeat every
+                  </Text>
                   <TextInput
                     keyboardType="number-pad"
-                    style={[styles.numInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.cardLight, width: 50 }]}
+                    style={[
+                      styles.numInput,
+                      {
+                        color: colors.text,
+                        borderColor: colors.border,
+                        backgroundColor: colors.cardLight,
+                        width: 50,
+                      },
+                    ]}
                     value={String(intervalVal)}
                     onChangeText={(val) => {
                       const num = Number(val);
@@ -1626,14 +2295,29 @@ export default function TaskDetailsScreen() {
                       return (
                         <TouchableOpacity
                           key={unit}
-                          style={[styles.unitBtn, {
-                            backgroundColor: isUnitSelected ? `${colors.primary}22` : colors.cardLight,
-                            borderColor: isUnitSelected ? colors.primary : colors.border,
-                            borderWidth: 1,
-                          }]}
+                          style={[
+                            styles.unitBtn,
+                            {
+                              backgroundColor: isUnitSelected
+                                ? `${colors.primary}22`
+                                : colors.cardLight,
+                              borderColor: isUnitSelected
+                                ? colors.primary
+                                : colors.border,
+                              borderWidth: 1,
+                            },
+                          ]}
                           onPress={() => setIntervalUnit(unit as any)}
                         >
-                          <Text style={{ color: isUnitSelected ? colors.primary : colors.text, fontSize: 12, fontWeight: "700" }}>
+                          <Text
+                            style={{
+                              color: isUnitSelected
+                                ? colors.primary
+                                : colors.text,
+                              fontSize: 12,
+                              fontWeight: "700",
+                            }}
+                          >
                             {unit}
                           </Text>
                         </TouchableOpacity>
@@ -1645,37 +2329,77 @@ export default function TaskDetailsScreen() {
             </View>
 
             {/* Linked Resources Section */}
-            <View style={[styles.metaCard, { backgroundColor: colors.card, borderColor: colors.border, padding: 12, gap: 10 }]}>
-              <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>
+            <View
+              style={[
+                styles.metaCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  padding: 12,
+                  gap: 10,
+                },
+              ]}
+            >
+              <Text
+                style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}
+              >
                 Linked Resources (Optional)
               </Text>
-              
+
               <View style={{ gap: 8 }}>
-                {linkedCollections.map((col) => (
+                {linkedResources.map((res) => (
                   <View
-                    key={col.id}
+                    key={res.id}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff",
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.02)"
+                        : "#fff",
                       borderRadius: 12,
                       borderWidth: 1,
                       borderColor: colors.border,
                       padding: 10,
                     }}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Text style={{ fontSize: 16 }}>{col.emoji || "📚"}</Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <Text style={{ fontSize: 16 }}>
+                        {res.type === "link"
+                          ? "🔗"
+                          : res.type === "image"
+                            ? "🖼"
+                            : "📝"}
+                      </Text>
                       <View>
-                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>{col.name}</Text>
-                        <Text style={{ color: colors.textMuted, fontSize: 12 }}>{col.items?.filter(i => !i.archived).length || 0} items</Text>
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontSize: 14,
+                            fontWeight: "600",
+                          }}
+                        >
+                          {res.title}
+                        </Text>
+                        <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                          {res.collectionName || "Collection"}
+                        </Text>
                       </View>
                     </View>
                     <TouchableOpacity
                       onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        setLinkedCollectionIds(prev => prev.filter(id => id !== col.id));
+                        Haptics.impactAsync(
+                          Haptics.ImpactFeedbackStyle.Light,
+                        ).catch(() => {});
+                        setLinkedCollectionIds((prev) =>
+                          prev.filter((id) => id !== res.id),
+                        );
                       }}
                       style={{ padding: 4 }}
                     >
@@ -1699,12 +2423,20 @@ export default function TaskDetailsScreen() {
                     marginTop: 4,
                   }}
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    Haptics.impactAsync(
+                      Haptics.ImpactFeedbackStyle.Light,
+                    ).catch(() => {});
                     setLinkPickerVisible(true);
                   }}
                 >
                   <Feather name="plus" size={16} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
+                  <Text
+                    style={{
+                      color: colors.primary,
+                      fontWeight: "700",
+                      fontSize: 13,
+                    }}
+                  >
                     Link a Resource List
                   </Text>
                 </TouchableOpacity>
@@ -1713,13 +2445,23 @@ export default function TaskDetailsScreen() {
 
             {/* Cancel Button */}
             <TouchableOpacity
-              style={[styles.actionButton, { borderColor: colors.border, alignSelf: "center", width: "50%", marginTop: 12 }]}
+              style={[
+                styles.actionButton,
+                {
+                  borderColor: colors.border,
+                  alignSelf: "center",
+                  width: "50%",
+                  marginTop: 12,
+                },
+              ]}
               onPress={() => {
                 setIsEditing(false);
                 initForm(item);
               }}
             >
-              <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Discard Edits</Text>
+              <Text style={{ color: colors.textMuted, fontWeight: "700" }}>
+                Discard Edits
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1763,7 +2505,15 @@ export default function TaskDetailsScreen() {
               initForm(item);
             }}
           >
-            <Text style={{ color: colors.textMuted, fontWeight: "700", fontSize: 14 }}>Cancel</Text>
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontWeight: "700",
+                fontSize: 14,
+              }}
+            >
+              Cancel
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={{
@@ -1778,7 +2528,13 @@ export default function TaskDetailsScreen() {
             disabled={!hasChanges}
             onPress={handleSave}
           >
-            <Text style={{ color: hasChanges ? "#FFFFFF" : colors.textMuted, fontWeight: "700", fontSize: 14 }}>
+            <Text
+              style={{
+                color: hasChanges ? "#FFFFFF" : colors.textMuted,
+                fontWeight: "700",
+                fontSize: 14,
+              }}
+            >
               Save Changes
             </Text>
           </TouchableOpacity>
@@ -1788,29 +2544,46 @@ export default function TaskDetailsScreen() {
       {/* Delete safety modal */}
       <Modal visible={showDeleteSafetyModal} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Delete Recurring Item</Text>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Delete Recurring Item
+            </Text>
             <Text style={[styles.modalMessage, { color: colors.textMuted }]}>
-              Do you want to delete only this specific occurrence or all future occurrences?
+              Do you want to delete only this specific occurrence or all future
+              occurrences?
             </Text>
             <View style={styles.modalBtns}>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: colors.cardLight }]}
                 onPress={() => setShowDeleteSafetyModal(false)}
               >
-                <Text style={{ color: colors.text, fontWeight: "700" }}>Cancel</Text>
+                <Text style={{ color: colors.text, fontWeight: "700" }}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: `${colors.error}15` }]}
+                style={[
+                  styles.modalBtn,
+                  { backgroundColor: `${colors.error}15` },
+                ]}
                 onPress={() => deleteItem(true)}
               >
-                <Text style={{ color: colors.error, fontWeight: "700" }}>Only this occurrence</Text>
+                <Text style={{ color: colors.error, fontWeight: "700" }}>
+                  Only this occurrence
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: colors.error }]}
                 onPress={() => deleteItem(false)}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>All occurrences</Text>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                  All occurrences
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1820,29 +2593,46 @@ export default function TaskDetailsScreen() {
       {/* Edit recurring modal */}
       <Modal visible={showEditRecurringModal} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Save Recurring Changes</Text>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Save Recurring Changes
+            </Text>
             <Text style={[styles.modalMessage, { color: colors.textMuted }]}>
-              Would you like to save changes for only this occurrence or apply them to all future occurrences?
+              Would you like to save changes for only this occurrence or apply
+              them to all future occurrences?
             </Text>
             <View style={styles.modalBtns}>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: colors.cardLight }]}
                 onPress={() => setShowEditRecurringModal(false)}
               >
-                <Text style={{ color: colors.text, fontWeight: "700" }}>Cancel</Text>
+                <Text style={{ color: colors.text, fontWeight: "700" }}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: `${colors.primary}15` }]}
+                style={[
+                  styles.modalBtn,
+                  { backgroundColor: `${colors.primary}15` },
+                ]}
                 onPress={() => saveChanges(true)}
               >
-                <Text style={{ color: colors.primary, fontWeight: "700" }}>Only this occurrence</Text>
+                <Text style={{ color: colors.primary, fontWeight: "700" }}>
+                  Only this occurrence
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: colors.primary }]}
                 onPress={() => saveChanges(false)}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>All occurrences</Text>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                  All occurrences
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1858,28 +2648,53 @@ export default function TaskDetailsScreen() {
       >
         <View style={{ flex: 1, justifyContent: "flex-end" }}>
           <Pressable
-            style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0, 0, 0, 0.4)" }}
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              backgroundColor: "rgba(0, 0, 0, 0.4)",
+            }}
             onPress={() => setResourcesSheetVisible(false)}
           />
-          <View style={{
-            backgroundColor: colors.card,
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            paddingTop: 16,
-            paddingHorizontal: 20,
-            paddingBottom: Platform.OS === "ios" ? 36 : 24,
-            maxHeight: "80%",
-            borderWidth: 1.5,
-            borderColor: colors.border,
-          }}>
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingTop: 16,
+              paddingHorizontal: 20,
+              paddingBottom: Platform.OS === "ios" ? 36 : 24,
+              maxHeight: "80%",
+              borderWidth: 1.5,
+              borderColor: colors.border,
+            }}
+          >
             {/* Header */}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 16,
+                    fontWeight: "800",
+                  }}
+                >
                   {title} Resources
                 </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                  {totalResourceItems} {totalResourceItems === 1 ? "item" : "items"}
+                <Text
+                  style={{
+                    color: colors.textMuted,
+                    fontSize: 12,
+                    marginTop: 2,
+                  }}
+                >
+                  {totalResourceItems}{" "}
+                  {totalResourceItems === 1 ? "item" : "items"}
                 </Text>
               </View>
               <TouchableOpacity
@@ -1890,7 +2705,7 @@ export default function TaskDetailsScreen() {
                   borderRadius: 16,
                   backgroundColor: isDark ? "#27272A" : "#F1F5F9",
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
                 <Feather name="x" size={16} color={colors.text} />
@@ -1908,14 +2723,26 @@ export default function TaskDetailsScreen() {
                       paddingHorizontal: 16,
                       paddingVertical: 8,
                       borderRadius: 20,
-                      backgroundColor: isActive ? colors.primary : (isDark ? "#27272A" : "#E4E4E7"),
+                      backgroundColor: isActive
+                        ? colors.primary
+                        : isDark
+                          ? "#27272A"
+                          : "#E4E4E7",
                     }}
                     onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      Haptics.impactAsync(
+                        Haptics.ImpactFeedbackStyle.Light,
+                      ).catch(() => {});
                       setActiveFilter(filter);
                     }}
                   >
-                    <Text style={{ color: isActive ? "#FFFFFF" : colors.text, fontSize: 13, fontWeight: "600" }}>
+                    <Text
+                      style={{
+                        color: isActive ? "#FFFFFF" : colors.text,
+                        fontSize: 13,
+                        fontWeight: "600",
+                      }}
+                    >
                       {filter}
                     </Text>
                   </TouchableOpacity>
@@ -1924,11 +2751,20 @@ export default function TaskDetailsScreen() {
             </View>
 
             {/* Resource Items List */}
-            <ScrollView showsVerticalScrollIndicator={false} style={{ minHeight: 180, marginBottom: 16 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ minHeight: 180, marginBottom: 16 }}
+            >
               {filteredResourceItems.length === 0 ? (
                 <View style={{ paddingVertical: 40, alignItems: "center" }}>
                   <Feather name="folder" size={32} color={colors.textMuted} />
-                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 13,
+                      marginTop: 8,
+                    }}
+                  >
                     No matching resources found
                   </Text>
                 </View>
@@ -1956,7 +2792,9 @@ export default function TaskDetailsScreen() {
                         borderBottomColor: colors.border,
                       }}
                       onPress={async () => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        Haptics.impactAsync(
+                          Haptics.ImpactFeedbackStyle.Light,
+                        ).catch(() => {});
                         if (res.type === "link" || res.url) {
                           let destUrl = res.url || res.content;
                           if (destUrl) {
@@ -1966,7 +2804,10 @@ export default function TaskDetailsScreen() {
                             try {
                               await Linking.openURL(destUrl);
                             } catch (err) {
-                              Alert.alert("Error", "Could not open link: " + destUrl);
+                              Alert.alert(
+                                "Error",
+                                "Could not open link: " + destUrl,
+                              );
                             }
                           }
                         } else if (res.type === "note") {
@@ -1976,27 +2817,57 @@ export default function TaskDetailsScreen() {
                         }
                       }}
                     >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                        <View style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 8,
-                          backgroundColor: `${iconColor}15`,
+                      <View
+                        style={{
+                          flexDirection: "row",
                           alignItems: "center",
-                          justifyContent: "center"
-                        }}>
-                          <Feather name={icon as any} size={16} color={iconColor} />
+                          gap: 10,
+                          flex: 1,
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 8,
+                            backgroundColor: `${iconColor}15`,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Feather
+                            name={icon as any}
+                            size={16}
+                            color={iconColor}
+                          />
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }} numberOfLines={1}>
+                          <Text
+                            style={{
+                              color: colors.text,
+                              fontSize: 14,
+                              fontWeight: "600",
+                            }}
+                            numberOfLines={1}
+                          >
                             {res.title}
                           </Text>
-                          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                          <Text
+                            style={{
+                              color: colors.textMuted,
+                              fontSize: 12,
+                              marginTop: 2,
+                            }}
+                          >
                             {res.collectionName} • {res.type}
                           </Text>
                         </View>
                       </View>
-                      <Feather name="chevron-right" size={16} color={colors.textMuted} />
+                      <Feather
+                        name="chevron-right"
+                        size={16}
+                        color={colors.textMuted}
+                      />
                     </TouchableOpacity>
                   );
                 })
@@ -2020,7 +2891,13 @@ export default function TaskDetailsScreen() {
                 router.push("/(tabs)/tasks");
               }}
             >
-              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 14 }}>
+              <Text
+                style={{
+                  color: colors.primary,
+                  fontWeight: "700",
+                  fontSize: 14,
+                }}
+              >
                 Open in Workspace →
               </Text>
             </TouchableOpacity>
@@ -2037,30 +2914,54 @@ export default function TaskDetailsScreen() {
       >
         <View style={{ flex: 1, justifyContent: "flex-end" }}>
           <Pressable
-            style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0, 0, 0, 0.4)" }}
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              backgroundColor: "rgba(0, 0, 0, 0.4)",
+            }}
             onPress={() => {
               setLinkPickerVisible(false);
               setIsCreatingCollection(false);
             }}
           />
-          <View style={{
-            backgroundColor: colors.card,
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            paddingTop: 16,
-            paddingHorizontal: 20,
-            paddingBottom: Platform.OS === "ios" ? 36 : 24,
-            maxHeight: "75%",
-            borderWidth: 1.5,
-            borderColor: colors.border,
-          }}>
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingTop: 16,
+              paddingHorizontal: 20,
+              paddingBottom: Platform.OS === "ios" ? 36 : 24,
+              maxHeight: "75%",
+              borderWidth: 1.5,
+              borderColor: colors.border,
+            }}
+          >
             {/* Header */}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
               <View>
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 16,
+                    fontWeight: "800",
+                  }}
+                >
                   Link Resources
                 </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                <Text
+                  style={{
+                    color: colors.textMuted,
+                    fontSize: 12,
+                    marginTop: 2,
+                  }}
+                >
                   Select existing collections or create a new one
                 </Text>
               </View>
@@ -2075,7 +2976,7 @@ export default function TaskDetailsScreen() {
                   borderRadius: 16,
                   backgroundColor: isDark ? "#27272A" : "#F1F5F9",
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
                 <Feather name="x" size={16} color={colors.text} />
@@ -2083,90 +2984,233 @@ export default function TaskDetailsScreen() {
             </View>
 
             {/* List */}
-            <ScrollView showsVerticalScrollIndicator={false} style={{ minHeight: 180, marginBottom: 16 }}>
-              {availableCollectionsForPicker.length === 0 ? (
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ minHeight: 180, marginBottom: 16 }}
+            >
+              {!collections[workspaceId || "default"] ||
+              collections[workspaceId || "default"].length === 0 ? (
                 <View style={{ paddingVertical: 40, alignItems: "center" }}>
                   <Feather name="folder" size={32} color={colors.textMuted} />
-                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>
-                    No collections found. Create one below!
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 13,
+                      marginTop: 8,
+                    }}
+                  >
+                    No collections in this workspace.
                   </Text>
                 </View>
               ) : (
-                availableCollectionsForPicker.map((col) => {
-                  const isChecked = linkedCollectionIds.includes(col.id);
-                  return (
-                    <TouchableOpacity
-                      key={col.id}
+                collections[workspaceId || "default"].map((col) => (
+                  <View key={col.id} style={{ marginBottom: 16 }}>
+                    <View
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        justifyContent: "space-between",
-                        paddingVertical: 12,
-                        borderBottomWidth: StyleSheet.hairlineWidth,
-                        borderBottomColor: colors.border,
-                      }}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        setLinkedCollectionIds(prev =>
-                          isChecked ? prev.filter(id => id !== col.id) : [...prev, col.id]
-                        );
+                        gap: 8,
+                        marginBottom: 6,
+                        paddingHorizontal: 4,
                       }}
                     >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                        <Text style={{ fontSize: 18 }}>{col.emoji || "📚"}</Text>
-                        <View>
-                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
-                            {col.name}
-                          </Text>
-                          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                            {col.items?.filter(i => !i.archived).length || 0} items
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: 11,
-                        borderWidth: 1.5,
-                        borderColor: isChecked ? colors.primary : colors.textMuted,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: isChecked ? colors.primary : "transparent",
-                      }}>
-                        {isChecked && <Feather name="check" size={12} color="#FFFFFF" />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
+                      <Text style={{ fontSize: 16 }}>{col.emoji || "📁"}</Text>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "800",
+                          color: colors.text,
+                        }}
+                      >
+                        {col.name}
+                      </Text>
+                    </View>
+
+                    {!col.items ||
+                    col.items.filter((i) => !i.archived).length === 0 ? (
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: colors.textMuted,
+                          fontStyle: "italic",
+                          marginLeft: 28,
+                          marginBottom: 4,
+                        }}
+                      >
+                        No resources in this collection
+                      </Text>
+                    ) : (
+                      col.items
+                        .filter((i) => !i.archived)
+                        .map((res) => {
+                          const isChecked = linkedCollectionIds.includes(
+                            res.id,
+                          );
+                          return (
+                            <TouchableOpacity
+                              key={res.id}
+                              onPress={() => {
+                                Haptics.impactAsync(
+                                  Haptics.ImpactFeedbackStyle.Light,
+                                ).catch(() => {});
+                                setLinkedCollectionIds((prev) =>
+                                  isChecked
+                                    ? prev.filter((id) => id !== res.id)
+                                    : [...prev, res.id],
+                                );
+                              }}
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                marginLeft: 24,
+                                borderRadius: 10,
+                                marginVertical: 2,
+                                borderWidth: 1,
+                                borderColor: isChecked
+                                  ? colors.primary
+                                  : colors.border,
+                                backgroundColor: isChecked
+                                  ? `${colors.primary}08`
+                                  : "transparent",
+                              }}
+                            >
+                              <View
+                                style={{
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  flex: 1,
+                                }}
+                              >
+                                <Text style={{ fontSize: 13 }}>
+                                  {res.type === "link"
+                                    ? res.url
+                                        ?.toLowerCase()
+                                        .includes("youtube") ||
+                                      res.url?.toLowerCase().includes("video")
+                                      ? "▶"
+                                      : "🔗"
+                                    : res.type === "file"
+                                      ? res.mimeType?.startsWith("image/")
+                                        ? "🖼"
+                                        : "📄"
+                                      : res.type === "note"
+                                        ? "📝"
+                                        : "📄"}
+                                </Text>
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    color: colors.text,
+                                    flex: 1,
+                                  }}
+                                  numberOfLines={1}
+                                >
+                                  {res.title}
+                                </Text>
+                              </View>
+                              <Feather
+                                name={isChecked ? "check-circle" : "circle"}
+                                size={16}
+                                color={
+                                  isChecked ? colors.primary : colors.textMuted
+                                }
+                              />
+                            </TouchableOpacity>
+                          );
+                        })
+                    )}
+                  </View>
+                ))
               )}
             </ScrollView>
 
             {/* Quick Create Collection Form */}
             {isCreatingCollection ? (
-              <View style={{ gap: 10, marginTop: 8, padding: 12, backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#F8FAFC", borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700" }}>Create New Collection</Text>
+              <View
+                style={{
+                  gap: 10,
+                  marginTop: 8,
+                  padding: 12,
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.02)"
+                    : "#F8FAFC",
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 13,
+                    fontWeight: "700",
+                  }}
+                >
+                  Create New Collection
+                </Text>
                 <TextInput
-                  style={[styles.textInput, { height: 40, color: colors.text, borderColor: colors.border, backgroundColor: isDark ? "#000" : "#fff", paddingVertical: 0 }]}
+                  style={[
+                    styles.textInput,
+                    {
+                      height: 40,
+                      color: colors.text,
+                      borderColor: colors.border,
+                      backgroundColor: isDark ? "#000" : "#fff",
+                      paddingVertical: 0,
+                    },
+                  ]}
                   value={newCollectionName}
                   onChangeText={setNewCollectionName}
                   placeholder="Collection Name (e.g. Chord Sheets)"
                   placeholderTextColor={colors.textMuted}
                 />
-                <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "flex-end",
+                    gap: 8,
+                  }}
+                >
                   <TouchableOpacity
-                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: isDark ? "#27272A" : "#E2E8F0" }}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      backgroundColor: isDark ? "#27272A" : "#E2E8F0",
+                    }}
                     onPress={() => {
                       setIsCreatingCollection(false);
                       setNewCollectionName("");
                     }}
                   >
-                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: "600" }}>Cancel</Text>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: 12,
+                        fontWeight: "600",
+                      }}
+                    >
+                      Cancel
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.primary }}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      backgroundColor: colors.primary,
+                    }}
                     onPress={handleCreateNewCollection}
                   >
-                    <Text style={{ color: "#FFF", fontSize: 12, fontWeight: "600" }}>Create</Text>
+                    <Text
+                      style={{ color: "#FFF", fontSize: 12, fontWeight: "600" }}
+                    >
+                      Create
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2179,7 +3223,13 @@ export default function TaskDetailsScreen() {
                 }}
                 onPress={() => setIsCreatingCollection(true)}
               >
-                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 14 }}>
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontWeight: "700",
+                    fontSize: 14,
+                  }}
+                >
                   + Create New Collection
                 </Text>
               </TouchableOpacity>
@@ -2195,24 +3245,52 @@ export default function TaskDetailsScreen() {
         animationType="fade"
         onRequestClose={() => setViewingNote(null)}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 }}>
-          <View style={{
-            width: "100%",
-            backgroundColor: colors.card,
-            borderRadius: 24,
-            borderWidth: 1.5,
-            borderColor: colors.border,
-            padding: 20,
-            maxHeight: "70%",
-          }}>
-            <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 4 }}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 24,
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1.5,
+              borderColor: colors.border,
+              padding: 20,
+              maxHeight: "70%",
+            }}
+          >
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: 18,
+                fontWeight: "800",
+                marginBottom: 4,
+              }}
+            >
               {viewingNote?.title}
             </Text>
-            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 16 }}>
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 12,
+                marginBottom: 16,
+              }}
+            >
               {(viewingNote as any)?.collectionName} • Note
             </Text>
-            <ScrollView showsVerticalScrollIndicator={true} style={{ marginBottom: 16 }}>
-              <Text style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={true}
+              style={{ marginBottom: 16 }}
+            >
+              <Text
+                style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}
+              >
                 {viewingNote?.content || "No content added to this note."}
               </Text>
             </ScrollView>
@@ -2238,12 +3316,38 @@ export default function TaskDetailsScreen() {
         animationType="fade"
         onRequestClose={() => setViewingImage(null)}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", alignItems: "center" }}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setViewingImage(null)} />
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.9)",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setViewingImage(null)}
+          />
           {viewingImage && (
-            <View style={{ width: "90%", height: "70%", justifyContent: "center", alignItems: "center" }}>
-              <Feather name="image" size={64} color="#FFF" style={{ opacity: 0.3 }} />
-              <Text style={{ color: "#FFF", marginTop: 12, textAlign: "center" }}>Image preview matches: {viewingImage}</Text>
+            <View
+              style={{
+                width: "90%",
+                height: "70%",
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <Feather
+                name="image"
+                size={64}
+                color="#FFF"
+                style={{ opacity: 0.3 }}
+              />
+              <Text
+                style={{ color: "#FFF", marginTop: 12, textAlign: "center" }}
+              >
+                Image preview matches: {viewingImage}
+              </Text>
             </View>
           )}
           <TouchableOpacity
@@ -2307,7 +3411,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  badgeText: { fontSize: 11, fontWeight: "700", marginLeft: 4, textTransform: "uppercase" },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginLeft: 4,
+    textTransform: "uppercase",
+  },
   metaCard: {
     borderRadius: 18,
     borderWidth: 1,
@@ -2370,7 +3479,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
-  daysSelectionRow: { flexDirection: "row", justifyContent: "space-between", width: "100%" },
+  daysSelectionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+  },
   dayCircleBtn: {
     width: 32,
     height: 32,
@@ -2411,7 +3524,12 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: "800" },
   modalMessage: { fontSize: 14, lineHeight: 20 },
-  modalBtns: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 12 },
+  modalBtns: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 12,
+  },
   modalBtn: {
     paddingHorizontal: 12,
     paddingVertical: 10,

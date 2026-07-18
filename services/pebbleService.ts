@@ -201,7 +201,7 @@ export async function ensurePebbleLogInitialized() {
     const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
     if (raw) return; // Already initialized
 
-    // Count lifetime completed todos
+    // Count lifetime completed todos from both legacy V1 and V3 partitioned workspaces
     const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
     let todosCompleted = 0;
     if (rawTodos) {
@@ -211,6 +211,20 @@ export async function ensurePebbleLogInitialized() {
         todosCompleted = allTodos.filter((t) => t.completed).length;
       } catch {}
     }
+    try {
+      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
+      if (rawLists) {
+        const listFolders: any[] = JSON.parse(rawLists);
+        for (const folder of listFolders) {
+          const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${folder.id}`);
+          if (tasksRaw) {
+            const tasksMap = JSON.parse(tasksRaw);
+            const compCount = Object.values(tasksMap).filter((t: any) => t.completed).length;
+            todosCompleted += compCount;
+          }
+        }
+      }
+    } catch {}
 
     // Backfill from history entries to restore correct dates
     const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");

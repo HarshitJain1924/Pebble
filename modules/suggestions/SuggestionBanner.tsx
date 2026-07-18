@@ -9,8 +9,8 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { resolveSuggestion, type SmartSuggestion } from "@/services/suggestions";
 import { type Todo, type Habit, type TaskList } from "../types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
 import { emitStateChange } from "@/services/stateEvents";
+import { ActivityRepository } from "@/services/v3/repositories";
 
 interface SuggestionBannerProps {
   activeSuggestions: SmartSuggestion[];
@@ -107,6 +107,7 @@ export function SuggestionBanner({
             <TouchableOpacity
               onPress={async () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
                 if (suggestion.type === "convert_habit") {
                   const newHabit: Habit = {
                     id: `habit-${Date.now()}`,
@@ -115,13 +116,22 @@ export function SuggestionBanner({
                     bestStreak: 0,
                     completedToday: false,
                     priority: "medium",
+                    folderId: activeWorkspace,
+                    createdAt: Date.now(),
                   };
-                  const raw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-                  let currentHabits: Habit[] = [];
-                  if (raw) {
-                    const parsed = JSON.parse(raw);
-                    currentHabits = parsed.dailyHabits ?? [];
-                  }
+                  
+                  // Load active workspace V3 habits
+                  const habitsMap = await ActivityRepository.getHabits(activeWorkspace);
+                  const currentHabits: Habit[] = Object.values(habitsMap).map((h: any) => ({
+                    id: h.id,
+                    title: h.title,
+                    streak: h.streak,
+                    bestStreak: h.bestStreak,
+                    completedToday: h.completedDates?.includes(getDateKey()),
+                    folderId: activeWorkspace,
+                    createdAt: h.createdAt,
+                  }));
+
                   const updated = [newHabit, ...currentHabits];
                   await persistHabits(updated);
                   setHabits(updated);
@@ -131,6 +141,7 @@ export function SuggestionBanner({
                     `"${suggestion.title}" has been converted to a recurring daily habit!`,
                   );
                 } else {
+                  const listId = openedFolderId || selectedList || "default";
                   const newTodo: Todo = {
                     id: String(Date.now()),
                     title: `Study schedule: ${suggestion.title}`,
@@ -138,21 +149,28 @@ export function SuggestionBanner({
                     category: "learning",
                     priority: "high",
                     scheduledDate: getDateKey(),
-                    folderId: openedFolderId || "default",
+                    folderId: listId,
+                    createdAt: Date.now(),
                   };
-                  const listId = openedFolderId || "default";
-                  const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
-                  let currentTodos: Record<string, Todo[]> = {};
-                  if (rawTodos) {
-                    const parsed = JSON.parse(rawTodos);
-                    currentTodos = parsed.todos || {};
-                  }
-                  const listTodos = currentTodos[listId] ?? [];
+                  
+                  // Load active workspace V3 tasks
+                  const tasksMap = await ActivityRepository.getTasks(listId);
+                  const listTodos: Todo[] = Object.values(tasksMap).map((t: any) => ({
+                    id: t.id,
+                    title: t.title,
+                    completed: t.completed,
+                    priority: t.priority,
+                    scheduledDate: t.dueDate,
+                    folderId: listId,
+                    createdAt: t.createdAt,
+                    category: t.category,
+                  }));
+
+                  const updatedList = [newTodo, ...listTodos];
                   const updated = {
-                    ...currentTodos,
-                    [listId]: [newTodo, ...listTodos],
+                    [listId]: updatedList,
                   };
-                  await persistState(lists, selectedList, updated);
+                  await persistState(lists, listId, updated);
                   setTodos(updated);
                   emitStateChange("tasks_changed");
                   Alert.alert(

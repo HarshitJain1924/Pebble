@@ -12,7 +12,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { useRouter, Stack } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Still needed for history + focus stats
 import * as Haptics from "expo-haptics";
 
 import { AppText as Text } from "@/components/ui/AppText";
@@ -21,7 +21,7 @@ import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { FloatingGlow } from "@/components/AmbientBackground";
 import { getProfile, type UserProfile } from "@/services/settingsService";
-import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "@/services/storage";
+import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -61,33 +61,32 @@ export default function AchievementsScreen() {
       const userProf = await getProfile();
       setProfile(userProf);
 
-      // Load completed todos (current storage)
-      const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+      // Load completed todos via V3 repository
+      const folderList = await FolderRepository.getFolders();
+      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+
       let totalCompletedTodos = 0;
-      if (rawTodos) {
-        const parsed = JSON.parse(rawTodos);
-        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-        totalCompletedTodos = allTodos.filter((t) => t.completed).length;
+      for (const fId of folderIds) {
+        const tasksMap = await ActivityRepository.getTasks(fId);
+        Object.values(tasksMap).forEach((t: any) => {
+          if (t.completed) totalCompletedTodos++;
+        });
       }
 
-      // Load completed habits (today's count from storage)
-      const rawHabits = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
+      // Load completed habits via V3 repository
+      const today = new Date();
+      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       let totalCompletedHabitsToday = 0;
       let activeStreak = 0;
-      if (rawHabits) {
-        const parsed = JSON.parse(rawHabits);
-        const allHabits = (parsed.dailyHabits || []) as any[];
-        totalCompletedHabitsToday = allHabits.filter((h) => h.completedToday).length;
-        // Use best of current streak OR bestStreak so recovered streaks unlock badges
-        activeStreak = allHabits.reduce(
-          (max, h) => Math.max(max, h.streak || 0, h.bestStreak || 0),
-          0
-        );
+      for (const fId of folderIds) {
+        const habitsMap = await ActivityRepository.getHabits(fId);
+        Object.values(habitsMap).forEach((h: any) => {
+          if (h.completedDates?.includes(todayKey)) totalCompletedHabitsToday++;
+          activeStreak = Math.max(activeStreak, h.streak || 0, h.bestStreak || 0);
+        });
       }
 
       // Add lifetime history for past days (same logic as stats.tsx)
-      const today = new Date();
-      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
       let pastTodosCompleted = 0;
       let pastHabitsCompleted = 0;
