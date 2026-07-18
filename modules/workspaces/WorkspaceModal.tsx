@@ -20,7 +20,6 @@ import { useUndo } from "@/components/ui/UndoContext";
 import { addToRecycleBin, getRecycleBinItems, saveRecycleBinItems } from "@/services/storage";
 import { cancelReminderIds, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { TODOS_STORAGE_KEY, DAILY_STORAGE_KEY } from "@/services/storage";
 import { emitStateChange } from "@/services/stateEvents";
 
 async function loadNotifications() {

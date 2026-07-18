@@ -2,23 +2,12 @@ import React, { useEffect, useState } from "react";
 import { StyleSheet,  View, ActivityIndicator } from "react-native";
 import { AppText as Text } from "@/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { HISTORY_STORAGE_KEY, DAILY_STORAGE_KEY } from "@/services/storage";
+import { getAllHistory, type DailyHistory } from "@/services/productivityHistory";
+import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { GlassCard } from "../ui/GlassCard";
 import { FloatingGlow } from "../AmbientBackground";
-
-type DailyHistory = {
-  date: string;
-  completedHabits: number;
-  totalHabits: number;
-  completedTodos: number;
-  totalTodos: number;
-  score: number;
-  completedHabitTitles: string[];
-  completedTodoTitles: string[];
-};
 
 const WEEKDAY_NAMES = [
   "Sunday",
@@ -39,18 +28,14 @@ export const PebbleInsightCard: React.FC = () => {
   useEffect(() => {
     const calculateInsights = async () => {
       try {
-        const historyRaw = await AsyncStorage.getItem(HISTORY_STORAGE_KEY);
-        const habitsRaw = await AsyncStorage.getItem(DAILY_STORAGE_KEY);
-        
-        let history: DailyHistory[] = [];
-        if (historyRaw) {
-          history = JSON.parse(historyRaw) as DailyHistory[];
-        }
+        const history = await getAllHistory();
+        const folders = await FolderRepository.getFolders();
+        const folderIds = Array.from(new Set(["default", "unassigned", ...folders.map((folder) => folder.id)]));
+        const habits: Array<{ streak?: number }> = [];
 
-        let habits: any[] = [];
-        if (habitsRaw) {
-          const parsed = JSON.parse(habitsRaw);
-          habits = parsed.dailyHabits || [];
+        for (const folderId of folderIds) {
+          const habitsMap = await ActivityRepository.getHabits(folderId);
+          habits.push(...Object.values(habitsMap));
         }
 
         // 1. If no history exists, fallback to setup greeting
