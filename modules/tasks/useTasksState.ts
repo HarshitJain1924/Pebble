@@ -36,92 +36,11 @@ import { DEFAULT_TASK_CATEGORY, normalizeTaskCategory, TASK_CATEGORY_META, type 
 import { syncWidgetData } from "@/services/widgetData";
 import { isRecurringOccurrenceForDate, getRecurrenceLabel, parseDateKey, dayDiff } from "@/services/recurrence";
 import { normalizeHabitsForToday } from "@/services/habitService";
+import { getListColors, getPriorityWeight, getTodoDateKey, getDateKey, isOverdue, formatAlarm, getSelectedDateLabel, WEEKDAY_NAMES, initialTodos, globalLists, globalTodos, globalHabits, globalCollections, globalChecklists, setGlobalLists, setGlobalTodos, setGlobalHabits, setGlobalCollections, setGlobalChecklists } from "./utils/taskUtils";
+import { useWorkspaceState } from "./hooks/useWorkspaceState";
 
-
-
-const initialTodos: Todo[] = [
-  {
-    id: "1",
-    title: "Collect my first daily pebble",
-    completed: true,
-    category: "work",
-  },
-  { id: "2", title: "Add a pebble task to the workspace", completed: false, category: "personal" },
-  {
-    id: "3",
-    title: "Tap a pebble task to mark it done",
-    completed: false,
-    category: "work",
-  },
-];
-
-export const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
-
-
-
-export const getListColors = (name: string, isSelected: boolean) => {
-  const lowercase = name.toLowerCase();
-  let bg = isSelected ? "#dbeafe" : "rgba(59, 130, 246, 0.08)";
-  let text = isSelected ? "#1e3a8a" : "#3B82F6";
-  let icon: any = "list";
-
-  if (lowercase.includes("work")) {
-    bg = isSelected ? "#dbeafe" : "rgba(59, 130, 246, 0.08)";
-    text = isSelected ? "#1e3a8a" : "#3B82F6";
-    icon = "briefcase";
-  } else if (lowercase.includes("personal") || lowercase.includes("garden")) {
-    bg = isSelected ? "#d1fae5" : "rgba(16, 185, 129, 0.08)";
-    text = isSelected ? "#064e3b" : "#10B981";
-    icon = "user";
-  } else if (lowercase.includes("habit")) {
-    bg = isSelected ? "#ffedd5" : "rgba(245, 158, 11, 0.08)";
-    text = isSelected ? "#7c2d12" : "#F59E0B";
-    icon = "activity";
-  } else if (lowercase.includes("focus")) {
-    bg = isSelected ? "#f3e8ff" : "rgba(168, 85, 247, 0.08)";
-    text = isSelected ? "#581c87" : "#A855F7";
-    icon = "clock";
-  } else {
-    bg = isSelected ? "#f1f5f9" : "rgba(100, 116, 139, 0.08)";
-    text = isSelected ? "#334155" : "#64748B";
-    icon = "grid";
-  }
-
-  return { bg, text, icon };
-};
-
-export const getPriorityWeight = (priority?: string) => {
-  if (priority === "high") return 0;
-  if (priority === "low") return 2;
-  return 1;
-};
-
-export const getTodoDateKey = (todo: Todo) => {
-  if (todo.scheduledDate) {
-    return todo.scheduledDate;
-  }
-  if (todo.alarmTime) {
-    return getDateKey(new Date(todo.alarmTime));
-  }
-  const idNum = Number(todo.id);
-  if (!isNaN(idNum) && idNum > 100000000000) {
-    return getDateKey(new Date(idNum));
-  }
-  return getDateKey();
-};
-
-// Global in-memory cache to keep tab states warm on switch and prevent 1s counts flashing
-let globalLists: TaskList[] | null = null;
-let globalTodos: Record<string, Todo[]> | null = null;
-let globalHabits: Habit[] | null = null;
-let globalCollections: Record<string, Collection[]> | null = null;
-let globalChecklists: Record<string, Checklist[]> | null = null;
-
+// Re-export utility for backward compatibility with consumers
+export { getDateKey };
 export function useTasksState() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -132,6 +51,27 @@ export function useTasksState() {
     quickAdd?: string;
     folderId?: string;
   }>();
+
+  const {
+    lists,
+    setLists,
+    selectedList,
+    setSelectedList,
+    openedFolderId,
+    setOpenedFolderId,
+    folderSegment,
+    setFolderSegment,
+    activeSegment,
+    setActiveSegment,
+    folderModalVisible,
+    setFolderModalVisible,
+    editingFolderId,
+    setEditingFolderId,
+    listsExpanded,
+    setListsExpanded,
+    loadWorkspaces,
+    handleCreateWorkspaceFromNLP,
+  } = useWorkspaceState();
 
   const scrollViewRef = useRef<ScrollView>(null);
   const addTaskInputRef = useRef<RNTextInput>(null);
@@ -145,52 +85,13 @@ export function useTasksState() {
       ? params.focusItemId
       : null;
 
-  // Segment Selector
-  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits" | "vault">("tasks");
-  const [folderSegment, setFolderSegment] = useState<"tasks" | "habits" | "checklists" | "vault">("tasks");
-  const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
-  const [collections, setCollections] = useState<Record<string, Collection[]>>(() => globalCollections || {});
-  const [checklists, setChecklists] = useState<Record<string, Checklist[]>>(() => globalChecklists || {});
-
   // Tasks Screen State
   const [searchQuery, setSearchQuery] = useState("");
   const [isBulkSelectActive, setIsBulkSelectActive] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
-  const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
 
-  useEffect(() => {
-    emitStateChange("workspace_mode_changed", openedFolderId || "null");
-  }, [openedFolderId]);
-
-  useEffect(() => {
-    emitStateChange("workspace_segment_changed", folderSegment);
-  }, [folderSegment]);
-
-  useEffect(() => {
-    const unsub = addStateListener("workspace_segment_request", (seg) => {
-      if (seg && ["tasks", "habits", "checklists", "vault"].includes(seg)) {
-        setFolderSegment(seg as any);
-      }
-    });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    if (openedFolderId !== null) {
-      if (params.segment && ["tasks", "habits", "checklists", "vault"].includes(params.segment)) {
-        setFolderSegment(params.segment as any);
-      } else {
-        setFolderSegment("tasks");
-      }
-    }
-  }, [openedFolderId, params.segment]);
-
-  const [folderModalVisible, setFolderModalVisible] = useState(false);
-  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(null);
-  const [lists, setLists] = useState<TaskList[]>(() => globalLists || [{ id: "default", name: "My Pebbles" }]);
-  const [selectedList, setSelectedList] = useState<string>("default");
   const [todos, setTodos] = useState<Record<string, Todo[]>>(() => globalTodos || {
     default: initialTodos,
   });
@@ -218,7 +119,6 @@ export function useTasksState() {
   // Alarms State
   const [alarmMenu, setAlarmMenu] = useState<string | null>(null);
 
-  const [listsExpanded, setListsExpanded] = useState(false);
   const [addingTask, setAddingTask] = useState<Todo | null>(null);
   const [selectedTodoDate, setSelectedTodoDate] = useState<string>(getDateKey());
   const [isAddingHabit, setIsAddingHabit] = useState(false);
@@ -226,6 +126,11 @@ export function useTasksState() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [hasUnreadNotifs, setHasUnreadNotifs] = useState<boolean>(false);
+
+  // Date selection state
+  const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
+  const [collections, setCollections] = useState<Record<string, Collection[]>>(() => globalCollections || {});
+  const [checklists, setChecklists] = useState<Record<string, Checklist[]>>(() => globalChecklists || {});
 
   // NLP Modal & Heuristic Suggestions States
   const [nlpVisible, setNlpVisible] = useState(false);
@@ -235,23 +140,19 @@ export function useTasksState() {
 
   // Synchronize state changes to in-memory global cache to keep tab switching instant
   useEffect(() => {
-    globalLists = lists;
-  }, [lists]);
-
-  useEffect(() => {
-    globalTodos = todos;
+    setGlobalTodos(todos);
   }, [todos]);
 
   useEffect(() => {
-    globalHabits = habits;
+    setGlobalHabits(habits);
   }, [habits]);
 
   useEffect(() => {
-    globalCollections = collections;
+    setGlobalCollections(collections);
   }, [collections]);
 
   useEffect(() => {
-    globalChecklists = checklists;
+    setGlobalChecklists(checklists);
   }, [checklists]);
 
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
@@ -278,8 +179,6 @@ export function useTasksState() {
   }, [selectedList]);
 
   // 14-Day Scrollable Week Strip
-  const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
   const weekDaysStrip = useMemo(() => {
     const list = [];
     const today = new Date();
@@ -333,16 +232,8 @@ export function useTasksState() {
     });
   }, [todos, selectedList, searchQuery, lists]);
 
-  const isOverdue = (todo: Todo) => {
-    if (todo.completed) return false;
-    const todoDate = getTodoDateKey(todo);
-    return todoDate < selectedDate;
-  };
-
-
-
   const overdueTodos = useMemo(() => {
-    let filtered = filteredTodos.filter((todo) => todo.scheduledDate !== "inbox" && isOverdue(todo));
+    let filtered = filteredTodos.filter((todo) => todo.scheduledDate !== "inbox" && isOverdue(todo, selectedDate));
     if (selectedCategoryFilter !== "all") {
       filtered = filtered.filter((todo) => todo.category === selectedCategoryFilter);
     }
@@ -356,7 +247,7 @@ export function useTasksState() {
   const todayTodos = useMemo(() => {
     let filtered = filteredTodos.filter((todo) => {
       if (todo.scheduledDate === "inbox") return false;
-      if (isOverdue(todo)) return false;
+      if (isOverdue(todo, selectedDate)) return false;
       return isRecurringOccurrenceForDate(todo, selectedDate);
     });
     if (selectedCategoryFilter !== "all") {
@@ -371,7 +262,7 @@ export function useTasksState() {
 
   const upcomingTodos = useMemo(() => {
     let filtered = filteredTodos.filter(
-      (todo) => todo.scheduledDate !== "inbox" && !isOverdue(todo) && getTodoDateKey(todo) > selectedDate
+      (todo) => todo.scheduledDate !== "inbox" && !isOverdue(todo, selectedDate) && getTodoDateKey(todo) > selectedDate
     );
     if (selectedCategoryFilter !== "all") {
       filtered = filtered.filter((todo) => todo.category === selectedCategoryFilter);
@@ -406,27 +297,21 @@ export function useTasksState() {
     const selDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
     const dayOfWeek = selDate.getDay();
 
-    console.log("🔍 [displayedHabits] Filtering habits. habits count:", habits.length, "selectedDate:", selectedDate, "dayOfWeek:", dayOfWeek);
-
     const activeHabits = habits.filter((habit) => {
       if ((habit.folderId || "default") !== selectedList) {
         return false;
       }
       if (habit.archived) {
-        console.log(`🔍 [displayedHabits] Habit "${habit.title}" is archived`);
         return false;
       }
       if (habit.recurrence) {
-        const isRec = isRecurringOccurrenceForDate(habit, selectedDate);
-        console.log(`🔍 [displayedHabits] Habit "${habit.title}" has recurrence:`, JSON.stringify(habit.recurrence), "isRecurringOccurrenceForDate:", isRec);
-        return isRec;
+        return isRecurringOccurrenceForDate(habit, selectedDate);
       }
       const hasReminderDaysMatch = (
         !habit.reminderDays ||
         habit.reminderDays.length === 0 ||
         habit.reminderDays.includes(dayOfWeek)
       );
-      console.log(`🔍 [displayedHabits] Habit "${habit.title}" has no recurrence. reminderDays:`, habit.reminderDays, "hasReminderDaysMatch:", hasReminderDaysMatch);
       return hasReminderDaysMatch;
     });
 
@@ -449,7 +334,6 @@ export function useTasksState() {
             return matchesTitle || matchesDesc || matchesCategory || matchesWorkspace || matchesRecurrence;
           });
 
-    console.log("🔍 [displayedHabits] Final filtered habits:", searchFiltered.map(h => h.title));
     return [...searchFiltered].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
   }, [habits, selectedListHabitPriorityFilter, selectedDate, searchQuery, lists, selectedList]);
 
@@ -457,31 +341,7 @@ export function useTasksState() {
   const habitCompletionPct = habits.length === 0 ? 0 : completedHabitCount / habits.length;
   const longestStreak = useMemo(() => habits.reduce((max, habit) => Math.max(max, habit.bestStreak || 0), 0), [habits]);
 
-
-
-  // Sync parameters
-  useEffect(() => {
-    if (params.segment === "habits") {
-      setActiveSegment("habits");
-      setFolderSegment("habits");
-    } else if (params.segment === "tasks") {
-      setActiveSegment("tasks");
-      setFolderSegment("tasks");
-    } else if (params.segment === "checklists") {
-      setFolderSegment("checklists");
-    } else if (params.segment === "vault") {
-      setFolderSegment("vault");
-    }
-  }, [params.segment]);
-
-  useEffect(() => {
-    if (params.folderId) {
-      setOpenedFolderId(params.folderId);
-      setSelectedList(params.folderId);
-      setActiveSegment("tasks");
-    }
-  }, [params.folderId]);
-
+  // Sync parameters (only sync category and quickAdd — workspace params handled by useWorkspaceState)
   useEffect(() => {
     if (typeof params.category === "string") {
       setSelectedTodoCategory(normalizeTaskCategory(params.category));
@@ -504,50 +364,8 @@ export function useTasksState() {
 
   const loadState = useCallback(async () => {
     try {
-      // Primary source: FolderRepository
-      let currentLists: TaskList[] = [];
-      const repositoryFolders = await FolderRepository.getFolders();
-      if (repositoryFolders.length > 0) {
-        currentLists = repositoryFolders.map((f: any) => ({
-          id: f.id,
-          name: f.name,
-          emoji: f.emoji || "📁",
-          color: f.color || "#6366F1",
-        }));
-      }
-
-      // Fallback: migrate from legacy pebble:core:workspaces key
-      if (currentLists.length === 0) {
-        const rawLists = await AsyncStorage.getItem("pebble:core:workspaces");
-        if (rawLists) {
-          const legacyLists: TaskList[] = JSON.parse(rawLists);
-          if (legacyLists.length > 0) {
-            currentLists = legacyLists;
-            // Migrate to FolderRepository
-            await Promise.all(
-              legacyLists.map((l) =>
-                FolderRepository.saveFolder({
-                  id: l.id,
-                  name: l.name,
-                  emoji: l.emoji || "📁",
-                  color: l.color || "#6366F1",
-                  sortOrder: 0,
-                  createdAt: Date.now(),
-                  updatedAt: Date.now(),
-                }),
-              ),
-            );
-          }
-        }
-      }
-
-      if (currentLists.length === 0) {
-        currentLists = [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
-      }
-
-      const rawActive = await AsyncStorage.getItem("pebble:core:active_workspace");
-      
-      const activeList = openedFolderId || rawActive || currentLists[0]?.id || "default";
+      // Load workspaces first (from the extracted hook)
+      const { currentLists, activeList } = await loadWorkspaces();
 
       // Query current ActivityRepository for ALL folders to preserve counts in WorkspaceGrid
       const allTodosMap: Record<string, Todo[]> = {};
@@ -598,7 +416,7 @@ export function useTasksState() {
         // Load collections
         const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${folderId}`);
         const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-        
+
         if (collectionsMeta.length === 0) {
           collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
         }
@@ -655,8 +473,6 @@ export function useTasksState() {
         });
       }
 
-      setLists(currentLists);
-      setSelectedList(activeList);
       setTodos(allTodosMap);
       setHabits(allHabits);
       setChecklists(allChecklistsMap);
@@ -699,7 +515,7 @@ export function useTasksState() {
     } catch (e) {
       console.warn("Failed to load state", e);
     }
-  }, [openedFolderId]);
+  }, [loadWorkspaces]);
 
   const loadHabits = useCallback(async () => {
     try {
@@ -899,7 +715,6 @@ export function useTasksState() {
         startDate: getDateKey(),
       };
 
-      console.log("🔍 [handleSaveParsedItem] Creating NLP habit:", JSON.stringify(newHabit, null, 2));
       const nextHabits = [newHabit, ...habits];
       setHabits(nextHabits);
       await persistHabits(nextHabits);
@@ -1044,38 +859,14 @@ export function useTasksState() {
     await deleteHabit(id);
   };
 
-  const handleCreateWorkspaceFromNLP = (name: string): string => {
-    const newId = `list-${Date.now()}`;
-    const newWorkspace = {
-      id: newId,
-      name,
-      emoji: "📂",
-      icon: "grid",
-      iconType: "emoji" as const,
-      color: "#6366F1",
-      createdAt: Date.now(),
-    };
-    const updatedLists = [...lists, newWorkspace];
-    const updatedTodos = { ...todos, [newId]: [] };
-
-    setLists(updatedLists);
-    setTodos(updatedTodos);
-    setSelectedList(newId);
-    setOpenedFolderId(newId);
-    persistState(updatedLists, newId, updatedTodos);
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    return newId;
-  };
-
   const loadVaultState = useCallback(async () => {
     try {
       const activeList = selectedList || "default";
-      
+
       // Load custom collections metadata mapping
       const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${activeList}`);
       const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-      
+
       // If metadata is empty, add a default folder
       if (collectionsMeta.length === 0) {
         collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
@@ -1235,7 +1026,6 @@ export function useTasksState() {
     setSearchQuery("");
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
-    setFolderSegment(openedFolderId === "unassigned" ? "vault" : "tasks");
   }, [openedFolderId, activeSegment]);
 
   // Listen for global task and habit updates to sync state immediately
@@ -1406,17 +1196,6 @@ export function useTasksState() {
     const nextIndex = (index + 1) % dates.length;
     setSelectedTodoDate(dates[nextIndex]);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  };
-
-  const getSelectedDateLabel = () => {
-    if (selectedTodoDate === "inbox") return "Inbox";
-    const today = getDateKey();
-    if (selectedTodoDate === today) return "Today";
-    const tomorrow = getDateKey(new Date(Date.now() + DAY_MS));
-    if (selectedTodoDate === tomorrow) return "Tomorrow";
-    const nextWeek = getDateKey(new Date(Date.now() + 7 * DAY_MS));
-    if (selectedTodoDate === nextWeek) return "Next Week";
-    return selectedTodoDate;
   };
 
   const onSaveNewTask = async (newTask: Todo) => {
@@ -1707,12 +1486,6 @@ export function useTasksState() {
     await persistState(lists, selectedList, updated);
     void syncWidgetData().catch(() => {});
     emitStateChange("tasks_changed", "tasks_screen");
-  };
-
-  const formatAlarm = (ms?: number) => {
-    if (!ms) return null;
-    const d = new Date(ms);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   // Habits Business Logic
@@ -2165,7 +1938,7 @@ export function useTasksState() {
     try {
       const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
       const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-      
+
       const newId = `coll-${Date.now()}`;
       collectionsMeta.push({ id: newId, name, emoji });
       await AsyncStorage.setItem(`pebble:core:collections_metadata:${workspaceId}`, JSON.stringify(collectionsMeta));
