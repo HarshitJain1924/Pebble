@@ -218,7 +218,7 @@ export function WorkspaceModal({
               }
             }
 
-            // 2. Add to Recycle Bin & Purge V3 Partitioned Storage Files
+            // 2. Add to Recycle Bin & Purge current Partitioned Storage Files
             await addToRecycleBin(
               "workspace",
               {
@@ -230,20 +230,20 @@ export function WorkspaceModal({
             );
             try {
               await AsyncStorage.removeItem(
-                `pebble:v3:tasks:${editingFolderId}`,
+                `pebble:core:tasks:${editingFolderId}`,
               );
               await AsyncStorage.removeItem(
-                `pebble:v3:habits:${editingFolderId}`,
+                `pebble:core:habits:${editingFolderId}`,
               );
               await AsyncStorage.removeItem(
-                `pebble:v3:checklists:${editingFolderId}`,
+                `pebble:core:checklists:${editingFolderId}`,
               );
               await AsyncStorage.removeItem(
-                `pebble:v3:resources:${editingFolderId}`,
+                `pebble:core:resources:${editingFolderId}`,
               );
             } catch (e) {
               console.warn(
-                "Failed to clear V3 partitioned workspace storage files:",
+                "Failed to clear partitioned workspace storage files:",
                 e,
               );
             }
@@ -300,7 +300,7 @@ export function WorkspaceModal({
 
                 // Restore state and persist
                 const rawWorkspaces = await AsyncStorage.getItem(
-                  "pebble:v3:workspaces",
+                  "pebble:core:workspaces",
                 );
                 const currentLists = rawWorkspaces
                   ? JSON.parse(rawWorkspaces)
@@ -310,7 +310,7 @@ export function WorkspaceModal({
                 for (const folder of currentLists) {
                   const wsId = folder.id;
                   const tasksRaw = await AsyncStorage.getItem(
-                    `pebble:v3:tasks:${wsId}`,
+                    `pebble:core:tasks:${wsId}`,
                   );
                   if (tasksRaw) {
                     const tasksMap = JSON.parse(tasksRaw);
@@ -340,7 +340,7 @@ export function WorkspaceModal({
                 for (const folder of currentLists) {
                   const wsId = folder.id;
                   const habitsRaw = await AsyncStorage.getItem(
-                    `pebble:v3:habits:${wsId}`,
+                    `pebble:core:habits:${wsId}`,
                   );
                   if (habitsRaw) {
                     const habitsMap = JSON.parse(habitsRaw);

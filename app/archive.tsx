@@ -26,7 +26,7 @@ import { emitStateChange } from "@/services/stateEvents";
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 
 export default function ArchiveScreen() {
   const router = useRouter();

@@ -1,5 +1,5 @@
 import { type TaskCategory } from "@/services/taskCategories";
-import { type ScheduleConfig } from "@/services/v3/v3Types";
+import { type ScheduleConfig } from "@/services/core/models";
 
 export type Subtask = {
   id: string;

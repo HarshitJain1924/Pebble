@@ -13,7 +13,7 @@ import { SwipeableCard } from "@/components/SwipeableCard";
 import { Typography } from "@/constants/typography";
 import { getTaskCategoryMeta, normalizeTaskCategory, type TaskCategory } from "@/services/taskCategories";
 import { getRecurrenceLabel } from "@/services/recurrence";
-import { formatReminderTime } from "@/services/v3/scheduleFormatter";
+import { formatReminderTime } from "@/services/core/scheduleFormatter";
 
 export type Todo = {
   id: string;

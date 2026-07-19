@@ -4,8 +4,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useUndo } from "@/components/ui/UndoContext";
-import { ActivityRepository, ResourceRepository } from "@/services/v3/repositories";
-import { DEFAULT_FOLDER_ID } from "@/services/v3/v3Types";
+import {
+    ActivityRepository,
+    FolderRepository,
+    ResourceRepository,
+} from "@/services/core/repositories";
+import { DEFAULT_FOLDER_ID } from "@/services/core/models";
 
 import { Todo, Habit, TaskList, Collection, CollectionItem, Checklist, ChecklistItem } from "../types";
 
@@ -251,28 +255,25 @@ export function useTasksState() {
   }, [checklists]);
 
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
-    console.log("🔍 [persistHabits] Saving habits to V3 storage:", JSON.stringify(nextHabits, null, 2));
     try {
-      const key = `pebble:v3:habits:${selectedList}`;
-      const records: Record<string, any> = {};
-      nextHabits.forEach((h) => {
-        records[h.id] = {
-          id: h.id,
-          workspaceId: selectedList,
-          title: h.title,
-          createdAt: h.createdAt || Date.now(),
-          updatedAt: Date.now(),
-          archived: h.archived || false,
-          streak: h.streak || 0,
-          bestStreak: h.bestStreak || 0,
-          completedDates: h.completedToday ? [getDateKey()] : [],
-          recurrenceRule: "FREQ=DAILY",
-        };
-      });
-      await AsyncStorage.setItem(key, JSON.stringify(records));
+      await Promise.all(
+        nextHabits.map((h) =>
+          ActivityRepository.saveHabit({
+            id: h.id,
+            folderId: h.folderId || selectedList,
+            title: h.title,
+            streak: h.streak || 0,
+            bestStreak: h.bestStreak || 0,
+            completedDates: h.completedToday ? [getDateKey()] : [],
+            recurrenceRule: "FREQ=DAILY",
+            createdAt: h.createdAt || Date.now(),
+            archived: h.archived || false,
+          }),
+        ),
+      );
       void recordDailyHistorySnapshot();
     } catch (e) {
-      console.warn("Failed to persist V3 habits:", e);
+      console.warn("Failed to persist current habits:", e);
     }
   }, [selectedList]);
 
@@ -503,25 +504,52 @@ export function useTasksState() {
 
   const loadState = useCallback(async () => {
     try {
-      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
-      const rawActive = await AsyncStorage.getItem("pebble:v3:active_workspace");
-      
-      let currentLists: TaskList[] = rawLists ? JSON.parse(rawLists) : [];
+      // Primary source: FolderRepository
+      let currentLists: TaskList[] = [];
+      const repositoryFolders = await FolderRepository.getFolders();
+      if (repositoryFolders.length > 0) {
+        currentLists = repositoryFolders.map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          emoji: f.emoji || "📁",
+          color: f.color || "#6366F1",
+        }));
+      }
+
+      // Fallback: migrate from legacy pebble:core:workspaces key
       if (currentLists.length === 0) {
-        // Fallback to V3 FolderRepository
-        const { FolderRepository } = require("@/services/v3/repositories");
-        const v3Folders = await FolderRepository.getFolders();
-        if (v3Folders.length > 0) {
-          currentLists = v3Folders.map((f: any) => ({ id: f.id, name: f.name, emoji: f.emoji || "📁", color: f.color || "#6366F1" }));
+        const rawLists = await AsyncStorage.getItem("pebble:core:workspaces");
+        if (rawLists) {
+          const legacyLists: TaskList[] = JSON.parse(rawLists);
+          if (legacyLists.length > 0) {
+            currentLists = legacyLists;
+            // Migrate to FolderRepository
+            await Promise.all(
+              legacyLists.map((l) =>
+                FolderRepository.saveFolder({
+                  id: l.id,
+                  name: l.name,
+                  emoji: l.emoji || "📁",
+                  color: l.color || "#6366F1",
+                  sortOrder: 0,
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                }),
+              ),
+            );
+          }
         }
       }
+
       if (currentLists.length === 0) {
         currentLists = [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
       }
+
+      const rawActive = await AsyncStorage.getItem("pebble:core:active_workspace");
       
       const activeList = openedFolderId || rawActive || currentLists[0]?.id || "default";
 
-      // Query V3 ActivityRepository for ALL folders to preserve counts in WorkspaceGrid
+      // Query current ActivityRepository for ALL folders to preserve counts in WorkspaceGrid
       const allTodosMap: Record<string, Todo[]> = {};
       const allHabits: Habit[] = [];
       const allChecklistsMap: Record<string, Checklist[]> = {};
@@ -568,7 +596,7 @@ export function useTasksState() {
         }));
 
         // Load collections
-        const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${folderId}`);
+        const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${folderId}`);
         const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
         
         if (collectionsMeta.length === 0) {
@@ -576,10 +604,10 @@ export function useTasksState() {
         }
 
         const resourcesMap = await ResourceRepository.getResources(folderId);
-        const v3Resources = Object.values(resourcesMap);
+        const repositoryResources = Object.values(resourcesMap);
 
         allCollectionsMap[folderId] = collectionsMeta.map((meta) => {
-          const matchingItems: CollectionItem[] = v3Resources
+          const matchingItems: CollectionItem[] = repositoryResources
             .filter((r) => r.tags?.includes(`collection_${meta.id}`))
             .map((r) => ({
               id: r.id,
@@ -597,7 +625,7 @@ export function useTasksState() {
             }));
 
           if (meta.id === "default_vault") {
-            const untagged = v3Resources
+            const untagged = repositoryResources
               .filter((r) => !r.tags?.some((t) => t.startsWith("collection_")))
               .map((r) => ({
                 id: r.id,
@@ -692,7 +720,7 @@ export function useTasksState() {
       }
       setHabits(allHabits);
     } catch (e) {
-      console.warn("Failed to load V3 habits", e);
+      console.warn("Failed to load current habits", e);
       setHabits([]);
     }
   }, [lists]);
@@ -1045,7 +1073,7 @@ export function useTasksState() {
       const activeList = selectedList || "default";
       
       // Load custom collections metadata mapping
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${activeList}`);
+      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${activeList}`);
       const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
       
       // If metadata is empty, add a default folder
@@ -1053,13 +1081,13 @@ export function useTasksState() {
         collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
       }
 
-      // Fetch all flat V3 resources
+      // Fetch all flat current resources
       const resourcesMap = await ResourceRepository.getResources(activeList);
-      const v3Resources = Object.values(resourcesMap);
+      const repositoryResources = Object.values(resourcesMap);
 
       // Map resources to old CollectionItem format and group by tag
       const builtCollections: Collection[] = collectionsMeta.map((meta) => {
-        const matchingItems: CollectionItem[] = v3Resources
+        const matchingItems: CollectionItem[] = repositoryResources
           .filter((r) => r.tags?.includes(`collection_${meta.id}`))
           .map((r) => ({
             id: r.id,
@@ -1078,7 +1106,7 @@ export function useTasksState() {
 
         // If default folder, also include resources without any collection tag
         if (meta.id === "default_vault") {
-          const untagged = v3Resources
+          const untagged = repositoryResources
             .filter((r) => !r.tags?.some((t) => t.startsWith("collection_")))
             .map((r) => ({
               id: r.id,
@@ -1112,7 +1140,7 @@ export function useTasksState() {
         [activeList]: builtCollections,
       }));
     } catch (e) {
-      console.warn("Failed to load V3 collections", e);
+      console.warn("Failed to load current collections", e);
     }
   }, [selectedList]);
 
@@ -1133,7 +1161,7 @@ export function useTasksState() {
         [activeList]: activeChecklists,
       }));
     } catch (e) {
-      console.warn("Failed to load V3 checklists", e);
+      console.warn("Failed to load current checklists", e);
     }
   }, [selectedList]);
 
@@ -1283,8 +1311,8 @@ export function useTasksState() {
   // Task Actions
   const persistState = async (listsToSave: TaskList[], selected: string, todosToSave: Record<string, Todo[]>) => {
     try {
-      await AsyncStorage.setItem("pebble:v3:active_workspace", selected);
-      await AsyncStorage.setItem("pebble:v3:workspaces", JSON.stringify(listsToSave));
+      await AsyncStorage.setItem("pebble:core:active_workspace", selected);
+      await AsyncStorage.setItem("pebble:core:workspaces", JSON.stringify(listsToSave));
 
       const activeTodos = todosToSave[selected] || [];
       const records: Record<string, any> = {};
@@ -1303,19 +1331,19 @@ export function useTasksState() {
           category: todo.category,
         };
       });
-      await AsyncStorage.setItem(`pebble:v3:tasks:${selected}`, JSON.stringify(records));
+      await AsyncStorage.setItem(`pebble:core:tasks:${selected}`, JSON.stringify(records));
       void recordDailyHistorySnapshot();
     } catch (e) {
-      console.warn("Failed to persist V3 state:", e);
+      console.warn("Failed to persist current state:", e);
     }
   };
 
   const selectList = async (listId: string) => {
     setSelectedList(listId);
-    await AsyncStorage.setItem("pebble:v3:active_workspace", listId);
+    await AsyncStorage.setItem("pebble:core:active_workspace", listId);
 
     try {
-      // Reload V3 active workspace data
+      // Reload current active workspace data
       const activeTasksMap = await ActivityRepository.getTasks(listId);
       const activeHabitsMap = await ActivityRepository.getHabits(listId);
 
@@ -2022,7 +2050,7 @@ export function useTasksState() {
                     const listId = todo.folderId || selectedList;
                     await ActivityRepository.saveTask({ ...todo, folderId: listId });
                   }
-                  // Re-read state from V3
+                  // Re-read state from current
                   const refreshedMap = await ActivityRepository.getTasks(selectedList);
                   const refreshedTodos = Object.values(refreshedMap).map((t: any) => ({
                     ...t,
@@ -2064,7 +2092,7 @@ export function useTasksState() {
                   for (const habit of rescheduledHabits) {
                     await ActivityRepository.saveHabit({ ...habit, folderId: selectedList });
                   }
-                  // Re-read state from V3
+                  // Re-read state from current
                   const refreshedHabitsMap = await ActivityRepository.getHabits(selectedList);
                   const restored = Object.values(refreshedHabitsMap).map((h: any) => ({
                     ...h,
@@ -2135,12 +2163,12 @@ export function useTasksState() {
 
   const createCollection = async (workspaceId: string, name: string, emoji: string) => {
     try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${workspaceId}`);
+      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
       const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
       
       const newId = `coll-${Date.now()}`;
       collectionsMeta.push({ id: newId, name, emoji });
-      await AsyncStorage.setItem(`pebble:v3:collections_metadata:${workspaceId}`, JSON.stringify(collectionsMeta));
+      await AsyncStorage.setItem(`pebble:core:collections_metadata:${workspaceId}`, JSON.stringify(collectionsMeta));
 
       await loadVaultState();
       emitStateChange("vault_changed", "tasks_screen");
@@ -2153,10 +2181,10 @@ export function useTasksState() {
 
   const deleteCollection = async (collectionId: string, workspaceId: string) => {
     try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${workspaceId}`);
+      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
       const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
       const updatedMeta = collectionsMeta.filter((c) => c.id !== collectionId);
-      await AsyncStorage.setItem(`pebble:v3:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
+      await AsyncStorage.setItem(`pebble:core:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
 
       // Cascade delete resources in this collection
       const resourcesMap = await ResourceRepository.getResources(workspaceId);
@@ -2177,12 +2205,12 @@ export function useTasksState() {
 
   const renameCollection = async (collectionId: string, workspaceId: string, newName: string, newEmoji: string) => {
     try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${workspaceId}`);
+      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
       const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
       const updatedMeta = collectionsMeta.map((c) =>
         c.id === collectionId ? { ...c, name: newName, emoji: newEmoji } : c
       );
-      await AsyncStorage.setItem(`pebble:v3:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
+      await AsyncStorage.setItem(`pebble:core:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
 
       await loadVaultState();
       emitStateChange("vault_changed", "tasks_screen");
@@ -2344,7 +2372,7 @@ export function useTasksState() {
         folderId: newTask.folderId || "default",
         scheduledDate: newTask.scheduledDate,
       });
-      // Refresh local state from V3
+      // Refresh local state from current
       const refreshedTasksMap = await ActivityRepository.getTasks(newTask.folderId || "default");
       const refreshedTodos = Object.values(refreshedTasksMap).map((t: any) => ({
         ...t,
@@ -2384,7 +2412,7 @@ export function useTasksState() {
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {
-      console.warn("Failed to add checklist V3", e);
+      console.warn("Failed to add checklist current", e);
     }
   };
 
@@ -2403,7 +2431,7 @@ export function useTasksState() {
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {
-      console.warn("Failed to update checklist V3", e);
+      console.warn("Failed to update checklist current", e);
     }
   };
 
@@ -2419,7 +2447,7 @@ export function useTasksState() {
       emitStateChange("checklists_changed", "tasks_screen");
       showToast("✓ Checklist moved to Recycle Bin");
     } catch (e) {
-      console.warn("Failed to delete checklist V3", e);
+      console.warn("Failed to delete checklist current", e);
     }
   };
 
@@ -2440,7 +2468,7 @@ export function useTasksState() {
         emitStateChange("checklists_changed", "tasks_screen");
       }
     } catch (e) {
-      console.warn("Failed to toggle checklist item V3", e);
+      console.warn("Failed to toggle checklist item current", e);
     }
   };
 

@@ -37,7 +37,7 @@ import {
   TODOS_STORAGE_KEY,
   VAULT_STORAGE_KEY,
 } from "@/services/storage";
-import { clearV3RepositoryStorage } from "@/services/v3/repositories";
+import { clearRepositoryStorage } from "@/services/core/repositories";
 import { WIDGET_PAYLOAD_KEY } from "@/services/widgetData";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -212,7 +212,7 @@ export default function SettingsScreen() {
             setLoading(true);
             try {
               await Promise.all([
-                clearV3RepositoryStorage(),
+                clearRepositoryStorage(),
                 AsyncStorage.removeItem(TODOS_STORAGE_KEY),
                 AsyncStorage.removeItem(DAILY_STORAGE_KEY),
                 AsyncStorage.removeItem(HISTORY_STORAGE_KEY),
@@ -220,7 +220,7 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
                 AsyncStorage.removeItem("pebble:schema_version"),
                 AsyncStorage.removeItem("todoapp:onboarding_completed"),
-                AsyncStorage.removeItem("todoapp:workspace:history:v1"),
+                AsyncStorage.removeItem("pebble:workspace:history"),
                 AsyncStorage.removeItem("PEBBLE_CAPTURE_CREATION_HISTORY"),
                 AsyncStorage.removeItem("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS"),
                 AsyncStorage.removeItem(RECYCLE_BIN_STORAGE_KEY),

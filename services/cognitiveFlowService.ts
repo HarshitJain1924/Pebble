@@ -15,10 +15,10 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
   let evening = 0;
 
   try {
-    const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+    const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
 
     // Load Tasks
-    const rawTodos = await AsyncStorage.getItem(`pebble:v3:tasks:${activeWorkspace}`);
+    const rawTodos = await AsyncStorage.getItem(`pebble:core:tasks:${activeWorkspace}`);
     if (rawTodos) {
       const parsed = JSON.parse(rawTodos);
       const allTodos = Object.values(parsed || {}).filter((t: any) => !t.archived);
@@ -38,7 +38,7 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
     }
 
     // Load Habits
-    const rawHabits = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
+    const rawHabits = await AsyncStorage.getItem(`pebble:core:habits:${activeWorkspace}`);
     if (rawHabits) {
       const parsed = JSON.parse(rawHabits);
       const allHabits = Object.values(parsed || {}).filter((h: any) => !h.archived);

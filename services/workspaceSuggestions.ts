@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getTopicMatchScore, detectTaskTopic } from "@/services/workspaceTopics";
 import { getRecycleBinItems } from "./storage";
 
-const WORKSPACE_HISTORY_KEY = "todoapp:workspace:history:v1";
+const WORKSPACE_HISTORY_KEY = "pebble:workspace:history";
 
 export interface WorkspaceHistoryItem {
   taskTitle: string;

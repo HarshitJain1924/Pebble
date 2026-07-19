@@ -18,7 +18,7 @@ import { Calendar } from "react-native-calendars";
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
@@ -474,7 +474,7 @@ export default function TaskDetailsScreen() {
           lastUpdated: getDateKey(),
         };
 
-        // 3. Save both via V3 Repository
+        // 3. Save both via Repository
         if (isTask) {
           await ActivityRepository.saveTask({
             ...updatedMaster,

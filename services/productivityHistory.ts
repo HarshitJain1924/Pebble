@@ -60,9 +60,9 @@ function toCompletionScore(completed: number, total: number) {
 async function loadTodosState(): Promise<TodosState> {
   try {
     const activeWorkspace =
-      (await AsyncStorage.getItem("pebble:v3:active_workspace")) || "default";
+      (await AsyncStorage.getItem("pebble:core:active_workspace")) || "default";
     const raw = await AsyncStorage.getItem(
-      `pebble:v3:tasks:${activeWorkspace}`,
+      `pebble:core:tasks:${activeWorkspace}`,
     );
     if (!raw) {
       return { todos: {} };
@@ -82,9 +82,9 @@ async function loadTodosState(): Promise<TodosState> {
 async function loadDailyState(): Promise<DailyState> {
   try {
     const activeWorkspace =
-      (await AsyncStorage.getItem("pebble:v3:active_workspace")) || "default";
+      (await AsyncStorage.getItem("pebble:core:active_workspace")) || "default";
     const raw = await AsyncStorage.getItem(
-      `pebble:v3:habits:${activeWorkspace}`,
+      `pebble:core:habits:${activeWorkspace}`,
     );
     if (!raw) {
       return { dailyHabits: [] };

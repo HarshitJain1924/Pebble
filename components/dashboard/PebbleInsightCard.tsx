@@ -8,7 +8,7 @@ import {
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 import { Feather } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";

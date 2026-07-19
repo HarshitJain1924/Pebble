@@ -1,13 +1,14 @@
+import type { Habit, Todo } from "@/modules/types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PROFILE_STORAGE_KEY, SETTINGS_STORAGE_KEY } from "./storage";
-import type { Todo, Habit } from "@/modules/types";
+import { UiStateRepository } from "@/services/core/repositories";
 
 export type AppSettings = {
   theme: "dark" | "light" | "system";
   quietHours: {
     enabled: boolean;
     startHour: number; // 0..23
-    endHour: number;   // 0..23
+    endHour: number; // 0..23
   };
   categories: Record<string, boolean>; // category key -> enabled
   escalationEnabled: boolean;
@@ -51,7 +52,15 @@ const DEFAULT_SETTINGS: AppSettings = {
   showTags: true,
   showNotes: true,
   showMascot: true,
-  editorRowOrder: ["date", "workspace", "priority", "reminder", "repeat", "duration", "tags"],
+  editorRowOrder: [
+    "date",
+    "workspace",
+    "priority",
+    "reminder",
+    "repeat",
+    "duration",
+    "tags",
+  ],
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -117,6 +126,8 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
   await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  // Sync theme to UiStateRepository
+  await UiStateRepository.saveUiState({ themeCache: settings.theme === "system" ? "dark" : settings.theme });
 }
 
 export async function getProfile(): Promise<UserProfile> {
@@ -132,13 +143,17 @@ export async function getProfile(): Promise<UserProfile> {
 
 export async function saveProfile(profile: UserProfile): Promise<void> {
   await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  // Sync onboarding state to UiStateRepository
+  if (profile.name !== "") {
+    await UiStateRepository.saveUiState({ completedOnboarding: true });
+  }
 }
 
 export async function addXp(amount: number): Promise<UserProfile> {
   const profile = await getProfile();
   const oldXp = profile.xp;
   const newXp = oldXp + amount;
-  
+
   const oldLevelInfo = getLevelInfo(oldXp);
   const newLevelInfo = getLevelInfo(newXp);
 
@@ -205,17 +220,17 @@ export async function handleHabitXpChange(
   return { xpAwardedDate, xpChange };
 }
 
-
 // Helper to determine if a given hour falls inside quiet hours
 export function isCurrentlyInQuietHours(
   settings: AppSettings,
   targetHour: number,
 ): boolean {
   if (!settings?.quietHours?.enabled) return false;
-  
+
   const { startHour, endHour } = settings.quietHours;
-  if (startHour === undefined || endHour === undefined || startHour === endHour) return false;
-  
+  if (startHour === undefined || endHour === undefined || startHour === endHour)
+    return false;
+
   if (startHour < endHour) {
     // Normal interval (e.g. 22 to 7 -> startHour > endHour usually, but let's handle normal interval 9 to 17)
     return targetHour >= startHour && targetHour < endHour;

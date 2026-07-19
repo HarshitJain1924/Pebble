@@ -10,7 +10,7 @@ import { resolveSuggestion, type SmartSuggestion } from "@/services/suggestions"
 import { type Todo, type Habit, type TaskList } from "../types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { emitStateChange } from "@/services/stateEvents";
-import { ActivityRepository } from "@/services/v3/repositories";
+import { ActivityRepository } from "@/services/core/repositories";
 
 interface SuggestionBannerProps {
   activeSuggestions: SmartSuggestion[];
@@ -107,7 +107,7 @@ export function SuggestionBanner({
             <TouchableOpacity
               onPress={async () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+                const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
                 if (suggestion.type === "convert_habit") {
                   const newHabit: Habit = {
                     id: `habit-${Date.now()}`,
@@ -120,7 +120,7 @@ export function SuggestionBanner({
                     createdAt: Date.now(),
                   };
                   
-                  // Load active workspace V3 habits
+                  // Load active workspace current habits
                   const habitsMap = await ActivityRepository.getHabits(activeWorkspace);
                   const currentHabits: Habit[] = Object.values(habitsMap).map((h: any) => ({
                     id: h.id,
@@ -153,7 +153,7 @@ export function SuggestionBanner({
                     createdAt: Date.now(),
                   };
                   
-                  // Load active workspace V3 tasks
+                  // Load active workspace current tasks
                   const tasksMap = await ActivityRepository.getTasks(listId);
                   const listTodos: Todo[] = Object.values(tasksMap).map((t: any) => ({
                     id: t.id,

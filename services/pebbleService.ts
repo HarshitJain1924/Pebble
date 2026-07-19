@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { TODOS_STORAGE_KEY } from "./storage";
 import { emitStateChange } from "./stateEvents";
+import { ActivityRepository, FolderRepository } from "@/services/core/repositories";
 
 export type PebbleType = "task" | "habit" | "focus";
 
@@ -201,33 +201,19 @@ export async function ensurePebbleLogInitialized() {
     const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
     if (raw) return; // Already initialized
 
-    // Count lifetime completed todos from both legacy V1 and V3 partitioned workspaces
-    const rawTodos = await AsyncStorage.getItem(TODOS_STORAGE_KEY);
+    // Count lifetime completed todos from repository
     let todosCompleted = 0;
-    if (rawTodos) {
-      try {
-        const parsed = JSON.parse(rawTodos);
-        const allTodos = Object.values(parsed.todos || {}).flat() as any[];
-        todosCompleted = allTodos.filter((t) => t.completed).length;
-      } catch {}
-    }
     try {
-      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
-      if (rawLists) {
-        const listFolders: any[] = JSON.parse(rawLists);
-        for (const folder of listFolders) {
-          const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${folder.id}`);
-          if (tasksRaw) {
-            const tasksMap = JSON.parse(tasksRaw);
-            const compCount = Object.values(tasksMap).filter((t: any) => t.completed).length;
-            todosCompleted += compCount;
-          }
-        }
+      const folders = await FolderRepository.getFolders();
+      for (const folder of folders) {
+        const tasksMap = await ActivityRepository.getTasks(folder.id);
+        const compCount = Object.values(tasksMap).filter((t: any) => t.completed).length;
+        todosCompleted += compCount;
       }
     } catch {}
 
     // Backfill from history entries to restore correct dates
-    const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
+    const rawHistory = await AsyncStorage.getItem("pebble:history");
     const log: PebbleLogEntry[] = [];
 
     if (rawHistory) {
@@ -360,14 +346,14 @@ function getWeeklyStatus(log: PebbleLogEntry[]) {
 export const PEBBLE_SPENT_KEY = "todoapp:pebble_spent";
 
 export async function getPebbleBalance(): Promise<number> {
-  // Wrap with getGemsBalance for backward compatibility
+  // Wrap with getGemsBalance for existing callers
   return getGemsBalance();
 }
 
 export async function spendPebbles(amount: number): Promise<boolean> {
   // Each call to spendPebbles spends exactly 1 gem regardless of the raw pebble amount
   // (callers are expected to already express the cost in gems via spendGems directly;
-  //  this function exists for backward-compatibility with legacy call sites)
+  //  this function exists for existing callers with existing call sites)
   return spendGems(1);
 }
 

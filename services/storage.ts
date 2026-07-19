@@ -8,19 +8,19 @@ import {
     FolderRepository,
     RecycleBinRepository,
     ResourceRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export const TODOS_STORAGE_KEY = "todoapp:v1";
-export const DAILY_STORAGE_KEY = "todoapp:daily:v1";
-export const HISTORY_STORAGE_KEY = "todoapp:history:v1";
-export const PROFILE_STORAGE_KEY = "todoapp:profile:v1";
-export const SETTINGS_STORAGE_KEY = "todoapp:settings:v1";
-export const NOTIF_LOG_STORAGE_KEY = "todoapp:notifications:log:v1";
-export const RECYCLE_BIN_STORAGE_KEY = "todoapp:recycle_bin:v1";
-export const VAULT_STORAGE_KEY = "todoapp:vault:v1";
-export const COLLECTIONS_STORAGE_KEY = "todoapp:collections:v1";
-export const CHECKLISTS_STORAGE_KEY = "todoapp:checklists:v1";
+export const TODOS_STORAGE_KEY = "pebble:tasks";
+export const DAILY_STORAGE_KEY = "pebble:habits";
+export const HISTORY_STORAGE_KEY = "pebble:history";
+export const PROFILE_STORAGE_KEY = "pebble:profile";
+export const SETTINGS_STORAGE_KEY = "pebble:settings";
+export const NOTIF_LOG_STORAGE_KEY = "pebble:notifications:log";
+export const RECYCLE_BIN_STORAGE_KEY = "pebble:recycle_bin";
+export const VAULT_STORAGE_KEY = "pebble:vault";
+export const COLLECTIONS_STORAGE_KEY = "pebble:collections";
+export const CHECKLISTS_STORAGE_KEY = "pebble:checklists";
 export const DASHBOARD_FILTER_STORAGE_KEY = "todoapp:dashboard:filter";
 export const DASHBOARD_PRIORITY_STORAGE_KEY = "todoapp:dashboard:priority";
 const GRATITUDE_HISTORY_STORAGE_KEY = "todoapp:gratitude_history";
@@ -29,13 +29,13 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function getRecycleBinItems(): Promise<RecycleBinItem[]> {
   try {
-    const v3Items = await RecycleBinRepository.getRecycleBinItems();
-    return v3Items.map((item) => {
-      let legacyType: any = "task";
-      if (item.itemType === "habit") legacyType = "habit";
-      else if (item.itemType === "checklist") legacyType = "checklist";
-      else if (item.itemType === "resource") legacyType = "collection_item";
-      else if (item.itemType === "folder") legacyType = "workspace";
+    const repositoryItems = await RecycleBinRepository.getRecycleBinItems();
+    return repositoryItems.map((item) => {
+      let restoredType: any = "task";
+      if (item.itemType === "habit") restoredType = "habit";
+      else if (item.itemType === "checklist") restoredType = "checklist";
+      else if (item.itemType === "resource") restoredType = "collection_item";
+      else if (item.itemType === "folder") restoredType = "workspace";
 
       let parsedData = {};
       try {
@@ -46,7 +46,7 @@ export async function getRecycleBinItems(): Promise<RecycleBinItem[]> {
         id: item.id,
         title: item.title,
         deletedAt: item.deletedAt,
-        itemType: legacyType,
+        itemType: restoredType,
         originalLocation: item.originalFolderId,
         data: parsedData,
       };
@@ -61,7 +61,7 @@ export async function saveRecycleBinItems(
   items: RecycleBinItem[],
 ): Promise<void> {
   try {
-    const v3Items = items.map((item) => {
+    const repositoryItems = items.map((item) => {
       let itemType: any = "task";
       if (item.itemType === "habit") itemType = "habit";
       else if (item.itemType === "checklist") itemType = "checklist";
@@ -82,17 +82,9 @@ export async function saveRecycleBinItems(
         snapshot: JSON.stringify(item.data || {}),
       };
     });
-    await RecycleBinRepository.saveRecycleBinItems(v3Items);
+    await RecycleBinRepository.saveRecycleBinItems(repositoryItems);
   } catch (e) {
     console.warn("Failed to save recycle bin items", e);
-  }
-}
-
-export async function cleanupRecycleBin(): Promise<void> {
-  try {
-    await RecycleBinRepository.cleanupRecycleBin();
-  } catch (e) {
-    console.warn("Recycle bin auto-cleanup failed", e);
   }
 }
 
@@ -126,6 +118,14 @@ export async function addToRecycleBin(
     await RecycleBinRepository.addToRecycleBin(type, payload, originalLocation);
   } catch (e) {
     console.warn("Failed to add item to recycle bin", e);
+  }
+}
+
+export async function cleanupRecycleBin(): Promise<void> {
+  try {
+    await RecycleBinRepository.cleanupRecycleBin();
+  } catch (e) {
+    console.warn("Recycle bin auto-cleanup failed", e);
   }
 }
 
@@ -250,37 +250,7 @@ export async function saveChecklists(
   }
 }
 
-export async function getDashboardFilters(): Promise<{
-  filter: string | null;
-  priority: string | null;
-}> {
-  try {
-    const [filter, priority] = await Promise.all([
-      AsyncStorage.getItem(DASHBOARD_FILTER_STORAGE_KEY),
-      AsyncStorage.getItem(DASHBOARD_PRIORITY_STORAGE_KEY),
-    ]);
-    return { filter, priority };
-  } catch (e) {
-    console.warn("Failed to read dashboard filters", e);
-    return { filter: null, priority: null };
-  }
-}
-
-export async function saveDashboardFilter(filter: string): Promise<void> {
-  try {
-    await AsyncStorage.setItem(DASHBOARD_FILTER_STORAGE_KEY, filter);
-  } catch (e) {
-    console.warn("Failed to save dashboard filter", e);
-  }
-}
-
-export async function saveDashboardPriority(priority: string): Promise<void> {
-  try {
-    await AsyncStorage.setItem(DASHBOARD_PRIORITY_STORAGE_KEY, priority);
-  } catch (e) {
-    console.warn("Failed to save dashboard priority", e);
-  }
-}
+// ─── Gratitude History ──────────────────────────────────────────────
 
 export type GratitudeHistoryEntry = {
   id: string;
@@ -314,6 +284,42 @@ export async function appendGratitudeHistoryEntry(
     console.warn("Failed to save gratitude history", e);
   }
 }
+
+// ─── Dashboard Filters ────────────────────────────────────────────────
+
+export async function getDashboardFilters(): Promise<{
+  filter: string | null;
+  priority: string | null;
+}> {
+  try {
+    const [filter, priority] = await Promise.all([
+      AsyncStorage.getItem(DASHBOARD_FILTER_STORAGE_KEY),
+      AsyncStorage.getItem(DASHBOARD_PRIORITY_STORAGE_KEY),
+    ]);
+    return { filter, priority };
+  } catch (e) {
+    console.warn("Failed to read dashboard filters", e);
+    return { filter: null, priority: null };
+  }
+}
+
+export async function saveDashboardFilter(filter: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(DASHBOARD_FILTER_STORAGE_KEY, filter);
+  } catch (e) {
+    console.warn("Failed to save dashboard filter", e);
+  }
+}
+
+export async function saveDashboardPriority(priority: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(DASHBOARD_PRIORITY_STORAGE_KEY, priority);
+  } catch (e) {
+    console.warn("Failed to save dashboard priority", e);
+  }
+}
+
+// ─── Restore Recycle Bin Items ────────────────────────────────────────
 
 export async function restoreRecycleBinItems(
   itemsToRestore: RecycleBinItem[],
@@ -382,3 +388,4 @@ export async function restoreRecycleBinItems(
   const remaining = binItems.filter((i) => !restoreIds.has(i.id));
   await saveRecycleBinItems(remaining);
 }
+

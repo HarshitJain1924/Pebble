@@ -1,14 +1,14 @@
 /**
  * UnifiedCapture.tsx
  * ─────────────────
- * Pebble Capture V3 — The unified, parser-first capture interface.
+ * Pebble Capture current — The unified, parser-first capture interface.
  *
  * Design Philosophy:
  *   - "The parser should feel like a helpful companion, not a form filling itself."
  *   - Parser leads, layout is clean and out of the way.
  *   - Smart dynamic headers change based on detected capture intent.
  *   - Sleek companion progress bar shows understanding state.
- *   - Dynamic override selector replaces legacy pill tabs.
+ *   - Dynamic override selector replaces pill tabs.
  *   - Progressive disclosure keeps secondary attributes hidden.
  *   - File picking support using expo-document-picker.
  */
@@ -60,7 +60,7 @@ import {
 import { emitStateChange } from "@/services/stateEvents";
 import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
 import { scheduleReminderBatch } from "@/services/reminders";
-import { ActivityRepository, ResourceRepository } from "@/services/v3/repositories";
+import { ActivityRepository, ResourceRepository } from "@/services/core/repositories";
 import PressableScale from "@/components/ui/PressableScale";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -563,7 +563,7 @@ export default function UnifiedCapture({
       recurrenceRule: item.recurrence ? JSON.stringify(item.recurrence) : "FREQ=DAILY",
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      // Attach UI-compatible metadata
+      // Attach UI-ready metadata
       priority: item.priority || "medium",
       category: item.category || "health",
       reminderDays,
@@ -602,14 +602,14 @@ export default function UnifiedCapture({
     const itemId = `res-${Date.now()}`;
     const payload = item.type === "link" ? { url: item.url || "" } : { content: item.title || "" };
 
-    const metadataRaw = await AsyncStorage.getItem(`pebble:v3:collections_metadata:${folderId}`);
+    const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${folderId}`);
     const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
     
     let targetColl = collectionsMeta.find((c) => c.name === "Quick Captures");
     if (!targetColl) {
       targetColl = { id: `quick-captures-${folderId}-${Date.now()}`, name: "Quick Captures", emoji: "⚡" };
       collectionsMeta.push(targetColl);
-      await AsyncStorage.setItem(`pebble:v3:collections_metadata:${folderId}`, JSON.stringify(collectionsMeta));
+      await AsyncStorage.setItem(`pebble:core:collections_metadata:${folderId}`, JSON.stringify(collectionsMeta));
     }
 
     await ResourceRepository.saveResource({

@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 
 import { ProgressRing } from "./ProgressRing";
 import { SwipeableCard } from "@/components/SwipeableCard";
-import { formatReminderTime, formatScheduleDays } from "@/services/v3/scheduleFormatter";
+import { formatReminderTime, formatScheduleDays } from "@/services/core/scheduleFormatter";
 
 export type Habit = {
   id: string;

@@ -45,10 +45,6 @@ export default function RootLayout() {
 
   useEffect(() => {
     cleanupRecycleBin();
-    // Run V3 Migration
-    import("@/services/v3/migration").then(({ migrateV1ToV3 }) => {
-      migrateV1ToV3().catch((err) => console.error("Pebble V3 Migration failed:", err));
-    });
   }, []);
 
   useEffect(() => {

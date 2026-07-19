@@ -59,10 +59,10 @@ export async function syncWidgetData(focusTimeToday = 0): Promise<WidgetPayload>
   let summaryPending: string | null = null;
 
   try {
-    const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+    const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
     
     // Load Tasks
-    const rawTodos = await AsyncStorage.getItem(`pebble:v3:tasks:${activeWorkspace}`);
+    const rawTodos = await AsyncStorage.getItem(`pebble:core:tasks:${activeWorkspace}`);
     if (rawTodos) {
       const parsed = JSON.parse(rawTodos);
       const allTodos = Object.values(parsed || {}).filter((t: any) => !t.archived);
@@ -71,7 +71,7 @@ export async function syncWidgetData(focusTimeToday = 0): Promise<WidgetPayload>
     }
 
     // Load Habits
-    const rawHabits = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
+    const rawHabits = await AsyncStorage.getItem(`pebble:core:habits:${activeWorkspace}`);
     if (rawHabits) {
       const parsed = JSON.parse(rawHabits);
       const allHabits = (Object.values(parsed || {}) as any[]).filter((h: any) => !h.archived);
@@ -90,7 +90,7 @@ export async function syncWidgetData(focusTimeToday = 0): Promise<WidgetPayload>
       }
     }
   } catch (e) {
-    console.warn("Failed to aggregate Pebble V3 data for widget sync", e);
+    console.warn("Failed to aggregate Pebble repository data for widget sync", e);
   }
 
   const payload: WidgetPayload = {

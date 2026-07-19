@@ -22,7 +22,7 @@ import { normalizeTaskCategory } from "@/services/taskCategories";
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
@@ -102,7 +102,7 @@ export default function ProfileScreen() {
       const userProf = await getProfile();
       setProfile(userProf);
 
-      // 2. Query task and habit stats from V3 repositories
+      // 2. Query task and habit stats from repositories
       const folders = await FolderRepository.getFolders();
       const folderIds = Array.from(
         new Set([
@@ -184,7 +184,7 @@ export default function ProfileScreen() {
       }
 
       // 5.5. Query Full Lifetime History
-      const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
+      const rawHistory = await AsyncStorage.getItem("pebble:history");
       let pastTodosCompleted = 0;
       let pastHabitsCompleted = 0;
       if (rawHistory) {

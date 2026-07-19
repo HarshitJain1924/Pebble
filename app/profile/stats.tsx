@@ -20,7 +20,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { FloatingGlow } from "@/components/AmbientBackground";
 import { getProfile } from "@/services/settingsService";
 import { getHistoryForMonth } from "@/services/productivityHistory";
-import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
+import { FolderRepository, ActivityRepository } from "@/services/core/repositories";
 import { TASK_CATEGORY_META } from "@/services/taskCategories";
 import { CategoryChip } from "@/components/design";
 
@@ -83,7 +83,7 @@ export default function StatsScreen() {
     try {
       const now = new Date();
       
-      // Load Completed Todos via V3 repository
+      // Load Completed Todos via repository
       const folderList = await FolderRepository.getFolders();
       const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
       const folderNameMap: Record<string, string> = { default: "My Pebbles", unassigned: "My Pebbles" };
@@ -121,7 +121,7 @@ export default function StatsScreen() {
       });
       mostProductiveWorkspace = folderNameMap[bestFolderId] || "Default";
 
-      // Load Habits via V3 repository
+      // Load Habits via repository
       const todayStr = getDateKey();
       let totalCompletedHabits = 0;
       let streak = 0;
@@ -144,7 +144,7 @@ export default function StatsScreen() {
       }
 
       // Query Lifetime History
-      const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
+      const rawHistory = await AsyncStorage.getItem("pebble:history");
       let historyList: any[] = [];
       let pastTodosCompleted = 0;
       let pastHabitsCompleted = 0;

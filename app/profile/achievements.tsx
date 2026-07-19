@@ -21,7 +21,7 @@ import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { FloatingGlow } from "@/components/AmbientBackground";
 import { getProfile, type UserProfile } from "@/services/settingsService";
-import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
+import { FolderRepository, ActivityRepository } from "@/services/core/repositories";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -61,7 +61,7 @@ export default function AchievementsScreen() {
       const userProf = await getProfile();
       setProfile(userProf);
 
-      // Load completed todos via V3 repository
+      // Load completed todos via repository
       const folderList = await FolderRepository.getFolders();
       const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
 
@@ -73,7 +73,7 @@ export default function AchievementsScreen() {
         });
       }
 
-      // Load completed habits via V3 repository
+      // Load completed habits via repository
       const today = new Date();
       const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       let totalCompletedHabitsToday = 0;
@@ -87,7 +87,7 @@ export default function AchievementsScreen() {
       }
 
       // Add lifetime history for past days (same logic as stats.tsx)
-      const rawHistory = await AsyncStorage.getItem("todoapp:history:v1");
+      const rawHistory = await AsyncStorage.getItem("pebble:history");
       let pastTodosCompleted = 0;
       let pastHabitsCompleted = 0;
       if (rawHistory) {

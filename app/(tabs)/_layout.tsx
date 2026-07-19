@@ -19,7 +19,7 @@ import { TASK_CATEGORY_META } from "@/services/taskCategories";
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 import { getWorkspaceSuggestions } from "@/services/workspaceSuggestions";
 import { Feather } from "@expo/vector-icons";
 import {
@@ -914,7 +914,7 @@ export default function TabLayout() {
 
       <MascotOverlay />
 
-      {/* Unified Capture — replaces Legacy Quick Add */}
+      {/* Unified Capture — replaces Quick Add */}
       <UnifiedCapture
         sheetRef={quickAddSheetRef}
         workspaces={

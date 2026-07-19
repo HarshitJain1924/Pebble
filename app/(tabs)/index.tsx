@@ -57,7 +57,7 @@ import {
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 import * as Haptics from "expo-haptics";
 
 // Reusable UI components
@@ -405,7 +405,7 @@ export default function DashboardScreen() {
     try {
       const todayStr = getDateKey();
 
-      // 1. Load Folders and Tasks via V3 Repositories
+      // 1. Load Folders and Tasks via Repositories
       const folderList = await FolderRepository.getFolders();
       const folderIds = Array.from(
         new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
@@ -621,7 +621,7 @@ export default function DashboardScreen() {
 
       setCategoryCounts({ ...nextCategoryCounts });
 
-      // 3. Load Checklists via V3 Repository
+      // 3. Load Checklists via Repository
       const loadedChecklists: Record<string, any[]> = {};
       for (const fId of folderIds) {
         const checklistsMap = await ActivityRepository.getChecklists(fId);

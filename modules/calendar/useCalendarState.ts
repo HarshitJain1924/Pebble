@@ -3,7 +3,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { View, ScrollView, Platform, Dimensions } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { ActivityRepository } from "@/services/v3/repositories";
+import { ActivityRepository } from "@/services/core/repositories";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -19,8 +19,8 @@ import {
 import { addStateListener, emitStateChange } from "@/services/stateEvents";
 import { isRecurringOccurrenceForDate } from "@/services/recurrence";
 import { cancelReminderIds, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
-import { getStructuredSchedule } from "@/services/v3/scheduling";
-import { formatReminderTime } from "@/services/v3/scheduleFormatter";
+import { getStructuredSchedule } from "@/services/core/scheduling";
+import { formatReminderTime } from "@/services/core/scheduleFormatter";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -153,12 +153,12 @@ export function useCalendarState() {
 
   const loadDataFromStorage = useCallback(async () => {
     try {
-      const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
-      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
+      const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
+      const rawLists = await AsyncStorage.getItem("pebble:core:workspaces");
       const currentLists = rawLists ? JSON.parse(rawLists) : [{ id: "default", name: "Default" }];
       setLists(currentLists);
 
-      // Fetch from V3 repository
+      // Fetch from repository
       const tasksMap = await ActivityRepository.getTasks(activeWorkspace);
       const habitsMap = await ActivityRepository.getHabits(activeWorkspace);
 
@@ -190,14 +190,14 @@ export function useCalendarState() {
       setAllTodos(listTodos as any[]);
       setAllHabits(listHabits as any[]);
     } catch (e) {
-      console.log("Error loading storage data in calendar V3", e);
+      console.log("Error loading storage data in calendar current", e);
     }
   }, []);
 
   // Save Quick Add Task
   const onSaveNewTask = async (newTask: any) => {
     if (!newTask.title || newTask.title.trim() === "") return;
-    const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+    const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
 
     const taskWithCreatedAt = {
       ...newTask,
@@ -206,7 +206,7 @@ export function useCalendarState() {
       folderId: activeWorkspace,
     };
 
-    // Save using V3 Repository
+    // Save using Repository
     await ActivityRepository.saveTask({
       id: taskWithCreatedAt.id,
       workspaceId: activeWorkspace,
@@ -708,7 +708,7 @@ export function useCalendarState() {
       if (hHour !== null) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         try {
-          const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+          const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
           if (dragItem.type === "task") {
             const taskMap = await ActivityRepository.getTasks(activeWorkspace);
             const todo = taskMap[dragItem.id] as any;
@@ -776,7 +776,7 @@ export function useCalendarState() {
       else if (hDate) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         try {
-          const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
+          const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
           if (dragItem.type === "task") {
             const taskMap = await ActivityRepository.getTasks(activeWorkspace);
             const todo = taskMap[dragItem.id] as any;

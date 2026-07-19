@@ -1,11 +1,11 @@
 /**
- * v3Types.ts
+ * models.ts
  * ──────────
- * Pebble V3 Unified Domain Models.
+ * Pebble current Unified Domain Models.
  */
 
 export const DEFAULT_FOLDER_ID = "default";
-export const DEFAULT_WORKSPACE_ID = "default"; // Legacy compatibility alias
+export const DEFAULT_WORKSPACE_ID = "default"; // Folder default alias
 
 export type ItemRef = {
   id: string;
@@ -62,9 +62,9 @@ export interface Task extends ScheduleConfig {
   archived?: boolean;
   description?: string;
 
-  // Compatibility fields
-  workspaceId?: string; // Compatibility alias for folderId
-  dueDate?: string; // Compatibility alias for scheduledDate
+  // Caller support fields
+  workspaceId?: string; // Caller support alias for folderId
+  dueDate?: string; // Caller support alias for scheduledDate
 }
 
 export interface Habit extends ScheduleConfig {
@@ -82,8 +82,8 @@ export interface Habit extends ScheduleConfig {
   archived?: boolean;
   description?: string;
 
-  // Compatibility fields
-  workspaceId?: string; // Compatibility alias for folderId
+  // Caller support fields
+  workspaceId?: string; // Caller support alias for folderId
 }
 
 export interface Checklist {
@@ -99,8 +99,8 @@ export interface Checklist {
     completed: boolean;
   }[];
 
-  // Compatibility fields
-  workspaceId?: string; // Compatibility alias for folderId
+  // Caller support fields
+  workspaceId?: string; // Caller support alias for folderId
 }
 
 // Unified Resource Model (Notes, Ideas, Links, Files)
@@ -124,9 +124,9 @@ export interface Resource {
     fileSize?: number; // for File
   };
 
-  // Compatibility fields
-  workspaceId?: string; // Compatibility alias for folderId
-  payload?: any; // Compatibility alias for body
+  // Caller support fields
+  workspaceId?: string; // Caller support alias for folderId
+  payload?: any; // Caller support alias for body
 }
 
 export interface FocusSession {
@@ -140,9 +140,9 @@ export interface FocusSession {
     type: "task" | "habit";
   };
 
-  // Compatibility fields
-  workspaceId?: string; // Compatibility alias for folderId
-  linkedItem?: { id: string; type: "task" | "habit" }; // Compatibility alias for target
+  // Caller support fields
+  workspaceId?: string; // Caller support alias for folderId
+  linkedItem?: { id: string; type: "task" | "habit" }; // Caller support alias for target
 }
 
 export interface Relationship {
@@ -167,8 +167,8 @@ export interface SystemEventLog {
   timestamp: number;
   metadata?: Record<string, any>;
 
-  // Compatibility fields
-  workspaceId?: string; // Compatibility alias for folderId
+  // Caller support fields
+  workspaceId?: string; // Caller support alias for folderId
 }
 
 export interface RecycleBinItem {

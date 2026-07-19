@@ -3,7 +3,7 @@
  * ───────────────
  * In-Memory Domain Event Bus with memory-safe subscriptions.
  */
-import { Task, Habit, Resource, FocusSession } from "./v3Types";
+import { Task, Habit, Resource, FocusSession } from "./models";
 
 export type DomainEvent =
   | { type: "task.created"; payload: { task: Task } }

@@ -708,7 +708,7 @@ export function hasNotificationPayload(data: unknown) {
 }
 
 import { type Todo, type Habit } from "@/modules/types";
-import { type ScheduleConfig } from "@/services/v3/v3Types";
+import { type ScheduleConfig } from "@/services/core/models";
 
 async function rescheduleItemRemindersInternal(
   item: ScheduleConfig & { id: string; title: string; category?: string },

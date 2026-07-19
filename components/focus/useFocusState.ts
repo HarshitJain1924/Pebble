@@ -8,9 +8,9 @@ import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
-import { GraphRepository, FolderRepository, ActivityRepository } from "@/services/v3/repositories";
-import { DomainEventBus } from "@/services/v3/domainEvents";
-import { DEFAULT_WORKSPACE_ID } from "@/services/v3/v3Types";
+import { GraphRepository, FolderRepository, ActivityRepository } from "@/services/core/repositories";
+import { DomainEventBus } from "@/services/core/domainEvents";
+import { DEFAULT_WORKSPACE_ID } from "@/services/core/models";
 
 export function useFocusState() {
   // Core states
@@ -73,7 +73,7 @@ export function useFocusState() {
   const swStartTimeRef = useRef<number>(0);
   const swElapsedBeforeStartRef = useRef<number>(0);
 
-  // Load active tasks and habits from V3 Repositories
+  // Load active tasks and habits from Repositories
   const loadActiveTasks = async () => {
     try {
       const folderList = await FolderRepository.getFolders();
@@ -819,7 +819,7 @@ export function useFocusState() {
         setAverageSessionLength(avg);
         setLongestSession(longest);
       } catch (err) {
-        console.warn("Failed to save V3 stopwatch focus session:", err);
+        console.warn("Failed to save current stopwatch focus session:", err);
       }
     }
   };

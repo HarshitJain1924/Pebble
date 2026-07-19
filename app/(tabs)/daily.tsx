@@ -35,7 +35,7 @@ import { normalizeTaskCategory } from "@/services/taskCategories";
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 
 import { type Habit as SharedHabit } from "@/modules/types";
 export type Habit = SharedHabit;

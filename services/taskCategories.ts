@@ -83,12 +83,12 @@ export const TASK_CATEGORY_META_ARRAY = TASK_CATEGORY_KEYS.map((key) => {
     label: meta.label,
     icon: meta.icon,
     color: meta.color,
-    tint: meta.color, // compatibility
-    softTint: meta.tint, // compatibility
+    tint: meta.color, // caller support
+    softTint: meta.tint, // caller support
   };
 });
 
-// Build the hybrid array+object to maintain perfect compatibility
+// Build the hybrid array+object to maintain perfect caller support
 const hybridMeta = Object.assign(TASK_CATEGORY_META_ARRAY, TASK_CATEGORY_META_RECORD);
 
 export const TASK_CATEGORY_META = hybridMeta as typeof TASK_CATEGORY_META_ARRAY & typeof TASK_CATEGORY_META_RECORD;
@@ -125,7 +125,7 @@ export function getCategoryTint(category?: string): string {
   return getCategoryMeta(category)?.tint ?? "rgba(161, 161, 170, 0.12)";
 }
 
-// For backwards compatibility:
+// For backwards caller support:
 export function getTaskCategoryMeta(category: TaskCategory) {
   return {
     key: category,

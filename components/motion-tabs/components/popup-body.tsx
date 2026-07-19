@@ -64,19 +64,19 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       const todayStr = getDateKey();
 
       // 1. Fetch workspaces lists
-      const rawLists = await AsyncStorage.getItem("pebble:v3:workspaces");
+      const rawLists = await AsyncStorage.getItem("pebble:core:workspaces");
       const listFolders: any[] = rawLists ? JSON.parse(rawLists) : [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
 
       const workspaceCounts: Record<string, number> = {};
       let tTotal = 0;
       let tComp = 0;
       let overdueList: any[] = [];
-      let allV3Habits: any[] = [];
+      let allHabits: any[] = [];
 
       // Loop over each workspace to count tasks and load habits
       for (const folder of listFolders) {
         const wsId = folder.id;
-        const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${wsId}`);
+        const tasksRaw = await AsyncStorage.getItem(`pebble:core:tasks:${wsId}`);
         const tasksMap = tasksRaw ? JSON.parse(tasksRaw) : {};
         
         let pendingCount = 0;
@@ -103,10 +103,10 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         });
         workspaceCounts[wsId] = pendingCount;
 
-        const habitsRaw = await AsyncStorage.getItem(`pebble:v3:habits:${wsId}`);
+        const habitsRaw = await AsyncStorage.getItem(`pebble:core:habits:${wsId}`);
         const habitsMap = habitsRaw ? JSON.parse(habitsRaw) : {};
         Object.values(habitsMap).forEach((h: any) => {
-          allV3Habits.push(h);
+          allHabits.push(h);
         });
       }
 
@@ -123,7 +123,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       let todayActiveHabits: any[] = [];
       const dayOfWeek = new Date().getDay();
       
-      todayActiveHabits = allV3Habits.filter((h: any) => {
+      todayActiveHabits = allHabits.filter((h: any) => {
         if (h.archived) return false;
         if (h.recurrence) {
           return isRecurringOccurrenceForDate(h, todayStr);
@@ -202,8 +202,8 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const toggleHabitInDrawer = async (habitId: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const activeWorkspace = await AsyncStorage.getItem("pebble:v3:active_workspace") || "default";
-      const habitsRaw = await AsyncStorage.getItem(`pebble:v3:habits:${activeWorkspace}`);
+      const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
+      const habitsRaw = await AsyncStorage.getItem(`pebble:core:habits:${activeWorkspace}`);
       if (!habitsRaw) return;
 
       const habitsMap = JSON.parse(habitsRaw);
@@ -244,7 +244,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         updatedAt: Date.now(),
       };
 
-      await AsyncStorage.setItem(`pebble:v3:habits:${activeWorkspace}`, JSON.stringify(habitsMap));
+      await AsyncStorage.setItem(`pebble:core:habits:${activeWorkspace}`, JSON.stringify(habitsMap));
 
       try {
         const { recordDailyHistorySnapshot } = require("@/services/productivityHistory");
@@ -271,7 +271,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       const wsId = folderId || "default";
-      const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${wsId}`);
+      const tasksRaw = await AsyncStorage.getItem(`pebble:core:tasks:${wsId}`);
       if (!tasksRaw) return;
 
       const tasksMap = JSON.parse(tasksRaw);
@@ -283,7 +283,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
           completedAt: Date.now(),
           updatedAt: Date.now(),
         };
-        await AsyncStorage.setItem(`pebble:v3:tasks:${wsId}`, JSON.stringify(tasksMap));
+        await AsyncStorage.setItem(`pebble:core:tasks:${wsId}`, JSON.stringify(tasksMap));
       }
 
       try {

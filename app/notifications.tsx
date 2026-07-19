@@ -12,7 +12,7 @@ import {
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as IntentLauncher from "expo-intent-launcher";
@@ -157,7 +157,7 @@ export default function NotificationsCenter() {
         }
       }
 
-      // B. Query V3 Tasks and Habits for future schedules
+      // B. Query current Tasks and Habits for future schedules
       const folderList = await FolderRepository.getFolders();
       const folderIds = Array.from(
         new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),

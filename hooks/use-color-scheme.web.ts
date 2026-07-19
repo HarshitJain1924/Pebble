@@ -14,7 +14,7 @@ export function emitThemeChange(newTheme: ThemeSetting) {
 
 // Immediately attempt to fetch the stored setting on module load
 if (typeof window !== 'undefined') {
-  AsyncStorage.getItem('todoapp:settings:v1').then((raw) => {
+  AsyncStorage.getItem('pebble:settings').then((raw) => {
     if (raw) {
       try {
         const parsed = JSON.parse(raw);

@@ -34,7 +34,7 @@ import {
 import {
     ActivityRepository,
     FolderRepository,
-} from "@/services/v3/repositories";
+} from "@/services/core/repositories";
 
 export default function ChecklistDetailsScreen() {
   const router = useRouter();

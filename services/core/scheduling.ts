@@ -1,4 +1,4 @@
-import { ScheduleConfig } from "./v3Types";
+import { ScheduleConfig } from "./models";
 
 export interface StructuredSchedule {
   startDate?: string; // YYYY-MM-DD
