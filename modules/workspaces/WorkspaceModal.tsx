@@ -1,26 +1,36 @@
-import React, { useState, useEffect } from "react";
-import {
-  Modal,
-  Pressable,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  Platform,
-} from "react-native";
-import { AppTextInput as TextInput, AppText as Text } from "@/components/ui/AppText";
-import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { AppCard } from "@/components/AppCard";
+import {
+    AppText as Text,
+    AppTextInput as TextInput,
+} from "@/components/ui/AppText";
+import { useUndo } from "@/components/ui/UndoContext";
+import { styles } from "@/constants/taskStyles";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { styles } from "@/constants/taskStyles";
-import { type TaskList, type Todo, type Habit } from "../types";
-import { useUndo } from "@/components/ui/UndoContext";
-import { addToRecycleBin, getRecycleBinItems, saveRecycleBinItems } from "@/services/storage";
-import { cancelReminderIds, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+    cancelReminderIds,
+    rescheduleHabitReminders,
+    rescheduleTodoReminders,
+} from "@/services/reminders";
 import { emitStateChange } from "@/services/stateEvents";
+import {
+    addToRecycleBin,
+    getRecycleBinItems,
+    saveRecycleBinItems,
+} from "@/services/storage";
+import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Haptics from "expo-haptics";
+import React, { useEffect, useState } from "react";
+import {
+    Alert,
+    Modal,
+    Pressable,
+    ScrollView,
+    TouchableOpacity,
+    View
+} from "react-native";
+import { type Habit, type TaskList, type Todo } from "../types";
 
 async function loadNotifications() {
   return import("expo-notifications");
@@ -71,7 +81,9 @@ export function WorkspaceModal({
 
   const [folderNameInput, setFolderNameInput] = useState("");
   const [folderEmojiInput, setFolderEmojiInput] = useState("📚");
-  const [folderIconTypeInput, setFolderIconTypeInput] = useState<"emoji" | "icon">("emoji");
+  const [folderIconTypeInput, setFolderIconTypeInput] = useState<
+    "emoji" | "icon"
+  >("emoji");
   const [folderIconInput, setFolderIconInput] = useState("briefcase");
   const [folderColorInput, setFolderColorInput] = useState("#6366F1");
   const [folderDescriptionInput, setFolderDescriptionInput] = useState("");
@@ -147,14 +159,22 @@ export function WorkspaceModal({
       emitStateChange("workspace_changed");
     });
     onClose();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {},
+    );
   };
 
   const handleDelete = () => {
     if (!editingFolderId) return;
 
-    if (editingFolderId === "default" || lists.filter((l) => !(l as any).archived).length <= 1) {
-      Alert.alert("Cannot Delete", "You must keep at least one active workspace.");
+    if (
+      editingFolderId === "default" ||
+      lists.filter((l) => !(l as any).archived).length <= 1
+    ) {
+      Alert.alert(
+        "Cannot Delete",
+        "You must keep at least one active workspace.",
+      );
       return;
     }
 
@@ -171,7 +191,9 @@ export function WorkspaceModal({
             if (!workspace) return;
 
             const workspaceTodos = todos[editingFolderId] || [];
-            const workspaceHabits = habits.filter((h) => h.folderId === editingFolderId);
+            const workspaceHabits = habits.filter(
+              (h) => h.folderId === editingFolderId,
+            );
 
             // 1. Cancel notifications
             for (const todo of workspaceTodos) {
@@ -181,7 +203,9 @@ export function WorkspaceModal({
               const alarmId = todo.alarmId;
               if (alarmId && !alarmId.startsWith("web-")) {
                 const Notifications = await loadNotifications();
-                await Notifications.cancelScheduledNotificationAsync(alarmId).catch(() => {});
+                await Notifications.cancelScheduledNotificationAsync(
+                  alarmId,
+                ).catch(() => {});
               }
               if (alarmId && alarmId.startsWith("web-")) {
                 clearTimeout(Number(alarmId.replace("web-", "")));
@@ -202,22 +226,35 @@ export function WorkspaceModal({
                 todos: workspaceTodos,
                 habits: workspaceHabits,
               },
-              "Workspaces"
+              "Workspaces",
             );
             try {
-              await AsyncStorage.removeItem(`pebble:v3:tasks:${editingFolderId}`);
-              await AsyncStorage.removeItem(`pebble:v3:habits:${editingFolderId}`);
-              await AsyncStorage.removeItem(`pebble:v3:checklists:${editingFolderId}`);
-              await AsyncStorage.removeItem(`pebble:v3:resources:${editingFolderId}`);
+              await AsyncStorage.removeItem(
+                `pebble:v3:tasks:${editingFolderId}`,
+              );
+              await AsyncStorage.removeItem(
+                `pebble:v3:habits:${editingFolderId}`,
+              );
+              await AsyncStorage.removeItem(
+                `pebble:v3:checklists:${editingFolderId}`,
+              );
+              await AsyncStorage.removeItem(
+                `pebble:v3:resources:${editingFolderId}`,
+              );
             } catch (e) {
-              console.warn("Failed to clear V3 partitioned workspace storage files:", e);
+              console.warn(
+                "Failed to clear V3 partitioned workspace storage files:",
+                e,
+              );
             }
 
             // 3. Update state
             const updatedLists = lists.filter((l) => l.id !== editingFolderId);
             const updatedTodos = { ...todos };
             delete updatedTodos[editingFolderId];
-            const updatedHabits = habits.filter((h) => h.folderId !== editingFolderId);
+            const updatedHabits = habits.filter(
+              (h) => h.folderId !== editingFolderId,
+            );
 
             const fallbackList = updatedLists[0]?.id || "default";
             if (!updatedTodos[fallbackList]) {
@@ -239,7 +276,9 @@ export function WorkspaceModal({
               setOpenedFolderId(null);
             }
             onClose();
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Success,
+            ).catch(() => {});
 
             // 4. Show Undo Toast
             showUndo({
@@ -247,36 +286,48 @@ export function WorkspaceModal({
               onUndo: async () => {
                 // Remove from Recycle Bin
                 const binItems = await getRecycleBinItems();
-                await saveRecycleBinItems(binItems.filter((item) => item.id !== editingFolderId));
+                await saveRecycleBinItems(
+                  binItems.filter((item) => item.id !== editingFolderId),
+                );
 
                 // Reschedule reminders
                 const rescheduledTodos = await Promise.all(
-                  workspaceTodos.map((t) => rescheduleTodoReminders(t))
+                  workspaceTodos.map((t) => rescheduleTodoReminders(t)),
                 );
                 const rescheduledHabits = await Promise.all(
-                  workspaceHabits.map((h) => rescheduleHabitReminders(h))
+                  workspaceHabits.map((h) => rescheduleHabitReminders(h)),
                 );
 
                 // Restore state and persist
-                const rawWorkspaces = await AsyncStorage.getItem("pebble:v3:workspaces");
-                const currentLists = rawWorkspaces ? JSON.parse(rawWorkspaces) : [{ id: "default", name: "📋 My Pebbles" }];
-                 
+                const rawWorkspaces = await AsyncStorage.getItem(
+                  "pebble:v3:workspaces",
+                );
+                const currentLists = rawWorkspaces
+                  ? JSON.parse(rawWorkspaces)
+                  : [{ id: "default", name: "📋 My Pebbles" }];
+
                 const currentTodos: Record<string, Todo[]> = {};
                 for (const folder of currentLists) {
                   const wsId = folder.id;
-                  const tasksRaw = await AsyncStorage.getItem(`pebble:v3:tasks:${wsId}`);
+                  const tasksRaw = await AsyncStorage.getItem(
+                    `pebble:v3:tasks:${wsId}`,
+                  );
                   if (tasksRaw) {
                     const tasksMap = JSON.parse(tasksRaw);
-                    currentTodos[wsId] = Object.values(tasksMap).map((t: any) => ({
-                      ...t,
-                      scheduledDate: t.dueDate,
-                    })) as Todo[];
+                    currentTodos[wsId] = Object.values(tasksMap).map(
+                      (t: any) => ({
+                        ...t,
+                        scheduledDate: t.dueDate,
+                      }),
+                    ) as Todo[];
                   } else {
                     currentTodos[wsId] = [];
                   }
                 }
 
-                const restoredLists = currentLists.some((l: any) => l.id === editingFolderId)
+                const restoredLists = currentLists.some(
+                  (l: any) => l.id === editingFolderId,
+                )
                   ? currentLists
                   : [...currentLists, workspace];
 
@@ -288,24 +339,35 @@ export function WorkspaceModal({
                 const currentHabits: Habit[] = [];
                 for (const folder of currentLists) {
                   const wsId = folder.id;
-                  const habitsRaw = await AsyncStorage.getItem(`pebble:v3:habits:${wsId}`);
+                  const habitsRaw = await AsyncStorage.getItem(
+                    `pebble:v3:habits:${wsId}`,
+                  );
                   if (habitsRaw) {
                     const habitsMap = JSON.parse(habitsRaw);
                     Object.values(habitsMap).forEach((h: any) => {
                       currentHabits.push({
                         ...h,
-                        completedToday: h.completedDates?.includes(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`) || false,
+                        completedToday:
+                          h.completedDates?.includes(
+                            `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
+                          ) || false,
                       });
                     });
                   }
                 }
 
                 const restoredHabits = [
-                  ...currentHabits.filter((h) => h.folderId !== editingFolderId),
+                  ...currentHabits.filter(
+                    (h) => h.folderId !== editingFolderId,
+                  ),
                   ...rescheduledHabits,
                 ];
 
-                await persistState(restoredLists, editingFolderId, restoredTodos);
+                await persistState(
+                  restoredLists,
+                  editingFolderId,
+                  restoredTodos,
+                );
                 await persistHabits(restoredHabits);
 
                 setLists(restoredLists);
@@ -527,9 +589,7 @@ export function WorkspaceModal({
                           ? `${colors.primary}18`
                           : colors.cardLight,
                         borderWidth: 1.5,
-                        borderColor: isSel
-                          ? colors.primary
-                          : "transparent",
+                        borderColor: isSel ? colors.primary : "transparent",
                       }}
                     >
                       <Text style={{ fontSize: 18 }}>{em}</Text>
@@ -586,9 +646,7 @@ export function WorkspaceModal({
                           ? `${colors.primary}18`
                           : colors.cardLight,
                         borderWidth: 1.5,
-                        borderColor: isSel
-                          ? colors.primary
-                          : "transparent",
+                        borderColor: isSel ? colors.primary : "transparent",
                       }}
                     >
                       <Feather

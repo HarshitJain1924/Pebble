@@ -30,7 +30,26 @@ export type ActivityCategory =
   | "personal"
   | string;
 
-export interface Task {
+export interface ScheduleConfig {
+  scheduledDate?: string; // YYYY-MM-DD
+  scheduledTime?: string; // HH:MM
+  durationMinutes?: number; // Block length on calendar view
+  alarmTime?: number; // Epoch MS for OS notification trigger
+  alarmId?: string; // OS scheduled notification ID
+  reminderHour?: number;
+  reminderMinute?: number;
+  reminderDays?: number[]; // [0..6] (Sunday..Saturday)
+  notificationIds?: string[];
+  recurrence?: {
+    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
+    interval?: number;
+    unit?: "hours" | "days";
+    days?: number[];
+    dayOfMonth?: number;
+  };
+}
+
+export interface Task extends ScheduleConfig {
   id: string;
   folderId: string;
   title: string;
@@ -43,22 +62,12 @@ export interface Task {
   archived?: boolean;
   description?: string;
 
-  // Scheduling (visualized in Calendar)
-  scheduledDate?: string; // YYYY-MM-DD
-  scheduledTime?: string; // HH:MM
-  durationMinutes?: number; // Block length on calendar view
-
-  // Local Notification Reminders
-  alarmTime?: number; // Epoch MS for OS notification trigger
-  alarmId?: string; // OS scheduled notification ID
-  notificationIds?: string[]; // Escalation IDs
-
   // Compatibility fields
   workspaceId?: string; // Compatibility alias for folderId
   dueDate?: string; // Compatibility alias for scheduledDate
 }
 
-export interface Habit {
+export interface Habit extends ScheduleConfig {
   id: string;
   folderId: string;
   title: string;
@@ -68,23 +77,10 @@ export interface Habit {
   recurrenceRule: string; // iCal recurrence rule (e.g. "FREQ=DAILY")
   priority?: "low" | "medium" | "high";
   category?: ActivityCategory;
-  recurrence?: {
-    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-    interval?: number;
-    unit?: "hours" | "days";
-    days?: number[];
-    dayOfMonth?: number;
-  };
   createdAt: number;
   updatedAt: number;
   archived?: boolean;
   description?: string;
-
-  // Local Notification Reminders
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[]; // [0..6] (Sunday..Saturday)
-  notificationIds?: string[];
 
   // Compatibility fields
   workspaceId?: string; // Compatibility alias for folderId

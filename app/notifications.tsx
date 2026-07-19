@@ -9,25 +9,29 @@ import {
     markNotificationLogsAsRead,
     type NotificationLogEntry,
 } from "@/services/notificationsLog";
-import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
+import {
+    ActivityRepository,
+    FolderRepository,
+} from "@/services/v3/repositories";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as IntentLauncher from "expo-intent-launcher";
 // NOTE: avoid importing `expo-notifications` at module top-level because
 // it auto-registers push token listeners which will error/warn in Expo Go.
 // Use dynamic import inside async functions instead.
+import { AppText as Text } from "@/components/ui/AppText";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { ActivityIndicator,
+import {
+    ActivityIndicator,
     Alert,
     Linking,
     Platform,
     SafeAreaView,
     ScrollView,
     StyleSheet,
-    
-    View } from "react-native";
-import { AppText as Text } from "@/components/ui/AppText";
+    View,
+} from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
 type FutureReminder = {
@@ -63,7 +67,10 @@ export default function NotificationsCenter() {
     try {
       const Notifications = await import("expo-notifications");
       const { status } = await Notifications.getPermissionsAsync();
-      console.log("[NotificationsCenter] checkPermissions getPermissionsAsync status:", status);
+      console.log(
+        "[NotificationsCenter] checkPermissions getPermissionsAsync status:",
+        status,
+      );
       setPermissionStatus(status);
     } catch {
       setPermissionStatus("undetermined");
@@ -86,7 +93,10 @@ export default function NotificationsCenter() {
     try {
       const Notifications = await import("expo-notifications");
       const { status } = await Notifications.requestPermissionsAsync();
-      console.log("[NotificationsCenter] requestPermissions requestPermissionsAsync status:", status);
+      console.log(
+        "[NotificationsCenter] requestPermissions requestPermissionsAsync status:",
+        status,
+      );
       setPermissionStatus(status);
       if (status === "granted") {
         Alert.alert("Granted", "Notifications are active on your device!");
@@ -149,8 +159,10 @@ export default function NotificationsCenter() {
 
       // B. Query V3 Tasks and Habits for future schedules
       const folderList = await FolderRepository.getFolders();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
-      
+      const folderIds = Array.from(
+        new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
+      );
+
       for (const fId of folderIds) {
         const tasksMap = await ActivityRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t) => {
@@ -175,7 +187,11 @@ export default function NotificationsCenter() {
 
         const habitsMap = await ActivityRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h) => {
-          if (!h.archived && h.reminderHour !== undefined && h.reminderMinute !== undefined) {
+          if (
+            !h.archived &&
+            h.reminderHour !== undefined &&
+            h.reminderMinute !== undefined
+          ) {
             const hourStr = String(h.reminderHour).padStart(2, "0");
             const minStr = String(h.reminderMinute).padStart(2, "0");
             upcomingList.push({
@@ -252,7 +268,8 @@ export default function NotificationsCenter() {
             },
             trigger: {
               seconds: 3,
-              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+              channelId:
+                Platform.OS === "android" ? "todo-reminders" : undefined,
             } as any,
           });
           Alert.alert("Scheduled", "Alert will trigger in 3 seconds!");

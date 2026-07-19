@@ -934,7 +934,7 @@ export default function CalendarScreen() {
               <View style={styles.absoluteBlocksContainer} pointerEvents="box-none">
                 {/* Redesigned Timed Items */}
                 {filteredTimedItems.map((item, idx) => {
-                  const startMinutes = item.reminderHour * 60 + item.reminderMinute;
+                  const startMinutes = (item.reminderHour ?? 0) * 60 + (item.reminderMinute ?? 0);
 
                   const top = (startMinutes / 60) * 80;
                   const height = (item.durationMinutes / 60) * 80;

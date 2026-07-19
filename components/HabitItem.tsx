@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 
 import { ProgressRing } from "./ProgressRing";
 import { SwipeableCard } from "@/components/SwipeableCard";
+import { formatReminderTime, formatScheduleDays } from "@/services/v3/scheduleFormatter";
 
 export type Habit = {
   id: string;
@@ -75,25 +76,8 @@ export function HabitItem({
   const router = useRouter();
   const isDark = colorScheme === "dark";
 
-  const formatReminder = (hour?: number, minute?: number) => {
-    if (hour === undefined || minute === undefined) return null;
-    return new Date(2020, 0, 1, hour, minute).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const formatDays = (days?: number[]) => {
-    if (!days || days.length === 0) return null;
-    const sorted = [...days].sort((a, b) => a - b);
-    if (sorted.length === 7) return "Every day";
-    if (sorted.length === 5 && !sorted.includes(0) && !sorted.includes(6)) return "Weekdays";
-    if (sorted.length === 2 && sorted.includes(0) && sorted.includes(6)) return "Weekends";
-    return sorted.map((d) => DAY_FULL[d] ?? d).join(", ");
-  };
-
-  const reminderTime = formatReminder(item.reminderHour, item.reminderMinute);
-  const reminderDays = formatDays(item.reminderDays);
+  const reminderTime = formatReminderTime(item.reminderHour, item.reminderMinute);
+  const reminderDays = formatScheduleDays(item.reminderDays);
 
   // Priority accent color
   const priorityAccent =

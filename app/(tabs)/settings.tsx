@@ -1,6 +1,19 @@
 import { AppCard } from "@/components/AppCard";
+import {
+  AVATAR_OPTIONS,
+  EMOJI_OPTIONS,
+  RenderAvatar,
+} from "@/components/profile/RenderAvatar";
 import { Colors } from "@/constants/theme";
 import { emitThemeChange, useColorScheme } from "@/hooks/use-color-scheme";
+import {
+  GEMS_BONUS_KEY,
+  GEMS_SPENT_KEY,
+  PEBBLE_LOG_KEY,
+  PEBBLE_SPENT_KEY,
+} from "@/services/pebbleService";
+import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/services/quickSuggestions";
+import { cancelAllScheduledNotifications } from "@/services/reminders";
 import {
   AppSettings,
   getProfile,
@@ -9,30 +22,26 @@ import {
   saveSettings,
   UserProfile,
 } from "@/services/settingsService";
+import { emitStateChange } from "@/services/stateEvents";
 import {
-  DAILY_STORAGE_KEY,
-  HISTORY_STORAGE_KEY,
-  PROFILE_STORAGE_KEY,
-  SETTINGS_STORAGE_KEY,
-  TODOS_STORAGE_KEY,
-  RECYCLE_BIN_STORAGE_KEY,
-  NOTIF_LOG_STORAGE_KEY,
-  VAULT_STORAGE_KEY,
-  COLLECTIONS_STORAGE_KEY,
   CHECKLISTS_STORAGE_KEY,
+  COLLECTIONS_STORAGE_KEY,
+  DAILY_STORAGE_KEY,
   DASHBOARD_FILTER_STORAGE_KEY,
   DASHBOARD_PRIORITY_STORAGE_KEY,
+  HISTORY_STORAGE_KEY,
+  NOTIF_LOG_STORAGE_KEY,
+  PROFILE_STORAGE_KEY,
+  RECYCLE_BIN_STORAGE_KEY,
+  SETTINGS_STORAGE_KEY,
+  TODOS_STORAGE_KEY,
+  VAULT_STORAGE_KEY,
 } from "@/services/storage";
 import { clearV3RepositoryStorage } from "@/services/v3/repositories";
-import { PEBBLE_LOG_KEY, GEMS_BONUS_KEY, GEMS_SPENT_KEY, PEBBLE_SPENT_KEY } from "@/services/pebbleService";
-import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/services/quickSuggestions";
 import { WIDGET_PAYLOAD_KEY } from "@/services/widgetData";
-import { cancelAllScheduledNotifications } from "@/services/reminders";
 import { Feather } from "@expo/vector-icons";
-import { emitStateChange } from "@/services/stateEvents";
-import { RenderAvatar, AVATAR_OPTIONS, EMOJI_OPTIONS } from "@/components/profile/RenderAvatar";
-import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
@@ -299,13 +308,19 @@ export default function SettingsScreen() {
     }
     try {
       const parsed = JSON.parse(importDataString);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
         throw new Error("Backup payload must be a JSON object.");
       }
 
-      const hasCoreKeys = [TODOS_STORAGE_KEY, DAILY_STORAGE_KEY, PROFILE_STORAGE_KEY].some(
-        (key) => key in parsed
-      );
+      const hasCoreKeys = [
+        TODOS_STORAGE_KEY,
+        DAILY_STORAGE_KEY,
+        PROFILE_STORAGE_KEY,
+      ].some((key) => key in parsed);
       if (!hasCoreKeys) {
         throw new Error("Backup does not contain any valid Pebble data keys.");
       }
@@ -314,7 +329,11 @@ export default function SettingsScreen() {
       if (TODOS_STORAGE_KEY in parsed) {
         const rawVal = parsed[TODOS_STORAGE_KEY];
         const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
-        if (!valObj || !Array.isArray(valObj.lists) || typeof valObj.todos !== "object") {
+        if (
+          !valObj ||
+          !Array.isArray(valObj.lists) ||
+          typeof valObj.todos !== "object"
+        ) {
           throw new Error("Invalid format for tasks and workspaces.");
         }
       }
@@ -432,13 +451,40 @@ export default function SettingsScreen() {
 
             <View style={styles.profileInputsRow}>
               {/* Current Avatar visual preview */}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8, backgroundColor: "rgba(255,255,255,0.015)", padding: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 8,
+                  backgroundColor: "rgba(255,255,255,0.015)",
+                  padding: 10,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
                 <RenderAvatar avatar={avatar} size={48} />
                 <View style={{ gap: 2 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.text }}>Current Companion</Text>
-                  <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textMuted }}>
-                    {avatar.startsWith("avatar_") 
-                      ? AVATAR_OPTIONS.find(o => o.id === avatar)?.label || "Mascot Crow"
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: "800",
+                      color: colors.text,
+                    }}
+                  >
+                    Current Companion
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontWeight: "600",
+                      color: colors.textMuted,
+                    }}
+                  >
+                    {avatar.startsWith("avatar_")
+                      ? AVATAR_OPTIONS.find((o) => o.id === avatar)?.label ||
+                        "Mascot Crow"
                       : "Classic Emoji"}
                   </Text>
                 </View>
@@ -446,17 +492,31 @@ export default function SettingsScreen() {
 
               {/* Mascot Personas Selection Row */}
               <View style={{ gap: 6, marginBottom: 8 }}>
-                <Text style={{ fontSize: 10, fontWeight: "800", color: colors.primary, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: "800",
+                    color: colors.primary,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                  }}
+                >
                   Mascot Personas
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                >
                   {AVATAR_OPTIONS.map((opt) => {
                     const isSelected = avatar === opt.id;
                     return (
                       <Pressable
                         key={opt.id}
                         onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          Haptics.impactAsync(
+                            Haptics.ImpactFeedbackStyle.Light,
+                          ).catch(() => {});
                           setAvatar(opt.id);
                         }}
                         style={[
@@ -465,8 +525,12 @@ export default function SettingsScreen() {
                             width: 54,
                             height: 54,
                             borderRadius: 12,
-                            backgroundColor: isSelected ? `${colors.primary}18` : "rgba(255,255,255,0.02)",
-                            borderColor: isSelected ? colors.primary : colors.border,
+                            backgroundColor: isSelected
+                              ? `${colors.primary}18`
+                              : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
                           },
                         ]}
                       >
@@ -479,17 +543,31 @@ export default function SettingsScreen() {
 
               {/* Classic Emojis Selection Row */}
               <View style={{ gap: 6, marginBottom: 12 }}>
-                <Text style={{ fontSize: 10, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: "800",
+                    color: colors.textMuted,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                  }}
+                >
                   Classic Emojis
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                >
                   {EMOJI_OPTIONS.map((emoji) => {
                     const isSelected = avatar === emoji;
                     return (
                       <Pressable
                         key={emoji}
                         onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          Haptics.impactAsync(
+                            Haptics.ImpactFeedbackStyle.Light,
+                          ).catch(() => {});
                           setAvatar(emoji);
                         }}
                         style={[
@@ -498,8 +576,12 @@ export default function SettingsScreen() {
                             width: 48,
                             height: 48,
                             borderRadius: 10,
-                            backgroundColor: isSelected ? `${colors.primary}18` : "rgba(255,255,255,0.02)",
-                            borderColor: isSelected ? colors.primary : colors.border,
+                            backgroundColor: isSelected
+                              ? `${colors.primary}18`
+                              : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
                           },
                         ]}
                       >
@@ -646,9 +728,7 @@ export default function SettingsScreen() {
                     backgroundColor: settings.showMascot
                       ? colors.success
                       : "rgba(255,255,255,0.08)",
-                    alignItems: settings.showMascot
-                      ? "flex-end"
-                      : "flex-start",
+                    alignItems: settings.showMascot ? "flex-end" : "flex-start",
                   },
                 ]}
               >
@@ -664,7 +744,17 @@ export default function SettingsScreen() {
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
               Task & Habit Archive
             </Text>
-            <Text style={[styles.toggleDesc, { color: colors.textMuted, marginBottom: 12, fontSize: 13, lineHeight: 18 }]}>
+            <Text
+              style={[
+                styles.toggleDesc,
+                {
+                  color: colors.textMuted,
+                  marginBottom: 12,
+                  fontSize: 13,
+                  lineHeight: 18,
+                },
+              ]}
+            >
               View, restore, or permanently delete items you have archived.
             </Text>
             <Pressable
@@ -680,7 +770,14 @@ export default function SettingsScreen() {
               onPress={() => router.push("/archive")}
             >
               <Feather name="archive" size={14} color={colors.primary} />
-              <Text style={[styles.buttonText, { color: colors.text, marginLeft: 6 }]}>View Archived Items</Text>
+              <Text
+                style={[
+                  styles.buttonText,
+                  { color: colors.text, marginLeft: 6 },
+                ]}
+              >
+                View Archived Items
+              </Text>
             </Pressable>
           </AppCard>
         </Animated.View>

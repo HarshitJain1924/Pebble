@@ -1,8 +1,7 @@
 import { Feather } from "@expo/vector-icons";
-import { useLocalSearchParams, useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Alert,
     AppState,
     AppStateStatus,
     FlatList,
@@ -13,7 +12,7 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    View,
+    View
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
@@ -27,13 +26,16 @@ import { Spacing } from "@/constants/spacing";
 import { Colors } from "@/constants/theme";
 import { Typography } from "@/constants/typography";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
-import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
 import { normalizeHabitsForToday } from "@/services/habitService";
+import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
 import { isRecurringOccurrenceForDate } from "@/services/recurrence";
+import { cancelReminderIds } from "@/services/reminders";
 import { addStateListener } from "@/services/stateEvents";
-import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
 import { normalizeTaskCategory } from "@/services/taskCategories";
+import {
+    ActivityRepository,
+    FolderRepository,
+} from "@/services/v3/repositories";
 
 import { type Habit as SharedHabit } from "@/modules/types";
 export type Habit = SharedHabit;
@@ -52,8 +54,6 @@ const STARTER_HABITS = [
   "Sleep by 11 PM",
   "Stretch or Walk",
 ];
-
-
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -81,8 +81,6 @@ const getGreeting = () => {
   return "Good evening";
 };
 
-
-
 export default function DailyScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -97,8 +95,11 @@ export default function DailyScreen() {
 
   const [habits, setHabits] = useState<Habit[]>([]);
   const [title, setTitle] = useState("");
-  const [selectedHabitPriority, setSelectedHabitPriority] = useState<"low" | "medium" | "high">("medium");
-  const [selectedHabitPriorityFilter, setSelectedHabitPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
+  const [selectedHabitPriority, setSelectedHabitPriority] = useState<
+    "low" | "medium" | "high"
+  >("medium");
+  const [selectedHabitPriorityFilter, setSelectedHabitPriorityFilter] =
+    useState<"all" | "high" | "medium" | "low">("all");
   const [showCelebrate, setShowCelebrate] = useState(false);
   const [highlightedHabitId, setHighlightedHabitId] = useState<string | null>(
     null,
@@ -203,7 +204,13 @@ export default function DailyScreen() {
   const loadHabits = useCallback(async () => {
     try {
       const folders = await FolderRepository.getFolders();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folders.map((folder) => folder.id)]));
+      const folderIds = Array.from(
+        new Set([
+          "default",
+          "unassigned",
+          ...folders.map((folder) => folder.id),
+        ]),
+      );
       const allHabits: Habit[] = [];
 
       for (const folderId of folderIds) {
@@ -213,22 +220,25 @@ export default function DailyScreen() {
             ...habit,
             folderId: habit.folderId || folderId,
             category: normalizeTaskCategory(habit.category),
-            completedToday: habit.completedDates?.includes(getDateKey()) || false,
+            completedToday:
+              habit.completedDates?.includes(getDateKey()) || false,
           });
         });
       }
 
       if (allHabits.length === 0) {
-        const starter: Habit[] = STARTER_HABITS.map((habitTitle): Habit => ({
-          id: `${habitTitle.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          title: habitTitle,
-          streak: 0,
-          bestStreak: 0,
-          completedToday: false,
-          folderId: "default",
-          recurrence: { type: "daily" },
-          category: "health",
-        }));
+        const starter: Habit[] = STARTER_HABITS.map(
+          (habitTitle): Habit => ({
+            id: `${habitTitle.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: habitTitle,
+            streak: 0,
+            bestStreak: 0,
+            completedToday: false,
+            folderId: "default",
+            recurrence: { type: "daily" },
+            category: "health",
+          }),
+        );
         await persistHabits(starter);
         setHabits(starter);
         return;
@@ -249,7 +259,7 @@ export default function DailyScreen() {
   useFocusEffect(
     useCallback(() => {
       loadHabits();
-    }, [loadHabits])
+    }, [loadHabits]),
   );
 
   useEffect(() => {
@@ -391,7 +401,9 @@ export default function DailyScreen() {
 
       try {
         const Haptics = require("expo-haptics");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        ).catch(() => {});
       } catch {}
     } else {
       const rolledBackStreak = Math.max(0, habit.streak - 1);
@@ -409,7 +421,10 @@ export default function DailyScreen() {
     await persistHabits(nextHabits);
 
     try {
-      const { earnPebble, undoLastPebble } = require("@/services/pebbleService");
+      const {
+        earnPebble,
+        undoLastPebble,
+      } = require("@/services/pebbleService");
       if (isCompleting) {
         await earnPebble("habit");
       } else {
@@ -423,7 +438,6 @@ export default function DailyScreen() {
     } catch {}
     void recordDailyHistorySnapshot();
   };
-
 
   // HabitItem handles streak grids, day labels, and reminders internally
 
@@ -466,9 +480,25 @@ export default function DailyScreen() {
                           justifyContent: "space-between",
                         }}
                       >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <Feather name="bar-chart-2" size={16} color={colors.primary} />
-                          <Text style={{ fontWeight: "700", color: colors.text, fontSize: 14 }}>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <Feather
+                            name="bar-chart-2"
+                            size={16}
+                            color={colors.primary}
+                          />
+                          <Text
+                            style={{
+                              fontWeight: "700",
+                              color: colors.text,
+                              fontSize: 14,
+                            }}
+                          >
                             Daily Progress
                           </Text>
                           <View
@@ -479,7 +509,13 @@ export default function DailyScreen() {
                               paddingVertical: 2,
                             }}
                           >
-                            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>
+                            <Text
+                              style={{
+                                color: colors.primary,
+                                fontSize: 10,
+                                fontWeight: "700",
+                              }}
+                            >
                               {completionPctLabel}% Done
                             </Text>
                           </View>
@@ -510,7 +546,12 @@ export default function DailyScreen() {
                                 size={16}
                                 color={colors.warning}
                               />
-                              <Text style={[styles.warningText, { color: colors.warning }]}>
+                              <Text
+                                style={[
+                                  styles.warningText,
+                                  { color: colors.warning },
+                                ]}
+                              >
                                 {unfinishedCount} habits left today
                               </Text>
                             </View>
@@ -527,8 +568,17 @@ export default function DailyScreen() {
                                 },
                               ]}
                             >
-                              <Feather name="award" size={18} color={colors.success} />
-                              <Text style={[styles.successText, { color: colors.success }]}>
+                              <Feather
+                                name="award"
+                                size={18}
+                                color={colors.success}
+                              />
+                              <Text
+                                style={[
+                                  styles.successText,
+                                  { color: colors.success },
+                                ]}
+                              >
                                 Perfect run! All habits completed today.
                               </Text>
                             </View>
@@ -536,19 +586,69 @@ export default function DailyScreen() {
 
                           {/* Summary / Streaks */}
                           <View style={[styles.summaryRow, { gap: 8 }]}>
-                            <View style={[styles.summaryHalf, { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 10, backgroundColor: colors.cardLight }]}>
-                              <Text style={[styles.summaryLabel, { color: colors.textMuted, fontSize: 11 }]}>
+                            <View
+                              style={[
+                                styles.summaryHalf,
+                                {
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  borderRadius: 12,
+                                  padding: 10,
+                                  backgroundColor: colors.cardLight,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.summaryLabel,
+                                  { color: colors.textMuted, fontSize: 11 },
+                                ]}
+                              >
                                 Completed
                               </Text>
-                              <Text style={[styles.summaryVal, { color: colors.text, fontSize: 16, fontWeight: "700" }]}>
+                              <Text
+                                style={[
+                                  styles.summaryVal,
+                                  {
+                                    color: colors.text,
+                                    fontSize: 16,
+                                    fontWeight: "700",
+                                  },
+                                ]}
+                              >
                                 {completedCount}/{habits.length}
                               </Text>
                             </View>
-                            <View style={[styles.summaryHalf, { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 10, backgroundColor: colors.cardLight }]}>
-                              <Text style={[styles.summaryLabel, { color: colors.textMuted, fontSize: 11 }]}>
+                            <View
+                              style={[
+                                styles.summaryHalf,
+                                {
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  borderRadius: 12,
+                                  padding: 10,
+                                  backgroundColor: colors.cardLight,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.summaryLabel,
+                                  { color: colors.textMuted, fontSize: 11 },
+                                ]}
+                              >
                                 Longest Streak
                               </Text>
-                              <Text style={[styles.summaryVal, { color: colors.text, fontSize: 16, fontWeight: "700" }]}>
+                              <Text
+                                style={[
+                                  styles.summaryVal,
+                                  {
+                                    color: colors.text,
+                                    fontSize: 16,
+                                    fontWeight: "700",
+                                  },
+                                ]}
+                              >
                                 {longestStreak} Days
                               </Text>
                             </View>
@@ -598,20 +698,50 @@ export default function DailyScreen() {
                         </Text>
                         <View style={{ flexDirection: "row", gap: 8 }}>
                           {[
-                            { key: "high", label: "🔴 High", color: colors.error, softColor: colorScheme === "light" ? "rgba(220, 38, 38, 0.08)" : "rgba(239, 68, 68, 0.12)" },
-                            { key: "medium", label: "🟡 Medium", color: colors.warning, softColor: colorScheme === "light" ? "rgba(217, 119, 6, 0.08)" : "rgba(245, 158, 11, 0.12)" },
-                            { key: "low", label: "🟢 Low", color: colors.success, softColor: colorScheme === "light" ? "rgba(5, 150, 105, 0.08)" : "rgba(16, 185, 129, 0.12)" },
+                            {
+                              key: "high",
+                              label: "🔴 High",
+                              color: colors.error,
+                              softColor:
+                                colorScheme === "light"
+                                  ? "rgba(220, 38, 38, 0.08)"
+                                  : "rgba(239, 68, 68, 0.12)",
+                            },
+                            {
+                              key: "medium",
+                              label: "🟡 Medium",
+                              color: colors.warning,
+                              softColor:
+                                colorScheme === "light"
+                                  ? "rgba(217, 119, 6, 0.08)"
+                                  : "rgba(245, 158, 11, 0.12)",
+                            },
+                            {
+                              key: "low",
+                              label: "🟢 Low",
+                              color: colors.success,
+                              softColor:
+                                colorScheme === "light"
+                                  ? "rgba(5, 150, 105, 0.08)"
+                                  : "rgba(16, 185, 129, 0.12)",
+                            },
                           ].map((p) => {
                             const isSelected = selectedHabitPriority === p.key;
                             return (
                               <Pressable
                                 key={p.key}
-                                onPress={() => setSelectedHabitPriority(p.key as any)}
+                                onPress={() =>
+                                  setSelectedHabitPriority(p.key as any)
+                                }
                                 style={({ pressed }) => [
                                   styles.priorityChoicePill,
                                   {
-                                    backgroundColor: isSelected ? p.softColor : colors.cardLight,
-                                    borderColor: isSelected ? p.color : colors.border,
+                                    backgroundColor: isSelected
+                                      ? p.softColor
+                                      : colors.cardLight,
+                                    borderColor: isSelected
+                                      ? p.color
+                                      : colors.border,
                                     opacity: pressed ? 0.9 : 1,
                                   },
                                 ]}
@@ -633,7 +763,12 @@ export default function DailyScreen() {
                     )}
 
                     {/* Priority Filter Row */}
-                    <View style={[styles.prioritySelectorRow, { marginBottom: 8, marginTop: 4 }]}>
+                    <View
+                      style={[
+                        styles.prioritySelectorRow,
+                        { marginBottom: 8, marginTop: 4 },
+                      ]}
+                    >
                       <Text
                         style={[
                           styles.prioritySelectorLabel,
@@ -649,25 +784,34 @@ export default function DailyScreen() {
                           { key: "medium", label: "🟡 Medium" },
                           { key: "low", label: "🟢 Low" },
                         ].map((p) => {
-                          const isSelected = selectedHabitPriorityFilter === p.key;
+                          const isSelected =
+                            selectedHabitPriorityFilter === p.key;
                           return (
                             <Pressable
                               key={p.key}
-                              onPress={() => setSelectedHabitPriorityFilter(p.key as any)}
+                              onPress={() =>
+                                setSelectedHabitPriorityFilter(p.key as any)
+                              }
                               style={({ pressed }) => [
                                 styles.priorityChoicePill,
                                 {
                                   backgroundColor: isSelected
-                                    ? colorScheme === "light" ? "#E2E8F0" : "#27272A"
+                                    ? colorScheme === "light"
+                                      ? "#E2E8F0"
+                                      : "#27272A"
                                     : colors.cardLight,
-                                  borderColor: isSelected ? colors.primary : colors.border,
+                                  borderColor: isSelected
+                                    ? colors.primary
+                                    : colors.border,
                                   opacity: pressed ? 0.9 : 1,
                                 },
                               ]}
                             >
                               <Text
                                 style={{
-                                  color: isSelected ? colors.text : colors.textMuted,
+                                  color: isSelected
+                                    ? colors.text
+                                    : colors.textMuted,
                                   fontWeight: isSelected ? "700" : "500",
                                   fontSize: 12,
                                 }}

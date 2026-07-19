@@ -1,4 +1,5 @@
 import { type TaskCategory } from "@/services/taskCategories";
+import { type ScheduleConfig } from "@/services/v3/v3Types";
 
 export type Subtask = {
   id: string;
@@ -6,32 +7,16 @@ export type Subtask = {
   completed: boolean;
 };
 
-export type Todo = {
+export type Todo = ScheduleConfig & {
   id: string;
   title: string;
   completed: boolean;
   completedAt?: number;
   category?: TaskCategory;
   isEvent?: boolean;
-  alarmId?: string;
-  alarmTime?: number;
-  notificationIds?: string[];
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[];
   escalationMinutes?: number[];
   priority?: "low" | "medium" | "high";
-  scheduledDate?: string;
-  scheduledTime?: string;
   description?: string;
-  durationMinutes?: number;
-  recurrence?: {
-    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-    interval?: number;
-    unit?: "hours" | "days";
-    days?: number[];
-    dayOfMonth?: number;
-  };
   folderId?: string;
   archived?: boolean;
   createdDate?: string;
@@ -43,26 +28,15 @@ export type Todo = {
   linkedCollectionIds?: string[];
 };
 
-export type Habit = {
+export type Habit = ScheduleConfig & {
   id: string;
   title: string;
   streak: number;
   bestStreak: number;
   completedToday: boolean;
   lastCompletedDate?: string;
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[];
-  notificationIds?: string[];
   escalationMinutes?: number[];
   priority?: "low" | "medium" | "high";
-  recurrence?: {
-    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-    interval?: number;
-    unit?: "hours" | "days";
-    days?: number[];
-    dayOfMonth?: number;
-  };
   description?: string;
   category?: TaskCategory;
   folderId?: string;

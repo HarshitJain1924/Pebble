@@ -1,42 +1,46 @@
 import { FloatingGlow } from "@/components/AmbientBackground";
-import { AppCard } from "@/components/AppCard";
+import { RankTiersModal } from "@/components/profile/RankTiersModal";
+import {
+    AVATAR_OPTIONS,
+    EMOJI_OPTIONS,
+    RenderAvatar,
+} from "@/components/profile/RenderAvatar";
 import { AppText as Text } from "@/components/ui/AppText";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { normalizeHabitsForToday } from "@/services/habitService";
+import { getPebbleCounts } from "@/services/pebbleService";
 import { getHistoryForMonth } from "@/services/productivityHistory";
 import {
-  getLevelInfo,
-  getProfile,
-  saveProfile,
-  type UserProfile,
+    getLevelInfo,
+    getProfile,
+    saveProfile,
+    type UserProfile,
 } from "@/services/settingsService";
-import { getPebbleCounts } from "@/services/pebbleService";
-import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
 import { addStateListener, emitStateChange } from "@/services/stateEvents";
+import { normalizeTaskCategory } from "@/services/taskCategories";
+import {
+    ActivityRepository,
+    FolderRepository,
+} from "@/services/v3/repositories";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
-import { useFocusEffect, useRouter, Stack } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Dimensions,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  View,
-  Modal,
+    ActivityIndicator,
+    Dimensions,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    View,
 } from "react-native";
-import Animated, {
-  FadeInDown,
-} from "react-native-reanimated";
-import { RankTiersModal } from "@/components/profile/RankTiersModal";
-import { RenderAvatar, AVATAR_OPTIONS, EMOJI_OPTIONS } from "@/components/profile/RenderAvatar";
-import { BlurView } from "expo-blur";
-import { normalizeHabitsForToday } from "@/services/habitService";
-import { normalizeTaskCategory } from "@/services/taskCategories";
+import Animated, { FadeInDown } from "react-native-reanimated";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -78,7 +82,11 @@ export default function ProfileScreen() {
   const [showAvatarPicker, setShowAvatarPicker] = useState<boolean>(false);
   const [lifetimePebbles, setLifetimePebbles] = useState<number>(0);
   const [monthlyPebbles, setMonthlyPebbles] = useState<number>(0);
-  const [lifetimeTypes, setLifetimeTypes] = useState<{ task: number; habit: number; focus: number }>({
+  const [lifetimeTypes, setLifetimeTypes] = useState<{
+    task: number;
+    habit: number;
+    focus: number;
+  }>({
     task: 0,
     habit: 0,
     focus: 0,
@@ -96,7 +104,13 @@ export default function ProfileScreen() {
 
       // 2. Query task and habit stats from V3 repositories
       const folders = await FolderRepository.getFolders();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folders.map((folder) => folder.id)]));
+      const folderIds = Array.from(
+        new Set([
+          "default",
+          "unassigned",
+          ...folders.map((folder) => folder.id),
+        ]),
+      );
       const todayKey = getDateKey();
       let totalCompletedTodos = 0;
       let totalTasks = 0;
@@ -115,7 +129,10 @@ export default function ProfileScreen() {
         totalTasks += tasks.length;
         totalCompletedTodos += tasks.filter((task) => task.completed).length;
         todayPebblesCount += tasks.filter(
-          (task) => task.completed && task.completedAt && getDateKey(new Date(task.completedAt)) === todayKey,
+          (task) =>
+            task.completed &&
+            task.completedAt &&
+            getDateKey(new Date(task.completedAt)) === todayKey,
         ).length;
 
         const habits = normalizeHabitsForToday(
@@ -125,10 +142,22 @@ export default function ProfileScreen() {
             completedToday: habit.completedDates?.includes(todayKey) || false,
           })),
         );
-        totalCompletedHabits += habits.filter((habit) => habit.completedToday).length;
-        streak = Math.max(streak, ...habits.map((habit) => habit.streak || 0), streak);
-        bestStreak = Math.max(bestStreak, ...habits.map((habit) => habit.bestStreak || 0), bestStreak);
-        todayPebblesCount += habits.filter((habit) => habit.completedToday).length;
+        totalCompletedHabits += habits.filter(
+          (habit) => habit.completedToday,
+        ).length;
+        streak = Math.max(
+          streak,
+          ...habits.map((habit) => habit.streak || 0),
+          streak,
+        );
+        bestStreak = Math.max(
+          bestStreak,
+          ...habits.map((habit) => habit.bestStreak || 0),
+          bestStreak,
+        );
+        todayPebblesCount += habits.filter(
+          (habit) => habit.completedToday,
+        ).length;
       }
 
       // 4. Calculate Average Productivity Score (last 3 months)
@@ -187,7 +216,9 @@ export default function ProfileScreen() {
       const pebbleStats = await getPebbleCounts();
       setLifetimePebbles(pebbleStats.lifetime);
       setMonthlyPebbles(pebbleStats.monthly);
-      setLifetimeTypes(pebbleStats.lifetimeTypes || { task: 0, habit: 0, focus: 0 });
+      setLifetimeTypes(
+        pebbleStats.lifetimeTypes || { task: 0, habit: 0, focus: 0 },
+      );
 
       setStats({
         todosCompleted: actualTodosCompleted,
@@ -204,14 +235,12 @@ export default function ProfileScreen() {
       const { getGemsBalance } = require("@/services/pebbleService");
       const balance = await getGemsBalance();
       setGemsBalance(balance);
-
     } catch (err) {
       console.warn("Failed loading profile data in simplified profile", err);
     } finally {
       setLoading(false);
     }
   }, []);
-
 
   useFocusEffect(
     useCallback(() => {
@@ -248,8 +277,6 @@ export default function ProfileScreen() {
       console.warn("Failed to save avatar", err);
     }
   };
-
-
 
   if (loading || !profile) {
     return (
@@ -345,15 +372,41 @@ export default function ProfileScreen() {
 
   // Circular achievements teaser triggers
   const teaserAchievements = [
-    { icon: "check-square" as const, unlocked: stats.todosCompleted >= 1, title: "First Pebble" },
-    { icon: "activity" as const, unlocked: stats.habitsCompleted >= 1, title: "Daily Routine" },
-    { icon: "trending-up" as const, unlocked: stats.activeStreak >= 7, title: "Weekly Momentum" },
-    { icon: "calendar" as const, unlocked: stats.activeStreak >= 30, title: "Monthly Resilience" },
-    { icon: "award" as const, unlocked: stats.todosCompleted >= 100, title: "Centurion" },
-    { icon: "zap" as const, unlocked: stats.focusSessions >= 10, title: "Focus Master" },
+    {
+      icon: "check-square" as const,
+      unlocked: stats.todosCompleted >= 1,
+      title: "First Pebble",
+    },
+    {
+      icon: "activity" as const,
+      unlocked: stats.habitsCompleted >= 1,
+      title: "Daily Routine",
+    },
+    {
+      icon: "trending-up" as const,
+      unlocked: stats.activeStreak >= 7,
+      title: "Weekly Momentum",
+    },
+    {
+      icon: "calendar" as const,
+      unlocked: stats.activeStreak >= 30,
+      title: "Monthly Resilience",
+    },
+    {
+      icon: "award" as const,
+      unlocked: stats.todosCompleted >= 100,
+      title: "Centurion",
+    },
+    {
+      icon: "zap" as const,
+      unlocked: stats.focusSessions >= 10,
+      title: "Focus Master",
+    },
   ];
-  
-  const unlockedTeasers = teaserAchievements.filter((a) => a.unlocked).slice(0, 3);
+
+  const unlockedTeasers = teaserAchievements
+    .filter((a) => a.unlocked)
+    .slice(0, 3);
   const unlockedCount = teaserAchievements.filter((a) => a.unlocked).length;
 
   return (
@@ -363,14 +416,15 @@ export default function ProfileScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       {/* Header */}
       <View style={[styles.header, { borderColor: colors.border }]}>
-
         <Pressable
           style={({ pressed }) => [
             styles.backButton,
             { opacity: pressed ? 0.7 : 1 },
           ]}
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+              () => {},
+            );
             router.back();
           }}
         >
@@ -385,7 +439,9 @@ export default function ProfileScreen() {
             { opacity: pressed ? 0.7 : 1 },
           ]}
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+              () => {},
+            );
             router.push("/settings");
           }}
         >
@@ -434,7 +490,9 @@ export default function ProfileScreen() {
                   },
                 ]}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                    () => {},
+                  );
                   setShowAvatarPicker(true);
                 }}
               >
@@ -468,12 +526,17 @@ export default function ProfileScreen() {
                 {/* Level badge */}
                 <Pressable
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    Haptics.impactAsync(
+                      Haptics.ImpactFeedbackStyle.Light,
+                    ).catch(() => {});
                     setShowRankSheet(true);
                   }}
                   style={({ pressed }) => [
                     styles.rankBadge,
-                    { backgroundColor: `${colors.primary}18`, opacity: pressed ? 0.75 : 1 },
+                    {
+                      backgroundColor: `${colors.primary}18`,
+                      opacity: pressed ? 0.75 : 1,
+                    },
                   ]}
                 >
                   <Feather
@@ -509,10 +572,27 @@ export default function ProfileScreen() {
               ]}
             >
               {/* Header Row */}
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  width: "100%",
+                }}
+              >
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
                   <Text style={{ fontSize: 18 }}>🫙</Text>
-                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: "800",
+                      color: colors.text,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                    }}
+                  >
                     Pebble Sanctuary
                   </Text>
                 </View>
@@ -526,40 +606,129 @@ export default function ProfileScreen() {
                     borderColor: `${colors.primary}33`,
                   }}
                 >
-                  <Text style={{ fontSize: 9, fontWeight: "800", color: colors.primary }}>
-                    STAGE {milestoneInfo.stage}: {milestoneInfo.name.toUpperCase()}
+                  <Text
+                    style={{
+                      fontSize: 9,
+                      fontWeight: "800",
+                      color: colors.primary,
+                    }}
+                  >
+                    STAGE {milestoneInfo.stage}:{" "}
+                    {milestoneInfo.name.toUpperCase()}
                   </Text>
                 </View>
               </View>
 
               {/* Statistics Split Columns (Grid Style to prevent overlap) */}
-              <View style={{ flexDirection: "row", width: "100%", justifyContent: "space-between", gap: 8 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  width: "100%",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
                 {/* Monthly Progress */}
-                <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
-                  <Text style={{ fontSize: 15, fontWeight: "900", color: colors.text }}>
+                <View
+                  style={{
+                    flex: 1,
+                    backgroundColor:
+                      colorScheme === "light"
+                        ? "rgba(0,0,0,0.02)"
+                        : "rgba(255,255,255,0.02)",
+                    padding: 8,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: "900",
+                      color: colors.text,
+                    }}
+                  >
                     {monthlyPebbles}/100
                   </Text>
-                  <Text style={{ fontSize: 8, fontWeight: "600", color: colors.textMuted, marginTop: 2 }}>
+                  <Text
+                    style={{
+                      fontSize: 8,
+                      fontWeight: "600",
+                      color: colors.textMuted,
+                      marginTop: 2,
+                    }}
+                  >
                     Monthly Target
                   </Text>
                 </View>
 
                 {/* Gems Balance */}
-                <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
-                  <Text style={{ fontSize: 15, fontWeight: "900", color: "#F59E0B" }}>
+                <View
+                  style={{
+                    flex: 1,
+                    backgroundColor:
+                      colorScheme === "light"
+                        ? "rgba(0,0,0,0.02)"
+                        : "rgba(255,255,255,0.02)",
+                    padding: 8,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: "900",
+                      color: "#F59E0B",
+                    }}
+                  >
                     💎 {gemsBalance}
                   </Text>
-                  <Text style={{ fontSize: 8, fontWeight: "600", color: colors.textMuted, marginTop: 2 }}>
+                  <Text
+                    style={{
+                      fontSize: 8,
+                      fontWeight: "600",
+                      color: colors.textMuted,
+                      marginTop: 2,
+                    }}
+                  >
                     Gems Balance
                   </Text>
                 </View>
 
                 {/* Lifetime Total */}
-                <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
-                  <Text style={{ fontSize: 15, fontWeight: "900", color: colors.text }}>
+                <View
+                  style={{
+                    flex: 1,
+                    backgroundColor:
+                      colorScheme === "light"
+                        ? "rgba(0,0,0,0.02)"
+                        : "rgba(255,255,255,0.02)",
+                    padding: 8,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: "900",
+                      color: colors.text,
+                    }}
+                  >
                     {totalPebbles}
                   </Text>
-                  <Text style={{ fontSize: 8, fontWeight: "600", color: colors.textMuted, marginTop: 2 }}>
+                  <Text
+                    style={{
+                      fontSize: 8,
+                      fontWeight: "600",
+                      color: colors.textMuted,
+                      marginTop: 2,
+                    }}
+                  >
                     Lifetime
                   </Text>
                 </View>
@@ -567,43 +736,153 @@ export default function ProfileScreen() {
 
               {/* Pebble Sources Breakdown */}
               <View style={{ width: "100%", gap: 6, marginTop: 4 }}>
-                <Text style={{ fontSize: 8, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                <Text
+                  style={{
+                    fontSize: 8,
+                    fontWeight: "800",
+                    color: colors.textMuted,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                  }}
+                >
                   Pebble Sources
                 </Text>
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   {/* Tasks — purple */}
-                  <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(139,92,246,0.06)" : "rgba(139,92,246,0.12)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: "rgba(139,92,246,0.25)", alignItems: "center", gap: 3 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor:
+                        colorScheme === "light"
+                          ? "rgba(139,92,246,0.06)"
+                          : "rgba(139,92,246,0.12)",
+                      padding: 8,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: "rgba(139,92,246,0.25)",
+                      alignItems: "center",
+                      gap: 3,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
                       <Feather name="check-square" size={11} color="#8B5CF6" />
-                      <Text style={{ fontSize: 13, fontWeight: "900", color: "#8B5CF6" }}>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "900",
+                          color: "#8B5CF6",
+                        }}
+                      >
                         {lifetimeTypes.task}
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 8, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", textAlign: "center" }}>
+                    <Text
+                      style={{
+                        fontSize: 8,
+                        fontWeight: "700",
+                        color: colors.textMuted,
+                        textTransform: "uppercase",
+                        textAlign: "center",
+                      }}
+                    >
                       Tasks
                     </Text>
                   </View>
                   {/* Habits — orange */}
-                  <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(249,115,22,0.06)" : "rgba(249,115,22,0.12)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: "rgba(249,115,22,0.25)", alignItems: "center", gap: 3 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor:
+                        colorScheme === "light"
+                          ? "rgba(249,115,22,0.06)"
+                          : "rgba(249,115,22,0.12)",
+                      padding: 8,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: "rgba(249,115,22,0.25)",
+                      alignItems: "center",
+                      gap: 3,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
                       <Feather name="repeat" size={11} color="#F97316" />
-                      <Text style={{ fontSize: 13, fontWeight: "900", color: "#F97316" }}>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "900",
+                          color: "#F97316",
+                        }}
+                      >
                         {lifetimeTypes.habit}
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 8, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", textAlign: "center" }}>
+                    <Text
+                      style={{
+                        fontSize: 8,
+                        fontWeight: "700",
+                        color: colors.textMuted,
+                        textTransform: "uppercase",
+                        textAlign: "center",
+                      }}
+                    >
                       Habits
                     </Text>
                   </View>
                   {/* Focus — green */}
-                  <View style={{ flex: 1, backgroundColor: colorScheme === "light" ? "rgba(16,185,129,0.06)" : "rgba(16,185,129,0.12)", padding: 8, borderRadius: 10, borderWidth: 1, borderColor: "rgba(16,185,129,0.25)", alignItems: "center", gap: 3 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor:
+                        colorScheme === "light"
+                          ? "rgba(16,185,129,0.06)"
+                          : "rgba(16,185,129,0.12)",
+                      padding: 8,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: "rgba(16,185,129,0.25)",
+                      alignItems: "center",
+                      gap: 3,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
                       <Feather name="zap" size={11} color="#10B981" />
-                      <Text style={{ fontSize: 13, fontWeight: "900", color: "#10B981" }}>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "900",
+                          color: "#10B981",
+                        }}
+                      >
                         {lifetimeTypes.focus}
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 8, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", textAlign: "center" }}>
+                    <Text
+                      style={{
+                        fontSize: 8,
+                        fontWeight: "700",
+                        color: colors.textMuted,
+                        textTransform: "uppercase",
+                        textAlign: "center",
+                      }}
+                    >
                       Focus
                     </Text>
                   </View>
@@ -646,15 +925,28 @@ export default function ProfileScreen() {
                       );
                     })()}
                   </View>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     {(() => {
                       const nextMilestone = [10, 25, 50, 100, 250, 500][
                         milestoneInfo.stage - 1
                       ];
                       const remaining = nextMilestone - totalPebbles;
                       return (
-                        <Text style={{ fontSize: 9, fontWeight: "600", color: colors.textMuted }}>
-                          {remaining} pebble{remaining === 1 ? "" : "s"} to Stage {milestoneInfo.stage + 1}
+                        <Text
+                          style={{
+                            fontSize: 9,
+                            fontWeight: "600",
+                            color: colors.textMuted,
+                          }}
+                        >
+                          {remaining} pebble{remaining === 1 ? "" : "s"} to
+                          Stage {milestoneInfo.stage + 1}
                         </Text>
                       );
                     })()}
@@ -671,7 +963,15 @@ export default function ProfileScreen() {
                       if (!nextUnlock) return null;
 
                       return (
-                        <Text style={{ fontSize: 8, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, color: colors.warning }}>
+                        <Text
+                          style={{
+                            fontSize: 8,
+                            fontWeight: "700",
+                            textTransform: "uppercase",
+                            letterSpacing: 0.5,
+                            color: colors.warning,
+                          }}
+                        >
                           ⚡ Next: {nextUnlock.label}
                         </Text>
                       );
@@ -684,12 +984,14 @@ export default function ProfileScreen() {
             {/* XP progress bar */}
             <Pressable
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                  () => {},
+                );
                 setShowRankSheet(true);
               }}
               style={({ pressed }) => [
                 styles.xpProgressContainer,
-                { opacity: pressed ? 0.9 : 1 }
+                { opacity: pressed ? 0.9 : 1 },
               ]}
             >
               <View style={styles.xpLabelRow}>
@@ -802,7 +1104,10 @@ export default function ProfileScreen() {
 
         {/* Circular Achievements Teaser Row (Dribbble-style badge tray) */}
         {unlockedTeasers.length > 0 && (
-          <Animated.View entering={enteringAnim(80, 450)} style={styles.teaserSection}>
+          <Animated.View
+            entering={enteringAnim(80, 450)}
+            style={styles.teaserSection}
+          >
             <View style={styles.teaserHeader}>
               <Text style={[styles.teaserLabel, { color: colors.textMuted }]}>
                 RECENT BADGES
@@ -810,7 +1115,9 @@ export default function ProfileScreen() {
               <Pressable
                 style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                    () => {},
+                  );
                   router.push("/profile/achievements");
                 }}
               >
@@ -827,14 +1134,18 @@ export default function ProfileScreen() {
                     styles.badgeTrayItem,
                     {
                       borderColor: colors.border,
-                      backgroundColor: colorScheme === "light"
-                        ? "rgba(99, 102, 241, 0.04)"
-                        : "rgba(99, 102, 241, 0.08)",
+                      backgroundColor:
+                        colorScheme === "light"
+                          ? "rgba(99, 102, 241, 0.04)"
+                          : "rgba(99, 102, 241, 0.08)",
                     },
                   ]}
                 >
                   <Feather name={ach.icon} size={15} color={colors.primary} />
-                  <Text style={[styles.badgeTrayText, { color: colors.text }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.badgeTrayText, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
                     {ach.title}
                   </Text>
                 </View>
@@ -844,8 +1155,16 @@ export default function ProfileScreen() {
         )}
 
         {/* Dribbble-Style Glassmorphic Clean Navigation List */}
-        <Animated.View entering={enteringAnim(150, 450)} style={styles.navSection}>
-          <Text style={[styles.teaserLabel, { color: colors.textMuted, marginBottom: 2 }]}>
+        <Animated.View
+          entering={enteringAnim(150, 450)}
+          style={styles.navSection}
+        >
+          <Text
+            style={[
+              styles.teaserLabel,
+              { color: colors.textMuted, marginBottom: 2 },
+            ]}
+          >
             HUB NAVIGATION
           </Text>
 
@@ -854,21 +1173,35 @@ export default function ProfileScreen() {
               styles.navCard,
               {
                 borderColor: colors.border,
-                backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.015)" : "rgba(255,255,255,0.015)",
+                backgroundColor:
+                  colorScheme === "light"
+                    ? "rgba(0,0,0,0.015)"
+                    : "rgba(255,255,255,0.015)",
                 opacity: pressed ? 0.85 : 1,
               },
             ]}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+                () => {},
+              );
               router.push("/profile/stats");
             }}
           >
-            <View style={[styles.navIconBox, { backgroundColor: "rgba(99, 102, 241, 0.08)" }]}>
+            <View
+              style={[
+                styles.navIconBox,
+                { backgroundColor: "rgba(99, 102, 241, 0.08)" },
+              ]}
+            >
               <Feather name="bar-chart-2" size={18} color={colors.primary} />
             </View>
             <View style={styles.navTextContainer}>
-              <Text style={[styles.navCardTitle, { color: colors.text }]}>Analytics & Focus Trends</Text>
-              <Text style={[styles.navCardSubtitle, { color: colors.textMuted }]}>
+              <Text style={[styles.navCardTitle, { color: colors.text }]}>
+                Analytics & Focus Trends
+              </Text>
+              <Text
+                style={[styles.navCardSubtitle, { color: colors.textMuted }]}
+              >
                 Weekly momentum, rhythm peaks and category breakdowns
               </Text>
             </View>
@@ -880,21 +1213,35 @@ export default function ProfileScreen() {
               styles.navCard,
               {
                 borderColor: colors.border,
-                backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.015)" : "rgba(255,255,255,0.015)",
+                backgroundColor:
+                  colorScheme === "light"
+                    ? "rgba(0,0,0,0.015)"
+                    : "rgba(255,255,255,0.015)",
                 opacity: pressed ? 0.85 : 1,
               },
             ]}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+                () => {},
+              );
               router.push("/profile/achievements");
             }}
           >
-            <View style={[styles.navIconBox, { backgroundColor: "rgba(245, 158, 11, 0.08)" }]}>
+            <View
+              style={[
+                styles.navIconBox,
+                { backgroundColor: "rgba(245, 158, 11, 0.08)" },
+              ]}
+            >
               <Feather name="award" size={18} color={colors.warning} />
             </View>
             <View style={styles.navTextContainer}>
-              <Text style={[styles.navCardTitle, { color: colors.text }]}>Badges & Achievements</Text>
-              <Text style={[styles.navCardSubtitle, { color: colors.textMuted }]}>
+              <Text style={[styles.navCardTitle, { color: colors.text }]}>
+                Badges & Achievements
+              </Text>
+              <Text
+                style={[styles.navCardSubtitle, { color: colors.textMuted }]}
+              >
                 Unlocked milestones, progress tracks, and collectible items
               </Text>
             </View>
@@ -906,21 +1253,35 @@ export default function ProfileScreen() {
               styles.navCard,
               {
                 borderColor: colors.border,
-                backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.015)" : "rgba(255,255,255,0.015)",
+                backgroundColor:
+                  colorScheme === "light"
+                    ? "rgba(0,0,0,0.015)"
+                    : "rgba(255,255,255,0.015)",
                 opacity: pressed ? 0.85 : 1,
               },
             ]}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+                () => {},
+              );
               router.push("/notifications");
             }}
           >
-            <View style={[styles.navIconBox, { backgroundColor: "rgba(16, 185, 129, 0.08)" }]}>
+            <View
+              style={[
+                styles.navIconBox,
+                { backgroundColor: "rgba(16, 185, 129, 0.08)" },
+              ]}
+            >
               <Feather name="bell" size={18} color={colors.success} />
             </View>
             <View style={styles.navTextContainer}>
-              <Text style={[styles.navCardTitle, { color: colors.text }]}>Alerts & Reminder Center</Text>
-              <Text style={[styles.navCardSubtitle, { color: colors.textMuted }]}>
+              <Text style={[styles.navCardTitle, { color: colors.text }]}>
+                Alerts & Reminder Center
+              </Text>
+              <Text
+                style={[styles.navCardSubtitle, { color: colors.textMuted }]}
+              >
                 Upcoming alarms schedule and active task alert configuration
               </Text>
             </View>
@@ -946,19 +1307,28 @@ export default function ProfileScreen() {
         onRequestClose={() => setShowAvatarPicker(false)}
       >
         <View style={styles.modalOverlay}>
-          <BlurView intensity={25} style={StyleSheet.absoluteFill} tint="dark" />
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAvatarPicker(false)} />
-          
+          <BlurView
+            intensity={25}
+            style={StyleSheet.absoluteFill}
+            tint="dark"
+          />
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setShowAvatarPicker(false)}
+          />
+
           <Animated.View
             entering={enteringAnim(0, 300)}
             style={[
               styles.avatarPickerCard,
-              { backgroundColor: colors.card, borderColor: colors.border }
+              { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
             {/* Header */}
             <View style={styles.modalHeaderRow}>
-              <Text style={[styles.modalTitleText, { color: colors.text }]}>Choose Companion Avatar</Text>
+              <Text style={[styles.modalTitleText, { color: colors.text }]}>
+                Choose Companion Avatar
+              </Text>
               <Pressable
                 onPress={() => setShowAvatarPicker(false)}
                 style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
@@ -967,10 +1337,15 @@ export default function ProfileScreen() {
               </Pressable>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ gap: 16 }}
+            >
               {/* 2.5D Mascot Poses section */}
               <View style={{ gap: 10 }}>
-                <Text style={[styles.categoryTitle, { color: colors.primary }]}>2.5D MASCOT CROW PERSONAS</Text>
+                <Text style={[styles.categoryTitle, { color: colors.primary }]}>
+                  2.5D MASCOT CROW PERSONAS
+                </Text>
                 <View style={styles.avatarPickerGrid}>
                   {AVATAR_OPTIONS.map((opt) => {
                     const isSelected = profile.avatar === opt.id;
@@ -981,16 +1356,32 @@ export default function ProfileScreen() {
                         style={[
                           styles.avatarPickerItem,
                           {
-                            backgroundColor: isSelected ? `${colors.primary}15` : "rgba(255,255,255,0.02)",
-                            borderColor: isSelected ? colors.primary : colors.border,
-                          }
+                            backgroundColor: isSelected
+                              ? `${colors.primary}15`
+                              : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
                         ]}
                       >
                         <RenderAvatar avatar={opt.id} size={48} />
-                        <Text style={[styles.avatarLabelText, { color: colors.text }]} numberOfLines={1}>
+                        <Text
+                          style={[
+                            styles.avatarLabelText,
+                            { color: colors.text },
+                          ]}
+                          numberOfLines={1}
+                        >
                           {opt.label}
                         </Text>
-                        <Text style={[styles.avatarDescText, { color: colors.textMuted }]} numberOfLines={1}>
+                        <Text
+                          style={[
+                            styles.avatarDescText,
+                            { color: colors.textMuted },
+                          ]}
+                          numberOfLines={1}
+                        >
                           {opt.desc}
                         </Text>
                       </Pressable>
@@ -1001,7 +1392,11 @@ export default function ProfileScreen() {
 
               {/* Standard Emojis section */}
               <View style={{ gap: 10, marginTop: 4 }}>
-                <Text style={[styles.categoryTitle, { color: colors.textMuted }]}>CLASSIC EMOJIS</Text>
+                <Text
+                  style={[styles.categoryTitle, { color: colors.textMuted }]}
+                >
+                  CLASSIC EMOJIS
+                </Text>
                 <View style={styles.emojiPickerGrid}>
                   {EMOJI_OPTIONS.map((emoji) => {
                     const isSelected = profile.avatar === emoji;
@@ -1012,9 +1407,13 @@ export default function ProfileScreen() {
                         style={[
                           styles.emojiPickerItem,
                           {
-                            backgroundColor: isSelected ? `${colors.primary}15` : "rgba(255,255,255,0.02)",
-                            borderColor: isSelected ? colors.primary : colors.border,
-                          }
+                            backgroundColor: isSelected
+                              ? `${colors.primary}15`
+                              : "rgba(255,255,255,0.02)",
+                            borderColor: isSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
                         ]}
                       >
                         <Text style={{ fontSize: 24 }}>{emoji}</Text>

@@ -708,56 +708,57 @@ export function hasNotificationPayload(data: unknown) {
 }
 
 import { type Todo, type Habit } from "@/modules/types";
+import { type ScheduleConfig } from "@/services/v3/v3Types";
+
+async function rescheduleItemRemindersInternal(
+  item: ScheduleConfig & { id: string; title: string; category?: string },
+  kind: "todo" | "habit"
+): Promise<Partial<ScheduleConfig>> {
+  const updates: Partial<ScheduleConfig> = {};
+
+  if (kind === "todo" && item.alarmTime && item.alarmTime > Date.now()) {
+    const batch = await scheduleReminderBatch({
+      kind: "todo",
+      itemId: item.id,
+      title: item.title,
+      oneTimeAt: new Date(item.alarmTime),
+      category: item.category,
+    });
+    updates.alarmId = batch.primaryId;
+    updates.notificationIds = batch.ids;
+  } else if (item.reminderHour !== undefined && item.reminderMinute !== undefined) {
+    const batch = await scheduleReminderBatch({
+      kind,
+      itemId: item.id,
+      title: item.title,
+      dailyTime: { hour: item.reminderHour, minute: item.reminderMinute },
+      dailyDays: item.reminderDays,
+      recurrence: item.recurrence,
+      category: item.category,
+    });
+    updates.notificationIds = batch.ids;
+  }
+
+  return updates;
+}
 
 export async function rescheduleTodoReminders(todo: Todo): Promise<Todo> {
-  const updatedTodo = { ...todo };
   try {
-    if (todo.alarmTime && todo.alarmTime > Date.now()) {
-      const batch = await scheduleReminderBatch({
-        kind: "todo",
-        itemId: todo.id,
-        title: todo.title,
-        oneTimeAt: new Date(todo.alarmTime),
-        category: todo.category,
-      });
-      updatedTodo.alarmId = batch.primaryId;
-      updatedTodo.notificationIds = batch.ids;
-    } else if (todo.reminderHour !== undefined && todo.reminderMinute !== undefined) {
-      const batch = await scheduleReminderBatch({
-        kind: "todo",
-        itemId: todo.id,
-        title: todo.title,
-        dailyTime: { hour: todo.reminderHour, minute: todo.reminderMinute },
-        dailyDays: todo.reminderDays,
-        recurrence: todo.recurrence,
-        category: todo.category,
-      });
-      updatedTodo.notificationIds = batch.ids;
-    }
+    const updates = await rescheduleItemRemindersInternal(todo, "todo");
+    return { ...todo, ...updates };
   } catch (e) {
     console.warn("Failed to reschedule todo reminders", e);
+    return todo;
   }
-  return updatedTodo;
 }
 
 export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
-  const updatedHabit = { ...habit };
   try {
-    if (habit.reminderHour !== undefined && habit.reminderMinute !== undefined) {
-      const batch = await scheduleReminderBatch({
-        kind: "habit",
-        itemId: habit.id,
-        title: habit.title,
-        dailyTime: { hour: habit.reminderHour, minute: habit.reminderMinute },
-        dailyDays: habit.reminderDays,
-        recurrence: habit.recurrence,
-        category: habit.category,
-      });
-      updatedHabit.notificationIds = batch.ids;
-    }
+    const updates = await rescheduleItemRemindersInternal(habit, "habit");
+    return { ...habit, ...updates };
   } catch (e) {
     console.warn("Failed to reschedule habit reminders", e);
+    return habit;
   }
-  return updatedHabit;
 }
 

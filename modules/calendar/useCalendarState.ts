@@ -19,6 +19,8 @@ import {
 import { addStateListener, emitStateChange } from "@/services/stateEvents";
 import { isRecurringOccurrenceForDate } from "@/services/recurrence";
 import { cancelReminderIds, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/reminders";
+import { getStructuredSchedule } from "@/services/v3/scheduling";
+import { formatReminderTime } from "@/services/v3/scheduleFormatter";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -295,41 +297,24 @@ export function useCalendarState() {
         return matchesDate && todo.scheduledDate !== "inbox";
       })
       .map((todo) => {
-        let timeLabel = "All Day";
-        let rawHours = 24;
-        let hour = todo.reminderHour;
-        let minute = todo.reminderMinute;
-
-        if (hour !== undefined && minute !== undefined) {
-          const mins = String(minute).padStart(2, "0");
-          const ampm = hour >= 12 ? "PM" : "AM";
-          const displayHour = hour % 12 || 12;
-          timeLabel = `${displayHour}:${mins} ${ampm}`;
-          rawHours = hour;
-        } else if (todo.alarmTime) {
-          const d = new Date(todo.alarmTime);
-          hour = d.getHours();
-          minute = d.getMinutes();
-          const mins = String(minute).padStart(2, "0");
-          const ampm = hour >= 12 ? "PM" : "AM";
-          const displayHour = hour % 12 || 12;
-          timeLabel = `${displayHour}:${mins} ${ampm}`;
-          rawHours = hour;
-        }
+        const sched = getStructuredSchedule(todo, 60);
+        const timeLabel = sched.startTime
+          ? (formatReminderTime(sched.startTime.hour, sched.startTime.minute) || "All Day")
+          : "All Day";
 
         return {
           id: todo.id,
           title: todo.title,
           timeLabel,
-          rawHours,
+          rawHours: sched.startTime ? sched.sortKey / 60 : 24,
           completed: todo.completed,
           type: "task",
           streak: undefined,
           category: todo.category,
           priority: todo.priority,
-          reminderHour: hour,
-          reminderMinute: minute,
-          durationMinutes: todo.durationMinutes || 60,
+          reminderHour: sched.startTime?.hour,
+          reminderMinute: sched.startTime?.minute,
+          durationMinutes: sched.duration,
         };
       });
 
@@ -357,32 +342,24 @@ export function useCalendarState() {
           completed = selectedHistory.completedHabitTitles?.includes(habit.title) ?? false;
         }
 
-        let timeLabel = "Anytime";
-        let rawHours = 25;
-        let hour = habit.reminderHour;
-        let minute = habit.reminderMinute;
-
-        if (hour !== undefined && minute !== undefined) {
-          const mins = String(minute).padStart(2, "0");
-          const ampm = hour >= 12 ? "PM" : "AM";
-          const displayHour = hour % 12 || 12;
-          timeLabel = `${displayHour}:${mins} ${ampm}`;
-          rawHours = hour;
-        }
+        const sched = getStructuredSchedule(habit, 30);
+        const timeLabel = sched.startTime
+          ? (formatReminderTime(sched.startTime.hour, sched.startTime.minute) || "Anytime")
+          : "Anytime";
 
         return {
           id: habit.id,
           title: habit.title,
           timeLabel,
-          rawHours,
+          rawHours: sched.startTime ? sched.sortKey / 60 : 25,
           completed,
           type: "habit",
           streak: habit.streak || 0,
           category: undefined,
           priority: habit.priority,
-          reminderHour: hour,
-          reminderMinute: minute,
-          durationMinutes: habit.durationMinutes || 30,
+          reminderHour: sched.startTime?.hour,
+          reminderMinute: sched.startTime?.minute,
+          durationMinutes: sched.duration,
         };
       });
 

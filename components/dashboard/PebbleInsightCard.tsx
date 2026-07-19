@@ -1,13 +1,19 @@
-import React, { useEffect, useState } from "react";
-import { StyleSheet,  View, ActivityIndicator } from "react-native";
 import { AppText as Text } from "@/components/ui/AppText";
-import { Feather } from "@expo/vector-icons";
-import { getAllHistory, type DailyHistory } from "@/services/productivityHistory";
-import { FolderRepository, ActivityRepository } from "@/services/v3/repositories";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { GlassCard } from "../ui/GlassCard";
+import {
+    getAllHistory,
+    type DailyHistory,
+} from "@/services/productivityHistory";
+import {
+    ActivityRepository,
+    FolderRepository,
+} from "@/services/v3/repositories";
+import { Feather } from "@expo/vector-icons";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { FloatingGlow } from "../AmbientBackground";
+import { GlassCard } from "../ui/GlassCard";
 
 const WEEKDAY_NAMES = [
   "Sunday",
@@ -22,7 +28,9 @@ const WEEKDAY_NAMES = [
 export const PebbleInsightCard: React.FC = () => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
-  const [insight, setInsight] = useState<string>("Analyzing your focus patterns...");
+  const [insight, setInsight] = useState<string>(
+    "Analyzing your focus patterns...",
+  );
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -30,7 +38,13 @@ export const PebbleInsightCard: React.FC = () => {
       try {
         const history = await getAllHistory();
         const folders = await FolderRepository.getFolders();
-        const folderIds = Array.from(new Set(["default", "unassigned", ...folders.map((folder) => folder.id)]));
+        const folderIds = Array.from(
+          new Set([
+            "default",
+            "unassigned",
+            ...folders.map((folder) => folder.id),
+          ]),
+        );
         const habits: Array<{ streak?: number }> = [];
 
         for (const folderId of folderIds) {
@@ -41,9 +55,13 @@ export const PebbleInsightCard: React.FC = () => {
         // 1. If no history exists, fallback to setup greeting
         if (history.length === 0) {
           if (habits.length > 0) {
-            setInsight("Setup reminders to trigger exact alarms for your habits and keep streaks active.");
+            setInsight(
+              "Setup reminders to trigger exact alarms for your habits and keep streaks active.",
+            );
           } else {
-            setInsight("Pebble learns your focus rhythm as you check off tasks. Start by adding your first goal.");
+            setInsight(
+              "Pebble learns your focus rhythm as you check off tasks. Start by adding your first goal.",
+            );
           }
           setLoading(false);
           return;
@@ -52,9 +70,14 @@ export const PebbleInsightCard: React.FC = () => {
         const insightsList: string[] = [];
 
         // Insight A: Streaks
-        const maxStreak = habits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
+        const maxStreak = habits.reduce(
+          (max, h) => Math.max(max, h.streak || 0),
+          0,
+        );
         if (maxStreak > 2) {
-          insightsList.push(`🔥 Your highest habit streak is currently ${maxStreak} days. The momentum is building!`);
+          insightsList.push(
+            `🔥 Your highest habit streak is currently ${maxStreak} days. The momentum is building!`,
+          );
         }
 
         // Insight B: Weekday analysis (need at least 2 entries for interesting averages)
@@ -62,7 +85,11 @@ export const PebbleInsightCard: React.FC = () => {
           const scoresByDay: Record<number, number[]> = {};
           history.forEach((entry) => {
             const dateParts = entry.date.split("-").map(Number);
-            const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+            const dateObj = new Date(
+              dateParts[0],
+              dateParts[1] - 1,
+              dateParts[2],
+            );
             const day = dateObj.getDay();
             if (!scoresByDay[day]) {
               scoresByDay[day] = [];
@@ -83,47 +110,66 @@ export const PebbleInsightCard: React.FC = () => {
           });
 
           if (bestDay !== -1 && bestAvg >= 50) {
-            insightsList.push(`🎯 Your attention focus is strongest on ${WEEKDAY_NAMES[bestDay]}s, averaging ${Math.round(bestAvg)}% completion.`);
+            insightsList.push(
+              `🎯 Your attention focus is strongest on ${WEEKDAY_NAMES[bestDay]}s, averaging ${Math.round(bestAvg)}% completion.`,
+            );
           }
         }
 
         // Insight C: Total intentions completed
         let totalCompleted = 0;
         history.forEach((entry) => {
-          totalCompleted += (entry.completedTodos + entry.completedHabits);
+          totalCompleted += entry.completedTodos + entry.completedHabits;
         });
         if (totalCompleted > 5) {
-          insightsList.push(`⚡ You've completed ${totalCompleted} total intentions. Each small action builds focus clarity.`);
+          insightsList.push(
+            `⚡ You've completed ${totalCompleted} total intentions. Each small action builds focus clarity.`,
+          );
         }
 
         // Insight D: Perfect days
-        const perfectDays = history.filter((entry) => entry.score === 100).length;
+        const perfectDays = history.filter(
+          (entry) => entry.score === 100,
+        ).length;
         if (perfectDays > 0) {
-          insightsList.push(`🏆 You achieved a perfect 100% completion score on ${perfectDays} day${perfectDays > 1 ? "s" : ""} in history.`);
+          insightsList.push(
+            `🏆 You achieved a perfect 100% completion score on ${perfectDays} day${perfectDays > 1 ? "s" : ""} in history.`,
+          );
         }
 
         // Insight E: Consistency Index and Active Days Streak
         if (history.length > 0) {
-          const activeDays = history.filter((e) => (e.completedTodos + e.completedHabits) > 0).length;
-          const consistencyIndex = Math.round((activeDays / history.length) * 100);
-          
+          const activeDays = history.filter(
+            (e) => e.completedTodos + e.completedHabits > 0,
+          ).length;
+          const consistencyIndex = Math.round(
+            (activeDays / history.length) * 100,
+          );
+
           if (consistencyIndex >= 60 && history.length >= 3) {
-            insightsList.push(`⚡ Your Consistency Index is ${consistencyIndex}%! You're consistently showing up and executing your daily intentions.`);
+            insightsList.push(
+              `⚡ Your Consistency Index is ${consistencyIndex}%! You're consistently showing up and executing your daily intentions.`,
+            );
           }
 
           // Calculate consecutive active days streak
           let longestActiveStreak = 0;
           let tempStreak = 0;
-          const chronoHistory = [...history].sort((a, b) => a.date.localeCompare(b.date));
+          const chronoHistory = [...history].sort((a, b) =>
+            a.date.localeCompare(b.date),
+          );
           let lastDate: Date | null = null;
 
           chronoHistory.forEach((entry) => {
-            const hasCompletions = (entry.completedTodos + entry.completedHabits) > 0;
+            const hasCompletions =
+              entry.completedTodos + entry.completedHabits > 0;
             if (hasCompletions) {
               if (lastDate === null) {
                 tempStreak = 1;
               } else {
-                const diffTime = Math.abs(new Date(entry.date).getTime() - lastDate.getTime());
+                const diffTime = Math.abs(
+                  new Date(entry.date).getTime() - lastDate.getTime(),
+                );
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                 if (diffDays <= 1) {
                   tempStreak++;
@@ -140,25 +186,39 @@ export const PebbleInsightCard: React.FC = () => {
           });
 
           if (longestActiveStreak > 2) {
-            insightsList.push(`🔥 You have maintained a consecutive focus streak of ${longestActiveStreak} active days. Keep the momentum going!`);
+            insightsList.push(
+              `🔥 You have maintained a consecutive focus streak of ${longestActiveStreak} active days. Keep the momentum going!`,
+            );
           }
         }
 
         // Insight F: WoW Habit Completion Rate Comparison
         if (history.length >= 3) {
           const now = new Date();
-          const todayStartOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+          const todayStartOfDay = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+          ).getTime();
           const oneDayMs = 24 * 60 * 60 * 1000;
 
           const thisWeekEntries = history.filter((entry) => {
             const entryParts = entry.date.split("-").map(Number);
-            const entryTime = new Date(entryParts[0], entryParts[1] - 1, entryParts[2]).getTime();
-            return (todayStartOfDay - entryTime) <= 7 * oneDayMs;
+            const entryTime = new Date(
+              entryParts[0],
+              entryParts[1] - 1,
+              entryParts[2],
+            ).getTime();
+            return todayStartOfDay - entryTime <= 7 * oneDayMs;
           });
 
           const lastWeekEntries = history.filter((entry) => {
             const entryParts = entry.date.split("-").map(Number);
-            const entryTime = new Date(entryParts[0], entryParts[1] - 1, entryParts[2]).getTime();
+            const entryTime = new Date(
+              entryParts[0],
+              entryParts[1] - 1,
+              entryParts[2],
+            ).getTime();
             const diff = todayStartOfDay - entryTime;
             return diff > 7 * oneDayMs && diff <= 14 * oneDayMs;
           });
@@ -170,7 +230,7 @@ export const PebbleInsightCard: React.FC = () => {
               completed += e.completedHabits;
               total += e.totalHabits;
             });
-            return total > 0 ? (completed / total) : null;
+            return total > 0 ? completed / total : null;
           };
 
           const thisWeekRate = getHabitRate(thisWeekEntries);
@@ -179,9 +239,13 @@ export const PebbleInsightCard: React.FC = () => {
           if (thisWeekRate !== null && lastWeekRate !== null) {
             const diff = Math.round((thisWeekRate - lastWeekRate) * 100);
             if (diff > 5) {
-              insightsList.push(`📈 Your habit completion rate increased by ${diff}% this week compared to last week! Excellent progress.`);
+              insightsList.push(
+                `📈 Your habit completion rate increased by ${diff}% this week compared to last week! Excellent progress.`,
+              );
             } else if (diff < -5) {
-              insightsList.push(`📉 Your habit completion rate is down by ${Math.abs(diff)}% compared to last week. Try scheduling specific blocks for them.`);
+              insightsList.push(
+                `📉 Your habit completion rate is down by ${Math.abs(diff)}% compared to last week. Try scheduling specific blocks for them.`,
+              );
             }
           }
         }
@@ -191,7 +255,9 @@ export const PebbleInsightCard: React.FC = () => {
           const randomIndex = Math.floor(Math.random() * insightsList.length);
           setInsight(insightsList[randomIndex]);
         } else {
-          setInsight("Consistent small habits block distractions. Schedule daily focus sessions to level up.");
+          setInsight(
+            "Consistent small habits block distractions. Schedule daily focus sessions to level up.",
+          );
         }
       } catch (err) {
         console.log("Error generating Pebble insights", err);
@@ -231,23 +297,20 @@ export const PebbleInsightCard: React.FC = () => {
               { backgroundColor: "rgba(99, 102, 241, 0.15)" },
             ]}
           >
-            <Feather
-              name="cpu"
-              size={11}
-              color={colors.primaryLight}
-            />
+            <Feather name="cpu" size={11} color={colors.primaryLight} />
             <Text
-              style={[
-                styles.pebbleChipText,
-                { color: colors.primaryLight },
-              ]}
+              style={[styles.pebbleChipText, { color: colors.primaryLight }]}
             >
               PEBBLE MOMENTUM
             </Text>
           </View>
         </View>
         {loading ? (
-          <ActivityIndicator size="small" color={colors.primary} style={{ alignSelf: "flex-start", marginTop: 8 }} />
+          <ActivityIndicator
+            size="small"
+            color={colors.primary}
+            style={{ alignSelf: "flex-start", marginTop: 8 }}
+          />
         ) : (
           <Text style={[styles.heroText, { color: colors.text }]}>
             {insight}

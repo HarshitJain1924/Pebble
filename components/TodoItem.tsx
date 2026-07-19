@@ -13,6 +13,7 @@ import { SwipeableCard } from "@/components/SwipeableCard";
 import { Typography } from "@/constants/typography";
 import { getTaskCategoryMeta, normalizeTaskCategory, type TaskCategory } from "@/services/taskCategories";
 import { getRecurrenceLabel } from "@/services/recurrence";
+import { formatReminderTime } from "@/services/v3/scheduleFormatter";
 
 export type Todo = {
   id: string;
@@ -222,18 +223,10 @@ export function TodoItem({
     // 4. Reminder
     let reminderText = "";
     if (item.reminderHour !== undefined && item.reminderMinute !== undefined) {
-      const ampm = item.reminderHour >= 12 ? "PM" : "AM";
-      const displayHour = item.reminderHour % 12 === 0 ? 12 : item.reminderHour % 12;
-      const displayMinute = String(item.reminderMinute).padStart(2, "0");
-      reminderText = `${displayHour}:${displayMinute} ${ampm}`;
+      reminderText = formatReminderTime(item.reminderHour, item.reminderMinute) || "";
     } else if (item.alarmTime) {
       const d = new Date(item.alarmTime);
-      const alarmHour = d.getHours();
-      const alarmMinute = d.getMinutes();
-      const ampm = alarmHour >= 12 ? "PM" : "AM";
-      const displayHour = alarmHour % 12 === 0 ? 12 : alarmHour % 12;
-      const displayMinute = String(alarmMinute).padStart(2, "0");
-      reminderText = `${displayHour}:${displayMinute} ${ampm}`;
+      reminderText = formatReminderTime(d.getHours(), d.getMinutes()) || "";
     }
 
     if (reminderText) {
