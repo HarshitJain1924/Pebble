@@ -39,6 +39,11 @@ import { normalizeHabitsForToday } from "@/services/habitService";
 import { getListColors, getPriorityWeight, getTodoDateKey, getDateKey, isOverdue, formatAlarm, getSelectedDateLabel, WEEKDAY_NAMES, initialTodos, globalLists, globalTodos, globalHabits, globalCollections, globalChecklists, setGlobalLists, setGlobalTodos, setGlobalHabits, setGlobalCollections, setGlobalChecklists } from "./utils/taskUtils";
 import { useWorkspaceState } from "./hooks/useWorkspaceState";
 import { useTaskFiltering } from "./hooks/useTaskFiltering";
+import { useSelectionState } from "./hooks/useSelectionState";
+import { useCollectionState } from "./hooks/useCollectionState";
+import { useChecklistState } from "./hooks/useChecklistState";
+import { useReminderState } from "./hooks/useReminderState";
+import { useResourceLinkState } from "./hooks/useResourceLinkState";
 
 // Re-export utility for backward compatibility with consumers
 export { getDateKey };
@@ -74,6 +79,48 @@ export function useTasksState() {
     handleCreateWorkspaceFromNLP,
   } = useWorkspaceState();
 
+  // Selection state
+  const {
+    isBulkSelectActive,
+    setIsBulkSelectActive,
+    selectedItemIds,
+    setSelectedItemIds,
+    clearSelection,
+    toggleItemSelection,
+    selectAll,
+    deselectAll,
+    isItemSelected,
+    selectionCount,
+  } = useSelectionState();
+
+  const { showUndo, showToast } = useUndo();
+
+  // Collection state
+  const {
+    collections,
+    setCollections,
+    loadVaultState,
+    createCollection,
+    deleteCollection,
+    renameCollection,
+    addCollectionItem,
+    updateCollectionItem,
+    deleteCollectionItem,
+    toggleArchiveCollectionItem,
+    togglePinCollectionItem,
+  } = useCollectionState(selectedList, showToast);
+
+  // Checklist state
+  const {
+    checklists,
+    setChecklists,
+    loadChecklistsState,
+    addChecklist,
+    updateChecklist,
+    deleteChecklist,
+    toggleChecklistItem,
+  } = useChecklistState(selectedList);
+
   const scrollViewRef = useRef<ScrollView>(null);
   const addTaskInputRef = useRef<RNTextInput>(null);
   const focusTodoId =
@@ -87,10 +134,6 @@ export function useTasksState() {
       : null;
 
   // Tasks Screen State (local state not extracted yet)
-  const [isBulkSelectActive, setIsBulkSelectActive] = useState(false);
-  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
-
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(null);
   const [todos, setTodos] = useState<Record<string, Todo[]>>(() => globalTodos || {
     default: initialTodos,
@@ -112,9 +155,6 @@ export function useTasksState() {
   const [highlightedHabitId, setHighlightedHabitId] = useState<string | null>(null);
   const celebrateDateRef = useRef<string | null>(null);
 
-  // Alarms State
-  const [alarmMenu, setAlarmMenu] = useState<string | null>(null);
-
   const [addingTask, setAddingTask] = useState<Todo | null>(null);
   const [selectedTodoDate, setSelectedTodoDate] = useState<string>(getDateKey());
   const [isAddingHabit, setIsAddingHabit] = useState(false);
@@ -123,15 +163,9 @@ export function useTasksState() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [hasUnreadNotifs, setHasUnreadNotifs] = useState<boolean>(false);
 
-  // Collections & Checklists state
-  const [collections, setCollections] = useState<Record<string, Collection[]>>(() => globalCollections || {});
-  const [checklists, setChecklists] = useState<Record<string, Checklist[]>>(() => globalChecklists || {});
-
   // NLP Modal & Heuristic Suggestions States
   const [nlpVisible, setNlpVisible] = useState(false);
   const [activeSuggestions, setActiveSuggestions] = useState<SmartSuggestion[]>([]);
-
-  const { showUndo, showToast } = useUndo();
 
   // Filtering hook — manages search, date, filter state & derived memoized lists
   const filtering = useTaskFiltering(todos, habits, lists, selectedList);
@@ -165,22 +199,45 @@ export function useTasksState() {
     longestStreak,
   } = filtering;
 
-  // Synchronize state changes to in-memory global cache to keep tab switching instant
-  useEffect(() => {
-    setGlobalTodos(todos);
-  }, [todos]);
+  // Task Actions
+  const persistState = async (listsToSave: TaskList[], selected: string, todosToSave: Record<string, Todo[]>) => {
+    try {
+      await AsyncStorage.setItem("pebble:core:active_workspace", selected);
+      await AsyncStorage.setItem("pebble:core:workspaces", JSON.stringify(listsToSave));
 
-  useEffect(() => {
-    setGlobalHabits(habits);
-  }, [habits]);
+      const activeTodos = todosToSave[selected] || [];
+      const records: Record<string, any> = {};
+      activeTodos.forEach((todo) => {
+        records[todo.id] = {
+          id: todo.id,
+          workspaceId: selected,
+          title: todo.title,
+          createdAt: todo.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          archived: todo.archived || false,
+          completed: todo.completed,
+          completedAt: todo.completed ? Date.now() : undefined,
+          priority: todo.priority || "medium",
+          dueDate: todo.scheduledDate,
+          category: todo.category,
+        };
+      });
+      await AsyncStorage.setItem(`pebble:core:tasks:${selected}`, JSON.stringify(records));
+      void recordDailyHistorySnapshot();
+    } catch (e) {
+      console.warn("Failed to persist current state:", e);
+    }
+  };
 
-  useEffect(() => {
-    setGlobalCollections(collections);
-  }, [collections]);
-
-  useEffect(() => {
-    setGlobalChecklists(checklists);
-  }, [checklists]);
+  // Reminder state — needs todos, setTodos, currentTodos, remainingCount, persistState, lists
+  const {
+    alarmMenu,
+    setAlarmMenu,
+    scheduleAlarm,
+    scheduleAlarmWithDays,
+    cancelAlarm,
+    formatAlarm: formatAlarmFromHook,
+  } = useReminderState(todos, setTodos, selectedList, currentTodos, remainingCount, persistState, lists);
 
   const persistHabits = useCallback(async (nextHabits: Habit[]) => {
     try {
@@ -204,6 +261,23 @@ export function useTasksState() {
       console.warn("Failed to persist current habits:", e);
     }
   }, [selectedList]);
+
+  // Resource linking state
+  const { toggleLinkResource } = useResourceLinkState(
+    todos,
+    setTodos,
+    habits,
+    setHabits,
+    checklists,
+    setChecklists,
+    collections,
+    setCollections,
+    selectedList,
+    openedFolderId,
+    lists,
+    persistState,
+    persistHabits,
+  );
 
   // Sync parameters (only sync category and quickAdd — workspace params handled by useWorkspaceState)
   useEffect(() => {
@@ -723,103 +797,6 @@ export function useTasksState() {
     await deleteHabit(id);
   };
 
-  const loadVaultState = useCallback(async () => {
-    try {
-      const activeList = selectedList || "default";
-
-      // Load custom collections metadata mapping
-      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${activeList}`);
-      const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-
-      // If metadata is empty, add a default folder
-      if (collectionsMeta.length === 0) {
-        collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
-      }
-
-      // Fetch all flat current resources
-      const resourcesMap = await ResourceRepository.getResources(activeList);
-      const repositoryResources = Object.values(resourcesMap);
-
-      // Map resources to old CollectionItem format and group by tag
-      const builtCollections: Collection[] = collectionsMeta.map((meta) => {
-        const matchingItems: CollectionItem[] = repositoryResources
-          .filter((r) => r.tags?.includes(`collection_${meta.id}`))
-          .map((r) => ({
-            id: r.id,
-            type: r.resourceType as any,
-            title: r.title,
-            content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
-            url: r.resourceType === "link" ? (r.payload as any).url : undefined,
-            localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
-            fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
-            mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
-            createdAt: r.createdAt,
-            pinned: r.pinned || false,
-            archived: r.archived || false,
-            kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
-          }));
-
-        // If default folder, also include resources without any collection tag
-        if (meta.id === "default_vault") {
-          const untagged = repositoryResources
-            .filter((r) => !r.tags?.some((t) => t.startsWith("collection_")))
-            .map((r) => ({
-              id: r.id,
-              type: r.resourceType as any,
-              title: r.title,
-              content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
-              url: r.resourceType === "link" ? (r.payload as any).url : undefined,
-              localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
-              fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
-              mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
-              createdAt: r.createdAt,
-              pinned: r.pinned || false,
-              archived: r.archived || false,
-              kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
-            }));
-          matchingItems.push(...untagged);
-        }
-
-        return {
-          id: meta.id,
-          workspaceId: activeList,
-          name: meta.name,
-          emoji: meta.emoji,
-          createdAt: Date.now(),
-          items: matchingItems,
-        };
-      });
-
-      setCollections((prev) => ({
-        ...prev,
-        [activeList]: builtCollections,
-      }));
-    } catch (e) {
-      console.warn("Failed to load current collections", e);
-    }
-  }, [selectedList]);
-
-  const loadChecklistsState = useCallback(async () => {
-    try {
-      const activeList = selectedList || "default";
-      const checklistsMap = await ActivityRepository.getChecklists(activeList);
-      const activeChecklists = Object.values(checklistsMap).map((c) => ({
-        id: c.id,
-        folderId: activeList,
-        title: c.title,
-        items: c.items || [],
-        createdAt: c.createdAt,
-        archived: c.archived || false,
-      }));
-      setChecklists((prev) => ({
-        ...prev,
-        [activeList]: activeChecklists,
-      }));
-    } catch (e) {
-      console.warn("Failed to load current checklists", e);
-    }
-  }, [selectedList]);
-
   useFocusEffect(
     useCallback(() => {
       void loadState();
@@ -961,36 +938,6 @@ export function useTasksState() {
     }
     return undefined;
   }, [focusHabitId, habits]);
-
-  // Task Actions
-  const persistState = async (listsToSave: TaskList[], selected: string, todosToSave: Record<string, Todo[]>) => {
-    try {
-      await AsyncStorage.setItem("pebble:core:active_workspace", selected);
-      await AsyncStorage.setItem("pebble:core:workspaces", JSON.stringify(listsToSave));
-
-      const activeTodos = todosToSave[selected] || [];
-      const records: Record<string, any> = {};
-      activeTodos.forEach((todo) => {
-        records[todo.id] = {
-          id: todo.id,
-          workspaceId: selected,
-          title: todo.title,
-          createdAt: todo.createdAt || Date.now(),
-          updatedAt: Date.now(),
-          archived: todo.archived || false,
-          completed: todo.completed,
-          completedAt: todo.completed ? Date.now() : undefined,
-          priority: todo.priority || "medium",
-          dueDate: todo.scheduledDate,
-          category: todo.category,
-        };
-      });
-      await AsyncStorage.setItem(`pebble:core:tasks:${selected}`, JSON.stringify(records));
-      void recordDailyHistorySnapshot();
-    } catch (e) {
-      console.warn("Failed to persist current state:", e);
-    }
-  };
 
   const selectList = async (listId: string) => {
     setSelectedList(listId);
@@ -1239,119 +1186,6 @@ export function useTasksState() {
     emitStateChange("tasks_changed", "tasks_screen");
   };
 
-  const scheduleAlarm = async (todoId: string, minutesFromNow: number) => {
-    const todo = (todos[selectedList] ?? []).find((t) => t.id === todoId);
-    if (!todo) return;
-
-    await cancelReminderIds(todo.notificationIds ?? (todo.alarmId ? [todo.alarmId] : []));
-
-    const triggerTime = Date.now() + minutesFromNow * 60 * 1000;
-    const currentRemainingCount = currentTodos.filter((item) => !item.completed).length;
-
-    const scheduled = await scheduleReminderBatch({
-      kind: "todo",
-      itemId: todoId,
-      title: todo.title,
-      category: todo.category,
-      oneTimeAt: new Date(triggerTime),
-      escalationMinutes: [120, 240],
-      channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-      context: {
-        title: todo.title,
-        remainingCount: currentRemainingCount,
-        totalCount: currentTodos.length,
-      },
-    });
-
-    const listTodos = todos[selectedList] ?? [];
-    const updatedList = listTodos.map((item) =>
-      item.id === todoId
-        ? {
-            ...item,
-            alarmId: scheduled.primaryId,
-            notificationIds: scheduled.ids,
-            alarmTime: triggerTime,
-            reminderHour: undefined,
-            reminderMinute: undefined,
-            escalationMinutes: scheduled.escalationMinutes,
-          }
-        : item
-    );
-    const updated = { ...todos, [selectedList]: updatedList };
-    setTodos(updated);
-    await persistState(lists, selectedList, updated);
-    void syncWidgetData().catch(() => {});
-    emitStateChange("tasks_changed", "tasks_screen");
-  };
-
-  const scheduleAlarmWithDays = async (todoId: string, hour: number, minute: number, days?: number[]) => {
-    const todo = (todos[selectedList] ?? []).find((t) => t.id === todoId);
-    if (!todo) return;
-
-    await cancelReminderIds(todo.notificationIds ?? (todo.alarmId ? [todo.alarmId] : []));
-
-    const scheduled = await scheduleReminderBatch({
-      kind: "todo",
-      itemId: todoId,
-      title: todo.title,
-      category: todo.category,
-      dailyTime: { hour, minute },
-      dailyDays: days,
-      escalationMinutes: [120, 240],
-      channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-      context: {
-        title: todo.title,
-        remainingCount: remainingCount,
-        totalCount: currentTodos.length,
-      },
-    });
-
-    const listTodos = todos[selectedList] ?? [];
-    const updatedList = listTodos.map((item) =>
-      item.id === todoId
-        ? {
-            ...item,
-            alarmId: scheduled.primaryId,
-            notificationIds: scheduled.ids,
-            alarmTime: scheduled.alarmTime,
-            reminderHour: scheduled.reminderHour,
-            reminderMinute: scheduled.reminderMinute,
-            reminderDays: days,
-            escalationMinutes: scheduled.escalationMinutes,
-          }
-        : item
-    );
-    const updated = { ...todos, [selectedList]: updatedList };
-    setTodos(updated);
-    await persistState(lists, selectedList, updated);
-    void syncWidgetData().catch(() => {});
-    emitStateChange("tasks_changed", "tasks_screen");
-
-    setAlarmMenu(null);
-  };
-
-  const cancelAlarm = async (todoId: string) => {
-    const todo = (todos[selectedList] ?? []).find((t) => t.id === todoId);
-    await cancelReminderIds(todo?.notificationIds ?? (todo?.alarmId ? [todo.alarmId] : []));
-    const listTodos = todos[selectedList] ?? [];
-    const updatedList = listTodos.map((t) =>
-      t.id === todoId
-        ? {
-            ...t,
-            alarmId: undefined,
-            alarmTime: undefined,
-            notificationIds: [],
-            escalationMinutes: undefined,
-          }
-        : t
-    );
-    const updated = { ...todos, [selectedList]: updatedList };
-    setTodos(updated);
-    await persistState(lists, selectedList, updated);
-    void syncWidgetData().catch(() => {});
-    emitStateChange("tasks_changed", "tasks_screen");
-  };
-
   // Habits Business Logic
   const addHabit = async () => {
     const trimmed = habitTitle.trim();
@@ -1367,7 +1201,7 @@ export function useTasksState() {
       completedToday: false,
       priority: selectedHabitPriority,
       category: selectedTodoCategory || "health",
-      folderId: selectedList || "default", // Enforce active folder ownership
+      folderId: selectedList || "default",
       createdAt: Date.now(),
       createdDate: getDateKey(),
       startDate: getDateKey(),
@@ -1798,195 +1632,7 @@ export function useTasksState() {
     setSelectedItemIds(new Set());
   };
 
-  const createCollection = async (workspaceId: string, name: string, emoji: string) => {
-    try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
-      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-
-      const newId = `coll-${Date.now()}`;
-      collectionsMeta.push({ id: newId, name, emoji });
-      await AsyncStorage.setItem(`pebble:core:collections_metadata:${workspaceId}`, JSON.stringify(collectionsMeta));
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      showToast(`✓ Collection "${name}" created`);
-    } catch (e) {
-      console.warn("Failed to create collection", e);
-    }
-  };
-
-  const deleteCollection = async (collectionId: string, workspaceId: string) => {
-    try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
-      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-      const updatedMeta = collectionsMeta.filter((c) => c.id !== collectionId);
-      await AsyncStorage.setItem(`pebble:core:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
-
-      // Cascade delete resources in this collection
-      const resourcesMap = await ResourceRepository.getResources(workspaceId);
-      for (const res of Object.values(resourcesMap)) {
-        if (res.tags?.includes(`collection_${collectionId}`)) {
-          await ResourceRepository.deleteResource(res.id, workspaceId);
-        }
-      }
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      showToast("✓ Collection deleted");
-    } catch (e) {
-      console.warn("Failed to delete collection", e);
-    }
-  };
-
-  const renameCollection = async (collectionId: string, workspaceId: string, newName: string, newEmoji: string) => {
-    try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
-      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-      const updatedMeta = collectionsMeta.map((c) =>
-        c.id === collectionId ? { ...c, name: newName, emoji: newEmoji } : c
-      );
-      await AsyncStorage.setItem(`pebble:core:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      showToast("✓ Collection renamed");
-    } catch (e) {
-      console.warn("Failed to rename collection", e);
-    }
-  };
-
-  const addCollectionItem = async (
-    workspaceId: string,
-    collectionId: string,
-    item: Omit<CollectionItem, "id" | "createdAt">
-  ) => {
-    try {
-      const itemId = `item-${Date.now()}`;
-      const payload = item.type === "link" ? { url: item.url || "" } :
-                      item.type === "file" ? { localUri: item.localUri || "", mimeType: item.mimeType || "", fileSize: item.fileSize || 0 } :
-                      { content: item.content || "" };
-
-      await ResourceRepository.saveResource({
-        id: itemId,
-        workspaceId,
-        title: item.title,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        resourceType: item.type as any,
-        payload,
-        pinned: item.pinned || false,
-        archived: item.archived || false,
-        tags: [`collection_${collectionId}`],
-      });
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      showToast("✓ Reference added to collection");
-    } catch (e) {
-      console.warn("Failed to add collection item", e);
-    }
-  };
-
-  const updateCollectionItem = async (
-    itemId: string,
-    collectionId: string,
-    workspaceId: string,
-    updates: Partial<Pick<CollectionItem, "title" | "url" | "content">>
-  ) => {
-    try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
-      if (!existing) return;
-
-      const payload = {
-        ...existing.payload,
-        content: updates.content !== undefined ? updates.content : (existing.payload as any).content,
-        url: updates.url !== undefined ? updates.url : (existing.payload as any).url,
-      };
-
-      await ResourceRepository.saveResource({
-        ...existing,
-        title: updates.title !== undefined ? updates.title : existing.title,
-        payload,
-        updatedAt: Date.now(),
-      });
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      showToast("✓ Resource updated");
-    } catch (e) {
-      console.warn("Failed to update collection item", e);
-    }
-  };
-
-  const deleteCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
-    try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
-      if (existing) {
-        await addToRecycleBin("collection_item", {
-          id: existing.id,
-          type: existing.resourceType,
-          title: existing.title,
-          content: (existing.payload as any).content,
-          url: (existing.payload as any).url,
-          createdAt: existing.createdAt,
-        }, `${workspaceId}:${collectionId}`);
-      }
-      await ResourceRepository.deleteResource(itemId, workspaceId);
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      showToast("✓ Item deleted (Recycle Bin)");
-    } catch (e) {
-      console.warn("Failed to delete collection item", e);
-    }
-  };
-
-  const toggleArchiveCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
-    try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
-      if (!existing) return;
-
-      const nextArchived = !existing.archived;
-      await ResourceRepository.saveResource({
-        ...existing,
-        archived: nextArchived,
-        updatedAt: Date.now(),
-      });
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      showToast(nextArchived ? "✓ Item archived" : "✓ Item unarchived");
-    } catch (e) {
-      console.warn("Failed to toggle archive on collection item", e);
-    }
-  };
-
-  const togglePinCollectionItem = async (itemId: string, collectionId: string, workspaceId: string) => {
-    try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
-      if (!existing) return;
-
-      const nextPinned = !existing.pinned;
-      await ResourceRepository.saveResource({
-        ...existing,
-        pinned: nextPinned,
-        updatedAt: Date.now(),
-      });
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      showToast(nextPinned ? "✓ Pinned to Quick Access" : "✓ Removed from Quick Access");
-    } catch (e) {
-      console.warn("Failed to toggle pin on collection item", e);
-    }
-  };
+  const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
 
   const convertCollectionItemToTask = async (item: CollectionItem, targetWorkspaceId?: string) => {
     try {
@@ -2009,7 +1655,6 @@ export function useTasksState() {
         folderId: newTask.folderId || "default",
         scheduledDate: newTask.scheduledDate,
       });
-      // Refresh local state from current
       const refreshedTasksMap = await ActivityRepository.getTasks(newTask.folderId || "default");
       const refreshedTodos = Object.values(refreshedTasksMap).map((t: any) => ({
         ...t,
@@ -2028,172 +1673,6 @@ export function useTasksState() {
       console.warn("Failed to convert collection item to task", e);
     }
   };
-
-  const addChecklist = async (title: string, itemTitles: string[], folderId: string) => {
-    try {
-      const activeList = folderId || selectedList || "default";
-      const newChecklist = {
-        id: `checklist-${Date.now()}`,
-        workspaceId: activeList,
-        title,
-        items: itemTitles.map((it, idx) => ({
-          id: `checklist-item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
-          title: it,
-          completed: false,
-        })),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        archived: false,
-      };
-      await ActivityRepository.saveChecklist(newChecklist);
-      await loadChecklistsState();
-      emitStateChange("checklists_changed", "tasks_screen");
-    } catch (e) {
-      console.warn("Failed to add checklist current", e);
-    }
-  };
-
-  const updateChecklist = async (updated: Checklist) => {
-    try {
-      const activeList = updated.folderId || selectedList || "default";
-      await ActivityRepository.saveChecklist({
-        id: updated.id,
-        workspaceId: activeList,
-        title: updated.title,
-        items: updated.items,
-        createdAt: updated.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        archived: updated.archived || false,
-      });
-      await loadChecklistsState();
-      emitStateChange("checklists_changed", "tasks_screen");
-    } catch (e) {
-      console.warn("Failed to update checklist current", e);
-    }
-  };
-
-  const deleteChecklist = async (id: string, folderId: string) => {
-    try {
-      const activeList = folderId || selectedList || "default";
-      const existing = await ActivityRepository.getChecklist(id, activeList);
-      if (existing) {
-        await addToRecycleBin("checklist", existing, `${activeList}:${id}`);
-      }
-      await ActivityRepository.deleteChecklist(id, activeList);
-      await loadChecklistsState();
-      emitStateChange("checklists_changed", "tasks_screen");
-      showToast("✓ Checklist moved to Recycle Bin");
-    } catch (e) {
-      console.warn("Failed to delete checklist current", e);
-    }
-  };
-
-  const toggleChecklistItem = async (checklistId: string, itemId: string, folderId: string) => {
-    try {
-      const activeList = folderId || selectedList || "default";
-      const existing = await ActivityRepository.getChecklist(checklistId, activeList);
-      if (existing) {
-        const nextItems = existing.items.map((i) =>
-          i.id === itemId ? { ...i, completed: !i.completed } : i
-        );
-        await ActivityRepository.saveChecklist({
-          ...existing,
-          items: nextItems,
-          updatedAt: Date.now(),
-        });
-        await loadChecklistsState();
-        emitStateChange("checklists_changed", "tasks_screen");
-      }
-    } catch (e) {
-      console.warn("Failed to toggle checklist item current", e);
-    }
-  };
-
-  const toggleLinkResource = useCallback(async (itemId: string, itemType: "task" | "habit" | "checklist", resourceId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    if (itemType === "task") {
-      setTodos((current) => {
-        const next = { ...current };
-        const wsId = openedFolderId || selectedList || "default";
-        if (next[wsId]) {
-          next[wsId] = next[wsId].map((todo) => {
-            if (todo.id === itemId) {
-              const linked = todo.linkedCollectionIds || [];
-              const updated = linked.includes(resourceId)
-                ? linked.filter((id) => id !== resourceId)
-                : [...linked, resourceId];
-              return { ...todo, linkedCollectionIds: updated };
-            }
-            return todo;
-          });
-        }
-        // Persist to storage
-        persistState(lists, wsId, next);
-        return next;
-      });
-    } else if (itemType === "habit") {
-      const nextHabits = habits.map((habit) => {
-        if (habit.id === itemId) {
-          const linked = habit.linkedCollectionIds || [];
-          const updated = linked.includes(resourceId)
-            ? linked.filter((id) => id !== resourceId)
-            : [...linked, resourceId];
-          return { ...habit, linkedCollectionIds: updated };
-        }
-        return habit;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-    } else if (itemType === "checklist") {
-      setChecklists((current) => {
-        const next = { ...current };
-        const wsId = openedFolderId || "default";
-        if (next[wsId]) {
-          next[wsId] = next[wsId].map((chk) => {
-            if (chk.id === itemId) {
-              const linked = chk.linkedCollectionIds || [];
-              const updated = linked.includes(resourceId)
-                ? linked.filter((id) => id !== resourceId)
-                : [...linked, resourceId];
-              return { ...chk, linkedCollectionIds: updated };
-            }
-            return chk;
-          });
-        }
-        saveChecklists(next).catch(() => {});
-        return next;
-      });
-    }
-
-    // Update reverse link inside CollectionItem in Collections storage
-    try {
-      const allCollections = await getCollections();
-      const wsId = openedFolderId || "default";
-      const list = allCollections[wsId] || [];
-      const updatedList = list.map((coll) => {
-        if (coll.items) {
-          const updatedItems = coll.items.map((item) => {
-            if (item.id === resourceId) {
-              const linked = item.linkedItemIds || [];
-              const updated = linked.includes(itemId)
-                ? linked.filter((id) => id !== itemId)
-                : [...linked, itemId];
-              return { ...item, linkedItemIds: updated };
-            }
-            return item;
-          });
-          return { ...coll, items: updatedItems };
-        }
-        return coll;
-      });
-      allCollections[wsId] = updatedList;
-      await saveCollections(allCollections);
-      setCollections(allCollections);
-      emitStateChange("vault_changed");
-    } catch (e) {
-      console.warn("Failed to update reverse link on resource", e);
-    }
-  }, [selectedList, habits, openedFolderId, lists, collections]);
 
   return {
     toggleLinkResource,
@@ -2328,7 +1807,7 @@ export function useTasksState() {
     scheduleAlarmWithDays,
     onSaveEditedTask,
     cancelAlarm,
-    formatAlarm,
+    formatAlarm: formatAlarmFromHook,
     addHabit,
     deleteHabit,
     toggleHabit,
