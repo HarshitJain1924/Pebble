@@ -87,7 +87,7 @@ export function useWorkspaceState() {
     setWorkspaceSegment(activeWorkspaceId === "unassigned" ? "resources" : "tasks");
   }, [activeWorkspaceId]);
 
-  const loadWorkspaces = useCallback(async () => {
+  const loadWorkspaces = useCallback(async (): Promise<Workspace[]> => {
     try {
       let currentLists: Workspace[] = [];
       const repositoryWorkspaces = await WorkspaceRepository.getWorkspaces();
@@ -128,8 +128,10 @@ export function useWorkspaceState() {
         setActiveWorkspaceId(rawActive);
         emitStateChange("workspace_mode_changed", rawActive);
       }
+      return currentLists;
     } catch (e) {
       console.warn("Failed to load workspaces", e);
+      return [];
     }
   }, []);
 

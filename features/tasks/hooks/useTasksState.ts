@@ -320,9 +320,8 @@ export function useTasksState() {
 
   const loadState = useCallback(async () => {
     try {
-      // Load workspaces first (from the extracted hook)
-      await loadWorkspaces();
-      const currentLists = lists;
+      // Load workspaces first and use the returned array directly (never read stale state)
+      const currentLists = await loadWorkspaces();
 
       // Query current repositories for ALL folders to preserve counts in WorkspaceGrid
       const allTodosMap: Record<string, Task[]> = {};
@@ -472,12 +471,13 @@ export function useTasksState() {
     } catch (e) {
       console.warn("Failed to load state", e);
     }
-  }, [loadWorkspaces]);
+  }, [loadWorkspaces, selectedList, persistState]);
 
-  const loadHabits = useCallback(async () => {
+  const loadHabits = useCallback(async (workspaceList?: Workspace[]) => {
     try {
+      const targetLists = workspaceList && workspaceList.length > 0 ? workspaceList : lists;
       const allHabits: Habit[] = [];
-      for (const folder of lists) {
+      for (const folder of targetLists) {
         const folderId = folder.id;
         const folderHabitsMap = await HabitRepository.getHabits(folderId);
         const folderHabitsList = Object.values(folderHabitsMap).map((h) => ({
