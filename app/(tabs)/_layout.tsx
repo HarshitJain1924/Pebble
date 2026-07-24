@@ -103,7 +103,7 @@ export default function TabLayout() {
         if (folderId && folderId !== "null") {
           setSelectedFolderId(folderId);
         } else {
-          setSelectedFolderId("default");
+          setSelectedFolderId((prev) => (prev && prev !== "null" ? prev : "default"));
         }
       },
     );
