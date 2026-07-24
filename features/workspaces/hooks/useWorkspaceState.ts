@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -14,7 +14,8 @@ export function useWorkspaceState() {
     workspaceId?: string;
   }>();
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => globalLists || [{ id: "default", name: "My Pebbles" }]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => globalLists || []);
+  const [isWorkspacesHydrated, setIsWorkspacesHydrated] = useState<boolean>(() => globalLists !== null);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("default");
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [workspaceSegment, setWorkspaceSegment] = useState<"tasks" | "habits" | "checklists" | "resources">("tasks");
@@ -102,27 +103,19 @@ export function useWorkspaceState() {
       }
 
       if (currentLists.length === 0) {
+        const now = Date.now();
         currentLists = [
-          { id: "default", name: "My Pebbles", emoji: "⚡", color: "#6366F1" },
-          { id: "personal", name: "Personal", emoji: "🏠", color: "#10B981" },
-          { id: "work", name: "Work", emoji: "💼", color: "#3B82F6" },
+          { id: "default", name: "My Pebbles", emoji: "⚡", color: "#6366F1", createdAt: now, updatedAt: now },
+          { id: "personal", name: "Personal", emoji: "🏠", color: "#10B981", createdAt: now, updatedAt: now },
+          { id: "work", name: "Work", emoji: "💼", color: "#3B82F6", createdAt: now, updatedAt: now },
         ];
-        await Promise.all(
-          currentLists.map((l: any) =>
-            WorkspaceRepository.saveWorkspace({
-              id: l.id,
-              name: l.name,
-              emoji: l.emoji,
-              color: l.color,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            }),
-          ),
-        );
+        await WorkspaceRepository.saveWorkspaces(currentLists);
       }
 
       setWorkspaces(currentLists);
+      setIsWorkspacesHydrated(true);
       const rawActive = await AsyncStorage.getItem("pebble:v1:active_workspace") || await AsyncStorage.getItem("pebble:core:active_workspace");
+
       if (rawActive && rawActive !== "null" && currentLists.some((l) => l.id === rawActive)) {
         setSelectedWorkspaceId(rawActive);
         setActiveWorkspaceId(rawActive);
@@ -131,6 +124,7 @@ export function useWorkspaceState() {
       return currentLists;
     } catch (e) {
       console.warn("Failed to load workspaces", e);
+      setIsWorkspacesHydrated(true);
       return [];
     }
   }, []);
@@ -164,6 +158,8 @@ export function useWorkspaceState() {
   return {
     workspaces,
     setWorkspaces,
+    isWorkspacesHydrated,
+    isHydrated: isWorkspacesHydrated,
     selectedWorkspaceId,
     setSelectedWorkspaceId,
     activeWorkspaceId,

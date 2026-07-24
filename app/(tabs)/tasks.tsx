@@ -347,6 +347,7 @@ export function WorkspacesScreen() {
                   collections={state.collections}
                   checklists={state.checklists}
                   searchQuery={state.searchQuery}
+                  isHydrated={state.isHydrated}
                   onSelectWorkspace={(id) => {
                     state.handleSelectWorkspace(id);
                   }}

@@ -150,8 +150,20 @@ export function WorkspaceModal({
       activeListId = newId;
     }
 
+    console.log("\n==============================");
+    console.log("[SET WORKSPACES WRITE]");
+    console.log("Caller:", "WorkspaceModal.handleSave");
+    console.log("Previous workspace ids:", lists.map((w: any) => w.id));
+    console.log("New workspace ids:", updatedLists.map((w: any) => w.id));
+    console.log("Time:", Date.now());
+    console.trace("setLists stack");
+    console.log("==============================\n");
+
+    console.log("[STATE WRITE]", "setLists", updatedLists);
     setLists(updatedLists);
+    console.log("[STATE WRITE]", "setTodos", updatedTodos);
     setTodos(updatedTodos);
+    console.log("[STATE WRITE]", "setSelectedList", activeListId);
     setSelectedList(activeListId);
     void persistState(updatedLists, activeListId, updatedTodos).then(() => {
       emitStateChange("tasks_changed");

@@ -84,21 +84,7 @@ export const getSelectedDateLabel = (selectedDate: string) => {
 
 export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export const initialTodos: Task[] = [
-  {
-    id: "1",
-    title: "Collect my first daily pebble",
-    completed: true,
-    category: "work",
-  },
-  { id: "2", title: "Add a pebble task to the workspace", completed: false, category: "personal" },
-  {
-    id: "3",
-    title: "Tap a pebble task to mark it done",
-    completed: false,
-    category: "work",
-  },
-];
+export const initialTodos: Task[] = [];
 
 // Global in-memory cache to keep tab states warm on switch and prevent 1s counts flashing
 export let globalLists: Workspace[] | null = null;

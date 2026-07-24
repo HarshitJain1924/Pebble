@@ -23,6 +23,7 @@ interface WorkspaceGridProps {
   collections?: Record<string, any[]>;
   checklists?: Record<string, Checklist[]>;
   searchQuery: string;
+  isHydrated?: boolean;
   onSelectWorkspace: (id: string) => void;
   onEditWorkspace: (id: string) => void;
   onCreateWorkspace: () => void;
@@ -35,6 +36,7 @@ export function WorkspaceGrid({
   collections,
   checklists,
   searchQuery,
+  isHydrated = true,
   onSelectWorkspace,
   onEditWorkspace,
   onCreateWorkspace,
@@ -42,6 +44,52 @@ export function WorkspaceGrid({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
+
+  if (!isHydrated && lists.length === 0) {
+    const cardBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
+    const borderCol = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+    return (
+      <View style={{ flex: 1, paddingVertical: 10 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+          {[1, 2, 3].map((key) => (
+            <View key={key} style={gridStyles.workspaceGridCard}>
+              <View
+                style={{
+                  position: "absolute",
+                  top: -11,
+                  left: 16,
+                  width: "45%",
+                  height: 12,
+                  backgroundColor: borderCol,
+                  borderTopLeftRadius: 8,
+                  borderTopRightRadius: 8,
+                  zIndex: 2,
+                }}
+              />
+              <View
+                style={[
+                  gridStyles.cardContainer,
+                  {
+                    borderColor: borderCol,
+                    backgroundColor: cardBg,
+                    opacity: 0.7,
+                  },
+                ]}
+              >
+                <View style={gridStyles.topRow}>
+                  <View style={[gridStyles.iconWrapper, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)" }]} />
+                </View>
+                <View style={gridStyles.detailsBlock}>
+                  <View style={{ width: "60%", height: 16, borderRadius: 4, backgroundColor: borderCol, marginBottom: 8 }} />
+                  <View style={{ width: "85%", height: 12, borderRadius: 4, backgroundColor: borderCol }} />
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  }
 
   const showInbox = searchQuery.trim() === "" || "inbox".includes(searchQuery.toLowerCase());
   

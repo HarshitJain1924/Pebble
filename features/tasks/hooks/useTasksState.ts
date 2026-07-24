@@ -62,6 +62,7 @@ export function useTasksState() {
 
   const {
     workspaces,
+    isWorkspacesHydrated,
     setWorkspaces,
     selectedWorkspaceId,
     setSelectedWorkspaceId,
@@ -153,9 +154,8 @@ export function useTasksState() {
 
   // Tasks Screen State (local state not extracted yet)
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(null);
-  const [todos, setTodos] = useState<Record<string, Task[]>>(() => globalTodos || {
-    default: initialTodos,
-  });
+  const [isTasksHydrated, setIsTasksHydrated] = useState<boolean>(() => globalTodos !== null);
+  const [todos, setTodos] = useState<Record<string, Task[]>>(() => globalTodos || {});
   const [title, setTitle] = useState("");
   const [selectedTodoCategory, setSelectedTodoCategory] = useState<TaskCategory>(DEFAULT_TASK_CATEGORY);
   const [selectedTodoPriority, setSelectedTodoPriority] = useState<"low" | "medium" | "high">("medium");
@@ -218,7 +218,7 @@ export function useTasksState() {
   } = filtering;
 
   // Task Actions
-  const persistState = async (listsToSave: Workspace[], selected: string, todosToSave: Record<string, Task[]>) => {
+  const persistState = useCallback(async (listsToSave: Workspace[], selected: string, todosToSave: Record<string, Task[]>) => {
     try {
       await AsyncStorage.setItem("pebble:core:active_workspace", selected);
       await AsyncStorage.setItem("pebble:core:workspaces", JSON.stringify(listsToSave));
@@ -245,7 +245,7 @@ export function useTasksState() {
     } catch (e) {
       console.warn("Failed to persist current state:", e);
     }
-  };
+  }, []);
 
   // Reminder state — needs todos, setTodos, currentTodos, remainingCount, persistState, lists
   const {
@@ -468,10 +468,12 @@ export function useTasksState() {
           });
         });
       }
+      setIsTasksHydrated(true);
     } catch (e) {
       console.warn("Failed to load state", e);
+      setIsTasksHydrated(true);
     }
-  }, [loadWorkspaces, selectedList, persistState]);
+  }, [loadWorkspaces, selectedList, persistState, activeWorkspaceId]);
 
   const loadHabits = useCallback(async (workspaceList?: Workspace[]) => {
     try {
@@ -1815,6 +1817,8 @@ export function useTasksState() {
     longestStreak,
 
     // Callbacks & Handlers
+    isTasksHydrated,
+    isHydrated: isWorkspacesHydrated && isTasksHydrated,
     loadState,
     loadHabits,
     loadSuggestions,
