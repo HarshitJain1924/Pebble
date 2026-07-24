@@ -9,7 +9,7 @@ import {
   Image,
   useWindowDimensions,
 } from "react-native";
-import { AppText as Text } from "@/components/ui/AppText";
+import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -28,10 +28,10 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { ScreenSwipeWrapper } from "@/components/ScreenSwipeWrapper";
-import PressableScale from "@/components/ui/PressableScale";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { ScreenSwipeWrapper } from "@/shared/components/layout/ScreenSwipeWrapper";
+import PressableScale from "@/shared/components/ui/PressableScale";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 

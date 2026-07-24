@@ -9,7 +9,7 @@ import {
   getMainStreakRecoveryInfo,
   recoverMainStreak,
   PEBBLE_LOG_KEY,
-} from "../pebbleService";
+} from "@/features/profile/services/pebble.service";
 
 let mockStore: Record<string, string> = {};
 
@@ -31,7 +31,7 @@ jest.mock("@react-native-async-storage/async-storage", () => {
   };
 });
 
-jest.mock("../stateEvents", () => {
+jest.mock("@/services/events/state-events", () => {
   return {
     emitStateChange: jest.fn(),
   };

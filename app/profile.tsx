@@ -1,28 +1,29 @@
-import { FloatingGlow } from "@/components/AmbientBackground";
-import { RankTiersModal } from "@/components/profile/RankTiersModal";
+import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
+import { RankTiersModal } from "@/features/profile/components/RankTiersModal";
 import {
     AVATAR_OPTIONS,
     EMOJI_OPTIONS,
     RenderAvatar,
-} from "@/components/profile/RenderAvatar";
-import { AppText as Text } from "@/components/ui/AppText";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { normalizeHabitsForToday } from "@/services/habitService";
-import { getPebbleCounts } from "@/services/pebbleService";
-import { getHistoryForMonth } from "@/services/productivityHistory";
+} from "@/features/profile/components/RenderAvatar";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { normalizeHabitsForToday } from "@/features/habits/services/habit.service";
+import { getPebbleCounts } from "@/features/profile/services/pebble.service";
+import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
 import {
     getLevelInfo,
     getProfile,
     saveProfile,
     type UserProfile,
-} from "@/services/settingsService";
-import { addStateListener, emitStateChange } from "@/services/stateEvents";
-import { normalizeTaskCategory } from "@/services/taskCategories";
+} from "@/features/settings/services/settings.service";
+import { addStateListener, emitStateChange } from "@/services/events/state-events";
+import { normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import {
-    ActivityRepository,
-    FolderRepository,
-} from "@/services/core/repositories";
+    TaskRepository,
+    HabitRepository,
+    WorkspaceRepository,
+} from "@/repositories";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
@@ -103,7 +104,7 @@ export default function ProfileScreen() {
       setProfile(userProf);
 
       // 2. Query task and habit stats from repositories
-      const folders = await FolderRepository.getFolders();
+      const folders = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
         new Set([
           "default",
@@ -121,8 +122,8 @@ export default function ProfileScreen() {
 
       for (const folderId of folderIds) {
         const [tasksMap, habitsMap] = await Promise.all([
-          ActivityRepository.getTasks(folderId),
-          ActivityRepository.getHabits(folderId),
+          TaskRepository.getTasks(folderId),
+          HabitRepository.getHabits(folderId),
         ]);
 
         const tasks = Object.values(tasksMap);
@@ -232,7 +233,7 @@ export default function ProfileScreen() {
       });
 
       // Calculate pebbles earned today
-      const { getGemsBalance } = require("@/services/pebbleService");
+      const { getGemsBalance } = require("@/features/profile/services/pebble.service");
       const balance = await getGemsBalance();
       setGemsBalance(balance);
     } catch (err) {

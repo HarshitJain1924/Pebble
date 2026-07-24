@@ -10,8 +10,8 @@ export interface AppPlugin {
   onTaskCompleted?(task: any): Promise<void> | void;
   onTaskUncompleted?(task: any): Promise<void> | void;
   onTaskDeleted?(taskId: string): Promise<void> | void;
-  onSubtaskToggled?(taskId: string, subtaskId: string, completed: boolean): Promise<void> | void;
-  onSubtaskCreated?(taskId: string, subtask: any): Promise<void> | void;
+  onChecklistItemToggled?(checklistId: string, itemId: string, completed: boolean): Promise<void> | void;
+  onChecklistItemCreated?(checklistId: string, item: any): Promise<void> | void;
 
   // Habit Hooks
   onHabitCompleted?(habit: any): Promise<void> | void;

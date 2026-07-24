@@ -3,10 +3,10 @@ import {
   cancelReminderIds,
   rescheduleTodoReminders,
   rescheduleHabitReminders,
-} from "../reminders";
+} from "@/services/scheduling/reminders.service";
 import * as Notifications from "expo-notifications";
-import * as settingsService from "../settingsService";
-import { type Todo, type Habit } from "@/modules/types";
+import * as settingsService from "@/features/settings/services/settings.service";
+import { Task, type Habit } from "@/shared/types/domain.types";
 
 // Mock @react-native-async-storage/async-storage
 jest.mock("@react-native-async-storage/async-storage", () => {
@@ -38,8 +38,8 @@ jest.mock("expo-notifications", () => {
 });
 
 // Mock settingsService
-jest.mock("../settingsService", () => {
-  const actual = jest.requireActual("../settingsService");
+jest.mock("@/features/settings/services/settings.service", () => {
+  const actual = jest.requireActual("@/features/settings/services/settings.service");
   return {
     ...actual,
     getSettings: jest.fn().mockResolvedValue({
@@ -215,7 +215,7 @@ describe("reminders service unit tests", () => {
   });
 
   describe("rescheduleTodoReminders and rescheduleHabitReminders", () => {
-    const mockTodo: Todo = {
+    const mockTodo: Task = {
       id: "todo-123",
       title: "Test Reschedule",
       completed: false,

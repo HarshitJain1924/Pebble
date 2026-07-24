@@ -33,7 +33,7 @@ export const hapticPlugin: AppPlugin = {
     );
   },
 
-  onSubtaskToggled(_taskId, _subtaskId, completed) {
+  onChecklistItemToggled(_checklistId, _itemId, completed) {
     if (completed) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch((err) =>
         console.warn("Haptics warning:", err)
@@ -45,7 +45,7 @@ export const hapticPlugin: AppPlugin = {
     }
   },
 
-  onSubtaskCreated() {
+  onChecklistItemCreated() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch((err) =>
       console.warn("Haptics warning:", err)
     );

@@ -9,7 +9,7 @@ import {
   View,
   Alert,
 } from "react-native";
-import { AppText as Text } from "@/components/ui/AppText";
+import { AppText as Text } from "@/shared/components/ui/AppText";
 import Animated, {
   FadeInDown,
   runOnJS,
@@ -20,21 +20,21 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 
-import { Typography } from "@/constants/typography";
+import { Typography } from "@/shared/constants/typography";
 import * as Haptics from "expo-haptics";
 import {
   useCalendarState,
   WEEKDAY_NAMES,
   MONTH_NAMES,
   getDateKey,
-} from "@/modules/calendar/useCalendarState";
-import { isRecurringOccurrenceForDate } from "@/services/recurrence";
-import { TaskEditorSheet } from "@/components/TaskEditorSheet";
-import { historyForDate } from "@/services/productivityHistory";
+} from "@/features/calendar/hooks/useCalendarState";
+import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import { TaskEditorSheet } from "@/features/tasks/components/TaskEditorSheet";
+import { historyForDate } from "@/services/analytics/productivity-history.service";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
-import PressableScale from "@/components/ui/PressableScale";
+import PressableScale from "@/shared/components/ui/PressableScale";
 import Svg, { Rect, Path, Line, Circle } from "react-native-svg";
-import { AnimatedOverlay } from "@/components/ui/AnimatedOverlay";
+import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 
 export default function CalendarScreen() {
   const [optimalHours, setOptimalHours] = React.useState<number[]>([]);
@@ -43,7 +43,7 @@ export default function CalendarScreen() {
   React.useEffect(() => {
     async function loadOptimalHours() {
       try {
-        const { getOptimalHours, getCognitiveFlowStats } = require("@/services/cognitiveFlowService");
+        const { getOptimalHours, getCognitiveFlowStats } = require("@/features/capture/services/cognitive-flow.service");
         const hours = await getOptimalHours();
         const stats = await getCognitiveFlowStats();
         setOptimalHours(hours);

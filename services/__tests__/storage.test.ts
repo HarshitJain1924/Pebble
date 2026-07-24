@@ -5,12 +5,9 @@ import {
   getRecycledIds,
   cleanupRecycleBin,
   restoreRecycleBinItems,
-  TODOS_STORAGE_KEY,
-  DAILY_STORAGE_KEY,
-  RECYCLE_BIN_STORAGE_KEY,
-} from "../storage";
+} from "@/services/storage/storage.service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as reminders from "../reminders";
+import * as reminders from "@/services/scheduling/reminders.service";
 
 // In-memory store simulation
 let mockStore: Record<string, string> = {};
@@ -42,7 +39,7 @@ jest.mock("@react-native-async-storage/async-storage", () => {
   };
 });
 
-jest.mock("../reminders", () => {
+jest.mock("@/services/scheduling/reminders.service", () => {
   return {
     cancelReminderIds: jest.fn().mockResolvedValue(undefined),
     rescheduleTodoReminders: jest.fn().mockImplementation(async (todo) => ({
@@ -163,21 +160,17 @@ describe("storage layer integration tests", () => {
   });
 
   it("should execute full restoration logic with memory merges", async () => {
-    // 1. Setup existing todos database state
-    const initialTodos = {
-      lists: [{ id: "default", name: "Inbox" }],
-      selectedList: "default",
-      todos: {
-        default: [{ id: "todo-existing", title: "Existing task", completed: false }],
-      },
+    // 1. Setup existing tasks database state
+    const initialTasks = {
+      "todo-existing": { id: "todo-existing", title: "Existing task", completed: false }
     };
-    mockStore[TODOS_STORAGE_KEY] = JSON.stringify(initialTodos);
+    mockStore["pebble:v1:tasks:default"] = JSON.stringify(initialTasks);
 
     // 2. Setup existing habits database state
     const initialHabits = {
-      dailyHabits: [{ id: "habit-existing", title: "Existing Habit", streak: 3 }],
+      "habit-existing": { id: "habit-existing", title: "Existing Habit", streak: 3 }
     };
-    mockStore[DAILY_STORAGE_KEY] = JSON.stringify(initialHabits);
+    mockStore["pebble:v1:habits:default"] = JSON.stringify(initialHabits);
 
     // 3. Add items to Recycle Bin
     const deletedTask = { id: "todo-deleted", title: "Deleted task", folderId: "default" };
@@ -197,17 +190,17 @@ describe("storage layer integration tests", () => {
     expect(binItemsAfter.length).toBe(0);
 
     // 6. Verify items were correctly merged back into their databases
-    const updatedTodosRaw = mockStore[TODOS_STORAGE_KEY];
-    expect(updatedTodosRaw).toBeDefined();
-    const updatedTodos = JSON.parse(updatedTodosRaw);
-    expect(updatedTodos.todos.default.length).toBe(2);
-    expect(updatedTodos.todos.default.some((t: any) => t.id === "todo-deleted")).toBe(true);
+    const updatedTasksRaw = mockStore["pebble:v1:tasks:default"];
+    expect(updatedTasksRaw).toBeDefined();
+    const updatedTasks = JSON.parse(updatedTasksRaw);
+    expect(Object.keys(updatedTasks).length).toBe(2);
+    expect(updatedTasks["todo-deleted"]).toBeDefined();
 
-    const updatedHabitsRaw = mockStore[DAILY_STORAGE_KEY];
+    const updatedHabitsRaw = mockStore["pebble:v1:habits:default"];
     expect(updatedHabitsRaw).toBeDefined();
     const updatedHabits = JSON.parse(updatedHabitsRaw);
-    expect(updatedHabits.dailyHabits.length).toBe(2);
-    expect(updatedHabits.dailyHabits.some((h: any) => h.id === "habit-deleted")).toBe(true);
+    expect(Object.keys(updatedHabits).length).toBe(2);
+    expect(updatedHabits["habit-deleted"]).toBeDefined();
 
     // Verify reminders rescheduling was triggered
     expect(reminders.rescheduleTodoReminders).toHaveBeenCalled();

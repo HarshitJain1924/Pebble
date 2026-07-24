@@ -32,12 +32,12 @@ export const syncPlugin: AppPlugin = {
     // Example: fetch(`/api/tasks/${taskId}`, { method: 'DELETE' })
   },
 
-  onSubtaskToggled(taskId, subtaskId, completed) {
-    console.log(`[BackendSync] Subtask ${subtaskId} of task ${taskId} toggled to ${completed}: syncing status...`);
+  onChecklistItemToggled(checklistId, itemId, completed) {
+    console.log(`[BackendSync] ChecklistItem ${itemId} of checklist ${checklistId} toggled to ${completed}: syncing status...`);
   },
 
-  onSubtaskCreated(taskId, subtask) {
-    console.log(`[BackendSync] Subtask created under task ${taskId}: syncing...`, subtask);
+  onChecklistItemCreated(checklistId, item) {
+    console.log(`[BackendSync] ChecklistItem created under checklist ${checklistId}: syncing...`, item);
   },
 
   onHabitCompleted(habit) {

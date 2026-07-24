@@ -73,25 +73,25 @@ class PluginManager {
     }
   }
 
-  async dispatchSubtaskToggled(taskId: string, subtaskId: string, completed: boolean) {
+  async dispatchChecklistItemToggled(checklistId: string, itemId: string, completed: boolean) {
     for (const p of this.plugins) {
-      if (p.enabled && p.onSubtaskToggled) {
+      if (p.enabled && p.onChecklistItemToggled) {
         try {
-          await p.onSubtaskToggled(taskId, subtaskId, completed);
+          await p.onChecklistItemToggled(checklistId, itemId, completed);
         } catch (e) {
-          console.error(`Error in plugin ${p.name} onSubtaskToggled:`, e);
+          console.error(`Error in plugin ${p.name} onChecklistItemToggled:`, e);
         }
       }
     }
   }
 
-  async dispatchSubtaskCreated(taskId: string, subtask: any) {
+  async dispatchChecklistItemCreated(checklistId: string, item: any) {
     for (const p of this.plugins) {
-      if (p.enabled && p.onSubtaskCreated) {
+      if (p.enabled && p.onChecklistItemCreated) {
         try {
-          await p.onSubtaskCreated(taskId, subtask);
+          await p.onChecklistItemCreated(checklistId, item);
         } catch (e) {
-          console.error(`Error in plugin ${p.name} onSubtaskCreated:`, e);
+          console.error(`Error in plugin ${p.name} onChecklistItemCreated:`, e);
         }
       }
     }

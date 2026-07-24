@@ -1,25 +1,26 @@
-import { AppCard } from "@/components/AppCard";
-import PressableScale from "@/components/ui/PressableScale";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { AppCard } from "@/shared/components/ui/AppCard";
+import PressableScale from "@/shared/components/ui/PressableScale";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
     addNotificationLog,
     clearNotificationLogs,
     getNotificationLogs,
     markNotificationLogsAsRead,
     type NotificationLogEntry,
-} from "@/services/notificationsLog";
+} from "@/services/scheduling/notifications-log";
 import {
-    ActivityRepository,
-    FolderRepository,
-} from "@/services/core/repositories";
+    TaskRepository,
+    HabitRepository,
+    WorkspaceRepository,
+} from "@/repositories";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as IntentLauncher from "expo-intent-launcher";
 // NOTE: avoid importing `expo-notifications` at module top-level because
 // it auto-registers push token listeners which will error/warn in Expo Go.
 // Use dynamic import inside async functions instead.
-import { AppText as Text } from "@/components/ui/AppText";
+import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
@@ -158,13 +159,13 @@ export default function NotificationsCenter() {
       }
 
       // B. Query current Tasks and Habits for future schedules
-      const folderList = await FolderRepository.getFolders();
+      const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
         new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
       );
 
       for (const fId of folderIds) {
-        const tasksMap = await ActivityRepository.getTasks(fId);
+        const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t) => {
           if (!t.completed && t.alarmTime && t.alarmTime > Date.now()) {
             if (!upcomingList.some((u) => u.title.includes(t.title))) {
@@ -185,7 +186,7 @@ export default function NotificationsCenter() {
           }
         });
 
-        const habitsMap = await ActivityRepository.getHabits(fId);
+        const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h) => {
           if (
             !h.archived &&

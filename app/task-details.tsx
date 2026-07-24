@@ -16,43 +16,38 @@ import {
 import { Calendar } from "react-native-calendars";
 
 import {
-    ActivityRepository,
-    FolderRepository,
-} from "@/services/core/repositories";
+    TaskRepository,
+    HabitRepository,
+    WorkspaceRepository,
+} from "@/repositories";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
-import { TimeSelectorDial } from "@/components/TimeSelectorDial";
-import { AppText as Text } from "@/components/ui/AppText";
-import { useUndo } from "@/components/ui/UndoContext";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import {
-    type Collection,
-    type CollectionItem,
-    type Habit,
-    type TaskList,
-    type Todo,
-} from "@/modules/types";
-import { getAllHistory } from "@/services/productivityHistory";
-import { getDateKey, getRecurrenceLabel } from "@/services/recurrence";
+import { TimeSelectorDial } from "@/shared/components/ui/TimeSelectorDial";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { useUndo } from "@/shared/components/ui/UndoContext";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { Resource, ResourceCollection, type Habit, Workspace, Task } from "@/shared/types/domain.types";
+import { getAllHistory } from "@/services/analytics/productivity-history.service";
+import { getDateKey, getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import {
     cancelReminderIds,
     rescheduleHabitReminders,
     rescheduleTodoReminders,
     scheduleReminderBatch,
-} from "@/services/reminders";
-import { emitStateChange } from "@/services/stateEvents";
+} from "@/services/scheduling/reminders.service";
+import { emitStateChange } from "@/services/events/state-events";
 import {
     addToRecycleBin,
     getCollections,
     getRecycleBinItems,
     saveCollections,
     saveRecycleBinItems,
-} from "@/services/storage";
+} from "@/services/storage/storage.service";
 
-import { CategoryChip } from "@/components/design";
-import { TASK_CATEGORY_META } from "@/services/taskCategories";
+import { CategoryChip } from "@/shared/components/design-system";
+import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 
 const CATEGORY_OPTIONS = TASK_CATEGORY_META.map((cat) => ({
   key: cat.key,
@@ -87,7 +82,7 @@ export default function TaskDetailsScreen() {
   // State Variables
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
-  const [workspaces, setWorkspaces] = useState<TaskList[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [item, setItem] = useState<any>(null);
   const [completionRate, setCompletionRate] = useState<number | null>(null);
   const [timesCompleted, setTimesCompleted] = useState<number | null>(null);
@@ -134,7 +129,7 @@ export default function TaskDetailsScreen() {
   // Resources state
   const [resourcesSheetVisible, setResourcesSheetVisible] = useState(false);
   const [linkPickerVisible, setLinkPickerVisible] = useState(false);
-  const [collections, setCollections] = useState<Record<string, Collection[]>>(
+  const [collections, setCollections] = useState<Record<string, ResourceCollection[]>>(
     {},
   );
   const [linkedCollectionIds, setLinkedCollectionIds] = useState<string[]>([]);
@@ -147,7 +142,7 @@ export default function TaskDetailsScreen() {
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
 
   // Viewing/Preview states
-  const [viewingNote, setViewingNote] = useState<CollectionItem | null>(null);
+  const [viewingNote, setViewingNote] = useState<Resource | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const allResources = useMemo(() => {
@@ -281,8 +276,8 @@ export default function TaskDetailsScreen() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load workspaces via FolderRepository
-      const folderList = await FolderRepository.getFolders();
+      // Load workspaces via WorkspaceRepository
+      const folderList = await WorkspaceRepository.getWorkspaces();
       const loadedWorkspaces =
         folderList.length > 0
           ? folderList.map((f) => ({
@@ -311,7 +306,7 @@ export default function TaskDetailsScreen() {
       if (itemType === "task") {
         let foundTask = null;
         for (const fId of folderIds) {
-          const task = await ActivityRepository.getTask(itemId, fId);
+          const task = await TaskRepository.getTask(itemId, fId);
           if (task) {
             foundTask = { ...task, folderId: fId };
             break;
@@ -328,7 +323,7 @@ export default function TaskDetailsScreen() {
         // habit
         let foundHabit = null;
         for (const fId of folderIds) {
-          const habit = await ActivityRepository.getHabit(itemId, fId);
+          const habit = await HabitRepository.getHabit(itemId, fId);
           if (habit) {
             foundHabit = {
               ...habit,
@@ -476,20 +471,20 @@ export default function TaskDetailsScreen() {
 
         // 3. Save both via Repository
         if (isTask) {
-          await ActivityRepository.saveTask({
+          await TaskRepository.saveTask({
             ...updatedMaster,
             folderId: item.folderId || "default",
           });
-          await ActivityRepository.saveTask({
+          await TaskRepository.saveTask({
             ...newCopy,
             folderId: workspaceId,
           });
         } else {
-          await ActivityRepository.saveHabit({
+          await HabitRepository.saveHabit({
             ...updatedMaster,
             folderId: item.folderId || "default",
           });
-          await ActivityRepository.saveHabit({
+          await HabitRepository.saveHabit({
             ...newCopy,
             folderId: workspaceId,
           });
@@ -581,18 +576,18 @@ export default function TaskDetailsScreen() {
         if (isTask) {
           const oldFolderId = item.folderId || item.workspaceId || "default";
           if (oldFolderId !== workspaceId) {
-            await ActivityRepository.deleteTask(item.id, oldFolderId);
+            await TaskRepository.deleteTask(item.id, oldFolderId);
           }
-          await ActivityRepository.saveTask({
+          await TaskRepository.saveTask({
             ...updatedItem,
             folderId: workspaceId,
           });
         } else {
           const oldFolderId = item.folderId || item.workspaceId || "default";
           if (oldFolderId !== workspaceId) {
-            await ActivityRepository.deleteHabit(item.id, oldFolderId);
+            await HabitRepository.deleteHabit(item.id, oldFolderId);
           }
-          await ActivityRepository.saveHabit({
+          await HabitRepository.saveHabit({
             ...updatedItem,
             folderId: workspaceId,
           });
@@ -629,12 +624,12 @@ export default function TaskDetailsScreen() {
       };
 
       if (isTask) {
-        await ActivityRepository.saveTask({
+        await TaskRepository.saveTask({
           ...duplicate,
           folderId: item.folderId || "default",
         });
       } else {
-        await ActivityRepository.saveHabit({
+        await HabitRepository.saveHabit({
           ...duplicate,
           folderId: item.folderId || "default",
         });
@@ -705,13 +700,13 @@ export default function TaskDetailsScreen() {
         };
 
         // Remove from tasks storage
-        await ActivityRepository.deleteTask(
+        await TaskRepository.deleteTask(
           item.id,
           item.folderId || "default",
         );
 
         // Add to habits storage
-        await ActivityRepository.saveHabit({
+        await HabitRepository.saveHabit({
           ...newHabit,
           folderId: item.folderId || "default",
         });
@@ -745,7 +740,7 @@ export default function TaskDetailsScreen() {
         router.replace(`/task-details?id=${newId}&type=habit`);
       } else {
         // Convert Habit -> Task
-        const newTodo: Todo = {
+        const newTodo: Task = {
           ...baseProperties,
           id: newId,
           completed: false,
@@ -753,13 +748,13 @@ export default function TaskDetailsScreen() {
         };
 
         // Remove from habits storage
-        await ActivityRepository.deleteHabit(
+        await HabitRepository.deleteHabit(
           item.id,
           item.folderId || "default",
         );
 
         // Add to tasks storage
-        await ActivityRepository.saveTask({
+        await TaskRepository.saveTask({
           ...newTodo,
           folderId: item.folderId || "default",
         });
@@ -833,12 +828,12 @@ export default function TaskDetailsScreen() {
         };
 
         if (isTask) {
-          await ActivityRepository.saveTask({
+          await TaskRepository.saveTask({
             ...updatedItem,
             folderId: item.folderId || "default",
           });
         } else {
-          await ActivityRepository.saveHabit({
+          await HabitRepository.saveHabit({
             ...updatedItem,
             folderId: item.folderId || "default",
           });
@@ -858,12 +853,12 @@ export default function TaskDetailsScreen() {
         );
 
         if (isTask) {
-          await ActivityRepository.deleteTask(
+          await TaskRepository.deleteTask(
             item.id,
             item.folderId || "default",
           );
         } else {
-          await ActivityRepository.deleteHabit(
+          await HabitRepository.deleteHabit(
             item.id,
             item.folderId || "default",
           );
@@ -880,14 +875,14 @@ export default function TaskDetailsScreen() {
 
             if (isTask) {
               const rescheduled = await rescheduleTodoReminders(item);
-              await ActivityRepository.saveTask({
+              await TaskRepository.saveTask({
                 ...rescheduled,
                 folderId: item.folderId || "default",
               });
               emitStateChange("tasks_changed");
             } else {
               const rescheduled = await rescheduleHabitReminders(item);
-              await ActivityRepository.saveHabit({
+              await HabitRepository.saveHabit({
                 ...rescheduled,
                 folderId: item.folderId || "default",
               });
@@ -923,7 +918,7 @@ export default function TaskDetailsScreen() {
     if (!newCollectionName.trim()) return;
     try {
       const newColId = `collection-${Date.now()}`;
-      const newCol: Collection = {
+      const newCol: ResourceCollection = {
         id: newColId,
         workspaceId: workspaceId || "default",
         name: newCollectionName.trim(),
@@ -1673,12 +1668,12 @@ export default function TaskDetailsScreen() {
                     };
 
                     if (isTask) {
-                      await ActivityRepository.saveTask({
+                      await TaskRepository.saveTask({
                         ...updatedItem,
                         folderId: item.folderId || "default",
                       });
                     } else {
-                      await ActivityRepository.saveHabit({
+                      await HabitRepository.saveHabit({
                         ...updatedItem,
                         folderId: item.folderId || "default",
                       });

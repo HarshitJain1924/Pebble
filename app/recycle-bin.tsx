@@ -15,20 +15,20 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
-import { AppText as Text } from "@/components/ui/AppText";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { type RecycleBinItem, type Todo, type Habit } from "@/modules/types";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { type RecycleBinItem, Task, type Habit } from "@/shared/types/domain.types";
 import {
   getRecycleBinItems,
   saveRecycleBinItems,
   restoreRecycleBinItems,
-} from "@/services/storage";
-import { emitStateChange } from "@/services/stateEvents";
+} from "@/services/storage/storage.service";
+import { emitStateChange } from "@/services/events/state-events";
 import {
   cancelReminderIds,
-} from "@/services/reminders";
-import { AppCard } from "@/components/AppCard";
+} from "@/services/scheduling/reminders.service";
+import { AppCard } from "@/shared/components/ui/AppCard";
 
 export default function RecycleBinScreen() {
   const router = useRouter();

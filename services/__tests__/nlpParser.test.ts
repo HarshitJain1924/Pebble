@@ -1,4 +1,4 @@
-import { parseProductivityText } from "../nlpParser";
+import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
 
 describe("nlpParser service unit tests", () => {
   it("should handle empty or whitespace inputs gracefully", () => {

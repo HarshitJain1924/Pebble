@@ -18,11 +18,11 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import "react-native-reanimated";
 
-import UndoProvider from "@/components/ui/UndoContext";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import NotificationListener from "@/components/ui/NotificationListener";
+import UndoProvider from "@/shared/components/ui/UndoContext";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import NotificationListener from "@/shared/components/ui/NotificationListener";
 
-import { cleanupRecycleBin } from "@/services/storage";
+import { cleanupRecycleBin } from "@/services/storage/storage.service";
 
 SplashScreen.preventAutoHideAsync();
 

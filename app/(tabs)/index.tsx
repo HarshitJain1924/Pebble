@@ -1,7 +1,7 @@
 import {
     AppText as Text,
     AppTextInput as TextInput,
-} from "@/components/ui/AppText";
+} from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -28,36 +28,38 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 
-import { AnimatedCheckbox } from "@/components/AnimatedCheckbox";
-import { InteractivePebbleJar } from "@/components/profile/InteractivePebbleJar";
-import PressableScale from "@/components/ui/PressableScale";
-import { useUndo } from "@/components/ui/UndoContext";
-import { styles } from "@/constants/dashboardStyles";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { normalizeHabitsForToday } from "@/services/habitService";
-import { isRecurringOccurrenceForDate } from "@/services/recurrence";
-import { cancelReminderIds } from "@/services/reminders";
+import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
+import { InteractivePebbleJar } from "@/features/profile/components/InteractivePebbleJar";
+import PressableScale from "@/shared/components/ui/PressableScale";
+import { useUndo } from "@/shared/components/ui/UndoContext";
+import { styles } from "@/shared/constants/dashboardStyles";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { normalizeHabitsForToday } from "@/features/habits/services/habit.service";
+import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import {
     handleHabitXpChange,
     handleTaskXpChange,
     type UserProfile,
-} from "@/services/settingsService";
-import { addStateListener, emitStateChange } from "@/services/stateEvents";
+} from "@/features/settings/services/settings.service";
+import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import {
     appendGratitudeHistoryEntry,
     getCollections,
     getDashboardFilters,
     saveDashboardFilter,
-} from "@/services/storage";
+} from "@/services/storage/storage.service";
 import {
     normalizeTaskCategory,
     TASK_CATEGORY_KEYS
-} from "@/services/taskCategories";
+} from "@/features/tasks/services/task-categories";
 import {
-    ActivityRepository,
-    FolderRepository,
-} from "@/services/core/repositories";
+    TaskRepository,
+    HabitRepository,
+    ChecklistRepository,
+    WorkspaceRepository,
+} from "@/repositories";
 import * as Haptics from "expo-haptics";
 
 // Reusable UI components
@@ -65,8 +67,8 @@ import {
     CategoryChip,
     PriorityIndicator,
     StatusBadge,
-} from "@/components/design";
-import { AppHeader } from "@/components/ui/AppHeader";
+} from "@/shared/components/design-system";
+import { AppHeader } from "@/shared/components/ui/AppHeader";
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -191,13 +193,9 @@ const ProjectilePebble = ({
   );
 };
 
-import {
-    type Checklist,
-    type Habit,
-    type Todo
-} from "@/modules/types";
+import { type Checklist, type Habit, Task } from "@/shared/types/domain.types";
 
-export default function DashboardScreen() {
+export function TodayScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const router = useRouter();
@@ -260,8 +258,8 @@ export default function DashboardScreen() {
   const [todoStats, setTodoStats] = useState({
     completed: 0,
     total: 0,
-    pending: [] as Todo[],
-    overdue: [] as Todo[],
+    pending: [] as Task[],
+    overdue: [] as Task[],
   });
   const [habitStats, setHabitStats] = useState({
     completed: 0,
@@ -406,7 +404,7 @@ export default function DashboardScreen() {
       const todayStr = getDateKey();
 
       // 1. Load Folders and Tasks via Repositories
-      const folderList = await FolderRepository.getFolders();
+      const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
         new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
       );
@@ -431,18 +429,18 @@ export default function DashboardScreen() {
 
       let tCompleted = 0;
       let tTotal = 0;
-      let pendingList: Todo[] = [];
+      let pendingList: Task[] = [];
       let closestAlarm: number | null = null;
       const nextCategoryCounts = Object.fromEntries(
         TASK_CATEGORY_KEYS.map((key) => [key, 0]),
       ) as Record<string, number>;
 
-      const rawList: Todo[] = [];
+      const rawList: Task[] = [];
       const rawHabitsList: Habit[] = [];
 
       for (const folderId of folderIds) {
         // Load tasks
-        const tasksMap = await ActivityRepository.getTasks(folderId);
+        const tasksMap = await TaskRepository.getTasks(folderId);
         Object.values(tasksMap).forEach((task) => {
           rawList.push({
             id: task.id,
@@ -465,7 +463,7 @@ export default function DashboardScreen() {
         });
 
         // Load habits
-        const habitsMap = await ActivityRepository.getHabits(folderId);
+        const habitsMap = await HabitRepository.getHabits(folderId);
         Object.values(habitsMap).forEach((habit) => {
           rawHabitsList.push({
             id: habit.id,
@@ -573,12 +571,12 @@ export default function DashboardScreen() {
             originalHabit &&
             JSON.stringify(originalHabit) !== JSON.stringify(normalizedHabit)
           ) {
-            const habitsMap = await ActivityRepository.getHabits(
+            const habitsMap = await HabitRepository.getHabits(
               normalizedHabit.folderId || "default",
             );
             const originalFull = habitsMap[normalizedHabit.id];
             if (originalFull) {
-              await ActivityRepository.saveHabit({
+              await HabitRepository.saveHabit({
                 ...originalFull,
                 streak: normalizedHabit.streak,
                 bestStreak: normalizedHabit.bestStreak,
@@ -624,7 +622,7 @@ export default function DashboardScreen() {
       // 3. Load Checklists via Repository
       const loadedChecklists: Record<string, any[]> = {};
       for (const fId of folderIds) {
-        const checklistsMap = await ActivityRepository.getChecklists(fId);
+        const checklistsMap = await ChecklistRepository.getChecklists(fId);
         loadedChecklists[fId] = Object.values(checklistsMap).map((c: any) => ({
           id: c.id,
           folderId: fId,
@@ -651,11 +649,11 @@ export default function DashboardScreen() {
 
       // Load Profile & Notifications Inbox status
       try {
-        const { getProfile } = require("@/services/settingsService");
+        const { getProfile } = require("@/features/settings/services/settings.service");
         const userProfile = await getProfile();
         setProfile(userProfile);
 
-        const { getNotificationLogs } = require("@/services/notificationsLog");
+        const { getNotificationLogs } = require("@/services/scheduling/notifications-log");
         const logs = await getNotificationLogs();
         const hasUnread = logs.some((l: any) => !l.read);
         setHasUnreadNotifs(hasUnread);
@@ -665,7 +663,7 @@ export default function DashboardScreen() {
           getPebbleCounts,
           getGemsBalance,
           getMainStreakRecoveryInfo,
-        } = require("@/services/pebbleService");
+        } = require("@/features/profile/services/pebble.service");
         const pebbleStats = await getPebbleCounts();
         setLifetimePebbles(pebbleStats.lifetime);
         setMonthlyPebbles(pebbleStats.monthly);
@@ -691,7 +689,7 @@ export default function DashboardScreen() {
 
   const handleRecoverMainStreak = useCallback(async () => {
     try {
-      const { recoverMainStreak } = require("@/services/pebbleService");
+      const { recoverMainStreak } = require("@/features/profile/services/pebble.service");
       const success = await recoverMainStreak();
       if (success) {
         Haptics.notificationAsync(
@@ -716,7 +714,7 @@ export default function DashboardScreen() {
   const toggleChecklistItemFromDashboard = useCallback(
     async (checklistId: string, itemId: string, folderId: string) => {
       try {
-        const checklistsMap = await ActivityRepository.getChecklists(folderId);
+        const checklistsMap = await ChecklistRepository.getChecklists(folderId);
         const checklist = checklistsMap[checklistId];
         if (checklist) {
           const updatedChecklist = {
@@ -725,7 +723,7 @@ export default function DashboardScreen() {
               i.id === itemId ? { ...i, completed: !i.completed } : i,
             ),
           };
-          await ActivityRepository.saveChecklist(updatedChecklist as any);
+          await ChecklistRepository.saveChecklist(updatedChecklist as any);
 
           setAllChecklists((prev) => {
             const next = { ...prev };
@@ -754,7 +752,7 @@ export default function DashboardScreen() {
       try {
         let prevTodo: any = null;
         let targetFolderId = "default";
-        const folderList = await FolderRepository.getFolders();
+        const folderList = await WorkspaceRepository.getWorkspaces();
         const folderIds = Array.from(
           new Set([
             "default",
@@ -764,7 +762,7 @@ export default function DashboardScreen() {
         );
 
         for (const fId of folderIds) {
-          const tasksMap = await ActivityRepository.getTasks(fId);
+          const tasksMap = await TaskRepository.getTasks(fId);
           if (tasksMap[todoId]) {
             prevTodo = tasksMap[todoId];
             targetFolderId = fId;
@@ -774,20 +772,22 @@ export default function DashboardScreen() {
 
         if (!prevTodo) return;
 
-        let reminderIdsToClear: string[] = [];
-        let xpAwarded = false;
-        if (prevTodo) {
-          const res = await handleTaskXpChange(prevTodo, true);
-          xpAwarded = res.xpAwarded;
-          reminderIdsToClear = prevTodo.notificationIds ?? [];
-        }
+        const today = getDateKey();
+        const { xpAwarded } = await handleTaskXpChange(
+          prevTodo,
+          true,
+        );
 
+        const reminderIdsToClear = [
+          ...(prevTodo.notificationIds || []),
+          ...(prevTodo.alarmId ? [prevTodo.alarmId] : []),
+        ];
         await cancelReminderIds(reminderIdsToClear);
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
 
-        await ActivityRepository.saveTask({
+        await TaskRepository.saveTask({
           ...prevTodo,
           completed: true,
           completedAt: Date.now(),
@@ -795,7 +795,7 @@ export default function DashboardScreen() {
         });
 
         // Earn task pebble
-        const { earnPebble } = require("@/services/pebbleService");
+        const { earnPebble } = require("@/features/profile/services/pebble.service");
         await earnPebble("task");
 
         // Spawn flying pebble animation
@@ -828,10 +828,10 @@ export default function DashboardScreen() {
                   await handleTaskXpChange(prevTodo, false);
                   const {
                     undoLastPebble,
-                  } = require("@/services/pebbleService");
+                  } = require("@/features/profile/services/pebble.service");
                   await undoLastPebble("task");
 
-                  await ActivityRepository.saveTask({
+                  await TaskRepository.saveTask({
                     ...prevTodo,
                     completed: false,
                     completedAt: undefined,
@@ -859,7 +859,7 @@ export default function DashboardScreen() {
       try {
         let prevHabit: any = null;
         let targetFolderId = "default";
-        const folderList = await FolderRepository.getFolders();
+        const folderList = await WorkspaceRepository.getWorkspaces();
         const folderIds = Array.from(
           new Set([
             "default",
@@ -869,7 +869,7 @@ export default function DashboardScreen() {
         );
 
         for (const fId of folderIds) {
-          const habitsMap = await ActivityRepository.getHabits(fId);
+          const habitsMap = await HabitRepository.getHabits(fId);
           if (habitsMap[habitId]) {
             prevHabit = habitsMap[habitId];
             targetFolderId = fId;
@@ -880,9 +880,7 @@ export default function DashboardScreen() {
         if (!prevHabit) return;
 
         const today = getDateKey();
-        const yesterday = getDateKey(
-          new Date(Date.now() - 24 * 60 * 60 * 1000),
-        );
+        const yesterday = getDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
 
         const habitForXp = {
           ...prevHabit,
@@ -926,7 +924,7 @@ export default function DashboardScreen() {
           xpAwardedDate,
         };
 
-        await ActivityRepository.saveHabit(updatedHabit);
+        await HabitRepository.saveHabit(updatedHabit);
 
         if (nextCompleted) {
           Haptics.notificationAsync(
@@ -937,13 +935,13 @@ export default function DashboardScreen() {
         // Record history snapshot
         const {
           recordDailyHistorySnapshot,
-        } = require("@/services/productivityHistory");
+        } = require("@/services/analytics/productivity-history.service");
         void recordDailyHistorySnapshot();
 
         const {
           earnPebble,
           undoLastPebble,
-        } = require("@/services/pebbleService");
+        } = require("@/features/profile/services/pebble.service");
         if (nextCompleted) {
           await earnPebble("habit");
 
@@ -1010,7 +1008,7 @@ export default function DashboardScreen() {
           created: Date.now(),
         };
 
-        await ActivityRepository.saveTask(newTodo);
+        await TaskRepository.saveTask(newTodo);
       }
 
       // Reset fields and close
@@ -1327,8 +1325,8 @@ export default function DashboardScreen() {
     selectedSortOption,
   ]);
 
-  const groupTasksByFolder = useCallback((taskList: Todo[]) => {
-    const grouped: Record<string, Todo[]> = {};
+  const groupTasksByFolder = useCallback((taskList: Task[]) => {
+    const grouped: Record<string, Task[]> = {};
     taskList.forEach((todo) => {
       const fId =
         todo.folderId === "unassigned" || !todo.folderId
@@ -1462,7 +1460,7 @@ export default function DashboardScreen() {
     const contextMap: Record<
       string,
       {
-        tasks: Todo[];
+        tasks: Task[];
         habits: Habit[];
         checklists: Checklist[];
       }
@@ -4296,3 +4294,7 @@ const styleOverrides = {
     backgroundColor: "transparent",
   },
 };
+
+export const DashboardScreen = TodayScreen;
+export default TodayScreen;
+

@@ -1,6 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getCognitiveFlowStats, getOptimalHours } from "../cognitiveFlowService";
-import { DAILY_STORAGE_KEY, TODOS_STORAGE_KEY } from "../storage";
+import { getCognitiveFlowStats, getOptimalHours } from "@/features/capture/services/cognitive-flow.service";
 
 let mockStore: Record<string, string> = {};
 
@@ -41,23 +40,17 @@ describe("cognitiveFlowService tests", () => {
   });
 
   it("should return Morning Focus Peak when morning tasks dominate", async () => {
-    const mockTodos = {
-      todos: {
-        default: [
-          { id: "1", title: "Morning Task 1", completed: false, alarmTime: new Date(2026, 5, 9, 8, 30).getTime() },
-          { id: "2", title: "Morning Task 2", completed: false, reminderHour: 9 },
-          { id: "3", title: "Evening Task", completed: false, reminderHour: 18 },
-        ]
-      }
+    const mockTasks = {
+      "1": { id: "1", title: "Morning Task 1", completed: false, alarmTime: new Date(2026, 5, 9, 8, 30).getTime() },
+      "2": { id: "2", title: "Morning Task 2", completed: false, reminderHour: 9 },
+      "3": { id: "3", title: "Evening Task", completed: false, reminderHour: 18 },
     };
     const mockHabits = {
-      dailyHabits: [
-        { id: "h1", title: "Morning Habit", reminderHour: 7 },
-      ]
+      "h1": { id: "h1", title: "Morning Habit", reminderHour: 7 },
     };
 
-    mockStore[TODOS_STORAGE_KEY] = JSON.stringify(mockTodos);
-    mockStore[DAILY_STORAGE_KEY] = JSON.stringify(mockHabits);
+    mockStore["pebble:v1:tasks:default"] = JSON.stringify(mockTasks);
+    mockStore["pebble:v1:habits:default"] = JSON.stringify(mockHabits);
 
     const stats = await getCognitiveFlowStats();
     expect(stats.peakZone).toBe("Morning Focus Peak");
@@ -70,15 +63,11 @@ describe("cognitiveFlowService tests", () => {
   });
 
   it("should return Afternoon Steady Flow when afternoon tasks dominate", async () => {
-    const mockTodos = {
-      todos: {
-        default: [
-          { id: "1", title: "Afternoon Task 1", completed: false, reminderHour: 13 },
-          { id: "2", title: "Afternoon Task 2", completed: false, reminderHour: 15 },
-        ]
-      }
+    const mockTasks = {
+      "1": { id: "1", title: "Afternoon Task 1", completed: false, reminderHour: 13 },
+      "2": { id: "2", title: "Afternoon Task 2", completed: false, reminderHour: 15 },
     };
-    mockStore[TODOS_STORAGE_KEY] = JSON.stringify(mockTodos);
+    mockStore["pebble:v1:tasks:default"] = JSON.stringify(mockTasks);
 
     const stats = await getCognitiveFlowStats();
     expect(stats.peakZone).toBe("Afternoon Steady Flow");
@@ -89,15 +78,11 @@ describe("cognitiveFlowService tests", () => {
   });
 
   it("should return Night Owl Momentum when evening tasks dominate", async () => {
-    const mockTodos = {
-      todos: {
-        default: [
-          { id: "1", title: "Evening Task 1", completed: false, reminderHour: 19 },
-          { id: "2", title: "Evening Task 2", completed: false, reminderHour: 20 },
-        ]
-      }
+    const mockTasks = {
+      "1": { id: "1", title: "Evening Task 1", completed: false, reminderHour: 19 },
+      "2": { id: "2", title: "Evening Task 2", completed: false, reminderHour: 20 },
     };
-    mockStore[TODOS_STORAGE_KEY] = JSON.stringify(mockTodos);
+    mockStore["pebble:v1:tasks:default"] = JSON.stringify(mockTasks);
 
     const stats = await getCognitiveFlowStats();
     expect(stats.peakZone).toBe("Night Owl Momentum");

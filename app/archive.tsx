@@ -14,28 +14,31 @@ import {
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
-import { AppText as Text } from "@/components/ui/AppText";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { type Habit, type Todo } from "@/modules/types";
-import { normalizeTaskCategory } from "@/services/taskCategories";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { type Habit, Task } from "@/shared/types/domain.types";
+import { normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 
-import { AppCard } from "@/components/AppCard";
-import { cancelReminderIds, scheduleReminderBatch } from "@/services/reminders";
-import { emitStateChange } from "@/services/stateEvents";
+import { AppCard } from "@/shared/components/ui/AppCard";
+import { cancelReminderIds, scheduleReminderBatch } from "@/services/scheduling/reminders.service";
+import { emitStateChange } from "@/services/events/state-events";
+import { useUndo } from "@/shared/components/ui/UndoContext";
 import {
-    ActivityRepository,
-    FolderRepository,
-} from "@/services/core/repositories";
+    TaskRepository,
+    HabitRepository,
+    WorkspaceRepository,
+} from "@/repositories";
 
 export default function ArchiveScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
+  const { showToast } = useUndo();
 
   const [loading, setLoading] = useState(true);
-  const [archivedTasks, setArchivedTasks] = useState<Todo[]>([]);
+  const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [archivedHabits, setArchivedHabits] = useState<Habit[]>([]);
   const [workspaces, setWorkspaces] = useState<Record<string, string>>({});
 
@@ -46,7 +49,7 @@ export default function ArchiveScreen() {
   const loadArchivedData = async () => {
     setLoading(true);
     try {
-      const folderList = await FolderRepository.getFolders();
+      const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
         new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
       );
@@ -58,25 +61,25 @@ export default function ArchiveScreen() {
       workspaceNames["default"] = "My Pebbles";
       workspaceNames["unassigned"] = "My Pebbles";
 
-      const tasks: Todo[] = [];
+      const tasks: Task[] = [];
       const habits: Habit[] = [];
       const todayStr = new Date().toISOString().split("T")[0];
 
       for (const fId of folderIds) {
         // Load tasks
-        const tasksMap = await ActivityRepository.getTasks(fId);
+        const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t) => {
           if (t.archived) {
             tasks.push({
               ...t,
               folderId: fId,
               scheduledDate: t.scheduledDate || t.dueDate,
-            } as Todo);
+            } as Task);
           }
         });
 
         // Load habits
-        const habitsMap = await ActivityRepository.getHabits(fId);
+        const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h) => {
           if (h.archived) {
             habits.push({
@@ -135,13 +138,13 @@ export default function ArchiveScreen() {
       updatedItem.notificationIds = notificationIds;
 
       if (isTask) {
-        await ActivityRepository.saveTask({
+        await TaskRepository.saveTask({
           ...updatedItem,
           folderId: item.folderId || "default",
           scheduledDate: updatedItem.scheduledDate || updatedItem.dueDate,
         });
       } else {
-        await ActivityRepository.saveHabit({
+        await HabitRepository.saveHabit({
           ...updatedItem,
           folderId: item.folderId || "default",
         });
@@ -151,7 +154,7 @@ export default function ArchiveScreen() {
         () => {},
       );
       emitStateChange(isTask ? "tasks_changed" : "habits_changed");
-      Alert.alert("Success", `"${item.title}" has been restored successfully!`);
+      showToast(`Restored "${item.title}"`);
       loadArchivedData();
     } catch (e) {
       console.warn("Failed to restore item", e);
@@ -173,12 +176,12 @@ export default function ArchiveScreen() {
               await cancelReminderIds(item.notificationIds || []);
 
               if (isTask) {
-                await ActivityRepository.deleteTask(
+                await TaskRepository.deleteTask(
                   item.id,
                   item.folderId || "default",
                 );
               } else {
-                await ActivityRepository.deleteHabit(
+                await HabitRepository.deleteHabit(
                   item.id,
                   item.folderId || "default",
                 );

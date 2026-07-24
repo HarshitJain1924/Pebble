@@ -4,20 +4,20 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { ScreenSwipeWrapper } from "@/components/ScreenSwipeWrapper";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { ScreenSwipeWrapper } from "@/shared/components/layout/ScreenSwipeWrapper";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
-import { useFocusState } from "@/components/focus/useFocusState";
-import { FocusHeader } from "@/components/focus/FocusHeader";
-import { ModeSelector } from "@/components/focus/ModeSelector";
-import { TimerCockpit } from "@/components/focus/TimerCockpit";
-import { FocusTargetCard } from "@/components/focus/FocusTargetCard";
-import { FocusStatsCard } from "@/components/focus/FocusStatsCard";
-import { TaskPickerModal } from "@/components/focus/TaskPickerModal";
-import { MusicPlayerModal } from "@/components/focus/MusicPlayerModal";
-import { AppCard } from "@/components/AppCard";
-import { AppText as Text } from "@/components/ui/AppText";
+import { useFocusState } from "@/features/focus/hooks/useFocusState";
+import { FocusHeader } from "@/features/focus/components/FocusHeader";
+import { ModeSelector } from "@/features/focus/components/ModeSelector";
+import { TimerCockpit } from "@/features/focus/components/TimerCockpit";
+import { FocusTargetCard } from "@/features/focus/components/FocusTargetCard";
+import { FocusStatsCard } from "@/features/focus/components/FocusStatsCard";
+import { TaskPickerModal } from "@/features/focus/components/TaskPickerModal";
+import { MusicPlayerModal } from "@/features/focus/components/MusicPlayerModal";
+import { AppCard } from "@/shared/components/ui/AppCard";
+import { AppText as Text } from "@/shared/components/ui/AppText";
 
 export default function FocusScreen() {
   const colorScheme = useColorScheme();

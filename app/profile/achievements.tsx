@@ -15,13 +15,13 @@ import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage"; // Still needed for history + focus stats
 import * as Haptics from "expo-haptics";
 
-import { AppText as Text } from "@/components/ui/AppText";
-import { AppCard } from "@/components/AppCard";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { FloatingGlow } from "@/components/AmbientBackground";
-import { getProfile, type UserProfile } from "@/services/settingsService";
-import { FolderRepository, ActivityRepository } from "@/services/core/repositories";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { AppCard } from "@/shared/components/ui/AppCard";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
+import { getProfile, type UserProfile } from "@/features/settings/services/settings.service";
+import { WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -62,12 +62,12 @@ export default function AchievementsScreen() {
       setProfile(userProf);
 
       // Load completed todos via repository
-      const folderList = await FolderRepository.getFolders();
+      const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
 
       let totalCompletedTodos = 0;
       for (const fId of folderIds) {
-        const tasksMap = await ActivityRepository.getTasks(fId);
+        const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t: any) => {
           if (t.completed) totalCompletedTodos++;
         });
@@ -78,8 +78,9 @@ export default function AchievementsScreen() {
       const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       let totalCompletedHabitsToday = 0;
       let activeStreak = 0;
+
       for (const fId of folderIds) {
-        const habitsMap = await ActivityRepository.getHabits(fId);
+        const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h: any) => {
           if (h.completedDates?.includes(todayKey)) totalCompletedHabitsToday++;
           activeStreak = Math.max(activeStreak, h.streak || 0, h.bestStreak || 0);
@@ -110,7 +111,7 @@ export default function AchievementsScreen() {
       const actualHabitsCompleted = pastHabitsCompleted + totalCompletedHabitsToday;
 
       // Load real focus sessions from pebble log (lifetime count, not daily)
-      const { getPebbleCounts } = require("@/services/pebbleService");
+      const { getPebbleCounts } = require("@/features/profile/services/pebble.service");
       const pebbleCounts = await getPebbleCounts();
       const focusSessions = pebbleCounts.lifetimeTypes?.focus ?? 0;
       const focusPebbles = pebbleCounts.lifetime ?? 0;

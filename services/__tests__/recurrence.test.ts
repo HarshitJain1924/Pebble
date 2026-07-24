@@ -4,7 +4,7 @@ import {
   dayDiff,
   isRecurringOccurrenceForDate,
   getRecurrenceLabel,
-} from "../recurrence";
+} from "@/services/scheduling/recurrence.service";
 
 describe("recurrence service unit tests", () => {
   describe("getDateKey and parseDateKey", () => {

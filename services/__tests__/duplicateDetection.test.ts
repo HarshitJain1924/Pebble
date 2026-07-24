@@ -4,7 +4,7 @@ import {
   findDuplicateTask,
   findDuplicateHabit,
   getDuplicateSuggestions,
-} from "../duplicateDetection";
+} from "@/features/tasks/services/duplicate-detection";
 
 describe("duplicateDetection service unit tests", () => {
   describe("normalizeTitle", () => {

@@ -13,21 +13,21 @@ import { useRouter, Stack } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage"; // Still needed for history + focus stats
 import * as Haptics from "expo-haptics";
 
-import { AppText as Text } from "@/components/ui/AppText";
-import { AppCard } from "@/components/AppCard";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { FloatingGlow } from "@/components/AmbientBackground";
-import { getProfile } from "@/services/settingsService";
-import { getHistoryForMonth } from "@/services/productivityHistory";
-import { FolderRepository, ActivityRepository } from "@/services/core/repositories";
-import { TASK_CATEGORY_META } from "@/services/taskCategories";
-import { CategoryChip } from "@/components/design";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { AppCard } from "@/shared/components/ui/AppCard";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
+import { getProfile } from "@/features/settings/services/settings.service";
+import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
+import { WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
+import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
+import { CategoryChip } from "@/shared/components/design-system";
 
 // Import existing modular components
-import { ProductivityDashboard } from "@/components/profile/ProductivityDashboard";
-import { WeeklyProductivityTrend } from "@/components/profile/WeeklyProductivityTrend";
-import { FocusRhythmPeaks } from "@/components/profile/FocusRhythmPeaks";
+import { ProductivityDashboard } from "@/features/profile/components/ProductivityDashboard";
+import { WeeklyProductivityTrend } from "@/features/profile/components/WeeklyProductivityTrend";
+import { FocusRhythmPeaks } from "@/features/profile/components/FocusRhythmPeaks";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -84,7 +84,7 @@ export default function StatsScreen() {
       const now = new Date();
       
       // Load Completed Todos via repository
-      const folderList = await FolderRepository.getFolders();
+      const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
       const folderNameMap: Record<string, string> = { default: "My Pebbles", unassigned: "My Pebbles" };
       folderList.forEach((f) => { folderNameMap[f.id] = f.name; });
@@ -96,7 +96,7 @@ export default function StatsScreen() {
       let mostProductiveWorkspace = "Default";
 
       for (const fId of folderIds) {
-        const tasksMap = await ActivityRepository.getTasks(fId);
+        const tasksMap = await TaskRepository.getTasks(fId);
         const tasks = Object.values(tasksMap);
         totalTasks += tasks.length;
         tasks.forEach((todo: any) => {
@@ -130,7 +130,7 @@ export default function StatsScreen() {
       let strongestHabitStreak = 0;
 
       for (const fId of folderIds) {
-        const habitsMap = await ActivityRepository.getHabits(fId);
+        const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h: any) => {
           if (h.completedDates?.includes(todayStr)) totalCompletedHabits++;
           streak = Math.max(streak, h.streak || 0);
@@ -212,7 +212,7 @@ export default function StatsScreen() {
           ? 100
           : 0;
 
-      const { getPebbleCounts } = require("@/services/pebbleService");
+      const { getPebbleCounts } = require("@/features/profile/services/pebble.service");
       const pebbleCounts = await getPebbleCounts();
 
       setStats({
@@ -248,7 +248,7 @@ export default function StatsScreen() {
       setWeeklyTrends(trends);
 
       // Cognitive Flow Peaks
-      const { getCognitiveFlowStats } = require("@/services/cognitiveFlowService");
+      const { getCognitiveFlowStats } = require("@/features/capture/services/cognitive-flow.service");
       const flowStats = await getCognitiveFlowStats();
       setCognitiveFlowStats({
         morning: 0, // Mock fields not directly shown in ProgressSection

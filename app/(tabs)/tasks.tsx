@@ -1,5 +1,5 @@
 import React from "react";
-import { AppText as Text, AppTextInput as TextInput } from "@/components/ui/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
@@ -20,34 +20,34 @@ import * as Haptics from "expo-haptics";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-import { AppCard } from "@/components/AppCard";
-import { HabitStreakCard } from "@/components/dashboard/HabitStreakCard";
-import { TaskEditorSheet } from "@/components/TaskEditorSheet";
-import { AppHeader } from "@/components/ui/AppHeader";
-import { SegmentedSwitcher } from "@/components/ui/SegmentedSwitcher";
-import { AnimatedCheckbox } from "@/components/AnimatedCheckbox";
-import { styles } from "@/constants/taskStyles";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import PressableScale from "@/components/ui/PressableScale";
+import { AppCard } from "@/shared/components/ui/AppCard";
+import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
+import { TaskEditorSheet } from "@/features/tasks/components/TaskEditorSheet";
+import { AppHeader } from "@/shared/components/ui/AppHeader";
+import { SegmentedSwitcher } from "@/shared/components/ui/SegmentedSwitcher";
+import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
+import { styles } from "@/shared/constants/taskStyles";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import PressableScale from "@/shared/components/ui/PressableScale";
 
-import { WorkspaceModal } from "../../modules/workspaces/WorkspaceModal";
-import { WorkspaceGrid } from "../../modules/workspaces/WorkspaceGrid";
-import { AlarmModal } from "../../modules/reminders/AlarmModal";
-import { AnimatedOverlay } from "@/components/ui/AnimatedOverlay";
-import { emitStateChange } from "@/services/stateEvents";
-import { TaskSections } from "../../modules/tasks/TaskSections";
-import { HabitSection } from "../../modules/habits/HabitSection";
-import { SuggestionBanner } from "../../modules/suggestions/SuggestionBanner";
-import { ProgressSection } from "../../modules/stats/ProgressSection";
-import { VaultSection } from "../../modules/vault/VaultSection";
-import { ChecklistSection } from "../../modules/checklists/ChecklistSection";
+import { WorkspaceModal } from "@/features/workspaces/components/WorkspaceModal";
+import { WorkspaceGrid } from "@/features/workspaces/components/WorkspaceGrid";
+import { ReminderModal } from "@/features/calendar/components/ReminderModal";
+import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
+import { emitStateChange } from "@/services/events/state-events";
+import { TaskSections } from "@/features/tasks/components/TaskSections";
+import { HabitSection } from "@/features/habits/components/HabitSection";
+import { SuggestionBanner } from "@/features/capture/components/SuggestionBanner";
+import { ProgressSection } from "@/features/profile/components/ProgressSection";
+import { ResourceSection } from "@/features/resources/components/ResourceSection";
+import { ChecklistSection } from "@/features/checklists/components/ChecklistSection";
 
-import { useTasksState, getDateKey } from "../../modules/tasks/useTasksState";
-import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/services/taskCategories";
-import { isRecurringOccurrenceForDate } from "@/services/recurrence";
+import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
+import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
+import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 
-export default function TasksScreen() {
+export function WorkspacesScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -632,7 +632,7 @@ export default function TasksScreen() {
                 {/* Collections Section */}
                 {state.folderSegment === "vault" && (
                   <View style={{ gap: 10 }}>
-                    <VaultSection
+                    <ResourceSection
                       collections={state.collections}
                       lists={state.lists}
                       createCollection={state.createCollection}
@@ -937,8 +937,8 @@ export default function TasksScreen() {
               )}
             </AnimatedOverlay>
 
-            {/* Centered Alarm Modal */}
-            <AlarmModal
+            {/* Centered Reminder Modal */}
+            <ReminderModal
               visible={!!state.alarmMenu}
               todoId={state.alarmMenu}
               todos={state.todos}
@@ -1283,3 +1283,7 @@ const localStyles = StyleSheet.create({
     textTransform: "uppercase",
   },
 });
+
+export const TasksScreen = WorkspacesScreen;
+export default WorkspacesScreen;
+

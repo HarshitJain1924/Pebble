@@ -15,31 +15,30 @@ import {
     View
 } from "react-native";
 
-import { AppCard } from "@/components/AppCard";
-import { AppText as Text } from "@/components/ui/AppText";
-import { useUndo } from "@/components/ui/UndoContext";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import {
-    type Checklist,
-    type ChecklistItem,
-    type Collection,
-    type TaskList
-} from "@/modules/types";
-import { emitStateChange } from "@/services/stateEvents";
+import { AppCard } from "@/shared/components/ui/AppCard";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { useUndo } from "@/shared/components/ui/UndoContext";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { type Checklist, type ChecklistItem, Resource, ResourceCollection, Workspace } from "@/shared/types/domain.types";
+import { emitStateChange } from "@/services/events/state-events";
 import {
     addToRecycleBin,
     getCollections
-} from "@/services/storage";
+} from "@/services/storage/storage.service";
 import {
-    ActivityRepository,
-    FolderRepository,
-} from "@/services/core/repositories";
+    ChecklistRepository,
+    WorkspaceRepository,
+} from "@/repositories";
 
 export default function ChecklistDetailsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id: string; edit?: string }>();
-  const itemId = params.id;
+  const params = useLocalSearchParams<{
+    id?: string;
+    workspaceId?: string;
+    folderId?: string; // legacy param fallback
+    edit?: string;
+  }>();
 
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -47,12 +46,14 @@ export default function ChecklistDetailsScreen() {
   const isLight = colorScheme === "light";
   const { showToast } = useUndo();
 
+  const itemId = params.id;
+
   // Core Data States
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(params.edit === "true");
   const [item, setItem] = useState<Checklist | null>(null);
-  const [workspaces, setWorkspaces] = useState<TaskList[]>([]);
-  const [collections, setCollections] = useState<Record<string, Collection[]>>(
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [collections, setCollections] = useState<Record<string, ResourceCollection[]>>(
     {},
   );
 
@@ -139,11 +140,12 @@ export default function ChecklistDetailsScreen() {
   }, [itemId]);
 
   const loadData = async () => {
+    if (!itemId) return;
     setLoading(true);
     try {
       // 1. Load workspaces
-      const loadedFolders = await FolderRepository.getFolders();
-      const loadedWorkspaces: TaskList[] = loadedFolders.map((folder) => ({
+      const loadedFolders = await WorkspaceRepository.getWorkspaces();
+      const loadedWorkspaces: Workspace[] = loadedFolders.map((folder) => ({
         id: folder.id,
         name: folder.name,
         emoji: folder.emoji,
@@ -163,7 +165,7 @@ export default function ChecklistDetailsScreen() {
         new Set(["default", "unassigned", ...loadedFolders.map((f) => f.id)]),
       );
       for (const fId of folderIds) {
-        const match = await ActivityRepository.getChecklist(itemId, fId);
+        const match = await ChecklistRepository.getChecklist(itemId, fId);
         if (match) {
           foundChecklist = match;
           break;
@@ -211,10 +213,10 @@ export default function ChecklistDetailsScreen() {
 
       const oldFolderId = item.folderId || "default";
       if (oldFolderId !== workspaceId) {
-        await ActivityRepository.deleteChecklist(item.id, oldFolderId);
+        await ChecklistRepository.deleteChecklist(item.id, oldFolderId);
       }
 
-      await ActivityRepository.saveChecklist(updatedChecklist);
+      await ChecklistRepository.saveChecklist(updatedChecklist);
       emitStateChange("checklists_changed");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
@@ -239,11 +241,9 @@ export default function ChecklistDetailsScreen() {
         id: `checklist-${Date.now()}`,
         title: `${item.title} (Copy)`,
         createdAt: Date.now(),
-        // Keep items but reset item completions or duplicate them?
-        // Duplicate exactly as is
       };
 
-      await ActivityRepository.saveChecklist(duplicate);
+      await ChecklistRepository.saveChecklist(duplicate);
       emitStateChange("checklists_changed");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       Alert.alert("Success", "Checklist duplicated successfully!");
@@ -256,7 +256,7 @@ export default function ChecklistDetailsScreen() {
   const handleArchive = async () => {
     if (!item) return;
     try {
-      await ActivityRepository.saveChecklist({
+      await ChecklistRepository.saveChecklist({
         ...item,
         archived: true,
       });
@@ -273,7 +273,7 @@ export default function ChecklistDetailsScreen() {
     if (!item) return;
     try {
       const folderId = item.folderId || "default";
-      await ActivityRepository.deleteChecklist(item.id, folderId);
+      await ChecklistRepository.deleteChecklist(item.id, folderId);
       await addToRecycleBin("checklist", item, `${folderId}:${item.id}`);
       emitStateChange("checklists_changed");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});

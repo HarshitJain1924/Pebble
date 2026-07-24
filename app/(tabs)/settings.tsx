@@ -1,19 +1,19 @@
-import { AppCard } from "@/components/AppCard";
+import { AppCard } from "@/shared/components/ui/AppCard";
 import {
   AVATAR_OPTIONS,
   EMOJI_OPTIONS,
   RenderAvatar,
-} from "@/components/profile/RenderAvatar";
-import { Colors } from "@/constants/theme";
-import { emitThemeChange, useColorScheme } from "@/hooks/use-color-scheme";
+} from "@/features/profile/components/RenderAvatar";
+import { Colors } from "@/shared/constants/theme";
+import { emitThemeChange, useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
   GEMS_BONUS_KEY,
   GEMS_SPENT_KEY,
   PEBBLE_LOG_KEY,
   PEBBLE_SPENT_KEY,
-} from "@/services/pebbleService";
-import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/services/quickSuggestions";
-import { cancelAllScheduledNotifications } from "@/services/reminders";
+} from "@/features/profile/services/pebble.service";
+import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/features/capture/services/quick-suggestions.service";
+import { cancelAllScheduledNotifications } from "@/services/scheduling/reminders.service";
 import {
   AppSettings,
   getProfile,
@@ -21,8 +21,8 @@ import {
   saveProfile,
   saveSettings,
   UserProfile,
-} from "@/services/settingsService";
-import { emitStateChange } from "@/services/stateEvents";
+} from "@/features/settings/services/settings.service";
+import { emitStateChange } from "@/services/events/state-events";
 import {
   CHECKLISTS_STORAGE_KEY,
   COLLECTIONS_STORAGE_KEY,
@@ -36,9 +36,9 @@ import {
   SETTINGS_STORAGE_KEY,
   TODOS_STORAGE_KEY,
   VAULT_STORAGE_KEY,
-} from "@/services/storage";
-import { clearRepositoryStorage } from "@/services/core/repositories";
-import { WIDGET_PAYLOAD_KEY } from "@/services/widgetData";
+} from "@/services/storage/storage.service";
+import { clearRepositoryStorage } from "@/repositories";
+import { WIDGET_PAYLOAD_KEY } from "@/services/analytics/widget-data.service";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";

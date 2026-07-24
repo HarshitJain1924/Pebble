@@ -1,26 +1,25 @@
-import { MascotOverlay } from "@/components/MascotOverlay";
-import { AnimatedTabBar } from "@/components/motion-tabs";
-import { useUndo } from "@/components/ui/UndoContext";
-import UnifiedCapture from "@/components/UnifiedCapture";
-import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useVoiceCapture } from "@/hooks/useVoiceCapture";
+import { MascotOverlay } from "@/shared/components/layout/MascotOverlay";
+import { AnimatedTabBar } from "@/shared/components/navigation/motion-tabs";
+import { useUndo } from "@/shared/components/ui/UndoContext";
+import UnifiedCapture from "@/features/capture/components/UnifiedCapture";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
+import { Resource, ResourceCollection } from "@/shared/types/domain.types";
+import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
+import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
+import { loadQuickSuggestions } from "@/features/capture/services/quick-suggestions.service";
+import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
+import { addStateListener, emitStateChange } from "@/services/events/state-events";
+import { getCollections, saveCollections } from "@/services/storage/storage.service";
+import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 import {
-    type Collection,
-    type CollectionItem
-} from "@/modules/types";
-import { parseProductivityText } from "@/services/nlpParser";
-import { recordDailyHistorySnapshot } from "@/services/productivityHistory";
-import { loadQuickSuggestions } from "@/services/quickSuggestions";
-import { scheduleReminderBatch } from "@/services/reminders";
-import { addStateListener, emitStateChange } from "@/services/stateEvents";
-import { getCollections, saveCollections } from "@/services/storage";
-import { TASK_CATEGORY_META } from "@/services/taskCategories";
-import {
-    ActivityRepository,
-    FolderRepository,
-} from "@/services/core/repositories";
-import { getWorkspaceSuggestions } from "@/services/workspaceSuggestions";
+    TaskRepository,
+    HabitRepository,
+    ChecklistRepository,
+    WorkspaceRepository,
+} from "@/repositories";
+import { getWorkspaceSuggestions } from "@/features/workspaces/services/workspace-suggestions.service";
 import { Feather } from "@expo/vector-icons";
 import {
     BottomSheetModal
@@ -153,7 +152,7 @@ export default function TabLayout() {
   const [selectedCollectionId, setSelectedCollectionId] =
     useState<string>("default");
   const [availableCollections, setAvailableCollections] = useState<
-    Collection[]
+    ResourceCollection[]
   >([]);
 
   useEffect(() => {
@@ -322,8 +321,8 @@ export default function TabLayout() {
       );
       for (const folderId of folderIds) {
         const [tasksMap, habitsMap] = await Promise.all([
-          ActivityRepository.getTasks(folderId),
-          ActivityRepository.getHabits(folderId),
+          TaskRepository.getTasks(folderId),
+          HabitRepository.getHabits(folderId),
         ]);
         allTasks.push(...Object.values(tasksMap));
         allHabits.push(...Object.values(habitsMap));
@@ -342,7 +341,7 @@ export default function TabLayout() {
   const openQuickAdd = () => {
     setQuickAddVisible(true);
     // Load folders first, then generate smart suggestions from live data
-    FolderRepository.getFolders()
+    WorkspaceRepository.getWorkspaces()
       .then((folderList) => {
         const currentFolders =
           folderList.length > 0
@@ -356,17 +355,19 @@ export default function TabLayout() {
                 {
                   id: "default",
                   name: "My Pebbles",
-                  emoji: "📋",
+                  emoji: "⚡",
                   color: "#6366F1",
                 },
               ];
         setFolders(currentFolders);
-        setSelectedFolderId(currentFolders[0]?.id || "default");
-        void loadSmartSuggestions(currentFolders);
+
+        // Generate smart suggestions from active items & history
+        const activeIds = currentFolders.map((f) => f.id);
+        getWorkspaceSuggestions(taskTitle, selectedCategory || "work", currentFolders, {})
+          .then((suggs) => setQuickSuggestions(suggs as any))
+          .catch(() => {});
       })
-      .catch(() => {
-        void loadSmartSuggestions([]);
-      });
+      .catch(() => {});
     quickAddSheetRef.current?.present();
   };
 
@@ -429,7 +430,7 @@ export default function TabLayout() {
 
   const loadFolders = async () => {
     try {
-      const folderList = await FolderRepository.getFolders();
+      const folderList = await WorkspaceRepository.getWorkspaces();
       if (folderList.length > 0) {
         const mappedFolders = folderList.map((folder) => ({
           id: folder.id,
@@ -586,7 +587,7 @@ export default function TabLayout() {
         createdDate: getDateKey(),
       };
 
-      await ActivityRepository.saveTask(newTask);
+      await TaskRepository.saveTask(newTask);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
@@ -676,7 +677,7 @@ export default function TabLayout() {
         startDate: getDateKey(),
       };
 
-      await ActivityRepository.saveHabit(newHabit);
+      await HabitRepository.saveHabit(newHabit);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
@@ -705,7 +706,7 @@ export default function TabLayout() {
       const folderId = selectedFolderId || "unassigned";
       const titleToSave = parsedItem ? parsedItem.title : trimmed;
 
-      const newItem: CollectionItem = {
+      const newItem: Resource = {
         id: String(Date.now()),
         type: vaultType === "idea" ? "note" : vaultType,
         title: titleToSave,
@@ -786,7 +787,7 @@ export default function TabLayout() {
         createdAt: Date.now(),
       };
 
-      await ActivityRepository.saveChecklist(newChecklist);
+      await ChecklistRepository.saveChecklist(newChecklist);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
