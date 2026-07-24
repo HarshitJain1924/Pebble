@@ -61,6 +61,28 @@ export function useTasksState() {
   }>();
 
   const {
+    workspaces,
+    setWorkspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    activeWorkspaceId,
+    setActiveWorkspaceId,
+    workspaceSegment,
+    setWorkspaceSegment,
+    activeSegment,
+    setActiveSegment,
+    workspaceModalVisible,
+    setWorkspaceModalVisible,
+    editingWorkspaceId,
+    setEditingWorkspaceId,
+    listsExpanded,
+    setListsExpanded,
+    loadWorkspaces,
+    handleSelectWorkspace,
+    handleBackToWorkspaces,
+    handleCreateWorkspace,
+    handleDeleteWorkspace,
+    // compatibility aliases
     lists,
     setLists,
     selectedList,
@@ -69,15 +91,10 @@ export function useTasksState() {
     setOpenedFolderId,
     folderSegment,
     setFolderSegment,
-    activeSegment,
-    setActiveSegment,
     folderModalVisible,
     setFolderModalVisible,
     editingFolderId,
     setEditingFolderId,
-    listsExpanded,
-    setListsExpanded,
-    loadWorkspaces,
   } = useWorkspaceState();
 
   // Selection state
@@ -1677,6 +1694,22 @@ export function useTasksState() {
   };
 
   return {
+    workspaces,
+    setWorkspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    activeWorkspaceId,
+    setActiveWorkspaceId,
+    workspaceSegment,
+    setWorkspaceSegment,
+    workspaceModalVisible,
+    setWorkspaceModalVisible,
+    editingWorkspaceId,
+    setEditingWorkspaceId,
+    handleSelectWorkspace,
+    handleBackToWorkspaces,
+    handleCreateWorkspace,
+    handleDeleteWorkspace,
     toggleLinkResource,
     activeSegment,
     setActiveSegment,

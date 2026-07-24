@@ -11,42 +11,45 @@ export function useWorkspaceState() {
   const params = useLocalSearchParams<{
     segment?: string;
     folderId?: string;
+    workspaceId?: string;
   }>();
 
-  const [lists, setLists] = useState<Workspace[]>(() => globalLists || [{ id: "default", name: "My Pebbles" }]);
-  const [selectedList, setSelectedList] = useState<string>("default");
-  const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
-  const [folderSegment, setFolderSegment] = useState<"tasks" | "habits" | "checklists" | "resources">("tasks");
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => globalLists || [{ id: "default", name: "My Pebbles" }]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("default");
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [workspaceSegment, setWorkspaceSegment] = useState<"tasks" | "habits" | "checklists" | "resources">("tasks");
   const [activeSegment, setActiveSegment] = useState<"tasks" | "habits" | "resources">("tasks");
-  const [folderModalVisible, setFolderModalVisible] = useState(false);
-  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [workspaceModalVisible, setWorkspaceModalVisible] = useState(false);
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [listsExpanded, setListsExpanded] = useState(false);
 
   useEffect(() => {
-    setGlobalLists(lists);
-  }, [lists]);
+    setGlobalLists(workspaces);
+  }, [workspaces]);
 
   useEffect(() => {
     if (params.segment === "tasks" || params.segment === "habits" || params.segment === "resources" || (params.segment as string) === "vault") {
       const seg = params.segment === "vault" ? "resources" : params.segment;
       setActiveSegment(seg as any);
-      setFolderSegment(seg as any);
+      setWorkspaceSegment(seg as any);
     }
   }, [params.segment]);
 
+  const targetWsId = params.workspaceId || params.folderId;
+
   useEffect(() => {
-    if (params.folderId) {
-      setOpenedFolderId(params.folderId);
-      setSelectedList(params.folderId);
-      emitStateChange("workspace_mode_changed", params.folderId);
+    if (targetWsId) {
+      setActiveWorkspaceId(targetWsId);
+      setSelectedWorkspaceId(targetWsId);
+      emitStateChange("workspace_mode_changed", targetWsId);
     }
-  }, [params.folderId]);
+  }, [targetWsId]);
 
   const handleSelectWorkspace = useCallback((id: string) => {
     Haptics.selectionAsync().catch(() => {});
-    setOpenedFolderId(id);
-    setSelectedList(id);
-    setFolderSegment(id === "unassigned" ? "resources" : "tasks");
+    setActiveWorkspaceId(id);
+    setSelectedWorkspaceId(id);
+    setWorkspaceSegment(id === "unassigned" ? "resources" : "tasks");
 
     if (id === "unassigned") {
       setActiveSegment("resources");
@@ -57,15 +60,15 @@ export function useWorkspaceState() {
 
   const handleBackToWorkspaces = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});
-    setOpenedFolderId(null);
+    setActiveWorkspaceId(null);
     emitStateChange("workspace_mode_changed", "null");
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
 
   useEffect(() => {
-    if (!openedFolderId) return;
-    setFolderSegment(openedFolderId === "unassigned" ? "resources" : "tasks");
-  }, [openedFolderId, activeSegment]);
+    if (!activeWorkspaceId) return;
+    setWorkspaceSegment(activeWorkspaceId === "unassigned" ? "resources" : "tasks");
+  }, [activeWorkspaceId, activeSegment]);
 
   const loadWorkspaces = useCallback(async () => {
     try {
@@ -101,10 +104,10 @@ export function useWorkspaceState() {
         );
       }
 
-      setLists(currentLists);
+      setWorkspaces(currentLists);
       const rawActive = await AsyncStorage.getItem("pebble:v1:active_workspace") || await AsyncStorage.getItem("pebble:core:active_workspace");
       if (rawActive && currentLists.some((l) => l.id === rawActive)) {
-        setSelectedList(rawActive);
+        setSelectedWorkspaceId(rawActive);
       }
     } catch (e) {
       console.warn("Failed to load workspaces", e);
@@ -127,31 +130,31 @@ export function useWorkspaceState() {
 
   const handleDeleteWorkspace = useCallback(async (id: string) => {
     await WorkspaceRepository.deleteWorkspace(id);
-    if (selectedList === id) {
-      setSelectedList("default");
+    if (selectedWorkspaceId === id) {
+      setSelectedWorkspaceId("default");
     }
-    if (openedFolderId === id) {
-      setOpenedFolderId(null);
+    if (activeWorkspaceId === id) {
+      setActiveWorkspaceId(null);
     }
     await loadWorkspaces();
     emitStateChange("workspace_changed", "tasks_screen");
-  }, [selectedList, openedFolderId, loadWorkspaces]);
+  }, [selectedWorkspaceId, activeWorkspaceId, loadWorkspaces]);
 
   return {
-    lists,
-    setLists,
-    selectedList,
-    setSelectedList,
-    openedFolderId,
-    setOpenedFolderId,
-    folderSegment,
-    setFolderSegment,
+    workspaces,
+    setWorkspaces,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
+    activeWorkspaceId,
+    setActiveWorkspaceId,
+    workspaceSegment,
+    setWorkspaceSegment,
     activeSegment,
     setActiveSegment,
-    folderModalVisible,
-    setFolderModalVisible,
-    editingFolderId,
-    setEditingFolderId,
+    workspaceModalVisible,
+    setWorkspaceModalVisible,
+    editingWorkspaceId,
+    setEditingWorkspaceId,
     listsExpanded,
     setListsExpanded,
     handleSelectWorkspace,
@@ -159,5 +162,18 @@ export function useWorkspaceState() {
     handleCreateWorkspace,
     handleDeleteWorkspace,
     loadWorkspaces,
+    // Canonical aliases for backwards compatibility across UI callers
+    lists: workspaces,
+    setLists: setWorkspaces,
+    selectedList: selectedWorkspaceId,
+    setSelectedList: setSelectedWorkspaceId,
+    openedFolderId: activeWorkspaceId,
+    setOpenedFolderId: setActiveWorkspaceId,
+    folderSegment: workspaceSegment,
+    setFolderSegment: setWorkspaceSegment,
+    folderModalVisible: workspaceModalVisible,
+    setFolderModalVisible: setWorkspaceModalVisible,
+    editingFolderId: editingWorkspaceId,
+    setEditingFolderId: setEditingWorkspaceId,
   };
 }

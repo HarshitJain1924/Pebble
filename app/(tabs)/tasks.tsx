@@ -119,8 +119,7 @@ export function WorkspacesScreen() {
                     <TouchableOpacity
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        state.setOpenedFolderId(null);
-                        state.setSelectedList("default");
+                        state.handleBackToWorkspaces();
                         state.setSearchQuery("");
                         setIsSearchActive(false);
                       }}
@@ -349,8 +348,7 @@ export function WorkspacesScreen() {
                   checklists={state.checklists}
                   searchQuery={state.searchQuery}
                   onSelectWorkspace={(id) => {
-                    state.setOpenedFolderId(id);
-                    state.setSelectedList(id);
+                    state.handleSelectWorkspace(id);
                   }}
                   onEditWorkspace={(id) => {
                     if (id === "unassigned") {
