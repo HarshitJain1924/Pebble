@@ -630,7 +630,7 @@ export function WorkspacesScreen() {
                 })()}
 
                 {/* Collections Section */}
-                {state.folderSegment === "vault" && (
+                {(state.folderSegment as string) === "resources" && (
                   <View style={{ gap: 10 }}>
                     <ResourceSection
                       collections={state.collections}

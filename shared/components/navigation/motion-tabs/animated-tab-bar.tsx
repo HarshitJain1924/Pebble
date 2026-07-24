@@ -62,24 +62,29 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
     const transition = useViewTransition(items);
 
     // Context Navigation States
-    const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
+    const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
     const [activeSegment, setActiveSegment] = useState<string>("tasks");
-    const [navMode, setNavMode] = useState<"workspace" | "global">("workspace");
+    const [navMode, setNavMode] = useState<"workspace" | "global">("global");
 
     useEffect(() => {
-      const unsub = addStateListener("workspace_mode_changed", (folderId) => {
-        const isOpened = folderId && folderId !== "null" ? folderId : null;
-        setOpenedFolderId(isOpened);
-        // Always enter workspace nav when a folder opens
-        if (isOpened) setNavMode("workspace");
-        else setNavMode("workspace"); // reset for next time
+      const unsub = addStateListener("workspace_mode_changed", (wsId) => {
+        const isOpened = wsId && wsId !== "null" ? wsId : null;
+        setActiveWorkspaceId(isOpened);
+        if (isOpened) {
+          setNavMode("workspace");
+        } else {
+          setNavMode("global");
+        }
       });
       return unsub;
     }, []);
 
     useEffect(() => {
       const unsub = addStateListener("workspace_segment_changed", (seg) => {
-        if (seg) setActiveSegment(seg);
+        if (seg) {
+          const normalized = seg === "vault" ? "resources" : seg;
+          setActiveSegment(normalized);
+        }
       });
       return unsub;
     }, []);
@@ -114,7 +119,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
     }, [items, quickAddItem]);
 
     const workspaceItems = useMemo<INavItem[]>(() => {
-      if (openedFolderId === null) return [];
+      if (activeWorkspaceId === null) return [];
       return [
         {
           key: "tasks-tasks",
@@ -155,12 +160,12 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
           icon: (focused, color, size) => (
             <Feather name="paperclip" size={size || 20} color={color} />
           ),
-          segment: "vault",
+          segment: "resources",
         },
       ];
-    }, [openedFolderId, tasksRoute, quickAddItem]);
+    }, [activeWorkspaceId, tasksRoute, quickAddItem]);
 
-    const activeNavMode = openedFolderId !== null ? navMode : "global";
+    const activeNavMode = activeWorkspaceId !== null ? navMode : "global";
     const currentItems = activeNavMode === "workspace" ? workspaceItems : globalItems;
 
     const currentView = useMemo(() => {
@@ -171,7 +176,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
         if (activeSegment === "tasks") return "tasks-tasks";
         if (activeSegment === "habits") return "tasks-habits";
         if (activeSegment === "checklists") return "tasks-checklists";
-        if (activeSegment === "vault") return "tasks-resources";
+        if (activeSegment === "resources" || activeSegment === "vault") return "tasks-resources";
         return "tasks-tasks";
       }
       return transition.view;
@@ -226,20 +231,15 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
         transition.setNextView(item);
       }
     };
+
     const toggleNavMode = () => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      if (navMode === "workspace") {
-        setNavMode("global");
-        setOpenedFolderId(null);
-        emitStateChange("workspace_mode_changed", "null");
-      } else {
-        setNavMode("workspace");
-      }
+      setNavMode((current) => (current === "workspace" ? "global" : "workspace"));
     };
 
-    // Show the switch button only while inside a folder, not while a panel is open
+    // Show the switch button only while inside a workspace, not while a panel is open
     const showModeSwitch =
-      openedFolderId !== null && transition.view === "default";
+      activeWorkspaceId !== null && transition.view === "default";
 
     return (
       <View

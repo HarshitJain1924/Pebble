@@ -16,8 +16,8 @@ export function useWorkspaceState() {
   const [lists, setLists] = useState<Workspace[]>(() => globalLists || [{ id: "default", name: "My Pebbles" }]);
   const [selectedList, setSelectedList] = useState<string>("default");
   const [openedFolderId, setOpenedFolderId] = useState<string | null>(null);
-  const [folderSegment, setFolderSegment] = useState<"tasks" | "habits" | "checklists" | "vault">("tasks");
-  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits" | "vault">("tasks");
+  const [folderSegment, setFolderSegment] = useState<"tasks" | "habits" | "checklists" | "resources">("tasks");
+  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits" | "resources">("tasks");
   const [folderModalVisible, setFolderModalVisible] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [listsExpanded, setListsExpanded] = useState(false);
@@ -27,9 +27,10 @@ export function useWorkspaceState() {
   }, [lists]);
 
   useEffect(() => {
-    if (params.segment === "tasks" || params.segment === "habits" || params.segment === "vault") {
-      setActiveSegment(params.segment);
-      setFolderSegment(params.segment);
+    if (params.segment === "tasks" || params.segment === "habits" || params.segment === "resources" || (params.segment as string) === "vault") {
+      const seg = params.segment === "vault" ? "resources" : params.segment;
+      setActiveSegment(seg as any);
+      setFolderSegment(seg as any);
     }
   }, [params.segment]);
 
@@ -37,6 +38,7 @@ export function useWorkspaceState() {
     if (params.folderId) {
       setOpenedFolderId(params.folderId);
       setSelectedList(params.folderId);
+      emitStateChange("workspace_mode_changed", params.folderId);
     }
   }, [params.folderId]);
 
@@ -44,23 +46,25 @@ export function useWorkspaceState() {
     Haptics.selectionAsync().catch(() => {});
     setOpenedFolderId(id);
     setSelectedList(id);
-    setFolderSegment(id === "unassigned" ? "vault" : "tasks");
+    setFolderSegment(id === "unassigned" ? "resources" : "tasks");
 
     if (id === "unassigned") {
-      setActiveSegment("vault");
+      setActiveSegment("resources");
     }
+    emitStateChange("workspace_mode_changed", id);
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
 
   const handleBackToWorkspaces = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});
     setOpenedFolderId(null);
+    emitStateChange("workspace_mode_changed", "null");
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
 
   useEffect(() => {
     if (!openedFolderId) return;
-    setFolderSegment(openedFolderId === "unassigned" ? "vault" : "tasks");
+    setFolderSegment(openedFolderId === "unassigned" ? "resources" : "tasks");
   }, [openedFolderId, activeSegment]);
 
   const loadWorkspaces = useCallback(async () => {
