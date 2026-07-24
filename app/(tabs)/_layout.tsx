@@ -879,15 +879,6 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="daily"
-          options={{
-            title: "Add",
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="plus" size={size || 24} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
           name="calendar"
           options={{
             title: "Schedule",

@@ -5,6 +5,7 @@ type EventType =
   | "pebbles_changed"
   | "settings_changed"
   | "focus_changed"
+  | "resources_changed"
   | "vault_changed"
   | "close_drawer"
   | "dashboard_filter_changed"
@@ -26,6 +27,7 @@ const listeners: Record<EventType, Set<Listener>> = {
   pebbles_changed: new Set<Listener>(),
   settings_changed: new Set<Listener>(),
   focus_changed: new Set<Listener>(),
+  resources_changed: new Set<Listener>(),
   vault_changed: new Set<Listener>(),
   close_drawer: new Set<Listener>(),
   dashboard_filter_changed: new Set<Listener>(),

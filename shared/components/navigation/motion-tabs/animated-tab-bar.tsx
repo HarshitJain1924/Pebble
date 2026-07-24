@@ -88,11 +88,29 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
         state.routes.find((route) => route.name === "tasks") ?? state.routes[0],
       [state.routes],
     );
-    const dailyRoute = useMemo(
-      () =>
-        state.routes.find((route) => route.name === "daily") ?? state.routes[0],
+
+    const quickAddItem = useMemo<INavItem>(
+      () => ({
+        key: "quick-add",
+        route: state.routes[0],
+        routeName: "quick-add",
+        label: "",
+        icon: (focused, color, size) => (
+          <Feather name="plus" size={size || 24} color={color} />
+        ),
+      }),
       [state.routes],
     );
+
+    const globalItems = useMemo<INavItem[]>(() => {
+      const result = [...items];
+      if (result.length >= 2) {
+        result.splice(2, 0, quickAddItem);
+      } else {
+        result.push(quickAddItem);
+      }
+      return result;
+    }, [items, quickAddItem]);
 
     const workspaceItems = useMemo<INavItem[]>(() => {
       if (openedFolderId === null) return [];
@@ -117,16 +135,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
           ),
           segment: "habits",
         },
-        {
-          key: "daily",
-          route: dailyRoute,
-          routeName: "daily",
-          label: "",
-          icon: (focused, color, size) => (
-            <Feather name="plus" size={size || 24} color={color} />
-          ),
-          segment: "add",
-        },
+        quickAddItem,
         {
           key: "tasks-checklists",
           route: tasksRoute,
@@ -148,10 +157,10 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
           segment: "vault",
         },
       ];
-    }, [openedFolderId, colors]);
+    }, [openedFolderId, tasksRoute, quickAddItem]);
 
     const activeNavMode = openedFolderId !== null ? navMode : "global";
-    const currentItems = activeNavMode === "workspace" ? workspaceItems : items;
+    const currentItems = activeNavMode === "workspace" ? workspaceItems : globalItems;
 
     const currentView = useMemo(() => {
       if (activeNavMode === "workspace") {
@@ -192,13 +201,14 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
     }, [transition]);
 
     const handlePress = (item: INavItem, index: number): void => {
-      if (activeNavMode === "workspace") {
-        if (item.routeName === "daily") {
-          if (props.onQuickAddPress) {
-            props.onQuickAddPress();
-          }
-          return;
+      if (item.routeName === "quick-add" || item.key === "quick-add") {
+        if (props.onQuickAddPress) {
+          props.onQuickAddPress();
         }
+        return;
+      }
+
+      if (activeNavMode === "workspace") {
         if ((item as any).segment) {
           const seg = (item as any).segment;
           emitStateChange("workspace_segment_request", seg);
@@ -207,13 +217,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
         return;
       }
 
-      if (item.routeName === "daily") {
-        if (props.onQuickAddPress) {
-          props.onQuickAddPress();
-        }
-        return;
-      }
-      const isFocused = state.index === index;
+      const isFocused = state.routes[state.index]?.name === item.routeName;
       if (!isFocused) {
         navigation.navigate(item.routeName);
         transition.close();
