@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
 import {
     memo,
     useEffect,
@@ -226,7 +227,14 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
       }
     };
     const toggleNavMode = () => {
-      setNavMode((cur) => (cur === "workspace" ? "global" : "workspace"));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      if (navMode === "workspace") {
+        setNavMode("global");
+        setOpenedFolderId(null);
+        emitStateChange("workspace_mode_changed", "null");
+      } else {
+        setNavMode("workspace");
+      }
     };
 
     // Show the switch button only while inside a folder, not while a panel is open

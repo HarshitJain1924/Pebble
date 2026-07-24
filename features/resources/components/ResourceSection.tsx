@@ -426,7 +426,7 @@ export function ResourceSection({
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Feather name="folder" size={16} color={theme.primary} />
                 <Text style={{ fontSize: 13, fontWeight: "700", color: theme.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
-                  Collections ({currentCollections.length})
+                  Resource Groups ({currentCollections.length})
                 </Text>
               </View>
               <TouchableOpacity
@@ -434,16 +434,16 @@ export function ResourceSection({
                 style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
               >
                 <Feather name="folder-plus" size={16} color={theme.primary} />
-                <Text style={{ fontSize: 12, fontWeight: "600", color: theme.primary }}>New Folder</Text>
+                <Text style={{ fontSize: 12, fontWeight: "600", color: theme.primary }}>New Group</Text>
               </TouchableOpacity>
             </View>
 
             {currentCollections.length === 0 ? (
               <AppCard style={{ padding: 24, alignItems: "center", gap: 8 }}>
                 <Feather name="folder" size={32} color={theme.textMuted} />
-                <Text style={{ color: theme.text, fontWeight: "600", fontSize: 15 }}>No Collections Yet</Text>
+                <Text style={{ color: theme.text, fontWeight: "600", fontSize: 15 }}>No Resource Groups Yet</Text>
                 <Text style={{ color: theme.textMuted, fontSize: 13, textAlign: "center" }}>
-                  Create a collection folder to organize research links, notes, and documents.
+                  Create a resource group to organize research links, notes, and documents.
                 </Text>
                 <TouchableOpacity
                   onPress={() => setIsCreatingCollection(true)}
@@ -455,7 +455,7 @@ export function ResourceSection({
                     backgroundColor: theme.primary,
                   }}
                 >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 13 }}>Create Collection</Text>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 13 }}>Create Resource Group</Text>
                 </TouchableOpacity>
               </AppCard>
             ) : (
@@ -496,7 +496,7 @@ export function ResourceSection({
 
                     {activeItems.length === 0 ? (
                       <View style={{ paddingVertical: 12, alignItems: "center" }}>
-                        <Text style={{ color: theme.textMuted, fontSize: 12 }}>Folder is empty</Text>
+                        <Text style={{ color: theme.textMuted, fontSize: 12 }}>Group is empty</Text>
                       </View>
                     ) : (
                       <View style={{ gap: 8 }}>
@@ -1044,14 +1044,14 @@ export function ResourceSection({
         {() => (
           optionsCollection ? (
             <View style={{ gap: 12, padding: 4 }}>
-              <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text }}>Collection Options</Text>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text }}>Resource Group Options</Text>
               <TouchableOpacity
                 onPress={() => {
                   const coll = optionsCollection;
                   setOptionsCollection(null);
                   Alert.prompt(
-                    "Rename Collection",
-                    "Enter a new name for this folder:",
+                    "Rename Resource Group",
+                    "Enter a new name for this resource group:",
                     [
                       { text: "Cancel", style: "cancel" },
                       {
@@ -1077,7 +1077,7 @@ export function ResourceSection({
                 }}
               >
                 <Feather name="edit-2" size={16} color={theme.text} />
-                <Text style={{ fontSize: 14, fontWeight: "600", color: theme.text }}>Rename Folder</Text>
+                <Text style={{ fontSize: 14, fontWeight: "600", color: theme.text }}>Rename Group</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1085,7 +1085,7 @@ export function ResourceSection({
                   const coll = optionsCollection;
                   setOptionsCollection(null);
                   Alert.alert(
-                    "Delete Collection",
+                    "Delete Resource Group",
                     `Are you sure you want to delete "${coll.name}"? Items inside will be deleted.`,
                     [
                       { text: "Cancel", style: "cancel" },
@@ -1107,7 +1107,7 @@ export function ResourceSection({
                 }}
               >
                 <Feather name="trash-2" size={16} color="#FF3B30" />
-                <Text style={{ fontSize: 14, fontWeight: "600", color: "#FF3B30" }}>Delete Folder</Text>
+                <Text style={{ fontSize: 14, fontWeight: "600", color: "#FF3B30" }}>Delete Group</Text>
               </TouchableOpacity>
             </View>
           ) : null
@@ -1116,9 +1116,6 @@ export function ResourceSection({
     </View>
   );
 }
-
-/** @deprecated Deprecated alias for ResourceSection. Scheduled for removal in Step 7. */
-export const VaultSection = ResourceSection;
 
 const styles = StyleSheet.create({
   container: {
