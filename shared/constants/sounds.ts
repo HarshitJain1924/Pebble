@@ -7,32 +7,32 @@ export const AMBIENT_SOUNDS = [
   {
     id: "cosmic",
     title: "Cosmic Healing (432Hz)",
-    file: require("../../assets/sounds/432hz-magic-healing-cosmic-sleep-amp-focus-frequency-361117.mp3"),
+    file: require("@/assets/sounds/432hz-magic-healing-cosmic-sleep-amp-focus-frequency-361117.mp3"),
   },
   {
     id: "corporate",
     title: "Corporate Focus",
-    file: require("../../assets/sounds/corporate-focus-1-442910.mp3"),
+    file: require("@/assets/sounds/corporate-focus-1-442910.mp3"),
   },
   {
     id: "studying",
     title: "Late Night Focus",
-    file: require("../../assets/sounds/perfect-for-studying-reading-or-late-night-focus-background-music-361174.mp3"),
+    file: require("@/assets/sounds/perfect-for-studying-reading-or-late-night-focus-background-music-361174.mp3"),
   },
   {
     id: "cafe",
     title: "Rainy Study Cafe",
-    file: require("../../assets/sounds/rainy-study-cafe-409654.mp3"),
+    file: require("@/assets/sounds/rainy-study-cafe-409654.mp3"),
   },
   {
     id: "brainpower",
     title: "Brain Power (432Hz)",
-    file: require("../../assets/sounds/study-music-for-focus-and-brain-power-432-hz.mp3"),
+    file: require("@/assets/sounds/study-music-for-focus-and-brain-power-432-hz.mp3"),
   },
   {
     id: "rain",
     title: "Whispering Rain",
-    file: require("../../assets/sounds/whispering-rain.mp3"),
+    file: require("@/assets/sounds/whispering-rain.mp3"),
   },
 ];
 

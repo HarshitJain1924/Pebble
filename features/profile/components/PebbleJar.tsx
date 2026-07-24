@@ -29,23 +29,23 @@ const isWeb = Platform.OS === "web";
 const AnimatedG = Animated.createAnimatedComponent(G) as any;
 
 // Crow frame image assets
-const idleUpright = require("../../assets/images/crow/idle_upright.png");
-const lookDownPebble = require("../../assets/images/crow/look_down_pebble.png");
-const holdPebbleUp = require("../../assets/images/crow/hold_pebble_up.png");
-const holdPebbleNeck = require("../../assets/images/crow/hold_pebble_neck.png");
-const flightFrame = require("../../assets/images/crow/flight.png");
-const lookDownGround = require("../../assets/images/crow/look_down_ground.png");
-const crowStreak = require("../../assets/images/crow/crow_streak.png");
-const mascotIdle = require("../../assets/images/crow/mascot_idle.png");
+const idleUpright = require("@/assets/images/crow/idle_upright.png");
+const lookDownPebble = require("@/assets/images/crow/look_down_pebble.png");
+const holdPebbleUp = require("@/assets/images/crow/hold_pebble_up.png");
+const holdPebbleNeck = require("@/assets/images/crow/hold_pebble_neck.png");
+const flightFrame = require("@/assets/images/crow/flight.png");
+const lookDownGround = require("@/assets/images/crow/look_down_ground.png");
+const crowStreak = require("@/assets/images/crow/crow_streak.png");
+const mascotIdle = require("@/assets/images/crow/mascot_idle.png");
 
 // Jar and Pebble image assets
-const emptyJar = require("../../assets/images/jar_pebbles/empty_jar.png");
-const pebbleRegular1 = require("../../assets/images/jar_pebbles/pebble_regular_1.png");
-const pebbleRegular2 = require("../../assets/images/jar_pebbles/pebble_regular_2.png");
-const pebbleShiny1 = require("../../assets/images/jar_pebbles/pebble_shiny_1.png");
-const pebbleShiny2 = require("../../assets/images/jar_pebbles/pebble_shiny_2.png");
-const pebbleLegendary1 = require("../../assets/images/jar_pebbles/pebble_legendary_1.png");
-const pebbleLegendary2 = require("../../assets/images/jar_pebbles/pebble_legendary_2.png");
+const emptyJar = require("@/assets/images/jar_pebbles/empty_jar.png");
+const pebbleRegular1 = require("@/assets/images/jar_pebbles/pebble_regular_1.png");
+const pebbleRegular2 = require("@/assets/images/jar_pebbles/pebble_regular_2.png");
+const pebbleShiny1 = require("@/assets/images/jar_pebbles/pebble_shiny_1.png");
+const pebbleShiny2 = require("@/assets/images/jar_pebbles/pebble_shiny_2.png");
+const pebbleLegendary1 = require("@/assets/images/jar_pebbles/pebble_legendary_1.png");
+const pebbleLegendary2 = require("@/assets/images/jar_pebbles/pebble_legendary_2.png");
 
 
 
