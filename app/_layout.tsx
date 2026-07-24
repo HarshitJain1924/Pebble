@@ -43,6 +43,8 @@ export default function RootLayout() {
     Outfit_700Bold,
   });
 
+  const [isReady, setIsReady] = useState(false);
+
   useEffect(() => {
     cleanupRecycleBin();
   }, []);
@@ -66,19 +68,21 @@ export default function RootLayout() {
         }
       } catch (error) {
         console.error("Error checking onboarding status:", error);
+      } finally {
+        setIsReady(true);
       }
     };
 
     checkOnboarding();
-  }, [navigationState?.key, segments]);
+  }, [navigationState?.key]);
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsLoaded && isReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, isReady]);
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded || !isReady) {
     return null;
   }
 
