@@ -35,12 +35,27 @@ export function useWorkspaceState() {
     }
   }, [params.segment]);
 
+  useEffect(() => {
+    const unsub = addStateListener("workspace_segment_request", (seg) => {
+      if (seg) {
+        const normalized = (seg === "vault" ? "resources" : seg) as "tasks" | "habits" | "checklists" | "resources";
+        setWorkspaceSegment(normalized);
+        if (normalized === "tasks" || normalized === "habits" || normalized === "resources") {
+          setActiveSegment(normalized);
+        }
+        emitStateChange("workspace_segment_changed", normalized);
+      }
+    });
+    return unsub;
+  }, []);
+
   const targetWsId = params.workspaceId || params.folderId;
 
   useEffect(() => {
     if (targetWsId) {
       setActiveWorkspaceId(targetWsId);
       setSelectedWorkspaceId(targetWsId);
+      AsyncStorage.setItem("pebble:v1:active_workspace", targetWsId).catch(() => {});
       emitStateChange("workspace_mode_changed", targetWsId);
     }
   }, [targetWsId]);
@@ -54,6 +69,7 @@ export function useWorkspaceState() {
     if (id === "unassigned") {
       setActiveSegment("resources");
     }
+    AsyncStorage.setItem("pebble:v1:active_workspace", id).catch(() => {});
     emitStateChange("workspace_mode_changed", id);
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
@@ -61,6 +77,7 @@ export function useWorkspaceState() {
   const handleBackToWorkspaces = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});
     setActiveWorkspaceId(null);
+    AsyncStorage.removeItem("pebble:v1:active_workspace").catch(() => {});
     emitStateChange("workspace_mode_changed", "null");
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
@@ -68,7 +85,7 @@ export function useWorkspaceState() {
   useEffect(() => {
     if (!activeWorkspaceId) return;
     setWorkspaceSegment(activeWorkspaceId === "unassigned" ? "resources" : "tasks");
-  }, [activeWorkspaceId, activeSegment]);
+  }, [activeWorkspaceId]);
 
   const loadWorkspaces = useCallback(async () => {
     try {
@@ -106,8 +123,10 @@ export function useWorkspaceState() {
 
       setWorkspaces(currentLists);
       const rawActive = await AsyncStorage.getItem("pebble:v1:active_workspace") || await AsyncStorage.getItem("pebble:core:active_workspace");
-      if (rawActive && currentLists.some((l) => l.id === rawActive)) {
+      if (rawActive && rawActive !== "null" && currentLists.some((l) => l.id === rawActive)) {
         setSelectedWorkspaceId(rawActive);
+        setActiveWorkspaceId(rawActive);
+        emitStateChange("workspace_mode_changed", rawActive);
       }
     } catch (e) {
       console.warn("Failed to load workspaces", e);
