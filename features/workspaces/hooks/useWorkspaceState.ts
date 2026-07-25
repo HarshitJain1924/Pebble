@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Workspace } from "@/shared/types/domain.types";
 import { WorkspaceRepository } from "@/repositories";
@@ -8,6 +8,7 @@ import { addStateListener, emitStateChange } from "@/services/events/state-event
 import { globalLists, setGlobalLists } from "@/features/tasks/utils/task-formatting";
 
 export function useWorkspaceState() {
+  const router = useRouter();
   const params = useLocalSearchParams<{
     segment?: string;
     folderId?: string;
@@ -53,10 +54,11 @@ export function useWorkspaceState() {
   const targetWsId = params.workspaceId || params.folderId;
 
   useEffect(() => {
-    if (targetWsId) {
+    if (targetWsId && targetWsId !== "null") {
       setActiveWorkspaceId(targetWsId);
       setSelectedWorkspaceId(targetWsId);
       AsyncStorage.setItem("pebble:v1:active_workspace", targetWsId).catch(() => {});
+      AsyncStorage.setItem("pebble:core:active_workspace", targetWsId).catch(() => {});
       emitStateChange("workspace_mode_changed", targetWsId);
     }
   }, [targetWsId]);
@@ -71,6 +73,7 @@ export function useWorkspaceState() {
       setActiveSegment("resources");
     }
     AsyncStorage.setItem("pebble:v1:active_workspace", id).catch(() => {});
+    AsyncStorage.setItem("pebble:core:active_workspace", id).catch(() => {});
     emitStateChange("workspace_mode_changed", id);
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
@@ -79,9 +82,12 @@ export function useWorkspaceState() {
     Haptics.selectionAsync().catch(() => {});
     setActiveWorkspaceId(null);
     AsyncStorage.removeItem("pebble:v1:active_workspace").catch(() => {});
+    AsyncStorage.removeItem("pebble:core:active_workspace").catch(() => {});
+    try {
+      router.setParams({ workspaceId: undefined, folderId: undefined });
+    } catch (e) {}
     emitStateChange("workspace_mode_changed", "null");
-    emitStateChange("workspace_changed", "tasks_screen");
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -120,6 +126,8 @@ export function useWorkspaceState() {
         setSelectedWorkspaceId(rawActive);
         setActiveWorkspaceId(rawActive);
         emitStateChange("workspace_mode_changed", rawActive);
+      } else if (!rawActive || rawActive === "null") {
+        setActiveWorkspaceId(null);
       }
       return currentLists;
     } catch (e) {

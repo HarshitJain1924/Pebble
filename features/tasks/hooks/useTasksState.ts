@@ -215,7 +215,10 @@ export function useTasksState() {
   // Task Actions
   const persistState = useCallback(async (listsToSave: Workspace[], selected: string, todosToSave: Record<string, Task[]>) => {
     try {
-      await AsyncStorage.setItem("pebble:core:active_workspace", selected);
+      if (selected && selected !== "null") {
+        await AsyncStorage.setItem("pebble:v1:active_workspace", selected);
+        await AsyncStorage.setItem("pebble:core:active_workspace", selected);
+      }
       await AsyncStorage.setItem("pebble:core:workspaces", JSON.stringify(listsToSave));
 
       const activeTodos = todosToSave[selected] || [];
@@ -924,7 +927,10 @@ export function useTasksState() {
 
   const selectList = async (listId: string) => {
     setSelectedList(listId);
-    await AsyncStorage.setItem("pebble:core:active_workspace", listId);
+    if (listId && listId !== "null") {
+      await AsyncStorage.setItem("pebble:v1:active_workspace", listId);
+      await AsyncStorage.setItem("pebble:core:active_workspace", listId);
+    }
 
     try {
       // Reload current active workspace data

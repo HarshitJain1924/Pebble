@@ -5,7 +5,6 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { type Workspace } from "@/shared/types/domain.types";
-import { type Folder } from "@/shared/types/repository.types";
 
 const WORKSPACES_KEY = "pebble:v1:workspaces";
 const LEGACY_WORKSPACES_KEY = "pebble:core:folders";
@@ -57,22 +56,5 @@ export class WorkspaceRepository {
     } catch (e) {
       console.warn("Failed to delete workspace", e);
     }
-  }
-
-  // Legacy alias methods for transition
-  static getFolders(): Promise<Folder[]> {
-    return this.getWorkspaces() as Promise<Folder[]>;
-  }
-
-  static saveFolder(folder: Folder): Promise<void> {
-    return this.saveWorkspace(folder as unknown as Workspace);
-  }
-
-  static saveFolders(folders: Folder[]): Promise<void> {
-    return this.saveWorkspaces(folders as unknown as Workspace[]);
-  }
-
-  static deleteFolder(id: string): Promise<void> {
-    return this.deleteWorkspace(id);
   }
 }

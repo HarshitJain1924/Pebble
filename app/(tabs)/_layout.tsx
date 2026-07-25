@@ -130,8 +130,6 @@ export default function TabLayout() {
     useState<boolean>(false);
   const [workspacePickerVisible, setWorkspacePickerVisible] =
     useState<boolean>(false);
-  const [collectionPickerVisible, setCollectionPickerVisible] =
-    useState<boolean>(false);
   const [priorityPickerVisible, setPriorityPickerVisible] =
     useState<boolean>(false);
   const [tagsPickerVisible, setTagsPickerVisible] = useState<boolean>(false);

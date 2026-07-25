@@ -1,9 +1,10 @@
 import React from "react";
 import { AppText as Text, AppTextInput as TextInput } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
     Alert,
+    BackHandler,
     Dimensions,
     KeyboardAvoidingView,
     Modal,
@@ -88,6 +89,23 @@ export function WorkspacesScreen() {
     const s = (secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const onBackPress = () => {
+        if (state.openedFolderId) {
+          state.handleBackToWorkspaces();
+          state.setSearchQuery("");
+          setIsSearchActive(false);
+          return true;
+        }
+        return false;
+      };
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => subscription.remove();
+    }, [state.openedFolderId, state.handleBackToWorkspaces])
+  );
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>

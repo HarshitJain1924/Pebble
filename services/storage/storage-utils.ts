@@ -10,7 +10,7 @@ export async function clearRepositoryStorage(): Promise<void> {
   try {
     const allKeys = await AsyncStorage.getAllKeys();
     const keysToRemove = allKeys.filter((key) => key.startsWith("pebble:v1:") || key.startsWith("pebble:core:"));
-    const extraKeys = ["pebble:schema_version", "pebble:v1:migration_complete"];
+    const extraKeys = ["pebble:schema_version"];
 
     await AsyncStorage.multiRemove([...keysToRemove, ...extraKeys]);
     GraphRepository.resetCache();

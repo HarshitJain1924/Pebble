@@ -35,7 +35,6 @@ import {
   RECYCLE_BIN_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   TODOS_STORAGE_KEY,
-  VAULT_STORAGE_KEY,
 } from "@/services/storage/storage.service";
 import { clearRepositoryStorage } from "@/repositories";
 import { WIDGET_PAYLOAD_KEY } from "@/services/analytics/widget-data.service";
@@ -245,7 +244,7 @@ export default function SettingsScreen() {
                 AsyncStorage.removeItem("todoapp:focus:is_repeat"),
                 AsyncStorage.removeItem("todoapp:focus:glow_enabled"),
                 AsyncStorage.removeItem("todoapp:mascot:dismissed"),
-                AsyncStorage.removeItem(VAULT_STORAGE_KEY),
+                AsyncStorage.removeItem("pebble:vault"),
                 AsyncStorage.removeItem(COLLECTIONS_STORAGE_KEY),
                 AsyncStorage.removeItem(CHECKLISTS_STORAGE_KEY),
                 cancelAllScheduledNotifications(),

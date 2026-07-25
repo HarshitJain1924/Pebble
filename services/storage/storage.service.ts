@@ -16,7 +16,7 @@ export const PROFILE_STORAGE_KEY = "pebble:profile";
 export const SETTINGS_STORAGE_KEY = "pebble:settings";
 export const NOTIF_LOG_STORAGE_KEY = "pebble:notifications:log";
 export const RECYCLE_BIN_STORAGE_KEY = "pebble:recycle_bin";
-export const VAULT_STORAGE_KEY = "pebble:vault";
+
 export const COLLECTIONS_STORAGE_KEY = "pebble:collections";
 export const CHECKLISTS_STORAGE_KEY = "pebble:checklists";
 export const DASHBOARD_FILTER_STORAGE_KEY = "todoapp:dashboard:filter";
@@ -175,26 +175,6 @@ export async function getRecycledIds(): Promise<RecycledIds> {
   return { workspaceIds, taskIds, habitIds, titles };
 }
 
-export async function getVaultItems(): Promise<Record<string, any[]>> {
-  try {
-    const raw = await AsyncStorage.getItem(VAULT_STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) || {};
-  } catch (e) {
-    console.warn("Failed to read vault items", e);
-    return {};
-  }
-}
-
-export async function saveVaultItems(
-  items: Record<string, any[]>,
-): Promise<void> {
-  try {
-    await AsyncStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(items));
-  } catch (e) {
-    console.warn("Failed to save vault items", e);
-  }
-}
 
 
 
