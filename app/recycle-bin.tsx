@@ -1,34 +1,33 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  View,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-  Platform,
   TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 
+import { emitStateChange } from "@/services/events/state-events";
+import { cancelReminderIds } from "@/services/scheduling/reminders.service";
+import {
+  getRecycleBinItems,
+  restoreRecycleBinItems,
+  saveRecycleBinItems,
+} from "@/services/storage/storage.service";
+import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { type RecycleBinItem, Task, type Habit } from "@/shared/types/domain.types";
 import {
-  getRecycleBinItems,
-  saveRecycleBinItems,
-  restoreRecycleBinItems,
-} from "@/services/storage/storage.service";
-import { emitStateChange } from "@/services/events/state-events";
-import {
-  cancelReminderIds,
-} from "@/services/scheduling/reminders.service";
-import { AppCard } from "@/shared/components/ui/AppCard";
+  type RecycleBinItem
+} from "@/shared/types/domain.types";
 
 export default function RecycleBinScreen() {
   const router = useRouter();
@@ -38,7 +37,9 @@ export default function RecycleBinScreen() {
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<RecycleBinItem[]>([]);
-  const [activeTab, setActiveTab] = useState<"task" | "habit" | "workspace" | "vault">("task");
+  const [activeTab, setActiveTab] = useState<
+    "task" | "habit" | "workspace" | "vault"
+  >("task");
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
@@ -72,17 +73,17 @@ export default function RecycleBinScreen() {
       if (item.itemType === "habit" || item.itemType === "workspace") {
         emitStateChange("habits_changed");
       }
-      if (
-        item.itemType === "vault" ||
-        item.itemType === "collection" ||
-        item.itemType === "collection_item" ||
-        item.itemType === "workspace"
-      ) {
+      if (item.itemType === "resource" || item.itemType === "workspace") {
         emitStateChange("resources_changed");
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert("Restored", `"${item.title}" has been restored successfully!`);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
+      Alert.alert(
+        "Restored",
+        `"${item.title}" has been restored successfully!`,
+      );
     } catch (e) {
       console.warn("Failed to restore item", e);
     } finally {
@@ -97,49 +98,51 @@ export default function RecycleBinScreen() {
       ? `Are you sure you want to permanently delete the workspace "${item.title}" along with all its contained tasks and habits? This action cannot be undone.`
       : `Are you sure you want to permanently delete "${item.title}"? This action cannot be undone.`;
 
-    Alert.alert(
-      title,
-      desc,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete Permanently",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              // Reminders were already cancelled on soft-delete, but we can call cancelReminderIds as fallback safety
-              if (item.itemType === "task" || item.itemType === "habit") {
-                await cancelReminderIds(item.data.notificationIds || []);
-              } else if (item.itemType === "workspace") {
-                if (item.data.todos) {
-                  for (const t of item.data.todos) {
-                    await cancelReminderIds(t.notificationIds || []);
-                  }
-                }
-                if (item.data.habits) {
-                  for (const h of item.data.habits) {
-                    await cancelReminderIds(h.notificationIds || []);
-                  }
+    Alert.alert(title, desc, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete Permanently",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            // Reminders were already cancelled on soft-delete, but we can call cancelReminderIds as fallback safety
+            if (item.itemType === "task" || item.itemType === "habit") {
+              await cancelReminderIds(item.data.notificationIds || []);
+            } else if (item.itemType === "workspace") {
+              if (item.data.todos) {
+                for (const t of item.data.todos) {
+                  await cancelReminderIds(t.notificationIds || []);
                 }
               }
-
-              const remaining = items.filter((i) => i.id !== item.id);
-              await saveRecycleBinItems(remaining);
-              setItems(remaining);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-            } catch (e) {
-              console.warn("Failed to permanently delete item", e);
+              if (item.data.habits) {
+                for (const h of item.data.habits) {
+                  await cancelReminderIds(h.notificationIds || []);
+                }
+              }
             }
-          },
+
+            const remaining = items.filter((i) => i.id !== item.id);
+            await saveRecycleBinItems(remaining);
+            setItems(remaining);
+            Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Warning,
+            ).catch(() => {});
+          } catch (e) {
+            console.warn("Failed to permanently delete item", e);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleRestoreAll = async () => {
     const tabItems = filteredItems.filter((i) => {
       if (activeTab === "vault") {
-        return i.itemType === "vault" || i.itemType === "collection" || i.itemType === "collection_item";
+        return (
+          i.itemType === "vault" ||
+          i.itemType === "collection" ||
+          i.itemType === "collection_item"
+        );
       }
       return i.itemType === activeTab;
     });
@@ -172,7 +175,9 @@ export default function RecycleBinScreen() {
                 emitStateChange("resources_changed");
               }
 
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Success,
+              ).catch(() => {});
             } catch (e) {
               console.warn("Failed to restore all items", e);
             } finally {
@@ -180,7 +185,7 @@ export default function RecycleBinScreen() {
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -218,7 +223,9 @@ export default function RecycleBinScreen() {
 
               await saveRecycleBinItems([]);
               setItems([]);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Warning,
+              ).catch(() => {});
             } catch (e) {
               console.warn("Failed to empty recycle bin", e);
             } finally {
@@ -226,7 +233,7 @@ export default function RecycleBinScreen() {
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -240,7 +247,11 @@ export default function RecycleBinScreen() {
   const activeTabItems = useMemo(() => {
     return filteredItems.filter((i) => {
       if (activeTab === "vault") {
-        return i.itemType === "vault" || i.itemType === "collection" || i.itemType === "collection_item";
+        return (
+          i.itemType === "vault" ||
+          i.itemType === "collection" ||
+          i.itemType === "collection_item"
+        );
       }
       return i.itemType === activeTab;
     });
@@ -261,27 +272,47 @@ export default function RecycleBinScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+    >
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn} hitSlop={10}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.headerBtn}
+          hitSlop={10}
+        >
           <Feather name="arrow-left" size={22} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Recycle Bin</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Recycle Bin
+        </Text>
         <TouchableOpacity
           onPress={handleEmptyRecycleBin}
           disabled={items.length === 0}
           style={{ opacity: items.length === 0 ? 0.35 : 1 }}
           hitSlop={10}
         >
-          <Text style={[styles.emptyBtnText, { color: colors.error }]}>Empty</Text>
+          <Text style={[styles.emptyBtnText, { color: colors.error }]}>
+            Empty
+          </Text>
         </TouchableOpacity>
       </View>
 
       {/* Search Input */}
       <View style={styles.searchWrapper}>
-        <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="search" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+        <View
+          style={[
+            styles.searchBar,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Feather
+            name="search"
+            size={16}
+            color={colors.textMuted}
+            style={{ marginRight: 8 }}
+          />
           <TextInput
             placeholder="Search deleted items..."
             placeholderTextColor={colors.textMuted}
@@ -299,11 +330,20 @@ export default function RecycleBinScreen() {
 
       {/* Tabs */}
       <View style={styles.tabsWrapper}>
-        <View style={[styles.tabsContainer, { backgroundColor: isLight ? "#E2E8F0" : "#27272A" }]}>
+        <View
+          style={[
+            styles.tabsContainer,
+            { backgroundColor: isLight ? "#E2E8F0" : "#27272A" },
+          ]}
+        >
           {(["task", "habit", "workspace", "vault"] as const).map((tab) => {
             const count = items.filter((i) => {
               if (tab === "vault") {
-                return i.itemType === "vault" || i.itemType === "collection" || i.itemType === "collection_item";
+                return (
+                  i.itemType === "vault" ||
+                  i.itemType === "collection" ||
+                  i.itemType === "collection_item"
+                );
               }
               return i.itemType === tab;
             }).length;
@@ -313,7 +353,9 @@ export default function RecycleBinScreen() {
                 key={tab}
                 onPress={() => {
                   setActiveTab(tab);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                    () => {},
+                  );
                 }}
                 style={[
                   styles.tabButton,
@@ -336,7 +378,13 @@ export default function RecycleBinScreen() {
                     },
                   ]}
                 >
-                  {tab === "task" ? "Tasks" : tab === "habit" ? "Habits" : tab === "workspace" ? "Workspaces" : "Collections"}
+                  {tab === "task"
+                    ? "Tasks"
+                    : tab === "habit"
+                      ? "Habits"
+                      : tab === "workspace"
+                        ? "Workspaces"
+                        : "Collections"}
                   {count > 0 && ` (${count})`}
                 </Text>
               </TouchableOpacity>
@@ -349,57 +397,145 @@ export default function RecycleBinScreen() {
       {activeTabItems.length > 0 && (
         <View style={styles.bulkRow}>
           <Text style={[styles.tabSummary, { color: colors.textMuted }]}>
-            Showing {activeTabItems.length} deleted {activeTab === "vault" ? "collection" : activeTab}(s)
+            Showing {activeTabItems.length} deleted{" "}
+            {activeTab === "vault" ? "collection" : activeTab}(s)
           </Text>
           <TouchableOpacity
             style={[styles.restoreAllBtn, { borderColor: colors.primary }]}
             onPress={handleRestoreAll}
           >
-            <Feather name="rotate-ccw" size={12} color={colors.primary} style={{ marginRight: 4 }} />
-            <Text style={[styles.restoreAllText, { color: colors.primary }]}>Restore All</Text>
+            <Feather
+              name="rotate-ccw"
+              size={12}
+              color={colors.primary}
+              style={{ marginRight: 4 }}
+            />
+            <Text style={[styles.restoreAllText, { color: colors.primary }]}>
+              Restore All
+            </Text>
           </TouchableOpacity>
         </View>
       )}
 
       {loading ? (
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <View
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+        >
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           {activeTabItems.length === 0 ? (
-            <View style={[styles.emptyCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Feather name="trash-2" size={40} color={colors.textMuted} style={{ marginBottom: 12, opacity: 0.6 }} />
-              <Text style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600", textAlign: "center" }}>
-                {searchQuery ? "No matching items found" : `No deleted ${activeTab}s`}
+            <View
+              style={[
+                styles.emptyCard,
+                { borderColor: colors.border, backgroundColor: colors.card },
+              ]}
+            >
+              <Feather
+                name="trash-2"
+                size={40}
+                color={colors.textMuted}
+                style={{ marginBottom: 12, opacity: 0.6 }}
+              />
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 15,
+                  fontWeight: "600",
+                  textAlign: "center",
+                }}
+              >
+                {searchQuery
+                  ? "No matching items found"
+                  : `No deleted ${activeTab}s`}
               </Text>
-              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4, textAlign: "center" }}>
-                {searchQuery ? "Try a different search query" : "Deleted items will show up here for 30 days."}
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 12,
+                  marginTop: 4,
+                  textAlign: "center",
+                }}
+              >
+                {searchQuery
+                  ? "Try a different search query"
+                  : "Deleted items will show up here for 30 days."}
               </Text>
             </View>
           ) : (
             activeTabItems.map((item) => (
-              <AppCard key={item.id} style={[styles.itemCard, { borderColor: colors.border }]}>
+              <AppCard
+                key={item.id}
+                style={[styles.itemCard, { borderColor: colors.border }]}
+              >
                 <View style={styles.itemInfo}>
                   <View style={styles.titleRow}>
-                    <Text style={[styles.itemTitle, { color: colors.text }]}>{item.title}</Text>
+                    <Text style={[styles.itemTitle, { color: colors.text }]}>
+                      {item.title}
+                    </Text>
                     {item.itemType === "workspace" && (
-                      <View style={[styles.itemTypeBadge, { backgroundColor: `${colors.primary}20` }]}>
-                        <Text style={[styles.itemTypeBadgeText, { color: colors.primary }]}>
-                          {(item.data?.todos?.length || 0) + (item.data?.habits?.length || 0)} items
+                      <View
+                        style={[
+                          styles.itemTypeBadge,
+                          { backgroundColor: `${colors.primary}20` },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.itemTypeBadgeText,
+                            { color: colors.primary },
+                          ]}
+                        >
+                          {(item.data?.todos?.length || 0) +
+                            (item.data?.habits?.length || 0)}{" "}
+                          items
                         </Text>
                       </View>
                     )}
                   </View>
                   <View style={styles.metaRow}>
-                    <View style={[styles.badge, { backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.03)" }]}>
-                      <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "600" }}>
+                    <View
+                      style={[
+                        styles.badge,
+                        {
+                          backgroundColor: isLight
+                            ? "#F1F5F9"
+                            : "rgba(255,255,255,0.03)",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: colors.textMuted,
+                          fontSize: 10,
+                          fontWeight: "600",
+                        }}
+                      >
                         📅 Deleted: {formatDate(item.deletedAt)}
                       </Text>
                     </View>
                     {item.itemType !== "workspace" && (
-                      <View style={[styles.badge, { backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.03)" }]}>
-                        <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "600" }}>
+                      <View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: isLight
+                              ? "#F1F5F9"
+                              : "rgba(255,255,255,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 10,
+                            fontWeight: "600",
+                          }}
+                        >
                           💼 From: {item.originalLocation}
                         </Text>
                       </View>
@@ -409,14 +545,24 @@ export default function RecycleBinScreen() {
                 <View style={styles.actions}>
                   <TouchableOpacity
                     onPress={() => handleRestoreItem(item)}
-                    style={[styles.actionBtn, { backgroundColor: `${colors.success}15` }]}
+                    style={[
+                      styles.actionBtn,
+                      { backgroundColor: `${colors.success}15` },
+                    ]}
                     hitSlop={8}
                   >
-                    <Feather name="rotate-ccw" size={16} color={colors.success} />
+                    <Feather
+                      name="rotate-ccw"
+                      size={16}
+                      color={colors.success}
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => handlePermanentDelete(item)}
-                    style={[styles.actionBtn, { backgroundColor: `${colors.error}15` }]}
+                    style={[
+                      styles.actionBtn,
+                      { backgroundColor: `${colors.error}15` },
+                    ]}
                     hitSlop={8}
                   >
                     <Feather name="trash-2" size={16} color={colors.error} />
@@ -524,7 +670,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   itemInfo: { flex: 1, gap: 6 },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   itemTitle: { fontSize: 15, fontWeight: "700" },
   itemTypeBadge: {
     paddingHorizontal: 6,

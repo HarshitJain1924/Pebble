@@ -11,6 +11,12 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  WorkspaceRepository,
+  TaskRepository,
+  HabitRepository,
+  UiStateRepository,
+} from "@/repositories";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import type { IPopupRenderContext } from "../typings/motion-tabs";
@@ -64,8 +70,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       const todayStr = getDateKey();
 
       // 1. Fetch workspaces lists
-      const rawLists = await AsyncStorage.getItem("pebble:core:workspaces");
-      const listFolders: any[] = rawLists ? JSON.parse(rawLists) : [{ id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" }];
+      const listFolders = await WorkspaceRepository.getWorkspaces();
 
       const workspaceCounts: Record<string, number> = {};
       let tTotal = 0;
@@ -76,8 +81,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       // Loop over each workspace to count tasks and load habits
       for (const folder of listFolders) {
         const wsId = folder.id;
-        const tasksRaw = await AsyncStorage.getItem(`pebble:core:tasks:${wsId}`);
-        const tasksMap = tasksRaw ? JSON.parse(tasksRaw) : {};
+        const tasksMap = await TaskRepository.getTasks(wsId);
         
         let pendingCount = 0;
         Object.values(tasksMap).forEach((todo: any) => {
@@ -103,8 +107,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         });
         workspaceCounts[wsId] = pendingCount;
 
-        const habitsRaw = await AsyncStorage.getItem(`pebble:core:habits:${wsId}`);
-        const habitsMap = habitsRaw ? JSON.parse(habitsRaw) : {};
+        const habitsMap = await HabitRepository.getHabits(wsId);
         Object.values(habitsMap).forEach((h: any) => {
           allHabits.push(h);
         });
@@ -202,12 +205,9 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const toggleHabitInDrawer = async (habitId: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
-      const habitsRaw = await AsyncStorage.getItem(`pebble:core:habits:${activeWorkspace}`);
-      if (!habitsRaw) return;
-
-      const habitsMap = JSON.parse(habitsRaw);
-      const h = habitsMap[habitId];
+      const uiState = await UiStateRepository.getUiState();
+      const activeWorkspace = uiState.activeWorkspaceId || "default";
+      const h = await HabitRepository.getHabit(habitId, activeWorkspace);
       if (!h) return;
 
       const today = getDateKey();
@@ -221,9 +221,10 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
 
       if (nextCompleted) {
         let nextStreak = 1;
-        if (h.lastCompletedDate === today) {
+        const lastDate = (h as any).lastCompletedDate;
+        if (lastDate === today) {
           nextStreak = h.streak || 1;
-        } else if (h.lastCompletedDate === yesterday) {
+        } else if (lastDate === yesterday) {
           nextStreak = (h.streak || 0) + 1;
         }
         streak = nextStreak;
@@ -235,16 +236,14 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         completedDates = completedDates.filter((d: string) => d !== today);
       }
 
-      habitsMap[habitId] = {
+      await HabitRepository.saveHabit({
         ...h,
         streak,
         bestStreak: Math.max(h.bestStreak || 0, streak),
         completedDates,
         lastCompletedDate: nextCompleted ? today : (streak > 0 ? yesterday : undefined),
         updatedAt: Date.now(),
-      };
-
-      await AsyncStorage.setItem(`pebble:core:habits:${activeWorkspace}`, JSON.stringify(habitsMap));
+      });
 
       try {
         const { recordDailyHistorySnapshot } = require("@/services/analytics/productivity-history.service");
@@ -271,19 +270,14 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       const wsId = folderId || "default";
-      const tasksRaw = await AsyncStorage.getItem(`pebble:core:tasks:${wsId}`);
-      if (!tasksRaw) return;
-
-      const tasksMap = JSON.parse(tasksRaw);
-      const todo = tasksMap[taskId];
+      const todo = await TaskRepository.getTask(taskId, wsId);
       if (todo) {
-        tasksMap[taskId] = {
+        await TaskRepository.saveTask({
           ...todo,
           completed: true,
           completedAt: Date.now(),
           updatedAt: Date.now(),
-        };
-        await AsyncStorage.setItem(`pebble:core:tasks:${wsId}`, JSON.stringify(tasksMap));
+        });
       }
 
       try {

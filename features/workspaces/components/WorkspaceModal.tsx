@@ -19,7 +19,11 @@ import {
     saveRecycleBinItems,
 } from "@/services/storage/storage.service";
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  WorkspaceRepository,
+  TaskRepository,
+  HabitRepository,
+} from "@/repositories";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";
 import {
@@ -241,21 +245,10 @@ export function WorkspaceModal({
               "Workspaces",
             );
             try {
-              await AsyncStorage.removeItem(
-                `pebble:core:tasks:${editingFolderId}`,
-              );
-              await AsyncStorage.removeItem(
-                `pebble:core:habits:${editingFolderId}`,
-              );
-              await AsyncStorage.removeItem(
-                `pebble:core:checklists:${editingFolderId}`,
-              );
-              await AsyncStorage.removeItem(
-                `pebble:core:resources:${editingFolderId}`,
-              );
+              await WorkspaceRepository.deleteWorkspace(editingFolderId);
             } catch (e) {
               console.warn(
-                "Failed to clear partitioned workspace storage files:",
+                "Failed to clear workspace via repository:",
                 e,
               );
             }
@@ -311,30 +304,18 @@ export function WorkspaceModal({
                 );
 
                 // Restore state and persist
-                const rawWorkspaces = await AsyncStorage.getItem(
-                  "pebble:core:workspaces",
-                );
-                const currentLists = rawWorkspaces
-                  ? JSON.parse(rawWorkspaces)
-                  : [{ id: "default", name: "📋 My Pebbles" }];
+                const currentLists = await WorkspaceRepository.getWorkspaces();
 
                 const currentTodos: Record<string, Task[]> = {};
                 for (const folder of currentLists) {
                   const wsId = folder.id;
-                  const tasksRaw = await AsyncStorage.getItem(
-                    `pebble:core:tasks:${wsId}`,
-                  );
-                  if (tasksRaw) {
-                    const tasksMap = JSON.parse(tasksRaw);
-                    currentTodos[wsId] = Object.values(tasksMap).map(
-                      (t: any) => ({
-                        ...t,
-                        scheduledDate: t.dueDate,
-                      }),
-                    ) as Task[];
-                  } else {
-                    currentTodos[wsId] = [];
-                  }
+                  const tasksMap = await TaskRepository.getTasks(wsId);
+                  currentTodos[wsId] = Object.values(tasksMap).map(
+                    (t: any) => ({
+                      ...t,
+                      scheduledDate: t.dueDate,
+                    }),
+                  ) as Task[];
                 }
 
                 const restoredLists = currentLists.some(
@@ -351,21 +332,16 @@ export function WorkspaceModal({
                 const currentHabits: Habit[] = [];
                 for (const folder of currentLists) {
                   const wsId = folder.id;
-                  const habitsRaw = await AsyncStorage.getItem(
-                    `pebble:core:habits:${wsId}`,
-                  );
-                  if (habitsRaw) {
-                    const habitsMap = JSON.parse(habitsRaw);
-                    Object.values(habitsMap).forEach((h: any) => {
-                      currentHabits.push({
-                        ...h,
-                        completedToday:
-                          h.completedDates?.includes(
-                            `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
-                          ) || false,
-                      });
+                  const habitsMap = await HabitRepository.getHabits(wsId);
+                  Object.values(habitsMap).forEach((h: any) => {
+                    currentHabits.push({
+                      ...h,
+                      completedToday:
+                        h.completedDates?.includes(
+                          `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
+                        ) || false,
                     });
-                  }
+                  });
                 }
 
                 const restoredHabits = [

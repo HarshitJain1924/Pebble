@@ -1,11 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
+import {
+  globalLists,
+  setGlobalLists,
+} from "@/features/tasks/utils/task-formatting";
+import { UiStateRepository, WorkspaceRepository } from "@/repositories";
+import {
+  addStateListener,
+  emitStateChange,
+} from "@/services/events/state-events";
 import { Workspace } from "@/shared/types/domain.types";
-import { WorkspaceRepository } from "@/repositories";
-import { addStateListener, emitStateChange } from "@/services/events/state-events";
-import { globalLists, setGlobalLists } from "@/features/tasks/utils/task-formatting";
+import * as Haptics from "expo-haptics";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 
 export function useWorkspaceState() {
   const router = useRouter();
@@ -15,14 +20,27 @@ export function useWorkspaceState() {
     workspaceId?: string;
   }>();
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => globalLists || []);
-  const [isWorkspacesHydrated, setIsWorkspacesHydrated] = useState<boolean>(() => globalLists !== null);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("default");
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
-  const [workspaceSegment, setWorkspaceSegment] = useState<"tasks" | "habits" | "checklists" | "resources">("tasks");
-  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits" | "resources">("tasks");
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(
+    () => globalLists || [],
+  );
+  const [isWorkspacesHydrated, setIsWorkspacesHydrated] = useState<boolean>(
+    () => globalLists !== null,
+  );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] =
+    useState<string>("default");
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
+    null,
+  );
+  const [workspaceSegment, setWorkspaceSegment] = useState<
+    "tasks" | "habits" | "checklists" | "resources"
+  >("tasks");
+  const [activeSegment, setActiveSegment] = useState<
+    "tasks" | "habits" | "resources"
+  >("tasks");
   const [workspaceModalVisible, setWorkspaceModalVisible] = useState(false);
-  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(
+    null,
+  );
   const [listsExpanded, setListsExpanded] = useState(false);
 
   useEffect(() => {
@@ -30,7 +48,12 @@ export function useWorkspaceState() {
   }, [workspaces]);
 
   useEffect(() => {
-    if (params.segment === "tasks" || params.segment === "habits" || params.segment === "resources" || (params.segment as string) === "vault") {
+    if (
+      params.segment === "tasks" ||
+      params.segment === "habits" ||
+      params.segment === "resources" ||
+      (params.segment as string) === "vault"
+    ) {
       const seg = params.segment === "vault" ? "resources" : params.segment;
       setActiveSegment(seg as any);
       setWorkspaceSegment(seg as any);
@@ -40,9 +63,17 @@ export function useWorkspaceState() {
   useEffect(() => {
     const unsub = addStateListener("workspace_segment_request", (seg) => {
       if (seg) {
-        const normalized = (seg === "vault" ? "resources" : seg) as "tasks" | "habits" | "checklists" | "resources";
+        const normalized = (seg === "vault" ? "resources" : seg) as
+          | "tasks"
+          | "habits"
+          | "checklists"
+          | "resources";
         setWorkspaceSegment(normalized);
-        if (normalized === "tasks" || normalized === "habits" || normalized === "resources") {
+        if (
+          normalized === "tasks" ||
+          normalized === "habits" ||
+          normalized === "resources"
+        ) {
           setActiveSegment(normalized);
         }
         emitStateChange("workspace_segment_changed", normalized);
@@ -57,8 +88,9 @@ export function useWorkspaceState() {
     if (targetWsId && targetWsId !== "null") {
       setActiveWorkspaceId(targetWsId);
       setSelectedWorkspaceId(targetWsId);
-      AsyncStorage.setItem("pebble:v1:active_workspace", targetWsId).catch(() => {});
-      AsyncStorage.setItem("pebble:core:active_workspace", targetWsId).catch(() => {});
+      UiStateRepository.saveUiState({ activeWorkspaceId: targetWsId }).catch(
+        () => {},
+      );
       emitStateChange("workspace_mode_changed", targetWsId);
     }
   }, [targetWsId]);
@@ -72,8 +104,7 @@ export function useWorkspaceState() {
     if (id === "unassigned") {
       setActiveSegment("resources");
     }
-    AsyncStorage.setItem("pebble:v1:active_workspace", id).catch(() => {});
-    AsyncStorage.setItem("pebble:core:active_workspace", id).catch(() => {});
+    UiStateRepository.saveUiState({ activeWorkspaceId: id }).catch(() => {});
     emitStateChange("workspace_mode_changed", id);
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
@@ -81,8 +112,9 @@ export function useWorkspaceState() {
   const handleBackToWorkspaces = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});
     setActiveWorkspaceId(null);
-    AsyncStorage.removeItem("pebble:v1:active_workspace").catch(() => {});
-    AsyncStorage.removeItem("pebble:core:active_workspace").catch(() => {});
+    UiStateRepository.saveUiState({ activeWorkspaceId: "default" }).catch(
+      () => {},
+    );
     try {
       router.setParams({ workspaceId: undefined, folderId: undefined });
     } catch (e) {}
@@ -91,7 +123,9 @@ export function useWorkspaceState() {
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
-    setWorkspaceSegment(activeWorkspaceId === "unassigned" ? "resources" : "tasks");
+    setWorkspaceSegment(
+      activeWorkspaceId === "unassigned" ? "resources" : "tasks",
+    );
   }, [activeWorkspaceId]);
 
   const loadWorkspaces = useCallback(async (): Promise<Workspace[]> => {
@@ -111,22 +145,48 @@ export function useWorkspaceState() {
       if (currentLists.length === 0) {
         const now = Date.now();
         currentLists = [
-          { id: "default", name: "My Pebbles", emoji: "⚡", color: "#6366F1", createdAt: now, updatedAt: now },
-          { id: "personal", name: "Personal", emoji: "🏠", color: "#10B981", createdAt: now, updatedAt: now },
-          { id: "work", name: "Work", emoji: "💼", color: "#3B82F6", createdAt: now, updatedAt: now },
+          {
+            id: "default",
+            name: "My Pebbles",
+            emoji: "⚡",
+            color: "#6366F1",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "personal",
+            name: "Personal",
+            emoji: "🏠",
+            color: "#10B981",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "work",
+            name: "Work",
+            emoji: "💼",
+            color: "#3B82F6",
+            createdAt: now,
+            updatedAt: now,
+          },
         ];
         await WorkspaceRepository.saveWorkspaces(currentLists);
       }
 
       setWorkspaces(currentLists);
       setIsWorkspacesHydrated(true);
-      const rawActive = await AsyncStorage.getItem("pebble:v1:active_workspace") || await AsyncStorage.getItem("pebble:core:active_workspace");
+      const uiState = await UiStateRepository.getUiState();
+      const rawActive = uiState.activeWorkspaceId;
 
-      if (rawActive && rawActive !== "null" && currentLists.some((l) => l.id === rawActive)) {
+      if (
+        rawActive &&
+        rawActive !== "default" &&
+        currentLists.some((l) => l.id === rawActive)
+      ) {
         setSelectedWorkspaceId(rawActive);
         setActiveWorkspaceId(rawActive);
         emitStateChange("workspace_mode_changed", rawActive);
-      } else if (!rawActive || rawActive === "null") {
+      } else if (!rawActive || rawActive === "default") {
         setActiveWorkspaceId(null);
       }
       return currentLists;
@@ -145,23 +205,29 @@ export function useWorkspaceState() {
     return () => unsub();
   }, [loadWorkspaces]);
 
-  const handleCreateWorkspace = useCallback(async (newWs: Workspace) => {
-    await WorkspaceRepository.saveWorkspace(newWs);
-    await loadWorkspaces();
-    emitStateChange("workspace_changed", "tasks_screen");
-  }, [loadWorkspaces]);
+  const handleCreateWorkspace = useCallback(
+    async (newWs: Workspace) => {
+      await WorkspaceRepository.saveWorkspace(newWs);
+      await loadWorkspaces();
+      emitStateChange("workspace_changed", "tasks_screen");
+    },
+    [loadWorkspaces],
+  );
 
-  const handleDeleteWorkspace = useCallback(async (id: string) => {
-    await WorkspaceRepository.deleteWorkspace(id);
-    if (selectedWorkspaceId === id) {
-      setSelectedWorkspaceId("default");
-    }
-    if (activeWorkspaceId === id) {
-      setActiveWorkspaceId(null);
-    }
-    await loadWorkspaces();
-    emitStateChange("workspace_changed", "tasks_screen");
-  }, [selectedWorkspaceId, activeWorkspaceId, loadWorkspaces]);
+  const handleDeleteWorkspace = useCallback(
+    async (id: string) => {
+      await WorkspaceRepository.deleteWorkspace(id);
+      if (selectedWorkspaceId === id) {
+        setSelectedWorkspaceId("default");
+      }
+      if (activeWorkspaceId === id) {
+        setActiveWorkspaceId(null);
+      }
+      await loadWorkspaces();
+      emitStateChange("workspace_changed", "tasks_screen");
+    },
+    [selectedWorkspaceId, activeWorkspaceId, loadWorkspaces],
+  );
 
   return {
     workspaces,

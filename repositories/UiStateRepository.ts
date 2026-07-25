@@ -1,10 +1,13 @@
 /**
- * ui-state-repository.ts
+ * UiStateRepository.ts
  * ─────────────────────────
- * UI State persistence (active folder, onboarding, theme cache).
+ * UI State persistence (active workspace, onboarding, theme cache).
  */
+import {
+  DEFAULT_WORKSPACE_ID,
+  type UiState,
+} from "@/shared/types/repository.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DEFAULT_FOLDER_ID, type UiState } from "@/shared/types/repository.types";
 
 export class UiStateRepository {
   private static readonly UI_STATE_KEY = "pebble:core:ui_state";
@@ -17,7 +20,7 @@ export class UiStateRepository {
       console.warn("Failed to read UiState", e);
     }
     return {
-      activeFolderId: DEFAULT_FOLDER_ID,
+      activeWorkspaceId: DEFAULT_WORKSPACE_ID,
       completedOnboarding: false,
       themeCache: "dark",
     };

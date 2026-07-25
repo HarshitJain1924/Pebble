@@ -1,26 +1,35 @@
-import { useRouter, useFocusEffect } from "expo-router";
-import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { View, ScrollView, Platform, Dimensions } from "react-native";
+import {
+  HabitRepository,
+  TaskRepository,
+  UiStateRepository,
+  WorkspaceRepository,
+} from "@/repositories";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { TaskRepository, HabitRepository } from "@/repositories";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-} from "react-native-reanimated";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Dimensions, ScrollView, View } from "react-native";
+import { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
-import { Colors } from "@/shared/constants/theme";
-import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
   DailyHistory,
   getHistoryForMonth,
   historyForDate,
 } from "@/services/analytics/productivity-history.service";
-import { addStateListener, emitStateChange } from "@/services/events/state-events";
+import {
+  addStateListener,
+  emitStateChange,
+} from "@/services/events/state-events";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
-import { cancelReminderIds, rescheduleTodoReminders, rescheduleHabitReminders } from "@/services/scheduling/reminders.service";
-import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
+import {
+  cancelReminderIds,
+  rescheduleHabitReminders,
+  rescheduleTodoReminders,
+} from "@/services/scheduling/reminders.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
+import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -58,13 +67,15 @@ export function useCalendarState() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
-  
+
   const [month, setMonth] = useState(getMonthKey());
   const [history, setHistory] = useState<DailyHistory[]>([]);
   const [selectedDate, setSelectedDate] = useState(getDateKey());
   const [allTodos, setAllTodos] = useState<any[]>([]);
   const [allHabits, setAllHabits] = useState<any[]>([]);
-  const [calendarViewMode, setCalendarViewMode] = useState<"month" | "week" | "timeline">("month");
+  const [calendarViewMode, setCalendarViewMode] = useState<
+    "month" | "week" | "timeline"
+  >("month");
 
   // Workspaces list
   const [lists, setLists] = useState<{ id: string; name: string }[]>([]);
@@ -90,9 +101,24 @@ export function useCalendarState() {
   // Refs to avoid stale closures in gesture handlers
   const hoveredDateRef = useRef<string | null>(null);
   const hoveredHourRef = useRef<number | null>(null);
-  const monthGridBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
-  const weekStripBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
-  const timelineGridBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const monthGridBoundsRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const weekStripBoundsRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const timelineGridBoundsRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const activeDragItemRef = useRef<any | null>(null);
   const selectedDateRef = useRef<string | null>(null);
   const calendarCellsRef = useRef<any[]>([]);
@@ -105,9 +131,24 @@ export function useCalendarState() {
   const lastDragYRef = useRef(0);
   const initialScrollYRef = useRef(0);
 
-  const [monthGridBounds, setMonthGridBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [weekStripBounds, setWeekStripBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [timelineGridBounds, setTimelineGridBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [monthGridBounds, setMonthGridBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [weekStripBounds, setWeekStripBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [timelineGridBounds, setTimelineGridBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   const measureMonthGrid = useCallback(() => {
     monthGridRef.current?.measureInWindow((x, y, width, height) => {
@@ -144,7 +185,13 @@ export function useCalendarState() {
       measureTimelineGrid();
     }, 400);
     return () => clearTimeout(timer);
-  }, [month, calendarViewMode, measureMonthGrid, measureWeekStrip, measureTimelineGrid]);
+  }, [
+    month,
+    calendarViewMode,
+    measureMonthGrid,
+    measureWeekStrip,
+    measureTimelineGrid,
+  ]);
 
   const loadMonth = useCallback(async (year: number, monthIndex: number) => {
     const entries = await getHistoryForMonth(year, monthIndex);
@@ -153,9 +200,9 @@ export function useCalendarState() {
 
   const loadDataFromStorage = useCallback(async () => {
     try {
-      const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
-      const rawLists = await AsyncStorage.getItem("pebble:core:workspaces");
-      const currentLists = rawLists ? JSON.parse(rawLists) : [{ id: "default", name: "Default" }];
+      const uiState = await UiStateRepository.getUiState();
+      const activeWorkspace = uiState.activeWorkspaceId || "default";
+      const currentLists = await WorkspaceRepository.getWorkspaces();
       setLists(currentLists);
 
       // Fetch from repository
@@ -197,7 +244,8 @@ export function useCalendarState() {
   // Save Quick Add Task
   const onSaveNewTask = async (newTask: any) => {
     if (!newTask.title || newTask.title.trim() === "") return;
-    const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
+    const uiState = await UiStateRepository.getUiState();
+    const activeWorkspace = uiState.activeWorkspaceId;
 
     const taskWithCreatedAt = {
       ...newTask,
@@ -223,7 +271,9 @@ export function useCalendarState() {
     // Reschedule alarms if alarmTime is set
     await rescheduleTodoReminders(taskWithCreatedAt);
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {},
+    );
     await loadDataFromStorage();
     void loadMonth(month.year, month.month);
     emitStateChange("tasks_changed");
@@ -235,28 +285,32 @@ export function useCalendarState() {
     useCallback(() => {
       void loadMonth(month.year, month.month);
       void loadDataFromStorage();
-      AsyncStorage.getItem("todoapp:calendar:selectedDate").then((storedDate) => {
-        if (storedDate) {
-          setSelectedDate(storedDate);
-          const [year, monthVal] = storedDate.split("-").map(Number);
-          setMonth({ year, month: monthVal - 1 });
-          AsyncStorage.removeItem("todoapp:calendar:selectedDate");
-        }
-      });
-    }, [loadMonth, loadDataFromStorage, month.month, month.year])
+      AsyncStorage.getItem("todoapp:calendar:selectedDate").then(
+        (storedDate) => {
+          if (storedDate) {
+            setSelectedDate(storedDate);
+            const [year, monthVal] = storedDate.split("-").map(Number);
+            setMonth({ year, month: monthVal - 1 });
+            AsyncStorage.removeItem("todoapp:calendar:selectedDate");
+          }
+        },
+      );
+    }, [loadMonth, loadDataFromStorage, month.month, month.year]),
   );
 
   useEffect(() => {
     const unsubTasks = addStateListener("tasks_changed", () => {
       loadDataFromStorage();
-      AsyncStorage.getItem("todoapp:calendar:selectedDate").then((storedDate) => {
-        if (storedDate) {
-          setSelectedDate(storedDate);
-          const [year, monthVal] = storedDate.split("-").map(Number);
-          setMonth({ year, month: monthVal - 1 });
-          AsyncStorage.removeItem("todoapp:calendar:selectedDate");
-        }
-      });
+      AsyncStorage.getItem("todoapp:calendar:selectedDate").then(
+        (storedDate) => {
+          if (storedDate) {
+            setSelectedDate(storedDate);
+            const [year, monthVal] = storedDate.split("-").map(Number);
+            setMonth({ year, month: monthVal - 1 });
+            AsyncStorage.removeItem("todoapp:calendar:selectedDate");
+          }
+        },
+      );
     });
     const unsubHabits = addStateListener("habits_changed", () => {
       loadDataFromStorage();
@@ -292,14 +346,17 @@ export function useCalendarState() {
   const timelineItems = useMemo(() => {
     const tasks = allTodos
       .filter((todo) => {
-        const matchesDate = isRecurringOccurrenceForDate(todo, selectedDate) ||
-          (todo.alarmTime && getDateKey(new Date(todo.alarmTime)) === selectedDate);
+        const matchesDate =
+          isRecurringOccurrenceForDate(todo, selectedDate) ||
+          (todo.alarmTime &&
+            getDateKey(new Date(todo.alarmTime)) === selectedDate);
         return matchesDate && todo.scheduledDate !== "inbox";
       })
       .map((todo) => {
         const sched = getStructuredSchedule(todo, 60);
         const timeLabel = sched.startTime
-          ? (formatReminderTime(sched.startTime.hour, sched.startTime.minute) || "All Day")
+          ? formatReminderTime(sched.startTime.hour, sched.startTime.minute) ||
+            "All Day"
           : "All Day";
 
         return {
@@ -339,12 +396,15 @@ export function useCalendarState() {
         if (isTodaySelected) {
           completed = habit.completedToday;
         } else if (selectedHistory) {
-          completed = selectedHistory.completedHabitTitles?.includes(habit.title) ?? false;
+          completed =
+            selectedHistory.completedHabitTitles?.includes(habit.title) ??
+            false;
         }
 
         const sched = getStructuredSchedule(habit, 30);
         const timeLabel = sched.startTime
-          ? (formatReminderTime(sched.startTime.hour, sched.startTime.minute) || "Anytime")
+          ? formatReminderTime(sched.startTime.hour, sched.startTime.minute) ||
+            "Anytime"
           : "Anytime";
 
         return {
@@ -369,14 +429,16 @@ export function useCalendarState() {
   // Split allDay vs timed items
   const allDayItems = useMemo(() => {
     return timelineItems.filter(
-      (item) => item.reminderHour === undefined || item.reminderMinute === undefined
+      (item) =>
+        item.reminderHour === undefined || item.reminderMinute === undefined,
     );
   }, [timelineItems]);
 
   // Advanced Overlapping task layout columns computation
   const timedItemsWithLayout = useMemo(() => {
     const timed = timelineItems.filter(
-      (item) => item.reminderHour !== undefined && item.reminderMinute !== undefined
+      (item) =>
+        item.reminderHour !== undefined && item.reminderMinute !== undefined,
     );
 
     const sorted = [...timed].sort((a, b) => {
@@ -457,7 +519,12 @@ export function useCalendarState() {
     const startOffset = new Date(month.year, month.month, 1).getDay();
 
     for (let i = 0; i < startOffset; i++) {
-      cells.push({ type: "empty" as const, key: `empty-${i}`, dateString: "" as string | undefined, dayNum: undefined as number | undefined });
+      cells.push({
+        type: "empty" as const,
+        key: `empty-${i}`,
+        dateString: "" as string | undefined,
+        dayNum: undefined as number | undefined,
+      });
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
@@ -524,27 +591,30 @@ export function useCalendarState() {
     calendarViewModeRef.current = calendarViewMode;
   }, [calendarViewMode]);
 
-  const handleDragStart = useCallback((item: any, absoluteX: number, absoluteY: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    activeDragItemRef.current = item;
-    setActiveDragItem(item);
-    setIsDragging(true);
-    dragX.value = absoluteX;
-    dragY.value = absoluteY;
-    
-    hoveredDateRef.current = null;
-    hoveredHourRef.current = null;
-    setHoveredDate(null);
-    setHoveredHour(null);
+  const handleDragStart = useCallback(
+    (item: any, absoluteX: number, absoluteY: number) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      activeDragItemRef.current = item;
+      setActiveDragItem(item);
+      setIsDragging(true);
+      dragX.value = absoluteX;
+      dragY.value = absoluteY;
 
-    initialScrollYRef.current = scrollYRef.current;
-    lastDragXRef.current = absoluteX;
-    lastDragYRef.current = absoluteY;
+      hoveredDateRef.current = null;
+      hoveredHourRef.current = null;
+      setHoveredDate(null);
+      setHoveredHour(null);
 
-    measureMonthGrid();
-    measureWeekStrip();
-    measureTimelineGrid();
-  }, [measureMonthGrid, measureWeekStrip, measureTimelineGrid]);
+      initialScrollYRef.current = scrollYRef.current;
+      lastDragXRef.current = absoluteX;
+      lastDragYRef.current = absoluteY;
+
+      measureMonthGrid();
+      measureWeekStrip();
+      measureTimelineGrid();
+    },
+    [measureMonthGrid, measureWeekStrip, measureTimelineGrid],
+  );
 
   const stopAutoScroll = useCallback(() => {
     if (autoScrollTimerRef.current) {
@@ -554,45 +624,82 @@ export function useCalendarState() {
   }, []);
 
   // Drag and Drop checking boundaries (Unified check for dates and hours)
-  const checkHoveredDate = useCallback((x: number, y: number) => {
-    lastDragXRef.current = x;
-    lastDragYRef.current = y;
+  const checkHoveredDate = useCallback(
+    (x: number, y: number) => {
+      lastDragXRef.current = x;
+      lastDragYRef.current = y;
 
-    const currentViewMode = calendarViewModeRef.current;
-    const mBounds = monthGridBoundsRef.current;
-    const wBounds = weekStripBoundsRef.current;
-    const tBounds = timelineGridBoundsRef.current;
-    const cells = calendarCellsRef.current;
-    const strip = weekDaysStripRef.current;
+      const currentViewMode = calendarViewModeRef.current;
+      const mBounds = monthGridBoundsRef.current;
+      const wBounds = weekStripBoundsRef.current;
+      const tBounds = timelineGridBoundsRef.current;
+      const cells = calendarCellsRef.current;
+      const strip = weekDaysStripRef.current;
 
-    // Calculate how much the ScrollView has scrolled since the drag started
-    const scrollDelta = scrollYRef.current - initialScrollYRef.current;
+      // Calculate how much the ScrollView has scrolled since the drag started
+      const scrollDelta = scrollYRef.current - initialScrollYRef.current;
 
-    // 1. Check Date Grid over Month view
-    if (currentViewMode === "month" && mBounds) {
-      const adjustedGy = mBounds.y - scrollDelta;
-      const { x: gx, width: gw, height: gh } = mBounds;
-      if (x >= gx && x <= gx + gw && y >= adjustedGy && y <= adjustedGy + gh) {
-        const localX = x - gx;
-        const localY = y - adjustedGy;
-        const colWidth = gw / 7;
-        const numRows = Math.ceil(cells.length / 7);
-        const rowHeight = gh / numRows;
+      // 1. Check Date Grid over Month view
+      if (currentViewMode === "month" && mBounds) {
+        const adjustedGy = mBounds.y - scrollDelta;
+        const { x: gx, width: gw, height: gh } = mBounds;
+        if (
+          x >= gx &&
+          x <= gx + gw &&
+          y >= adjustedGy &&
+          y <= adjustedGy + gh
+        ) {
+          const localX = x - gx;
+          const localY = y - adjustedGy;
+          const colWidth = gw / 7;
+          const numRows = Math.ceil(cells.length / 7);
+          const rowHeight = gh / numRows;
 
-        const col = Math.floor(localX / colWidth);
-        const row = Math.floor(localY / rowHeight);
-        const idx = row * 7 + col;
+          const col = Math.floor(localX / colWidth);
+          const row = Math.floor(localY / rowHeight);
+          const idx = row * 7 + col;
 
-        if (idx >= 0 && idx < cells.length) {
-          const cell = cells[idx];
-          if (cell.type === "day" && cell.dateString) {
+          if (idx >= 0 && idx < cells.length) {
+            const cell = cells[idx];
+            if (cell.type === "day" && cell.dateString) {
+              if (hoveredHourRef.current !== null) {
+                hoveredHourRef.current = null;
+                setHoveredHour(null);
+              }
+              if (hoveredDateRef.current !== cell.dateString) {
+                hoveredDateRef.current = cell.dateString;
+                setHoveredDate(cell.dateString);
+                Haptics.selectionAsync().catch(() => {});
+              }
+              stopAutoScroll();
+              return;
+            }
+          }
+        }
+      }
+      // 2. Check Week Strip view
+      else if (currentViewMode === "week" && wBounds) {
+        const adjustedWy = wBounds.y - scrollDelta;
+        const { x: wx, width: ww, height: wh } = wBounds;
+        if (
+          x >= wx &&
+          x <= wx + ww &&
+          y >= adjustedWy - 30 &&
+          y <= adjustedWy + wh + 30
+        ) {
+          const localX = x - wx;
+          const cellWidth = ww / 7;
+          const col = Math.floor(localX / cellWidth);
+
+          if (col >= 0 && col < strip.length) {
+            const day = strip[col];
             if (hoveredHourRef.current !== null) {
               hoveredHourRef.current = null;
               setHoveredHour(null);
             }
-            if (hoveredDateRef.current !== cell.dateString) {
-              hoveredDateRef.current = cell.dateString;
-              setHoveredDate(cell.dateString);
+            if (hoveredDateRef.current !== day.dateString) {
+              hoveredDateRef.current = day.dateString;
+              setHoveredDate(day.dateString);
               Haptics.selectionAsync().catch(() => {});
             }
             stopAutoScroll();
@@ -600,270 +707,298 @@ export function useCalendarState() {
           }
         }
       }
-    }
-    // 2. Check Week Strip view
-    else if (currentViewMode === "week" && wBounds) {
-      const adjustedWy = wBounds.y - scrollDelta;
-      const { x: wx, width: ww, height: wh } = wBounds;
-      if (x >= wx && x <= wx + ww && y >= adjustedWy - 30 && y <= adjustedWy + wh + 30) {
-        const localX = x - wx;
-        const cellWidth = ww / 7;
-        const col = Math.floor(localX / cellWidth);
 
-        if (col >= 0 && col < strip.length) {
-          const day = strip[col];
-          if (hoveredHourRef.current !== null) {
-            hoveredHourRef.current = null;
-            setHoveredHour(null);
+      // 3. Check Hourly Timeline Grid
+      let hoveredTimeline = false;
+      if (tBounds) {
+        const adjustedTy = tBounds.y - scrollDelta;
+        const { x: tx, width: tw, height: th } = tBounds;
+        if (
+          x >= tx &&
+          x <= tx + tw &&
+          y >= adjustedTy &&
+          y <= adjustedTy + th
+        ) {
+          hoveredTimeline = true;
+          const localY = y - adjustedTy;
+          const hourRowIndex = Math.floor(localY / 80);
+          const clampedHour = Math.max(0, Math.min(23, hourRowIndex));
+
+          if (hoveredDateRef.current !== null) {
+            hoveredDateRef.current = null;
+            setHoveredDate(null);
           }
-          if (hoveredDateRef.current !== day.dateString) {
-            hoveredDateRef.current = day.dateString;
-            setHoveredDate(day.dateString);
+          if (hoveredHourRef.current !== clampedHour) {
+            hoveredHourRef.current = clampedHour;
+            setHoveredHour(clampedHour);
             Haptics.selectionAsync().catch(() => {});
           }
-          stopAutoScroll();
-          return;
         }
       }
-    }
 
-    // 3. Check Hourly Timeline Grid
-    let hoveredTimeline = false;
-    if (tBounds) {
-      const adjustedTy = tBounds.y - scrollDelta;
-      const { x: tx, width: tw, height: th } = tBounds;
-      if (x >= tx && x <= tx + tw && y >= adjustedTy && y <= adjustedTy + th) {
-        hoveredTimeline = true;
-        const localY = y - adjustedTy;
-        const hourRowIndex = Math.floor(localY / 80);
-        const clampedHour = Math.max(0, Math.min(23, hourRowIndex));
-
+      if (!hoveredTimeline) {
         if (hoveredDateRef.current !== null) {
           hoveredDateRef.current = null;
           setHoveredDate(null);
         }
-        if (hoveredHourRef.current !== clampedHour) {
-          hoveredHourRef.current = clampedHour;
-          setHoveredHour(clampedHour);
-          Haptics.selectionAsync().catch(() => {});
+        if (hoveredHourRef.current !== null) {
+          hoveredHourRef.current = null;
+          setHoveredHour(null);
         }
       }
-    }
 
-    if (!hoveredTimeline) {
-      if (hoveredDateRef.current !== null) {
-        hoveredDateRef.current = null;
-        setHoveredDate(null);
-      }
-      if (hoveredHourRef.current !== null) {
-        hoveredHourRef.current = null;
-        setHoveredHour(null);
-      }
-    }
-
-    // Auto-scroll ScrollView when dragging near top/bottom boundaries
-    if (y < 220) {
-      if (!autoScrollTimerRef.current) {
-        autoScrollTimerRef.current = setInterval(() => {
-          const currentScroll = scrollYRef.current;
-          if (currentScroll > 0) {
-            const newScroll = Math.max(0, currentScroll - 15);
+      // Auto-scroll ScrollView when dragging near top/bottom boundaries
+      if (y < 220) {
+        if (!autoScrollTimerRef.current) {
+          autoScrollTimerRef.current = setInterval(() => {
+            const currentScroll = scrollYRef.current;
+            if (currentScroll > 0) {
+              const newScroll = Math.max(0, currentScroll - 15);
+              scrollRef.current?.scrollTo({ y: newScroll, animated: false });
+              scrollYRef.current = newScroll;
+              checkHoveredDate(lastDragXRef.current, lastDragYRef.current);
+            } else {
+              stopAutoScroll();
+            }
+          }, 30);
+        }
+      } else if (y > SCREEN_HEIGHT - 160) {
+        if (!autoScrollTimerRef.current) {
+          autoScrollTimerRef.current = setInterval(() => {
+            const currentScroll = scrollYRef.current;
+            const newScroll = currentScroll + 15;
             scrollRef.current?.scrollTo({ y: newScroll, animated: false });
             scrollYRef.current = newScroll;
             checkHoveredDate(lastDragXRef.current, lastDragYRef.current);
-          } else {
-            stopAutoScroll();
-          }
-        }, 30);
+          }, 30);
+        }
+      } else {
+        stopAutoScroll();
       }
-    } else if (y > SCREEN_HEIGHT - 160) {
-      if (!autoScrollTimerRef.current) {
-        autoScrollTimerRef.current = setInterval(() => {
-          const currentScroll = scrollYRef.current;
-          const newScroll = currentScroll + 15;
-          scrollRef.current?.scrollTo({ y: newScroll, animated: false });
-          scrollYRef.current = newScroll;
-          checkHoveredDate(lastDragXRef.current, lastDragYRef.current);
-        }, 30);
-      }
-    } else {
-      stopAutoScroll();
-    }
-  }, [stopAutoScroll]);
+    },
+    [stopAutoScroll],
+  );
 
   // Reschedule Persistence on Drop
-  const handleDrop = useCallback(async (x?: number, y?: number) => {
-    stopAutoScroll();
-    if (x !== undefined && y !== undefined) {
-      checkHoveredDate(x, y);
-    }
+  const handleDrop = useCallback(
+    async (x?: number, y?: number) => {
+      stopAutoScroll();
+      if (x !== undefined && y !== undefined) {
+        checkHoveredDate(x, y);
+      }
 
-    const dragItem = activeDragItemRef.current;
-    const hHour = hoveredHourRef.current;
-    const hDate = hoveredDateRef.current;
-    const selDate = selectedDateRef.current || selectedDate || getDateKey();
+      const dragItem = activeDragItemRef.current;
+      const hHour = hoveredHourRef.current;
+      const hDate = hoveredDateRef.current;
+      const selDate = selectedDateRef.current || selectedDate || getDateKey();
 
-    if (dragItem) {
-      // 1. Reschedule Hour (on selectedDate)
-      if (hHour !== null) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        try {
-          const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
-          if (dragItem.type === "task") {
-            const taskMap = await TaskRepository.getTasks(activeWorkspace);
-            const todo = taskMap[dragItem.id] as any;
-            if (todo) {
-              await cancelReminderIds(todo.notificationIds || []);
+      if (dragItem) {
+        // 1. Reschedule Hour (on selectedDate)
+        if (hHour !== null) {
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success,
+          ).catch(() => {});
+          try {
+            const uiState = await UiStateRepository.getUiState();
+            const activeWorkspace = uiState.activeWorkspaceId;
+            if (dragItem.type === "task") {
+              const taskMap = await TaskRepository.getTasks(activeWorkspace);
+              const todo = taskMap[dragItem.id] as any;
+              if (todo) {
+                await cancelReminderIds(todo.notificationIds || []);
 
-              // Re-set alarm time using current selectedDate + hoveredHour
-              const [year, monthVal, dayVal] = selDate.split("-").map(Number);
-              const newAlarmDate = new Date(year, monthVal - 1, dayVal, hHour, 0, 0, 0);
+                // Re-set alarm time using current selectedDate + hoveredHour
+                const [year, monthVal, dayVal] = selDate.split("-").map(Number);
+                const newAlarmDate = new Date(
+                  year,
+                  monthVal - 1,
+                  dayVal,
+                  hHour,
+                  0,
+                  0,
+                  0,
+                );
 
-              const todoToReschedule = {
-                ...todo,
-                reminderHour: hHour,
-                reminderMinute: 0,
-                alarmTime: newAlarmDate.getTime(),
-                scheduledDate: selDate,
-              };
+                const todoToReschedule = {
+                  ...todo,
+                  reminderHour: hHour,
+                  reminderMinute: 0,
+                  alarmTime: newAlarmDate.getTime(),
+                  scheduledDate: selDate,
+                };
 
-              const rescheduled = await rescheduleTodoReminders(todoToReschedule);
-              await TaskRepository.saveTask({
-                ...todo,
-                dueDate: selDate,
-                updatedAt: Date.now(),
-                notificationIds: rescheduled.notificationIds,
-                alarmId: rescheduled.alarmId,
-                reminderHour: hHour,
-                reminderMinute: 0,
-                alarmTime: newAlarmDate.getTime(),
-              } as any);
+                const rescheduled =
+                  await rescheduleTodoReminders(todoToReschedule);
+                await TaskRepository.saveTask({
+                  ...todo,
+                  dueDate: selDate,
+                  updatedAt: Date.now(),
+                  notificationIds: rescheduled.notificationIds,
+                  alarmId: rescheduled.alarmId,
+                  reminderHour: hHour,
+                  reminderMinute: 0,
+                  alarmTime: newAlarmDate.getTime(),
+                } as any);
+              }
+            } else if (dragItem.type === "habit") {
+              const habitMap = await HabitRepository.getHabits(activeWorkspace);
+              const habit = habitMap[dragItem.id] as any;
+              if (habit) {
+                await cancelReminderIds(habit.notificationIds || []);
+                const rescheduled = await rescheduleHabitReminders({
+                  ...habit,
+                  reminderHour: hHour,
+                  reminderMinute: 0,
+                });
+                await HabitRepository.saveHabit({
+                  ...habit,
+                  reminderHour: hHour,
+                  reminderMinute: 0,
+                  updatedAt: Date.now(),
+                  notificationIds: rescheduled.notificationIds,
+                  completedToday: habit.completedToday || false,
+                } as any);
+              }
             }
-          } else if (dragItem.type === "habit") {
-            const habitMap = await HabitRepository.getHabits(activeWorkspace);
-            const habit = habitMap[dragItem.id] as any;
-            if (habit) {
-              await cancelReminderIds(habit.notificationIds || []);
-              const rescheduled = await rescheduleHabitReminders({
-                ...habit,
-                reminderHour: hHour,
-                reminderMinute: 0,
-              });
-              await HabitRepository.saveHabit({
-                ...habit,
-                reminderHour: hHour,
-                reminderMinute: 0,
-                updatedAt: Date.now(),
-                notificationIds: rescheduled.notificationIds,
-                completedToday: habit.completedToday || false,
-              } as any);
+
+            await loadDataFromStorage();
+            void loadMonth(month.year, month.month);
+
+            if (dragItem.type === "task") {
+              emitStateChange("tasks_changed");
+            } else if (dragItem.type === "habit") {
+              emitStateChange("habits_changed");
             }
+          } catch (err) {
+            console.warn(
+              "Failed to update item scheduled time after drag drop",
+              err,
+            );
           }
+        }
+        // 2. Reschedule Date (keeps hour settings or defaults)
+        else if (hDate) {
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success,
+          ).catch(() => {});
+          try {
+            const uiState = await UiStateRepository.getUiState();
+            const activeWorkspace = uiState.activeWorkspaceId;
+            if (dragItem.type === "task") {
+              const taskMap = await TaskRepository.getTasks(activeWorkspace);
+              const todo = taskMap[dragItem.id] as any;
+              if (todo) {
+                // Cancel old reminders
+                await cancelReminderIds(todo.notificationIds || []);
 
-          await loadDataFromStorage();
-          void loadMonth(month.year, month.month);
+                // Reschedule alarm time if it exists
+                let newAlarmTime = todo.alarmTime;
+                if (todo.alarmTime) {
+                  const alarmDate = new Date(todo.alarmTime);
+                  const [hours, minutes] = [
+                    alarmDate.getHours(),
+                    alarmDate.getMinutes(),
+                  ];
+                  const [year, monthVal, dayVal] = hDate.split("-").map(Number);
+                  const newAlarmDate = new Date(
+                    year,
+                    monthVal - 1,
+                    dayVal,
+                    hours,
+                    minutes,
+                    0,
+                    0,
+                  );
+                  newAlarmTime = newAlarmDate.getTime();
+                }
 
-          if (dragItem.type === "task") {
-            emitStateChange("tasks_changed");
-          } else if (dragItem.type === "habit") {
-            emitStateChange("habits_changed");
+                const todoToReschedule = {
+                  ...todo,
+                  scheduledDate: hDate,
+                  alarmTime: newAlarmTime,
+                };
+
+                const rescheduled =
+                  await rescheduleTodoReminders(todoToReschedule);
+                await TaskRepository.saveTask({
+                  ...todo,
+                  dueDate: hDate,
+                  alarmTime: newAlarmTime,
+                  updatedAt: Date.now(),
+                  notificationIds: rescheduled.notificationIds,
+                  alarmId: rescheduled.alarmId,
+                } as any);
+              }
+            } else if (dragItem.type === "habit") {
+              const dateParts = hDate.split("-").map(Number);
+              const selDateObj = new Date(
+                dateParts[0],
+                dateParts[1] - 1,
+                dateParts[2],
+              );
+              const dayOfWeek = selDateObj.getDay();
+
+              const habitMap = await HabitRepository.getHabits(activeWorkspace);
+              const habit = habitMap[dragItem.id] as any;
+              if (habit) {
+                const reminderDays = habit.reminderDays || [];
+                let updatedDays = reminderDays;
+                if (!reminderDays.includes(dayOfWeek)) {
+                  updatedDays = [...reminderDays, dayOfWeek];
+                }
+
+                // Cancel old reminders
+                await cancelReminderIds(habit.notificationIds || []);
+
+                // Reschedule
+                const rescheduled = await rescheduleHabitReminders({
+                  ...habit,
+                  reminderDays: updatedDays,
+                });
+                await HabitRepository.saveHabit({
+                  ...habit,
+                  reminderDays: updatedDays,
+                  updatedAt: Date.now(),
+                  notificationIds: rescheduled.notificationIds,
+                  completedToday: habit.completedToday || false,
+                } as any);
+              }
+            }
+
+            setSelectedDate(hDate);
+            await loadDataFromStorage();
+            void loadMonth(month.year, month.month);
+
+            if (dragItem.type === "task") {
+              emitStateChange("tasks_changed");
+            } else if (dragItem.type === "habit") {
+              emitStateChange("habits_changed");
+            }
+          } catch (err) {
+            console.warn(
+              "Failed to update item scheduled date after drag drop",
+              err,
+            );
           }
-        } catch (err) {
-          console.warn("Failed to update item scheduled time after drag drop", err);
         }
       }
-      // 2. Reschedule Date (keeps hour settings or defaults)
-      else if (hDate) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        try {
-          const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
-          if (dragItem.type === "task") {
-            const taskMap = await TaskRepository.getTasks(activeWorkspace);
-            const todo = taskMap[dragItem.id] as any;
-            if (todo) {
-              // Cancel old reminders
-              await cancelReminderIds(todo.notificationIds || []);
 
-              // Reschedule alarm time if it exists
-              let newAlarmTime = todo.alarmTime;
-              if (todo.alarmTime) {
-                const alarmDate = new Date(todo.alarmTime);
-                const [hours, minutes] = [alarmDate.getHours(), alarmDate.getMinutes()];
-                const [year, monthVal, dayVal] = hDate.split("-").map(Number);
-                const newAlarmDate = new Date(year, monthVal - 1, dayVal, hours, minutes, 0, 0);
-                newAlarmTime = newAlarmDate.getTime();
-              }
-
-              const todoToReschedule = {
-                ...todo,
-                scheduledDate: hDate,
-                alarmTime: newAlarmTime,
-              };
-
-              const rescheduled = await rescheduleTodoReminders(todoToReschedule);
-              await TaskRepository.saveTask({
-                ...todo,
-                dueDate: hDate,
-                alarmTime: newAlarmTime,
-                updatedAt: Date.now(),
-                notificationIds: rescheduled.notificationIds,
-                alarmId: rescheduled.alarmId,
-              } as any);
-            }
-          } else if (dragItem.type === "habit") {
-            const dateParts = hDate.split("-").map(Number);
-            const selDateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
-            const dayOfWeek = selDateObj.getDay();
-
-            const habitMap = await HabitRepository.getHabits(activeWorkspace);
-            const habit = habitMap[dragItem.id] as any;
-            if (habit) {
-              const reminderDays = habit.reminderDays || [];
-              let updatedDays = reminderDays;
-              if (!reminderDays.includes(dayOfWeek)) {
-                updatedDays = [...reminderDays, dayOfWeek];
-              }
-
-              // Cancel old reminders
-              await cancelReminderIds(habit.notificationIds || []);
-
-              // Reschedule
-              const rescheduled = await rescheduleHabitReminders({
-                ...habit,
-                reminderDays: updatedDays,
-              });
-              await HabitRepository.saveHabit({
-                ...habit,
-                reminderDays: updatedDays,
-                updatedAt: Date.now(),
-                notificationIds: rescheduled.notificationIds,
-                completedToday: habit.completedToday || false,
-              } as any);
-            }
-          }
-
-          setSelectedDate(hDate);
-          await loadDataFromStorage();
-          void loadMonth(month.year, month.month);
-
-          if (dragItem.type === "task") {
-            emitStateChange("tasks_changed");
-          } else if (dragItem.type === "habit") {
-            emitStateChange("habits_changed");
-          }
-        } catch (err) {
-          console.warn("Failed to update item scheduled date after drag drop", err);
-        }
-      }
-    }
-
-    setIsDragging(false);
-    setActiveDragItem(null);
-    setHoveredDate(null);
-    setHoveredHour(null);
-    hoveredDateRef.current = null;
-    hoveredHourRef.current = null;
-  }, [selectedDate, month.year, month.month, loadDataFromStorage, loadMonth, stopAutoScroll]);
+      setIsDragging(false);
+      setActiveDragItem(null);
+      setHoveredDate(null);
+      setHoveredHour(null);
+      hoveredDateRef.current = null;
+      hoveredHourRef.current = null;
+    },
+    [
+      selectedDate,
+      month.year,
+      month.month,
+      loadDataFromStorage,
+      loadMonth,
+      stopAutoScroll,
+    ],
+  );
 
   const handleCancelDrag = useCallback(() => {
     stopAutoScroll();

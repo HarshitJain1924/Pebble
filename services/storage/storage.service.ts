@@ -1,12 +1,15 @@
-import { type Checklist, Resource, type RecycleBinItem } from "@/shared/types/domain.types";
 import {
-    TaskRepository,
-    HabitRepository,
-    ChecklistRepository,
-    WorkspaceRepository,
-    RecycleBinRepository,
-    ResourceRepository,
+  ChecklistRepository,
+  HabitRepository,
+  RecycleBinRepository,
+  ResourceRepository,
+  TaskRepository,
+  WorkspaceRepository,
 } from "@/repositories";
+import {
+  type Checklist,
+  type RecycleBinItem,
+} from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const TODOS_STORAGE_KEY = "pebble:tasks";
@@ -32,8 +35,8 @@ export async function getRecycleBinItems(): Promise<RecycleBinItem[]> {
       let restoredType: any = "task";
       if (item.itemType === "habit") restoredType = "habit";
       else if (item.itemType === "checklist") restoredType = "checklist";
-      else if (item.itemType === "resource") restoredType = "collection_item";
-      else if (item.itemType === "folder") restoredType = "workspace";
+      else if (item.itemType === "resource") restoredType = "resource";
+      else if (item.itemType === "workspace") restoredType = "workspace";
 
       let parsedData = {};
       try {
@@ -45,7 +48,7 @@ export async function getRecycleBinItems(): Promise<RecycleBinItem[]> {
         title: item.title,
         deletedAt: item.deletedAt,
         itemType: restoredType,
-        originalLocation: item.originalFolderId,
+        originalLocation: item.originalLocation,
         data: parsedData,
       };
     });
@@ -63,20 +66,15 @@ export async function saveRecycleBinItems(
       let itemType: any = "task";
       if (item.itemType === "habit") itemType = "habit";
       else if (item.itemType === "checklist") itemType = "checklist";
-      else if (
-        item.itemType === "collection_item" ||
-        item.itemType === "vault" ||
-        item.itemType === "collection"
-      )
-        itemType = "resource";
-      else if (item.itemType === "workspace") itemType = "folder";
+      else if (item.itemType === "resource") itemType = "resource";
+      else if (item.itemType === "workspace") itemType = "workspace";
 
       return {
         id: item.id,
         title: item.title,
         deletedAt: item.deletedAt,
         itemType,
-        originalFolderId: item.originalLocation,
+        originalLocation: item.originalLocation,
         snapshot: JSON.stringify(item.data || {}),
       };
     });
@@ -91,9 +89,7 @@ export async function addToRecycleBin(
     | "task"
     | "habit"
     | "workspace"
-    | "vault"
-    | "collection"
-    | "collection_item"
+    | "resource"
     | "checklist"
     | "checklist_item",
   data: any,
@@ -103,13 +99,8 @@ export async function addToRecycleBin(
     let type: any = "task";
     if (itemType === "habit") type = "habit";
     else if (itemType === "checklist") type = "checklist";
-    else if (
-      itemType === "collection_item" ||
-      itemType === "vault" ||
-      itemType === "collection"
-    )
-      type = "resource";
-    else if (itemType === "workspace") type = "folder";
+    else if (itemType === "resource") type = "resource";
+    else if (itemType === "workspace") type = "workspace";
 
     const payload = data;
 
@@ -175,16 +166,15 @@ export async function getRecycledIds(): Promise<RecycledIds> {
   return { workspaceIds, taskIds, habitIds, titles };
 }
 
-
-
-
 export async function getChecklists(): Promise<Record<string, Checklist[]>> {
   try {
-    const checklistsRaw = await AsyncStorage.getItem(CHECKLISTS_STORAGE_KEY);
-    if (checklistsRaw) {
-      return JSON.parse(checklistsRaw) || {};
+    const workspaces = await WorkspaceRepository.getWorkspaces();
+    const result: Record<string, Checklist[]> = {};
+    for (const ws of workspaces) {
+      const chkMap = await ChecklistRepository.getChecklists(ws.id);
+      result[ws.id] = Object.values(chkMap);
     }
-    return {};
+    return result;
   } catch (e) {
     console.warn("Failed to read checklists", e);
     return {};
@@ -195,10 +185,11 @@ export async function saveChecklists(
   checklists: Record<string, Checklist[]>,
 ): Promise<void> {
   try {
-    await AsyncStorage.setItem(
-      CHECKLISTS_STORAGE_KEY,
-      JSON.stringify(checklists),
-    );
+    for (const [wsId, chkList] of Object.entries(checklists)) {
+      for (const chk of chkList) {
+        await ChecklistRepository.saveChecklist({ ...chk, workspaceId: wsId });
+      }
+    }
   } catch (e) {
     console.warn("Failed to save checklists", e);
   }
@@ -286,9 +277,9 @@ export async function restoreRecycleBinItems(
 
   let tasksRestored = false;
   let habitsRestored = false;
-  let foldersRestored = false;
+  let workspacesRestored = false;
   let checklistsRestored = false;
-  let vaultRestored = false;
+  let resourcesRestored = false;
 
   for (const item of itemsToRestore) {
     if (item.itemType === "task") {
@@ -300,9 +291,9 @@ export async function restoreRecycleBinItems(
       await HabitRepository.saveHabit(rescheduled);
       habitsRestored = true;
     } else if (item.itemType === "workspace") {
-      // Restore list/folder metadata
+      // Restore workspace metadata
       await WorkspaceRepository.saveWorkspace(item.data.list);
-      foldersRestored = true;
+      workspacesRestored = true;
 
       // Restore child tasks & habits
       if (item.data.todos) {
@@ -319,13 +310,9 @@ export async function restoreRecycleBinItems(
         }
         habitsRestored = true;
       }
-    } else if (
-      item.itemType === "collection_item" ||
-      item.itemType === "vault" ||
-      item.itemType === "resource"
-    ) {
+    } else if (item.itemType === "resource") {
       await ResourceRepository.saveResource(item.data);
-      vaultRestored = true;
+      resourcesRestored = true;
     } else if (item.itemType === "checklist") {
       await ChecklistRepository.saveChecklist(item.data);
       checklistsRestored = true;
@@ -334,8 +321,8 @@ export async function restoreRecycleBinItems(
 
   if (tasksRestored) emitStateChange("tasks_changed");
   if (habitsRestored) emitStateChange("habits_changed");
-  if (foldersRestored) emitStateChange("workspace_mode_changed");
-  if (vaultRestored) emitStateChange("resources_changed");
+  if (workspacesRestored) emitStateChange("workspace_mode_changed");
+  if (resourcesRestored) emitStateChange("resources_changed");
   if (checklistsRestored) emitStateChange("checklists_changed");
 
   const binItems = await getRecycleBinItems();
@@ -343,4 +330,3 @@ export async function restoreRecycleBinItems(
   const remaining = binItems.filter((i) => !restoreIds.has(i.id));
   await saveRecycleBinItems(remaining);
 }
-

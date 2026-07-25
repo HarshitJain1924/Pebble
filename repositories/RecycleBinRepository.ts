@@ -2,9 +2,10 @@
  * RecycleBinRepository.ts
  * ───────────────────────────
  * Recycle Bin persistence with 30-day auto-cleanup.
+ * Guarantees: no duplicate entries for the same entity ID.
  */
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { type RecycleBinItem } from "@/shared/types/repository.types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class RecycleBinRepository {
   private static readonly RECYCLE_BIN_KEY = "pebble:core:recycle_bin";
@@ -31,19 +32,24 @@ export class RecycleBinRepository {
   static async addToRecycleBin(
     itemType: RecycleBinItem["itemType"],
     item: any,
-    originalFolderId: string,
+    originalLocation: string,
   ): Promise<void> {
     try {
       const items = await this.getRecycleBinItems();
+      const entityId = item.id || item.list?.id || String(Date.now());
+
+      // Remove any existing entry for the same entity ID to prevent duplicates
+      const filtered = items.filter((existing) => existing.id !== entityId);
+
       const newItem: RecycleBinItem = {
-        id: item.id || item.list?.id || String(Date.now()),
+        id: entityId,
         title: item.title || item.name || item.list?.name || "Untitled",
         deletedAt: Date.now(),
         itemType,
-        originalFolderId,
+        originalLocation,
         snapshot: JSON.stringify(item),
       };
-      await this.saveRecycleBinItems([newItem, ...items]);
+      await this.saveRecycleBinItems([newItem, ...filtered]);
     } catch (e) {
       console.warn("Failed to add item to recycle bin", e);
     }
@@ -63,14 +69,18 @@ export class RecycleBinRepository {
           if (item.snapshot) {
             try {
               const parsed = JSON.parse(item.snapshot);
-              if (parsed.notificationIds && Array.isArray(parsed.notificationIds)) {
+              if (
+                parsed.notificationIds &&
+                Array.isArray(parsed.notificationIds)
+              ) {
                 notificationIdsToCancel.push(...parsed.notificationIds);
               }
             } catch {}
           }
         }
         if (notificationIdsToCancel.length > 0) {
-          const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+          const { cancelReminderIds } =
+            await import("@/services/scheduling/reminders.service");
           await cancelReminderIds(notificationIdsToCancel);
         }
       }

@@ -1,8 +1,7 @@
 import { useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
-import { ResourceRepository } from "@/repositories";
-import { saveChecklists } from "@/services/storage/storage.service";
+import { ResourceRepository, ChecklistRepository } from "@/repositories";
 import { emitStateChange } from "@/services/events/state-events";
 
 export function useResourceLinkState(
@@ -59,9 +58,9 @@ export function useResourceLinkState(
       setHabits(nextHabits);
       await persistHabits(nextHabits);
     } else if (itemType === "checklist") {
+      const wsId = openedFolderId || "default";
       setChecklists((current) => {
         const next = { ...current };
-        const wsId = openedFolderId || "default";
         if (next[wsId]) {
           next[wsId] = next[wsId].map((chk) => {
             if (chk.id === itemId) {
@@ -69,12 +68,13 @@ export function useResourceLinkState(
               const updated = linked.includes(resourceId)
                 ? linked.filter((id: string) => id !== resourceId)
                 : [...linked, resourceId];
-              return { ...chk, linkedResourceIds: updated, linkedCollectionIds: updated };
+              const updatedChk = { ...chk, linkedResourceIds: updated, linkedCollectionIds: updated, workspaceId: wsId };
+              void ChecklistRepository.saveChecklist(updatedChk);
+              return updatedChk;
             }
             return chk;
           });
         }
-        saveChecklists(next).catch(() => {});
         return next;
       });
     }

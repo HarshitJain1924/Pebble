@@ -3,8 +3,8 @@
  * ────────────────────────
  * Workspace persistence — CRUD for Workspaces.
  */
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { type Workspace } from "@/shared/types/domain.types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const WORKSPACES_KEY = "pebble:v1:workspaces";
 const LEGACY_WORKSPACES_KEY = "pebble:core:folders";
@@ -18,7 +18,9 @@ export class WorkspaceRepository {
       }
       if (!raw) return [];
       const workspaces: Workspace[] = JSON.parse(raw);
-      return workspaces.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      return workspaces.sort(
+        (a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0),
+      );
     } catch (e) {
       console.warn("Failed to get workspaces", e);
       return [];

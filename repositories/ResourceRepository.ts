@@ -1,25 +1,31 @@
 /**
  * ResourceRepository.ts
  * ────────────────────────
- * Resource (notes, ideas, links, files) persistence — partitioned by folderId.
+ * Resource (notes, ideas, links, files) persistence — partitioned by workspaceId.
  */
+import {
+  DEFAULT_WORKSPACE_ID,
+  type Resource,
+} from "@/shared/types/repository.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DEFAULT_FOLDER_ID, type Resource } from "@/shared/types/repository.types";
 
 export class ResourceRepository {
-  private static getResourcesKey(folderId: string) {
-    return `pebble:v1:resources:${folderId}`;
+  private static getResourcesKey(workspaceId: string) {
+    return `pebble:v1:resources:${workspaceId}`;
   }
 
-  private static getLegacyResourcesKey(folderId: string) {
-    return `pebble:core:resources:${folderId}`;
+  private static getLegacyResourcesKey(workspaceId: string) {
+    return `pebble:core:resources:${workspaceId}`;
   }
 
-  static async getResource(id: string, folderId: string): Promise<Resource | null> {
-    const key = this.getResourcesKey(folderId);
+  static async getResource(
+    id: string,
+    workspaceId: string,
+  ): Promise<Resource | null> {
+    const key = this.getResourcesKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
     if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyResourcesKey(folderId));
+      raw = await AsyncStorage.getItem(this.getLegacyResourcesKey(workspaceId));
     }
     if (!raw) return null;
     const records: Record<string, Resource> = JSON.parse(raw);
@@ -27,18 +33,20 @@ export class ResourceRepository {
     if (resource) {
       return {
         ...resource,
-        workspaceId: resource.folderId || folderId,
+        workspaceId: resource.workspaceId || workspaceId,
         payload: resource.body || resource.payload || {},
       } as any;
     }
     return null;
   }
 
-  static async getResources(folderId: string): Promise<Record<string, Resource>> {
-    const key = this.getResourcesKey(folderId);
+  static async getResources(
+    workspaceId: string,
+  ): Promise<Record<string, Resource>> {
+    const key = this.getResourcesKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
     if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyResourcesKey(folderId));
+      raw = await AsyncStorage.getItem(this.getLegacyResourcesKey(workspaceId));
     }
     if (!raw) return {};
     const parsed = JSON.parse(raw);
@@ -46,7 +54,7 @@ export class ResourceRepository {
     Object.entries(parsed).forEach(([id, resource]: [string, any]) => {
       records[id] = {
         ...resource,
-        workspaceId: resource.folderId || folderId,
+        workspaceId: resource.workspaceId || workspaceId,
         payload: resource.body || resource.payload || {},
         body: resource.body || resource.payload || {},
       };
@@ -55,15 +63,15 @@ export class ResourceRepository {
   }
 
   static async saveResource(resource: any): Promise<void> {
-    const folderId = resource.folderId || resource.workspaceId || DEFAULT_FOLDER_ID;
-    const key = this.getResourcesKey(folderId);
-    const records = await this.getResources(folderId);
+    const workspaceId = resource.workspaceId || DEFAULT_WORKSPACE_ID;
+    const key = this.getResourcesKey(workspaceId);
+    const records = await this.getResources(workspaceId);
 
     const body = resource.body || resource.payload || {};
 
     const cleanResource: Resource = {
       id: resource.id,
-      folderId,
+      workspaceId,
       title: resource.title,
       resourceType: resource.resourceType,
       createdAt: resource.createdAt || Date.now(),
@@ -78,9 +86,9 @@ export class ResourceRepository {
     await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
-  static async deleteResource(id: string, folderId: string): Promise<void> {
-    const key = this.getResourcesKey(folderId);
-    const records = await this.getResources(folderId);
+  static async deleteResource(id: string, workspaceId: string): Promise<void> {
+    const key = this.getResourcesKey(workspaceId);
+    const records = await this.getResources(workspaceId);
     if (records[id]) {
       delete records[id];
       await AsyncStorage.setItem(key, JSON.stringify(records));

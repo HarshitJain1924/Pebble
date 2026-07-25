@@ -1,5 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
 
 export interface CognitiveFlowStats {
   morningPct: number;
@@ -15,42 +13,39 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
   let evening = 0;
 
   try {
-    const activeWorkspace = (await AsyncStorage.getItem("pebble:v1:active_workspace")) || (await AsyncStorage.getItem("pebble:core:active_workspace")) || "default";
+    const { UiStateRepository, TaskRepository, HabitRepository } =
+      await import("@/repositories");
+    const activeWorkspace =
+      (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
 
     // Load Tasks
-    const rawTodos = (await AsyncStorage.getItem(`pebble:v1:tasks:${activeWorkspace}`)) || (await AsyncStorage.getItem(`pebble:core:tasks:${activeWorkspace}`));
-    if (rawTodos) {
-      const parsed = JSON.parse(rawTodos);
-      const allTodos = Object.values(parsed || {}).filter((t: any) => !t.archived);
-      allTodos.forEach((todo: any) => {
-        if (todo.alarmTime) {
-          const hour = new Date(todo.alarmTime).getHours();
-          if (hour >= 5 && hour < 12) morning++;
-          else if (hour >= 12 && hour < 17) afternoon++;
-          else evening++;
-        } else if (todo.reminderHour !== undefined) {
-          const hour = todo.reminderHour;
-          if (hour >= 5 && hour < 12) morning++;
-          else if (hour >= 12 && hour < 17) afternoon++;
-          else evening++;
-        }
-      });
-    }
+    const tasksMap = await TaskRepository.getTasks(activeWorkspace);
+    const allTodos = Object.values(tasksMap).filter((t: any) => !t.archived);
+    allTodos.forEach((todo: any) => {
+      if (todo.alarmTime) {
+        const hour = new Date(todo.alarmTime).getHours();
+        if (hour >= 5 && hour < 12) morning++;
+        else if (hour >= 12 && hour < 17) afternoon++;
+        else evening++;
+      } else if (todo.reminderHour !== undefined) {
+        const hour = todo.reminderHour;
+        if (hour >= 5 && hour < 12) morning++;
+        else if (hour >= 12 && hour < 17) afternoon++;
+        else evening++;
+      }
+    });
 
     // Load Habits
-    const rawHabits = (await AsyncStorage.getItem(`pebble:v1:habits:${activeWorkspace}`)) || (await AsyncStorage.getItem(`pebble:core:habits:${activeWorkspace}`));
-    if (rawHabits) {
-      const parsed = JSON.parse(rawHabits);
-      const allHabits = Object.values(parsed || {}).filter((h: any) => !h.archived);
-      allHabits.forEach((habit: any) => {
-        if (habit.reminderHour !== undefined) {
-          const hour = habit.reminderHour;
-          if (hour >= 5 && hour < 12) morning++;
-          else if (hour >= 12 && hour < 17) afternoon++;
-          else evening++;
-        }
-      });
-    }
+    const habitsMap = await HabitRepository.getHabits(activeWorkspace);
+    const allHabits = Object.values(habitsMap).filter((h: any) => !h.archived);
+    allHabits.forEach((habit: any) => {
+      if (habit.reminderHour !== undefined) {
+        const hour = habit.reminderHour;
+        if (hour >= 5 && hour < 12) morning++;
+        else if (hour >= 12 && hour < 17) afternoon++;
+        else evening++;
+      }
+    });
   } catch (e) {
     console.warn("Failed to calculate cognitive flow stats:", e);
   }

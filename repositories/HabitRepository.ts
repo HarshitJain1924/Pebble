@@ -1,64 +1,75 @@
 /**
  * HabitRepository.ts
  * ────────────────────────
- * Habit persistence — partitioned by workspaceId / folderId.
+ * Habit persistence — partitioned by workspaceId.
  */
+import {
+  DEFAULT_WORKSPACE_ID,
+  type Habit,
+} from "@/shared/types/repository.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DEFAULT_FOLDER_ID, type Habit } from "@/shared/types/repository.types";
 
 export class HabitRepository {
-  private static getHabitsKey(folderId: string) {
-    return `pebble:v1:habits:${folderId}`;
+  private static getHabitsKey(workspaceId: string) {
+    return `pebble:v1:habits:${workspaceId}`;
   }
 
-  private static getLegacyHabitsKey(folderId: string) {
-    return `pebble:core:habits:${folderId}`;
+  private static getLegacyHabitsKey(workspaceId: string) {
+    return `pebble:core:habits:${workspaceId}`;
   }
 
-  static async getHabit(id: string, folderId: string): Promise<Habit | null> {
-    const key = this.getHabitsKey(folderId);
+  static async getHabit(
+    id: string,
+    workspaceId: string,
+  ): Promise<Habit | null> {
+    const key = this.getHabitsKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
     if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyHabitsKey(folderId));
+      raw = await AsyncStorage.getItem(this.getLegacyHabitsKey(workspaceId));
     }
     if (!raw) return null;
     const records: Record<string, Habit> = JSON.parse(raw);
     const habit = records[id] || null;
     if (habit) {
+      const resolvedWorkspaceId = habit.workspaceId || (habit as any).folderId || workspaceId;
       return {
         ...habit,
-        workspaceId: habit.folderId || folderId,
+        workspaceId: resolvedWorkspaceId,
+        folderId: resolvedWorkspaceId,
       } as any;
     }
     return null;
   }
 
-  static async getHabits(folderId: string): Promise<Record<string, Habit>> {
-    const key = this.getHabitsKey(folderId);
+  static async getHabits(workspaceId: string): Promise<Record<string, Habit>> {
+    const key = this.getHabitsKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
     if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyHabitsKey(folderId));
+      raw = await AsyncStorage.getItem(this.getLegacyHabitsKey(workspaceId));
     }
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     const records: Record<string, any> = {};
     Object.entries(parsed).forEach(([id, habit]: [string, any]) => {
+      const resolvedWorkspaceId = habit.workspaceId || habit.folderId || workspaceId;
       records[id] = {
         ...habit,
-        workspaceId: habit.folderId || folderId,
+        workspaceId: resolvedWorkspaceId,
+        folderId: resolvedWorkspaceId,
       };
     });
     return records;
   }
 
   static async saveHabit(habit: any): Promise<void> {
-    const folderId = habit.folderId || habit.workspaceId || DEFAULT_FOLDER_ID;
-    const key = this.getHabitsKey(folderId);
-    const records = await this.getHabits(folderId);
+    const workspaceId = habit.workspaceId || habit.folderId || DEFAULT_WORKSPACE_ID;
+    const key = this.getHabitsKey(workspaceId);
+    const records = await this.getHabits(workspaceId);
 
     const cleanHabit: Habit = {
       id: habit.id,
-      folderId,
+      workspaceId,
+      folderId: workspaceId,
       title: habit.title,
       streak: habit.streak || 0,
       bestStreak: habit.bestStreak || 0,
@@ -81,9 +92,9 @@ export class HabitRepository {
     await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
-  static async deleteHabit(id: string, folderId: string): Promise<void> {
-    const key = this.getHabitsKey(folderId);
-    const records = await this.getHabits(folderId);
+  static async deleteHabit(id: string, workspaceId: string): Promise<void> {
+    const key = this.getHabitsKey(workspaceId);
+    const records = await this.getHabits(workspaceId);
     if (records[id]) {
       delete records[id];
       await AsyncStorage.setItem(key, JSON.stringify(records));

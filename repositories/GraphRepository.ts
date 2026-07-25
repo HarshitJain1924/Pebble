@@ -3,8 +3,13 @@
  * ─────────────────────
  * Relationship graph, focus sessions, and system event log persistence.
  */
+import {
+  DEFAULT_WORKSPACE_ID,
+  type FocusSession,
+  type Relationship,
+  type SystemEventLog,
+} from "@/shared/types/repository.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DEFAULT_FOLDER_ID, type Relationship, type FocusSession, type SystemEventLog } from "@/shared/types/repository.types";
 
 export interface RelationshipIndex {
   sourceIndex: Record<string, string[]>;
@@ -61,7 +66,10 @@ export class GraphRepository {
     await this.ensureLoaded();
     this.relationships[rel.id] = rel;
     this.rebuildIndex();
-    await AsyncStorage.setItem(this.RELATIONSHIPS_KEY, JSON.stringify(this.relationships));
+    await AsyncStorage.setItem(
+      this.RELATIONSHIPS_KEY,
+      JSON.stringify(this.relationships),
+    );
   }
 
   static async deleteRelationship(id: string): Promise<void> {
@@ -69,7 +77,10 @@ export class GraphRepository {
     if (this.relationships[id]) {
       delete this.relationships[id];
       this.rebuildIndex();
-      await AsyncStorage.setItem(this.RELATIONSHIPS_KEY, JSON.stringify(this.relationships));
+      await AsyncStorage.setItem(
+        this.RELATIONSHIPS_KEY,
+        JSON.stringify(this.relationships),
+      );
     }
   }
 
@@ -98,31 +109,32 @@ export class GraphRepository {
     const raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
     const sessions: FocusSession[] = raw ? JSON.parse(raw) : [];
 
-    const folderId = session.folderId || session.workspaceId || DEFAULT_FOLDER_ID;
-    const target = session.target || session.linkedItem || { id: "", type: "task" };
+    const workspaceId = session.workspaceId || DEFAULT_WORKSPACE_ID;
+    const target = session.target ||
+      session.linkedItem || { id: "", type: "task" };
 
     const cleanSession: FocusSession = {
       id: session.id,
-      folderId,
+      workspaceId,
       startedAt: session.startedAt,
       endedAt: session.endedAt,
       durationSeconds: session.durationSeconds,
       target,
-      workspaceId: folderId,
       linkedItem: target,
     } as any;
 
     sessions.push(cleanSession);
-    await AsyncStorage.setItem(this.FOCUS_SESSIONS_KEY, JSON.stringify(sessions));
+    await AsyncStorage.setItem(
+      this.FOCUS_SESSIONS_KEY,
+      JSON.stringify(sessions),
+    );
   }
 
-  static async getFocusSessions(folderId?: string): Promise<FocusSession[]> {
+  static async getFocusSessions(workspaceId?: string): Promise<FocusSession[]> {
     const raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
     const sessions: FocusSession[] = raw ? JSON.parse(raw) : [];
-    if (folderId) {
-      return sessions.filter(
-        (s) => s.folderId === folderId || (s as any).workspaceId === folderId,
-      );
+    if (workspaceId) {
+      return sessions.filter((s) => s.workspaceId === workspaceId);
     }
     return sessions;
   }
@@ -132,30 +144,29 @@ export class GraphRepository {
     const raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
     const logs: SystemEventLog[] = raw ? JSON.parse(raw) : [];
 
-    const folderId = event.folderId || event.workspaceId || DEFAULT_FOLDER_ID;
+    const workspaceId = event.workspaceId || DEFAULT_WORKSPACE_ID;
 
     const cleanLog: SystemEventLog = {
       id: event.id,
-      folderId,
+      workspaceId,
       itemId: event.itemId,
       itemType: event.itemType,
       action: event.action,
       timestamp: event.timestamp,
       metadata: event.metadata,
-      workspaceId: folderId,
     } as any;
 
     logs.push(cleanLog);
     await AsyncStorage.setItem(this.SYSTEM_EVENT_LOG_KEY, JSON.stringify(logs));
   }
 
-  static async getSystemEvents(folderId?: string): Promise<SystemEventLog[]> {
+  static async getSystemEvents(
+    workspaceId?: string,
+  ): Promise<SystemEventLog[]> {
     const raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
     const logs: SystemEventLog[] = raw ? JSON.parse(raw) : [];
-    if (folderId) {
-      return logs.filter(
-        (l) => l.folderId === folderId || (l as any).workspaceId === folderId,
-      );
+    if (workspaceId) {
+      return logs.filter((l) => l.workspaceId === workspaceId);
     }
     return logs;
   }

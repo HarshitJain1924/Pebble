@@ -1,8 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
-    HISTORY_STORAGE_KEY
-} from "@/services/storage/storage.service";
+  HabitRepository,
+  TaskRepository,
+  UiStateRepository
+} from "@/repositories";
+import { HISTORY_STORAGE_KEY } from "@/services/storage/storage.service";
 
 export type DailyHistory = {
   date: string;
@@ -59,21 +62,16 @@ function toCompletionScore(completed: number, total: number) {
 
 async function loadTodosState(): Promise<TodosState> {
   try {
-    const activeWorkspace =
-      (await AsyncStorage.getItem("pebble:core:active_workspace")) || "default";
-    const raw = await AsyncStorage.getItem(
-      `pebble:core:tasks:${activeWorkspace}`,
-    );
-    if (!raw) {
-      return { todos: {} };
-    }
-    const tasksMap = JSON.parse(raw);
+    const uiState = await UiStateRepository.getUiState();
+    const wsId = uiState.activeWorkspaceId || "default";
+
+    const tasksMap = await TaskRepository.getTasks(wsId);
     const todos = Object.values(tasksMap).map((t: any) => ({
       title: t.title,
       completed: t.completed,
       archived: t.archived,
     }));
-    return { todos: { [activeWorkspace]: todos } };
+    return { todos: { [wsId]: todos } };
   } catch {
     return { todos: {} };
   }
@@ -81,15 +79,9 @@ async function loadTodosState(): Promise<TodosState> {
 
 async function loadDailyState(): Promise<DailyState> {
   try {
-    const activeWorkspace =
-      (await AsyncStorage.getItem("pebble:core:active_workspace")) || "default";
-    const raw = await AsyncStorage.getItem(
-      `pebble:core:habits:${activeWorkspace}`,
-    );
-    if (!raw) {
-      return { dailyHabits: [] };
-    }
-    const habitsMap = JSON.parse(raw);
+    const uiState = await UiStateRepository.getUiState();
+    const wsId = uiState.activeWorkspaceId || "default";
+    const habitsMap = await HabitRepository.getHabits(wsId);
     const today = getDateKey();
     const dailyHabits = Object.values(habitsMap).map((h: any) => ({
       title: h.title,

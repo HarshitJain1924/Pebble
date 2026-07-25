@@ -16,13 +16,13 @@ export interface AuditInfo {
 export interface Schedule {
   scheduledDate?: string; // Format: "YYYY-MM-DD"
   scheduledTime?: string; // Format: "HH:mm"
-  deadlineDate?: string;  // Format: "YYYY-MM-DD"
+  deadlineDate?: string; // Format: "YYYY-MM-DD"
   durationMinutes?: number;
 }
 
 /** Composable Push Notification Alert Configuration */
 export interface Reminder {
-  alarmTime?: number;      // Epoch timestamp (ms)
+  alarmTime?: number; // Epoch timestamp (ms)
   notificationIds?: string[];
   escalationMinutes?: number[];
 }
@@ -32,7 +32,7 @@ export interface RecurrenceRule {
   type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
   interval?: number;
   unit?: "hours" | "days";
-  days?: number[];         // 0 = Sunday ... 6 = Saturday
+  days?: number[]; // 0 = Sunday ... 6 = Saturday
   dayOfMonth?: number;
 }
 
@@ -71,7 +71,7 @@ export interface Task extends AuditInfo, ScheduleConfig {
   category?: TaskCategory;
   archived?: boolean;
   isEvent?: boolean;
-  
+
   // Composable Value Objects & Scheduling
   schedule?: Schedule;
   reminder?: Reminder;
@@ -83,7 +83,7 @@ export interface Task extends AuditInfo, ScheduleConfig {
   notificationIds?: string[];
   dueDate?: string;
   scheduledDate?: string;
-  
+
   // Cross-Domain & Legacy Metadata
   resourceId?: string;
   linkedResourceIds?: string[];
@@ -105,7 +105,7 @@ export interface Habit extends AuditInfo, ScheduleConfig {
   category?: TaskCategory;
   archived?: boolean;
   priority?: "low" | "medium" | "high";
-  
+
   // Streak & History State
   streak: number;
   bestStreak: number;
@@ -115,13 +115,13 @@ export interface Habit extends AuditInfo, ScheduleConfig {
   previousStreak?: number;
   streakBrokenDate?: string;
   xpAwardedDate?: string;
-  
+
   // Recurrence Schedule & Reminders
   reminderDays?: number[];
   reminderHour?: number;
   reminderMinute?: number;
   escalationMinutes?: number[];
-  
+
   // Cross-Domain & Legacy Metadata
   resourceId?: string;
   linkedResourceIds?: string[];
@@ -151,7 +151,7 @@ export interface Checklist extends AuditInfo {
   category?: TaskCategory;
   archived?: boolean;
   items: ChecklistItem[];
-  
+
   // Cross-Domain & Legacy Metadata
   resourceId?: string;
   linkedResourceIds?: string[];
@@ -167,8 +167,8 @@ export interface Resource extends AuditInfo {
   type: ResourceType;
   kind?: "idea";
   title: string;
-  content?: string;        // Text content or note snippet
-  url?: string;            // Web URL for link resources
+  content?: string; // Text content or note snippet
+  url?: string; // Web URL for link resources
   mediaUri?: string;
   previewImageUrl?: string;
   archived?: boolean;
@@ -177,7 +177,7 @@ export interface Resource extends AuditInfo {
   tags?: string[];
   createdAt: number;
   updatedAt?: number;
-  
+
   // File metadata
   fileName?: string;
   fileSize?: number;
@@ -204,6 +204,3 @@ export interface RecycleBinItem {
   originalLocation: string;
   data: any;
 }
-
-
-

@@ -10,7 +10,7 @@ import { resolveSuggestion, type SmartSuggestion } from "@/features/capture/serv
 import { Task, type Habit, Workspace } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { emitStateChange } from "@/services/events/state-events";
-import { TaskRepository, HabitRepository } from "@/repositories";
+import { TaskRepository, HabitRepository, UiStateRepository } from "@/repositories";
 
 interface SuggestionBannerProps {
   activeSuggestions: SmartSuggestion[];
@@ -107,7 +107,8 @@ export function SuggestionBanner({
             <TouchableOpacity
               onPress={async () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                const activeWorkspace = await AsyncStorage.getItem("pebble:core:active_workspace") || "default";
+                const uiState = await UiStateRepository.getUiState();
+                const activeWorkspace = uiState.activeWorkspaceId || "default";
                 if (suggestion.type === "convert_habit") {
                   const newHabit: Habit = {
                     id: `habit-${Date.now()}`,
