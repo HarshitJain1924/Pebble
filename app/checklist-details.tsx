@@ -20,14 +20,14 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { type Checklist, type ChecklistItem, Resource, ResourceCollection, Workspace } from "@/shared/types/domain.types";
+import { type Checklist, type ChecklistItem, Resource, Workspace } from "@/shared/types/domain.types";
 import { emitStateChange } from "@/services/events/state-events";
 import {
     addToRecycleBin,
-    getCollections
 } from "@/services/storage/storage.service";
 import {
     ChecklistRepository,
+    ResourceRepository,
     WorkspaceRepository,
 } from "@/repositories";
 
@@ -53,9 +53,7 @@ export default function ChecklistDetailsScreen() {
   const [isEditing, setIsEditing] = useState(params.edit === "true");
   const [item, setItem] = useState<Checklist | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [collections, setCollections] = useState<Record<string, ResourceCollection[]>>(
-    {},
-  );
+  const [resourcesList, setResourcesList] = useState<Resource[]>([]);
 
   // Form Fields States
   const [title, setTitle] = useState("");
@@ -69,25 +67,10 @@ export default function ChecklistDetailsScreen() {
   const [linkPickerVisible, setLinkPickerVisible] = useState(false);
   const [workspacePickerVisible, setWorkspacePickerVisible] = useState(false);
 
-  // Compute all available resources across all workspace collections
+  // Compute all available resources across all workspace folders
   const allResources = useMemo(() => {
-    const list: any[] = [];
-    Object.keys(collections).forEach((wsId) => {
-      const folderColls = collections[wsId] || [];
-      folderColls.forEach((coll) => {
-        if (coll.items) {
-          coll.items.forEach((cItem) => {
-            list.push({
-              ...cItem,
-              collectionName: coll.name,
-              workspaceId: wsId,
-            });
-          });
-        }
-      });
-    });
-    return list;
-  }, [collections]);
+    return resourcesList;
+  }, [resourcesList]);
 
   const linkedResources = useMemo(() => {
     return allResources.filter((res) => linkedCollectionIds.includes(res.id));
@@ -114,9 +97,9 @@ export default function ChecklistDetailsScreen() {
     if (!item) return false;
     if (title.trim() !== (item.title || "").trim()) return true;
     if (description.trim() !== (item.description || "").trim()) return true;
-    if (workspaceId !== (item.folderId || "default")) return true;
+    if (workspaceId !== (item.workspaceId || item.folderId || "default")) return true;
 
-    // Compare checklist items
+    // Compare items
     if (items.length !== item.items.length) return true;
     for (let i = 0; i < items.length; i++) {
       if (items[i].id !== item.items[i].id) return true;
@@ -155,11 +138,6 @@ export default function ChecklistDetailsScreen() {
       }));
       setWorkspaces(loadedWorkspaces);
 
-      // 2. Load collections
-      const loadedCollections = await getCollections();
-      setCollections(loadedCollections);
-
-      // 3. Load checklists & find the current one
       let foundChecklist: Checklist | null = null;
       const folderIds = Array.from(
         new Set(["default", "unassigned", ...loadedFolders.map((f) => f.id)]),
@@ -697,7 +675,7 @@ export default function ChecklistDetailsScreen() {
                             name={
                               res.type === "link"
                                 ? "globe"
-                                : res.type === "image"
+                                : (res.type as string) === "image"
                                   ? "image"
                                   : "file-text"
                             }
@@ -724,7 +702,7 @@ export default function ChecklistDetailsScreen() {
                             }}
                             numberOfLines={1}
                           >
-                            {res.collectionName || "Collection"}
+                            {(res as any).collectionName || "Resource"}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -1042,7 +1020,7 @@ export default function ChecklistDetailsScreen() {
                       <Text style={{ fontSize: 16 }}>
                         {res.type === "link"
                           ? "🔗"
-                          : res.type === "image"
+                          : (res.type as string) === "image"
                             ? "🖼"
                             : "📝"}
                       </Text>
@@ -1057,7 +1035,7 @@ export default function ChecklistDetailsScreen() {
                           {res.title}
                         </Text>
                         <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                          {res.collectionName || "Collection"}
+                          {(res as any).collectionName || "Resource"}
                         </Text>
                       </View>
                     </View>
@@ -1211,7 +1189,7 @@ export default function ChecklistDetailsScreen() {
               contentContainerStyle={{ gap: 14, paddingVertical: 8 }}
               showsVerticalScrollIndicator={false}
             >
-              {Object.keys(collections).length === 0 ? (
+              {resourcesList.length === 0 ? (
                 <Text
                   style={{
                     color: colors.textMuted,
@@ -1221,143 +1199,49 @@ export default function ChecklistDetailsScreen() {
                     paddingVertical: 30,
                   }}
                 >
-                  No collections available.
+                  No resources available.
                 </Text>
               ) : (
-                Object.keys(collections).map((wsId) => {
-                  const wsColls = collections[wsId] || [];
-                  const workspaceObj = workspaces.find(
-                    (w) => w.id === wsId,
-                  ) || { name: "My Pebbles", emoji: "📁" };
-
-                  return (
-                    <View key={wsId}>
-                      <View
+                resourcesList
+                  .filter((i) => !i.archived)
+                  .map((res) => {
+                    const isChecked = linkedCollectionIds.includes(res.id);
+                    return (
+                      <TouchableOpacity
+                        key={res.id}
+                        onPress={() => {
+                          setLinkedCollectionIds((prev) =>
+                            prev.includes(res.id)
+                              ? prev.filter((id) => id !== res.id)
+                              : [...prev, res.id]
+                          );
+                        }}
                         style={{
                           flexDirection: "row",
                           alignItems: "center",
-                          gap: 6,
-                          marginBottom: 8,
+                          justifyContent: "space-between",
+                          padding: 12,
+                          borderRadius: 12,
+                          backgroundColor: isChecked
+                            ? `${colors.primary}15`
+                            : colors.cardLight,
+                          borderWidth: 1,
+                          borderColor: isChecked ? colors.primary : colors.border,
                         }}
                       >
-                        <Text style={{ fontSize: 13 }}>
-                          {workspaceObj.emoji || "📁"}
+                        <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>
+                          {res.title}
                         </Text>
-                        <Text
-                          style={{
-                            fontSize: 12,
-                            fontWeight: "700",
-                            color: colors.textMuted,
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          {workspaceObj.name}
-                        </Text>
-                      </View>
-
-                      {wsColls.map((col) => (
-                        <View key={col.id} style={{ marginBottom: 12 }}>
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              fontWeight: "800",
-                              color: colors.text,
-                              marginLeft: 8,
-                              marginBottom: 6,
-                            }}
-                          >
-                            {col.emoji || "📁"} {col.name}
-                          </Text>
-
-                          {!col.items || col.items.length === 0 ? (
-                            <Text
-                              style={{
-                                fontSize: 11,
-                                color: colors.textMuted,
-                                fontStyle: "italic",
-                                marginLeft: 24,
-                              }}
-                            >
-                              Empty collection
-                            </Text>
-                          ) : (
-                            col.items
-                              .filter((i) => !i.archived)
-                              .map((res) => {
-                                const isChecked = linkedCollectionIds.includes(
-                                  res.id,
-                                );
-                                return (
-                                  <TouchableOpacity
-                                    key={res.id}
-                                    onPress={() => toggleDaySelection(res.id)}
-                                    style={{
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      paddingVertical: 8,
-                                      paddingHorizontal: 12,
-                                      marginLeft: 16,
-                                      borderRadius: 10,
-                                      marginVertical: 2,
-                                      borderWidth: 1,
-                                      borderColor: isChecked
-                                        ? colors.primary
-                                        : colors.border,
-                                      backgroundColor: isChecked
-                                        ? `${colors.primary}08`
-                                        : "transparent",
-                                    }}
-                                  >
-                                    <View
-                                      style={{
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                        gap: 8,
-                                        flex: 1,
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 13 }}>
-                                        {res.type === "link"
-                                          ? "🔗"
-                                          : res.type === "file"
-                                            ? res.mimeType?.startsWith("image/")
-                                              ? "🖼"
-                                              : "📄"
-                                            : "📝"}
-                                      </Text>
-                                      <Text
-                                        style={{
-                                          fontSize: 13,
-                                          color: colors.text,
-                                          flex: 1,
-                                        }}
-                                        numberOfLines={1}
-                                      >
-                                        {res.title}
-                                      </Text>
-                                    </View>
-                                    <Feather
-                                      name={
-                                        isChecked ? "check-circle" : "circle"
-                                      }
-                                      size={16}
-                                      color={
-                                        isChecked
-                                          ? colors.primary
-                                          : colors.textMuted
-                                      }
-                                    />
-                                  </TouchableOpacity>
-                                );
-                              })
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  );
-                })
+                        <Feather
+                          name={isChecked ? "check-square" : "square"}
+                          size={18}
+                          color={isChecked ? colors.primary : colors.textMuted}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })
               )}
+
             </ScrollView>
 
             <TouchableOpacity

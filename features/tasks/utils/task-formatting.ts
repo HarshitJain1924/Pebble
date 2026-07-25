@@ -1,4 +1,4 @@
-import { Task, Habit, Workspace, Resource, ResourceCollection, Checklist } from "@/shared/types/domain.types";
+import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
 import { DAY_MS } from "@/services/storage/storage.service";
 
 export const getDateKey = (date = new Date()) => {
@@ -90,11 +90,11 @@ export const initialTodos: Task[] = [];
 export let globalLists: Workspace[] | null = null;
 export let globalTodos: Record<string, Task[]> | null = null;
 export let globalHabits: Habit[] | null = null;
-export let globalCollections: Record<string, ResourceCollection[]> | null = null;
+export let globalResources: Record<string, Resource[]> | null = null;
 export let globalChecklists: Record<string, Checklist[]> | null = null;
 
 export function setGlobalLists(val: Workspace[] | null) { globalLists = val; }
 export function setGlobalTodos(val: Record<string, Task[]> | null) { globalTodos = val; }
 export function setGlobalHabits(val: Habit[] | null) { globalHabits = val; }
-export function setGlobalCollections(val: Record<string, ResourceCollection[]> | null) { globalCollections = val; }
+export function setGlobalResources(val: Record<string, Resource[]> | null) { globalResources = val; }
 export function setGlobalChecklists(val: Record<string, Checklist[]> | null) { globalChecklists = val; }

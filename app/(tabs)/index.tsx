@@ -46,7 +46,6 @@ import {
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import {
     appendGratitudeHistoryEntry,
-    getCollections,
     getDashboardFilters,
     saveDashboardFilter,
 } from "@/services/storage/storage.service";
@@ -634,9 +633,7 @@ export function TodayScreen() {
       }
       setAllChecklists(loadedChecklists);
 
-      // 4. Load Collections
-      const loadedCollections = await getCollections();
-      setAllCollections(loadedCollections);
+
 
       if (closestAlarm) {
         const d = new Date(closestAlarm);

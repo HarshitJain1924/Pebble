@@ -5,19 +5,19 @@ import UnifiedCapture from "@/features/capture/components/UnifiedCapture";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
-import { Resource, ResourceCollection } from "@/shared/types/domain.types";
+import { Resource } from "@/shared/types/domain.types";
 import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 import { loadQuickSuggestions } from "@/features/capture/services/quick-suggestions.service";
 import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
-import { getCollections, saveCollections } from "@/services/storage/storage.service";
 import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 import {
     TaskRepository,
     HabitRepository,
     ChecklistRepository,
     WorkspaceRepository,
+    ResourceRepository,
 } from "@/repositories";
 import { getWorkspaceSuggestions } from "@/features/workspaces/services/workspace-suggestions.service";
 import { Feather } from "@expo/vector-icons";
@@ -149,28 +149,7 @@ export default function TabLayout() {
     return { year: today.getFullYear(), month: today.getMonth() };
   });
 
-  const [selectedCollectionId, setSelectedCollectionId] =
-    useState<string>("default");
-  const [availableCollections, setAvailableCollections] = useState<
-    ResourceCollection[]
-  >([]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const allCollections = await getCollections();
-        const folderColls = allCollections[selectedFolderId] || [];
-        setAvailableCollections(folderColls);
-        if (folderColls.length > 0) {
-          setSelectedCollectionId(folderColls[0].id);
-        } else {
-          setSelectedCollectionId("default");
-        }
-      } catch (e) {
-        console.warn("Failed to load collections for quick add", e);
-      }
-    })();
-  }, [selectedFolderId, quickAddVisible]);
 
   // Voice Capture Hook Integration
   const {
@@ -702,63 +681,38 @@ export default function TabLayout() {
     if (!trimmed) return;
 
     try {
-      const allCollections = await getCollections();
       const folderId = selectedFolderId || "unassigned";
       const titleToSave = parsedItem ? parsedItem.title : trimmed;
 
-      const newItem: Resource = {
-        id: String(Date.now()),
-        type: vaultType === "idea" ? "note" : vaultType,
+      await ResourceRepository.saveResource({
+        id: `res-${Date.now()}`,
+        workspaceId: folderId,
+        folderId,
         title: titleToSave,
-        content: vaultContent.trim() || undefined,
-        url: vaultType === "link" ? vaultUrl.trim() || undefined : undefined,
+        resourceType: vaultType === "idea" ? "note" : vaultType,
+        kind: vaultType === "idea" ? "idea" : undefined,
+        payload: {
+          content: vaultContent.trim() || undefined,
+          url: vaultType === "link" ? vaultUrl.trim() || undefined : undefined,
+        },
         createdAt: Date.now(),
-        archived: false,
-      };
-
-      if (!allCollections[folderId]) {
-        allCollections[folderId] = [];
-      }
-
-      let targetCollection = allCollections[folderId].find(
-        (c) => c.id === selectedCollectionId,
-      );
-      if (!targetCollection) {
-        targetCollection = allCollections[folderId].find(
-          (c) => c.name === "Quick Captures",
-        );
-      }
-
-      if (!targetCollection) {
-        targetCollection = {
-          id: `quick-captures-${folderId}-${Date.now()}`,
-          workspaceId: folderId,
-          name: "Quick Captures",
-          emoji: "⚡",
-          createdAt: Date.now(),
-          items: [],
-        };
-        allCollections[folderId].push(targetCollection);
-      }
-
-      targetCollection.items = [newItem, ...targetCollection.items];
-
-      await saveCollections(allCollections);
+        updatedAt: Date.now(),
+      });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
       );
-      emitStateChange("vault_changed");
+      emitStateChange("resources_changed");
 
       const wsName =
         folderId === "unassigned"
           ? "Inbox"
           : folders.find((l) => l.id === folderId)?.name || "Workspace";
-      showToast(`✓ Reference added to ${wsName} -> ${targetCollection.name}`);
+      showToast(`✓ Resource created in ${wsName}`);
 
       closeQuickAdd();
     } catch (e) {
-      console.warn("Failed to quick add collection item", e);
+      console.warn("Failed to quick add resource item", e);
     }
   };
 

@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import * as Haptics from "expo-haptics";
-import { Task, Habit, Workspace, Resource, ResourceCollection, Checklist } from "@/shared/types/domain.types";
-import { getCollections, saveCollections, saveChecklists } from "@/services/storage/storage.service";
+import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
+import { ResourceRepository } from "@/repositories";
+import { saveChecklists } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
 
 export function useResourceLinkState(
@@ -11,8 +12,8 @@ export function useResourceLinkState(
   setHabits: React.Dispatch<React.SetStateAction<Habit[]>>,
   checklists: Record<string, Checklist[]>,
   setChecklists: React.Dispatch<React.SetStateAction<Record<string, Checklist[]>>>,
-  collections: Record<string, ResourceCollection[]>,
-  setCollections: React.Dispatch<React.SetStateAction<Record<string, ResourceCollection[]>>>,
+  resources: Record<string, Resource[]>,
+  setResources: React.Dispatch<React.SetStateAction<Record<string, Resource[]>>>,
   selectedList: string,
   openedFolderId: string | null,
   lists: Workspace[],
@@ -32,11 +33,11 @@ export function useResourceLinkState(
         if (next[wsId]) {
           next[wsId] = next[wsId].map((todo) => {
             if (todo.id === itemId) {
-              const linked = todo.linkedCollectionIds || [];
+              const linked = todo.linkedResourceIds || todo.linkedCollectionIds || [];
               const updated = linked.includes(resourceId)
-                ? linked.filter((id) => id !== resourceId)
+                ? linked.filter((id: string) => id !== resourceId)
                 : [...linked, resourceId];
-              return { ...todo, linkedCollectionIds: updated };
+              return { ...todo, linkedResourceIds: updated, linkedCollectionIds: updated };
             }
             return todo;
           });
@@ -47,11 +48,11 @@ export function useResourceLinkState(
     } else if (itemType === "habit") {
       const nextHabits = habits.map((habit) => {
         if (habit.id === itemId) {
-          const linked = habit.linkedCollectionIds || [];
+          const linked = habit.linkedResourceIds || habit.linkedCollectionIds || [];
           const updated = linked.includes(resourceId)
-            ? linked.filter((id) => id !== resourceId)
+            ? linked.filter((id: string) => id !== resourceId)
             : [...linked, resourceId];
-          return { ...habit, linkedCollectionIds: updated };
+          return { ...habit, linkedResourceIds: updated, linkedCollectionIds: updated };
         }
         return habit;
       });
@@ -64,11 +65,11 @@ export function useResourceLinkState(
         if (next[wsId]) {
           next[wsId] = next[wsId].map((chk) => {
             if (chk.id === itemId) {
-              const linked = chk.linkedCollectionIds || [];
+              const linked = chk.linkedResourceIds || chk.linkedCollectionIds || [];
               const updated = linked.includes(resourceId)
-                ? linked.filter((id) => id !== resourceId)
+                ? linked.filter((id: string) => id !== resourceId)
                 : [...linked, resourceId];
-              return { ...chk, linkedCollectionIds: updated };
+              return { ...chk, linkedResourceIds: updated, linkedCollectionIds: updated };
             }
             return chk;
           });
@@ -79,33 +80,41 @@ export function useResourceLinkState(
     }
 
     try {
-      const allCollections = await getCollections();
-      const wsId = openedFolderId || "default";
-      const list = allCollections[wsId] || [];
-      const updatedList = list.map((coll) => {
-        if (coll.items) {
-          const updatedItems = coll.items.map((item) => {
-            if (item.id === resourceId) {
-              const linked = item.linkedItemIds || [];
-              const updated = linked.includes(itemId)
-                ? linked.filter((id) => id !== itemId)
-                : [...linked, itemId];
-              return { ...item, linkedItemIds: updated };
-            }
-            return item;
-          });
-          return { ...coll, items: updatedItems };
-        }
-        return coll;
-      });
-      allCollections[wsId] = updatedList;
-      await saveCollections(allCollections);
-      setCollections(allCollections);
-      emitStateChange("vault_changed");
+      const wsId = openedFolderId || selectedList || "default";
+      const existing = await ResourceRepository.getResource(resourceId, wsId);
+      if (existing) {
+        const linked = (existing as any).linkedItemIds || [];
+        const updated = linked.includes(itemId)
+          ? linked.filter((id: string) => id !== itemId)
+          : [...linked, itemId];
+        await ResourceRepository.saveResource({
+          ...existing,
+          linkedItemIds: updated,
+          updatedAt: Date.now(),
+        });
+
+        const updatedResources = await ResourceRepository.getResources(wsId);
+        const list: Resource[] = Object.values(updatedResources).map((r: any) => ({
+          id: r.id,
+          workspaceId: r.workspaceId || r.folderId || wsId,
+          type: (r.resourceType || r.type || "note") as any,
+          title: r.title,
+          content: r.content !== undefined ? r.content : (r.payload?.content || r.body?.content),
+          url: r.url !== undefined ? r.url : (r.payload?.url || r.body?.url),
+          archived: r.archived || false,
+          pinned: r.pinned || false,
+          linkedItemIds: r.linkedItemIds || [],
+          tags: r.tags || [],
+          createdAt: r.createdAt || Date.now(),
+          updatedAt: r.updatedAt || Date.now(),
+        }));
+        setResources((prev) => ({ ...prev, [wsId]: list }));
+        emitStateChange("resources_changed");
+      }
     } catch (e) {
       console.warn("Failed to update reverse link on resource", e);
     }
-  }, [selectedList, habits, openedFolderId, lists, collections, setTodos, setHabits, setChecklists, setCollections, persistState, persistHabits]);
+  }, [selectedList, habits, openedFolderId, lists, setTodos, setHabits, setChecklists, setResources, persistState, persistHabits]);
 
   return {
     toggleLinkResource,

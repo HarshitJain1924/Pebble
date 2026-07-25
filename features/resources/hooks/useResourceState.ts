@@ -1,175 +1,75 @@
 import { useState, useCallback } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { Resource, ResourceCollection } from "@/shared/types/domain.types";
+import { Resource } from "@/shared/types/domain.types";
 import { ResourceRepository } from "@/repositories";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
-import { globalCollections } from "@/features/tasks/utils/task-formatting";
+import { globalResources, setGlobalResources } from "@/features/tasks/utils/task-formatting";
 
 /**
- * Canonical hook for Resource domain state management.
+ * Canonical hook for Resource domain state management (Pebble V3 Flat Database).
  */
 export function useResourceState(
   selectedList: string,
   showToast: (msg: string) => void,
 ) {
-  const [collections, setCollections] = useState<Record<string, ResourceCollection[]>>(() => globalCollections || {});
+  const [resources, setResources] = useState<Record<string, Resource[]>>(() => globalResources || {});
 
-  const loadVaultState = useCallback(async () => {
+  const loadResourcesState = useCallback(async (targetWorkspaceId?: string) => {
     try {
-      const activeList = selectedList || "default";
+      const activeList = targetWorkspaceId || selectedList || "default";
 
-      // Load custom collections metadata mapping
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v1:collections_metadata:${activeList}`) ||
-                          await AsyncStorage.getItem(`pebble:core:collections_metadata:${activeList}`);
-      const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-
-      // If metadata is empty, add a default folder
-      if (collectionsMeta.length === 0) {
-        collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
-      }
-
-      // Fetch all flat current resources
+      // Fetch all flat current resources from repository
       const resourcesMap = await ResourceRepository.getResources(activeList);
-      const repositoryResources = Object.values(resourcesMap);
-
-      // Map resources to old Resource format and group by tag
-      const builtCollections: ResourceCollection[] = collectionsMeta.map((meta) => {
-        const matchingItems: Resource[] = repositoryResources
-          .filter((r) => r.tags?.includes(`collection_${meta.id}`))
-          .map((r) => ({
-            id: r.id,
-            type: r.resourceType as any,
-            title: r.title,
-            content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
-            url: r.resourceType === "link" ? (r.payload as any).url : undefined,
-            localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
-            fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
-            mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
-            createdAt: r.createdAt,
-            pinned: r.pinned || false,
-            archived: r.archived || false,
-            kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
-          }));
-
-        // If default folder, also include resources without any collection tag
-        if (meta.id === "default_vault") {
-          const untagged = repositoryResources
-            .filter((r) => !r.tags?.some((t) => t.startsWith("collection_")))
-            .map((r) => ({
-              id: r.id,
-              type: r.resourceType as any,
-              title: r.title,
-              content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
-              url: r.resourceType === "link" ? (r.payload as any).url : undefined,
-              localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
-              fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
-              mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
-              createdAt: r.createdAt,
-              pinned: r.pinned || false,
-              archived: r.archived || false,
-              kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
-            }));
-          matchingItems.push(...untagged);
-        }
-
-        return {
-          id: meta.id,
-          workspaceId: activeList,
-          name: meta.name,
-          emoji: meta.emoji,
-          createdAt: Date.now(),
-          items: matchingItems,
-        };
-      });
-
-      setCollections((prev) => ({
-        ...prev,
-        [activeList]: builtCollections,
+      const list: Resource[] = Object.values(resourcesMap).map((r: any) => ({
+        id: r.id,
+        workspaceId: r.workspaceId || r.folderId || activeList,
+        type: (r.resourceType || r.type || "note") as any,
+        kind: r.kind || (r.resourceType === "idea" || r.type === "idea" ? "idea" : undefined),
+        title: r.title,
+        content: r.content !== undefined ? r.content : (r.payload?.content || r.body?.content || undefined),
+        url: r.url !== undefined ? r.url : (r.payload?.url || r.body?.url || undefined),
+        mediaUri: r.mediaUri,
+        previewImageUrl: r.previewImageUrl,
+        archived: r.archived || false,
+        pinned: r.pinned || false,
+        linkedItemIds: r.linkedItemIds || [],
+        tags: r.tags || [],
+        createdAt: r.createdAt || Date.now(),
+        updatedAt: r.updatedAt || Date.now(),
+        fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
+        fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
+        mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,
+        localUri: r.localUri || r.payload?.localUri || r.body?.localUri,
       }));
+
+      setResources((prev) => {
+        const next = { ...prev, [activeList]: list };
+        setGlobalResources(next);
+        return next;
+      });
+      return list;
     } catch (e) {
-      console.warn("Failed to load current collections", e);
+      console.warn("Failed to load resources state", e);
+      return [];
     }
   }, [selectedList]);
 
-  const createCollection = useCallback(async (workspaceId: string, name: string, emoji: string) => {
-    try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v1:collections_metadata:${workspaceId}`) ||
-                          await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
-      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-
-      const newId = `coll-${Date.now()}`;
-      collectionsMeta.push({ id: newId, name, emoji });
-      await AsyncStorage.setItem(`pebble:v1:collections_metadata:${workspaceId}`, JSON.stringify(collectionsMeta));
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      showToast(`✓ Collection "${name}" created`);
-    } catch (e) {
-      console.warn("Failed to create collection", e);
-    }
-  }, [loadVaultState, showToast]);
-
-  const deleteCollection = useCallback(async (collectionId: string, workspaceId: string) => {
-    try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v1:collections_metadata:${workspaceId}`) ||
-                          await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
-      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-      const updatedMeta = collectionsMeta.filter((c) => c.id !== collectionId);
-      await AsyncStorage.setItem(`pebble:v1:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
-
-      // Cascade delete resources in this collection
-      const resourcesMap = await ResourceRepository.getResources(workspaceId);
-      for (const res of Object.values(resourcesMap)) {
-        if (res.tags?.includes(`collection_${collectionId}`)) {
-          await ResourceRepository.deleteResource(res.id, workspaceId);
-        }
-      }
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      showToast("✓ Collection deleted");
-    } catch (e) {
-      console.warn("Failed to delete collection", e);
-    }
-  }, [loadVaultState, showToast]);
-
-  const renameCollection = useCallback(async (collectionId: string, workspaceId: string, newName: string, newEmoji: string) => {
-    try {
-      const metadataRaw = await AsyncStorage.getItem(`pebble:v1:collections_metadata:${workspaceId}`) ||
-                          await AsyncStorage.getItem(`pebble:core:collections_metadata:${workspaceId}`);
-      const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-      const updatedMeta = collectionsMeta.map((c) =>
-        c.id === collectionId ? { ...c, name: newName, emoji: newEmoji } : c
-      );
-      await AsyncStorage.setItem(`pebble:v1:collections_metadata:${workspaceId}`, JSON.stringify(updatedMeta));
-
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      showToast("✓ Collection renamed");
-    } catch (e) {
-      console.warn("Failed to rename collection", e);
-    }
-  }, [loadVaultState, showToast]);
-
-  const addCollectionItem = useCallback(async (
+  const createResource = useCallback(async (
     workspaceId: string,
-    collectionId: string,
     item: Omit<Resource, "id" | "createdAt">
   ) => {
     try {
-      const itemId = `item-${Date.now()}`;
+      const resourceId = `res-${Date.now()}`;
+      const wsId = workspaceId || selectedList || "default";
       const payload = item.type === "link" ? { url: item.url || "" } :
-                      item.type === "file" ? { localUri: item.localUri || "", mimeType: item.mimeType || "", fileSize: item.fileSize || 0 } :
+                      item.type === "file" ? { localUri: item.localUri || "", mimeType: item.mimeType || "", fileSize: item.fileSize || 0, fileName: item.fileName || item.title } :
                       { content: item.content || "" };
 
       await ResourceRepository.saveResource({
-        id: itemId,
-        workspaceId,
+        id: resourceId,
+        workspaceId: wsId,
+        folderId: wsId,
         title: item.title,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -177,76 +77,81 @@ export function useResourceState(
         payload,
         pinned: item.pinned || false,
         archived: item.archived || false,
-        tags: [`collection_${collectionId}`],
+        tags: item.tags || [],
+        linkedItemIds: item.linkedItemIds || [],
       });
 
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
+      await loadResourcesState(wsId);
+      emitStateChange("resources_changed", "tasks_screen");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      showToast("✓ Reference added to collection");
+      showToast(`✓ Created "${item.title}"`);
     } catch (e) {
-      console.warn("Failed to add collection item", e);
+      console.warn("Failed to create resource", e);
     }
-  }, [loadVaultState, showToast]);
+  }, [selectedList, loadResourcesState, showToast]);
 
-  const updateCollectionItem = useCallback(async (
-    itemId: string,
-    collectionId: string,
+  const updateResource = useCallback(async (
+    resourceId: string,
     workspaceId: string,
-    updates: Partial<Pick<Resource, "title" | "url" | "content">>
+    updates: Partial<Resource>
   ) => {
     try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      const wsId = workspaceId || selectedList || "default";
+      const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (!existing) return;
 
       const payload = {
         ...existing.payload,
-        content: updates.content !== undefined ? updates.content : (existing.payload as any).content,
-        url: updates.url !== undefined ? updates.url : (existing.payload as any).url,
+        content: updates.content !== undefined ? updates.content : (existing.payload as any)?.content,
+        url: updates.url !== undefined ? updates.url : (existing.payload as any)?.url,
       };
 
       await ResourceRepository.saveResource({
         ...existing,
         title: updates.title !== undefined ? updates.title : existing.title,
         payload,
+        pinned: updates.pinned !== undefined ? updates.pinned : existing.pinned,
+        archived: updates.archived !== undefined ? updates.archived : existing.archived,
         updatedAt: Date.now(),
       });
 
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
+      await loadResourcesState(wsId);
+      emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       showToast("✓ Resource updated");
     } catch (e) {
-      console.warn("Failed to update collection item", e);
+      console.warn("Failed to update resource", e);
     }
-  }, [loadVaultState, showToast]);
+  }, [selectedList, loadResourcesState, showToast]);
 
-  const deleteCollectionItem = useCallback(async (itemId: string, collectionId: string, workspaceId: string) => {
+  const deleteResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      const wsId = workspaceId || selectedList || "default";
+      const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (existing) {
-        await addToRecycleBin("collection_item", {
+        await addToRecycleBin("resource" as any, {
           id: existing.id,
           type: existing.resourceType,
           title: existing.title,
-          content: (existing.payload as any).content,
-          url: (existing.payload as any).url,
+          content: (existing.payload as any)?.content,
+          url: (existing.payload as any)?.url,
           createdAt: existing.createdAt,
-        }, `${workspaceId}:${collectionId}`);
+        }, wsId);
       }
-      await ResourceRepository.deleteResource(itemId, workspaceId);
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
+      await ResourceRepository.deleteResource(resourceId, wsId);
+      await loadResourcesState(wsId);
+      emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      showToast("✓ Item deleted (Recycle Bin)");
+      showToast("✓ Resource deleted (Recycle Bin)");
     } catch (e) {
-      console.warn("Failed to delete collection item", e);
+      console.warn("Failed to delete resource", e);
     }
-  }, [loadVaultState, showToast]);
+  }, [selectedList, loadResourcesState, showToast]);
 
-  const toggleArchiveCollectionItem = useCallback(async (itemId: string, collectionId: string, workspaceId: string) => {
+  const toggleArchiveResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      const wsId = workspaceId || selectedList || "default";
+      const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (!existing) return;
 
       const nextArchived = !existing.archived;
@@ -256,18 +161,19 @@ export function useResourceState(
         updatedAt: Date.now(),
       });
 
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
+      await loadResourcesState(wsId);
+      emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      showToast(nextArchived ? "✓ Item archived" : "✓ Item unarchived");
+      showToast(nextArchived ? "✓ Resource archived" : "✓ Resource unarchived");
     } catch (e) {
-      console.warn("Failed to toggle archive on collection item", e);
+      console.warn("Failed to toggle archive resource", e);
     }
-  }, [loadVaultState, showToast]);
+  }, [selectedList, loadResourcesState, showToast]);
 
-  const togglePinCollectionItem = useCallback(async (itemId: string, collectionId: string, workspaceId: string) => {
+  const togglePinResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
-      const existing = await ResourceRepository.getResource(itemId, workspaceId);
+      const wsId = workspaceId || selectedList || "default";
+      const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (!existing) return;
 
       const nextPinned = !existing.pinned;
@@ -277,29 +183,23 @@ export function useResourceState(
         updatedAt: Date.now(),
       });
 
-      await loadVaultState();
-      emitStateChange("vault_changed", "tasks_screen");
+      await loadResourcesState(wsId);
+      emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       showToast(nextPinned ? "✓ Pinned to Quick Access" : "✓ Removed from Quick Access");
     } catch (e) {
-      console.warn("Failed to toggle pin on collection item", e);
+      console.warn("Failed to toggle pin resource", e);
     }
-  }, [loadVaultState, showToast]);
+  }, [selectedList, loadResourcesState, showToast]);
 
   return {
-    collections,
-    setCollections,
-    loadVaultState,
-    createCollection,
-    deleteCollection,
-    renameCollection,
-    addCollectionItem,
-    updateCollectionItem,
-    deleteCollectionItem,
-    toggleArchiveCollectionItem,
-    togglePinCollectionItem,
+    resources,
+    setResources,
+    loadResourcesState,
+    createResource,
+    updateResource,
+    deleteResource,
+    toggleArchiveResource,
+    togglePinResource,
   };
 }
-
-/** @deprecated Deprecated alias for useResourceState. Scheduled for removal in Step 7. */
-export const useCollectionState = useResourceState;

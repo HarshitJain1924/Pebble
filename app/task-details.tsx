@@ -28,7 +28,8 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { Resource, ResourceCollection, type Habit, Workspace, Task } from "@/shared/types/domain.types";
+import { Resource, type Habit, Workspace, Task } from "@/shared/types/domain.types";
+import { ResourceRepository } from "@/repositories";
 import { getAllHistory } from "@/services/analytics/productivity-history.service";
 import { getDateKey, getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import {
@@ -40,9 +41,7 @@ import {
 import { emitStateChange } from "@/services/events/state-events";
 import {
     addToRecycleBin,
-    getCollections,
     getRecycleBinItems,
-    saveCollections,
     saveRecycleBinItems,
 } from "@/services/storage/storage.service";
 
@@ -129,40 +128,19 @@ export default function TaskDetailsScreen() {
   // Resources state
   const [resourcesSheetVisible, setResourcesSheetVisible] = useState(false);
   const [linkPickerVisible, setLinkPickerVisible] = useState(false);
-  const [collections, setCollections] = useState<Record<string, ResourceCollection[]>>(
-    {},
-  );
+  const [resourcesList, setResourcesList] = useState<Resource[]>([]);
   const [linkedCollectionIds, setLinkedCollectionIds] = useState<string[]>([]);
   const [activeFilter, setActiveFilter] = useState<
     "All" | "Links" | "Notes" | "Images"
   >("All");
-
-  // Quick Add Collection State
-  const [newCollectionName, setNewCollectionName] = useState("");
-  const [isCreatingCollection, setIsCreatingCollection] = useState(false);
 
   // Viewing/Preview states
   const [viewingNote, setViewingNote] = useState<Resource | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const allResources = useMemo(() => {
-    const items: any[] = [];
-    Object.keys(collections).forEach((wsId) => {
-      const folderColls = collections[wsId] || [];
-      folderColls.forEach((coll) => {
-        if (coll.items) {
-          coll.items.forEach((item) => {
-            items.push({
-              ...item,
-              collectionName: coll.name,
-              workspaceId: wsId,
-            });
-          });
-        }
-      });
-    });
-    return items;
-  }, [collections]);
+    return resourcesList;
+  }, [resourcesList]);
 
   const linkedResources = useMemo(() => {
     return allResources.filter((res) => linkedCollectionIds.includes(res.id));
@@ -190,7 +168,7 @@ export default function TaskDetailsScreen() {
     if (activeFilter === "Notes")
       return allResourceItems.filter((item) => item.type === "note");
     if (activeFilter === "Images")
-      return allResourceItems.filter((item) => item.type === "image");
+      return allResourceItems.filter((item) => (item.type as string) === "image" || item.type === "file");
     return allResourceItems;
   }, [allResourceItems, activeFilter]);
 
@@ -299,9 +277,26 @@ export default function TaskDetailsScreen() {
         new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
       );
 
-      // Load collections
-      const loadedCollections = await getCollections();
-      setCollections(loadedCollections);
+      // Load resources directly from ResourceRepository for all workspace folders
+      const allLoadedResources: Resource[] = [];
+      for (const fId of folderIds) {
+        const resMap = await ResourceRepository.getResources(fId);
+        Object.values(resMap).forEach((r: any) => {
+          allLoadedResources.push({
+            id: r.id,
+            workspaceId: r.workspaceId || r.folderId || fId,
+            type: (r.resourceType || r.type || "note") as any,
+            title: r.title,
+            content: r.content !== undefined ? r.content : (r.payload?.content || r.body?.content),
+            url: r.url !== undefined ? r.url : (r.payload?.url || r.body?.url),
+            archived: r.archived || false,
+            pinned: r.pinned || false,
+            linkedItemIds: r.linkedItemIds || [],
+            createdAt: r.createdAt || Date.now(),
+          });
+        });
+      }
+      setResourcesList(allLoadedResources);
 
       if (itemType === "task") {
         let foundTask = null;
@@ -908,45 +903,7 @@ export default function TaskDetailsScreen() {
     );
   };
 
-  const availableCollectionsForPicker = useMemo(() => {
-    return Object.values(collections)
-      .flat()
-      .filter((c) => !c.archived);
-  }, [collections]);
 
-  const handleCreateNewCollection = async () => {
-    if (!newCollectionName.trim()) return;
-    try {
-      const newColId = `collection-${Date.now()}`;
-      const newCol: ResourceCollection = {
-        id: newColId,
-        workspaceId: workspaceId || "default",
-        name: newCollectionName.trim(),
-        emoji: "📚",
-        createdAt: Date.now(),
-        items: [],
-      };
-
-      const allCols = { ...collections };
-      const fId = workspaceId || "default";
-      if (!allCols[fId]) allCols[fId] = [];
-      allCols[fId].push(newCol);
-
-      await saveCollections(allCols);
-      setCollections(allCols);
-
-      // Auto-select the newly created collection
-      setLinkedCollectionIds((prev) => [...prev, newColId]);
-
-      setNewCollectionName("");
-      setIsCreatingCollection(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        () => {},
-      );
-    } catch (e) {
-      console.warn("Failed to create collection", e);
-    }
-  };
 
   if (loading || !item) {
     return (
@@ -2366,9 +2323,9 @@ export default function TaskDetailsScreen() {
                       }}
                     >
                       <Text style={{ fontSize: 16 }}>
-                        {res.type === "link"
+                        {(res.type as string) === "link"
                           ? "🔗"
-                          : res.type === "image"
+                          : (res.type as string) === "image"
                             ? "🖼"
                             : "📝"}
                       </Text>
@@ -2383,7 +2340,7 @@ export default function TaskDetailsScreen() {
                           {res.title}
                         </Text>
                         <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                          {res.collectionName || "Collection"}
+                          {(res as any).collectionName || "Resource"}
                         </Text>
                       </View>
                     </View>
@@ -2770,7 +2727,7 @@ export default function TaskDetailsScreen() {
                   if (res.type === "link" || res.url) {
                     icon = "play";
                     iconColor = "#EF4444"; // red
-                  } else if (res.type === "image" || res.mediaUri) {
+                  } else if ((res.type as string) === "image" || res.mediaUri) {
                     icon = "image";
                     iconColor = "#3B82F6"; // blue
                   }
@@ -2807,7 +2764,7 @@ export default function TaskDetailsScreen() {
                           }
                         } else if (res.type === "note") {
                           setViewingNote(res);
-                        } else if (res.type === "image" && res.mediaUri) {
+                        } else if ((res.type as string) === "image" && res.mediaUri) {
                           setViewingImage(res.mediaUri);
                         }
                       }}
@@ -2854,7 +2811,7 @@ export default function TaskDetailsScreen() {
                               marginTop: 2,
                             }}
                           >
-                            {res.collectionName} • {res.type}
+                            {(res as any).collectionName || "Resource"} • {res.type}
                           </Text>
                         </View>
                       </View>
@@ -2915,7 +2872,6 @@ export default function TaskDetailsScreen() {
             }}
             onPress={() => {
               setLinkPickerVisible(false);
-              setIsCreatingCollection(false);
             }}
           />
           <View
@@ -2963,7 +2919,6 @@ export default function TaskDetailsScreen() {
               <TouchableOpacity
                 onPress={() => {
                   setLinkPickerVisible(false);
-                  setIsCreatingCollection(false);
                 }}
                 style={{
                   width: 32,
@@ -2983,8 +2938,7 @@ export default function TaskDetailsScreen() {
               showsVerticalScrollIndicator={false}
               style={{ minHeight: 180, marginBottom: 16 }}
             >
-              {!collections[workspaceId || "default"] ||
-              collections[workspaceId || "default"].length === 0 ? (
+              {resourcesList.length === 0 ? (
                 <View style={{ paddingVertical: 40, alignItems: "center" }}>
                   <Feather name="folder" size={32} color={colors.textMuted} />
                   <Text
@@ -2994,241 +2948,55 @@ export default function TaskDetailsScreen() {
                       marginTop: 8,
                     }}
                   >
-                    No collections in this workspace.
+                    No resources available.
                   </Text>
                 </View>
               ) : (
-                collections[workspaceId || "default"].map((col) => (
-                  <View key={col.id} style={{ marginBottom: 16 }}>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 8,
-                        marginBottom: 6,
-                        paddingHorizontal: 4,
-                      }}
-                    >
-                      <Text style={{ fontSize: 16 }}>{col.emoji || "📁"}</Text>
-                      <Text
+                resourcesList
+                  .filter((i) => !i.archived)
+                  .map((res) => {
+                    const isChecked = linkedCollectionIds.includes(res.id);
+                    return (
+                      <TouchableOpacity
+                        key={res.id}
+                        onPress={() => {
+                          Haptics.impactAsync(
+                            Haptics.ImpactFeedbackStyle.Light,
+                          ).catch(() => {});
+                          setLinkedCollectionIds((prev) =>
+                            isChecked
+                              ? prev.filter((id) => id !== res.id)
+                              : [...prev, res.id],
+                          );
+                        }}
                         style={{
-                          fontSize: 14,
-                          fontWeight: "800",
-                          color: colors.text,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: 10,
+                          marginVertical: 4,
+                          borderWidth: 1,
+                          borderColor: isChecked ? colors.primary : colors.border,
+                          backgroundColor: isChecked ? `${colors.primary}08` : "transparent",
                         }}
                       >
-                        {col.name}
-                      </Text>
-                    </View>
-
-                    {!col.items ||
-                    col.items.filter((i) => !i.archived).length === 0 ? (
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          color: colors.textMuted,
-                          fontStyle: "italic",
-                          marginLeft: 28,
-                          marginBottom: 4,
-                        }}
-                      >
-                        No resources in this collection
-                      </Text>
-                    ) : (
-                      col.items
-                        .filter((i) => !i.archived)
-                        .map((res) => {
-                          const isChecked = linkedCollectionIds.includes(
-                            res.id,
-                          );
-                          return (
-                            <TouchableOpacity
-                              key={res.id}
-                              onPress={() => {
-                                Haptics.impactAsync(
-                                  Haptics.ImpactFeedbackStyle.Light,
-                                ).catch(() => {});
-                                setLinkedCollectionIds((prev) =>
-                                  isChecked
-                                    ? prev.filter((id) => id !== res.id)
-                                    : [...prev, res.id],
-                                );
-                              }}
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginLeft: 24,
-                                borderRadius: 10,
-                                marginVertical: 2,
-                                borderWidth: 1,
-                                borderColor: isChecked
-                                  ? colors.primary
-                                  : colors.border,
-                                backgroundColor: isChecked
-                                  ? `${colors.primary}08`
-                                  : "transparent",
-                              }}
-                            >
-                              <View
-                                style={{
-                                  flexDirection: "row",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  flex: 1,
-                                }}
-                              >
-                                <Text style={{ fontSize: 13 }}>
-                                  {res.type === "link"
-                                    ? res.url
-                                        ?.toLowerCase()
-                                        .includes("youtube") ||
-                                      res.url?.toLowerCase().includes("video")
-                                      ? "▶"
-                                      : "🔗"
-                                    : res.type === "file"
-                                      ? res.mimeType?.startsWith("image/")
-                                        ? "🖼"
-                                        : "📄"
-                                      : res.type === "note"
-                                        ? "📝"
-                                        : "📄"}
-                                </Text>
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    color: colors.text,
-                                    flex: 1,
-                                  }}
-                                  numberOfLines={1}
-                                >
-                                  {res.title}
-                                </Text>
-                              </View>
-                              <Feather
-                                name={isChecked ? "check-circle" : "circle"}
-                                size={16}
-                                color={
-                                  isChecked ? colors.primary : colors.textMuted
-                                }
-                              />
-                            </TouchableOpacity>
-                          );
-                        })
-                    )}
-                  </View>
-                ))
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
+                          {res.title}
+                        </Text>
+                        <Feather
+                          name={isChecked ? "check-square" : "square"}
+                          size={18}
+                          color={isChecked ? colors.primary : colors.textMuted}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })
               )}
             </ScrollView>
 
-            {/* Quick Create Collection Form */}
-            {isCreatingCollection ? (
-              <View
-                style={{
-                  gap: 10,
-                  marginTop: 8,
-                  padding: 12,
-                  backgroundColor: isDark
-                    ? "rgba(255,255,255,0.02)"
-                    : "#F8FAFC",
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-              >
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 13,
-                    fontWeight: "700",
-                  }}
-                >
-                  Create New Collection
-                </Text>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    {
-                      height: 40,
-                      color: colors.text,
-                      borderColor: colors.border,
-                      backgroundColor: isDark ? "#000" : "#fff",
-                      paddingVertical: 0,
-                    },
-                  ]}
-                  value={newCollectionName}
-                  onChangeText={setNewCollectionName}
-                  placeholder="Collection Name (e.g. Chord Sheets)"
-                  placeholderTextColor={colors.textMuted}
-                />
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "flex-end",
-                    gap: 8,
-                  }}
-                >
-                  <TouchableOpacity
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      borderRadius: 8,
-                      backgroundColor: isDark ? "#27272A" : "#E2E8F0",
-                    }}
-                    onPress={() => {
-                      setIsCreatingCollection(false);
-                      setNewCollectionName("");
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 12,
-                        fontWeight: "600",
-                      }}
-                    >
-                      Cancel
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      borderRadius: 8,
-                      backgroundColor: colors.primary,
-                    }}
-                    onPress={handleCreateNewCollection}
-                  >
-                    <Text
-                      style={{ color: "#FFF", fontSize: 12, fontWeight: "600" }}
-                    >
-                      Create
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={{
-                  alignItems: "center",
-                  justifyContent: "center",
-                  paddingVertical: 12,
-                }}
-                onPress={() => setIsCreatingCollection(true)}
-              >
-                <Text
-                  style={{
-                    color: colors.primary,
-                    fontWeight: "700",
-                    fontSize: 14,
-                  }}
-                >
-                  + Create New Collection
-                </Text>
-              </TouchableOpacity>
-            )}
+
           </View>
         </View>
       </Modal>

@@ -78,7 +78,7 @@ export default function RecycleBinScreen() {
         item.itemType === "collection_item" ||
         item.itemType === "workspace"
       ) {
-        emitStateChange("vault_changed");
+        emitStateChange("resources_changed");
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -169,7 +169,7 @@ export default function RecycleBinScreen() {
                 emitStateChange("habits_changed");
               }
               if (activeTab === "vault" || activeTab === "workspace") {
-                emitStateChange("vault_changed");
+                emitStateChange("resources_changed");
               }
 
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});

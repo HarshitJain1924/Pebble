@@ -86,6 +86,7 @@ export interface Task extends AuditInfo, ScheduleConfig {
   
   // Cross-Domain & Legacy Metadata
   resourceId?: string;
+  linkedResourceIds?: string[];
   linkedCollectionIds?: string[];
   xpAwarded?: boolean;
   createdDate?: string;
@@ -123,6 +124,7 @@ export interface Habit extends AuditInfo, ScheduleConfig {
   
   // Cross-Domain & Legacy Metadata
   resourceId?: string;
+  linkedResourceIds?: string[];
   linkedCollectionIds?: string[];
   createdDate?: string;
   startDate?: string;
@@ -152,6 +154,7 @@ export interface Checklist extends AuditInfo {
   
   // Cross-Domain & Legacy Metadata
   resourceId?: string;
+  linkedResourceIds?: string[];
   linkedCollectionIds?: string[];
 }
 
@@ -171,24 +174,15 @@ export interface Resource extends AuditInfo {
   archived?: boolean;
   pinned?: boolean;
   linkedItemIds?: string[];
+  tags?: string[];
   createdAt: number;
+  updatedAt?: number;
   
   // File metadata
   fileName?: string;
   fileSize?: number;
   mimeType?: string;
   localUri?: string;
-}
-
-/** Canonical Resource Collection / Grouping */
-export interface ResourceCollection {
-  id: string;
-  workspaceId: string;
-  name: string;
-  emoji: string;
-  createdAt: number;
-  items: Resource[];
-  archived?: boolean;
 }
 
 /** Recycle Bin Snapshot Entity */

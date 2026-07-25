@@ -625,7 +625,7 @@ export default function UnifiedCapture({
       tags: [isIdea ? "idea" : "", `collection_${targetColl.id}`].filter(Boolean),
     });
 
-    emitStateChange("vault_changed");
+    emitStateChange("resources_changed");
   };
 
   // ─── Derived Values ─────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { type Checklist, Resource, ResourceCollection, type RecycleBinItem } from "@/shared/types/domain.types";
+import { type Checklist, Resource, type RecycleBinItem } from "@/shared/types/domain.types";
 import {
     TaskRepository,
     HabitRepository,
@@ -196,31 +196,7 @@ export async function saveVaultItems(
   }
 }
 
-export async function getCollections(): Promise<Record<string, ResourceCollection[]>> {
-  try {
-    const collectionsRaw = await AsyncStorage.getItem(COLLECTIONS_STORAGE_KEY);
-    if (collectionsRaw) {
-      return JSON.parse(collectionsRaw) || {};
-    }
-    return {};
-  } catch (e) {
-    console.warn("Failed to read collections", e);
-    return {};
-  }
-}
 
-export async function saveCollections(
-  collections: Record<string, ResourceCollection[]>,
-): Promise<void> {
-  try {
-    await AsyncStorage.setItem(
-      COLLECTIONS_STORAGE_KEY,
-      JSON.stringify(collections),
-    );
-  } catch (e) {
-    console.warn("Failed to save collections", e);
-  }
-}
 
 export async function getChecklists(): Promise<Record<string, Checklist[]>> {
   try {
@@ -379,7 +355,7 @@ export async function restoreRecycleBinItems(
   if (tasksRestored) emitStateChange("tasks_changed");
   if (habitsRestored) emitStateChange("habits_changed");
   if (foldersRestored) emitStateChange("workspace_mode_changed");
-  if (vaultRestored) emitStateChange("vault_changed");
+  if (vaultRestored) emitStateChange("resources_changed");
   if (checklistsRestored) emitStateChange("checklists_changed");
 
   const binItems = await getRecycleBinItems();

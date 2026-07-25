@@ -78,17 +78,8 @@ export function WorkspacesScreen() {
   }, [state.habits, state.openedFolderId, state.searchQuery]);
 
   const allResources = React.useMemo(() => {
-    const list = state.collections[state.openedFolderId || "default"] || [];
-    const items: any[] = [];
-    list.forEach((coll) => {
-      if (coll.items) {
-        coll.items.forEach((item) => {
-          items.push({ ...item, collectionId: coll.id });
-        });
-      }
-    });
-    return items;
-  }, [state.collections, state.openedFolderId]);
+    return state.resources[state.openedFolderId || "default"] || [];
+  }, [state.resources, state.openedFolderId]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -344,7 +335,7 @@ export function WorkspacesScreen() {
                   lists={state.lists}
                   todos={state.todos}
                   habits={state.habits}
-                  collections={state.collections}
+                  collections={state.resources as any}
                   checklists={state.checklists}
                   searchQuery={state.searchQuery}
                   isHydrated={state.isHydrated}
@@ -628,21 +619,17 @@ export function WorkspacesScreen() {
                   );
                 })()}
 
-                {/* Collections Section */}
+                {/* Resources Section */}
                 {(state.folderSegment as string) === "resources" && (
                   <View style={{ gap: 10 }}>
                     <ResourceSection
-                      collections={state.collections}
+                      resources={state.resources}
                       lists={state.lists}
-                      createCollection={state.createCollection}
-                      deleteCollection={state.deleteCollection}
-                      renameCollection={state.renameCollection}
-                      addCollectionItem={state.addCollectionItem}
-                      updateCollectionItem={state.updateCollectionItem}
-                      deleteCollectionItem={state.deleteCollectionItem}
-                      toggleArchiveCollectionItem={state.toggleArchiveCollectionItem}
-                      togglePinCollectionItem={state.togglePinCollectionItem}
-                      convertCollectionItemToTask={state.convertCollectionItemToTask}
+                      createResource={state.createResource as any}
+                      updateResource={state.updateResource}
+                      deleteResource={state.deleteResource}
+                      toggleArchiveResource={state.toggleArchiveResource}
+                      togglePinResource={state.togglePinResource}
                       searchQuery={state.searchQuery}
                       activeFolderId={state.openedFolderId || "unassigned"}
                       stateTodos={Object.values(state.todos).flat()}
@@ -1001,7 +988,7 @@ export function WorkspacesScreen() {
               {state.lists.filter((ws) => !ws.archived).map((ws) => (
                 <TouchableOpacity
                   key={ws.id}
-                  onPress={() => state.handleBulkMove(ws.id)}
+                  onPress={() => (state as any).handleBulkMove?.(ws.id)}
                   style={{
                     padding: 12,
                     borderRadius: 12,

@@ -13,7 +13,7 @@ import {
 } from "@/repositories";
 import { DEFAULT_WORKSPACE_ID as DEFAULT_FOLDER_ID } from "@/shared/types/repository.types";
 
-import { Task, Habit, Workspace, Resource, ResourceCollection, Checklist, ChecklistItem } from "@/shared/types/domain.types";
+import { Task, Habit, Workspace, Resource, Checklist, ChecklistItem } from "@/shared/types/domain.types";
 
 import { pluginManager } from "@/plugin";
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
@@ -28,8 +28,6 @@ import {
     addToRecycleBin,
     getRecycleBinItems,
     saveRecycleBinItems,
-    getCollections,
-    saveCollections,
     getChecklists,
     saveChecklists,
 } from "@/services/storage/storage.service";
@@ -38,11 +36,11 @@ import { DEFAULT_TASK_CATEGORY, normalizeTaskCategory, TASK_CATEGORY_META, type 
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 import { isRecurringOccurrenceForDate, getRecurrenceLabel, parseDateKey, dayDiff } from "@/services/scheduling/recurrence.service";
 import { normalizeHabitsForToday } from "@/features/habits/services/habit.service";
-import { getListColors, getPriorityWeight, getTodoDateKey, getDateKey, isOverdue, formatAlarm, getSelectedDateLabel, WEEKDAY_NAMES, initialTodos, globalLists, globalTodos, globalHabits, globalCollections, globalChecklists, setGlobalLists, setGlobalTodos, setGlobalHabits, setGlobalCollections, setGlobalChecklists } from "@/features/tasks/utils/task-formatting";
+import { getListColors, getPriorityWeight, getTodoDateKey, getDateKey, isOverdue, formatAlarm, getSelectedDateLabel, WEEKDAY_NAMES, initialTodos, globalLists, globalTodos, globalHabits, globalResources, globalChecklists, setGlobalLists, setGlobalTodos, setGlobalHabits, setGlobalResources, setGlobalChecklists } from "@/features/tasks/utils/task-formatting";
 import { useWorkspaceState } from "@/features/workspaces/hooks/useWorkspaceState";
 import { useTaskFiltering } from "@/features/tasks/hooks/useTaskFiltering";
 import { useSelectionState } from "@/features/tasks/hooks/useSelectionState";
-import { useResourceState as useCollectionState } from "@/features/resources/hooks/useResourceState";
+import { useResourceState } from "@/features/resources/hooks/useResourceState";
 import { useChecklistState } from "@/features/checklists/hooks/useChecklistState";
 import { useReminderState } from "@/services/scheduling/hooks/useReminderState";
 import { useResourceLinkState } from "@/features/resources/hooks/useResourceLinkState";
@@ -114,20 +112,17 @@ export function useTasksState() {
 
   const { showUndo, showToast } = useUndo();
 
-  // Collection state
+  // Resource state
   const {
-    collections,
-    setCollections,
-    loadVaultState,
-    createCollection,
-    deleteCollection,
-    renameCollection,
-    addCollectionItem,
-    updateCollectionItem,
-    deleteCollectionItem,
-    toggleArchiveCollectionItem,
-    togglePinCollectionItem,
-  } = useCollectionState(selectedList, showToast);
+    resources,
+    setResources,
+    loadResourcesState,
+    createResource,
+    updateResource,
+    deleteResource,
+    toggleArchiveResource,
+    togglePinResource,
+  } = useResourceState(selectedList, showToast);
 
   // Checklist state
   const {
@@ -288,8 +283,8 @@ export function useTasksState() {
     setHabits,
     checklists,
     setChecklists,
-    collections,
-    setCollections,
+    resources,
+    setResources,
     selectedList,
     openedFolderId,
     lists,
@@ -327,7 +322,7 @@ export function useTasksState() {
       const allTodosMap: Record<string, Task[]> = {};
       const allHabits: Habit[] = [];
       const allChecklistsMap: Record<string, Checklist[]> = {};
-      const allCollectionsMap: Record<string, ResourceCollection[]> = {};
+      const allResourcesMap: Record<string, Resource[]> = {};
 
       for (const folder of currentLists) {
         const folderId = folder.id;
@@ -369,70 +364,35 @@ export function useTasksState() {
           archived: c.archived || false,
         }));
 
-        // Load collections
-        const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${folderId}`);
-        const collectionsMeta: { id: string; name: string; emoji: string }[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-
-        if (collectionsMeta.length === 0) {
-          collectionsMeta.push({ id: "default_vault", name: "Vault", emoji: "📦" });
-        }
-
+        // Load flat resources directly from ResourceRepository
         const resourcesMap = await ResourceRepository.getResources(folderId);
-        const repositoryResources = Object.values(resourcesMap);
-
-        allCollectionsMap[folderId] = collectionsMeta.map((meta) => {
-          const matchingItems: Resource[] = repositoryResources
-            .filter((r) => r.tags?.includes(`collection_${meta.id}`))
-            .map((r) => ({
-              id: r.id,
-              type: r.resourceType as any,
-              title: r.title,
-              content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
-              url: r.resourceType === "link" ? (r.payload as any).url : undefined,
-              localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
-              fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
-              mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
-              createdAt: r.createdAt,
-              pinned: r.pinned || false,
-              archived: r.archived || false,
-              kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
-            }));
-
-          if (meta.id === "default_vault") {
-            const untagged = repositoryResources
-              .filter((r) => !r.tags?.some((t) => t.startsWith("collection_")))
-              .map((r) => ({
-                id: r.id,
-                type: r.resourceType as any,
-                title: r.title,
-                content: r.resourceType === "note" || r.resourceType === "idea" ? (r.payload as any).content : undefined,
-                url: r.resourceType === "link" ? (r.payload as any).url : undefined,
-                localUri: r.resourceType === "file" ? (r.payload as any).localUri : undefined,
-                fileSize: r.resourceType === "file" ? (r.payload as any).fileSize : undefined,
-                mimeType: r.resourceType === "file" ? (r.payload as any).mimeType : undefined,
-                createdAt: r.createdAt,
-                pinned: r.pinned || false,
-                archived: r.archived || false,
-                kind: r.resourceType === "idea" ? ("idea" as const) : undefined,
-              }));
-            matchingItems.push(...untagged);
-          }
-
-          return {
-            id: meta.id,
-            workspaceId: folderId,
-            name: meta.name,
-            emoji: meta.emoji,
-            createdAt: Date.now(),
-            items: matchingItems,
-          };
-        });
+        allResourcesMap[folderId] = Object.values(resourcesMap).map((r: any) => ({
+          id: r.id,
+          workspaceId: r.workspaceId || r.folderId || folderId,
+          type: (r.resourceType || r.type || "note") as any,
+          kind: r.kind || (r.resourceType === "idea" || r.type === "idea" ? "idea" : undefined),
+          title: r.title,
+          content: r.content !== undefined ? r.content : (r.payload?.content || r.body?.content),
+          url: r.url !== undefined ? r.url : (r.payload?.url || r.body?.url),
+          mediaUri: r.mediaUri,
+          previewImageUrl: r.previewImageUrl,
+          archived: r.archived || false,
+          pinned: r.pinned || false,
+          linkedItemIds: r.linkedItemIds || [],
+          tags: r.tags || [],
+          createdAt: r.createdAt || Date.now(),
+          updatedAt: r.updatedAt || Date.now(),
+          fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
+          fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
+          mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,
+          localUri: r.localUri || r.payload?.localUri || r.body?.localUri,
+        }));
       }
 
       setTodos(allTodosMap);
       setHabits(allHabits);
       setChecklists(allChecklistsMap);
-      setCollections(allCollectionsMap);
+      setResources(allResourcesMap);
 
       try {
         const userProfile = await getProfile();
@@ -904,11 +864,13 @@ export function useTasksState() {
       }
     });
 
-    const unsubscribeVault = addStateListener("vault_changed", (emitterId) => {
+    const unsubscribeResources = addStateListener("resources_changed", (emitterId) => {
       if (emitterId !== "tasks_screen") {
-        void loadVaultState();
+        void loadResourcesState();
       }
     });
+
+
 
     const unsubscribeChecklists = addStateListener("checklists_changed", (emitterId) => {
       if (emitterId !== "tasks_screen") {
@@ -919,10 +881,10 @@ export function useTasksState() {
     return () => {
       unsubscribeTasks();
       unsubscribeHabits();
-      unsubscribeVault();
+      unsubscribeResources();
       unsubscribeChecklists();
     };
-  }, [loadState, loadHabits, loadVaultState, loadChecklistsState]);
+  }, [loadState, loadHabits, loadResourcesState, loadChecklistsState]);
 
   // Alarms highlight scroll triggers
   useEffect(() => {
@@ -1791,8 +1753,6 @@ export function useTasksState() {
     setNlpVisible,
     activeSuggestions,
     setActiveSuggestions,
-    collections,
-    setCollections,
     checklists,
     setChecklists,
 
@@ -1853,17 +1813,14 @@ export function useTasksState() {
     handleBulkComplete,
     handleBulkArchive,
     handleBulkDelete,
-    handleBulkMove,
-    createCollection,
-    deleteCollection,
-    renameCollection,
-    addCollectionItem,
-    updateCollectionItem,
-    deleteCollectionItem,
-    toggleArchiveCollectionItem,
-    togglePinCollectionItem,
-    convertCollectionItemToTask,
-    loadVaultState,
+    resources,
+    setResources,
+    loadResourcesState,
+    createResource,
+    updateResource,
+    deleteResource,
+    toggleArchiveResource,
+    togglePinResource,
     addChecklist,
     updateChecklist,
     deleteChecklist,

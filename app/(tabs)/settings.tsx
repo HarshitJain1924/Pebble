@@ -253,7 +253,7 @@ export default function SettingsScreen() {
               emitStateChange("tasks_changed");
               emitStateChange("habits_changed");
               emitStateChange("pebbles_changed");
-              emitStateChange("vault_changed");
+              emitStateChange("resources_changed");
               await loadSettingsData();
               Alert.alert(
                 "Storage Wiped",
