@@ -1,4 +1,5 @@
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { DAY_MS } from "@/services/storage/storage.service";
 
 export const getDateKey = (date = new Date()) => {
@@ -46,11 +47,11 @@ export const getPriorityWeight = (priority?: string) => {
 };
 
 export const getTodoDateKey = (todo: Task) => {
-  if (todo.scheduledDate) {
-    return todo.scheduledDate;
+  if (todo.schedule?.date) {
+    return todo.schedule.date;
   }
-  if (todo.alarmTime) {
-    return getDateKey(new Date(todo.alarmTime));
+  if (todo.reminder?.triggerAt) {
+    return getDateKey(new Date(todo.reminder.triggerAt));
   }
   const idNum = Number(todo.id);
   if (!isNaN(idNum) && idNum > 100000000000) {
@@ -60,7 +61,7 @@ export const getTodoDateKey = (todo: Task) => {
 };
 
 export const isOverdue = (todo: Task, selectedDate: string) => {
-  if (todo.completed) return false;
+  if (isTaskCompleted(todo)) return false;
   const todoDate = getTodoDateKey(todo);
   return todoDate < selectedDate;
 };

@@ -14,6 +14,7 @@ import {
 import { styles } from "@/shared/constants/dashboardStyles";
 import { type ThemeColors } from "@/shared/constants/theme";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
+import { isTaskCompleted, isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
 import { getDateKey, getTodoDateKey } from "@/features/tasks/utils/task-formatting";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -165,8 +166,8 @@ export const WorkspaceContextCarousel: React.FC<
                 habits.length +
                 checklists.reduce((sum, c) => sum + c.items.length, 0);
               const completedItems =
-                tasks.filter((t) => t.completed).length +
-                habits.filter((h) => h.completedToday).length +
+                tasks.filter((t) => isTaskCompleted(t)).length +
+                habits.filter((h) => isHabitCompletedToday(h)).length +
                 checklists.reduce(
                   (sum, c) =>
                     sum + c.items.filter((i) => i.completed).length,
@@ -322,16 +323,16 @@ export const WorkspaceContextCarousel: React.FC<
                     {/* Unified actions preview list */}
                     {(() => {
                       const taskItems = tasks.map((todo) => {
-                        const isInbox = todo.scheduledDate === "inbox";
+                        const isInbox = todo.schedule?.date === "inbox";
                         const isOverdue =
                           getTodoDateKey(todo) < getDateKey() && !isInbox;
                         return {
                           type: "task" as const,
                           id: todo.id,
                           key: `task-${todo.id}`,
-                          completed: todo.completed,
+                          completed: isTaskCompleted(todo),
                           title: todo.title,
-                          priority: todo.priority,
+                          priority: todo.priority === "none" ? undefined : todo.priority,
                           isOverdue,
                           original: todo,
                         };
@@ -341,11 +342,11 @@ export const WorkspaceContextCarousel: React.FC<
                         type: "habit" as const,
                         id: habit.id,
                         key: `habit-${habit.id}`,
-                        completed: habit.completedToday,
+                        completed: isHabitCompletedToday(habit),
                         title: habit.title,
-                        streak: habit.streak,
-                        bestStreak: habit.bestStreak,
-                        priority: habit.priority,
+                        streak: getHabitCurrentStreak(habit),
+                        bestStreak: getHabitBestStreak(habit),
+                        priority: undefined,
                         original: habit,
                       }));
 
@@ -412,7 +413,7 @@ export const WorkspaceContextCarousel: React.FC<
                                 const todo = item.original;
 
                                 let subtitle = "TODAY";
-                                if (todo.completed) {
+                                if (isTaskCompleted(todo)) {
                                   subtitle = "COMPLETED";
                                 } else if (item.isOverdue) {
                                   const dateKey = getTodoDateKey(todo);
@@ -423,20 +424,19 @@ export const WorkspaceContextCarousel: React.FC<
                                   subtitle = `OVERDUE • ${overdueLabel}`;
                                 } else if (todo.recurrence) {
                                   const typeLabel =
-                                    todo.recurrence.type.toUpperCase();
+                                    todo.recurrence.frequency.toUpperCase();
                                   subtitle = `RECURS • ${typeLabel}`;
                                 } else if (
-                                  todo.reminderHour !== undefined
+                                  todo.reminder?.triggerAt !== undefined
                                 ) {
-                                  const ampm =
-                                    todo.reminderHour >= 12 ? "PM" : "AM";
-                                  const displayHour =
-                                    todo.reminderHour % 12 || 12;
-                                  const displayMinute = String(
-                                    todo.reminderMinute || 0,
-                                  ).padStart(2, "0");
+                                  const d = new Date(todo.reminder.triggerAt);
+                                  const ampm = d.getHours() >= 12 ? "PM" : "AM";
+                                  const displayHour = d.getHours() % 12 || 12;
+                                  const displayMinute = String(d.getMinutes()).padStart(2, "0");
                                   subtitle = `TODAY • ${displayHour}:${displayMinute} ${ampm}`;
                                 }
+
+                                const isCompleted = isTaskCompleted(todo);
 
                                 return (
                                   <View key={item.key}>
@@ -449,7 +449,7 @@ export const WorkspaceContextCarousel: React.FC<
                                     >
                                       {/* Priority Indicator Spacer (2px wide) */}
                                       <PriorityIndicator
-                                        priority={todo.priority}
+                                        priority={todo.priority === "none" ? undefined : todo.priority}
                                       />
 
                                       {/* Gap between priority line and checkbox */}
@@ -468,17 +468,17 @@ export const WorkspaceContextCarousel: React.FC<
                                           height: 20,
                                           borderRadius: 10,
                                           borderWidth: 2,
-                                          borderColor: todo.completed
+                                          borderColor: isCompleted
                                             ? itemColor
                                             : "rgba(255,255,255,0.2)",
-                                          backgroundColor: todo.completed
+                                          backgroundColor: isCompleted
                                             ? itemColor
                                             : "transparent",
                                           alignItems: "center",
                                           justifyContent: "center",
                                         }}
                                       >
-                                        {todo.completed && (
+                                        {isCompleted && (
                                           <Feather
                                             name="check"
                                             size={12}
@@ -495,7 +495,7 @@ export const WorkspaceContextCarousel: React.FC<
                                           router.push({
                                             pathname: "/tasks",
                                             params: {
-                                              folderId: todo.folderId,
+                                              folderId: todo.workspaceId,
                                             },
                                           } as any)
                                         }
@@ -510,13 +510,9 @@ export const WorkspaceContextCarousel: React.FC<
                                         <View style={{ flex: 1, gap: 2 }}>
                                           <Text
                                             style={{
-                                              color: todo.completed
-                                                ? colors.textMuted
-                                                : colors.text,
-                                              fontSize: 14,
                                               fontWeight: "600",
                                               textDecorationLine:
-                                                todo.completed
+                                                isTaskCompleted(todo)
                                                   ? "line-through"
                                                   : "none",
                                             }}
@@ -526,7 +522,7 @@ export const WorkspaceContextCarousel: React.FC<
                                           </Text>
                                           <StatusBadge
                                             status={
-                                              todo.completed
+                                              isTaskCompleted(todo)
                                                 ? "completed"
                                                 : item.isOverdue
                                                   ? "overdue"
@@ -537,7 +533,7 @@ export const WorkspaceContextCarousel: React.FC<
                                         </View>
 
                                         <CategoryChip
-                                          category={todo.category}
+                                          category={todo.categoryId}
                                           size="sm"
                                         />
                                       </PressableScale>
@@ -558,15 +554,17 @@ export const WorkspaceContextCarousel: React.FC<
 
                               if (item.type === "habit") {
                                 const habit = item.original;
+                                const isCompletedHabit = isHabitCompletedToday(habit);
+                                const currentStreak = getHabitCurrentStreak(habit);
 
                                 let subtitle = "";
-                                if (habit.completedToday) {
+                                if (isCompletedHabit) {
                                   subtitle = "COMPLETED";
                                 } else {
                                   const detail = habit.description
                                     ? habit.description.toUpperCase()
-                                    : `🔥 ${habit.streak} DAY STREAK`;
-                                  subtitle = `DAY ${habit.streak + 1} • ${detail}`;
+                                    : `🔥 ${currentStreak} DAY STREAK`;
+                                  subtitle = `DAY ${currentStreak + 1} • ${detail}`;
                                 }
 
                                 return (
@@ -580,7 +578,7 @@ export const WorkspaceContextCarousel: React.FC<
                                     >
                                       {/* Priority Indicator Spacer (2px wide) */}
                                       <PriorityIndicator
-                                        priority={habit.priority}
+                                        priority={undefined}
                                       />
 
                                       {/* Gap between priority line and checkbox */}
@@ -600,18 +598,18 @@ export const WorkspaceContextCarousel: React.FC<
                                           borderRadius: 10,
                                           borderWidth: 2,
                                           borderColor:
-                                            habit.completedToday
+                                            isCompletedHabit
                                               ? "#F59E0B"
                                               : "rgba(255,255,255,0.2)",
                                           backgroundColor:
-                                            habit.completedToday
+                                            isCompletedHabit
                                               ? "#F59E0B"
                                               : "transparent",
                                           alignItems: "center",
                                           justifyContent: "center",
                                         }}
                                       >
-                                        {habit.completedToday && (
+                                        {isCompletedHabit && (
                                           <Feather
                                             name="check"
                                             size={12}
@@ -640,13 +638,13 @@ export const WorkspaceContextCarousel: React.FC<
                                         <View style={{ flex: 1, gap: 2 }}>
                                           <Text
                                             style={{
-                                              color: habit.completedToday
+                                              color: isCompletedHabit
                                                 ? colors.textMuted
                                                 : colors.text,
                                               fontSize: 14,
                                               fontWeight: "600",
                                               textDecorationLine:
-                                                habit.completedToday
+                                                isHabitCompletedToday(habit)
                                                   ? "line-through"
                                                   : "none",
                                             }}
@@ -656,7 +654,7 @@ export const WorkspaceContextCarousel: React.FC<
                                           </Text>
                                           <StatusBadge
                                             status={
-                                              habit.completedToday
+                                              isHabitCompletedToday(habit)
                                                 ? "completed"
                                                 : "active"
                                             }
@@ -665,7 +663,7 @@ export const WorkspaceContextCarousel: React.FC<
                                         </View>
 
                                         <CategoryChip
-                                          category={habit.category}
+                                          category={habit.categoryId}
                                           size="sm"
                                         />
                                       </PressableScale>
@@ -872,21 +870,20 @@ export const WorkspaceContextCarousel: React.FC<
                                                   )}
                                                 </PressableScale>
                                                 <Text
-                                                  style={{
-                                                    color:
-                                                      subItem.completed
-                                                        ? colors.textMuted
-                                                        : colors.text,
-                                                    fontSize: 12,
-                                                    textDecorationLine:
-                                                      subItem.completed
-                                                        ? "line-through"
-                                                        : "none",
-                                                    flex: 1,
-                                                  }}
-                                                >
-                                                  {subItem.title}
-                                                </Text>
+                                                   style={{
+                                                     color: subItem.completed
+                                                       ? colors.textMuted
+                                                       : colors.text,
+                                                     fontSize: 12,
+                                                     textDecorationLine: subItem.completed
+                                                       ? "line-through"
+                                                       : "none",
+                                                     flex: 1,
+                                                   }}
+                                                   numberOfLines={1}
+                                                 >
+                                                   {subItem.title}
+                                                 </Text>
                                               </View>
                                             ),
                                           )}

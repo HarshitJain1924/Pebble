@@ -83,7 +83,7 @@ export function ResourceSection({
   }, [resources, activeFolderId]);
 
   const pinnedResources = useMemo(() => {
-    return folderResources.filter((r) => r.pinned && !r.archived);
+    return folderResources.filter((r) => r.type === "idea" && !r.archivedAt);
   }, [folderResources]);
 
   const filteredResources = useMemo(() => {
@@ -94,28 +94,24 @@ export function ResourceSection({
       return list.filter(
         (r) =>
           r.title.toLowerCase().includes(q) ||
-          (r.content && r.content.toLowerCase().includes(q)) ||
-          (r.url && r.url.toLowerCase().includes(q))
+          (r.body && r.body.toLowerCase().includes(q))
       );
     }
 
     if (activeFilter === "archived") {
-      return list.filter((r) => r.archived);
+      return list.filter((r) => r.archivedAt !== undefined);
     }
 
-    list = list.filter((r) => !r.archived);
+    list = list.filter((r) => !r.archivedAt);
 
     if (activeFilter === "idea") {
-      return list.filter((r) => r.kind === "idea" || r.type === "idea");
+      return list.filter((r) => r.type === "idea");
     }
     if (activeFilter === "note") {
-      return list.filter((r) => (r.type === "note" || r.type === "idea") && r.kind !== "idea");
+      return list.filter((r) => r.type === "note");
     }
     if (activeFilter === "link") {
       return list.filter((r) => r.type === "link");
-    }
-    if (activeFilter === "file") {
-      return list.filter((r) => r.type === "file");
     }
 
     return list;
@@ -145,16 +141,14 @@ export function ResourceSection({
     }
 
     const wsId = activeFolderId || "default";
-    const newItemData: any = {
-      type: newResType,
-      kind: newResType === "idea" ? "idea" : undefined,
+    const newItemData: Partial<Resource> = {
+      type: newResType === "file" ? "note" : newResType,
       title: newResTitle.trim(),
-      url: newResType === "link" ? newResUrl.trim() : undefined,
-      content: newResType === "note" || newResType === "idea" ? newResContent.trim() : undefined,
-      localUri: pickedFile?.uri,
-      fileName: pickedFile?.name,
-      fileSize: pickedFile?.size,
-      mimeType: pickedFile?.mimeType,
+      body: newResType === "note" || newResType === "idea" ? newResContent.trim() : undefined,
+      attachments: pickedFile || newResUrl ? [
+        ...(newResUrl ? [{ id: `att-${Date.now()}-url`, name: newResUrl, uri: newResUrl, mimeType: "text/plain" }] : []),
+        ...(pickedFile ? [{ id: `att-${Date.now()}-file`, name: pickedFile.name, uri: pickedFile.uri, mimeType: pickedFile.mimeType || "application/octet-stream", size: pickedFile.size }] : []),
+      ] : undefined,
     };
 
     if (createResource) {
@@ -171,18 +165,17 @@ export function ResourceSection({
   const handleOpenEdit = useCallback((res: Resource) => {
     setEditingResource(res);
     setEditTitle(res.title);
-    setEditUrl(res.url || "");
-    setEditContent(res.content || "");
+    setEditUrl(res.attachments?.[0]?.uri || "");
+    setEditContent(res.body || "");
     setSelectedResource(null);
   }, []);
 
   const handleSaveEdit = useCallback(async () => {
     if (!editingResource || !editTitle.trim()) return;
     const wsId = activeFolderId || "default";
-    const updates = {
+    const updates: Partial<Resource> = {
       title: editTitle.trim(),
-      url: editingResource.type === "link" ? editUrl.trim() : undefined,
-      content: editingResource.type === "note" || editingResource.kind === "idea" ? editContent.trim() : undefined,
+      body: editContent.trim() || undefined,
     };
 
     if (updateResource) {
@@ -235,17 +228,15 @@ export function ResourceSection({
     }
   }, []);
 
-  const getIconForType = (type: string, kind?: string) => {
-    if (kind === "idea" || type === "idea") return "lightbulb";
+  const getIconForType = (type: string) => {
+    if (type === "idea") return "lightbulb";
     if (type === "link") return "link";
-    if (type === "file") return "file-text";
     return "align-left";
   };
 
-  const getColorForType = (type: string, kind?: string) => {
-    if (kind === "idea" || type === "idea") return "#F59E0B";
+  const getColorForType = (type: string) => {
+    if (type === "idea") return "#F59E0B";
     if (type === "link") return "#3B82F6";
-    if (type === "file") return "#8B5CF6";
     return "#10B981";
   };
 
@@ -301,10 +292,10 @@ export function ResourceSection({
                 onPress={() => setSelectedResource(res)}
               >
                 <View style={styles.quickCardHeader}>
-                  <View style={[styles.typeBadge, { backgroundColor: getColorForType(res.type, res.kind) + "20" }]}>
-                    <Feather name={getIconForType(res.type, res.kind) as any} size={12} color={getColorForType(res.type, res.kind)} />
+                  <View style={[styles.typeBadge, { backgroundColor: getColorForType(res.type) + "20" }]}>
+                    <Feather name={getIconForType(res.type) as any} size={12} color={getColorForType(res.type)} />
                   </View>
-                  <Feather name={"pin" as any} size={12} color={theme.primary} />
+                  <Feather name={"lightbulb" as any} size={12} color={theme.primary} />
                 </View>
                 <Text style={[styles.quickCardTitle, { color: theme.text }]} numberOfLines={2}>
                   {res.title}
@@ -328,7 +319,7 @@ export function ResourceSection({
           </View>
         ) : (
           filteredResources.map((res) => {
-            const iconColor = getColorForType(res.type, res.kind);
+            const iconColor = getColorForType(res.type);
             return (
               <AppCard
                 key={res.id}
@@ -337,27 +328,21 @@ export function ResourceSection({
               >
                 <View style={styles.cardMainRow}>
                   <View style={[styles.iconContainer, { backgroundColor: iconColor + "18" }]}>
-                    <Feather name={getIconForType(res.type, res.kind) as any} size={18} color={iconColor} />
+                    <Feather name={getIconForType(res.type) as any} size={18} color={iconColor} />
                   </View>
                   <View style={styles.cardContent}>
                     <View style={styles.titleRow}>
                       <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
                         {res.title}
                       </Text>
-                      {res.pinned && <Feather name={"pin" as any} size={12} color={theme.primary} style={styles.pinIcon} />}
                     </View>
-
-                    {res.content ? (
+                    {res.body ? (
                       <Text style={[styles.cardSnippet, { color: theme.textMuted }]} numberOfLines={2}>
-                        {res.content}
+                        {res.body}
                       </Text>
-                    ) : res.url ? (
-                      <Text style={[styles.cardUrl, { color: theme.primary }]} numberOfLines={1}>
-                        {res.url}
-                      </Text>
-                    ) : res.fileName ? (
+                    ) : res.attachments?.[0] ? (
                       <Text style={[styles.cardSnippet, { color: theme.textMuted }]} numberOfLines={1}>
-                        📎 {res.fileName}
+                        📎 {res.attachments[0].name}
                       </Text>
                     ) : null}
                   </View>
@@ -399,7 +384,7 @@ export function ResourceSection({
                 onPress={() => setNewResType(t)}
               >
                 <Feather
-                  name={getIconForType(t, t === "idea" ? "idea" : undefined) as any}
+                  name={getIconForType(t) as any}
                   size={14}
                   color={newResType === t ? "#FFFFFF" : theme.textMuted}
                 />
@@ -472,17 +457,17 @@ export function ResourceSection({
               </TouchableOpacity>
             </View>
 
-            {selectedResource.content ? (
+            {selectedResource.body ? (
               <ScrollView style={styles.detailContentBox}>
-                <Text style={[styles.detailText, { color: theme.text }]}>{selectedResource.content}</Text>
+                <Text style={[styles.detailText, { color: theme.text }]}>{selectedResource.body}</Text>
               </ScrollView>
             ) : null}
 
-            {selectedResource.url ? (
-              <TouchableOpacity style={styles.linkRow} onPress={() => handleOpenLink(selectedResource.url)}>
+            {selectedResource.attachments?.[0]?.uri ? (
+              <TouchableOpacity style={styles.linkRow} onPress={() => handleOpenLink(selectedResource.attachments![0].uri)}>
                 <Feather name="external-link" size={16} color={theme.primary} />
                 <Text style={[styles.linkUrlText, { color: theme.primary }]} numberOfLines={1}>
-                  {selectedResource.url}
+                  {selectedResource.attachments[0].uri}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -504,26 +489,13 @@ export function ResourceSection({
               <TouchableOpacity
                 style={styles.actionMenuItem}
                 onPress={() => {
-                  handleTogglePin(selectedResource);
-                  setSelectedResource(null);
-                }}
-              >
-                <Feather name={"pin" as any} size={16} color={theme.text} />
-                <Text style={[styles.actionMenuText, { color: theme.text }]}>
-                  {selectedResource.pinned ? "Unpin" : "Pin"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionMenuItem}
-                onPress={() => {
                   handleToggleArchive(selectedResource);
                   setSelectedResource(null);
                 }}
               >
                 <Feather name="archive" size={16} color={theme.text} />
                 <Text style={[styles.actionMenuText, { color: theme.text }]}>
-                  {selectedResource.archived ? "Unarchive" : "Archive"}
+                  {selectedResource.archivedAt ? "Unarchive" : "Archive"}
                 </Text>
               </TouchableOpacity>
 
@@ -579,7 +551,7 @@ export function ResourceSection({
               />
             )}
 
-            {(editingResource.type === "note" || editingResource.kind === "idea") && (
+            {editingResource.type === "note" && (
               <TextInput
                 style={[styles.modalInput, styles.textArea, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
                 value={editContent}
@@ -612,7 +584,7 @@ export function ResourceSection({
             <ScrollView style={{ maxHeight: 300 }}>
               <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 8 }]}>TASKS</Text>
               {stateTodos.map((todo) => {
-                const isLinked = todo.linkedResourceIds?.includes(linkingResource.id) || (todo as any).linkedCollectionIds?.includes(linkingResource.id);
+                const isLinked = todo.resourceIds?.includes(linkingResource.id);
                 return (
                   <TouchableOpacity
                     key={todo.id}
@@ -631,7 +603,7 @@ export function ResourceSection({
 
               <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 16 }]}>HABITS</Text>
               {stateHabits.map((habit) => {
-                const isLinked = habit.linkedResourceIds?.includes(linkingResource.id) || (habit as any).linkedCollectionIds?.includes(linkingResource.id);
+                const isLinked = habit.resourceIds?.includes(linkingResource.id);
                 return (
                   <TouchableOpacity
                     key={habit.id}

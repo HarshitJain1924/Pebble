@@ -12,14 +12,7 @@ export function useChecklistState(selectedList: string) {
     try {
       const activeList = selectedList || "default";
       const checklistsMap = await ChecklistRepository.getChecklists(activeList);
-      const activeChecklists = Object.values(checklistsMap).map((c) => ({
-        id: c.id,
-        workspaceId: activeList,
-        title: c.title,
-        items: c.items || [],
-        createdAt: c.createdAt,
-        archived: c.archived || false,
-      }));
+      const activeChecklists = Object.values(checklistsMap);
       setChecklists((prev) => ({
         ...prev,
         [activeList]: activeChecklists,
@@ -32,7 +25,7 @@ export function useChecklistState(selectedList: string) {
   const addChecklist = useCallback(async (title: string, itemTitles: string[], folderId: string) => {
     try {
       const activeList = folderId || selectedList || "default";
-      const newChecklist = {
+      const newChecklist: Checklist = {
         id: `checklist-${Date.now()}`,
         workspaceId: activeList,
         title,
@@ -43,7 +36,6 @@ export function useChecklistState(selectedList: string) {
         })),
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        archived: false,
       };
       await ChecklistRepository.saveChecklist(newChecklist);
       await loadChecklistsState();
@@ -63,7 +55,7 @@ export function useChecklistState(selectedList: string) {
         items: updated.items,
         createdAt: updated.createdAt || Date.now(),
         updatedAt: Date.now(),
-        archived: updated.archived || false,
+        archivedAt: updated.archivedAt,
       });
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");

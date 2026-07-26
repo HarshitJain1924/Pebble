@@ -8,6 +8,7 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { Task, Workspace } from "@/shared/types/domain.types";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -17,11 +18,11 @@ const getDateKey = (date = new Date()) => {
 };
 
 const getTodoDateKey = (todo: Task) => {
-  if (todo.scheduledDate) {
-    return todo.scheduledDate;
+  if (todo.schedule?.date) {
+    return todo.schedule.date;
   }
-  if (todo.alarmTime) {
-    return getDateKey(new Date(todo.alarmTime));
+  if (todo.reminder?.triggerAt) {
+    return getDateKey(new Date(todo.reminder.triggerAt));
   }
   const idNum = Number(todo.id);
   if (!isNaN(idNum) && idNum > 100000000000) {
@@ -84,7 +85,7 @@ export function TaskSections({
   const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
 
   const isOverdue = (todo: Task) => {
-    if (todo.completed) return false;
+    if (isTaskCompleted(todo)) return false;
     const todoDate = getTodoDateKey(todo);
     return todoDate < selectedDate;
   };
@@ -121,15 +122,15 @@ export function TaskSections({
 
   // Group tasks naturally
   const todayList = React.useMemo(() => {
-    return [...overdueTodos, ...todayTodos].filter((t) => !t.completed);
+    return [...overdueTodos, ...todayTodos].filter((t) => !isTaskCompleted(t));
   }, [overdueTodos, todayTodos]);
 
   const upcomingList = React.useMemo(() => {
-    return upcomingTodos.filter((t) => !t.completed);
+    return upcomingTodos.filter((t) => !isTaskCompleted(t));
   }, [upcomingTodos]);
 
   const somedayList = React.useMemo(() => {
-    return inboxTodos.filter((t) => !t.completed);
+    return inboxTodos.filter((t) => !isTaskCompleted(t));
   }, [inboxTodos]);
 
   const completedList = React.useMemo(() => {
@@ -137,7 +138,7 @@ export function TaskSections({
     // Filter duplicates just in case
     const seen = new Set();
     return all.filter((t) => {
-      if (!t.completed) return false;
+      if (!isTaskCompleted(t)) return false;
       if (seen.has(t.id)) return false;
       seen.add(t.id);
       return true;

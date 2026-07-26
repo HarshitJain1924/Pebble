@@ -67,13 +67,13 @@ export default function RecycleBinScreen() {
       const remaining = items.filter((i) => i.id !== item.id);
       setItems(remaining);
 
-      if (item.itemType === "task" || item.itemType === "workspace") {
+      if (item.entityType === "task" || item.entityType === "workspace") {
         emitStateChange("tasks_changed");
       }
-      if (item.itemType === "habit" || item.itemType === "workspace") {
+      if (item.entityType === "habit" || item.entityType === "workspace") {
         emitStateChange("habits_changed");
       }
-      if (item.itemType === "resource" || item.itemType === "workspace") {
+      if (item.entityType === "resource" || item.entityType === "workspace") {
         emitStateChange("resources_changed");
       }
 
@@ -82,7 +82,7 @@ export default function RecycleBinScreen() {
       );
       Alert.alert(
         "Restored",
-        `"${item.title}" has been restored successfully!`,
+        `"${(item.snapshot as any)?.title || "Item"}" has been restored successfully!`,
       );
     } catch (e) {
       console.warn("Failed to restore item", e);
@@ -92,11 +92,12 @@ export default function RecycleBinScreen() {
   };
 
   const handlePermanentDelete = (item: RecycleBinItem) => {
-    const isWorkspace = item.itemType === "workspace";
+    const isWorkspace = item.entityType === "workspace";
+    const itemTitle = (item.snapshot as any)?.title || "Item";
     const title = isWorkspace ? "Delete Workspace" : "Delete Permanently";
     const desc = isWorkspace
-      ? `Are you sure you want to permanently delete the workspace "${item.title}" along with all its contained tasks and habits? This action cannot be undone.`
-      : `Are you sure you want to permanently delete "${item.title}"? This action cannot be undone.`;
+      ? `Are you sure you want to permanently delete the workspace "${itemTitle}" along with all its contained tasks and habits? This action cannot be undone.`
+      : `Are you sure you want to permanently delete "${itemTitle}"? This action cannot be undone.`;
 
     Alert.alert(title, desc, [
       { text: "Cancel", style: "cancel" },
@@ -105,19 +106,10 @@ export default function RecycleBinScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            // Reminders were already cancelled on soft-delete, but we can call cancelReminderIds as fallback safety
-            if (item.itemType === "task" || item.itemType === "habit") {
-              await cancelReminderIds(item.data.notificationIds || []);
-            } else if (item.itemType === "workspace") {
-              if (item.data.todos) {
-                for (const t of item.data.todos) {
-                  await cancelReminderIds(t.notificationIds || []);
-                }
-              }
-              if (item.data.habits) {
-                for (const h of item.data.habits) {
-                  await cancelReminderIds(h.notificationIds || []);
-                }
+            if (item.entityType === "task" || item.entityType === "habit") {
+              const snap = item.snapshot as any;
+              if (snap?.reminder?.notificationIds) {
+                await cancelReminderIds(snap.reminder.notificationIds);
               }
             }
 
@@ -136,21 +128,17 @@ export default function RecycleBinScreen() {
   };
 
   const handleRestoreAll = async () => {
-    const tabItems = filteredItems.filter((i) => {
+    const tabItems = items.filter((i) => {
       if (activeTab === "vault") {
-        return (
-          i.itemType === "vault" ||
-          i.itemType === "collection" ||
-          i.itemType === "collection_item"
-        );
+        return i.entityType === "resource";
       }
-      return i.itemType === activeTab;
+      return i.entityType === activeTab;
     });
     if (tabItems.length === 0) return;
 
     Alert.alert(
       "Restore All",
-      `Are you sure you want to restore all ${tabItems.length} selected ${activeTab === "vault" ? "collection" : activeTab}(s)?`,
+      `Are you sure you want to restore all ${tabItems.length} selected ${activeTab === "vault" ? "resource" : activeTab}(s)?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -203,24 +191,6 @@ export default function RecycleBinScreen() {
           onPress: async () => {
             setLoading(true);
             try {
-              // Safety cancel all reminders in the bin
-              for (const item of items) {
-                if (item.itemType === "task" || item.itemType === "habit") {
-                  await cancelReminderIds(item.data.notificationIds || []);
-                } else if (item.itemType === "workspace") {
-                  if (item.data.todos) {
-                    for (const t of item.data.todos) {
-                      await cancelReminderIds(t.notificationIds || []);
-                    }
-                  }
-                  if (item.data.habits) {
-                    for (const h of item.data.habits) {
-                      await cancelReminderIds(h.notificationIds || []);
-                    }
-                  }
-                }
-              }
-
               await saveRecycleBinItems([]);
               setItems([]);
               Haptics.notificationAsync(
@@ -241,19 +211,15 @@ export default function RecycleBinScreen() {
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items;
     const query = searchQuery.toLowerCase().trim();
-    return items.filter((i) => i.title.toLowerCase().includes(query));
+    return items.filter((i) => ((i.snapshot as any)?.title || "").toLowerCase().includes(query));
   }, [items, searchQuery]);
 
   const activeTabItems = useMemo(() => {
     return filteredItems.filter((i) => {
       if (activeTab === "vault") {
-        return (
-          i.itemType === "vault" ||
-          i.itemType === "collection" ||
-          i.itemType === "collection_item"
-        );
+        return i.entityType === "resource";
       }
-      return i.itemType === activeTab;
+      return i.entityType === activeTab;
     });
   }, [filteredItems, activeTab]);
 
@@ -339,13 +305,9 @@ export default function RecycleBinScreen() {
           {(["task", "habit", "workspace", "vault"] as const).map((tab) => {
             const count = items.filter((i) => {
               if (tab === "vault") {
-                return (
-                  i.itemType === "vault" ||
-                  i.itemType === "collection" ||
-                  i.itemType === "collection_item"
-                );
+                return i.entityType === "resource";
               }
-              return i.itemType === tab;
+              return i.entityType === tab;
             }).length;
             const isActive = activeTab === tab;
             return (
@@ -475,9 +437,9 @@ export default function RecycleBinScreen() {
                 <View style={styles.itemInfo}>
                   <View style={styles.titleRow}>
                     <Text style={[styles.itemTitle, { color: colors.text }]}>
-                      {item.title}
+                      {(item.snapshot as any)?.title || "Untitled"}
                     </Text>
-                    {item.itemType === "workspace" && (
+                    {item.entityType === "workspace" && (
                       <View
                         style={[
                           styles.itemTypeBadge,
@@ -490,8 +452,8 @@ export default function RecycleBinScreen() {
                             { color: colors.primary },
                           ]}
                         >
-                          {(item.data?.todos?.length || 0) +
-                            (item.data?.habits?.length || 0)}{" "}
+                          {((item.snapshot as any)?.tasks?.length || 0) +
+                            ((item.snapshot as any)?.habits?.length || 0)}{" "}
                           items
                         </Text>
                       </View>
@@ -518,7 +480,7 @@ export default function RecycleBinScreen() {
                         📅 Deleted: {formatDate(item.deletedAt)}
                       </Text>
                     </View>
-                    {item.itemType !== "workspace" && (
+                    {item.entityType !== "workspace" && (
                       <View
                         style={[
                           styles.badge,
@@ -536,7 +498,7 @@ export default function RecycleBinScreen() {
                             fontWeight: "600",
                           }}
                         >
-                          💼 From: {item.originalLocation}
+                          💼 From: {(item.snapshot as any)?.workspaceId || "default"}
                         </Text>
                       </View>
                     )}

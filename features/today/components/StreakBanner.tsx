@@ -3,15 +3,11 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { ThemeColors } from "@/shared/constants/theme";
 import React from "react";
 import { ColorSchemeName, View } from "react-native";
-
-export interface MainStreakRecoveryInfo {
-  eligible: boolean;
-  [key: string]: any;
-}
+import { type StreakRecoveryInfo } from "@/features/profile/services/pebble.service";
 
 export interface StreakBannerProps {
   streak: number;
-  recoveryInfo: MainStreakRecoveryInfo | null;
+  recoveryInfo: StreakRecoveryInfo | null;
   onRecover: () => void;
   colors: ThemeColors;
   colorScheme: ColorSchemeName;

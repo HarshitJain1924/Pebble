@@ -11,37 +11,11 @@ import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
 import { Typography } from "@/shared/constants/typography";
-import { getTaskCategoryMeta, normalizeTaskCategory, type TaskCategory } from "@/features/tasks/services/task-categories";
+import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
-
-export type Task = {
-  id: string;
-  title: string;
-  description?: string;
-  completed: boolean;
-  category?: any;
-  alarmId?: string;
-  alarmTime?: number;
-  notificationIds?: string[];
-  reminderHour?: number;
-  reminderMinute?: number;
-  reminderDays?: number[];
-  escalationMinutes?: number[];
-  priority?: "low" | "medium" | "high";
-  scheduledDate?: string;
-  durationMinutes?: number;
-  recurrence?: {
-    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-    interval?: number;
-    unit?: "hours" | "days";
-    days?: number[];
-    dayOfMonth?: number;
-  };
-  linkedCollectionIds?: string[];
-};
-
-export type Workspace = { id: string; name: string };
+import type { Task, Workspace } from "@/shared/types/domain.types";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 
 const getFormattedDateKey = (date: Date) => {
   const y = date.getFullYear();
@@ -102,7 +76,7 @@ export function TodoItem({
   isExpanded: isExpandedProp,
   onToggleExpand,
 }: TodoItemProps) {
-  const category = getTaskCategoryMeta(normalizeTaskCategory(item.category));
+  const category = getTaskCategoryMeta(normalizeTaskCategory(item.categoryId));
   const isLight = colorScheme === "light";
 
   // Context Linkage States
@@ -113,7 +87,7 @@ export function TodoItem({
   const [isPeeking, setIsPeeking] = useState(false);
   const [showAllResources, setShowAllResources] = useState(false);
 
-  const linkedResourceIds = item.linkedCollectionIds || [];
+  const linkedResourceIds = item.resourceIds || [];
   const linkedCount = linkedResourceIds.length;
 
   // Automatically collapse when no resources are left
@@ -160,8 +134,11 @@ export function TodoItem({
     if (item.priority === "high") return "#EF4444";
     if (item.priority === "medium") return "#F97316";
     if (item.priority === "low") return "#3B82F6";
-    return "#4B5563"; // Gray/None
+    return "#4B5563";
   };
+
+  const scheduledDate = item.schedule?.date;
+  const durationMinutes = (item.schedule as any)?.durationMinutes;
 
   const metaParts = useMemo<MetaPart[]>(() => {
     const parts: MetaPart[] = [];
@@ -183,16 +160,16 @@ export function TodoItem({
         icon: "alert-circle",
         color: colors.warning,
       });
-    } else if (item.scheduledDate && item.scheduledDate !== "inbox") {
+    } else if (scheduledDate && scheduledDate !== "inbox") {
       const today = getFormattedDateKey(new Date());
       const tomorrow = getFormattedDateKey(addDays(new Date(), 1));
-      const isToday = item.scheduledDate === today;
-      const isTomorrow = item.scheduledDate === tomorrow;
+      const isToday = scheduledDate === today;
+      const isTomorrow = scheduledDate === tomorrow;
       const dateLabel = isToday
         ? "Today"
         : isTomorrow
         ? "Tomorrow"
-        : item.scheduledDate;
+        : scheduledDate;
 
       parts.push({
         key: "date",
@@ -203,8 +180,8 @@ export function TodoItem({
     }
 
     // 3. Duration
-    if (item.durationMinutes) {
-      const mins = item.durationMinutes;
+    if (durationMinutes) {
+      const mins = durationMinutes;
       let text = "";
       if (mins < 60) {
         text = `${mins}m`;
@@ -222,10 +199,8 @@ export function TodoItem({
 
     // 4. Reminder
     let reminderText = "";
-    if (item.reminderHour !== undefined && item.reminderMinute !== undefined) {
-      reminderText = formatReminderTime(item.reminderHour, item.reminderMinute) || "";
-    } else if (item.alarmTime) {
-      const d = new Date(item.alarmTime);
+    if (item.reminder && item.reminder.enabled && item.reminder.triggerAt) {
+      const d = new Date(item.reminder.triggerAt);
       reminderText = formatReminderTime(d.getHours(), d.getMinutes()) || "";
     }
 
@@ -252,7 +227,7 @@ export function TodoItem({
     }
 
     return parts;
-  }, [category, overdue, item.scheduledDate, item.durationMinutes, item.reminderHour, item.reminderMinute, item.alarmTime, item.recurrence, colors, isLight]);
+  }, [category, overdue, scheduledDate, durationMinutes, item.reminder, item.recurrence, colors, isLight]);
 
   return (
     <SwipeableCard
@@ -275,7 +250,7 @@ export function TodoItem({
               borderColor: colors.border,
               borderWidth: 1,
               borderRadius: 14,
-              opacity: item.completed ? 0.6 : 1, // Satisfying opacity fade on completion
+              opacity: isTaskCompleted(item) ? 0.6 : 1, // Satisfying opacity fade on completion
             },
           ]}
         >
@@ -304,7 +279,7 @@ export function TodoItem({
                 </Pressable>
               ) : (
                 <AnimatedCheckbox
-                  checked={item.completed}
+                  checked={isTaskCompleted(item)}
                   onToggle={onToggleTodo}
                 />
               )}
@@ -313,8 +288,8 @@ export function TodoItem({
                   style={[
                     styles.todoTitle,
                     {
-                      color: item.completed ? colors.textMuted : colors.text,
-                      textDecorationLine: item.completed
+                      color: isTaskCompleted(item) ? colors.textMuted : colors.text,
+                      textDecorationLine: isTaskCompleted(item)
                         ? "line-through"
                         : "none",
                     },

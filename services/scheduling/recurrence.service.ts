@@ -1,3 +1,5 @@
+import type { RecurrenceRule, Task, Habit } from "@/shared/types/domain.types";
+
 export function getDateKey(date = new Date()): string {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -21,128 +23,78 @@ export function dayDiff(fromDateKey: string, toDateKey: string): number {
  * Check if a task or habit is scheduled for a specific date (YYYY-MM-DD).
  */
 export function isRecurringOccurrenceForDate(
-  item: {
-    id: string;
-    title?: string;
-    scheduledDate?: string;
-    startDate?: string;
-    createdDate?: string;
-    alarmTime?: number;
-    recurrence?: {
-      type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-      interval?: number;
-      unit?: "hours" | "days";
-      days?: number[];
-      dayOfMonth?: number;
-    };
-    recurrenceExceptions?: string[];
-    archived?: boolean;
-  },
+  item: Task | Habit | any,
   dateKey: string
 ): boolean {
-  if (item.archived) return false;
+  if (item.archivedAt) return false;
 
-  // Check if date is excluded as an exception
-  if (item.recurrenceExceptions?.includes(dateKey)) {
-    return false;
-  }
+  const recurrence: RecurrenceRule | undefined = item.recurrence;
+  const scheduleDate = item.schedule?.date || item.scheduledDate;
 
-  // If no recurrence, only matches if scheduledDate is exactly the dateKey
-  if (!item.recurrence) {
-    return item.scheduledDate === dateKey;
+  // If no recurrence, only matches if scheduled date is exactly dateKey
+  if (!recurrence) {
+    return scheduleDate === dateKey;
   }
 
   // Start date of the recurrence
-  let startDayKey = item.scheduledDate && item.scheduledDate !== "inbox"
-    ? item.scheduledDate
-    : (item.startDate || item.createdDate);
-
-  if (!startDayKey) {
-    if (item.alarmTime) {
-      startDayKey = getDateKey(new Date(item.alarmTime));
-    } else {
-      startDayKey = getDateKey(new Date());
-    }
-  }
+  let startDayKey = scheduleDate || (item.createdAt ? getDateKey(new Date(item.createdAt)) : getDateKey());
 
   // Cannot occur before its start date
   if (dateKey < startDayKey) {
-    console.log("[RECURRENCE]", item.title, item.id, "startDate:", startDayKey, "selectedDate:", dateKey, "isMatch: false (Before start date)");
     return false;
   }
 
   const targetDate = parseDateKey(dateKey);
   const dayOfWeek = targetDate.getDay(); // 0 = Sunday .. 6 = Saturday
 
-  let isMatch = false;
-  switch (item.recurrence.type) {
+  const freq = recurrence.frequency || (recurrence as any).type || "daily";
+
+  switch (freq) {
     case "daily":
-      isMatch = true;
-      break;
-    case "weekdays":
-      isMatch = dayOfWeek >= 1 && dayOfWeek <= 5;
-      break;
+      return true;
     case "weekly": {
-      const targetDays = item.recurrence.days && item.recurrence.days.length > 0
-        ? item.recurrence.days
-        : [parseDateKey(startDayKey).getDay()];
-      isMatch = targetDays.includes(dayOfWeek);
-      break;
+      const targetDays = recurrence.daysOfWeek || (recurrence as any).days || [parseDateKey(startDayKey).getDay()];
+      return targetDays.includes(dayOfWeek);
     }
     case "monthly": {
-      const dayOfMonth = item.recurrence.dayOfMonth || parseDateKey(startDayKey).getDate();
-      isMatch = targetDate.getDate() === dayOfMonth;
-      break;
+      const dayOfMonth = recurrence.dayOfMonth || parseDateKey(startDayKey).getDate();
+      return targetDate.getDate() === dayOfMonth;
     }
-    case "interval": {
-      if (item.recurrence.unit === "days") {
-        const interval = item.recurrence.interval || 1;
-        const diff = dayDiff(startDayKey, dateKey);
-        isMatch = diff >= 0 && diff % interval === 0;
-      } else {
-        // If hourly, it occurs daily on the day view
-        isMatch = true;
-      }
-      break;
+    case "custom": {
+      const interval = recurrence.interval || 1;
+      const diff = dayDiff(startDayKey, dateKey);
+      return diff >= 0 && diff % interval === 0;
     }
     default:
-      isMatch = false;
+      return true;
   }
-
-  console.log(
-    "[RECURRENCE]",
-    item.title,
-    item.id,
-    "startDate:", startDayKey,
-    "selectedDate:", dateKey,
-    "isMatch:", isMatch
-  );
-  return isMatch;
 }
 
 /**
  * Format a recurrence structure into a user-friendly label.
  */
-export function getRecurrenceLabel(recurrence: any): string | null {
+export function getRecurrenceLabel(recurrence: RecurrenceRule | any): string | null {
   if (!recurrence) return null;
   
-  switch (recurrence.type) {
+  const freq = recurrence.frequency || recurrence.type;
+
+  switch (freq) {
     case "daily":
       return "Daily";
-    case "weekdays":
-      return "Weekdays";
-    case "weekly":
-      if (recurrence.days && recurrence.days.length > 0) {
+    case "weekly": {
+      const daysOfWeek = recurrence.daysOfWeek || recurrence.days;
+      if (daysOfWeek && daysOfWeek.length > 0) {
         const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        if (recurrence.days.length === 1) {
-          return `Every ${days[recurrence.days[0]]}`;
+        if (daysOfWeek.length === 1) {
+          return `Every ${days[daysOfWeek[0]]}`;
         }
-        if (recurrence.days.length === 2 && recurrence.days.includes(0) && recurrence.days.includes(6)) {
+        if (daysOfWeek.length === 2 && daysOfWeek.includes(0) && daysOfWeek.includes(6)) {
           return "Every Weekend";
         }
-        return `Weekly (${recurrence.days.map((d: number) => days[d].substring(0, 3)).join(", ")})`;
+        return `Weekly (${daysOfWeek.map((d: number) => days[d].substring(0, 3)).join(", ")})`;
       }
       return "Weekly";
+    }
     case "monthly":
       if (recurrence.dayOfMonth) {
         const suffix = (day: number) => {
@@ -157,10 +109,7 @@ export function getRecurrenceLabel(recurrence: any): string | null {
         return `Monthly on the ${recurrence.dayOfMonth}${suffix(recurrence.dayOfMonth)}`;
       }
       return "Monthly";
-    case "interval":
-      if (recurrence.unit === "hours") {
-        return recurrence.interval === 1 ? "Every Hour" : `Every ${recurrence.interval} Hours`;
-      }
+    case "custom":
       return recurrence.interval === 1 ? "Every Day" : `Every ${recurrence.interval} Days`;
     default:
       return null;

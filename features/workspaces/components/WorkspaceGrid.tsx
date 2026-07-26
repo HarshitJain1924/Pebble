@@ -13,6 +13,7 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Workspace, Task, type Checklist } from "@/shared/types/domain.types";
+import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -100,11 +101,11 @@ export function WorkspaceGrid({
     0
   );
   const inboxTasks = todos["unassigned"] ?? [];
-  const inboxActiveTasksCount = inboxTasks.filter((t) => !t.completed).length;
-  const inboxHabits = habits ? habits.filter((h) => h.folderId === "unassigned") : [];
-  const inboxActiveHabitsCount = inboxHabits.filter((h) => !h.completedToday).length;
+  const inboxActiveTasksCount = inboxTasks.filter((t) => !isTaskCompleted(t)).length;
+  const inboxHabits = habits ? habits.filter((h) => h.workspaceId === "unassigned") : [];
+  const inboxActiveHabitsCount = inboxHabits.filter((h) => !isHabitCompletedToday(h)).length;
   const inboxChecklists = checklists ? (checklists["unassigned"] || []) : [];
-  const inboxChecklistsCount = inboxChecklists.filter((c) => !c.archived).length;
+  const inboxChecklistsCount = inboxChecklists.filter((c) => !c.archivedAt).length;
 
   const activeLists = lists.filter((l) => !(l as any).archived);
   const filteredLists =
@@ -238,19 +239,19 @@ export function WorkspaceGrid({
         {filteredLists.map((folder) => {
           const folderColor = folder.color || "#6366F1";
           const folderTasks = todos[folder.id] ?? [];
-          const activeCount = folderTasks.filter((t) => !t.completed).length;
+          const activeCount = folderTasks.filter((t) => !isTaskCompleted(t)).length;
           
-          const folderHabits = habits ? habits.filter((h) => h.folderId === folder.id) : [];
-          const habitCount = folderHabits.filter((h) => !h.completedToday).length;
+          const folderHabits = habits ? habits.filter((h) => h.workspaceId === folder.id) : [];
+          const habitCount = folderHabits.filter((h) => !isHabitCompletedToday(h)).length;
 
           const folderCollections = collections ? (collections[folder.id] || []) : [];
           const resourceCount = folderCollections.reduce(
-            (sum: number, col: any) => sum + (col.items ? col.items.filter((i: any) => !i.archived).length : 0),
+            (sum: number, col: any) => sum + (col.items ? col.items.filter((i: any) => !i.archivedAt).length : 0),
             0
           );
 
           const folderChecklists = checklists ? (checklists[folder.id] || []) : [];
-          const checklistCount = folderChecklists.filter((c) => !c.archived).length;
+          const checklistCount = folderChecklists.filter((c) => !c.archivedAt).length;
 
           // Compute if we should show badge labels
           const totalActiveBadges = (activeCount > 0 ? 1 : 0) + (habitCount > 0 ? 1 : 0) + (checklistCount > 0 ? 1 : 0) + (resourceCount > 0 ? 1 : 0);
@@ -307,11 +308,7 @@ export function WorkspaceGrid({
                 {/* Top Row: Icon on left */}
                 <View style={gridStyles.topRow}>
                   <View style={[gridStyles.iconWrapper, { backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.03)" }]}>
-                    {folder.iconType === "icon" && folder.icon ? (
-                      <Feather name={folder.icon as any} size={22} color={isDark ? "#fff" : colors.text} />
-                    ) : (
-                      <Text style={{ fontSize: 24 }}>{folder.emoji || "📁"}</Text>
-                    )}
+                    <Text style={{ fontSize: 24 }}>{folder.emoji || "📁"}</Text>
                   </View>
                 </View>
 

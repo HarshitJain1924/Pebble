@@ -27,6 +27,7 @@ import {
   saveRecycleBinItems,
 } from "@/services/storage/storage.service";
 import { Task, Workspace } from "@/shared/types/domain.types";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { useCallback } from "react";
 
 export interface UseTaskCrudDeps {
@@ -70,21 +71,20 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
     async (newTask: Task) => {
       if (!newTask.title || newTask.title.trim() === "") return;
 
-      const targetFolderId = newTask.workspaceId || newTask.folderId || selectedList || "default";
-      const taskWithCreatedAt = {
+      const targetFolderId = newTask.workspaceId || selectedList || "default";
+      const taskWithCreatedAt: Task = {
         ...newTask,
         workspaceId: targetFolderId,
-        folderId: targetFolderId,
         createdAt: newTask.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        status: newTask.status || "todo",
+        priority: newTask.priority || "none",
       };
 
       const listTodos = todos[targetFolderId] ?? [];
       const updatedTodos = {
         ...todos,
-        [targetFolderId]: [
-          { ...taskWithCreatedAt, workspaceId: targetFolderId, folderId: targetFolderId },
-          ...listTodos,
-        ],
+        [targetFolderId]: [taskWithCreatedAt, ...listTodos],
       };
       setTodos(updatedTodos);
 
@@ -105,7 +105,9 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
     async (id: string, newTitle: string) => {
       const listTodos = todos[selectedList] ?? [];
       const updatedList = listTodos.map((todo) =>
-        todo.id === id ? { ...todo, title: newTitle } : todo,
+        todo.id === id
+          ? { ...todo, title: newTitle, updatedAt: Date.now() }
+          : todo,
       );
       const updated = { ...todos, [selectedList]: updatedList };
       setTodos(updated);
@@ -123,10 +125,16 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const todoToMove = sourceTodos.find((t) => t.id === todoId);
       if (!todoToMove) return;
 
+      const movedTodo: Task = {
+        ...todoToMove,
+        workspaceId: toListId,
+        updatedAt: Date.now(),
+      };
+
       const updated = {
         ...todos,
         [fromListId]: sourceTodos.filter((t) => t.id !== todoId),
-        [toListId]: [todoToMove, ...targetTodos],
+        [toListId]: [movedTodo, ...targetTodos],
       };
 
       setTodos(updated);
@@ -142,9 +150,15 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const listTodos = todos[selectedList] ?? [];
       const todo = listTodos.find((t) => t.id === id);
       if (!todo) return;
-      const nextCompleted = !todo.completed;
-      const { xpAwarded } = await handleTaskXpChange(todo, nextCompleted);
-      const updatedTodo = { ...todo, completed: nextCompleted, xpAwarded };
+      const currentlyCompleted = isTaskCompleted(todo);
+      const nextCompleted = !currentlyCompleted;
+      await handleTaskXpChange(todo, nextCompleted);
+      const updatedTodo: Task = {
+        ...todo,
+        status: nextCompleted ? "completed" : "todo",
+        completedAt: nextCompleted ? Date.now() : undefined,
+        updatedAt: Date.now(),
+      };
 
       const currentListTodos = todos[selectedList] ?? [];
       const updatedList = currentListTodos.map((t) =>
@@ -176,10 +190,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const originalWorkspace =
         lists.find((l) => l.id === selectedList)?.name || "Default";
 
-      await cancelReminderIds(
-        toDelete.notificationIds ??
-          (toDelete.alarmId ? [toDelete.alarmId] : []),
-      );
+      await cancelReminderIds(toDelete.reminder?.notificationIds ?? []);
 
       await addToRecycleBin("task", toDelete, originalWorkspace);
 
@@ -253,15 +264,15 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
   const clearCompleted = useCallback(async () => {
     const listTodos = todos[selectedList] ?? [];
     for (const t of listTodos) {
-      if (t.completed) {
-        await cancelReminderIds(
-          t.notificationIds ?? (t.alarmId ? [t.alarmId] : []),
-        );
+      if (isTaskCompleted(t)) {
+        if (t.reminder?.notificationIds) {
+          await cancelReminderIds(t.reminder.notificationIds);
+        }
       }
     }
     const updated = {
       ...todos,
-      [selectedList]: listTodos.filter((todo) => !todo.completed),
+      [selectedList]: listTodos.filter((todo) => !isTaskCompleted(todo)),
     };
     setTodos(updated);
     await persistState(lists, selectedList, updated);
@@ -274,8 +285,8 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const original = Object.values(todos)
         .flat()
         .find((t) => t.id === updatedTask.id);
-      if (original?.notificationIds) {
-        await cancelReminderIds(original.notificationIds);
+      if (original?.reminder?.notificationIds) {
+        await cancelReminderIds(original.reminder.notificationIds);
       }
 
       const rescheduledTask = await rescheduleTodoReminders(updatedTask);
@@ -295,15 +306,15 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         }
       }
       if (
-        rescheduledTask.folderId &&
-        rescheduledTask.folderId !== foundListId
+        rescheduledTask.workspaceId &&
+        rescheduledTask.workspaceId !== foundListId
       ) {
         allLists[foundListId] = allLists[foundListId].filter(
           (t) => t.id !== rescheduledTask.id,
         );
-        if (!allLists[rescheduledTask.folderId])
-          allLists[rescheduledTask.folderId] = [];
-        allLists[rescheduledTask.folderId].push(rescheduledTask);
+        if (!allLists[rescheduledTask.workspaceId])
+          allLists[rescheduledTask.workspaceId] = [];
+        allLists[rescheduledTask.workspaceId].push(rescheduledTask);
       }
 
       setTodos(allLists);
@@ -324,33 +335,24 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           id: String(Date.now()),
           title: item.title,
           description: item.content || undefined,
-          completed: false,
-          category: "work",
+          status: "todo",
+          categoryId: "work",
           priority: "medium",
-          scheduledDate: new Date().toISOString().split("T")[0],
+          schedule: { date: new Date().toISOString().split("T")[0] },
           workspaceId: destinationWorkspaceId,
-          folderId: destinationWorkspaceId,
           createdAt: Date.now(),
-          createdDate: new Date().toISOString().split("T")[0],
+          updatedAt: Date.now(),
         };
 
-        await TaskRepository.saveTask({
-          ...newTask,
-          workspaceId: newTask.workspaceId,
-          folderId: newTask.workspaceId,
-          scheduledDate: newTask.scheduledDate,
-        });
+        await TaskRepository.saveTask(newTask);
         const refreshedTasksMap = await TaskRepository.getTasks(
-          newTask.folderId || "default",
+          newTask.workspaceId || "default",
         );
-        const refreshedTodos = Object.values(refreshedTasksMap).map(
-          (t: any) => ({
-            ...t,
-            folderId: newTask.folderId || "default",
-            scheduledDate: t.scheduledDate || t.dueDate,
-          }),
-        ) as Task[];
-        setTodos({ ...todos, [newTask.folderId || "default"]: refreshedTodos });
+        const refreshedTodos = Object.values(refreshedTasksMap);
+        setTodos({
+          ...todos,
+          [newTask.workspaceId || "default"]: refreshedTodos,
+        });
 
         await earnPebble("task");
 

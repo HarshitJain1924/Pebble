@@ -1,13 +1,26 @@
 /**
  * WorkspaceRepository.ts
  * ────────────────────────
- * Workspace persistence — CRUD for Workspaces.
+ * Workspace persistence — CRUD for canonical Workspaces.
  */
 import { type Workspace } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const WORKSPACES_KEY = "pebble:v1:workspaces";
 const LEGACY_WORKSPACES_KEY = "pebble:core:folders";
+
+export function normalizeWorkspace(raw: any): Workspace {
+  return {
+    id: raw.id,
+    name: raw.name || "Untitled Workspace",
+    emoji: raw.emoji || (raw.iconType === "emoji" ? raw.icon : undefined),
+    color: raw.color || undefined,
+    description: raw.description || undefined,
+    createdAt: raw.createdAt || Date.now(),
+    updatedAt: raw.updatedAt || Date.now(),
+    archivedAt: raw.archivedAt || (raw.archived ? Date.now() : undefined),
+  };
+}
 
 export class WorkspaceRepository {
   static async getWorkspaces(): Promise<Workspace[]> {
@@ -17,10 +30,8 @@ export class WorkspaceRepository {
         raw = await AsyncStorage.getItem(LEGACY_WORKSPACES_KEY);
       }
       if (!raw) return [];
-      const workspaces: Workspace[] = JSON.parse(raw);
-      return workspaces.sort(
-        (a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0),
-      );
+      const parsed: any[] = JSON.parse(raw);
+      return parsed.map(normalizeWorkspace);
     } catch (e) {
       console.warn("Failed to get workspaces", e);
       return [];
@@ -30,11 +41,14 @@ export class WorkspaceRepository {
   static async saveWorkspace(workspace: Workspace): Promise<void> {
     try {
       const workspaces = await this.getWorkspaces();
-      const idx = workspaces.findIndex((w) => w.id === workspace.id);
+      const cleanWs = normalizeWorkspace(workspace);
+      cleanWs.updatedAt = Date.now();
+
+      const idx = workspaces.findIndex((w) => w.id === cleanWs.id);
       if (idx >= 0) {
-        workspaces[idx] = { ...workspace, updatedAt: Date.now() };
+        workspaces[idx] = cleanWs;
       } else {
-        workspaces.push({ ...workspace, updatedAt: Date.now() });
+        workspaces.push(cleanWs);
       }
       await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
     } catch (e) {
@@ -44,7 +58,8 @@ export class WorkspaceRepository {
 
   static async saveWorkspaces(workspaces: Workspace[]): Promise<void> {
     try {
-      await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
+      const normalized = workspaces.map(normalizeWorkspace);
+      await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(normalized));
     } catch (e) {
       console.warn("Failed to save workspaces batch", e);
     }

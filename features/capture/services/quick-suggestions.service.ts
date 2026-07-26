@@ -193,7 +193,7 @@ export async function getSmartQuickSuggestions(
   const nonWs = eligible.filter((e) => workspaceRelevanceScore(e, wsNames) === 0);
 
   // Is this a new user? (very few habits)
-  const isNewUser = habits.filter((h) => !h.archived).length <= 2;
+  const isNewUser = habits.filter((h) => !h.archivedAt).length <= 2;
 
   // ── Build final list ──────────────────────────────────────────────────────
   const chosen: SuggestionEntry[] = [];

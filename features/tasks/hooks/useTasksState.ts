@@ -39,7 +39,7 @@ import { useResourceLinkState } from "@/features/resources/hooks/useResourceLink
 import { useResourceState } from "@/features/resources/hooks/useResourceState";
 import {
   getProfile,
-  type UserProfile
+  type UserProfile,
 } from "@/features/settings/services/settings.service";
 import { useSelectionState } from "@/features/tasks/hooks/useSelectionState";
 import { useTaskCrud } from "@/features/tasks/hooks/useTaskCrud";
@@ -51,6 +51,7 @@ import {
   type TaskCategory,
 } from "@/features/tasks/services/task-categories";
 import {
+  formatAlarm,
   getDateKey,
   getSelectedDateLabel,
   globalHabits,
@@ -74,7 +75,6 @@ import {
 } from "@/services/scheduling/reminders.service";
 import {
   addToRecycleBin,
-  DAY_MS,
   getRecycleBinItems,
   saveRecycleBinItems,
 } from "@/services/storage/storage.service";
@@ -149,13 +149,11 @@ export function useTasksState() {
   // Resource state
   const {
     resources,
-    setResources,
     loadResourcesState,
     createResource,
     updateResource,
     deleteResource,
     toggleArchiveResource,
-    togglePinResource,
   } = useResourceState(selectedList, showToast);
 
   // Checklist state
@@ -220,6 +218,7 @@ export function useTasksState() {
   const celebrateDateRef = useRef<string | null>(null);
 
   const [addingTask, setAddingTask] = useState<Task | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
   const [selectedTodoDate, setSelectedTodoDate] =
     useState<string>(getDateKey());
   const [isAddingHabit, setIsAddingHabit] = useState(false);
@@ -235,7 +234,13 @@ export function useTasksState() {
   );
 
   // Filtering hook — manages search, date, filter state & derived memoized lists
-  const filtering = useTaskFiltering(todos, habits, lists, selectedList);
+  const filtering = useTaskFiltering(
+    todos,
+    habits,
+    selectedList,
+    selectedDate,
+    lists,
+  );
   const {
     searchQuery,
     setSearchQuery,
@@ -245,12 +250,8 @@ export function useTasksState() {
     setSelectedCategoryFilter,
     selectedListHabitPriorityFilter,
     setSelectedListHabitPriorityFilter,
-    selectedDate,
-    setSelectedDate,
 
     // Derived values
-    weekDaysStrip,
-    formatSelectedDayName,
     currentTodos,
     filteredTodos,
     overdueTodos,
@@ -293,9 +294,6 @@ export function useTasksState() {
     addHabit: baseAddHabit,
     deleteHabit: baseDeleteHabit,
     toggleHabit: baseToggleHabit,
-    recoverHabitStreak: baseRecoverHabitStreak,
-    handleSaveEditedHabit: baseHandleSaveEditedHabit,
-    handleDeleteEditedHabit: baseHandleDeleteEditedHabit,
   } = useHabitCrud({
     habits,
     setHabits,
@@ -330,7 +328,6 @@ export function useTasksState() {
     scheduleAlarm,
     scheduleAlarmWithDays,
     cancelAlarm,
-    formatAlarm: formatAlarmFromHook,
   } = useReminderState(
     todos,
     setTodos,
@@ -350,7 +347,6 @@ export function useTasksState() {
     checklists,
     setChecklists,
     resources,
-    setResources,
     selectedList,
     openedFolderId,
     lists,
@@ -395,40 +391,15 @@ export function useTasksState() {
 
         // Load tasks
         const folderTasksMap = await TaskRepository.getTasks(folderId);
-        allTodosMap[folderId] = Object.values(folderTasksMap).map((t) => ({
-          id: t.id,
-          title: t.title,
-          completed: t.completed,
-          priority: t.priority,
-          scheduledDate: t.dueDate,
-          folderId,
-          createdAt: t.createdAt,
-          category: t.category as any,
-        }));
+        allTodosMap[folderId] = Object.values(folderTasksMap);
 
         // Load habits
         const folderHabitsMap = await HabitRepository.getHabits(folderId);
-        const folderHabitsList = Object.values(folderHabitsMap).map((h) => ({
-          id: h.id,
-          title: h.title,
-          streak: h.streak,
-          bestStreak: h.bestStreak,
-          completedToday: h.completedDates.includes(getDateKey()),
-          folderId,
-          createdAt: h.createdAt,
-        }));
-        allHabits.push(...folderHabitsList);
+        allHabits.push(...Object.values(folderHabitsMap));
 
         // Load checklists
         const checklistsMap = await ChecklistRepository.getChecklists(folderId);
-        allChecklistsMap[folderId] = Object.values(checklistsMap).map((c) => ({
-          id: c.id,
-          folderId,
-          title: c.title,
-          items: c.items || [],
-          createdAt: c.createdAt,
-          archived: c.archived || false,
-        }));
+        allChecklistsMap[folderId] = Object.values(checklistsMap);
 
         // Load flat resources directly from ResourceRepository
         const resourcesMap = await ResourceRepository.getResources(folderId);
@@ -467,7 +438,7 @@ export function useTasksState() {
       setTodos(allTodosMap);
       setHabits(allHabits);
       setChecklists(allChecklistsMap);
-      setResources(allResourcesMap);
+      await loadResourcesState(selectedList);
 
       try {
         const userProfile = await getProfile();
@@ -521,16 +492,7 @@ export function useTasksState() {
         for (const folder of targetLists) {
           const folderId = folder.id;
           const folderHabitsMap = await HabitRepository.getHabits(folderId);
-          const folderHabitsList = Object.values(folderHabitsMap).map((h) => ({
-            id: h.id,
-            title: h.title,
-            streak: h.streak,
-            bestStreak: h.bestStreak,
-            completedToday: h.completedDates.includes(getDateKey()),
-            folderId,
-            createdAt: h.createdAt,
-          }));
-          allHabits.push(...folderHabitsList);
+          allHabits.push(...Object.values(folderHabitsMap));
         }
         setHabits(allHabits);
       } catch (e) {
@@ -635,24 +597,21 @@ export function useTasksState() {
 
       const newTodo: Task = {
         id: generatedTaskId,
+        workspaceId: destinationWorkspaceId,
         title: parsed.title,
-        completed: false,
-        category: parsed.category || DEFAULT_TASK_CATEGORY,
-        priority: parsed.priority || "medium",
-        scheduledDate: parsed.date || "inbox",
-        alarmTime,
-        alarmId,
-        notificationIds,
-        reminderHour: parsed.time
-          ? Number(parsed.time.split(":")[0])
+        status: "todo",
+        priority: parsed.priority || "none",
+        categoryId: parsed.category || DEFAULT_TASK_CATEGORY,
+        schedule: parsed.date ? { date: parsed.date } : undefined,
+        reminder: alarmTime
+          ? {
+              enabled: true,
+              triggerAt: alarmTime,
+              notificationIds,
+            }
           : undefined,
-        reminderMinute: parsed.time
-          ? Number(parsed.time.split(":")[1])
-          : undefined,
-        recurrence: parsed.recurrence,
-        folderId: destinationWorkspaceId,
         createdAt: Date.now(),
-        createdDate: getDateKey(),
+        updatedAt: Date.now(),
       };
 
       const listTodos = todos[destinationWorkspaceId] ?? [];
@@ -722,21 +681,24 @@ export function useTasksState() {
 
       const newHabit: Habit = {
         id: generatedHabitId,
+        workspaceId: destinationWorkspaceId,
         title: parsed.title,
-        streak: 0,
-        bestStreak: 0,
-        completedToday: false,
-        priority: parsed.priority || "medium",
-        reminderDays,
-        reminderHour: hour,
-        reminderMinute: minute,
-        recurrence: parsed.recurrence,
-        notificationIds,
-        category: parsed.category || "health",
-        folderId: destinationWorkspaceId,
+        categoryId: parsed.category || "health",
+        recurrence: {
+          frequency: "daily",
+          interval: 1,
+        },
+        completionHistory: [],
+        reminder:
+          hour !== undefined && minute !== undefined
+            ? {
+                enabled: true,
+                triggerAt: Date.now(),
+                notificationIds,
+              }
+            : undefined,
         createdAt: Date.now(),
-        createdDate: getDateKey(),
-        startDate: getDateKey(),
+        updatedAt: Date.now(),
       };
 
       const nextHabits = [newHabit, ...habits];
@@ -745,7 +707,7 @@ export function useTasksState() {
 
       const catLabel =
         TASK_CATEGORY_META.find(
-          (c) => c.key === (newHabit.category || "health"),
+          (c) => c.key === (newHabit.categoryId || "health"),
         )?.label || "Health";
       showToast(`✓ Habit added to ${catLabel}`);
 
@@ -756,6 +718,13 @@ export function useTasksState() {
     void recordDailyHistorySnapshot();
   };
 
+  const handleSaveEditedHabit = async (updated: Habit) => {
+    await HabitRepository.saveHabit(updated);
+    const next = habits.map((h) => (h.id === updated.id ? updated : h));
+    setHabits(next);
+    await persistHabits(next);
+  };
+
   const handleUpdateExistingFromNLP = async (
     parsed: ParsedProductivityItem,
     existingId: string,
@@ -764,31 +733,20 @@ export function useTasksState() {
     if (type === "habit") {
       const existing = habits.find((h) => h.id === existingId);
       if (!existing) return;
-      const updatedHabit = {
+      const updatedHabit: Habit = {
         ...existing,
         title: parsed.title,
-        category: parsed.category || existing.category,
-        reminderHour: parsed.time
-          ? Number(parsed.time.split(":")[0])
-          : existing.reminderHour,
-        reminderMinute: parsed.time
-          ? Number(parsed.time.split(":")[1])
-          : existing.reminderMinute,
-        recurrence: parsed.recurrence || existing.recurrence,
-        priority: parsed.priority || existing.priority,
+        categoryId: parsed.category || existing.categoryId,
+        recurrence: parsed.recurrence
+          ? {
+              frequency: (parsed.recurrence.type as any) || "daily",
+              interval: parsed.recurrence.interval || 1,
+              daysOfWeek: parsed.recurrence.days,
+            }
+          : existing.recurrence,
+        updatedAt: Date.now(),
       };
-
-      let reminderDays: number[] | undefined = undefined;
-      if (updatedHabit.recurrence) {
-        if (updatedHabit.recurrence.type === "weekdays") {
-          reminderDays = [1, 2, 3, 4, 5];
-        } else if (updatedHabit.recurrence.type === "weekly") {
-          reminderDays = updatedHabit.recurrence.days;
-        }
-      }
-      updatedHabit.reminderDays = reminderDays;
-
-      await baseHandleSaveEditedHabit(updatedHabit);
+      await handleSaveEditedHabit(updatedHabit);
       showToast(`✓ Habit updated`);
     } else {
       let existingTask: Task | undefined;
@@ -801,20 +759,15 @@ export function useTasksState() {
       }
       if (!existingTask) return;
 
-      const [hours, minutes] = parsed.time
-        ? parsed.time.split(":").map(Number)
-        : [undefined, undefined];
-
-      const updatedTask = {
+      const updatedTask: Task = {
         ...existingTask,
         title: parsed.title,
-        category: parsed.category || existingTask.category,
-        scheduledDate: parsed.date || existingTask.scheduledDate,
-        reminderHour: hours !== undefined ? hours : existingTask.reminderHour,
-        reminderMinute:
-          minutes !== undefined ? minutes : existingTask.reminderMinute,
-        recurrence: parsed.recurrence || existingTask.recurrence,
+        categoryId: parsed.category || existingTask.categoryId,
+        schedule: parsed.date
+          ? { ...existingTask.schedule, date: parsed.date }
+          : existingTask.schedule,
         priority: parsed.priority || existingTask.priority,
+        updatedAt: Date.now(),
       };
 
       onSaveEditedTask(updatedTask);
@@ -840,21 +793,6 @@ export function useTasksState() {
 
   const toggleHabit = async (id: string) => {
     await baseToggleHabit(id);
-  };
-
-  const recoverHabitStreak = async (
-    id: string,
-    method: "pebbles" | "focus",
-  ): Promise<boolean> => {
-    return baseRecoverHabitStreak(id, method);
-  };
-
-  const handleSaveEditedHabit = async (updated: Habit) => {
-    await baseHandleSaveEditedHabit(updated);
-  };
-
-  const handleDeleteEditedHabit = async (id: string) => {
-    await baseHandleDeleteEditedHabit(id);
   };
 
   useFocusEffect(
@@ -1004,7 +942,7 @@ export function useTasksState() {
     if (focusHabitId && habits.length > 0) {
       const habit = habits.find((h) => h.id === focusHabitId);
       if (habit) {
-        const folderId = habit.folderId || "default";
+        const folderId = habit.workspaceId || "default";
         setOpenedFolderId(folderId);
         setSelectedList(folderId);
         setHighlightedHabitId(focusHabitId);
@@ -1027,24 +965,19 @@ export function useTasksState() {
       const activeHabitsMap = await HabitRepository.getHabits(listId);
 
       const activeTodos: Task[] = Object.values(activeTasksMap).map((t) => ({
-        id: t.id,
-        title: t.title,
-        completed: t.completed,
-        priority: t.priority,
-        scheduledDate: t.dueDate,
-        folderId: listId,
-        createdAt: t.createdAt,
-        category: t.category as any,
+        ...t,
+        workspaceId: listId,
+        updatedAt: t.updatedAt || Date.now(),
       }));
 
       const activeHabits: Habit[] = Object.values(activeHabitsMap).map((h) => ({
         id: h.id,
+        workspaceId: listId,
         title: h.title,
-        streak: h.streak,
-        bestStreak: h.bestStreak,
-        completedToday: h.completedDates.includes(getDateKey()),
-        folderId: listId,
+        recurrence: h.recurrence,
+        completionHistory: h.completionHistory || [],
         createdAt: h.createdAt,
+        updatedAt: h.updatedAt,
       }));
 
       setTodos((prev) => ({
@@ -1120,22 +1053,19 @@ export function useTasksState() {
 
     if (habitIds.length > 0) {
       const today = getDateKey();
-      const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
       const nextHabits = habits.map((h) => {
         if (selectedItemIds.has(h.id)) {
-          let nextStreak = 1;
-          if (h.lastCompletedDate === today) {
-            nextStreak = h.streak || 1;
-          } else if (h.lastCompletedDate === yesterday) {
-            nextStreak = h.streak + 1;
-          }
+          const hasToday = h.completionHistory.some((c) => c.date === today);
+          const nextHistory = hasToday
+            ? h.completionHistory
+            : [
+                ...h.completionHistory,
+                { date: today, completedAt: Date.now() },
+              ];
           return {
             ...h,
-            completedToday: true,
-            lastCompletedDate: today,
-            streak: nextStreak,
-            bestStreak: Math.max(h.bestStreak || 0, nextStreak),
-            lastUpdated: today,
+            completionHistory: nextHistory,
+            updatedAt: Date.now(),
           };
         }
         return h;
@@ -1162,12 +1092,13 @@ export function useTasksState() {
       for (const listId in nextTodos) {
         nextTodos[listId] = nextTodos[listId].map((t) => {
           if (selectedItemIds.has(t.id)) {
-            void cancelReminderIds(t.notificationIds || []);
+            if (t.reminder?.notificationIds) {
+              void cancelReminderIds(t.reminder.notificationIds);
+            }
             return {
               ...t,
-              archived: true,
-              notificationIds: [],
-              lastUpdated: getDateKey(),
+              archivedAt: Date.now(),
+              updatedAt: Date.now(),
             };
           }
           return t;
@@ -1181,12 +1112,13 @@ export function useTasksState() {
     if (habitIds.length > 0) {
       const nextHabits = habits.map((h) => {
         if (selectedItemIds.has(h.id)) {
-          void cancelReminderIds(h.notificationIds || []);
+          if (h.reminder?.notificationIds) {
+            void cancelReminderIds(h.reminder.notificationIds);
+          }
           return {
             ...h,
-            archived: true,
-            notificationIds: [],
-            lastUpdated: getDateKey(),
+            archivedAt: Date.now(),
+            updatedAt: Date.now(),
           };
         }
         return h;
@@ -1231,9 +1163,11 @@ export function useTasksState() {
               );
 
               for (const todo of todosToDelete) {
-                await cancelReminderIds(todo.notificationIds || []);
+                if (todo.reminder?.notificationIds) {
+                  await cancelReminderIds(todo.reminder.notificationIds);
+                }
                 const folderName =
-                  lists.find((l) => l.id === (todo.folderId || selectedList))
+                  lists.find((l) => l.id === (todo.workspaceId || selectedList))
                     ?.name || originalWorkspaceName;
                 await addToRecycleBin("task", todo, folderName);
               }
@@ -1253,7 +1187,9 @@ export function useTasksState() {
                 onUndo: async () => {
                   const binItems = await getRecycleBinItems();
                   await saveRecycleBinItems(
-                    binItems.filter((item) => !selectedItemIds.has(item.id)),
+                    binItems.filter(
+                      (item) => !selectedItemIds.has(item.entityId),
+                    ),
                   );
 
                   const rescheduledTodos = await Promise.all(
@@ -1261,22 +1197,16 @@ export function useTasksState() {
                   );
 
                   for (const todo of rescheduledTodos) {
-                    const listId = todo.folderId || selectedList;
+                    const listId = todo.workspaceId || selectedList;
                     await TaskRepository.saveTask({
                       ...todo,
-                      folderId: listId,
+                      workspaceId: listId,
                     });
                   }
                   // Re-read state from current
                   const refreshedMap =
                     await TaskRepository.getTasks(selectedList);
-                  const refreshedTodos = Object.values(refreshedMap).map(
-                    (t: any) => ({
-                      ...t,
-                      folderId: selectedList,
-                      scheduledDate: t.scheduledDate || t.dueDate,
-                    }),
-                  ) as Task[];
+                  const refreshedTodos = Object.values(refreshedMap) as Task[];
                   const currentTodos = {
                     ...todos,
                     [selectedList]: refreshedTodos,
@@ -1294,9 +1224,11 @@ export function useTasksState() {
               );
 
               for (const habit of habitsToDelete) {
-                await cancelReminderIds(habit.notificationIds || []);
+                if (habit.reminder?.notificationIds) {
+                  await cancelReminderIds(habit.reminder.notificationIds);
+                }
                 const folderName =
-                  lists.find((l) => l.id === (habit.folderId || "default"))
+                  lists.find((l) => l.id === (habit.workspaceId || "default"))
                     ?.name || "Default";
                 await addToRecycleBin("habit", habit, folderName);
               }
@@ -1313,7 +1245,9 @@ export function useTasksState() {
                 onUndo: async () => {
                   const binItems = await getRecycleBinItems();
                   await saveRecycleBinItems(
-                    binItems.filter((item) => !selectedItemIds.has(item.id)),
+                    binItems.filter(
+                      (item) => !selectedItemIds.has(item.entityId),
+                    ),
                   );
 
                   const rescheduledHabits = await Promise.all(
@@ -1323,20 +1257,13 @@ export function useTasksState() {
                   for (const habit of rescheduledHabits) {
                     await HabitRepository.saveHabit({
                       ...habit,
-                      folderId: selectedList,
+                      workspaceId: selectedList,
                     });
                   }
                   // Re-read state from current
                   const refreshedHabitsMap =
                     await HabitRepository.getHabits(selectedList);
-                  const restored = Object.values(refreshedHabitsMap).map(
-                    (h: any) => ({
-                      ...h,
-                      folderId: selectedList,
-                      completedToday:
-                        h.completedDates?.includes(getDateKey()) || false,
-                    }),
-                  ) as Habit[];
+                  const restored = Object.values(refreshedHabitsMap) as Habit[];
                   await persistHabits(restored);
                   setHabits(restored);
                   emitStateChange("habits_changed", "tasks_screen");
@@ -1370,8 +1297,8 @@ export function useTasksState() {
           if (selectedItemIds.has(t.id)) {
             itemsToMove.push({
               ...t,
-              folderId: targetFolderId,
-              lastUpdated: getDateKey(),
+              workspaceId: targetFolderId,
+              updatedAt: Date.now(),
             });
           } else {
             itemsToKeep.push(t);
@@ -1516,8 +1443,6 @@ export function useTasksState() {
     addTaskInputRef,
 
     // Memoized values
-    weekDaysStrip,
-    formatSelectedDayName,
     filteredTodos,
     overdueTodos,
     todayTodos,
@@ -1540,7 +1465,8 @@ export function useTasksState() {
     handleSaveParsedItem,
     handleUpdateExistingFromNLP,
     handleSaveEditedHabit,
-    handleDeleteEditedHabit,
+    deleteHabit: baseDeleteHabit,
+    handleDeleteEditedHabit: (id: string) => baseDeleteHabit(id),
     persistState,
     persistHabits,
     selectList,
@@ -1560,26 +1486,27 @@ export function useTasksState() {
     scheduleAlarmWithDays,
     onSaveEditedTask,
     cancelAlarm,
-    formatAlarm: formatAlarmFromHook,
-    addHabit,
-    deleteHabit,
-    toggleHabit,
-    recoverHabitStreak,
+    formatAlarm: (ms?: number) => formatAlarm(ms),
+    addHabit: baseAddHabit,
+    toggleHabit: baseToggleHabit,
     handleBulkComplete,
     handleBulkArchive,
     handleBulkDelete,
     resources,
-    setResources,
     loadResourcesState,
     createResource,
     updateResource,
     deleteResource,
     toggleArchiveResource,
-    togglePinResource,
     addChecklist,
+    createChecklist: addChecklist,
     updateChecklist,
+    updateChecklistTitle: updateChecklist,
     deleteChecklist,
+    toggleArchiveChecklist: deleteChecklist,
     toggleChecklistItem,
+    addChecklistItem: (id: string, itemTitle: string) => {},
+    deleteChecklistItem: (id: string, itemId: string) => {},
     loadChecklistsState,
   };
 }

@@ -1,35 +1,13 @@
-import type { Habit, Task } from "@/shared/types/domain.types";
+import type { Habit, Task, Settings, UserProfile } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PROFILE_STORAGE_KEY, SETTINGS_STORAGE_KEY } from "@/services/storage/storage.service";
 import { UiStateRepository } from "@/repositories";
+import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 
-export type AppSettings = {
-  theme: "dark" | "light" | "system";
-  quietHours: {
-    enabled: boolean;
-    startHour: number; // 0..23
-    endHour: number; // 0..23
-  };
-  categories: Record<string, boolean>; // category key -> enabled
-  escalationEnabled: boolean;
-  showDuration?: boolean;
-  showRepeat?: boolean;
-  showReminder?: boolean;
-  showTags?: boolean;
-  showNotes?: boolean;
-  showMascot?: boolean;
-  editorRowOrder?: string[];
-};
+export type AppSettings = Settings;
+export type { UserProfile };
 
-export type UserProfile = {
-  name: string;
-  email: string;
-  avatar: string;
-  level: number;
-  xp: number;
-};
-
-const DEFAULT_SETTINGS: AppSettings = {
+const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   quietHours: {
     enabled: false,
@@ -71,10 +49,6 @@ const DEFAULT_PROFILE: UserProfile = {
   xp: 0,
 };
 
-// Calculate level based on XP. XP needed for level L is L * 100
-// Level 1: 0 - 99 XP
-// Level 2: 100 - 299 XP (200 XP more)
-// Level L: requires Level-Up XP = L * 100
 export function getLevelInfo(xp: number) {
   let level = 1;
   let xpNeededForNext = 100;
@@ -96,7 +70,6 @@ export function getLevelInfo(xp: number) {
   const currentLevelProgressXp = remaining;
   const progressPct = currentLevelProgressXp / xpNeededForNext;
 
-  // Level Rank Name
   let rank = "Mindful Starter";
   if (level >= 10) rank = "Productivity Overlord 👑";
   else if (level >= 7) rank = "Ultimate Focus Zen Master 🧘";
@@ -113,7 +86,7 @@ export function getLevelInfo(xp: number) {
   };
 }
 
-export async function getSettings(): Promise<AppSettings> {
+export async function getSettings(): Promise<Settings> {
   try {
     const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
@@ -124,9 +97,8 @@ export async function getSettings(): Promise<AppSettings> {
   }
 }
 
-export async function saveSettings(settings: AppSettings): Promise<void> {
+export async function saveSettings(settings: Settings): Promise<void> {
   await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-  // Sync theme to UiStateRepository
   await UiStateRepository.saveUiState({ themeCache: settings.theme === "system" ? "dark" : settings.theme });
 }
 
@@ -143,7 +115,6 @@ export async function getProfile(): Promise<UserProfile> {
 
 export async function saveProfile(profile: UserProfile): Promise<void> {
   await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
-  // Sync onboarding state to UiStateRepository
   if (profile.name !== "") {
     await UiStateRepository.saveUiState({ completedOnboarding: true });
   }
@@ -154,7 +125,6 @@ export async function addXp(amount: number): Promise<UserProfile> {
   const oldXp = profile.xp;
   const newXp = oldXp + amount;
 
-  const oldLevelInfo = getLevelInfo(oldXp);
   const newLevelInfo = getLevelInfo(newXp);
 
   const updatedProfile: UserProfile = {
@@ -172,15 +142,16 @@ export async function handleTaskXpChange(
   nextCompleted: boolean,
 ): Promise<{ xpAwarded: boolean; xpChange: number }> {
   let xpChange = 0;
-  let xpAwarded = !!todo.xpAwarded;
+  const currentlyCompleted = isTaskCompleted(todo);
+  let xpAwarded = currentlyCompleted;
 
   if (nextCompleted) {
-    if (!xpAwarded) {
+    if (!currentlyCompleted) {
       xpChange = 10;
       xpAwarded = true;
     }
   } else {
-    if (xpAwarded) {
+    if (currentlyCompleted) {
       xpChange = -10;
       xpAwarded = false;
     }
@@ -199,15 +170,16 @@ export async function handleHabitXpChange(
   todayKey: string,
 ): Promise<{ xpAwardedDate?: string; xpChange: number }> {
   let xpChange = 0;
-  let xpAwardedDate = habit.xpAwardedDate;
+  const currentlyCompleted = isHabitCompletedToday(habit, todayKey);
+  let xpAwardedDate = currentlyCompleted ? todayKey : undefined;
 
   if (nextCompleted) {
-    if (xpAwardedDate !== todayKey) {
+    if (!currentlyCompleted) {
       xpChange = 15;
       xpAwardedDate = todayKey;
     }
   } else {
-    if (xpAwardedDate === todayKey) {
+    if (currentlyCompleted) {
       xpChange = -15;
       xpAwardedDate = undefined;
     }
@@ -220,9 +192,8 @@ export async function handleHabitXpChange(
   return { xpAwardedDate, xpChange };
 }
 
-// Helper to determine if a given hour falls inside quiet hours
 export function isCurrentlyInQuietHours(
-  settings: AppSettings,
+  settings: Settings,
   targetHour: number,
 ): boolean {
   if (!settings?.quietHours?.enabled) return false;
@@ -232,10 +203,8 @@ export function isCurrentlyInQuietHours(
     return false;
 
   if (startHour < endHour) {
-    // Normal interval (e.g. 22 to 7 -> startHour > endHour usually, but let's handle normal interval 9 to 17)
     return targetHour >= startHour && targetHour < endHour;
   } else {
-    // Wrap around midnight (e.g. 22 to 7)
     return targetHour >= startHour || targetHour < endHour;
   }
 }

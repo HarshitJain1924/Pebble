@@ -1,14 +1,7 @@
 import React from "react";
 import { View, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
-
-export interface CognitiveFlowStats {
-  morningPct: number;
-  afternoonPct: number;
-  eveningPct: number;
-  peakZone: string;
-  icon: string;
-}
+import { type CognitiveFlowStats } from "@/features/capture/services/cognitive-flow.service";
 
 export interface FocusRhythmPeaksProps {
   cognitiveFlowStats: CognitiveFlowStats;

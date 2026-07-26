@@ -112,26 +112,18 @@ export function SuggestionBanner({
                 if (suggestion.type === "convert_habit") {
                   const newHabit: Habit = {
                     id: `habit-${Date.now()}`,
+                    workspaceId: activeWorkspace,
                     title: suggestion.title,
-                    streak: 0,
-                    bestStreak: 0,
-                    completedToday: false,
-                    priority: "medium",
-                    folderId: activeWorkspace,
+                    categoryId: "learning",
+                    recurrence: { frequency: "daily", interval: 1 },
+                    completionHistory: [],
                     createdAt: Date.now(),
+                    updatedAt: Date.now(),
                   };
                   
                   // Load active workspace current habits
                   const habitsMap = await HabitRepository.getHabits(activeWorkspace);
-                  const currentHabits: Habit[] = Object.values(habitsMap).map((h: any) => ({
-                    id: h.id,
-                    title: h.title,
-                    streak: h.streak,
-                    bestStreak: h.bestStreak,
-                    completedToday: h.completedDates?.includes(getDateKey()),
-                    folderId: activeWorkspace,
-                    createdAt: h.createdAt,
-                  }));
+                  const currentHabits: Habit[] = Object.values(habitsMap);
 
                   const updated = [newHabit, ...currentHabits];
                   await persistHabits(updated);
@@ -145,27 +137,19 @@ export function SuggestionBanner({
                   const listId = openedFolderId || selectedList || "default";
                   const newTodo: Task = {
                     id: String(Date.now()),
+                    workspaceId: listId,
                     title: `Study schedule: ${suggestion.title}`,
-                    completed: false,
-                    category: "learning",
+                    status: "todo",
+                    categoryId: "learning",
                     priority: "high",
-                    scheduledDate: getDateKey(),
-                    folderId: listId,
+                    schedule: { date: getDateKey() },
                     createdAt: Date.now(),
+                    updatedAt: Date.now(),
                   };
                   
                   // Load active workspace current tasks
                   const tasksMap = await TaskRepository.getTasks(listId);
-                  const listTodos: Task[] = Object.values(tasksMap).map((t: any) => ({
-                    id: t.id,
-                    title: t.title,
-                    completed: t.completed,
-                    priority: t.priority,
-                    scheduledDate: t.dueDate,
-                    folderId: listId,
-                    createdAt: t.createdAt,
-                    category: t.category,
-                  }));
+                  const listTodos: Task[] = Object.values(tasksMap);
 
                   const updatedList = [newTodo, ...listTodos];
                   const updated = {

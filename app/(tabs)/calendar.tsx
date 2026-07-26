@@ -28,6 +28,7 @@ import {
   MONTH_NAMES,
   getDateKey,
 } from "@/features/calendar/hooks/useCalendarState";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { TaskEditorSheet } from "@/features/tasks/components/TaskEditorSheet";
 import { historyForDate } from "@/services/analytics/productivity-history.service";
@@ -120,10 +121,10 @@ export default function CalendarScreen() {
 
   const getItemType = (item: any) => {
     if (item.type === "habit") return "habit";
-    if (item.category === "focus") return "focus";
-    if (item.category === "learning") return "resource";
-    if (item.isEvent || item.category === "travel" || item.category === "creative") return "event";
-    if (item.category === "home" || (item.subtasks && item.subtasks.length > 0)) return "checklist";
+    if (item.categoryId === "focus" || item.category === "focus") return "focus";
+    if (item.categoryId === "learning" || item.category === "learning") return "resource";
+    if ((item.schedule?.startTime && item.schedule?.endTime) || item.categoryId === "travel" || item.categoryId === "creative") return "event";
+    if (item.categoryId === "home" || item.category === "home" || (item.items && item.items.length > 0)) return "checklist";
     return "task";
   };
 
@@ -131,17 +132,17 @@ export default function CalendarScreen() {
     if (!dateStr) return { tasks: 0, habits: 0, events: 0, focus: 0 };
     const d = new Date(dateStr);
     const dayOfWeek = d.getDay();
-    const dayTasks = allTodos.filter(t => t.scheduledDate === dateStr && !t.archived && !t.completed);
+    const dayTasks = allTodos.filter(t => (t.schedule?.date === dateStr || t.scheduledDate === dateStr) && !t.archivedAt && !isTaskCompleted(t));
     
-    const tasks = dayTasks.filter(t => !t.isEvent && t.category !== "focus" && t.category !== "learning" && t.category !== "travel" && t.category !== "creative").length;
-    const events = dayTasks.filter(t => t.isEvent || t.category === "travel" || t.category === "creative").length;
-    const focus = dayTasks.filter(t => t.category === "focus").length;
+    const tasks = dayTasks.filter(t => !(t.schedule?.startTime && t.schedule?.endTime) && t.categoryId !== "focus" && t.categoryId !== "learning" && t.categoryId !== "travel" && t.categoryId !== "creative").length;
+    const events = dayTasks.filter(t => (t.schedule?.startTime && t.schedule?.endTime) || t.categoryId === "travel" || t.categoryId === "creative").length;
+    const focus = dayTasks.filter(t => t.categoryId === "focus" || t.category === "focus").length;
     
     const habits = allHabits.filter(h => {
       if (h.recurrence) {
         return isRecurringOccurrenceForDate(h, dateStr);
       }
-      return !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
+      return true;
     }).length;
 
     return { tasks, habits, events, focus };

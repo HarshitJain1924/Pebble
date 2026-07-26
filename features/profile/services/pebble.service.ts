@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskRepository, WorkspaceRepository } from "@/repositories";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 
 export type PebbleType = "task" | "habit" | "focus";
 
@@ -207,7 +208,7 @@ export async function ensurePebbleLogInitialized() {
       const folders = await WorkspaceRepository.getWorkspaces();
       for (const folder of folders) {
         const tasksMap = await TaskRepository.getTasks(folder.id);
-        const compCount = Object.values(tasksMap).filter((t: any) => t.completed).length;
+        const compCount = Object.values(tasksMap).filter((t: any) => isTaskCompleted(t)).length;
         todosCompleted += compCount;
       }
     } catch {}

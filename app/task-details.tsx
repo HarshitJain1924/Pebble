@@ -163,12 +163,10 @@ export default function TaskDetailsScreen() {
     if (activeFilter === "All") return allResourceItems;
     if (activeFilter === "Links")
       return allResourceItems.filter(
-        (item) => item.type === "link" || item.url,
+        (item) => item.type === "link" || !!item.attachments?.[0]?.uri,
       );
     if (activeFilter === "Notes")
       return allResourceItems.filter((item) => item.type === "note");
-    if (activeFilter === "Images")
-      return allResourceItems.filter((item) => (item.type as string) === "image" || item.type === "file");
     return allResourceItems;
   }, [allResourceItems, activeFilter]);
 
@@ -263,6 +261,9 @@ export default function TaskDetailsScreen() {
               name: f.name,
               emoji: f.emoji || "📁",
               color: f.color || "#6366F1",
+              createdAt: f.createdAt,
+              updatedAt: f.updatedAt || Date.now(),
+              archivedAt: f.archivedAt,
             }))
           : [
               {
@@ -270,6 +271,8 @@ export default function TaskDetailsScreen() {
                 name: "My Pebbles",
                 emoji: "📋",
                 color: "#6366F1",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
               },
             ];
       setWorkspaces(loadedWorkspaces);
@@ -282,18 +285,7 @@ export default function TaskDetailsScreen() {
       for (const fId of folderIds) {
         const resMap = await ResourceRepository.getResources(fId);
         Object.values(resMap).forEach((r: any) => {
-          allLoadedResources.push({
-            id: r.id,
-            workspaceId: r.workspaceId || r.folderId || fId,
-            type: (r.resourceType || r.type || "note") as any,
-            title: r.title,
-            content: r.content !== undefined ? r.content : (r.payload?.content || r.body?.content),
-            url: r.url !== undefined ? r.url : (r.payload?.url || r.body?.url),
-            archived: r.archived || false,
-            pinned: r.pinned || false,
-            linkedItemIds: r.linkedItemIds || [],
-            createdAt: r.createdAt || Date.now(),
-          });
+          allLoadedResources.push(r as Resource);
         });
       }
       setResourcesList(allLoadedResources);
@@ -322,9 +314,7 @@ export default function TaskDetailsScreen() {
           if (habit) {
             foundHabit = {
               ...habit,
-              folderId: fId,
-              completedToday:
-                habit.completedDates?.includes(getDateKey()) || false,
+              workspaceId: fId,
             };
             break;
           }
@@ -687,45 +677,25 @@ export default function TaskDetailsScreen() {
       if (isTask) {
         // Convert Task -> Habit
         const newHabit: Habit = {
-          ...baseProperties,
           id: newId,
-          streak: 0,
-          bestStreak: 0,
-          completedToday: false,
+          workspaceId: item.workspaceId || "default",
+          title: title.trim(),
+          description: description.trim() || undefined,
+          categoryId: (category as any) || "work",
+          recurrence: { frequency: "daily", interval: 1 },
+          completionHistory: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
         };
 
         // Remove from tasks storage
         await TaskRepository.deleteTask(
           item.id,
-          item.folderId || "default",
+          item.workspaceId || "default",
         );
 
         // Add to habits storage
-        await HabitRepository.saveHabit({
-          ...newHabit,
-          folderId: item.folderId || "default",
-        });
-
-        // Schedule new habit reminder
-        if (
-          baseProperties.reminderHour !== undefined &&
-          baseProperties.reminderMinute !== undefined
-        ) {
-          await scheduleReminderBatch({
-            kind: "habit",
-            itemId: newId,
-            title: baseProperties.title,
-            category: baseProperties.category,
-            dailyTime: {
-              hour: baseProperties.reminderHour,
-              minute: baseProperties.reminderMinute,
-            },
-            dailyDays: baseProperties.reminderDays,
-            recurrence: baseProperties.recurrence,
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-          });
-        }
+        await HabitRepository.saveHabit(newHabit);
 
         emitStateChange("tasks_changed");
         emitStateChange("habits_changed");
@@ -736,10 +706,16 @@ export default function TaskDetailsScreen() {
       } else {
         // Convert Habit -> Task
         const newTodo: Task = {
-          ...baseProperties,
           id: newId,
-          completed: false,
-          scheduledDate: getDateKey(),
+          workspaceId: item.workspaceId || "default",
+          title: title.trim(),
+          description: description.trim() || undefined,
+          status: "todo",
+          priority: (priority as any) || "none",
+          categoryId: (category as any) || "work",
+          schedule: { date: getDateKey() },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
         };
 
         // Remove from habits storage
@@ -2724,12 +2700,10 @@ export default function TaskDetailsScreen() {
                 filteredResourceItems.map((res) => {
                   let icon = "file-text";
                   let iconColor = "#10B981"; // green
-                  if (res.type === "link" || res.url) {
+                  const firstAtt = res.attachments?.[0];
+                  if (res.type === "link" || !!firstAtt?.uri) {
                     icon = "play";
                     iconColor = "#EF4444"; // red
-                  } else if ((res.type as string) === "image" || res.mediaUri) {
-                    icon = "image";
-                    iconColor = "#3B82F6"; // blue
                   }
 
                   return (
@@ -2747,8 +2721,8 @@ export default function TaskDetailsScreen() {
                         Haptics.impactAsync(
                           Haptics.ImpactFeedbackStyle.Light,
                         ).catch(() => {});
-                        if (res.type === "link" || res.url) {
-                          let destUrl = res.url || res.content;
+                        if (res.type === "link" || !!firstAtt?.uri) {
+                          let destUrl = firstAtt?.uri || res.body;
                           if (destUrl) {
                             if (!/^https?:\/\//i.test(destUrl)) {
                               destUrl = "https://" + destUrl;
@@ -2762,10 +2736,8 @@ export default function TaskDetailsScreen() {
                               );
                             }
                           }
-                        } else if (res.type === "note") {
+                        } else if (res.type === "note" || res.type === "idea") {
                           setViewingNote(res);
-                        } else if ((res.type as string) === "image" && res.mediaUri) {
-                          setViewingImage(res.mediaUri);
                         }
                       }}
                     >
@@ -2953,7 +2925,7 @@ export default function TaskDetailsScreen() {
                 </View>
               ) : (
                 resourcesList
-                  .filter((i) => !i.archived)
+                  .filter((i) => !i.archivedAt)
                   .map((res) => {
                     const isChecked = linkedCollectionIds.includes(res.id);
                     return (
@@ -3054,7 +3026,7 @@ export default function TaskDetailsScreen() {
               <Text
                 style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}
               >
-                {viewingNote?.content || "No content added to this note."}
+                {viewingNote?.body || "No content added to this note."}
               </Text>
             </ScrollView>
             <TouchableOpacity

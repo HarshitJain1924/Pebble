@@ -20,6 +20,7 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { type Habit, Task } from "@/shared/types/domain.types";
 import { normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 
+import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { cancelReminderIds, scheduleReminderBatch } from "@/services/scheduling/reminders.service";
 import { emitStateChange } from "@/services/events/state-events";
@@ -69,25 +70,16 @@ export default function ArchiveScreen() {
         // Load tasks
         const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t) => {
-          if (t.archived) {
-            tasks.push({
-              ...t,
-              folderId: fId,
-              scheduledDate: t.scheduledDate || t.dueDate,
-            } as Task);
+          if (t.archivedAt) {
+            tasks.push(t);
           }
         });
 
         // Load habits
         const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h) => {
-          if (h.archived) {
-            habits.push({
-              ...h,
-              folderId: fId,
-              completedToday: h.completedDates?.includes(todayStr) || false,
-              category: normalizeTaskCategory(h.category),
-            });
+          if (h.archivedAt) {
+            habits.push(h);
           }
         });
       }
@@ -274,7 +266,7 @@ export default function ArchiveScreen() {
                             fontWeight: "700",
                           }}
                         >
-                          💼 {workspaces[todo.folderId || ""] || "Default"}
+                          💼 {workspaces[todo.workspaceId || ""] || "Default"}
                         </Text>
                       </View>
                       {todo.priority && (
@@ -377,34 +369,9 @@ export default function ArchiveScreen() {
                             fontWeight: "700",
                           }}
                         >
-                          🔥 Streak: {habit.streak}
+                          🔥 Streak: {getHabitCurrentStreak(habit)}
                         </Text>
                       </View>
-                      {habit.priority && (
-                        <View
-                          style={[
-                            styles.badge,
-                            {
-                              backgroundColor: isLight
-                                ? "#F8E2E2"
-                                : "rgba(255,255,255,0.03)",
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={{
-                              color:
-                                habit.priority === "high"
-                                  ? colors.error
-                                  : colors.textMuted,
-                              fontSize: 10,
-                              fontWeight: "700",
-                            }}
-                          >
-                            {habit.priority.toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
                     </View>
                   </View>
                   <View style={styles.actions}>

@@ -1,4 +1,3 @@
-
 export interface CognitiveFlowStats {
   morningPct: number;
   afternoonPct: number;
@@ -20,15 +19,17 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
 
     // Load Tasks
     const tasksMap = await TaskRepository.getTasks(activeWorkspace);
-    const allTodos = Object.values(tasksMap).filter((t: any) => !t.archived);
+    const allTodos = Object.values(tasksMap).filter((t: any) => !t.archivedAt);
     allTodos.forEach((todo: any) => {
-      if (todo.alarmTime) {
-        const hour = new Date(todo.alarmTime).getHours();
-        if (hour >= 5 && hour < 12) morning++;
-        else if (hour >= 12 && hour < 17) afternoon++;
-        else evening++;
-      } else if (todo.reminderHour !== undefined) {
-        const hour = todo.reminderHour;
+      let hour: number | undefined;
+      if (todo.reminder?.triggerAt) {
+        hour = new Date(todo.reminder.triggerAt).getHours();
+      } else if (todo.schedule?.startTime) {
+        const parts = todo.schedule.startTime.split(":").map(Number);
+        hour = parts[0];
+      }
+
+      if (hour !== undefined) {
         if (hour >= 5 && hour < 12) morning++;
         else if (hour >= 12 && hour < 17) afternoon++;
         else evening++;
@@ -37,10 +38,14 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
 
     // Load Habits
     const habitsMap = await HabitRepository.getHabits(activeWorkspace);
-    const allHabits = Object.values(habitsMap).filter((h: any) => !h.archived);
+    const allHabits = Object.values(habitsMap).filter((h: any) => !h.archivedAt);
     allHabits.forEach((habit: any) => {
-      if (habit.reminderHour !== undefined) {
-        const hour = habit.reminderHour;
+      let hour: number | undefined;
+      if (habit.reminder?.triggerAt) {
+        hour = new Date(habit.reminder.triggerAt).getHours();
+      }
+
+      if (hour !== undefined) {
         if (hour >= 5 && hour < 12) morning++;
         else if (hour >= 12 && hour < 17) afternoon++;
         else evening++;
@@ -76,11 +81,11 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
 export async function getOptimalHours(): Promise<number[]> {
   const stats = await getCognitiveFlowStats();
   if (stats.peakZone === "Morning Focus Peak") {
-    return [8, 9, 10, 11]; // Morning Peak hours (8 AM - 12 PM)
+    return [8, 9, 10, 11];
   } else if (stats.peakZone === "Afternoon Steady Flow") {
-    return [13, 14, 15, 16]; // Afternoon Peak hours (1 PM - 5 PM)
+    return [13, 14, 15, 16];
   } else if (stats.peakZone === "Night Owl Momentum") {
-    return [18, 19, 20, 21]; // Evening/Night Peak hours (6 PM - 10 PM)
+    return [18, 19, 20, 21];
   }
-  return [9, 10, 14, 15]; // Default balanced focus hours
+  return [9, 10, 14, 15];
 }

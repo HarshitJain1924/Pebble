@@ -1,23 +1,16 @@
 /**
  * useHabitCrud.ts
  * ─────────────────────
- * Habit CRUD operations extracted from useTasksState.
- *
- * Owns: habit repository persistence, reminder scheduling/cancellation,
- * streak updates, recycle bin integration, undo support.
- *
- * Does NOT own: UI state (habitTitle, selectedHabitPriority, editingHabit,
- * showCelebrate, highlightedHabitId, modal visibility, input state,
- * filtering, search, navigation, hydration, controller logic).
+ * Habit CRUD operations extracted from useTasksState using canonical Habit model.
  */
 import {
-    earnPebble,
-    undoLastPebble,
+  earnPebble,
+  undoLastPebble,
 } from "@/features/profile/services/pebble.service";
 import { handleHabitXpChange } from "@/features/settings/services/settings.service";
 import {
-    TASK_CATEGORY_META,
-    type TaskCategory,
+  TASK_CATEGORY_META,
+  type TaskCategory,
 } from "@/features/tasks/services/task-categories";
 import { getDateKey } from "@/features/tasks/utils/task-formatting";
 import { pluginManager } from "@/plugin";
@@ -25,22 +18,19 @@ import { HabitRepository } from "@/repositories";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 import { emitStateChange } from "@/services/events/state-events";
-import { dayDiff } from "@/services/scheduling/recurrence.service";
 import {
-    cancelReminderIds,
-    rescheduleHabitReminders,
-    scheduleReminderBatch,
+  cancelReminderIds,
+  rescheduleHabitReminders,
 } from "@/services/scheduling/reminders.service";
 import {
-    addToRecycleBin,
-    DAY_MS,
-    getRecycleBinItems,
-    saveRecycleBinItems,
+  addToRecycleBin,
+  getRecycleBinItems,
+  saveRecycleBinItems,
 } from "@/services/storage/storage.service";
-import type { Habit, Workspace } from "@/shared/types/domain.types";
+import type { Habit, Workspace, HabitCompletion } from "@/shared/types/domain.types";
+import { isHabitCompletedToday, getTodayDateKey } from "@/shared/utils/domain-selectors";
 import * as Haptics from "expo-haptics";
 import { useCallback } from "react";
-import { Platform } from "react-native";
 
 export interface UseHabitCrudDeps {
   habits: Habit[];
@@ -60,15 +50,8 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         await Promise.all(
           nextHabits.map((h) =>
             HabitRepository.saveHabit({
-              id: h.id,
-              folderId: h.folderId || selectedList,
-              title: h.title,
-              streak: h.streak || 0,
-              bestStreak: h.bestStreak || 0,
-              completedDates: h.completedToday ? [getDateKey()] : [],
-              recurrenceRule: "FREQ=DAILY",
-              createdAt: h.createdAt || Date.now(),
-              archived: h.archived || false,
+              ...h,
+              workspaceId: h.workspaceId || selectedList || "default",
             }),
           ),
         );
@@ -89,15 +72,15 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
       const next: Habit = {
         id: `habit-${Date.now()}`,
         title,
-        streak: 0,
-        bestStreak: 0,
-        completedToday: false,
-        priority,
+        categoryId: category,
         workspaceId: selectedList || "default",
-        folderId: selectedList || "default",
+        recurrence: {
+          frequency: "daily",
+          interval: 1,
+        },
+        completionHistory: [],
         createdAt: Date.now(),
-        createdDate: getDateKey(),
-        startDate: getDateKey(),
+        updatedAt: Date.now(),
       };
 
       const nextHabits = [next, ...habits];
@@ -107,8 +90,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
       emitStateChange("habits_changed", "tasks_screen");
 
       const catLabel =
-        TASK_CATEGORY_META.find((c) => c.key === (next.category || "health"))
-          ?.label || "Health";
+        TASK_CATEGORY_META.find((c) => c.key === category)?.label || "Health";
       showToast(`✓ Habit added to ${catLabel}`);
     },
     [habits, setHabits, selectedList, persistHabits, showToast],
@@ -120,10 +102,10 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
       if (!target) return;
 
       const originalWorkspace =
-        lists.find((l) => l.id === (target.folderId || "default"))?.name ||
+        lists.find((l) => l.id === (target.workspaceId || "default"))?.name ||
         "Default";
 
-      await cancelReminderIds(target.notificationIds ?? []);
+      await cancelReminderIds(target.reminder?.notificationIds ?? []);
 
       await addToRecycleBin("habit", target, originalWorkspace);
 
@@ -143,17 +125,11 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
 
           const currentHabitsMap =
             await HabitRepository.getHabits(selectedList);
-          const currentHabits = Object.values(currentHabitsMap).map(
-            (h: any) => ({
-              ...h,
-              folderId: selectedList,
-              completedToday: h.completedDates?.includes(getDateKey()) || false,
-            }),
-          ) as Habit[];
+          const currentHabits = Object.values(currentHabitsMap);
           if (!currentHabits.some((h) => h.id === id)) {
             await HabitRepository.saveHabit({
               ...rescheduled,
-              folderId: selectedList,
+              workspaceId: selectedList,
             });
             const restored = [...currentHabits, rescheduled];
             await persistHabits(restored);
@@ -170,47 +146,32 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
 
   const toggleHabit = useCallback(
     async (id: string) => {
-      const today = getDateKey();
-      const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
+      const today = getTodayDateKey();
       const habit = habits.find((h) => h.id === id);
       if (!habit) return;
 
-      let updatedHabit;
-      const isCompleting = !habit.completedToday;
-      const { xpAwardedDate } = await handleHabitXpChange(
-        habit,
-        isCompleting,
-        today,
-      );
-      if (isCompleting) {
-        let nextStreak = 1;
-        if (habit.lastCompletedDate === today) {
-          nextStreak = habit.streak || 1;
-        } else if (habit.lastCompletedDate === yesterday) {
-          nextStreak = habit.streak + 1;
-        }
-        updatedHabit = {
-          ...habit,
-          completedToday: true,
-          lastCompletedDate: today,
-          streak: nextStreak,
-          bestStreak: Math.max(habit.bestStreak, nextStreak),
-          xpAwardedDate,
-        };
+      const currentlyCompleted = isHabitCompletedToday(habit, today);
+      const isCompleting = !currentlyCompleted;
+      await handleHabitXpChange(habit, isCompleting, today);
 
+      let nextHistory: HabitCompletion[];
+      if (isCompleting) {
+        nextHistory = [
+          ...habit.completionHistory.filter((c) => c.date !== today),
+          { date: today, completedAt: Date.now() },
+        ];
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
       } else {
-        const rolledBackStreak = Math.max(0, habit.streak - 1);
-        updatedHabit = {
-          ...habit,
-          completedToday: false,
-          streak: rolledBackStreak,
-          lastCompletedDate: rolledBackStreak > 0 ? yesterday : undefined,
-          xpAwardedDate,
-        };
+        nextHistory = habit.completionHistory.filter((c) => c.date !== today);
       }
+
+      const updatedHabit: Habit = {
+        ...habit,
+        completionHistory: nextHistory,
+        updatedAt: Date.now(),
+      };
 
       const nextHabits = habits.map((h) => (h.id === id ? updatedHabit : h));
       setHabits(nextHabits);
@@ -218,155 +179,21 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
 
       if (isCompleting) {
         await earnPebble("habit");
+        pluginManager.dispatchHabitCompleted(updatedHabit);
       } else {
         await undoLastPebble("habit");
       }
 
-      pluginManager.dispatchHabitCompleted(updatedHabit);
-      void recordDailyHistorySnapshot();
-      await syncWidgetData().catch(() => {});
+      void syncWidgetData().catch(() => {});
       emitStateChange("habits_changed", "tasks_screen");
     },
     [habits, setHabits, persistHabits],
-  );
-
-  const recoverHabitStreak = useCallback(
-    async (id: string, method: "pebbles" | "focus"): Promise<boolean> => {
-      const today = getDateKey();
-      const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
-      const habit = habits.find((h) => h.id === id);
-      if (!habit || !habit.previousStreak) return false;
-
-      const isWithinRecoveryWindow =
-        habit.streakBrokenDate && dayDiff(habit.streakBrokenDate, today) <= 1;
-      if (!isWithinRecoveryWindow) return false;
-
-      if (method === "pebbles") {
-        const {
-          spendGems,
-        } = require("@/features/profile/services/pebble.service");
-        const success = await spendGems(1);
-        if (!success) return false;
-      }
-
-      const restoredStreak = habit.previousStreak;
-      const updatedHabit = {
-        ...habit,
-        streak: restoredStreak,
-        bestStreak: Math.max(habit.bestStreak, restoredStreak),
-        lastCompletedDate: yesterday,
-        previousStreak: undefined,
-        streakBrokenDate: undefined,
-      };
-
-      const nextHabits = habits.map((h) => (h.id === id ? updatedHabit : h));
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        () => {},
-      );
-      emitStateChange("habits_changed", "tasks_screen");
-      emitStateChange("pebbles_changed", "tasks_screen");
-      return true;
-    },
-    [habits, setHabits, persistHabits],
-  );
-
-  const handleSaveEditedHabit = useCallback(
-    async (updated: Habit) => {
-      let notificationIds = updated.notificationIds || [];
-
-      const original = habits.find((h) => h.id === updated.id);
-      const reminderChanged =
-        updated.reminderHour !== original?.reminderHour ||
-        updated.reminderMinute !== original?.reminderMinute ||
-        JSON.stringify(updated.reminderDays || []) !==
-          JSON.stringify(original?.reminderDays || []) ||
-        JSON.stringify(updated.recurrence) !==
-          JSON.stringify(original?.recurrence);
-
-      if (reminderChanged) {
-        await cancelReminderIds(original?.notificationIds);
-        notificationIds = [];
-
-        if (
-          updated.reminderHour !== undefined &&
-          updated.reminderMinute !== undefined
-        ) {
-          let reminderDays: number[] | undefined = undefined;
-          if (updated.recurrence) {
-            if (updated.recurrence.type === "weekdays") {
-              reminderDays = [1, 2, 3, 4, 5];
-            } else if (updated.recurrence.type === "weekly") {
-              reminderDays = updated.recurrence.days;
-            }
-          }
-
-          try {
-            const scheduled = await scheduleReminderBatch({
-              kind: "habit",
-              itemId: updated.id,
-              title: updated.title,
-              dailyTime: {
-                hour: updated.reminderHour,
-                minute: updated.reminderMinute,
-              },
-              dailyDays: reminderDays,
-              recurrence: updated.recurrence || undefined,
-              escalationMinutes: [120, 240],
-              channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-              context: {
-                title: updated.title,
-                remainingCount: 1,
-                totalCount: 1,
-                streak: updated.streak,
-                bestStreak: updated.bestStreak,
-              },
-            });
-            notificationIds = scheduled.ids;
-          } catch (e) {
-            console.error("Failed to reschedule habit reminder:", e);
-          }
-        }
-      }
-
-      const finalHabit = {
-        ...updated,
-        notificationIds,
-      };
-
-      const exists = habits.some((h) => h.id === finalHabit.id);
-      let nextHabits;
-      if (exists) {
-        nextHabits = habits.map((h) =>
-          h.id === finalHabit.id ? finalHabit : h,
-        );
-      } else {
-        nextHabits = [finalHabit, ...habits];
-      }
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-
-      emitStateChange("habits_changed");
-    },
-    [habits, setHabits, persistHabits],
-  );
-
-  const handleDeleteEditedHabit = useCallback(
-    async (id: string) => {
-      await deleteHabit(id);
-    },
-    [deleteHabit],
   );
 
   return {
-    persistHabits,
     addHabit,
     deleteHabit,
     toggleHabit,
-    recoverHabitStreak,
-    handleSaveEditedHabit,
-    handleDeleteEditedHabit,
+    persistHabits,
   };
 }

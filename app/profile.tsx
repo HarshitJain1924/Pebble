@@ -9,6 +9,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { normalizeHabitsForToday } from "@/features/habits/services/habit.service";
+import { isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
 import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
 import {
@@ -128,36 +129,32 @@ export default function ProfileScreen() {
 
         const tasks = Object.values(tasksMap);
         totalTasks += tasks.length;
-        totalCompletedTodos += tasks.filter((task) => task.completed).length;
+        totalCompletedTodos += tasks.filter((task) => task.status === "completed").length;
         todayPebblesCount += tasks.filter(
           (task) =>
-            task.completed &&
+            task.status === "completed" &&
             task.completedAt &&
             getDateKey(new Date(task.completedAt)) === todayKey,
         ).length;
 
         const habits = normalizeHabitsForToday(
-          Object.values(habitsMap).map((habit) => ({
-            ...habit,
-            category: normalizeTaskCategory(habit.category),
-            completedToday: habit.completedDates?.includes(todayKey) || false,
-          })),
+          Object.values(habitsMap),
         );
         totalCompletedHabits += habits.filter(
-          (habit) => habit.completedToday,
+          (habit) => isHabitCompletedToday(habit),
         ).length;
         streak = Math.max(
           streak,
-          ...habits.map((habit) => habit.streak || 0),
+          ...habits.map((habit) => getHabitCurrentStreak(habit)),
           streak,
         );
         bestStreak = Math.max(
           bestStreak,
-          ...habits.map((habit) => habit.bestStreak || 0),
+          ...habits.map((habit) => getHabitBestStreak(habit)),
           bestStreak,
         );
         todayPebblesCount += habits.filter(
-          (habit) => habit.completedToday,
+          (habit) => isHabitCompletedToday(habit),
         ).length;
       }
 

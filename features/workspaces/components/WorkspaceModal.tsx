@@ -100,16 +100,12 @@ export function WorkspaceModal({
         if (folder) {
           setFolderNameInput(folder.name);
           setFolderEmojiInput(folder.emoji || "📁");
-          setFolderIconInput(folder.icon || "briefcase");
-          setFolderIconTypeInput(folder.iconType || "emoji");
           setFolderColorInput(folder.color || "#6366F1");
           setFolderDescriptionInput(folder.description || "");
         }
       } else {
         setFolderNameInput("");
         setFolderEmojiInput("📚");
-        setFolderIconInput("briefcase");
-        setFolderIconTypeInput("emoji");
         setFolderColorInput("#6366F1");
         setFolderDescriptionInput("");
       }
@@ -131,10 +127,9 @@ export function WorkspaceModal({
               ...l,
               name: trimmed,
               emoji: folderEmojiInput,
-              icon: folderIconInput,
-              iconType: folderIconTypeInput,
               color: folderColorInput,
               description: folderDescriptionInput.trim() || undefined,
+              updatedAt: Date.now(),
             }
           : l,
       );
@@ -144,11 +139,10 @@ export function WorkspaceModal({
         id: newId,
         name: trimmed,
         emoji: folderEmojiInput,
-        icon: folderIconInput,
-        iconType: folderIconTypeInput,
         color: folderColorInput,
         description: folderDescriptionInput.trim() || undefined,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
       updatedTodos[newId] = [];
       activeListId = newId;
@@ -208,29 +202,19 @@ export function WorkspaceModal({
 
             const workspaceTodos = todos[editingFolderId] || [];
             const workspaceHabits = habits.filter(
-              (h) => h.folderId === editingFolderId,
+              (h) => h.workspaceId === editingFolderId,
             );
 
             // 1. Cancel notifications
             for (const todo of workspaceTodos) {
-              if (todo.notificationIds) {
-                await cancelReminderIds(todo.notificationIds);
-              }
-              const alarmId = todo.alarmId;
-              if (alarmId && !alarmId.startsWith("web-")) {
-                const Notifications = await loadNotifications();
-                await Notifications.cancelScheduledNotificationAsync(
-                  alarmId,
-                ).catch(() => {});
-              }
-              if (alarmId && alarmId.startsWith("web-")) {
-                clearTimeout(Number(alarmId.replace("web-", "")));
+              if (todo.reminder?.notificationIds) {
+                await cancelReminderIds(todo.reminder.notificationIds);
               }
             }
 
             for (const habit of workspaceHabits) {
-              if (habit.notificationIds) {
-                await cancelReminderIds(habit.notificationIds);
+              if (habit.reminder?.notificationIds) {
+                await cancelReminderIds(habit.reminder.notificationIds);
               }
             }
 
@@ -258,7 +242,7 @@ export function WorkspaceModal({
             const updatedTodos = { ...todos };
             delete updatedTodos[editingFolderId];
             const updatedHabits = habits.filter(
-              (h) => h.folderId !== editingFolderId,
+              (h) => h.workspaceId !== editingFolderId,
             );
 
             const fallbackList = updatedLists[0]?.id || "default";
@@ -346,7 +330,7 @@ export function WorkspaceModal({
 
                 const restoredHabits = [
                   ...currentHabits.filter(
-                    (h) => h.folderId !== editingFolderId,
+                    (h) => h.workspaceId !== editingFolderId,
                   ),
                   ...rescheduledHabits,
                 ];

@@ -11,6 +11,7 @@ import { EmptyState } from "@/shared/components/ui/EmptyState";
 import * as Haptics from "expo-haptics";
 import { type Habit } from "@/shared/types/domain.types";
 import { isRecurringOccurrenceForDate, getDateKey } from "@/services/scheduling/recurrence.service";
+import { isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -82,23 +83,23 @@ export function HabitSection({
     return displayedHabits.filter((h) => {
       const isDueToday = h.recurrence
         ? isRecurringOccurrenceForDate(h, todayKey)
-        : (!h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek));
-      return isDueToday && !h.completedToday;
+        : true;
+      return isDueToday && !isHabitCompletedToday(h, todayKey);
     });
-  }, [displayedHabits, todayKey, dayOfWeek]);
+  }, [displayedHabits, todayKey]);
 
   const completedList = useMemo(() => {
-    return displayedHabits.filter((h) => h.completedToday);
-  }, [displayedHabits]);
+    return displayedHabits.filter((h) => isHabitCompletedToday(h, todayKey));
+  }, [displayedHabits, todayKey]);
 
   const pausedList = useMemo(() => {
     return displayedHabits.filter((h) => {
       const isDueToday = h.recurrence
         ? isRecurringOccurrenceForDate(h, todayKey)
-        : (!h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek));
-      return !isDueToday && !h.completedToday;
+        : true;
+      return !isDueToday && !isHabitCompletedToday(h, todayKey);
     });
-  }, [displayedHabits, todayKey, dayOfWeek]);
+  }, [displayedHabits, todayKey]);
 
   // Reset showAllResources state when drawer is collapsed
   React.useEffect(() => {
@@ -108,11 +109,11 @@ export function HabitSection({
   }, [expandedHabitId]);
 
   const renderHabitItem = (item: Habit) => {
-    const linkedIds = item.linkedCollectionIds || [];
+    const linkedIds = item.resourceIds || [];
     const linkedCount = linkedIds.length;
     const isExpanded = expandedHabitId === item.id;
     const linkedResources = linkedIds
-      .map((id) => allResources.find((r) => r.id === id))
+      .map((id: string) => allResources.find((r) => r.id === id))
       .filter(Boolean);
 
     const showAllResources = !!showAllResourcesMap[item.id];
@@ -153,10 +154,10 @@ export function HabitSection({
             <View style={{ flex: 1 }}>
               <HabitStreakCard
                 title={item.title}
-                streak={item.streak}
-                bestStreak={item.bestStreak}
-                completedToday={item.completedToday}
-                priority={item.priority}
+                streak={getHabitCurrentStreak(item, todayKey)}
+                bestStreak={getHabitBestStreak(item)}
+                completedToday={isHabitCompletedToday(item, todayKey)}
+                priority={undefined}
                 onPressToggle={isSelectionMode ? () => onToggleSelectItem?.(item.id) : () => toggleHabit(item.id)}
                 onCardPress={isSelectionMode ? () => onToggleSelectItem?.(item.id) : () =>
                   router.push(`/task-details?id=${item.id}&type=habit`)
@@ -331,7 +332,7 @@ export function HabitSection({
               <ScrollView contentContainerStyle={{ gap: 8 }} showsVerticalScrollIndicator={false}>
                 {allResources.map((res) => {
                   const currentHabit = displayedHabits.find(h => h.id === activeHabitId);
-                  const isLinked = !!currentHabit?.linkedCollectionIds?.includes(res.id);
+                  const isLinked = !!currentHabit?.resourceIds?.includes(res.id);
                   return (
                     <TouchableOpacity
                       key={res.id}

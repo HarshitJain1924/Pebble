@@ -42,23 +42,19 @@ export async function logTaskCreation(title: string): Promise<SmartSuggestion | 
     }
     await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
 
-    // Fetch recycle bin titles to filter
     const recycleBin = await getRecycleBinItems();
     const recycledTitles = new Set(recycleBin.map(item => {
-      if (item.itemType === "workspace") {
-        const titles = [item.title.toLowerCase().trim()];
-        if (item.data) {
-          if (Array.isArray(item.data.todos)) {
-            for (const t of item.data.todos) if (t?.title) titles.push(t.title.toLowerCase().trim());
-          }
-          if (Array.isArray(item.data.habits)) {
-            for (const h of item.data.habits) if (h?.title) titles.push(h.title.toLowerCase().trim());
-          }
+      const snap = item.snapshot as any;
+      const titles = snap?.title ? [snap.title.toLowerCase().trim()] : [];
+      if (item.entityType === "workspace" && snap) {
+        if (Array.isArray(snap.tasks)) {
+          for (const t of snap.tasks) if (t?.title) titles.push(t.title.toLowerCase().trim());
         }
-        return titles;
-      } else {
-        return [item.title.toLowerCase().trim()];
+        if (Array.isArray(snap.habits)) {
+          for (const h of snap.habits) if (h?.title) titles.push(h.title.toLowerCase().trim());
+        }
       }
+      return titles;
     }).flat());
 
     // 3. Heuristics matching: Count occurrences in the past 30 days
@@ -111,20 +107,17 @@ export async function getActiveSuggestions(): Promise<SmartSuggestion[]> {
     
     const recycleBin = await getRecycleBinItems();
     const recycledTitles = new Set(recycleBin.map(item => {
-      if (item.itemType === "workspace") {
-        const titles = [item.title.toLowerCase().trim()];
-        if (item.data) {
-          if (Array.isArray(item.data.todos)) {
-            for (const t of item.data.todos) if (t?.title) titles.push(t.title.toLowerCase().trim());
-          }
-          if (Array.isArray(item.data.habits)) {
-            for (const h of item.data.habits) if (h?.title) titles.push(h.title.toLowerCase().trim());
-          }
+      const snap = item.snapshot as any;
+      const titles = snap?.title ? [snap.title.toLowerCase().trim()] : [];
+      if (item.entityType === "workspace" && snap) {
+        if (Array.isArray(snap.tasks)) {
+          for (const t of snap.tasks) if (t?.title) titles.push(t.title.toLowerCase().trim());
         }
-        return titles;
-      } else {
-        return [item.title.toLowerCase().trim()];
+        if (Array.isArray(snap.habits)) {
+          for (const h of snap.habits) if (h?.title) titles.push(h.title.toLowerCase().trim());
+        }
       }
+      return titles;
     }).flat());
 
     return suggestions.filter(s => !s.resolved && !recycledTitles.has(s.title.toLowerCase().trim()));

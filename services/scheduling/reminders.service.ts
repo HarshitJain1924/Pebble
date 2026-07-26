@@ -708,44 +708,26 @@ export function hasNotificationPayload(data: unknown) {
 }
 
 import { type Task, type Habit } from "@/shared/types/domain.types";
-import { type ScheduleConfig } from "@/shared/types/repository.types";
-
-async function rescheduleItemRemindersInternal(
-  item: ScheduleConfig & { id: string; title: string; category?: string },
-  kind: "todo" | "habit"
-): Promise<Partial<ScheduleConfig>> {
-  const updates: Partial<ScheduleConfig> = {};
-
-  if (kind === "todo" && item.alarmTime && item.alarmTime > Date.now()) {
-    const batch = await scheduleReminderBatch({
-      kind: "todo",
-      itemId: item.id,
-      title: item.title,
-      oneTimeAt: new Date(item.alarmTime),
-      category: item.category,
-    });
-    updates.alarmId = batch.primaryId;
-    updates.notificationIds = batch.ids;
-  } else if (item.reminderHour !== undefined && item.reminderMinute !== undefined) {
-    const batch = await scheduleReminderBatch({
-      kind,
-      itemId: item.id,
-      title: item.title,
-      dailyTime: { hour: item.reminderHour, minute: item.reminderMinute },
-      dailyDays: item.reminderDays,
-      recurrence: item.recurrence,
-      category: item.category,
-    });
-    updates.notificationIds = batch.ids;
-  }
-
-  return updates;
-}
 
 export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
   try {
-    const updates = await rescheduleItemRemindersInternal(todo, "todo");
-    return { ...todo, ...updates };
+    if (todo.reminder && todo.reminder.enabled && todo.reminder.triggerAt > Date.now()) {
+      const batch = await scheduleReminderBatch({
+        kind: "todo",
+        itemId: todo.id,
+        title: todo.title,
+        oneTimeAt: new Date(todo.reminder.triggerAt),
+        category: todo.categoryId,
+      });
+      return {
+        ...todo,
+        reminder: {
+          ...todo.reminder,
+          notificationIds: batch.ids,
+        },
+      };
+    }
+    return todo;
   } catch (e) {
     console.warn("Failed to reschedule todo reminders", e);
     return todo;
@@ -754,8 +736,23 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
 
 export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
   try {
-    const updates = await rescheduleItemRemindersInternal(habit, "habit");
-    return { ...habit, ...updates };
+    if (habit.reminder && habit.reminder.enabled && habit.reminder.triggerAt > Date.now()) {
+      const batch = await scheduleReminderBatch({
+        kind: "habit",
+        itemId: habit.id,
+        title: habit.title,
+        oneTimeAt: new Date(habit.reminder.triggerAt),
+        category: habit.categoryId,
+      });
+      return {
+        ...habit,
+        reminder: {
+          ...habit.reminder,
+          notificationIds: batch.ids,
+        },
+      };
+    }
+    return habit;
   } catch (e) {
     console.warn("Failed to reschedule habit reminders", e);
     return habit;

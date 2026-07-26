@@ -1,13 +1,77 @@
 /**
  * HabitRepository.ts
  * ────────────────────────
- * Habit persistence — partitioned by workspaceId.
+ * Habit persistence — partitioned by workspaceId using canonical Habit model.
  */
 import {
   DEFAULT_WORKSPACE_ID,
   type Habit,
-} from "@/shared/types/repository.types";
+  type HabitCompletion,
+  type RecurrenceRule,
+} from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
+export function normalizeHabit(rawHabit: any, defaultWorkspaceId: string): Habit {
+  const wsId = rawHabit.workspaceId || rawHabit.folderId || defaultWorkspaceId;
+
+  // Convert completion history
+  let completionHistory: HabitCompletion[] = [];
+  if (Array.isArray(rawHabit.completionHistory)) {
+    completionHistory = rawHabit.completionHistory;
+  } else if (Array.isArray(rawHabit.completedDates)) {
+    const now = Date.now();
+    completionHistory = rawHabit.completedDates.map((dateStr: string) => ({
+      date: dateStr,
+      completedAt: now,
+    }));
+  }
+
+  // Construct recurrence
+  let recurrence: RecurrenceRule = rawHabit.recurrence;
+  if (!recurrence) {
+    recurrence = {
+      frequency: "daily",
+      interval: 1,
+    };
+  }
+
+  // Construct reminder if present
+  let reminder = rawHabit.reminder;
+  if (!reminder && (rawHabit.reminderHour !== undefined || rawHabit.alarmTime)) {
+    reminder = {
+      enabled: true,
+      triggerAt: rawHabit.alarmTime || Date.now(),
+      notificationIds: rawHabit.notificationIds || undefined,
+    };
+  }
+
+  // Construct resourceIds
+  let resourceIds = rawHabit.resourceIds || [];
+  if (rawHabit.resourceId && !resourceIds.includes(rawHabit.resourceId)) {
+    resourceIds.push(rawHabit.resourceId);
+  }
+  if (Array.isArray(rawHabit.linkedResourceIds)) {
+    rawHabit.linkedResourceIds.forEach((rid: string) => {
+      if (!resourceIds.includes(rid)) resourceIds.push(rid);
+    });
+  }
+
+  return {
+    id: rawHabit.id,
+    workspaceId: wsId,
+    title: rawHabit.title || "",
+    description: rawHabit.description || undefined,
+    categoryId: rawHabit.categoryId || rawHabit.category || undefined,
+    tags: rawHabit.tags || undefined,
+    recurrence,
+    completionHistory,
+    reminder: reminder || undefined,
+    resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
+    createdAt: rawHabit.createdAt || Date.now(),
+    updatedAt: rawHabit.updatedAt || Date.now(),
+    archivedAt: rawHabit.archivedAt || (rawHabit.archived ? Date.now() : undefined),
+  };
+}
 
 export class HabitRepository {
   private static getHabitsKey(workspaceId: string) {
@@ -20,7 +84,7 @@ export class HabitRepository {
 
   static async getHabit(
     id: string,
-    workspaceId: string,
+    workspaceId: string
   ): Promise<Habit | null> {
     const key = this.getHabitsKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
@@ -28,15 +92,10 @@ export class HabitRepository {
       raw = await AsyncStorage.getItem(this.getLegacyHabitsKey(workspaceId));
     }
     if (!raw) return null;
-    const records: Record<string, Habit> = JSON.parse(raw);
-    const habit = records[id] || null;
-    if (habit) {
-      const resolvedWorkspaceId = habit.workspaceId || (habit as any).folderId || workspaceId;
-      return {
-        ...habit,
-        workspaceId: resolvedWorkspaceId,
-        folderId: resolvedWorkspaceId,
-      } as any;
+    const records: Record<string, any> = JSON.parse(raw);
+    const rawHabit = records[id] || null;
+    if (rawHabit) {
+      return normalizeHabit(rawHabit, workspaceId);
     }
     return null;
   }
@@ -49,44 +108,20 @@ export class HabitRepository {
     }
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    const records: Record<string, any> = {};
-    Object.entries(parsed).forEach(([id, habit]: [string, any]) => {
-      const resolvedWorkspaceId = habit.workspaceId || habit.folderId || workspaceId;
-      records[id] = {
-        ...habit,
-        workspaceId: resolvedWorkspaceId,
-        folderId: resolvedWorkspaceId,
-      };
+    const records: Record<string, Habit> = {};
+    Object.entries(parsed).forEach(([id, rawHabit]: [string, any]) => {
+      records[id] = normalizeHabit(rawHabit, workspaceId);
     });
     return records;
   }
 
   static async saveHabit(habit: any): Promise<void> {
-    const workspaceId = habit.workspaceId || habit.folderId || DEFAULT_WORKSPACE_ID;
+    const workspaceId = habit.workspaceId || DEFAULT_WORKSPACE_ID;
     const key = this.getHabitsKey(workspaceId);
     const records = await this.getHabits(workspaceId);
 
-    const cleanHabit: Habit = {
-      id: habit.id,
-      workspaceId,
-      folderId: workspaceId,
-      title: habit.title,
-      streak: habit.streak || 0,
-      bestStreak: habit.bestStreak || 0,
-      completedDates: habit.completedDates || [],
-      recurrenceRule: habit.recurrenceRule || "FREQ=DAILY",
-      priority: habit.priority || "medium",
-      category: habit.category || "work",
-      recurrence: habit.recurrence || undefined,
-      createdAt: habit.createdAt || Date.now(),
-      updatedAt: Date.now(),
-      archived: habit.archived || false,
-      description: habit.description || undefined,
-      reminderHour: habit.reminderHour || undefined,
-      reminderMinute: habit.reminderMinute || undefined,
-      reminderDays: habit.reminderDays || undefined,
-      notificationIds: habit.notificationIds || undefined,
-    };
+    const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
+    cleanHabit.updatedAt = Date.now();
 
     records[habit.id] = cleanHabit;
     await AsyncStorage.setItem(key, JSON.stringify(records));

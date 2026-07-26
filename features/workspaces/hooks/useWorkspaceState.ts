@@ -135,10 +135,11 @@ export function useWorkspaceState() {
       if (repositoryWorkspaces.length > 0) {
         currentLists = repositoryWorkspaces.map((f: any) => ({
           id: f.id,
-          title: f.title || f.name,
-          name: f.name || f.title,
+          name: f.name || f.title || "Untitled Workspace",
           emoji: f.emoji || "📁",
           color: f.color || "#6366F1",
+          createdAt: f.createdAt || Date.now(),
+          updatedAt: f.updatedAt || Date.now(),
         }));
       }
 

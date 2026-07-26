@@ -1,14 +1,13 @@
 /**
- * graph-repository.ts
+ * GraphRepository.ts
  * ─────────────────────
  * Relationship graph, focus sessions, and system event log persistence.
  */
 import {
-  DEFAULT_WORKSPACE_ID,
   type FocusSession,
   type Relationship,
   type SystemEventLog,
-} from "@/shared/types/repository.types";
+} from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export interface RelationshipIndex {
@@ -17,9 +16,16 @@ export interface RelationshipIndex {
 }
 
 export class GraphRepository {
-  private static readonly RELATIONSHIPS_KEY = "pebble:core:relationships";
-  private static readonly FOCUS_SESSIONS_KEY = "pebble:core:focus_sessions";
-  private static readonly SYSTEM_EVENT_LOG_KEY = "pebble:core:system_event_log";
+  private static readonly RELATIONSHIPS_KEY = "pebble:v1:relationships";
+  private static readonly FOCUS_SESSIONS_KEY = "pebble:v1:focus_sessions";
+  private static readonly SYSTEM_EVENT_LOG_KEY = "pebble:v1:system_event_log";
+
+  private static readonly LEGACY_RELATIONSHIPS_KEY =
+    "pebble:core:relationships";
+  private static readonly LEGACY_FOCUS_SESSIONS_KEY =
+    "pebble:core:focus_sessions";
+  private static readonly LEGACY_SYSTEM_EVENT_LOG_KEY =
+    "pebble:core:system_event_log";
 
   private static relationships: Record<string, Relationship> = {};
   private static index: RelationshipIndex = {
@@ -37,7 +43,10 @@ export class GraphRepository {
   private static async ensureLoaded() {
     if (this.loaded) return;
     try {
-      const raw = await AsyncStorage.getItem(this.RELATIONSHIPS_KEY);
+      let raw = await AsyncStorage.getItem(this.RELATIONSHIPS_KEY);
+      if (!raw) {
+        raw = await AsyncStorage.getItem(this.LEGACY_RELATIONSHIPS_KEY);
+      }
       this.relationships = raw ? JSON.parse(raw) : {};
       this.rebuildIndex();
       this.loaded = true;
@@ -106,22 +115,29 @@ export class GraphRepository {
 
   // Focus Sessions
   static async saveFocusSession(session: any): Promise<void> {
-    const raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
-    const sessions: FocusSession[] = raw ? JSON.parse(raw) : [];
+    let raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
+    if (!raw) {
+      raw = await AsyncStorage.getItem(this.LEGACY_FOCUS_SESSIONS_KEY);
+    }
+    const sessions: any[] = raw ? JSON.parse(raw) : [];
 
-    const workspaceId = session.workspaceId || DEFAULT_WORKSPACE_ID;
-    const target = session.target ||
-      session.linkedItem || { id: "", type: "task" };
+    const taskId =
+      session.taskId ||
+      session.target?.id ||
+      session.linkedItem?.id ||
+      undefined;
+    const duration =
+      session.duration !== undefined
+        ? session.duration
+        : session.durationSeconds || 0;
 
     const cleanSession: FocusSession = {
       id: session.id,
-      workspaceId,
+      taskId,
       startedAt: session.startedAt,
-      endedAt: session.endedAt,
-      durationSeconds: session.durationSeconds,
-      target,
-      linkedItem: target,
-    } as any;
+      endedAt: session.endedAt || undefined,
+      duration,
+    };
 
     sessions.push(cleanSession);
     await AsyncStorage.setItem(
@@ -130,31 +146,38 @@ export class GraphRepository {
     );
   }
 
-  static async getFocusSessions(workspaceId?: string): Promise<FocusSession[]> {
-    const raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
-    const sessions: FocusSession[] = raw ? JSON.parse(raw) : [];
-    if (workspaceId) {
-      return sessions.filter((s) => s.workspaceId === workspaceId);
+  static async getFocusSessions(): Promise<FocusSession[]> {
+    let raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
+    if (!raw) {
+      raw = await AsyncStorage.getItem(this.LEGACY_FOCUS_SESSIONS_KEY);
     }
-    return sessions;
+    const sessions: any[] = raw ? JSON.parse(raw) : [];
+    return sessions.map((s: any) => ({
+      id: s.id,
+      taskId: s.taskId || s.target?.id || s.linkedItem?.id || undefined,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt || undefined,
+      duration: s.duration !== undefined ? s.duration : s.durationSeconds || 0,
+    }));
   }
 
   // System Event Logs
   static async logSystemEvent(event: any): Promise<void> {
-    const raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
+    let raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
+    if (!raw) {
+      raw = await AsyncStorage.getItem(this.LEGACY_SYSTEM_EVENT_LOG_KEY);
+    }
     const logs: SystemEventLog[] = raw ? JSON.parse(raw) : [];
-
-    const workspaceId = event.workspaceId || DEFAULT_WORKSPACE_ID;
 
     const cleanLog: SystemEventLog = {
       id: event.id,
-      workspaceId,
+      workspaceId: event.workspaceId || "default",
       itemId: event.itemId,
       itemType: event.itemType,
       action: event.action,
       timestamp: event.timestamp,
       metadata: event.metadata,
-    } as any;
+    };
 
     logs.push(cleanLog);
     await AsyncStorage.setItem(this.SYSTEM_EVENT_LOG_KEY, JSON.stringify(logs));
@@ -163,7 +186,10 @@ export class GraphRepository {
   static async getSystemEvents(
     workspaceId?: string,
   ): Promise<SystemEventLog[]> {
-    const raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
+    let raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
+    if (!raw) {
+      raw = await AsyncStorage.getItem(this.LEGACY_SYSTEM_EVENT_LOG_KEY);
+    }
     const logs: SystemEventLog[] = raw ? JSON.parse(raw) : [];
     if (workspaceId) {
       return logs.filter((l) => l.workspaceId === workspaceId);

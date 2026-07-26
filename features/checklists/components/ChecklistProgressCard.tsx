@@ -61,12 +61,12 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   const isAllCompleted = totalCount > 0 && completedCount === totalCount;
   const progress = totalCount > 0 ? completedCount / totalCount : 0;
 
-  const linkedResourceIds = checklist.linkedCollectionIds || [];
+  const linkedResourceIds = checklist.resourceIds || [];
   const linkedCount = linkedResourceIds.length;
 
   const linkedResources = useMemo(() => {
     return linkedResourceIds
-      .map((id) => allResources.find((r) => r.id === id))
+      .map((id: string) => allResources.find((r) => r.id === id))
       .filter(Boolean);
   }, [linkedResourceIds, allResources]);
 
@@ -597,7 +597,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                         {
                           text: "Archive",
                           onPress: () => {
-                            onUpdateChecklist({ ...checklist, archived: true });
+                            onUpdateChecklist({ ...checklist, archivedAt: Date.now() });
                           },
                         },
                       ]

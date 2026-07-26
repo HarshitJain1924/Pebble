@@ -1,4 +1,4 @@
-import { ScheduleConfig } from "@/shared/types/repository.types";
+import type { Task, Habit } from "@/shared/types/domain.types";
 
 export interface StructuredSchedule {
   startDate?: string; // YYYY-MM-DD
@@ -9,41 +9,36 @@ export interface StructuredSchedule {
 }
 
 /**
- * Parses and returns structured scheduling data from a flat ScheduleConfig.
+ * Parses and returns structured scheduling data from a Task or Habit.
  */
 export function getStructuredSchedule(
-  item: ScheduleConfig,
+  item: Task | Habit | any,
   defaultDuration = 60
 ): StructuredSchedule {
-  let startDate = item.scheduledDate && item.scheduledDate !== "inbox" ? item.scheduledDate : undefined;
-  let startHour: number | undefined = item.reminderHour;
-  let startMinute: number | undefined = item.reminderMinute;
+  let startDate = item.schedule?.date || item.scheduledDate;
+  let startHour: number | undefined;
+  let startMinute: number | undefined;
 
-  // Resolve start time
-  if (startHour === undefined || startMinute === undefined) {
-    if (item.scheduledTime) {
-      const [hStr, mStr] = item.scheduledTime.split(":");
-      const h = parseInt(hStr, 10);
-      const m = parseInt(mStr, 10);
-      if (!isNaN(h) && !isNaN(m)) {
-        startHour = h;
-        startMinute = m;
-      }
-    } else if (item.alarmTime) {
-      const d = new Date(item.alarmTime);
-      startHour = d.getHours();
-      startMinute = d.getMinutes();
-      if (!startDate) {
-        startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      }
+  if (item.schedule?.startTime) {
+    const parts = item.schedule.startTime.split(":").map(Number);
+    if (!isNaN(parts[0]) && !isNaN(parts[1])) {
+      startHour = parts[0];
+      startMinute = parts[1];
+    }
+  } else if (item.reminder?.triggerAt) {
+    const d = new Date(item.reminder.triggerAt);
+    startHour = d.getHours();
+    startMinute = d.getMinutes();
+    if (!startDate) {
+      startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     }
   }
 
   const hasTime = startHour !== undefined && startMinute !== undefined;
   const startTime = hasTime ? { hour: startHour!, minute: startMinute! } : undefined;
-  const duration = item.durationMinutes || defaultDuration;
-  const isRecurring = !!item.recurrence || !!(item.reminderDays && item.reminderDays.length > 0);
-  const sortKey = hasTime ? startHour! * 60 + startMinute! : 24 * 60; // Sort all-day items to the end
+  const duration = item.schedule?.durationMinutes || defaultDuration;
+  const isRecurring = !!item.recurrence;
+  const sortKey = hasTime ? startHour! * 60 + startMinute! : 24 * 60;
 
   return {
     startDate,

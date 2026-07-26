@@ -97,7 +97,7 @@ export default function ChecklistDetailsScreen() {
     if (!item) return false;
     if (title.trim() !== (item.title || "").trim()) return true;
     if (description.trim() !== (item.description || "").trim()) return true;
-    if (workspaceId !== (item.workspaceId || item.folderId || "default")) return true;
+    if (workspaceId !== (item.workspaceId || "default")) return true;
 
     // Compare items
     if (items.length !== item.items.length) return true;
@@ -107,9 +107,9 @@ export default function ChecklistDetailsScreen() {
       if (items[i].completed !== item.items[i].completed) return true;
     }
 
-    // Compare linked collections
+    // Compare resourceIds
     const sortedLinkedCurrent = [...linkedCollectionIds].sort();
-    const sortedLinkedItem = [...(item.linkedCollectionIds || [])].sort();
+    const sortedLinkedItem = [...(item.resourceIds || [])].sort();
     if (
       JSON.stringify(sortedLinkedCurrent) !== JSON.stringify(sortedLinkedItem)
     )
@@ -134,18 +134,21 @@ export default function ChecklistDetailsScreen() {
         emoji: folder.emoji,
         color: folder.color,
         createdAt: folder.createdAt,
-        archived: folder.archived,
+        updatedAt: folder.updatedAt || Date.now(),
+        archivedAt: folder.archivedAt,
       }));
       setWorkspaces(loadedWorkspaces);
 
-      let foundChecklist: Checklist | null = null;
+      // 2. Load checklist item
+      let foundChecklist: Checklist | undefined;
       const folderIds = Array.from(
         new Set(["default", "unassigned", ...loadedFolders.map((f) => f.id)]),
       );
+
       for (const fId of folderIds) {
-        const match = await ChecklistRepository.getChecklist(itemId, fId);
-        if (match) {
-          foundChecklist = match;
+        const checklist = await ChecklistRepository.getChecklist(itemId, fId);
+        if (checklist) {
+          foundChecklist = checklist;
           break;
         }
       }
@@ -167,9 +170,9 @@ export default function ChecklistDetailsScreen() {
   const initForm = (chk: Checklist) => {
     setTitle(chk.title || "");
     setDescription(chk.description || "");
-    setWorkspaceId(chk.folderId || "default");
+    setWorkspaceId(chk.workspaceId || "default");
     setItems(chk.items || []);
-    setLinkedCollectionIds(chk.linkedCollectionIds || []);
+    setLinkedCollectionIds(chk.resourceIds || []);
   };
 
   const handleSave = async () => {
@@ -184,12 +187,13 @@ export default function ChecklistDetailsScreen() {
         ...item,
         title: title.trim(),
         description: description.trim() || undefined,
-        folderId: workspaceId,
+        workspaceId,
         items,
-        linkedCollectionIds,
+        resourceIds: linkedCollectionIds,
+        updatedAt: Date.now(),
       };
 
-      const oldFolderId = item.folderId || "default";
+      const oldFolderId = item.workspaceId || "default";
       if (oldFolderId !== workspaceId) {
         await ChecklistRepository.deleteChecklist(item.id, oldFolderId);
       }
@@ -212,12 +216,13 @@ export default function ChecklistDetailsScreen() {
   const handleDuplicate = async () => {
     if (!item) return;
     try {
-      const folderId = item.folderId || "default";
+      const folderId = item.workspaceId || "default";
 
       const duplicate: Checklist = {
         ...item,
         id: `checklist-${Date.now()}`,
         title: `${item.title} (Copy)`,
+        updatedAt: Date.now(),
         createdAt: Date.now(),
       };
 
@@ -250,7 +255,7 @@ export default function ChecklistDetailsScreen() {
   const handleDelete = async () => {
     if (!item) return;
     try {
-      const folderId = item.folderId || "default";
+      const folderId = item.workspaceId || "default";
       await ChecklistRepository.deleteChecklist(item.id, folderId);
       await addToRecycleBin("checklist", item, `${folderId}:${item.id}`);
       emitStateChange("checklists_changed");
@@ -644,11 +649,11 @@ export default function ChecklistDetailsScreen() {
                       <TouchableOpacity
                         onPress={() => {
                           if (res.type === "link") {
-                            handleOpenUrl(res.url);
+                            handleOpenUrl(res.attachments?.[0]?.uri || "");
                           } else if (res.type === "note") {
                             Alert.alert(
                               res.title,
-                              res.content || "No details available.",
+                              res.body || "No details available.",
                             );
                           } else {
                             Alert.alert(res.title, "Image attachment");
@@ -1203,7 +1208,7 @@ export default function ChecklistDetailsScreen() {
                 </Text>
               ) : (
                 resourcesList
-                  .filter((i) => !i.archived)
+                  .filter((i) => !i.archivedAt)
                   .map((res) => {
                     const isChecked = linkedCollectionIds.includes(res.id);
                     return (

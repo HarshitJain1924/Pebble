@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
 import { GraphRepository, WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
 import { DomainEventBus } from "@/services/events/domain-events";
-import { DEFAULT_WORKSPACE_ID } from "@/shared/types/repository.types";
+import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 
 export function useFocusState() {
   // Core states
@@ -81,30 +81,21 @@ export function useFocusState() {
       
       const incomplete: any[] = [];
       const allHabits: any[] = [];
-      const todayStr = new Date().toISOString().split("T")[0];
 
       for (const fId of folderIds) {
         // Load tasks
         const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t) => {
-          if (!t.completed && !t.archived) {
-            incomplete.push({
-              ...t,
-              folderId: fId,
-              scheduledDate: t.scheduledDate || t.dueDate,
-            });
+          if (!isTaskCompleted(t) && !t.archivedAt) {
+            incomplete.push(t);
           }
         });
 
         // Load habits
         const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h) => {
-          if (!h.archived) {
-            allHabits.push({
-              ...h,
-              folderId: fId,
-              completedToday: h.completedDates?.includes(todayStr) || false,
-            });
+          if (!h.archivedAt) {
+            allHabits.push(h);
           }
         });
       }
@@ -268,16 +259,16 @@ export function useFocusState() {
       GraphRepository.getFocusSessions().then((sessions) => {
         const today = new Date().toDateString();
         const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt).toDateString() === today
+          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today
         );
         const finishedToday = todaySessions.length;
         const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
+          (acc, s) => acc + Math.floor(s.duration / 60),
           0
         );
         const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
         const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
+          (max, s) => Math.max(max, Math.floor(s.duration / 60)),
           0
         );
 
@@ -772,10 +763,9 @@ export function useFocusState() {
       try {
         const focusSession = {
           id: `focus_sw_${Date.now()}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
           startedAt: Date.now() - elapsed * 1000,
           endedAt: Date.now(),
-          durationSeconds: elapsed,
+          duration: elapsed,
         };
 
         // 1. Save FocusSession
@@ -784,7 +774,7 @@ export function useFocusState() {
         // 2. Log System Event
         await GraphRepository.logSystemEvent({
           id: `log_${focusSession.id}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
+          workspaceId: "default",
           itemId: focusSession.id,
           itemType: "focus_session",
           action: "focused",
@@ -802,16 +792,16 @@ export function useFocusState() {
         const sessions = await GraphRepository.getFocusSessions();
         const today = new Date().toDateString();
         const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt).toDateString() === today
+          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today
         );
         const finishedToday = todaySessions.length;
         const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
+          (acc, s) => acc + Math.floor(s.duration / 60),
           0
         );
         const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
         const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
+          (max, s) => Math.max(max, Math.floor(s.duration / 60)),
           0
         );
         setCompletedToday(finishedToday);
@@ -887,28 +877,23 @@ export function useFocusState() {
               onPress: async () => {
                 try {
                   if (!taskId) { setFocusedTaskId(null); transitionToBreak(); return; }
-                  const habit = await HabitRepository.getHabit(taskId, habitObj.folderId || "default");
+                  const habit = await HabitRepository.getHabit(taskId, habitObj.workspaceId || "default");
                   if (habit) {
                     const yesterday = new Date(
                       today.getTime() - 24 * 60 * 60 * 1000,
                     );
                     const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+                    const updatedHistory = [...(habit.completionHistory || []), { date: yesterdayKey, completedAt: Date.now() }];
                     await HabitRepository.saveHabit({
                       ...habit,
-                      streak: (habit as any).previousStreak || habit.streak,
-                      bestStreak: Math.max(
-                        habit.bestStreak || 0,
-                        (habit as any).previousStreak || 0,
-                      ),
-                      lastCompletedDate: yesterdayKey,
-                      previousStreak: undefined,
-                      streakBrokenDate: undefined,
-                    } as any);
+                      completionHistory: updatedHistory,
+                      updatedAt: Date.now(),
+                    });
                     emitStateChange("habits_changed");
                     emitStateChange("pebbles_changed");
                   }
                 } catch (e) {
-                  console.warn("Failed to auto-recover habit streak:", e);
+                  console.warn("Failed to recover habit streak", e);
                 }
                 setFocusedTaskId(null);
                 transitionToBreak();
@@ -1025,11 +1010,10 @@ export function useFocusState() {
         const isHabit = habitList.some((h) => h.id === focusedTaskId);
         const focusSession = {
           id: `focus_${Date.now()}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
+          taskId: focusedTaskId || undefined,
           startedAt: Date.now() - totalSessionTime * 1000,
           endedAt: Date.now(),
-          durationSeconds: totalSessionTime,
-          linkedItem: focusedTaskId ? { id: focusedTaskId, type: isHabit ? "habit" as const : "task" as const } : undefined,
+          duration: totalSessionTime,
         };
 
         // 1. Save Focus Session log
@@ -1049,7 +1033,7 @@ export function useFocusState() {
         // 3. Log System Event
         await GraphRepository.logSystemEvent({
           id: `log_${focusSession.id}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
+          workspaceId: "default",
           itemId: focusSession.id,
           itemType: "focus_session",
           action: "focused",
@@ -1067,16 +1051,16 @@ export function useFocusState() {
         const sessions = await GraphRepository.getFocusSessions();
         const today = new Date().toDateString();
         const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt).toDateString() === today
+          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today
         );
         const finishedToday = todaySessions.length;
         const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
+          (acc, s) => acc + Math.floor(s.duration / 60),
           0
         );
         const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
         const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
+          (max, s) => Math.max(max, Math.floor(s.duration / 60)),
           0
         );
         setCompletedToday(finishedToday);

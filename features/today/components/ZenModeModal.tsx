@@ -6,6 +6,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
 import { type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
+import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 
 export interface ZenModeModalProps {
   visible: boolean;
@@ -213,7 +214,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                     {activeZenHabit.title}
                   </Text>
 
-                  {activeZenHabit.streak > 0 && (
+                  {getHabitCurrentStreak(activeZenHabit) > 0 && (
                     <Text
                       style={{
                         fontSize: 13,
@@ -222,7 +223,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                         marginTop: -12,
                       }}
                     >
-                      🔥 {activeZenHabit.streak} Day Streak
+                      🔥 {getHabitCurrentStreak(activeZenHabit)} Day Streak
                     </Text>
                   )}
 

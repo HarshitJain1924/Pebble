@@ -211,37 +211,22 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       if (!h) return;
 
       const today = getDateKey();
-      const yesterday = getDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
-      
-      const isCompletedToday = h.completedDates?.includes(today);
+      const isCompletedToday = h.completionHistory.some((c) => c.date === today);
       const nextCompleted = !isCompletedToday;
 
-      let streak = h.streak || 0;
-      let completedDates = [...(h.completedDates || [])];
-
+      let nextHistory = h.completionHistory;
       if (nextCompleted) {
-        let nextStreak = 1;
-        const lastDate = (h as any).lastCompletedDate;
-        if (lastDate === today) {
-          nextStreak = h.streak || 1;
-        } else if (lastDate === yesterday) {
-          nextStreak = (h.streak || 0) + 1;
-        }
-        streak = nextStreak;
-        if (!completedDates.includes(today)) {
-          completedDates.push(today);
-        }
+        nextHistory = [
+          ...h.completionHistory.filter((c) => c.date !== today),
+          { date: today, completedAt: Date.now() },
+        ];
       } else {
-        streak = Math.max(0, streak - 1);
-        completedDates = completedDates.filter((d: string) => d !== today);
+        nextHistory = h.completionHistory.filter((c) => c.date !== today);
       }
 
       await HabitRepository.saveHabit({
         ...h,
-        streak,
-        bestStreak: Math.max(h.bestStreak || 0, streak),
-        completedDates,
-        lastCompletedDate: nextCompleted ? today : (streak > 0 ? yesterday : undefined),
+        completionHistory: nextHistory,
         updatedAt: Date.now(),
       });
 

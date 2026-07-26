@@ -1,404 +1,183 @@
-import { useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useFocusEffect } from "expo-router";
+import { Task, Habit, Checklist, Workspace } from "@/shared/types/domain.types";
 import {
-  ChecklistRepository,
-  HabitRepository,
-  TaskRepository,
-  WorkspaceRepository,
-} from "@/repositories";
-import {
-  getDateKey,
-  getTodoDateKey,
-} from "@/features/tasks/utils/task-formatting";
-import {
-  TASK_CATEGORY_KEYS,
-  normalizeTaskCategory,
-} from "@/features/tasks/services/task-categories";
-import { normalizeHabitsForToday } from "@/features/habits/services/habit.service";
-import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
-import { type UserProfile } from "@/features/settings/services/settings.service";
-import {
-  type Checklist,
-  type Habit,
-  type Task,
-  type Workspace,
-} from "@/shared/types/domain.types";
+  isTaskCompleted,
+  isTaskOverdue,
+  isHabitCompletedToday,
+  getHabitCurrentStreak,
+} from "@/shared/utils/domain-selectors";
+import { TaskRepository, HabitRepository, ChecklistRepository, WorkspaceRepository } from "@/repositories";
+import { isRecurringOccurrenceForDate, getDateKey } from "@/services/scheduling/recurrence.service";
+import { getMainStreakRecoveryInfo, StreakRecoveryInfo } from "@/features/profile/services/pebble.service";
 
-export interface UseTodayDashboardOptions {
-  setFolders: React.Dispatch<React.SetStateAction<Workspace[]>>;
-  setTodoStats: React.Dispatch<
-    React.SetStateAction<{
-      completed: number;
-      total: number;
-      pending: Task[];
-      overdue: Task[];
-    }>
-  >;
-  setPendingHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
-  setCompletedHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
-  setHabitStats: React.Dispatch<
-    React.SetStateAction<{
-      completed: number;
-      total: number;
-      maxStreak: number;
-    }>
-  >;
-  setCategoryCounts: React.Dispatch<
-    React.SetStateAction<Record<string, number>>
-  >;
-  setAllChecklists: React.Dispatch<
-    React.SetStateAction<Record<string, Checklist[]>>
-  >;
-  setNextReminder: React.Dispatch<React.SetStateAction<string | null>>;
-  setProfile: React.Dispatch<React.SetStateAction<UserProfile | null>>;
-  setHasUnreadNotifs: React.Dispatch<React.SetStateAction<boolean>>;
-  setLifetimePebbles: React.Dispatch<React.SetStateAction<number>>;
-  setMonthlyPebbles: React.Dispatch<React.SetStateAction<number>>;
-  setMonthlyTypes: React.Dispatch<
-    React.SetStateAction<{ task: number; habit: number; focus: number }>
-  >;
-  setLifetimeTypes: React.Dispatch<
-    React.SetStateAction<{ task: number; habit: number; focus: number }>
-  >;
-  setStreak: React.Dispatch<React.SetStateAction<number>>;
-  setWeeklyStatus: React.Dispatch<React.SetStateAction<boolean[]>>;
-  setGemsBalance: React.Dispatch<React.SetStateAction<number>>;
-  setMainStreakRecoveryInfo: React.Dispatch<
-    React.SetStateAction<{ canRecover: boolean; cost: number }>
-  >;
+export interface TodayDashboardStats {
+  todoStats: {
+    pending: Task[];
+    overdue: Task[];
+    completed: number;
+    total: number;
+  };
+  pendingHabits: Habit[];
+  completedHabits: Habit[];
+  allChecklists: Record<string, Checklist[]>;
+  categoryCounts: Record<string, number>;
+  habitStats: {
+    completed: number;
+    total: number;
+    maxStreak: number;
+  };
+  folders: Workspace[];
+  mainStreak: number;
+  recoveryInfo: StreakRecoveryInfo | null;
+  closestReminderTime: number | null;
+  isLoading: boolean;
+  loadDashboardData: () => Promise<void>;
 }
 
-export function useTodayDashboard({
-  setFolders,
-  setTodoStats,
-  setPendingHabits,
-  setCompletedHabits,
-  setHabitStats,
-  setCategoryCounts,
-  setAllChecklists,
-  setNextReminder,
-  setProfile,
-  setHasUnreadNotifs,
-  setLifetimePebbles,
-  setMonthlyPebbles,
-  setMonthlyTypes,
-  setLifetimeTypes,
-  setStreak,
-  setWeeklyStatus,
-  setGemsBalance,
-  setMainStreakRecoveryInfo,
-}: UseTodayDashboardOptions) {
-  const loadDashboardData = useCallback(async () => {
+export function useTodayDashboard(): TodayDashboardStats {
+  const [todoStats, setTodoStats] = useState({
+    pending: [] as Task[],
+    overdue: [] as Task[],
+    completed: 0,
+    total: 0,
+  });
+  const [pendingHabits, setPendingHabits] = useState<Habit[]>([]);
+  const [completedHabits, setCompletedHabits] = useState<Habit[]>([]);
+  const [allChecklists, setAllChecklists] = useState<Record<string, Checklist[]>>({});
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
+  const [habitStats, setHabitStats] = useState({ completed: 0, total: 0, maxStreak: 0 });
+  const [folders, setFolders] = useState<Workspace[]>([]);
+  const [mainStreak, setMainStreak] = useState(0);
+  const [recoveryInfo, setRecoveryInfo] = useState<StreakRecoveryInfo | null>(null);
+  const [closestReminderTime, setClosestReminderTime] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadDashboard = useCallback(async () => {
     try {
+      setIsLoading(true);
       const todayStr = getDateKey();
+      const loadedFolders = await WorkspaceRepository.getWorkspaces();
+      setFolders(loadedFolders);
 
-      // 1. Load Folders and Tasks via Repositories
-      const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(
-        new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
-      );
+      const workspaceIds = Array.from(new Set(["default", "unassigned", ...loadedFolders.map((f) => f.id)]));
 
-      const foldersData =
-        folderList.length > 0
-          ? folderList.map((f) => ({
-              id: f.id,
-              name: f.name,
-              emoji: f.emoji || "📁",
-              color: f.color || "#6366F1",
-            }))
-          : [
-              {
-                id: "default",
-                name: "My Pebbles",
-                emoji: "📋",
-                color: "#6366F1",
-              },
-            ];
-      setFolders(foldersData);
+      const allTasks: Task[] = [];
+      const allHabitsList: Habit[] = [];
+      const checklistsMap: Record<string, Checklist[]> = {};
 
-      let tCompleted = 0;
-      let tTotal = 0;
-      let pendingList: Task[] = [];
-      let closestAlarm: number | null = null;
-      const nextCategoryCounts = Object.fromEntries(
-        TASK_CATEGORY_KEYS.map((key) => [key, 0]),
-      ) as Record<string, number>;
-
-      const rawList: Task[] = [];
-      const rawHabitsList: Habit[] = [];
-
-      for (const folderId of folderIds) {
-        // Load tasks
-        const tasksMap = await TaskRepository.getTasks(folderId);
-        Object.values(tasksMap).forEach((task) => {
-          const resolvedWorkspaceId =
-            task.workspaceId || (task as any).folderId || folderId;
-          rawList.push({
-            id: task.id,
-            workspaceId: resolvedWorkspaceId,
-            folderId: resolvedWorkspaceId,
-            title: task.title,
-            completed: task.completed,
-            completedAt: task.completedAt,
-            priority: task.priority || "medium",
-            category: normalizeTaskCategory(task.category),
-            createdAt: task.createdAt,
-            archived: task.archived,
-            description: task.description,
-            scheduledDate: task.scheduledDate || "inbox",
-            scheduledTime: task.scheduledTime,
-            durationMinutes: task.durationMinutes,
-            alarmTime: task.alarmTime,
-            alarmId: task.alarmId,
-            notificationIds: task.notificationIds,
-          });
+      for (const wsId of workspaceIds) {
+        const tasks = await TaskRepository.getTasks(wsId);
+        Object.values(tasks).forEach((t) => {
+          if (!t.archivedAt) {
+            allTasks.push(t);
+          }
         });
 
-        // Load habits
-        const habitsMap = await HabitRepository.getHabits(folderId);
-        Object.values(habitsMap).forEach((habit) => {
-          const resolvedWorkspaceId =
-            habit.workspaceId || (habit as any).folderId || folderId;
-          rawHabitsList.push({
-            id: habit.id,
-            workspaceId: resolvedWorkspaceId,
-            folderId: resolvedWorkspaceId,
-            title: habit.title,
-            completedToday: habit.completedDates?.includes(todayStr) || false,
-            streak: habit.streak || 0,
-            bestStreak: habit.bestStreak || 0,
-            priority: habit.priority || "medium",
-            category: normalizeTaskCategory(habit.category),
-            createdAt: habit.createdAt,
-            archived: habit.archived,
-            reminderHour: habit.reminderHour,
-            reminderMinute: habit.reminderMinute,
-            reminderDays: habit.reminderDays,
-            recurrence: habit.recurrence,
-            notificationIds: habit.notificationIds,
-          });
+        const habits = await HabitRepository.getHabits(wsId);
+        Object.values(habits).forEach((h) => {
+          if (!h.archivedAt) {
+            allHabitsList.push(h);
+          }
         });
+
+        const chks = await ChecklistRepository.getChecklists(wsId);
+        checklistsMap[wsId] = Object.values(chks).filter((c) => !c.archivedAt);
       }
 
-      const allTodos = rawList.filter((todo) => {
-        if (todo.archived) return false;
-        if (todo.scheduledDate === "inbox") {
-          return true;
-        }
-        const todoDate = getTodoDateKey(todo);
-        if (todoDate > todayStr) {
-          return false;
-        }
-        return true;
-      });
+      setAllChecklists(checklistsMap);
 
-      // Separate today's tasks and overdue tasks
-      const overdueTodos = allTodos.filter(
-        (t) =>
-          !t.completed &&
-          getTodoDateKey(t) < todayStr &&
-          getTodoDateKey(t) !== "inbox",
-      );
-      const todayTodos = allTodos.filter(
-        (t) =>
-          getTodoDateKey(t) === todayStr ||
-          t.completed ||
-          getTodoDateKey(t) === "inbox",
-      );
+      // Tasks processing
+      const overdueTasks = allTasks.filter((t) => !isTaskCompleted(t) && isTaskOverdue(t, todayStr));
+      const pendingTasks = allTasks.filter((t) => !isTaskCompleted(t) && !isTaskOverdue(t, todayStr));
+      const completedTasksCount = allTasks.filter((t) => isTaskCompleted(t)).length;
 
-      tTotal = todayTodos.length;
-      tCompleted = todayTodos.filter((t) => t.completed).length;
-
-      // Sort pending today's todos by priority: High -> Medium -> Low
-      const pendingTodos = todayTodos.filter((t) => !t.completed);
-      pendingTodos.sort((a, b) => {
-        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
-        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
-        return orderA - orderB;
-      });
-      pendingList = pendingTodos;
-
-      // Sort overdue todos by priority: High -> Medium -> Low
-      const overdueList = [...overdueTodos];
-      overdueList.sort((a, b) => {
+      pendingTasks.sort((a, b) => {
         const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
         const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
         return orderA - orderB;
       });
 
-      allTodos.forEach((todo) => {
-        if (todo.completed) {
-          return;
-        }
-
-        const category = normalizeTaskCategory(todo.category);
-        nextCategoryCounts[category] = (nextCategoryCounts[category] ?? 0) + 1;
+      overdueTasks.sort((a, b) => {
+        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
+        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
+        return orderA - orderB;
       });
 
-      allTodos.forEach((t) => {
-        if (t.alarmTime && t.alarmTime > Date.now()) {
-          if (!closestAlarm || t.alarmTime < closestAlarm)
-            closestAlarm = t.alarmTime;
+      const nextCategoryCounts: Record<string, number> = {};
+      let closestReminder: number | null = null;
+
+      allTasks.forEach((t) => {
+        if (!isTaskCompleted(t)) {
+          const cat = t.categoryId || "general";
+          nextCategoryCounts[cat] = (nextCategoryCounts[cat] ?? 0) + 1;
+
+          if (t.reminder?.triggerAt && t.reminder.triggerAt > Date.now()) {
+            if (!closestReminder || t.reminder.triggerAt < closestReminder) {
+              closestReminder = t.reminder.triggerAt;
+            }
+          }
         }
       });
 
       setTodoStats({
-        completed: tCompleted,
-        total: tTotal,
-        pending: pendingList,
-        overdue: overdueList,
+        pending: pendingTasks,
+        overdue: overdueTasks,
+        completed: completedTasksCount,
+        total: allTasks.length,
       });
+      setCategoryCounts(nextCategoryCounts);
+      setClosestReminderTime(closestReminder);
 
-      // 2. Load and Normalize Habits
-      let hCompleted = 0;
-      let hTotal = 0;
-      let maxStreak = 0;
-      let unfinishedHabitsList: Habit[] = [];
-      let finishedHabitsList: Habit[] = [];
-
-      const normalized = normalizeHabitsForToday(rawHabitsList);
-      if (JSON.stringify(normalized) !== JSON.stringify(rawHabitsList)) {
-        for (const normalizedHabit of normalized) {
-          const originalHabit = rawHabitsList.find(
-            (h) => h.id === normalizedHabit.id,
-          );
-          if (
-            originalHabit &&
-            JSON.stringify(originalHabit) !== JSON.stringify(normalizedHabit)
-          ) {
-            const habitsMap = await HabitRepository.getHabits(
-              normalizedHabit.folderId || "default",
-            );
-            const originalFull = habitsMap[normalizedHabit.id];
-            if (originalFull) {
-              await HabitRepository.saveHabit({
-                ...originalFull,
-                streak: normalizedHabit.streak,
-                bestStreak: normalizedHabit.bestStreak,
-              });
-            }
-          }
-        }
-      }
-
-      const todayDate = new Date();
-      const dayOfWeek = todayDate.getDay();
-      const allHabits = normalized.filter((h) => {
-        if (h.archived) return false;
+      // Habits processing
+      const todayHabits = allHabitsList.filter((h) => {
         if (h.recurrence) {
           return isRecurringOccurrenceForDate(h, todayStr);
         }
-        return (
-          !h.reminderDays ||
-          h.reminderDays.length === 0 ||
-          h.reminderDays.includes(dayOfWeek)
-        );
+        return true;
       });
-      hTotal = allHabits.length;
-      hCompleted = allHabits.filter((h) => h.completedToday).length;
 
-      // Sort unfinished habits by priority: High -> Medium -> Low
-      const unfinished = allHabits.filter((h) => !h.completedToday);
-      unfinished.sort((a, b) => {
-        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
-        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
-        return orderA - orderB;
+      const pendingH = todayHabits.filter((h) => !isHabitCompletedToday(h, todayStr));
+      const completedH = todayHabits.filter((h) => isHabitCompletedToday(h, todayStr));
+      const maxStk = todayHabits.reduce((max, h) => Math.max(max, getHabitCurrentStreak(h, todayStr)), 0);
+
+      setPendingHabits(pendingH);
+      setCompletedHabits(completedH);
+      setHabitStats({
+        completed: completedH.length,
+        total: todayHabits.length,
+        maxStreak: maxStk,
       });
-      unfinishedHabitsList = unfinished;
-      finishedHabitsList = allHabits.filter((h) => h.completedToday);
-      maxStreak = allHabits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
 
-      setPendingHabits(unfinishedHabitsList);
-      setCompletedHabits(finishedHabitsList);
-      setHabitStats({ completed: hCompleted, total: hTotal, maxStreak });
-
-      setCategoryCounts({ ...nextCategoryCounts });
-
-      // 3. Load Checklists via Repository
-      const loadedChecklists: Record<string, any[]> = {};
-      for (const fId of folderIds) {
-        const checklistsMap = await ChecklistRepository.getChecklists(fId);
-        loadedChecklists[fId] = Object.values(checklistsMap).map((c: any) => ({
-          id: c.id,
-          folderId: fId,
-          title: c.title,
-          items: c.items || [],
-          createdAt: c.createdAt,
-          archived: c.archived || false,
-        }));
-      }
-      setAllChecklists(loadedChecklists);
-
-      if (closestAlarm) {
-        const d = new Date(closestAlarm);
-        setNextReminder(
-          d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        );
-      } else {
-        setNextReminder(null);
-      }
-
-      // Load Profile & Notifications Inbox status
-      try {
-        const {
-          getProfile,
-        } = require("@/features/settings/services/settings.service");
-        const userProfile = await getProfile();
-        setProfile(userProfile);
-
-        const {
-          getNotificationLogs,
-        } = require("@/services/scheduling/notifications-log");
-        const logs = await getNotificationLogs();
-        const hasUnread = logs.some((l: any) => !l.read);
-        setHasUnreadNotifs(hasUnread);
-
-        // Calculate lifetime & monthly pebbles using the new service
-        const {
-          getPebbleCounts,
-          getGemsBalance,
-          getMainStreakRecoveryInfo,
-        } = require("@/features/profile/services/pebble.service");
-        const pebbleStats = await getPebbleCounts();
-        setLifetimePebbles(pebbleStats.lifetime);
-        setMonthlyPebbles(pebbleStats.monthly);
-        setMonthlyTypes(pebbleStats.monthlyTypes);
-        setLifetimeTypes(
-          pebbleStats.lifetimeTypes || { task: 0, habit: 0, focus: 0 },
-        );
-        setStreak(pebbleStats.streak);
-        setWeeklyStatus(pebbleStats.weeklyStatus);
-
-        const balance = await getGemsBalance();
-        setGemsBalance(balance);
-
-        const recInfo = await getMainStreakRecoveryInfo();
-        setMainStreakRecoveryInfo(recInfo);
-      } catch {
-        // ignore
-      }
-    } catch {
-      // ignore
+      // Streak recovery info
+      const recovery = await getMainStreakRecoveryInfo();
+      setRecoveryInfo(recovery);
+      setMainStreak(maxStk);
+    } catch (e) {
+      console.warn("Failed to load today dashboard", e);
+    } finally {
+      setIsLoading(false);
     }
-  }, [
-    setFolders,
-    setTodoStats,
-    setPendingHabits,
-    setCompletedHabits,
-    setHabitStats,
-    setCategoryCounts,
-    setAllChecklists,
-    setNextReminder,
-    setProfile,
-    setHasUnreadNotifs,
-    setLifetimePebbles,
-    setMonthlyPebbles,
-    setMonthlyTypes,
-    setLifetimeTypes,
-    setStreak,
-    setWeeklyStatus,
-    setGemsBalance,
-    setMainStreakRecoveryInfo,
-  ]);
+  }, []);
 
-  return { loadDashboardData };
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, [loadDashboard])
+  );
+
+  return {
+    todoStats,
+    pendingHabits,
+    completedHabits,
+    allChecklists,
+    categoryCounts,
+    habitStats,
+    folders,
+    mainStreak,
+    recoveryInfo,
+    closestReminderTime,
+    isLoading,
+    loadDashboardData: loadDashboard,
+  };
 }

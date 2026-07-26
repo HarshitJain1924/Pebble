@@ -167,9 +167,9 @@ export default function NotificationsCenter() {
       for (const fId of folderIds) {
         const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t) => {
-          if (!t.completed && t.alarmTime && t.alarmTime > Date.now()) {
+          if (t.status !== "completed" && t.reminder?.triggerAt && t.reminder.triggerAt > Date.now()) {
             if (!upcomingList.some((u) => u.title.includes(t.title))) {
-              const alarmDate = new Date(t.alarmTime);
+              const alarmDate = new Date(t.reminder.triggerAt);
               const label = alarmDate.toLocaleString([], {
                 month: "short",
                 day: "numeric",
@@ -188,13 +188,10 @@ export default function NotificationsCenter() {
 
         const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h) => {
-          if (
-            !h.archived &&
-            h.reminderHour !== undefined &&
-            h.reminderMinute !== undefined
-          ) {
-            const hourStr = String(h.reminderHour).padStart(2, "0");
-            const minStr = String(h.reminderMinute).padStart(2, "0");
+          if (!h.archivedAt && h.reminder?.triggerAt) {
+            const reminderDate = new Date(h.reminder.triggerAt);
+            const hourStr = String(reminderDate.getHours()).padStart(2, "0");
+            const minStr = String(reminderDate.getMinutes()).padStart(2, "0");
             upcomingList.push({
               id: h.id,
               title: `Habit: ${h.title}`,

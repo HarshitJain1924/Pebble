@@ -426,11 +426,7 @@ export function TaskEditorSheet({
                   const ws = lists.find(l => l.id === editedTask.folderId);
                   return (
                     <>
-                      {ws?.iconType === "icon" && ws?.icon ? (
-                        <Feather name={ws.icon as any} size={12} color={activePicker === "workspace" ? colors.primary : colors.textMuted} />
-                      ) : (
-                        <Text style={{ fontSize: 12 }}>{ws?.emoji || "📁"}</Text>
-                      )}
+                      <Text style={{ fontSize: 12 }}>{ws?.emoji || "📁"}</Text>
                       <Text style={[styles.metaPillText, { color: activePicker === "workspace" ? colors.primary : colors.text }]}>
                         {ws?.name || "Workspace"}
                       </Text>

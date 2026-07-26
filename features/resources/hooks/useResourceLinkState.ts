@@ -12,7 +12,6 @@ export function useResourceLinkState(
   checklists: Record<string, Checklist[]>,
   setChecklists: React.Dispatch<React.SetStateAction<Record<string, Checklist[]>>>,
   resources: Record<string, Resource[]>,
-  setResources: React.Dispatch<React.SetStateAction<Record<string, Resource[]>>>,
   selectedList: string,
   openedFolderId: string | null,
   lists: Workspace[],
@@ -32,11 +31,11 @@ export function useResourceLinkState(
         if (next[wsId]) {
           next[wsId] = next[wsId].map((todo) => {
             if (todo.id === itemId) {
-              const linked = todo.linkedResourceIds || todo.linkedCollectionIds || [];
+              const linked = todo.resourceIds || [];
               const updated = linked.includes(resourceId)
                 ? linked.filter((id: string) => id !== resourceId)
                 : [...linked, resourceId];
-              return { ...todo, linkedResourceIds: updated, linkedCollectionIds: updated };
+              return { ...todo, resourceIds: updated, updatedAt: Date.now() };
             }
             return todo;
           });
@@ -47,11 +46,11 @@ export function useResourceLinkState(
     } else if (itemType === "habit") {
       const nextHabits = habits.map((habit) => {
         if (habit.id === itemId) {
-          const linked = habit.linkedResourceIds || habit.linkedCollectionIds || [];
+          const linked = habit.resourceIds || [];
           const updated = linked.includes(resourceId)
             ? linked.filter((id: string) => id !== resourceId)
             : [...linked, resourceId];
-          return { ...habit, linkedResourceIds: updated, linkedCollectionIds: updated };
+          return { ...habit, resourceIds: updated, updatedAt: Date.now() };
         }
         return habit;
       });
@@ -64,11 +63,11 @@ export function useResourceLinkState(
         if (next[wsId]) {
           next[wsId] = next[wsId].map((chk) => {
             if (chk.id === itemId) {
-              const linked = chk.linkedResourceIds || chk.linkedCollectionIds || [];
+              const linked = chk.resourceIds || [];
               const updated = linked.includes(resourceId)
                 ? linked.filter((id: string) => id !== resourceId)
                 : [...linked, resourceId];
-              const updatedChk = { ...chk, linkedResourceIds: updated, linkedCollectionIds: updated, workspaceId: wsId };
+              const updatedChk: Checklist = { ...chk, resourceIds: updated, workspaceId: wsId, updatedAt: Date.now() };
               void ChecklistRepository.saveChecklist(updatedChk);
               return updatedChk;
             }
@@ -83,38 +82,14 @@ export function useResourceLinkState(
       const wsId = openedFolderId || selectedList || "default";
       const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (existing) {
-        const linked = (existing as any).linkedItemIds || [];
-        const updated = linked.includes(itemId)
-          ? linked.filter((id: string) => id !== itemId)
-          : [...linked, itemId];
-        await ResourceRepository.saveResource({
-          ...existing,
-          linkedItemIds: updated,
-          updatedAt: Date.now(),
-        });
-
         const updatedResources = await ResourceRepository.getResources(wsId);
-        const list: Resource[] = Object.values(updatedResources).map((r: any) => ({
-          id: r.id,
-          workspaceId: r.workspaceId || r.folderId || wsId,
-          type: (r.resourceType || r.type || "note") as any,
-          title: r.title,
-          content: r.content !== undefined ? r.content : (r.payload?.content || r.body?.content),
-          url: r.url !== undefined ? r.url : (r.payload?.url || r.body?.url),
-          archived: r.archived || false,
-          pinned: r.pinned || false,
-          linkedItemIds: r.linkedItemIds || [],
-          tags: r.tags || [],
-          createdAt: r.createdAt || Date.now(),
-          updatedAt: r.updatedAt || Date.now(),
-        }));
-        setResources((prev) => ({ ...prev, [wsId]: list }));
+        const list: Resource[] = Object.values(updatedResources);
         emitStateChange("resources_changed");
       }
     } catch (e) {
-      console.warn("Failed to update reverse link on resource", e);
+      console.warn("Failed to update resource link state", e);
     }
-  }, [selectedList, habits, openedFolderId, lists, setTodos, setHabits, setChecklists, setResources, persistState, persistHabits]);
+  }, [selectedList, habits, openedFolderId, lists, setTodos, setHabits, setChecklists, persistState, persistHabits]);
 
   return {
     toggleLinkResource,

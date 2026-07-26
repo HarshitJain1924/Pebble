@@ -24,34 +24,13 @@ export const COLLECTIONS_STORAGE_KEY = "pebble:collections";
 export const CHECKLISTS_STORAGE_KEY = "pebble:checklists";
 export const DASHBOARD_FILTER_STORAGE_KEY = "todoapp:dashboard:filter";
 export const DASHBOARD_PRIORITY_STORAGE_KEY = "todoapp:dashboard:priority";
-const GRATITUDE_HISTORY_STORAGE_KEY = "todoapp:gratitude_history";
+export const GRATITUDE_HISTORY_STORAGE_KEY = "todoapp:gratitude_history";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function getRecycleBinItems(): Promise<RecycleBinItem[]> {
   try {
-    const repositoryItems = await RecycleBinRepository.getRecycleBinItems();
-    return repositoryItems.map((item) => {
-      let restoredType: any = "task";
-      if (item.itemType === "habit") restoredType = "habit";
-      else if (item.itemType === "checklist") restoredType = "checklist";
-      else if (item.itemType === "resource") restoredType = "resource";
-      else if (item.itemType === "workspace") restoredType = "workspace";
-
-      let parsedData = {};
-      try {
-        parsedData = JSON.parse(item.snapshot);
-      } catch (e) {}
-
-      return {
-        id: item.id,
-        title: item.title,
-        deletedAt: item.deletedAt,
-        itemType: restoredType,
-        originalLocation: item.originalLocation,
-        data: parsedData,
-      };
-    });
+    return await RecycleBinRepository.getRecycleBinItems();
   } catch (e) {
     console.warn("Failed to read recycle bin items", e);
     return [];
@@ -62,49 +41,23 @@ export async function saveRecycleBinItems(
   items: RecycleBinItem[],
 ): Promise<void> {
   try {
-    const repositoryItems = items.map((item) => {
-      let itemType: any = "task";
-      if (item.itemType === "habit") itemType = "habit";
-      else if (item.itemType === "checklist") itemType = "checklist";
-      else if (item.itemType === "resource") itemType = "resource";
-      else if (item.itemType === "workspace") itemType = "workspace";
-
-      return {
-        id: item.id,
-        title: item.title,
-        deletedAt: item.deletedAt,
-        itemType,
-        originalLocation: item.originalLocation,
-        snapshot: JSON.stringify(item.data || {}),
-      };
-    });
-    await RecycleBinRepository.saveRecycleBinItems(repositoryItems);
+    await RecycleBinRepository.saveRecycleBinItems(items);
   } catch (e) {
     console.warn("Failed to save recycle bin items", e);
   }
 }
 
 export async function addToRecycleBin(
-  itemType:
-    | "task"
-    | "habit"
-    | "workspace"
-    | "resource"
-    | "checklist"
-    | "checklist_item",
+  entityType: RecycleBinItem["entityType"],
   data: any,
   originalLocation: string,
 ): Promise<void> {
   try {
-    let type: any = "task";
-    if (itemType === "habit") type = "habit";
-    else if (itemType === "checklist") type = "checklist";
-    else if (itemType === "resource") type = "resource";
-    else if (itemType === "workspace") type = "workspace";
-
-    const payload = data;
-
-    await RecycleBinRepository.addToRecycleBin(type, payload, originalLocation);
+    await RecycleBinRepository.addToRecycleBin(
+      entityType,
+      data,
+      originalLocation,
+    );
   } catch (e) {
     console.warn("Failed to add item to recycle bin", e);
   }
@@ -133,33 +86,20 @@ export async function getRecycledIds(): Promise<RecycledIds> {
   const titles = new Set<string>();
 
   for (const item of items) {
-    if (item.itemType === "workspace") {
-      workspaceIds.add(item.id);
-      titles.add(item.title.toLowerCase().trim());
-      if (item.data) {
-        if (Array.isArray(item.data.todos)) {
-          for (const t of item.data.todos) {
-            if (t?.id) {
-              taskIds.add(t.id);
-              if (t.title) titles.add(t.title.toLowerCase().trim());
-            }
-          }
-        }
-        if (Array.isArray(item.data.habits)) {
-          for (const h of item.data.habits) {
-            if (h?.id) {
-              habitIds.add(h.id);
-              if (h.title) titles.add(h.title.toLowerCase().trim());
-            }
-          }
-        }
-      }
-    } else if (item.itemType === "task") {
-      taskIds.add(item.id);
-      titles.add(item.title.toLowerCase().trim());
-    } else if (item.itemType === "habit") {
-      habitIds.add(item.id);
-      titles.add(item.title.toLowerCase().trim());
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(item.snapshot);
+    } catch {}
+
+    const title = parsed.title || parsed.name || "";
+    if (title) titles.add(title.toLowerCase().trim());
+
+    if (item.entityType === "workspace") {
+      workspaceIds.add(item.entityId);
+    } else if (item.entityType === "task") {
+      taskIds.add(item.entityId);
+    } else if (item.entityType === "habit") {
+      habitIds.add(item.entityId);
     }
   }
 
@@ -282,39 +222,29 @@ export async function restoreRecycleBinItems(
   let resourcesRestored = false;
 
   for (const item of itemsToRestore) {
-    if (item.itemType === "task") {
-      const rescheduled = await rescheduleTodoReminders(item.data);
+    let parsedData: any = {};
+    try {
+      parsedData = JSON.parse(item.snapshot);
+    } catch {}
+
+    if (item.entityType === "task") {
+      // Restore preserves original ID — repository upserts by ID, preventing duplicates
+      const rescheduled = await rescheduleTodoReminders(parsedData);
       await TaskRepository.saveTask(rescheduled);
       tasksRestored = true;
-    } else if (item.itemType === "habit") {
-      const rescheduled = await rescheduleHabitReminders(item.data);
+    } else if (item.entityType === "habit") {
+      const rescheduled = await rescheduleHabitReminders(parsedData);
       await HabitRepository.saveHabit(rescheduled);
       habitsRestored = true;
-    } else if (item.itemType === "workspace") {
-      // Restore workspace metadata
-      await WorkspaceRepository.saveWorkspace(item.data.list);
+    } else if (item.entityType === "workspace") {
+      // Restore canonical workspace — snapshot stores the canonical Workspace object
+      await WorkspaceRepository.saveWorkspace(parsedData);
       workspacesRestored = true;
-
-      // Restore child tasks & habits
-      if (item.data.todos) {
-        for (const t of item.data.todos) {
-          const rescheduled = await rescheduleTodoReminders(t);
-          await TaskRepository.saveTask(rescheduled);
-        }
-        tasksRestored = true;
-      }
-      if (item.data.habits) {
-        for (const h of item.data.habits) {
-          const rescheduled = await rescheduleHabitReminders(h);
-          await HabitRepository.saveHabit(rescheduled);
-        }
-        habitsRestored = true;
-      }
-    } else if (item.itemType === "resource") {
-      await ResourceRepository.saveResource(item.data);
+    } else if (item.entityType === "resource") {
+      await ResourceRepository.saveResource(parsedData);
       resourcesRestored = true;
-    } else if (item.itemType === "checklist") {
-      await ChecklistRepository.saveChecklist(item.data);
+    } else if (item.entityType === "checklist") {
+      await ChecklistRepository.saveChecklist(parsedData);
       checklistsRestored = true;
     }
   }
@@ -325,6 +255,7 @@ export async function restoreRecycleBinItems(
   if (resourcesRestored) emitStateChange("resources_changed");
   if (checklistsRestored) emitStateChange("checklists_changed");
 
+  // Remove restored items from recycle bin atomically
   const binItems = await getRecycleBinItems();
   const restoreIds = new Set(itemsToRestore.map((i) => i.id));
   const remaining = binItems.filter((i) => !restoreIds.has(i.id));

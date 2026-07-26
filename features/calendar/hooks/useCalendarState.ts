@@ -9,6 +9,7 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, ScrollView, View } from "react-native";
+import { Workspace } from "@/shared/types/domain.types";
 import { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
 import {
@@ -78,7 +79,7 @@ export function useCalendarState() {
   >("month");
 
   // Workspaces list
-  const [lists, setLists] = useState<{ id: string; name: string }[]>([]);
+  const [lists, setLists] = useState<Workspace[]>([]);
   const [addingTask, setAddingTask] = useState<any | null>(null);
 
   // Drag and Drop rescheduling states
@@ -210,29 +211,10 @@ export function useCalendarState() {
       const habitsMap = await HabitRepository.getHabits(activeWorkspace);
 
       const listTodos = Object.values(tasksMap)
-        .filter((t) => !t.archived)
-        .map((t) => ({
-          id: t.id,
-          title: t.title,
-          completed: t.completed,
-          priority: t.priority,
-          scheduledDate: t.dueDate,
-          folderId: activeWorkspace,
-          createdAt: t.createdAt,
-          category: t.category,
-        }));
+        .filter((t) => !t.archivedAt);
 
       const listHabits = Object.values(habitsMap)
-        .filter((h) => !h.archived)
-        .map((h) => ({
-          id: h.id,
-          title: h.title,
-          streak: h.streak,
-          bestStreak: h.bestStreak,
-          completedToday: h.completedDates.includes(getDateKey()),
-          folderId: activeWorkspace,
-          createdAt: h.createdAt,
-        }));
+        .filter((h) => !h.archivedAt);
 
       setAllTodos(listTodos as any[]);
       setAllHabits(listHabits as any[]);
@@ -831,33 +813,24 @@ export function useCalendarState() {
                   await rescheduleTodoReminders(todoToReschedule);
                 await TaskRepository.saveTask({
                   ...todo,
-                  dueDate: selDate,
+                  schedule: { ...todo.schedule, date: selDate },
+                  reminder: rescheduled.reminder,
                   updatedAt: Date.now(),
-                  notificationIds: rescheduled.notificationIds,
-                  alarmId: rescheduled.alarmId,
-                  reminderHour: hHour,
-                  reminderMinute: 0,
-                  alarmTime: newAlarmDate.getTime(),
-                } as any);
+                });
               }
             } else if (dragItem.type === "habit") {
               const habitMap = await HabitRepository.getHabits(activeWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
-                await cancelReminderIds(habit.notificationIds || []);
-                const rescheduled = await rescheduleHabitReminders({
-                  ...habit,
-                  reminderHour: hHour,
-                  reminderMinute: 0,
-                });
+                if (habit.reminder?.notificationIds) {
+                  await cancelReminderIds(habit.reminder.notificationIds);
+                }
+                const rescheduled = await rescheduleHabitReminders(habit);
                 await HabitRepository.saveHabit({
                   ...habit,
-                  reminderHour: hHour,
-                  reminderMinute: 0,
+                  reminder: rescheduled.reminder,
                   updatedAt: Date.now(),
-                  notificationIds: rescheduled.notificationIds,
-                  completedToday: habit.completedToday || false,
-                } as any);
+                });
               }
             }
 
@@ -922,46 +895,24 @@ export function useCalendarState() {
                   await rescheduleTodoReminders(todoToReschedule);
                 await TaskRepository.saveTask({
                   ...todo,
-                  dueDate: hDate,
-                  alarmTime: newAlarmTime,
+                  schedule: { ...todo.schedule, date: hDate },
+                  reminder: rescheduled.reminder,
                   updatedAt: Date.now(),
-                  notificationIds: rescheduled.notificationIds,
-                  alarmId: rescheduled.alarmId,
-                } as any);
+                });
               }
             } else if (dragItem.type === "habit") {
-              const dateParts = hDate.split("-").map(Number);
-              const selDateObj = new Date(
-                dateParts[0],
-                dateParts[1] - 1,
-                dateParts[2],
-              );
-              const dayOfWeek = selDateObj.getDay();
-
               const habitMap = await HabitRepository.getHabits(activeWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
-                const reminderDays = habit.reminderDays || [];
-                let updatedDays = reminderDays;
-                if (!reminderDays.includes(dayOfWeek)) {
-                  updatedDays = [...reminderDays, dayOfWeek];
+                if (habit.reminder?.notificationIds) {
+                  await cancelReminderIds(habit.reminder.notificationIds);
                 }
-
-                // Cancel old reminders
-                await cancelReminderIds(habit.notificationIds || []);
-
-                // Reschedule
-                const rescheduled = await rescheduleHabitReminders({
-                  ...habit,
-                  reminderDays: updatedDays,
-                });
+                const rescheduled = await rescheduleHabitReminders(habit);
                 await HabitRepository.saveHabit({
                   ...habit,
-                  reminderDays: updatedDays,
+                  reminder: rescheduled.reminder,
                   updatedAt: Date.now(),
-                  notificationIds: rescheduled.notificationIds,
-                  completedToday: habit.completedToday || false,
-                } as any);
+                });
               }
             }
 

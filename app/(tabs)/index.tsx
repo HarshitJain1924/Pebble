@@ -213,26 +213,7 @@ export function TodayScreen() {
     }, 150);
   }, []);
 
-  const { loadDashboardData } = useTodayDashboard({
-    setFolders,
-    setTodoStats,
-    setPendingHabits,
-    setCompletedHabits,
-    setHabitStats,
-    setCategoryCounts,
-    setAllChecklists,
-    setNextReminder,
-    setProfile,
-    setHasUnreadNotifs,
-    setLifetimePebbles,
-    setMonthlyPebbles,
-    setMonthlyTypes,
-    setLifetimeTypes,
-    setStreak,
-    setWeeklyStatus,
-    setGemsBalance,
-    setMainStreakRecoveryInfo,
-  });
+  const { loadDashboardData } = useTodayDashboard();
 
   const {
     completeTodoFromDashboard,

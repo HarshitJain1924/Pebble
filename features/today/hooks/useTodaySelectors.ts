@@ -1,5 +1,6 @@
 import { useMemo, useCallback } from "react";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
+import { isTaskOverdue } from "@/shared/utils/domain-selectors";
 import { getDateKey, getTodoDateKey } from "@/features/tasks/utils/task-formatting";
 
 /**
@@ -54,6 +55,8 @@ export function useTodaySelectors({
         name: "My Pebbles",
         emoji: "📋",
         color: "#6366F1",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       };
     },
     [folders],
@@ -176,7 +179,8 @@ export function useTodaySelectors({
 
       if (
         selectedPriorityFilter !== "all" &&
-        habit.priority !== selectedPriorityFilter
+        (habit as any).priority &&
+        (habit as any).priority !== selectedPriorityFilter
       ) {
         return false;
       }
@@ -186,8 +190,8 @@ export function useTodaySelectors({
 
     if (selectedSortOption === "priority") {
       return [...filtered].sort((a, b) => {
-        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
-        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
+        const orderA = (a as any).priority === "high" ? 0 : (a as any).priority === "low" ? 2 : 1;
+        const orderB = (b as any).priority === "high" ? 0 : (b as any).priority === "low" ? 2 : 1;
         return orderA - orderB;
       });
     } else if (selectedSortOption === "alphabetical") {
@@ -219,7 +223,8 @@ export function useTodaySelectors({
 
       if (
         selectedPriorityFilter !== "all" &&
-        habit.priority !== selectedPriorityFilter
+        (habit as any).priority &&
+        (habit as any).priority !== selectedPriorityFilter
       ) {
         return false;
       }
@@ -229,8 +234,8 @@ export function useTodaySelectors({
 
     if (selectedSortOption === "priority") {
       return [...filtered].sort((a, b) => {
-        const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
-        const orderB = b.priority === "high" ? 0 : b.priority === "low" ? 2 : 1;
+        const orderA = (a as any).priority === "high" ? 0 : (a as any).priority === "low" ? 2 : 1;
+        const orderB = (b as any).priority === "high" ? 0 : (b as any).priority === "low" ? 2 : 1;
         return orderA - orderB;
       });
     } else if (selectedSortOption === "alphabetical") {
@@ -374,7 +379,7 @@ export function useTodaySelectors({
     const activeChecklists: Checklist[] = [];
     Object.entries(allChecklists).forEach(([_fId, list]) => {
       list.forEach((c) => {
-        if (!c.archived) {
+        if (!c.archivedAt) {
           activeChecklists.push(c);
         }
       });
@@ -436,7 +441,7 @@ export function useTodaySelectors({
           filteredHabits = [];
         } else if (activeFilter === "overdue") {
           filteredTasks = items.tasks.filter(
-            (t) => getTodoDateKey(t) < todayStr && t.scheduledDate !== "inbox",
+            (t) => isTaskOverdue(t, todayStr),
           );
           filteredHabits = [];
           filteredChecklists = [];
