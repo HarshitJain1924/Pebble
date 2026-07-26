@@ -1,13 +1,17 @@
-import { AppText as Text } from "@/shared/components/ui/AppText";
+import { type UserProfile } from "@/features/settings/services/settings.service";
+import { addStateListener } from "@/services/events/state-events";
+import {
+  getDashboardFilters,
+  saveDashboardFilter,
+} from "@/services/storage/storage.service";
+import { useUndo } from "@/shared/components/ui/UndoContext";
+import { styles } from "@/shared/constants/dashboardStyles";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Dimensions,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
@@ -16,30 +20,20 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { type UserProfile } from "@/features/settings/services/settings.service";
-import { addStateListener } from "@/services/events/state-events";
-import {
-  getDashboardFilters,
-  saveDashboardFilter,
-} from "@/services/storage/storage.service";
-import PressableScale from "@/shared/components/ui/PressableScale";
-import { useUndo } from "@/shared/components/ui/UndoContext";
-import { styles } from "@/shared/constants/dashboardStyles";
-import { Colors } from "@/shared/constants/theme";
-import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import * as Haptics from "expo-haptics";
 
-import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { ContinueWorkspaceCard } from "@/features/today/components/ContinueWorkspaceCard";
+import { DashboardFilterBar } from "@/features/today/components/DashboardFilterBar";
 import { PebbleJarProgressCard } from "@/features/today/components/PebbleJarProgressCard";
 import { PebbleSanctuaryModal } from "@/features/today/components/PebbleSanctuaryModal";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
 import { ReviewMyDayModal } from "@/features/today/components/ReviewMyDayModal";
+import { StreakBanner } from "@/features/today/components/StreakBanner";
 import { WorkspaceContextCarousel } from "@/features/today/components/WorkspaceContextCarousel";
 import { ZenModeModal } from "@/features/today/components/ZenModeModal";
 import { useTodayActions } from "@/features/today/hooks/useTodayActions";
 import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
+import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { type Checklist, type Habit, Task } from "@/shared/types/domain.types";
 
 const getDateKey = (date = new Date()) => {
@@ -205,7 +199,6 @@ export function TodayScreen() {
       transform: [{ scale: breathScale.value }],
     };
   });
-
 
   const onJarLayout = useCallback(() => {
     setTimeout(() => {
@@ -418,101 +411,13 @@ export function TodayScreen() {
           />
 
           {/* Compact Streak Banner */}
-          {mainStreakRecoveryInfo?.eligible &&
-            (() => {
-              let streakMotivation =
-                "Start your goals today to build consistency!";
-              if (streak > 0) {
-                if (streak < 3) {
-                  streakMotivation = "Flame sparked! Keep it burning.";
-                } else if (streak < 7) {
-                  streakMotivation = "You're building solid momentum!";
-                } else if (streak < 14) {
-                  streakMotivation = "Don't break this beautiful chain.";
-                } else {
-                  streakMotivation = "You're mastering your routines!";
-                }
-              }
-
-              return (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    backgroundColor: colors.card,
-                    borderColor:
-                      streak > 0
-                        ? colorScheme === "light"
-                          ? "#D97706"
-                          : "#B45309"
-                        : colors.border,
-                    borderWidth: 1.5,
-                    borderRadius: 14,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    marginHorizontal: 4,
-                    marginTop: 12,
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                      flex: 1,
-                    }}
-                  >
-                    <Text style={{ fontSize: 16 }}>🔥</Text>
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        fontWeight: "800",
-                        color: colors.text,
-                      }}
-                    >
-                      {streak} Day Streak
-                    </Text>
-                    <Text
-                      style={{ fontSize: 12, color: colors.textMuted, flex: 1 }}
-                      numberOfLines={1}
-                    >
-                      • {streakMotivation}
-                    </Text>
-                  </View>
-                  {mainStreakRecoveryInfo?.eligible && (
-                    <PressableScale
-                      onPress={handleRecoverMainStreak}
-                      haptic
-                      style={{
-                        backgroundColor:
-                          colorScheme === "light"
-                            ? "#FEF3C7"
-                            : "rgba(245, 158, 11, 0.15)",
-                        borderColor: "#F59E0B",
-                        borderWidth: 1,
-                        borderRadius: 8,
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: "700",
-                          color: "#F59E0B",
-                        }}
-                      >
-                        💎 Spend 1 Gem to Restore
-                      </Text>
-                    </PressableScale>
-                  )}
-                </View>
-              );
-            })()}
+          <StreakBanner
+            streak={streak}
+            recoveryInfo={mainStreakRecoveryInfo}
+            onRecover={handleRecoverMainStreak}
+            colors={colors}
+            colorScheme={colorScheme ?? "dark"}
+          />
 
           {/* Continue Working In Recommendation Card */}
           <ContinueWorkspaceCard
@@ -527,64 +432,14 @@ export function TodayScreen() {
           />
 
           {/* Global Filter Row */}
-          <View style={{ marginTop: 16, marginHorizontal: -16 }}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{
-                paddingHorizontal: 16,
-                gap: 8,
-                paddingVertical: 4,
-              }}
-            >
-              {[
-                { key: "all", label: "All" },
-                { key: "tasks", label: "Tasks" },
-                { key: "habits", label: "Habits" },
-                { key: "checklists", label: "Checklists" },
-                { key: "overdue", label: "Overdue" },
-              ].map((filter) => {
-                const isSelected = activeFilter === filter.key;
-                return (
-                  <PressableScale
-                    key={filter.key}
-                    onPress={async () => {
-                      setActiveFilter(filter.key);
-                      await saveDashboardFilter(filter.key);
-                      Haptics.impactAsync(
-                        Haptics.ImpactFeedbackStyle.Light,
-                      ).catch(() => {});
-                    }}
-                    style={{
-                      paddingHorizontal: 14,
-                      paddingVertical: 8,
-                      borderRadius: 20,
-                      backgroundColor: isSelected
-                        ? colors.primary
-                        : colors.card,
-                      borderColor: isSelected ? colors.primary : colors.border,
-                      borderWidth: 1.5,
-                      shadowColor: "#000",
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: isSelected ? 0.1 : 0.02,
-                      shadowRadius: 4,
-                      elevation: 1,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontWeight: "700",
-                        color: isSelected ? "#FFFFFF" : colors.textMuted,
-                      }}
-                    >
-                      {filter.label}
-                    </Text>
-                  </PressableScale>
-                );
-              })}
-            </ScrollView>
-          </View>
+          <DashboardFilterBar
+            activeFilter={activeFilter}
+            onSelectFilter={async (filterKey) => {
+              setActiveFilter(filterKey);
+              await saveDashboardFilter(filterKey);
+            }}
+            colors={colors}
+          />
 
           {/* Swipeable Today Contexts Carousel */}
           <WorkspaceContextCarousel

@@ -12,6 +12,7 @@ import {
   StatusBadge,
 } from "@/shared/components/design-system";
 import { styles } from "@/shared/constants/dashboardStyles";
+import { type ThemeColors } from "@/shared/constants/theme";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
 import { getDateKey, getTodoDateKey } from "@/features/tasks/utils/task-formatting";
 
@@ -42,7 +43,7 @@ export interface ActiveContextItem {
 
 export interface WorkspaceContextCarouselProps {
   activeContexts: ActiveContextItem[];
-  colors: any;
+  colors: ThemeColors;
   colorScheme: "light" | "dark" | null | undefined;
   allCollections?: Record<string, any[]>;
   expandedChecklistIds: Record<string, boolean>;

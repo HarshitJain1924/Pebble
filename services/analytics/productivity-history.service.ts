@@ -1,9 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
-  HabitRepository,
-  TaskRepository,
-  UiStateRepository
+    HabitRepository,
+    TaskRepository,
+    UiStateRepository,
 } from "@/repositories";
 import { HISTORY_STORAGE_KEY } from "@/services/storage/storage.service";
 
