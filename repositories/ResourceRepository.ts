@@ -5,18 +5,23 @@
  */
 import {
   DEFAULT_WORKSPACE_ID,
+  type Attachment,
   type Resource,
   type ResourceType,
-  type Attachment,
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export function normalizeResource(rawResource: any, defaultWorkspaceId: string): Resource {
-  const wsId = rawResource.workspaceId || rawResource.folderId || defaultWorkspaceId;
+export function normalizeResource(
+  rawResource: any,
+  defaultWorkspaceId: string,
+): Resource {
+  const wsId =
+    rawResource.workspaceId || rawResource.folderId || defaultWorkspaceId;
 
   // Determine type
   let type: ResourceType = "note";
-  const rawType = rawResource.type || rawResource.resourceType || rawResource.kind;
+  const rawType =
+    rawResource.type || rawResource.resourceType || rawResource.kind;
   if (rawType === "link" || rawType === "idea" || rawType === "note") {
     type = rawType as ResourceType;
   } else if (rawType === "file") {
@@ -30,13 +35,22 @@ export function normalizeResource(rawResource: any, defaultWorkspaceId: string):
       bodyStr = rawResource.content;
     } else if (typeof rawResource.url === "string") {
       bodyStr = rawResource.url;
-    } else if (rawResource.body && typeof rawResource.body.content === "string") {
+    } else if (
+      rawResource.body &&
+      typeof rawResource.body.content === "string"
+    ) {
       bodyStr = rawResource.body.content;
     } else if (rawResource.body && typeof rawResource.body.url === "string") {
       bodyStr = rawResource.body.url;
-    } else if (rawResource.payload && typeof rawResource.payload.content === "string") {
+    } else if (
+      rawResource.payload &&
+      typeof rawResource.payload.content === "string"
+    ) {
       bodyStr = rawResource.payload.content;
-    } else if (rawResource.payload && typeof rawResource.payload.url === "string") {
+    } else if (
+      rawResource.payload &&
+      typeof rawResource.payload.url === "string"
+    ) {
       bodyStr = rawResource.payload.url;
     } else {
       bodyStr = undefined;
@@ -45,15 +59,26 @@ export function normalizeResource(rawResource: any, defaultWorkspaceId: string):
 
   // Construct attachments if legacy file URI exists
   let attachments: Attachment[] | undefined = rawResource.attachments;
-  if (!attachments && (rawResource.localUri || rawResource.mediaUri || (rawResource.body && rawResource.body.localUri))) {
-    const uri = rawResource.localUri || rawResource.mediaUri || rawResource.body?.localUri;
+  if (
+    !attachments &&
+    (rawResource.localUri ||
+      rawResource.mediaUri ||
+      (rawResource.body && rawResource.body.localUri))
+  ) {
+    const uri =
+      rawResource.localUri ||
+      rawResource.mediaUri ||
+      rawResource.body?.localUri;
     if (uri) {
       attachments = [
         {
           id: `att-${Date.now()}`,
           name: rawResource.fileName || rawResource.title || "File Attachment",
           uri,
-          mimeType: rawResource.mimeType || rawResource.body?.mimeType || "application/octet-stream",
+          mimeType:
+            rawResource.mimeType ||
+            rawResource.body?.mimeType ||
+            "application/octet-stream",
           size: rawResource.fileSize || rawResource.body?.fileSize,
         },
       ];
@@ -70,11 +95,23 @@ export function normalizeResource(rawResource: any, defaultWorkspaceId: string):
     attachments: attachments || undefined,
     createdAt: rawResource.createdAt || Date.now(),
     updatedAt: rawResource.updatedAt || Date.now(),
-    archivedAt: rawResource.archivedAt || (rawResource.archived ? Date.now() : undefined),
+    archivedAt:
+      rawResource.archivedAt || (rawResource.archived ? Date.now() : undefined),
   };
 }
 
 export class ResourceRepository {
+  private static validateId(id: unknown, method: string): asserts id is string {
+    if (
+      id === undefined ||
+      id === null ||
+      typeof id !== "string" ||
+      id.trim().length === 0
+    ) {
+      throw new Error(`ResourceRepository.${method}: resource.id is required`);
+    }
+  }
+
   private static getResourcesKey(workspaceId: string) {
     return `pebble:v1:resources:${workspaceId}`;
   }
@@ -85,7 +122,7 @@ export class ResourceRepository {
 
   static async getResource(
     id: string,
-    workspaceId: string
+    workspaceId: string,
   ): Promise<Resource | null> {
     const key = this.getResourcesKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
@@ -102,7 +139,7 @@ export class ResourceRepository {
   }
 
   static async getResources(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<Record<string, Resource>> {
     const key = this.getResourcesKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
@@ -119,6 +156,7 @@ export class ResourceRepository {
   }
 
   static async saveResource(resource: any): Promise<void> {
+    this.validateId(resource?.id, "saveResource");
     const workspaceId = resource.workspaceId || DEFAULT_WORKSPACE_ID;
     const key = this.getResourcesKey(workspaceId);
     const records = await this.getResources(workspaceId);

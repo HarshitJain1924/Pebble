@@ -1,14 +1,23 @@
-import { useMemo, useCallback } from "react";
-import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
+import {
+  getDateKey
+} from "@/features/tasks/utils/task-formatting";
+import {
+  type Checklist,
+  type Habit,
+  type Task,
+  type Workspace,
+} from "@/shared/types/domain.types";
 import { isTaskOverdue } from "@/shared/utils/domain-selectors";
-import { getDateKey, getTodoDateKey } from "@/features/tasks/utils/task-formatting";
+import { useCallback, useMemo } from "react";
 
 /**
- * Centralized Workspace ID resolution helper for backwards compatibility.
+ * Resolves a workspace ID from an entity, falling back to "default" if none is set.
  */
-export function resolveWorkspaceId(entity?: { workspaceId?: string; folderId?: string }): string {
-  const rawId = entity?.workspaceId || entity?.folderId;
-  return rawId === "unassigned" || !rawId ? "default" : rawId;
+export function resolveWorkspaceId(entity?: {
+  workspaceId?: string;
+  folderId?: string;
+}): string {
+  return entity?.workspaceId || entity?.folderId || "default";
 }
 
 export interface UseTodaySelectorsOptions {
@@ -190,8 +199,18 @@ export function useTodaySelectors({
 
     if (selectedSortOption === "priority") {
       return [...filtered].sort((a, b) => {
-        const orderA = (a as any).priority === "high" ? 0 : (a as any).priority === "low" ? 2 : 1;
-        const orderB = (b as any).priority === "high" ? 0 : (b as any).priority === "low" ? 2 : 1;
+        const orderA =
+          (a as any).priority === "high"
+            ? 0
+            : (a as any).priority === "low"
+              ? 2
+              : 1;
+        const orderB =
+          (b as any).priority === "high"
+            ? 0
+            : (b as any).priority === "low"
+              ? 2
+              : 1;
         return orderA - orderB;
       });
     } else if (selectedSortOption === "alphabetical") {
@@ -234,8 +253,18 @@ export function useTodaySelectors({
 
     if (selectedSortOption === "priority") {
       return [...filtered].sort((a, b) => {
-        const orderA = (a as any).priority === "high" ? 0 : (a as any).priority === "low" ? 2 : 1;
-        const orderB = (b as any).priority === "high" ? 0 : (b as any).priority === "low" ? 2 : 1;
+        const orderA =
+          (a as any).priority === "high"
+            ? 0
+            : (a as any).priority === "low"
+              ? 2
+              : 1;
+        const orderB =
+          (b as any).priority === "high"
+            ? 0
+            : (b as any).priority === "low"
+              ? 2
+              : 1;
         return orderA - orderB;
       });
     } else if (selectedSortOption === "alphabetical") {
@@ -324,7 +353,11 @@ export function useTodaySelectors({
       displayedPendingHabits,
       displayedCompletedHabits,
     );
-  }, [displayedPendingHabits, displayedCompletedHabits, groupHabitsByWorkspace]);
+  }, [
+    displayedPendingHabits,
+    displayedCompletedHabits,
+    groupHabitsByWorkspace,
+  ]);
 
   const habitsFolderGroups = useMemo(() => {
     const keys = Object.keys(groupedTodayHabits);
@@ -440,9 +473,7 @@ export function useTodaySelectors({
           filteredTasks = [];
           filteredHabits = [];
         } else if (activeFilter === "overdue") {
-          filteredTasks = items.tasks.filter(
-            (t) => isTaskOverdue(t, todayStr),
-          );
+          filteredTasks = items.tasks.filter((t) => isTaskOverdue(t, todayStr));
           filteredHabits = [];
           filteredChecklists = [];
         }

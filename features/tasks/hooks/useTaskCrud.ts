@@ -327,10 +327,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
   const convertCollectionItemToTask = useCallback(
     async (item: any, targetWorkspaceId?: string) => {
       try {
-        const destinationWorkspaceId =
-          targetWorkspaceId === "unassigned" || !targetWorkspaceId
-            ? "default"
-            : targetWorkspaceId;
+        const destinationWorkspaceId = targetWorkspaceId || "default";
         const newTask: Task = {
           id: String(Date.now()),
           title: item.title,

@@ -11,7 +11,10 @@ import {
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export function normalizeHabit(rawHabit: any, defaultWorkspaceId: string): Habit {
+export function normalizeHabit(
+  rawHabit: any,
+  defaultWorkspaceId: string,
+): Habit {
   const wsId = rawHabit.workspaceId || rawHabit.folderId || defaultWorkspaceId;
 
   // Convert completion history
@@ -37,7 +40,10 @@ export function normalizeHabit(rawHabit: any, defaultWorkspaceId: string): Habit
 
   // Construct reminder if present
   let reminder = rawHabit.reminder;
-  if (!reminder && (rawHabit.reminderHour !== undefined || rawHabit.alarmTime)) {
+  if (
+    !reminder &&
+    (rawHabit.reminderHour !== undefined || rawHabit.alarmTime)
+  ) {
     reminder = {
       enabled: true,
       triggerAt: rawHabit.alarmTime || Date.now(),
@@ -69,11 +75,23 @@ export function normalizeHabit(rawHabit: any, defaultWorkspaceId: string): Habit
     resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
     createdAt: rawHabit.createdAt || Date.now(),
     updatedAt: rawHabit.updatedAt || Date.now(),
-    archivedAt: rawHabit.archivedAt || (rawHabit.archived ? Date.now() : undefined),
+    archivedAt:
+      rawHabit.archivedAt || (rawHabit.archived ? Date.now() : undefined),
   };
 }
 
 export class HabitRepository {
+  private static validateId(id: unknown, method: string): asserts id is string {
+    if (
+      id === undefined ||
+      id === null ||
+      typeof id !== "string" ||
+      id.trim().length === 0
+    ) {
+      throw new Error(`HabitRepository.${method}: habit.id is required`);
+    }
+  }
+
   private static getHabitsKey(workspaceId: string) {
     return `pebble:v1:habits:${workspaceId}`;
   }
@@ -84,7 +102,7 @@ export class HabitRepository {
 
   static async getHabit(
     id: string,
-    workspaceId: string
+    workspaceId: string,
   ): Promise<Habit | null> {
     const key = this.getHabitsKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
@@ -116,6 +134,7 @@ export class HabitRepository {
   }
 
   static async saveHabit(habit: any): Promise<void> {
+    this.validateId(habit?.id, "saveHabit");
     const workspaceId = habit.workspaceId || DEFAULT_WORKSPACE_ID;
     const key = this.getHabitsKey(workspaceId);
     const records = await this.getHabits(workspaceId);

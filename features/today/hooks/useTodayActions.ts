@@ -1,6 +1,8 @@
-import { useCallback } from "react";
-import { Alert, Dimensions } from "react-native";
-import * as Haptics from "expo-haptics";
+import {
+  handleHabitXpChange,
+  handleTaskXpChange,
+} from "@/features/settings/services/settings.service";
+import { getDateKey } from "@/features/tasks/utils/task-formatting";
 import {
   ChecklistRepository,
   HabitRepository,
@@ -8,14 +10,12 @@ import {
   WorkspaceRepository,
 } from "@/repositories";
 import { emitStateChange } from "@/services/events/state-events";
-import { getDateKey } from "@/features/tasks/utils/task-formatting";
-import {
-  handleTaskXpChange,
-  handleHabitXpChange,
-} from "@/features/settings/services/settings.service";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import { appendGratitudeHistoryEntry } from "@/services/storage/storage.service";
 import { type Checklist } from "@/shared/types/domain.types";
+import * as Haptics from "expo-haptics";
+import { useCallback } from "react";
+import { Alert, Dimensions } from "react-native";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -28,7 +28,12 @@ export interface UseTodayActionsOptions {
   }) => void;
   setFlyingPebbles: React.Dispatch<
     React.SetStateAction<
-      Array<{ id: string; startX: number; startY: number; type: "task" | "habit" }>
+      Array<{
+        id: string;
+        startX: number;
+        startY: number;
+        type: "task" | "habit";
+      }>
     >
   >;
   setAllChecklists: React.Dispatch<
@@ -121,11 +126,7 @@ export function useTodayActions({
         let targetFolderId = "default";
         const folderList = await WorkspaceRepository.getWorkspaces();
         const folderIds = Array.from(
-          new Set([
-            "default",
-            "unassigned",
-            ...folderList.map((f: any) => f.id),
-          ]),
+          new Set(["default", ...folderList.map((f: any) => f.id)]),
         );
 
         for (const fId of folderIds) {
@@ -226,11 +227,7 @@ export function useTodayActions({
         let targetFolderId = "default";
         const folderList = await WorkspaceRepository.getWorkspaces();
         const folderIds = Array.from(
-          new Set([
-            "default",
-            "unassigned",
-            ...folderList.map((f: any) => f.id),
-          ]),
+          new Set(["default", ...folderList.map((f: any) => f.id)]),
         );
 
         for (const fId of folderIds) {
@@ -395,7 +392,14 @@ export function useTodayActions({
     } catch (e) {
       console.warn("Failed to save review", e);
     }
-  }, [gratitudeText, intentionText, loadDashboardData, setGratitudeText, setIntentionText, setIsReviewModalVisible]);
+  }, [
+    gratitudeText,
+    intentionText,
+    loadDashboardData,
+    setGratitudeText,
+    setIntentionText,
+    setIsReviewModalVisible,
+  ]);
 
   return {
     completeTodoFromDashboard,

@@ -1,16 +1,26 @@
-import { AMBIENT_SOUNDS } from "@/shared/constants/sounds";
 import { earnPebble } from "@/features/profile/services/pebble.service";
-import { emitStateChange, addStateListener } from "@/services/events/state-events";
+import {
+  addStateListener,
+  emitStateChange,
+} from "@/services/events/state-events";
+import { AMBIENT_SOUNDS } from "@/shared/constants/sounds";
 
+import {
+  GraphRepository,
+  HabitRepository,
+  TaskRepository,
+  WorkspaceRepository,
+} from "@/repositories";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
+import { DomainEventBus } from "@/services/events/domain-events";
+import {
+  isTaskCompleted
+} from "@/shared/utils/domain-selectors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
-import { GraphRepository, WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
-import { DomainEventBus } from "@/services/events/domain-events";
-import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 
 export function useFocusState() {
   // Core states
@@ -77,8 +87,10 @@ export function useFocusState() {
   const loadActiveTasks = async () => {
     try {
       const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
-      
+      const folderIds = Array.from(
+        new Set(["default", ...folderList.map((f) => f.id)]),
+      );
+
       const incomplete: any[] = [];
       const allHabits: any[] = [];
 
@@ -256,32 +268,35 @@ export function useFocusState() {
           setIsRepeat(val === "true");
         }
       });
-      GraphRepository.getFocusSessions().then((sessions) => {
-        const today = new Date().toDateString();
-        const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today
-        );
-        const finishedToday = todaySessions.length;
-        const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.duration / 60),
-          0
-        );
-        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
-        const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.duration / 60)),
-          0
-        );
+      GraphRepository.getFocusSessions()
+        .then((sessions) => {
+          const today = new Date().toDateString();
+          const todaySessions = sessions.filter(
+            (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
+          );
+          const finishedToday = todaySessions.length;
+          const totalTime = todaySessions.reduce(
+            (acc, s) => acc + Math.floor(s.duration / 60),
+            0,
+          );
+          const avg =
+            finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+          const longest = todaySessions.reduce(
+            (max, s) => Math.max(max, Math.floor(s.duration / 60)),
+            0,
+          );
 
-        setCompletedToday(finishedToday);
-        setTotalFocusTime(totalTime);
-        setAverageSessionLength(avg);
-        setLongestSession(longest);
-      }).catch(() => {
-        setCompletedToday(0);
-        setTotalFocusTime(0);
-        setAverageSessionLength(0);
-        setLongestSession(0);
-      });
+          setCompletedToday(finishedToday);
+          setTotalFocusTime(totalTime);
+          setAverageSessionLength(avg);
+          setLongestSession(longest);
+        })
+        .catch(() => {
+          setCompletedToday(0);
+          setTotalFocusTime(0);
+          setAverageSessionLength(0);
+          setLongestSession(0);
+        });
       AsyncStorage.getItem("todoapp:focus:glow_enabled").then((val) => {
         if (val !== null) {
           setGlowEnabled(val === "true");
@@ -792,17 +807,18 @@ export function useFocusState() {
         const sessions = await GraphRepository.getFocusSessions();
         const today = new Date().toDateString();
         const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today
+          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
         );
         const finishedToday = todaySessions.length;
         const totalTime = todaySessions.reduce(
           (acc, s) => acc + Math.floor(s.duration / 60),
-          0
+          0,
         );
-        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+        const avg =
+          finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
         const longest = todaySessions.reduce(
           (max, s) => Math.max(max, Math.floor(s.duration / 60)),
-          0
+          0,
         );
         setCompletedToday(finishedToday);
         setTotalFocusTime(totalTime);
@@ -876,14 +892,24 @@ export function useFocusState() {
               text: "Awesome",
               onPress: async () => {
                 try {
-                  if (!taskId) { setFocusedTaskId(null); transitionToBreak(); return; }
-                  const habit = await HabitRepository.getHabit(taskId, habitObj.workspaceId || "default");
+                  if (!taskId) {
+                    setFocusedTaskId(null);
+                    transitionToBreak();
+                    return;
+                  }
+                  const habit = await HabitRepository.getHabit(
+                    taskId,
+                    habitObj.workspaceId || "default",
+                  );
                   if (habit) {
                     const yesterday = new Date(
                       today.getTime() - 24 * 60 * 60 * 1000,
                     );
                     const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-                    const updatedHistory = [...(habit.completionHistory || []), { date: yesterdayKey, completedAt: Date.now() }];
+                    const updatedHistory = [
+                      ...(habit.completionHistory || []),
+                      { date: yesterdayKey, completedAt: Date.now() },
+                    ];
                     await HabitRepository.saveHabit({
                       ...habit,
                       completionHistory: updatedHistory,
@@ -1051,17 +1077,18 @@ export function useFocusState() {
         const sessions = await GraphRepository.getFocusSessions();
         const today = new Date().toDateString();
         const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today
+          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
         );
         const finishedToday = todaySessions.length;
         const totalTime = todaySessions.reduce(
           (acc, s) => acc + Math.floor(s.duration / 60),
-          0
+          0,
         );
-        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+        const avg =
+          finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
         const longest = todaySessions.reduce(
           (max, s) => Math.max(max, Math.floor(s.duration / 60)),
-          0
+          0,
         );
         setCompletedToday(finishedToday);
         setTotalFocusTime(totalTime);
@@ -1081,7 +1108,9 @@ export function useFocusState() {
   const completeLinkedTask = async (taskId: string) => {
     try {
       const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+      const folderIds = Array.from(
+        new Set(["default", ...folderList.map((f) => f.id)]),
+      );
       let foundTask = null;
       let targetFolderId = "default";
       for (const fId of folderIds) {

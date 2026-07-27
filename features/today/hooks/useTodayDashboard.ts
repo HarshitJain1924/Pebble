@@ -1,15 +1,26 @@
-import { useState, useCallback } from "react";
-import { useFocusEffect } from "expo-router";
-import { Task, Habit, Checklist, Workspace } from "@/shared/types/domain.types";
 import {
+  getMainStreakRecoveryInfo,
+  StreakRecoveryInfo,
+} from "@/features/profile/services/pebble.service";
+import {
+  ChecklistRepository,
+  HabitRepository,
+  TaskRepository,
+  WorkspaceRepository,
+} from "@/repositories";
+import {
+  getDateKey,
+  isRecurringOccurrenceForDate,
+} from "@/services/scheduling/recurrence.service";
+import { Checklist, Habit, Task, Workspace } from "@/shared/types/domain.types";
+import {
+  getHabitCurrentStreak,
+  isHabitCompletedToday,
   isTaskCompleted,
   isTaskOverdue,
-  isHabitCompletedToday,
-  getHabitCurrentStreak,
 } from "@/shared/utils/domain-selectors";
-import { TaskRepository, HabitRepository, ChecklistRepository, WorkspaceRepository } from "@/repositories";
-import { isRecurringOccurrenceForDate, getDateKey } from "@/services/scheduling/recurrence.service";
-import { getMainStreakRecoveryInfo, StreakRecoveryInfo } from "@/features/profile/services/pebble.service";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 
 export interface TodayDashboardStats {
   todoStats: {
@@ -44,13 +55,25 @@ export function useTodayDashboard(): TodayDashboardStats {
   });
   const [pendingHabits, setPendingHabits] = useState<Habit[]>([]);
   const [completedHabits, setCompletedHabits] = useState<Habit[]>([]);
-  const [allChecklists, setAllChecklists] = useState<Record<string, Checklist[]>>({});
-  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
-  const [habitStats, setHabitStats] = useState({ completed: 0, total: 0, maxStreak: 0 });
+  const [allChecklists, setAllChecklists] = useState<
+    Record<string, Checklist[]>
+  >({});
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>(
+    {},
+  );
+  const [habitStats, setHabitStats] = useState({
+    completed: 0,
+    total: 0,
+    maxStreak: 0,
+  });
   const [folders, setFolders] = useState<Workspace[]>([]);
   const [mainStreak, setMainStreak] = useState(0);
-  const [recoveryInfo, setRecoveryInfo] = useState<StreakRecoveryInfo | null>(null);
-  const [closestReminderTime, setClosestReminderTime] = useState<number | null>(null);
+  const [recoveryInfo, setRecoveryInfo] = useState<StreakRecoveryInfo | null>(
+    null,
+  );
+  const [closestReminderTime, setClosestReminderTime] = useState<number | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(true);
 
   const loadDashboard = useCallback(async () => {
@@ -60,7 +83,9 @@ export function useTodayDashboard(): TodayDashboardStats {
       const loadedFolders = await WorkspaceRepository.getWorkspaces();
       setFolders(loadedFolders);
 
-      const workspaceIds = Array.from(new Set(["default", "unassigned", ...loadedFolders.map((f) => f.id)]));
+      const workspaceIds = Array.from(
+        new Set(["default", ...loadedFolders.map((f) => f.id)]),
+      );
 
       const allTasks: Task[] = [];
       const allHabitsList: Habit[] = [];
@@ -88,9 +113,15 @@ export function useTodayDashboard(): TodayDashboardStats {
       setAllChecklists(checklistsMap);
 
       // Tasks processing
-      const overdueTasks = allTasks.filter((t) => !isTaskCompleted(t) && isTaskOverdue(t, todayStr));
-      const pendingTasks = allTasks.filter((t) => !isTaskCompleted(t) && !isTaskOverdue(t, todayStr));
-      const completedTasksCount = allTasks.filter((t) => isTaskCompleted(t)).length;
+      const overdueTasks = allTasks.filter(
+        (t) => !isTaskCompleted(t) && isTaskOverdue(t, todayStr),
+      );
+      const pendingTasks = allTasks.filter(
+        (t) => !isTaskCompleted(t) && !isTaskOverdue(t, todayStr),
+      );
+      const completedTasksCount = allTasks.filter((t) =>
+        isTaskCompleted(t),
+      ).length;
 
       pendingTasks.sort((a, b) => {
         const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
@@ -137,9 +168,16 @@ export function useTodayDashboard(): TodayDashboardStats {
         return true;
       });
 
-      const pendingH = todayHabits.filter((h) => !isHabitCompletedToday(h, todayStr));
-      const completedH = todayHabits.filter((h) => isHabitCompletedToday(h, todayStr));
-      const maxStk = todayHabits.reduce((max, h) => Math.max(max, getHabitCurrentStreak(h, todayStr)), 0);
+      const pendingH = todayHabits.filter(
+        (h) => !isHabitCompletedToday(h, todayStr),
+      );
+      const completedH = todayHabits.filter((h) =>
+        isHabitCompletedToday(h, todayStr),
+      );
+      const maxStk = todayHabits.reduce(
+        (max, h) => Math.max(max, getHabitCurrentStreak(h, todayStr)),
+        0,
+      );
 
       setPendingHabits(pendingH);
       setCompletedHabits(completedH);
@@ -163,7 +201,7 @@ export function useTodayDashboard(): TodayDashboardStats {
   useFocusEffect(
     useCallback(() => {
       loadDashboard();
-    }, [loadDashboard])
+    }, [loadDashboard]),
   );
 
   return {

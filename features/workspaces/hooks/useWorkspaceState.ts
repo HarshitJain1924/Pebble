@@ -99,11 +99,7 @@ export function useWorkspaceState() {
     Haptics.selectionAsync().catch(() => {});
     setActiveWorkspaceId(id);
     setSelectedWorkspaceId(id);
-    setWorkspaceSegment(id === "unassigned" ? "resources" : "tasks");
-
-    if (id === "unassigned") {
-      setActiveSegment("resources");
-    }
+    setWorkspaceSegment("tasks");
     UiStateRepository.saveUiState({ activeWorkspaceId: id }).catch(() => {});
     emitStateChange("workspace_mode_changed", id);
     emitStateChange("workspace_changed", "tasks_screen");
@@ -123,9 +119,7 @@ export function useWorkspaceState() {
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
-    setWorkspaceSegment(
-      activeWorkspaceId === "unassigned" ? "resources" : "tasks",
-    );
+    setWorkspaceSegment("tasks");
   }, [activeWorkspaceId]);
 
   const loadWorkspaces = useCallback(async (): Promise<Workspace[]> => {

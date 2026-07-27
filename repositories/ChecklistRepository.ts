@@ -10,19 +10,29 @@ import {
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export function normalizeChecklist(rawChecklist: any, defaultWorkspaceId: string): Checklist {
-  const wsId = rawChecklist.workspaceId || rawChecklist.folderId || defaultWorkspaceId;
+export function normalizeChecklist(
+  rawChecklist: any,
+  defaultWorkspaceId: string,
+): Checklist {
+  const wsId =
+    rawChecklist.workspaceId || rawChecklist.folderId || defaultWorkspaceId;
 
-  const items: ChecklistItem[] = (rawChecklist.items || []).map((item: any) => ({
-    id: item.id,
-    title: item.title || item.text || "",
-    completed: !!item.completed,
-    completedAt: item.completedAt || (item.completed ? Date.now() : undefined),
-  }));
+  const items: ChecklistItem[] = (rawChecklist.items || []).map(
+    (item: any) => ({
+      id: item.id,
+      title: item.title || item.text || "",
+      completed: !!item.completed,
+      completedAt:
+        item.completedAt || (item.completed ? Date.now() : undefined),
+    }),
+  );
 
   // Construct resourceIds
   let resourceIds = rawChecklist.resourceIds || [];
-  if (rawChecklist.resourceId && !resourceIds.includes(rawChecklist.resourceId)) {
+  if (
+    rawChecklist.resourceId &&
+    !resourceIds.includes(rawChecklist.resourceId)
+  ) {
     resourceIds.push(rawChecklist.resourceId);
   }
   if (Array.isArray(rawChecklist.linkedResourceIds)) {
@@ -42,11 +52,26 @@ export function normalizeChecklist(rawChecklist: any, defaultWorkspaceId: string
     resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
     createdAt: rawChecklist.createdAt || Date.now(),
     updatedAt: rawChecklist.updatedAt || Date.now(),
-    archivedAt: rawChecklist.archivedAt || (rawChecklist.archived ? Date.now() : undefined),
+    archivedAt:
+      rawChecklist.archivedAt ||
+      (rawChecklist.archived ? Date.now() : undefined),
   };
 }
 
 export class ChecklistRepository {
+  private static validateId(id: unknown, method: string): asserts id is string {
+    if (
+      id === undefined ||
+      id === null ||
+      typeof id !== "string" ||
+      id.trim().length === 0
+    ) {
+      throw new Error(
+        `ChecklistRepository.${method}: checklist.id is required`,
+      );
+    }
+  }
+
   private static getChecklistsKey(workspaceId: string) {
     return `pebble:v1:checklists:${workspaceId}`;
   }
@@ -57,12 +82,14 @@ export class ChecklistRepository {
 
   static async getChecklist(
     id: string,
-    workspaceId: string
+    workspaceId: string,
   ): Promise<Checklist | null> {
     const key = this.getChecklistsKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
     if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyChecklistsKey(workspaceId));
+      raw = await AsyncStorage.getItem(
+        this.getLegacyChecklistsKey(workspaceId),
+      );
     }
     if (!raw) return null;
     const records: Record<string, any> = JSON.parse(raw);
@@ -74,12 +101,14 @@ export class ChecklistRepository {
   }
 
   static async getChecklists(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<Record<string, Checklist>> {
     const key = this.getChecklistsKey(workspaceId);
     let raw = await AsyncStorage.getItem(key);
     if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyChecklistsKey(workspaceId));
+      raw = await AsyncStorage.getItem(
+        this.getLegacyChecklistsKey(workspaceId),
+      );
     }
     if (!raw) return {};
     const parsed = JSON.parse(raw);
@@ -91,11 +120,15 @@ export class ChecklistRepository {
   }
 
   static async saveChecklist(checklist: any): Promise<void> {
+    this.validateId(checklist?.id, "saveChecklist");
     const workspaceId = checklist.workspaceId || DEFAULT_WORKSPACE_ID;
     const key = this.getChecklistsKey(workspaceId);
     const records = await this.getChecklists(workspaceId);
 
-    const cleanChecklist: Checklist = normalizeChecklist(checklist, workspaceId);
+    const cleanChecklist: Checklist = normalizeChecklist(
+      checklist,
+      workspaceId,
+    );
     cleanChecklist.updatedAt = Date.now();
 
     records[checklist.id] = cleanChecklist;
