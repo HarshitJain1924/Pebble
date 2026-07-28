@@ -20,7 +20,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { Resource, Task, Habit, Checklist } from "@/shared/types/domain.types";
+import { Resource, Task, Habit, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const QUICK_ACCESS_CARD_WIDTH = Math.min(180, SCREEN_WIDTH * 0.45);
@@ -51,7 +51,7 @@ export function ResourceSection({
   toggleArchiveResource,
   togglePinResource,
   searchQuery = "",
-  activeFolderId = "default",
+  activeFolderId = INBOX_WORKSPACE_ID,
   stateTodos = [],
   stateHabits = [],
   onToggleLinkResource,
@@ -78,7 +78,7 @@ export function ResourceSection({
   const [editContent, setEditContent] = useState("");
 
   const folderResources = useMemo(() => {
-    const wsId = activeFolderId || "default";
+    const wsId = activeFolderId || INBOX_WORKSPACE_ID;
     return resources[wsId] || [];
   }, [resources, activeFolderId]);
 
@@ -140,7 +140,7 @@ export function ResourceSection({
       return;
     }
 
-    const wsId = activeFolderId || "default";
+    const wsId = activeFolderId || INBOX_WORKSPACE_ID;
     const newItemData: Partial<Resource> = {
       type: newResType === "file" ? "note" : newResType,
       title: newResTitle.trim(),
@@ -172,7 +172,7 @@ export function ResourceSection({
 
   const handleSaveEdit = useCallback(async () => {
     if (!editingResource || !editTitle.trim()) return;
-    const wsId = activeFolderId || "default";
+    const wsId = activeFolderId || INBOX_WORKSPACE_ID;
     const updates: Partial<Resource> = {
       title: editTitle.trim(),
       body: editContent.trim() || undefined,
@@ -187,13 +187,13 @@ export function ResourceSection({
 
   const handleTogglePin = useCallback(async (res: Resource) => {
     if (togglePinResource) {
-      await togglePinResource(res.id, activeFolderId || "default");
+      await togglePinResource(res.id, activeFolderId || INBOX_WORKSPACE_ID);
     }
   }, [activeFolderId, togglePinResource]);
 
   const handleToggleArchive = useCallback(async (res: Resource) => {
     if (toggleArchiveResource) {
-      await toggleArchiveResource(res.id, activeFolderId || "default");
+      await toggleArchiveResource(res.id, activeFolderId || INBOX_WORKSPACE_ID);
     }
   }, [activeFolderId, toggleArchiveResource]);
 
@@ -205,7 +205,7 @@ export function ResourceSection({
         style: "destructive",
         onPress: async () => {
           if (deleteResource) {
-            await deleteResource(res.id, activeFolderId || "default");
+            await deleteResource(res.id, activeFolderId || INBOX_WORKSPACE_ID);
           }
           setSelectedResource(null);
         },

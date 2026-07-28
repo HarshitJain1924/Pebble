@@ -60,6 +60,7 @@ import {
 import { emitStateChange } from "@/services/events/state-events";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { TaskRepository, HabitRepository, ChecklistRepository, ResourceRepository } from "@/repositories";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -189,7 +190,7 @@ interface UnifiedCaptureProps {
 export default function UnifiedCapture({
   sheetRef,
   workspaces,
-  defaultWorkspaceId = "default",
+  defaultWorkspaceId = INBOX_WORKSPACE_ID,
   defaultDate,
   defaultType,
   entryTab,
@@ -445,39 +446,40 @@ export default function UnifiedCapture({
   }, [parsedItem, selectedWorkspaceId, workspaces]);
 
   const saveTask = async (item: ParsedProductivityItem) => {
-    const folderId = selectedWorkspaceId || "default";
+    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
     const generatedId = String(Date.now());
     let notificationIds: string[] = [];
-    let alarmId: string | undefined;
     let alarmTime: number | undefined;
 
     if (item.time && item.date && item.date !== "inbox") {
+      const [hours, minutes] = item.time.split(":").map(Number);
       if (item.recurrence) {
+        // Recurring task with date: store canonical reminder from today+time
+        // (recurrence handles future dates)
+        const d = new Date();
+        d.setHours(hours, minutes, 0, 0);
+        alarmTime = d.getTime();
         try {
           const scheduled = await scheduleReminderBatch({
             kind: "todo",
             itemId: generatedId,
             title: item.title,
             category: item.category || "work",
-            dailyTime: {
-              hour: Number(item.time.split(":")[0]),
-              minute: Number(item.time.split(":")[1]),
-            },
+            dailyTime: { hour: hours, minute: minutes },
             recurrence: item.recurrence,
             escalationMinutes: [120, 240],
             channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
             context: { title: item.title, remainingCount: 1, totalCount: 1 },
           });
-          alarmId = scheduled.primaryId;
           notificationIds = scheduled.ids;
         } catch (e) {
           console.error("Failed to schedule task reminder:", e);
         }
       } else {
-        const [hours, minutes] = item.time.split(":").map(Number);
         const [year, monthVal, dayVal] = item.date.split("-").map(Number);
         const alarmDate = new Date(year, monthVal - 1, dayVal, hours, minutes, 0, 0);
         if (alarmDate.getTime() > Date.now()) {
+          alarmTime = alarmDate.getTime();
           try {
             const batch = await scheduleReminderBatch({
               kind: "todo",
@@ -487,12 +489,48 @@ export default function UnifiedCapture({
               category: item.category || "work",
               channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
             });
-            alarmTime = batch.alarmTime;
             notificationIds = batch.ids;
-            alarmId = batch.primaryId;
           } catch (e) {
             console.error("Failed to schedule one-time task reminder:", e);
           }
+        }
+      }
+    } else if (item.time) {
+      // Inbox task with a time but no specific date: store canonical reminder from today+time
+      const [hours, minutes] = item.time.split(":").map(Number);
+      const d = new Date();
+      d.setHours(hours, minutes, 0, 0);
+      alarmTime = d.getTime();
+      if (item.recurrence) {
+        try {
+          const scheduled = await scheduleReminderBatch({
+            kind: "todo",
+            itemId: generatedId,
+            title: item.title,
+            category: item.category || "work",
+            dailyTime: { hour: hours, minute: minutes },
+            recurrence: item.recurrence,
+            escalationMinutes: [120, 240],
+            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+            context: { title: item.title, remainingCount: 1, totalCount: 1 },
+          });
+          notificationIds = scheduled.ids;
+        } catch (e) {
+          console.error("Failed to schedule recurring task reminder:", e);
+        }
+      } else {
+        try {
+          const batch = await scheduleReminderBatch({
+            kind: "todo",
+            itemId: generatedId,
+            title: item.title,
+            oneTimeAt: d,
+            category: item.category || "work",
+            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+          });
+          notificationIds = batch.ids;
+        } catch (e) {
+          console.error("Failed to schedule task reminder:", e);
         }
       }
     }
@@ -507,20 +545,22 @@ export default function UnifiedCapture({
       category: item.category || "work",
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      // Attach metadata for reminders
-      alarmTime,
-      notificationIds,
-      alarmId,
-      reminderHour: item.time ? Number(item.time.split(":")[0]) : undefined,
-      reminderMinute: item.time ? Number(item.time.split(":")[1]) : undefined,
       recurrence: item.recurrence || undefined,
+      // Canonical Reminder — NOT flat legacy fields (alarmTime, alarmId, reminderHour, reminderMinute)
+      reminder: alarmTime
+        ? {
+            enabled: true,
+            triggerAt: alarmTime,
+            notificationIds,
+          }
+        : undefined,
     } as any);
 
     emitStateChange("tasks_changed");
   };
 
   const saveHabit = async (item: ParsedProductivityItem) => {
-    const folderId = selectedWorkspaceId || "default";
+    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
     const generatedId = `habit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     let reminderDays: number[] | undefined;
     if (item.recurrence) {
@@ -531,10 +571,16 @@ export default function UnifiedCapture({
     let hour: number | undefined;
     let minute: number | undefined;
     let notificationIds: string[] = [];
+    let triggerAtValue: number | undefined;
 
     if (item.time) {
       hour = Number(item.time.split(":")[0]);
       minute = Number(item.time.split(":")[1]);
+      // Compute triggerAt as today at the parsed time (habits always recur from today)
+      const todayAtTime = new Date();
+      todayAtTime.setHours(hour, minute, 0, 0);
+      triggerAtValue = todayAtTime.getTime();
+
       try {
         const scheduled = await scheduleReminderBatch({
           kind: "habit",
@@ -563,20 +609,21 @@ export default function UnifiedCapture({
       recurrenceRule: item.recurrence ? JSON.stringify(item.recurrence) : "FREQ=DAILY",
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      // Attach UI-ready metadata
-      priority: item.priority || "medium",
-      category: item.category || "health",
-      reminderDays,
-      reminderHour: hour,
-      reminderMinute: minute,
-      notificationIds,
+      // Canonical Reminder — NOT flat legacy fields (reminderHour, reminderMinute, notificationIds)
+      reminder: triggerAtValue
+        ? {
+            enabled: true,
+            triggerAt: triggerAtValue,
+            notificationIds,
+          }
+        : undefined,
     } as any);
 
     emitStateChange("habits_changed");
   };
 
   const saveChecklist = async (item: ParsedProductivityItem) => {
-    const folderId = selectedWorkspaceId || "default";
+    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
     const itemsArray = item.items || [];
 
     const newChecklist = {
@@ -588,7 +635,6 @@ export default function UnifiedCapture({
         title,
         completed: false,
       })),
-      archived: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -598,7 +644,7 @@ export default function UnifiedCapture({
   };
 
   const saveResource = async (item: ParsedProductivityItem, isIdea: boolean) => {
-    const folderId = selectedWorkspaceId || "default";
+    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
     const itemId = `res-${Date.now()}`;
     const payload = item.type === "link" ? { url: item.url || "" } : { content: item.title || "" };
 
@@ -621,7 +667,6 @@ export default function UnifiedCapture({
       resourceType: isIdea ? "idea" : (item.type === "link" ? "link" : "note"),
       payload,
       pinned: false,
-      archived: false,
       tags: [isIdea ? "idea" : "", `collection_${targetColl.id}`].filter(Boolean),
     });
 

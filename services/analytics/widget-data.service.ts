@@ -1,3 +1,4 @@
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { getTodaySummary } from "@/services/analytics/productivity-history.service";
 import { isTaskCompleted, isHabitCompletedToday, getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -58,7 +59,7 @@ export async function syncWidgetData(
     const { UiStateRepository, TaskRepository, HabitRepository } =
       await import("@/repositories");
     const activeWorkspace =
-      (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
+      (await UiStateRepository.getUiState()).activeWorkspaceId || INBOX_WORKSPACE_ID;
 
     // Load Tasks
     const tasksMap = await TaskRepository.getTasks(activeWorkspace);

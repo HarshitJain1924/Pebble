@@ -24,6 +24,7 @@ import {
   Resource,
   Task,
   Workspace,
+  INBOX_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
 
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
@@ -89,7 +90,7 @@ export function useTasksState() {
     segment?: string;
     category?: string;
     quickAdd?: string;
-    folderId?: string;
+    workspaceId?: string;
   }>();
 
   const {
@@ -115,19 +116,6 @@ export function useTasksState() {
     handleBackToWorkspaces,
     handleCreateWorkspace,
     handleDeleteWorkspace,
-    // compatibility aliases
-    lists,
-    setLists,
-    selectedList,
-    setSelectedList,
-    openedFolderId,
-    setOpenedFolderId,
-    folderSegment,
-    setFolderSegment,
-    folderModalVisible,
-    setFolderModalVisible,
-    editingFolderId,
-    setEditingFolderId,
   } = useWorkspaceState();
 
   // Selection state
@@ -154,7 +142,7 @@ export function useTasksState() {
     updateResource,
     deleteResource,
     toggleArchiveResource,
-  } = useResourceState(selectedList, showToast);
+  } = useResourceState(selectedWorkspaceId, showToast);
 
   // Checklist state
   const {
@@ -165,7 +153,7 @@ export function useTasksState() {
     updateChecklist,
     deleteChecklist,
     toggleChecklistItem,
-  } = useChecklistState(selectedList);
+  } = useChecklistState(selectedWorkspaceId);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const addTaskInputRef = useRef<RNTextInput>(null);
@@ -196,8 +184,7 @@ export function useTasksState() {
     "low" | "medium" | "high"
   >("medium");
 
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+
   const [expandedTodoIds, setExpandedTodoIds] = useState<
     Record<string, boolean>
   >({});
@@ -217,7 +204,6 @@ export function useTasksState() {
   );
   const celebrateDateRef = useRef<string | null>(null);
 
-  const [addingTask, setAddingTask] = useState<Task | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
   const [selectedTodoDate, setSelectedTodoDate] =
     useState<string>(getDateKey());
@@ -237,19 +223,19 @@ export function useTasksState() {
   const filtering = useTaskFiltering(
     todos,
     habits,
-    selectedList,
+    selectedWorkspaceId,
     selectedDate,
-    lists,
+    workspaces,
   );
   const {
     searchQuery,
     setSearchQuery,
-    selectedListPriorityFilter,
-    setSelectedListPriorityFilter,
+    selectedWorkspacePriorityFilter,
+    setSelectedWorkspacePriorityFilter,
     selectedCategoryFilter,
     setSelectedCategoryFilter,
-    selectedListHabitPriorityFilter,
-    setSelectedListHabitPriorityFilter,
+    selectedWorkspaceHabitPriorityFilter,
+    setSelectedWorkspaceHabitPriorityFilter,
 
     // Derived values
     currentTodos,
@@ -277,13 +263,12 @@ export function useTasksState() {
     deleteTodo,
     updateTodoCategory,
     clearCompleted,
-    onSaveEditedTask,
     convertCollectionItemToTask,
   } = useTaskCrud({
     todos,
     setTodos,
-    selectedList,
-    lists,
+    selectedWorkspaceId,
+    workspaces,
     showUndo,
     showToast,
   });
@@ -297,15 +282,14 @@ export function useTasksState() {
   } = useHabitCrud({
     habits,
     setHabits,
-    selectedList,
-    lists,
+    selectedWorkspaceId,
+    workspaces,
     showUndo,
     showToast,
   });
 
   const onSaveNewTask = async (newTask: Task) => {
     await baseSaveNewTask(newTask);
-    setAddingTask(null);
   };
 
   const moveTodoToList = async (
@@ -321,7 +305,7 @@ export function useTasksState() {
     });
   };
 
-  // Reminder state — needs todos, setTodos, currentTodos, remainingCount, persistState, lists
+  // Reminder state — needs todos, setTodos, currentTodos, remainingCount, persistState, workspaces
   const {
     alarmMenu,
     setAlarmMenu,
@@ -331,11 +315,11 @@ export function useTasksState() {
   } = useReminderState(
     todos,
     setTodos,
-    selectedList,
+    selectedWorkspaceId,
     currentTodos,
     remainingCount,
     persistState,
-    lists,
+    workspaces,
   );
 
   // Resource linking state
@@ -347,9 +331,9 @@ export function useTasksState() {
     checklists,
     setChecklists,
     resources,
-    selectedList,
-    openedFolderId,
-    lists,
+    selectedWorkspaceId,
+    activeWorkspaceId,
+    workspaces,
     persistState,
     persistHabits,
   );
@@ -376,6 +360,7 @@ export function useTasksState() {
   }, [params.quickAdd]);
 
   const loadState = useCallback(async () => {
+    console.log("[INSTRUMENT] [useTasksState] loadState() CALLED");
     try {
       // Load workspaces first and use the returned array directly (never read stale state)
       const currentLists = await loadWorkspaces();
@@ -406,7 +391,7 @@ export function useTasksState() {
         allResourcesMap[folderId] = Object.values(resourcesMap).map(
           (r: any) => ({
             id: r.id,
-            workspaceId: r.workspaceId || r.folderId || folderId,
+            workspaceId: r.workspaceId || folderId,
             type: (r.resourceType || r.type || "note") as any,
             kind:
               r.kind ||
@@ -435,10 +420,12 @@ export function useTasksState() {
         );
       }
 
+      console.log("[INSTRUMENT] [useTasksState] loadState() loaded", Object.keys(allTodosMap).length, "workspaces, calling setTodos(allTodosMap)");
       setTodos(allTodosMap);
+      console.log("[INSTRUMENT] [useTasksState] setTodos(allTodosMap) CALLED — allTodosMap keys:", Object.keys(allTodosMap));
       setHabits(allHabits);
       setChecklists(allChecklistsMap);
-      await loadResourcesState(selectedList);
+      await loadResourcesState(selectedWorkspaceId);
 
       try {
         const userProfile = await getProfile();
@@ -469,7 +456,7 @@ export function useTasksState() {
                       : tt,
                   );
                 }
-                persistState(currentLists, selectedList, updatedLists);
+                persistState(currentLists, selectedWorkspaceId, updatedLists);
                 return updatedLists;
               });
             }
@@ -481,13 +468,13 @@ export function useTasksState() {
       console.warn("Failed to load state", e);
       setIsTasksHydrated(true);
     }
-  }, [loadWorkspaces, selectedList, persistState, activeWorkspaceId]);
+  }, [loadWorkspaces, selectedWorkspaceId, persistState, activeWorkspaceId]);
 
   const loadHabits = useCallback(
     async (workspaceList?: Workspace[]) => {
       try {
         const targetLists =
-          workspaceList && workspaceList.length > 0 ? workspaceList : lists;
+          workspaceList && workspaceList.length > 0 ? workspaceList : workspaces;
         const allHabits: Habit[] = [];
         for (const folder of targetLists) {
           const folderId = folder.id;
@@ -500,7 +487,7 @@ export function useTasksState() {
         setHabits([]);
       }
     },
-    [lists],
+    [workspaces],
   );
 
   const loadSuggestions = useCallback(async () => {
@@ -593,7 +580,7 @@ export function useTasksState() {
       }
 
       const destinationWorkspaceId =
-        targetWorkspaceId || openedFolderId || "default";
+        targetWorkspaceId || activeWorkspaceId || INBOX_WORKSPACE_ID;
 
       const newTodo: Task = {
         id: generatedTaskId,
@@ -622,11 +609,11 @@ export function useTasksState() {
       setTodos(updatedTodos);
 
       const wsName =
-        lists.find((l) => l.id === destinationWorkspaceId)?.name ||
+        workspaces.find((l) => l.id === destinationWorkspaceId)?.name ||
         "My Pebbles";
       showToast(`✓ Task added to ${wsName}`);
 
-      await persistState(lists, selectedList, updatedTodos);
+      await persistState(workspaces, selectedWorkspaceId, updatedTodos);
       emitStateChange("tasks_changed", "tasks_screen");
       pluginManager.dispatchTaskCreated(newTodo);
 
@@ -677,7 +664,13 @@ export function useTasksState() {
       }
 
       const destinationWorkspaceId =
-        targetWorkspaceId || openedFolderId || "default";
+        targetWorkspaceId || activeWorkspaceId || INBOX_WORKSPACE_ID;
+
+      // Compute canonical triggerAt from parsed hour/minute (habits always recur from today)
+      const habitTriggerAt =
+        hour !== undefined && minute !== undefined
+          ? new Date().setHours(hour, minute, 0, 0)
+          : undefined;
 
       const newHabit: Habit = {
         id: generatedHabitId,
@@ -690,10 +683,10 @@ export function useTasksState() {
         },
         completionHistory: [],
         reminder:
-          hour !== undefined && minute !== undefined
+          habitTriggerAt !== undefined
             ? {
                 enabled: true,
-                triggerAt: Date.now(),
+                triggerAt: habitTriggerAt,
                 notificationIds,
               }
             : undefined,
@@ -718,12 +711,7 @@ export function useTasksState() {
     void recordDailyHistorySnapshot();
   };
 
-  const handleSaveEditedHabit = async (updated: Habit) => {
-    await HabitRepository.saveHabit(updated);
-    const next = habits.map((h) => (h.id === updated.id ? updated : h));
-    setHabits(next);
-    await persistHabits(next);
-  };
+
 
   const handleUpdateExistingFromNLP = async (
     parsed: ParsedProductivityItem,
@@ -746,7 +734,10 @@ export function useTasksState() {
           : existing.recurrence,
         updatedAt: Date.now(),
       };
-      await handleSaveEditedHabit(updatedHabit);
+      await HabitRepository.saveHabit(updatedHabit);
+      const next = habits.map((h) => (h.id === updatedHabit.id ? updatedHabit : h));
+      setHabits(next);
+      await persistHabits(next);
       showToast(`✓ Habit updated`);
     } else {
       let existingTask: Task | undefined;
@@ -770,7 +761,15 @@ export function useTasksState() {
         updatedAt: Date.now(),
       };
 
-      onSaveEditedTask(updatedTask);
+      if (existingTask.reminder?.notificationIds) {
+        await cancelReminderIds(existingTask.reminder.notificationIds);
+      }
+      const rescheduled = await rescheduleTodoReminders(updatedTask);
+      await TaskRepository.saveTask({
+        ...rescheduled,
+        workspaceId: rescheduled.workspaceId || INBOX_WORKSPACE_ID,
+      });
+      emitStateChange("tasks_changed", "tasks_screen");
       showToast(`✓ Task updated`);
     }
   };
@@ -872,13 +871,17 @@ export function useTasksState() {
     setSearchQuery("");
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
-  }, [openedFolderId, activeSegment]);
+  }, [activeWorkspaceId, workspaceSegment]);
 
   // Listen for global task and habit updates to sync state immediately
   useEffect(() => {
     const unsubscribeTasks = addStateListener("tasks_changed", (emitterId) => {
+      console.log("[INSTRUMENT] [useTasksState] tasks_changed listener FIRED, emitterId =", emitterId);
       if (emitterId !== "tasks_screen") {
+        console.log("[INSTRUMENT] [useTasksState] emitterId check PASSED, calling loadState()");
         void loadState();
+      } else {
+        console.log("[INSTRUMENT] [useTasksState] emitterId check SKIPPED (was tasks_screen)");
       }
     });
 
@@ -942,19 +945,19 @@ export function useTasksState() {
     if (focusHabitId && habits.length > 0) {
       const habit = habits.find((h) => h.id === focusHabitId);
       if (habit) {
-        const folderId = habit.workspaceId || "default";
-        setOpenedFolderId(folderId);
-        setSelectedList(folderId);
+        const folderId = habit.workspaceId || INBOX_WORKSPACE_ID;
+        setActiveWorkspaceId(folderId);
+        setSelectedWorkspaceId(folderId);
         setHighlightedHabitId(focusHabitId);
         const timer = setTimeout(() => setHighlightedHabitId(null), 2200);
         return () => clearTimeout(timer);
       }
     }
     return undefined;
-  }, [focusHabitId, habits]);
+  }, [focusHabitId, habits, setActiveWorkspaceId, setSelectedWorkspaceId]);
 
-  const selectList = async (listId: string) => {
-    setSelectedList(listId);
+  const selectWorkspace = async (listId: string) => {
+    setSelectedWorkspaceId(listId);
     if (listId && listId !== "null") {
       await UiStateRepository.saveUiState({ activeWorkspaceId: listId });
     }
@@ -1047,7 +1050,7 @@ export function useTasksState() {
         });
       }
       setTodos(nextTodos);
-      await persistState(lists, selectedList, nextTodos);
+      await persistState(workspaces, selectedWorkspaceId, nextTodos);
       emitStateChange("tasks_changed", "tasks_screen");
     }
 
@@ -1105,7 +1108,7 @@ export function useTasksState() {
         });
       }
       setTodos(nextTodos);
-      await persistState(lists, selectedList, nextTodos);
+      await persistState(workspaces, selectedWorkspaceId, nextTodos);
       emitStateChange("tasks_changed", "tasks_screen");
     }
 
@@ -1154,10 +1157,10 @@ export function useTasksState() {
               (id) => !id.startsWith("habit-"),
             );
             const originalWorkspaceName =
-              lists.find((l) => l.id === selectedList)?.name || "Default";
+              workspaces.find((l) => l.id === selectedWorkspaceId)?.name || "Inbox";
 
             if (taskIds.length > 0) {
-              const listTodos = todos[selectedList] ?? [];
+              const listTodos = todos[selectedWorkspaceId] ?? [];
               const todosToDelete = listTodos.filter((t) =>
                 selectedItemIds.has(t.id),
               );
@@ -1167,7 +1170,7 @@ export function useTasksState() {
                   await cancelReminderIds(todo.reminder.notificationIds);
                 }
                 const folderName =
-                  lists.find((l) => l.id === (todo.workspaceId || selectedList))
+                  workspaces.find((l) => l.id === (todo.workspaceId || selectedWorkspaceId))
                     ?.name || originalWorkspaceName;
                 await addToRecycleBin("task", todo, folderName);
               }
@@ -1179,7 +1182,7 @@ export function useTasksState() {
                 );
               }
               setTodos(nextTodos);
-              await persistState(lists, selectedList, nextTodos);
+              await persistState(workspaces, selectedWorkspaceId, nextTodos);
               emitStateChange("tasks_changed", "tasks_screen");
 
               showUndo({
@@ -1197,7 +1200,7 @@ export function useTasksState() {
                   );
 
                   for (const todo of rescheduledTodos) {
-                    const listId = todo.workspaceId || selectedList;
+                    const listId = todo.workspaceId || selectedWorkspaceId;
                     await TaskRepository.saveTask({
                       ...todo,
                       workspaceId: listId,
@@ -1205,13 +1208,13 @@ export function useTasksState() {
                   }
                   // Re-read state from current
                   const refreshedMap =
-                    await TaskRepository.getTasks(selectedList);
+                    await TaskRepository.getTasks(selectedWorkspaceId);
                   const refreshedTodos = Object.values(refreshedMap) as Task[];
                   const currentTodos = {
                     ...todos,
-                    [selectedList]: refreshedTodos,
+                    [selectedWorkspaceId]: refreshedTodos,
                   };
-                  await persistState(lists, selectedList, currentTodos);
+                  await persistState(workspaces, selectedWorkspaceId, currentTodos);
                   setTodos(currentTodos);
                   emitStateChange("tasks_changed", "tasks_screen");
                 },
@@ -1228,8 +1231,8 @@ export function useTasksState() {
                   await cancelReminderIds(habit.reminder.notificationIds);
                 }
                 const folderName =
-                  lists.find((l) => l.id === (habit.workspaceId || "default"))
-                    ?.name || "Default";
+                  workspaces.find((l) => l.id === (habit.workspaceId || INBOX_WORKSPACE_ID))
+                    ?.name || "Inbox";
                 await addToRecycleBin("habit", habit, folderName);
               }
 
@@ -1257,12 +1260,12 @@ export function useTasksState() {
                   for (const habit of rescheduledHabits) {
                     await HabitRepository.saveHabit({
                       ...habit,
-                      workspaceId: selectedList,
+                      workspaceId: selectedWorkspaceId,
                     });
                   }
                   // Re-read state from current
                   const refreshedHabitsMap =
-                    await HabitRepository.getHabits(selectedList);
+                    await HabitRepository.getHabits(selectedWorkspaceId);
                   const restored = Object.values(refreshedHabitsMap) as Habit[];
                   await persistHabits(restored);
                   setHabits(restored);
@@ -1282,7 +1285,7 @@ export function useTasksState() {
     );
   };
 
-  const handleBulkMove = async (targetFolderId: string) => {
+  const handleBulkMove = async (targetWorkspaceId: string) => {
     setIsMoveModalVisible(false);
     const selectedIdsArray = Array.from(selectedItemIds);
     const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
@@ -1297,7 +1300,7 @@ export function useTasksState() {
           if (selectedItemIds.has(t.id)) {
             itemsToMove.push({
               ...t,
-              workspaceId: targetFolderId,
+              workspaceId: targetWorkspaceId,
               updatedAt: Date.now(),
             });
           } else {
@@ -1306,22 +1309,22 @@ export function useTasksState() {
         });
         nextTodos[listId] = itemsToKeep;
       }
-      if (!nextTodos[targetFolderId]) {
-        nextTodos[targetFolderId] = [];
+      if (!nextTodos[targetWorkspaceId]) {
+        nextTodos[targetWorkspaceId] = [];
       }
-      nextTodos[targetFolderId] = [
+      nextTodos[targetWorkspaceId] = [
         ...itemsToMove,
-        ...nextTodos[targetFolderId],
+        ...nextTodos[targetWorkspaceId],
       ];
       setTodos(nextTodos);
-      await persistState(lists, selectedList, nextTodos);
+      await persistState(workspaces, selectedWorkspaceId, nextTodos);
       emitStateChange("tasks_changed", "tasks_screen");
     }
 
     if (habitIds.length > 0) {
       const nextHabits = habits.map((h) => {
         if (selectedItemIds.has(h.id)) {
-          return { ...h, folderId: targetFolderId, lastUpdated: getDateKey() };
+          return { ...h, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
         }
         return h;
       });
@@ -1359,8 +1362,6 @@ export function useTasksState() {
     toggleLinkResource,
     activeSegment,
     setActiveSegment,
-    folderSegment,
-    setFolderSegment,
     selectedDate,
     setSelectedDate,
     searchQuery,
@@ -1371,18 +1372,8 @@ export function useTasksState() {
     setSelectedItemIds,
     isMoveModalVisible,
     setIsMoveModalVisible,
-    openedFolderId,
-    setOpenedFolderId,
-    folderModalVisible,
-    setFolderModalVisible,
-    editingFolderId,
-    setEditingFolderId,
     highlightedTodoId,
     setHighlightedTodoId,
-    lists,
-    setLists,
-    selectedList,
-    setSelectedList,
     todos,
     setTodos,
     title,
@@ -1391,14 +1382,11 @@ export function useTasksState() {
     setSelectedTodoCategory,
     selectedTodoPriority,
     setSelectedTodoPriority,
-    selectedListPriorityFilter,
-    setSelectedListPriorityFilter,
+    selectedWorkspacePriorityFilter,
+    setSelectedWorkspacePriorityFilter,
     selectedCategoryFilter,
     setSelectedCategoryFilter,
-    editingTask,
-    setEditingTask,
-    editingHabit,
-    setEditingHabit,
+
     expandedTodoIds,
     setExpandedTodoIds,
     taskPositions,
@@ -1409,8 +1397,8 @@ export function useTasksState() {
     setHabitTitle,
     selectedHabitPriority,
     setSelectedHabitPriority,
-    selectedListHabitPriorityFilter,
-    setSelectedListHabitPriorityFilter,
+    selectedWorkspaceHabitPriorityFilter,
+    setSelectedWorkspaceHabitPriorityFilter,
     showCelebrate,
     setShowCelebrate,
     highlightedHabitId,
@@ -1419,8 +1407,7 @@ export function useTasksState() {
     setAlarmMenu,
     listsExpanded,
     setListsExpanded,
-    addingTask,
-    setAddingTask,
+
     selectedTodoDate,
     setSelectedTodoDate,
     isAddingHabit,
@@ -1464,12 +1451,10 @@ export function useTasksState() {
     loadSuggestions,
     handleSaveParsedItem,
     handleUpdateExistingFromNLP,
-    handleSaveEditedHabit,
     deleteHabit: baseDeleteHabit,
-    handleDeleteEditedHabit: (id: string) => baseDeleteHabit(id),
     persistState,
     persistHabits,
-    selectList,
+    selectWorkspace,
     cycleCategory,
     cyclePriority,
     cycleDate,
@@ -1484,7 +1469,6 @@ export function useTasksState() {
     clearCompleted,
     scheduleAlarm,
     scheduleAlarmWithDays,
-    onSaveEditedTask,
     cancelAlarm,
     formatAlarm: (ms?: number) => formatAlarm(ms),
     addHabit: baseAddHabit,
@@ -1492,6 +1476,7 @@ export function useTasksState() {
     handleBulkComplete,
     handleBulkArchive,
     handleBulkDelete,
+    handleBulkMove,
     resources,
     loadResourcesState,
     createResource,

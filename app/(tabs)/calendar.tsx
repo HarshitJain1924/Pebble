@@ -28,9 +28,10 @@ import {
   MONTH_NAMES,
   getDateKey,
 } from "@/features/calendar/hooks/useCalendarState";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
-import { TaskEditorSheet } from "@/features/tasks/components/TaskEditorSheet";
+
 import { historyForDate } from "@/services/analytics/productivity-history.service";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import PressableScale from "@/shared/components/ui/PressableScale";
@@ -70,9 +71,7 @@ export default function CalendarScreen() {
     history,
     selectedHistory,
     lists,
-    addingTask,
-    setAddingTask,
-    onSaveNewTask,
+
     calendarViewMode,
     setCalendarViewMode,
     isDragging,
@@ -130,20 +129,13 @@ export default function CalendarScreen() {
 
   const getDateIndicatorStats = (dateStr: string) => {
     if (!dateStr) return { tasks: 0, habits: 0, events: 0, focus: 0 };
-    const d = new Date(dateStr);
-    const dayOfWeek = d.getDay();
-    const dayTasks = allTodos.filter(t => (t.schedule?.date === dateStr || t.scheduledDate === dateStr) && !t.archivedAt && !isTaskCompleted(t));
+    const dayTasks = allTodos.filter(t => t.schedule?.date === dateStr && !t.archivedAt && !isTaskCompleted(t));
     
     const tasks = dayTasks.filter(t => !(t.schedule?.startTime && t.schedule?.endTime) && t.categoryId !== "focus" && t.categoryId !== "learning" && t.categoryId !== "travel" && t.categoryId !== "creative").length;
     const events = dayTasks.filter(t => (t.schedule?.startTime && t.schedule?.endTime) || t.categoryId === "travel" || t.categoryId === "creative").length;
     const focus = dayTasks.filter(t => t.categoryId === "focus" || t.category === "focus").length;
     
-    const habits = allHabits.filter(h => {
-      if (h.recurrence) {
-        return isRecurringOccurrenceForDate(h, dateStr);
-      }
-      return true;
-    }).length;
+    const habits = allHabits.filter(h => isRecurringOccurrenceForDate(h, dateStr)).length;
 
     return { tasks, habits, events, focus };
   };
@@ -915,15 +907,7 @@ export default function CalendarScreen() {
                     <Pressable
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        setAddingTask({
-                          id: String(Date.now()),
-                          title: "",
-                          completed: false,
-                          scheduledDate: selectedDate,
-                          folderId: "default",
-                          reminderHour: hr,
-                          reminderMinute: 0,
-                        });
+                        router.push(`/task-details?id=${String(Date.now())}&type=task&date=${selectedDate}`);
                       }}
                       style={[styles.hourLineCol, { borderColor: isOptimal ? `${optimalTextColor}25` : colors.border }]}
                     />
@@ -1231,14 +1215,7 @@ export default function CalendarScreen() {
                       router.push("/settings");
                     } else {
                       setTimeout(() => {
-                        setAddingTask({
-                          id: String(Date.now()),
-                          title: "",
-                          completed: false,
-                          scheduledDate: selectedDate,
-                          folderId: "default",
-                          category: opt.cat,
-                        });
+                        router.push(`/task-details?id=${String(Date.now())}&type=task&date=${selectedDate}`);
                       }, 300);
                     }
                   }}
@@ -1402,15 +1379,7 @@ export default function CalendarScreen() {
                       router.push("/settings");
                     } else {
                       setTimeout(() => {
-                        setAddingTask({
-                          id: String(Date.now()),
-                          title: "",
-                          completed: false,
-                          scheduledDate: selectedDate,
-                          folderId: "default",
-                          category: opt.cat,
-                          isEvent: opt.label === "Event" ? true : false,
-                        });
+                        router.push(`/task-details?id=${String(Date.now())}&type=task&date=${selectedDate}`);
                       }, 300);
                     }
                   }}
@@ -1436,14 +1405,7 @@ export default function CalendarScreen() {
       </AnimatedOverlay>
 
 
-      {/* Quick Add Task Dialog sheet */}
-      <TaskEditorSheet
-        task={addingTask}
-        lists={lists}
-        mode="add"
-        onClose={() => setAddingTask(null)}
-        onSave={onSaveNewTask}
-      />
+      {/* Task creation — routed to full-screen task-details.tsx */}
     </SafeAreaView>
   );
 }

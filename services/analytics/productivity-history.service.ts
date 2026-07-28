@@ -1,3 +1,4 @@
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
@@ -38,7 +39,7 @@ function toCompletionScore(completed: number, total: number) {
 
 export async function getTodaySummary() {
   const uiState = await UiStateRepository.getUiState();
-  const wsId = uiState.activeWorkspaceId || "default";
+  const wsId = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
 
   const [tasksMap, habitsMap] = await Promise.all([
     TaskRepository.getTasks(wsId),
@@ -82,7 +83,7 @@ export async function getAllHistory(): Promise<DailyHistory[]> {
 export async function recordDailyHistorySnapshot() {
   const today = getDateKey();
   const uiState = await UiStateRepository.getUiState();
-  const wsId = uiState.activeWorkspaceId || "default";
+  const wsId = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
 
   const [tasksMap, habitsMap, historyRaw] = await Promise.all([
     TaskRepository.getTasks(wsId),

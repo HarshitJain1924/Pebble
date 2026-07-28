@@ -4,6 +4,7 @@
  * Relationship graph, focus sessions, and system event log persistence.
  */
 import {
+  INBOX_WORKSPACE_ID,
   type FocusSession,
   type Relationship,
   type SystemEventLog,
@@ -171,7 +172,7 @@ export class GraphRepository {
 
     const cleanLog: SystemEventLog = {
       id: event.id,
-      workspaceId: event.workspaceId || "default",
+      workspaceId: event.workspaceId || INBOX_WORKSPACE_ID,
       itemId: event.itemId,
       itemType: event.itemType,
       action: event.action,

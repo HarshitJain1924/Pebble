@@ -25,6 +25,7 @@ import {
     HabitRepository,
     WorkspaceRepository,
 } from "@/repositories";
+import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
@@ -108,8 +109,8 @@ export default function ProfileScreen() {
       const folders = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
         new Set([
-          "default",
-          "unassigned",
+          INBOX_WORKSPACE_ID,
+          MY_PEBBLES_WORKSPACE_ID,
           ...folders.map((folder) => folder.id),
         ]),
       );

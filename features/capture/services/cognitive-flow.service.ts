@@ -1,3 +1,5 @@
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+
 export interface CognitiveFlowStats {
   morningPct: number;
   afternoonPct: number;
@@ -15,7 +17,7 @@ export async function getCognitiveFlowStats(): Promise<CognitiveFlowStats> {
     const { UiStateRepository, TaskRepository, HabitRepository } =
       await import("@/repositories");
     const activeWorkspace =
-      (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
+      (await UiStateRepository.getUiState()).activeWorkspaceId || INBOX_WORKSPACE_ID;
 
     // Load Tasks
     const tasksMap = await TaskRepository.getTasks(activeWorkspace);

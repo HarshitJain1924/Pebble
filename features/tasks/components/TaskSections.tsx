@@ -36,8 +36,8 @@ interface TaskSectionsProps {
   todayTodos: Task[];
   upcomingTodos: Task[];
   inboxTodos: Task[];
-  lists: Workspace[];
-  selectedList: string;
+  workspaces: Workspace[];
+  selectedWorkspaceId: string;
   selectedDate: string;
   completedCount: number;
   onClearCompleted: () => void;
@@ -58,8 +58,8 @@ export function TaskSections({
   todayTodos,
   upcomingTodos,
   inboxTodos,
-  lists,
-  selectedList,
+  workspaces,
+  selectedWorkspaceId,
   selectedDate,
   completedCount,
   onClearCompleted,
@@ -98,8 +98,8 @@ export function TaskSections({
         colors={colors}
         colorScheme={colorScheme}
         isOverdue={isOverdue(item)}
-        lists={lists}
-        selectedList={selectedList}
+        lists={workspaces}
+        selectedWorkspaceId={selectedWorkspaceId}
         onToggleTodo={() => onToggleTodo(item.id)}
         onDeleteTodo={() => onDeleteTodo(item.id)}
         onEditTodo={() => onEditTodo(item)}

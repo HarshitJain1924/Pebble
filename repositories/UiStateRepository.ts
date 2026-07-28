@@ -2,11 +2,13 @@
  * UiStateRepository.ts
  * ─────────────────────────
  * UI State persistence (active workspace, onboarding, theme cache).
+ *
+ * Persistence semantics for activeWorkspaceId:
+ *   - undefined → keep existing value (no change)
+ *   - null      → save null (no workspace is open)
+ *   - string    → save the string value
  */
-import {
-  DEFAULT_WORKSPACE_ID,
-  type UiState,
-} from "@/shared/types/domain.types";
+import { type UiState } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class UiStateRepository {
@@ -22,7 +24,10 @@ export class UiStateRepository {
       if (raw) {
         const parsed = JSON.parse(raw);
         return {
-          activeWorkspaceId: parsed.activeWorkspaceId || DEFAULT_WORKSPACE_ID,
+          activeWorkspaceId:
+            parsed.activeWorkspaceId !== undefined
+              ? parsed.activeWorkspaceId
+              : null,
           completedOnboarding: !!parsed.completedOnboarding,
           themeCache: parsed.themeCache === "light" ? "light" : "dark",
         };
@@ -31,7 +36,7 @@ export class UiStateRepository {
       console.warn("Failed to read UiState", e);
     }
     return {
-      activeWorkspaceId: DEFAULT_WORKSPACE_ID,
+      activeWorkspaceId: null,
       completedOnboarding: false,
       themeCache: "dark",
     };
@@ -41,12 +46,18 @@ export class UiStateRepository {
     try {
       const current = await this.getUiState();
       const updated: UiState = {
-        activeWorkspaceId: state.activeWorkspaceId || current.activeWorkspaceId,
+        activeWorkspaceId:
+          state.activeWorkspaceId !== undefined
+            ? state.activeWorkspaceId
+            : current.activeWorkspaceId,
         completedOnboarding:
           state.completedOnboarding !== undefined
             ? state.completedOnboarding
             : current.completedOnboarding,
-        themeCache: state.themeCache || current.themeCache,
+        themeCache:
+          state.themeCache !== undefined
+            ? state.themeCache
+            : current.themeCache,
       };
       await AsyncStorage.setItem(this.UI_STATE_KEY, JSON.stringify(updated));
     } catch (e) {

@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import * as Haptics from "expo-haptics";
-import { Resource } from "@/shared/types/domain.types";
+import { Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ResourceRepository } from "@/repositories";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
@@ -10,14 +10,14 @@ import { globalResources, setGlobalResources } from "@/features/tasks/utils/task
  * Canonical hook for Resource domain state management.
  */
 export function useResourceState(
-  selectedList: string,
+  selectedWorkspaceId: string,
   showToast: (msg: string) => void,
 ) {
   const [resources, setResources] = useState<Record<string, Resource[]>>(() => globalResources || {});
 
   const loadResourcesState = useCallback(async (targetWorkspaceId?: string) => {
     try {
-      const activeList = targetWorkspaceId || selectedList || "default";
+      const activeList = targetWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
       const resourcesMap = await ResourceRepository.getResources(activeList);
       const list: Resource[] = Object.values(resourcesMap);
@@ -32,7 +32,7 @@ export function useResourceState(
       console.warn("Failed to load resources state", e);
       return [];
     }
-  }, [selectedList]);
+  }, [selectedWorkspaceId]);
 
   const createResource = useCallback(async (
     workspaceId: string,
@@ -40,7 +40,7 @@ export function useResourceState(
   ) => {
     try {
       const resourceId = `res-${Date.now()}`;
-      const wsId = workspaceId || selectedList || "default";
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
       const newResource: Resource = {
         id: resourceId,
@@ -62,7 +62,7 @@ export function useResourceState(
     } catch (e) {
       console.warn("Failed to create resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   const updateResource = useCallback(async (
     resourceId: string,
@@ -70,7 +70,7 @@ export function useResourceState(
     updates: Partial<Resource>
   ) => {
     try {
-      const wsId = workspaceId || selectedList || "default";
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (!existing) return;
 
@@ -88,11 +88,11 @@ export function useResourceState(
     } catch (e) {
       console.warn("Failed to update resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   const deleteResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
-      const wsId = workspaceId || selectedList || "default";
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (existing) {
         await addToRecycleBin("resource", existing, wsId);
@@ -105,11 +105,11 @@ export function useResourceState(
     } catch (e) {
       console.warn("Failed to delete resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   const toggleArchiveResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
-      const wsId = workspaceId || selectedList || "default";
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (!existing) return;
 
@@ -128,7 +128,7 @@ export function useResourceState(
     } catch (e) {
       console.warn("Failed to toggle archive resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   return {
     resources,

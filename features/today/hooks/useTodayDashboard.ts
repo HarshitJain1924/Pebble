@@ -5,6 +5,7 @@ import {
 import {
   ChecklistRepository,
   HabitRepository,
+  ResourceRepository,
   TaskRepository,
   WorkspaceRepository,
 } from "@/repositories";
@@ -12,7 +13,7 @@ import {
   getDateKey,
   isRecurringOccurrenceForDate,
 } from "@/services/scheduling/recurrence.service";
-import { Checklist, Habit, Task, Workspace } from "@/shared/types/domain.types";
+import { Checklist, Habit, Resource, Task, Workspace, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import {
   getHabitCurrentStreak,
   isHabitCompletedToday,
@@ -32,6 +33,7 @@ export interface TodayDashboardStats {
   pendingHabits: Habit[];
   completedHabits: Habit[];
   allChecklists: Record<string, Checklist[]>;
+  allResources: Record<string, Resource[]>;
   categoryCounts: Record<string, number>;
   habitStats: {
     completed: number;
@@ -58,6 +60,9 @@ export function useTodayDashboard(): TodayDashboardStats {
   const [allChecklists, setAllChecklists] = useState<
     Record<string, Checklist[]>
   >({});
+  const [allResources, setAllResources] = useState<
+    Record<string, Resource[]>
+  >({});
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>(
     {},
   );
@@ -77,6 +82,7 @@ export function useTodayDashboard(): TodayDashboardStats {
   const [isLoading, setIsLoading] = useState(true);
 
   const loadDashboard = useCallback(async () => {
+    console.log("[INSTRUMENT] [useTodayDashboard] loadDashboard() CALLED");
     try {
       setIsLoading(true);
       const todayStr = getDateKey();
@@ -84,12 +90,13 @@ export function useTodayDashboard(): TodayDashboardStats {
       setFolders(loadedFolders);
 
       const workspaceIds = Array.from(
-        new Set(["default", ...loadedFolders.map((f) => f.id)]),
+        new Set([INBOX_WORKSPACE_ID, ...loadedFolders.map((f) => f.id)]),
       );
 
       const allTasks: Task[] = [];
       const allHabitsList: Habit[] = [];
       const checklistsMap: Record<string, Checklist[]> = {};
+      const resourcesMap: Record<string, Resource[]> = {};
 
       for (const wsId of workspaceIds) {
         const tasks = await TaskRepository.getTasks(wsId);
@@ -108,9 +115,15 @@ export function useTodayDashboard(): TodayDashboardStats {
 
         const chks = await ChecklistRepository.getChecklists(wsId);
         checklistsMap[wsId] = Object.values(chks).filter((c) => !c.archivedAt);
+
+        const resources = await ResourceRepository.getResources(wsId);
+        resourcesMap[wsId] = Object.values(resources).filter(
+          (r) => !r.archivedAt,
+        );
       }
 
       setAllChecklists(checklistsMap);
+      setAllResources(resourcesMap);
 
       // Tasks processing
       const overdueTasks = allTasks.filter(
@@ -151,12 +164,14 @@ export function useTodayDashboard(): TodayDashboardStats {
         }
       });
 
+      console.log("[INSTRUMENT] [useTodayDashboard] loadDashboard() calling setTodoStats with", allTasks.length, "total tasks");
       setTodoStats({
         pending: pendingTasks,
         overdue: overdueTasks,
         completed: completedTasksCount,
         total: allTasks.length,
       });
+      console.log("[INSTRUMENT] [useTodayDashboard] setTodoStats CALLED");
       setCategoryCounts(nextCategoryCounts);
       setClosestReminderTime(closestReminder);
 
@@ -209,6 +224,7 @@ export function useTodayDashboard(): TodayDashboardStats {
     pendingHabits,
     completedHabits,
     allChecklists,
+    allResources,
     categoryCounts,
     habitStats,
     folders,

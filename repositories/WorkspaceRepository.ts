@@ -3,7 +3,11 @@
  * ────────────────────────
  * Workspace persistence — CRUD for canonical Workspaces.
  */
-import { type Workspace } from "@/shared/types/domain.types";
+import {
+  INBOX_WORKSPACE_ID,
+  MY_PEBBLES_WORKSPACE_ID,
+  type Workspace,
+} from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const WORKSPACES_KEY = "pebble:v1:workspaces";
@@ -66,6 +70,10 @@ export class WorkspaceRepository {
   }
 
   static async deleteWorkspace(id: string): Promise<void> {
+    if (id === INBOX_WORKSPACE_ID || id === MY_PEBBLES_WORKSPACE_ID) {
+      console.warn(`Cannot delete protected workspace: ${id}`);
+      return;
+    }
     try {
       let workspaces = await this.getWorkspaces();
       workspaces = workspaces.filter((w) => w.id !== id);

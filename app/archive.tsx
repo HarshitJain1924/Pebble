@@ -17,17 +17,20 @@ import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { type Habit, Task } from "@/shared/types/domain.types";
-import { normalizeTaskCategory } from "@/features/tasks/services/task-categories";
+import { type Checklist, type Habit, type Resource, Task, INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 
 import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { cancelReminderIds, scheduleReminderBatch } from "@/services/scheduling/reminders.service";
+import { recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
+import { getDateKey } from "@/services/scheduling/recurrence.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import {
     TaskRepository,
     HabitRepository,
+    ChecklistRepository,
+    ResourceRepository,
     WorkspaceRepository,
 } from "@/repositories";
 
@@ -41,6 +44,8 @@ export default function ArchiveScreen() {
   const [loading, setLoading] = useState(true);
   const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [archivedHabits, setArchivedHabits] = useState<Habit[]>([]);
+  const [archivedChecklists, setArchivedChecklists] = useState<Checklist[]>([]);
+  const [archivedResources, setArchivedResources] = useState<Resource[]>([]);
   const [workspaces, setWorkspaces] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -52,19 +57,20 @@ export default function ArchiveScreen() {
     try {
       const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
-        new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
+        new Set([INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
       );
 
       const workspaceNames: Record<string, string> = {};
       folderList.forEach((f) => {
         workspaceNames[f.id] = f.name;
       });
-      workspaceNames["default"] = "My Pebbles";
-      workspaceNames["unassigned"] = "My Pebbles";
+      workspaceNames[INBOX_WORKSPACE_ID] = "Inbox";
+      workspaceNames[MY_PEBBLES_WORKSPACE_ID] = "My Pebbles";
 
       const tasks: Task[] = [];
       const habits: Habit[] = [];
-      const todayStr = new Date().toISOString().split("T")[0];
+      const checklists: Checklist[] = [];
+      const resources: Resource[] = [];
 
       for (const fId of folderIds) {
         // Load tasks
@@ -82,11 +88,29 @@ export default function ArchiveScreen() {
             habits.push(h);
           }
         });
+
+        // Load checklists
+        const checklistsMap = await ChecklistRepository.getChecklists(fId);
+        Object.values(checklistsMap).forEach((c) => {
+          if (c.archivedAt) {
+            checklists.push(c);
+          }
+        });
+
+        // Load resources
+        const resourcesMap = await ResourceRepository.getResources(fId);
+        Object.values(resourcesMap).forEach((r) => {
+          if (r.archivedAt) {
+            resources.push(r);
+          }
+        });
       }
 
       setWorkspaces(workspaceNames);
       setArchivedTasks(tasks);
       setArchivedHabits(habits);
+      setArchivedChecklists(checklists);
+      setArchivedResources(resources);
     } catch (e) {
       console.warn("Failed to load archived items", e);
     } finally {
@@ -94,29 +118,27 @@ export default function ArchiveScreen() {
     }
   };
 
-  const handleRestore = async (item: any, type: "task" | "habit") => {
+  const handleRestore = async (item: any, type: "task" | "habit" | "checklist" | "resource") => {
     try {
       const isTask = type === "task";
       const updatedItem = {
         ...item,
-        archived: false,
-        lastUpdated: new Date().toISOString().split("T")[0],
+        archivedAt: undefined,
+        lastUpdated: getDateKey(),
       };
 
-      // Reschedule reminders
+      // Reschedule reminders from canonical `reminder.triggerAt`
       let notificationIds: string[] = [];
-      if (
-        item.reminderHour !== undefined &&
-        item.reminderMinute !== undefined
-      ) {
+      if (item.reminder?.triggerAt) {
+        const d = new Date(item.reminder.triggerAt);
         const scheduled = await scheduleReminderBatch({
           kind: type === "task" ? "todo" : "habit",
           itemId: item.id,
           title: item.title,
-          category: item.category,
-          dailyTime: { hour: item.reminderHour, minute: item.reminderMinute },
-          dailyDays: item.reminderDays,
-          recurrence: item.recurrence,
+          category: item.categoryId || item.category || "work",
+          dailyTime: { hour: d.getHours(), minute: d.getMinutes() },
+          dailyDays: item.recurrence?.daysOfWeek,
+          recurrence: recurrenceRuleToScheduler(item.recurrence),
           escalationMinutes: [120, 240],
           channelId:
             Platform.OS === "android"
@@ -129,23 +151,44 @@ export default function ArchiveScreen() {
       }
       updatedItem.notificationIds = notificationIds;
 
+      // Write canonical schedule (no legacy fields)
       if (isTask) {
+        updatedItem.schedule = updatedItem.schedule || { date: item.scheduledDate || item.dueDate || undefined };
+        delete updatedItem.scheduledDate;
+        delete updatedItem.dueDate;
+      }
+
+      // Strip legacy flat reminder fields — canonical only
+      delete updatedItem.reminderHour;
+      delete updatedItem.reminderMinute;
+      delete updatedItem.reminderDays;
+
+      if (type === "task") {
         await TaskRepository.saveTask({
           ...updatedItem,
-          folderId: item.folderId || "default",
-          scheduledDate: updatedItem.scheduledDate || updatedItem.dueDate,
+          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
         });
-      } else {
+      } else if (type === "habit") {
         await HabitRepository.saveHabit({
           ...updatedItem,
-          folderId: item.folderId || "default",
+          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
+        });
+      } else if (type === "checklist") {
+        await ChecklistRepository.saveChecklist({
+          ...updatedItem,
+          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
+        });
+      } else if (type === "resource") {
+        await ResourceRepository.saveResource({
+          ...updatedItem,
+          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
         });
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
       );
-      emitStateChange(isTask ? "tasks_changed" : "habits_changed");
+      emitStateChange(type === "task" ? "tasks_changed" : type === "habit" ? "habits_changed" : type === "checklist" ? "checklists_changed" : "resources_changed");
       showToast(`Restored "${item.title}"`);
       loadArchivedData();
     } catch (e) {
@@ -153,10 +196,11 @@ export default function ArchiveScreen() {
     }
   };
 
-  const handleDeletePermanently = (item: any, type: "task" | "habit") => {
+  const handleDeletePermanently = (item: any, type: "task" | "habit" | "checklist" | "resource") => {
+    const typeLabel = type === "task" ? "Task" : type === "habit" ? "Habit" : type === "checklist" ? "Checklist" : "Resource";
     Alert.alert(
       "Delete Permanently",
-      `Are you sure you want to permanently delete "${item.title}"? This action cannot be undone.`,
+      `Are you sure you want to permanently delete this ${typeLabel}? This action cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -164,25 +208,23 @@ export default function ArchiveScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              const isTask = type === "task";
-              await cancelReminderIds(item.notificationIds || []);
+              const wsId = item.workspaceId || INBOX_WORKSPACE_ID;
+              await cancelReminderIds(item.notificationIds || item.reminder?.notificationIds || []);
 
-              if (isTask) {
-                await TaskRepository.deleteTask(
-                  item.id,
-                  item.folderId || "default",
-                );
-              } else {
-                await HabitRepository.deleteHabit(
-                  item.id,
-                  item.folderId || "default",
-                );
+              if (type === "task") {
+                await TaskRepository.deleteTask(item.id, wsId);
+              } else if (type === "habit") {
+                await HabitRepository.deleteHabit(item.id, wsId);
+              } else if (type === "checklist") {
+                await ChecklistRepository.deleteChecklist(item.id, wsId);
+              } else if (type === "resource") {
+                await ResourceRepository.deleteResource(item.id, wsId);
               }
 
               Haptics.notificationAsync(
                 Haptics.NotificationFeedbackType.Warning,
               ).catch(() => {});
-              emitStateChange(isTask ? "tasks_changed" : "habits_changed");
+              emitStateChange(type === "task" ? "tasks_changed" : type === "habit" ? "habits_changed" : type === "checklist" ? "checklists_changed" : "resources_changed");
               loadArchivedData();
             } catch (e) {
               console.warn("Failed to delete item permanently", e);
@@ -266,7 +308,7 @@ export default function ArchiveScreen() {
                             fontWeight: "700",
                           }}
                         >
-                          💼 {workspaces[todo.workspaceId || ""] || "Default"}
+                          💼 {workspaces[todo.workspaceId || ""] || "Inbox"}
                         </Text>
                       </View>
                       {todo.priority && (
@@ -390,6 +432,162 @@ export default function ArchiveScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeletePermanently(habit, "habit")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.error}15` },
+                      ]}
+                    >
+                      <Feather name="trash-2" size={16} color={colors.error} />
+                    </TouchableOpacity>
+                  </View>
+                </AppCard>
+              ))
+            )}
+          </View>
+
+          {/* Archived Checklists */}
+          <View style={[styles.section, { marginTop: 24 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+              Archived Checklists
+            </Text>
+            {archivedChecklists.length === 0 ? (
+              <View
+                style={[
+                  styles.emptyCard,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                ]}
+              >
+                <Text style={{ color: colors.textMuted, fontSize: 14 }}>
+                  No archived checklists
+                </Text>
+              </View>
+            ) : (
+              archivedChecklists.map((cl) => (
+                <AppCard
+                  key={cl.id}
+                  style={[styles.itemCard, { borderColor: colors.border }]}
+                >
+                  <View style={styles.itemInfo}>
+                    <Text style={[styles.itemTitle, { color: colors.text }]}>
+                      {cl.title}
+                    </Text>
+                    <View style={styles.metaRow}>
+                      <View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: isLight
+                              ? "#E2E8F8"
+                              : "rgba(255,255,255,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 10,
+                            fontWeight: "700",
+                          }}
+                        >
+                          📋 {cl.items?.length || 0} items
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.actions}>
+                    <TouchableOpacity
+                      onPress={() => handleRestore(cl, "checklist")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.success}15` },
+                      ]}
+                    >
+                      <Feather
+                        name="rotate-ccw"
+                        size={16}
+                        color={colors.success}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeletePermanently(cl, "checklist")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.error}15` },
+                      ]}
+                    >
+                      <Feather name="trash-2" size={16} color={colors.error} />
+                    </TouchableOpacity>
+                  </View>
+                </AppCard>
+              ))
+            )}
+          </View>
+
+          {/* Archived Resources */}
+          <View style={[styles.section, { marginTop: 24 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+              Archived Resources
+            </Text>
+            {archivedResources.length === 0 ? (
+              <View
+                style={[
+                  styles.emptyCard,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                ]}
+              >
+                <Text style={{ color: colors.textMuted, fontSize: 14 }}>
+                  No archived resources
+                </Text>
+              </View>
+            ) : (
+              archivedResources.map((res) => (
+                <AppCard
+                  key={res.id}
+                  style={[styles.itemCard, { borderColor: colors.border }]}
+                >
+                  <View style={styles.itemInfo}>
+                    <Text style={[styles.itemTitle, { color: colors.text }]}>
+                      {res.title}
+                    </Text>
+                    <View style={styles.metaRow}>
+                      <View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: isLight
+                              ? "#E2E8F8"
+                              : "rgba(255,255,255,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 10,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {res.type === "link" ? "🔗" : res.type === "note" ? "📝" : "📦"} {res.type}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.actions}>
+                    <TouchableOpacity
+                      onPress={() => handleRestore(res, "resource")}
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: `${colors.success}15` },
+                      ]}
+                    >
+                      <Feather
+                        name="rotate-ccw"
+                        size={16}
+                        color={colors.success}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeletePermanently(res, "resource")}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.error}15` },

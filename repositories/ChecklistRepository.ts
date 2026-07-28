@@ -4,7 +4,7 @@
  * Checklist persistence — partitioned by workspaceId using canonical Checklist model.
  */
 import {
-  DEFAULT_WORKSPACE_ID,
+  INBOX_WORKSPACE_ID,
   type Checklist,
   type ChecklistItem,
 } from "@/shared/types/domain.types";
@@ -14,8 +14,7 @@ export function normalizeChecklist(
   rawChecklist: any,
   defaultWorkspaceId: string,
 ): Checklist {
-  const wsId =
-    rawChecklist.workspaceId || rawChecklist.folderId || defaultWorkspaceId;
+  const wsId = rawChecklist.workspaceId || defaultWorkspaceId;
 
   const items: ChecklistItem[] = (rawChecklist.items || []).map(
     (item: any) => ({
@@ -121,7 +120,7 @@ export class ChecklistRepository {
 
   static async saveChecklist(checklist: any): Promise<void> {
     this.validateId(checklist?.id, "saveChecklist");
-    const workspaceId = checklist.workspaceId || DEFAULT_WORKSPACE_ID;
+    const workspaceId = checklist.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getChecklistsKey(workspaceId);
     const records = await this.getChecklists(workspaceId);
 

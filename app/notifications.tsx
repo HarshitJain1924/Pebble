@@ -14,6 +14,7 @@ import {
     HabitRepository,
     WorkspaceRepository,
 } from "@/repositories";
+import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as IntentLauncher from "expo-intent-launcher";
@@ -161,7 +162,7 @@ export default function NotificationsCenter() {
       // B. Query current Tasks and Habits for future schedules
       const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
-        new Set(["default", "unassigned", ...folderList.map((f) => f.id)]),
+        new Set([INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
       );
 
       for (const fId of folderIds) {

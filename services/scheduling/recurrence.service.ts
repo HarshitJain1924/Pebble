@@ -60,6 +60,11 @@ export function isRecurringOccurrenceForDate(
       const dayOfMonth = recurrence.dayOfMonth || parseDateKey(startDayKey).getDate();
       return targetDate.getDate() === dayOfMonth;
     }
+    case "yearly": {
+      const interval = recurrence.interval || 1;
+      const diff = dayDiff(startDayKey, dateKey);
+      return diff >= 0 && diff % (interval * 365) === 0;
+    }
     case "custom": {
       const interval = recurrence.interval || 1;
       const diff = dayDiff(startDayKey, dateKey);

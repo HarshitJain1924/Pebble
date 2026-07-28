@@ -4,7 +4,7 @@
  * Habit persistence — partitioned by workspaceId using canonical Habit model.
  */
 import {
-  DEFAULT_WORKSPACE_ID,
+  INBOX_WORKSPACE_ID,
   type Habit,
   type HabitCompletion,
   type RecurrenceRule,
@@ -15,7 +15,7 @@ export function normalizeHabit(
   rawHabit: any,
   defaultWorkspaceId: string,
 ): Habit {
-  const wsId = rawHabit.workspaceId || rawHabit.folderId || defaultWorkspaceId;
+  const wsId = rawHabit.workspaceId || defaultWorkspaceId;
 
   // Convert completion history
   let completionHistory: HabitCompletion[] = [];
@@ -38,17 +38,25 @@ export function normalizeHabit(
     };
   }
 
-  // Construct reminder if present
+  // Construct canonical Reminder from legacy flat fields if not already present.
+  // Only reconstruct when alarmTime is a valid number — never fall back to Date.now()
+  // because that would silently corrupt the stored timestamp.
   let reminder = rawHabit.reminder;
-  if (
-    !reminder &&
-    (rawHabit.reminderHour !== undefined || rawHabit.alarmTime)
-  ) {
+  if (!reminder && typeof rawHabit.alarmTime === "number") {
     reminder = {
       enabled: true,
-      triggerAt: rawHabit.alarmTime || Date.now(),
+      triggerAt: rawHabit.alarmTime,
       notificationIds: rawHabit.notificationIds || undefined,
     };
+  }
+
+  // Warn about legacy records that have notificationIds or reminderHour but no alarmTime.
+  // These cannot be reconstructed into a valid canonical Reminder and would
+  // have silently produced Date.now() under the old fallback.
+  if (!reminder && (rawHabit.notificationIds?.length || rawHabit.reminderHour != null) && rawHabit.alarmTime == null) {
+    console.warn(
+      "[Reminder] Legacy habit " + rawHabit.id + " has notificationIds/reminderHour but no alarmTime — reminder not reconstructed"
+    );
   }
 
   // Construct resourceIds
@@ -135,12 +143,25 @@ export class HabitRepository {
 
   static async saveHabit(habit: any): Promise<void> {
     this.validateId(habit?.id, "saveHabit");
-    const workspaceId = habit.workspaceId || DEFAULT_WORKSPACE_ID;
+    const workspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getHabitsKey(workspaceId);
     const records = await this.getHabits(workspaceId);
 
     const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
     cleanHabit.updatedAt = Date.now();
+
+    // Pre-persistence guard: catch any code path that produces an enabled
+    // reminder with an invalid triggerAt (e.g. Date.now() instead of the
+    // user-selected time). This would have been silently persisted before.
+    const validTrigger =
+      Number.isFinite(cleanHabit.reminder?.triggerAt) &&
+      (cleanHabit.reminder?.triggerAt ?? 0) > 0;
+    if (cleanHabit.reminder?.enabled && !validTrigger) {
+      console.warn(
+        "[Reminder] Invalid triggerAt on habit " + cleanHabit.id + " before persistence",
+        cleanHabit.reminder
+      );
+    }
 
     records[habit.id] = cleanHabit;
     await AsyncStorage.setItem(key, JSON.stringify(records));

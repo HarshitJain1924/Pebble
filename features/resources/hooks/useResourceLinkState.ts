@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import * as Haptics from "expo-haptics";
-import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
+import { Task, Habit, Workspace, Resource, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ResourceRepository, ChecklistRepository } from "@/repositories";
 import { emitStateChange } from "@/services/events/state-events";
 
@@ -12,9 +12,9 @@ export function useResourceLinkState(
   checklists: Record<string, Checklist[]>,
   setChecklists: React.Dispatch<React.SetStateAction<Record<string, Checklist[]>>>,
   resources: Record<string, Resource[]>,
-  selectedList: string,
-  openedFolderId: string | null,
-  lists: Workspace[],
+  selectedWorkspaceId: string,
+  activeWorkspaceId: string | null,
+  workspaces: Workspace[],
   persistState: (listsToSave: Workspace[], selected: string, todosToSave: Record<string, Task[]>) => Promise<void>,
   persistHabits: (nextHabits: Habit[]) => Promise<void>,
 ) {
@@ -27,7 +27,7 @@ export function useResourceLinkState(
     if (itemType === "task") {
       setTodos((current) => {
         const next = { ...current };
-        const wsId = openedFolderId || selectedList || "default";
+        const wsId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
         if (next[wsId]) {
           next[wsId] = next[wsId].map((todo) => {
             if (todo.id === itemId) {
@@ -40,7 +40,7 @@ export function useResourceLinkState(
             return todo;
           });
         }
-        persistState(lists, wsId, next);
+        persistState(workspaces, wsId, next);
         return next;
       });
     } else if (itemType === "habit") {
@@ -57,7 +57,7 @@ export function useResourceLinkState(
       setHabits(nextHabits);
       await persistHabits(nextHabits);
     } else if (itemType === "checklist") {
-      const wsId = openedFolderId || "default";
+      const wsId = activeWorkspaceId || INBOX_WORKSPACE_ID;
       setChecklists((current) => {
         const next = { ...current };
         if (next[wsId]) {
@@ -79,7 +79,7 @@ export function useResourceLinkState(
     }
 
     try {
-      const wsId = openedFolderId || selectedList || "default";
+      const wsId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (existing) {
         const updatedResources = await ResourceRepository.getResources(wsId);
@@ -89,7 +89,7 @@ export function useResourceLinkState(
     } catch (e) {
       console.warn("Failed to update resource link state", e);
     }
-  }, [selectedList, habits, openedFolderId, lists, setTodos, setHabits, setChecklists, persistState, persistHabits]);
+  }, [selectedWorkspaceId, habits, activeWorkspaceId, workspaces, setTodos, setHabits, setChecklists, persistState, persistHabits]);
 
   return {
     toggleLinkResource,

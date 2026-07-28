@@ -21,6 +21,7 @@ import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 import { getProfile } from "@/features/settings/services/settings.service";
 import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
 import { WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
+import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 import { CategoryChip } from "@/shared/components/design-system";
 
@@ -85,15 +86,15 @@ export default function StatsScreen() {
       
       // Load Completed Todos via repository
       const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
-      const folderNameMap: Record<string, string> = { default: "My Pebbles", unassigned: "My Pebbles" };
+      const folderIds = Array.from(new Set([INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID, ...folderList.map((f) => f.id)]));
+      const folderNameMap: Record<string, string> = { [INBOX_WORKSPACE_ID]: "Inbox", [MY_PEBBLES_WORKSPACE_ID]: "My Pebbles" };
       folderList.forEach((f) => { folderNameMap[f.id] = f.name; });
 
       let totalCompletedTodos = 0;
       let totalTasks = 0;
       const categoryCounts: Record<string, number> = {};
       const workspaceCounts: Record<string, number> = {};
-      let mostProductiveWorkspace = "Default";
+      let mostProductiveWorkspace = "Inbox";
 
       for (const fId of folderIds) {
         const tasksMap = await TaskRepository.getTasks(fId);
@@ -112,14 +113,14 @@ export default function StatsScreen() {
       }
 
       let maxCount = 0;
-      let bestFolderId = "default";
+      let bestFolderId = INBOX_WORKSPACE_ID;
       Object.entries(workspaceCounts).forEach(([fId, cnt]) => {
         if (cnt > maxCount) {
           maxCount = cnt;
           bestFolderId = fId;
         }
       });
-      mostProductiveWorkspace = folderNameMap[bestFolderId] || "Default";
+      mostProductiveWorkspace = folderNameMap[bestFolderId] || "Inbox";
 
       // Load Habits via repository
       const todayStr = getDateKey();

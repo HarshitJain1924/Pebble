@@ -12,12 +12,23 @@ import {
 import { emitStateChange } from "@/services/events/state-events";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import { appendGratitudeHistoryEntry } from "@/services/storage/storage.service";
-import { type Checklist } from "@/shared/types/domain.types";
+import {
+  INBOX_WORKSPACE_ID,
+  type Checklist,
+} from "@/shared/types/domain.types";
 import * as Haptics from "expo-haptics";
 import { useCallback } from "react";
 import { Alert, Dimensions } from "react-native";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+function getLastCompletionDate(
+  history: { date: string }[],
+): string | undefined {
+  if (!history || history.length === 0) return undefined;
+  const dates = history.map((e) => e.date).sort();
+  return dates[dates.length - 1];
+}
 
 export interface UseTodayActionsOptions {
   loadDashboardData: () => Promise<void>;
@@ -91,7 +102,8 @@ export function useTodayActions({
         if (checklist) {
           const updatedChecklist = {
             ...checklist,
-            items: (checklist.items || []).map((i) =>
+            item
+            s: (checklist.items || []).map((i) =>
               i.id === itemId ? { ...i, completed: !i.completed } : i,
             ),
           };
@@ -123,17 +135,15 @@ export function useTodayActions({
     async (todoId: string, event?: any) => {
       try {
         let prevTodo: any = null;
-        let targetFolderId = "default";
-        const folderList = await WorkspaceRepository.getWorkspaces();
-        const folderIds = Array.from(
-          new Set(["default", ...folderList.map((f: any) => f.id)]),
+        const workspaceList = await WorkspaceRepository.getWorkspaces();
+        const workspaceIds = Array.from(
+          new Set([INBOX_WORKSPACE_ID, ...workspaceList.map((f: any) => f.id)]),
         );
 
-        for (const fId of folderIds) {
-          const tasksMap = await TaskRepository.getTasks(fId);
+        for (const wsId of workspaceIds) {
+          const tasksMap = await TaskRepository.getTasks(wsId);
           if (tasksMap[todoId]) {
             prevTodo = tasksMap[todoId];
-            targetFolderId = fId;
             break;
           }
         }
@@ -153,7 +163,7 @@ export function useTodayActions({
 
         await TaskRepository.saveTask({
           ...prevTodo,
-          completed: true,
+          status: "completed",
           completedAt: Date.now(),
           xpAwarded,
         });
@@ -199,7 +209,7 @@ export function useTodayActions({
 
                   await TaskRepository.saveTask({
                     ...prevTodo,
-                    completed: false,
+                    status: "todo",
                     completedAt: undefined,
                   });
                   await loadDashboardData();
@@ -224,17 +234,15 @@ export function useTodayActions({
     async (habitId: string, event?: any) => {
       try {
         let prevHabit: any = null;
-        let targetFolderId = "default";
-        const folderList = await WorkspaceRepository.getWorkspaces();
-        const folderIds = Array.from(
-          new Set(["default", ...folderList.map((f: any) => f.id)]),
+        const workspaceList = await WorkspaceRepository.getWorkspaces();
+        const workspaceIds = Array.from(
+          new Set([INBOX_WORKSPACE_ID, ...workspaceList.map((f: any) => f.id)]),
         );
 
-        for (const fId of folderIds) {
-          const habitsMap = await HabitRepository.getHabits(fId);
+        for (const wsId of workspaceIds) {
+          const habitsMap = await HabitRepository.getHabits(wsId);
           if (habitsMap[habitId]) {
             prevHabit = habitsMap[habitId];
-            targetFolderId = fId;
             break;
           }
         }
@@ -246,38 +254,43 @@ export function useTodayActions({
           new Date(Date.now() - 24 * 60 * 60 * 1000),
         );
 
-        const habitForXp = {
-          ...prevHabit,
-          completedToday: prevHabit.completedDates?.includes(today) || false,
-        };
-        const nextCompleted = !habitForXp.completedToday;
+        const completedToday =
+          prevHabit.completionHistory?.some((e: any) => e.date === today) ||
+          false;
+        const nextCompleted = !completedToday;
         const { xpAwardedDate } = await handleHabitXpChange(
-          habitForXp,
+          {
+            ...prevHabit,
+            completedToday: !!completedToday,
+          },
           nextCompleted,
           today,
         );
 
         let streak = prevHabit.streak || 0;
-        let completedDates = [...(prevHabit.completedDates || [])];
+        let completionHistory = [...(prevHabit.completionHistory || [])];
         if (nextCompleted) {
-          if (!completedDates.includes(today)) {
-            completedDates.push(today);
+          if (!completionHistory.some((e: any) => e.date === today)) {
+            completionHistory.push({ date: today, completedAt: Date.now() });
           }
           let nextStreak = 1;
-          if (prevHabit.lastCompletedDate === today) {
+          const lastDate = getLastCompletionDate(completionHistory);
+          if (lastDate === today) {
             nextStreak = prevHabit.streak || 1;
-          } else if (prevHabit.lastCompletedDate === yesterday) {
+          } else if (lastDate === yesterday) {
             nextStreak = (prevHabit.streak || 0) + 1;
           }
           streak = nextStreak;
         } else {
-          completedDates = completedDates.filter((d: string) => d !== today);
+          completionHistory = completionHistory.filter(
+            (e: any) => e.date !== today,
+          );
           streak = Math.max(0, streak - 1);
         }
 
         const updatedHabit = {
           ...prevHabit,
-          completedDates,
+          completionHistory,
           streak,
           bestStreak: Math.max(prevHabit.bestStreak || 0, streak),
           lastCompletedDate: nextCompleted
@@ -367,8 +380,7 @@ export function useTodayActions({
           title: intentionText.trim(),
           completed: false,
           priority: "high", // high priority!
-          workspaceId: "default",
-          folderId: "default",
+          workspaceId: INBOX_WORKSPACE_ID,
           scheduledDate: tomorrowStr,
           created: Date.now(),
         };

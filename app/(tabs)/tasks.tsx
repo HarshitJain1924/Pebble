@@ -21,10 +21,10 @@ import * as Haptics from "expo-haptics";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-import { Task, Habit, Workspace, Checklist, Resource } from "@/shared/types/domain.types";
+import { Task, Habit, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
-import { TaskEditorSheet } from "@/features/tasks/components/TaskEditorSheet";
+
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { SegmentedSwitcher } from "@/shared/components/ui/SegmentedSwitcher";
 import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
@@ -53,6 +53,9 @@ export function WorkspacesScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
+
+  // Debug: log render count with current todos state
+
   const isDark = colorScheme === "dark";
   const isLight = colorScheme === "light";
 
@@ -69,7 +72,7 @@ export function WorkspacesScreen() {
   const [inlineTodoTitle, setInlineTodoTitle] = React.useState("");
 
   const folderHabits = React.useMemo(() => {
-    const raw = state.habits.filter((h) => !h.archivedAt && (h.workspaceId || "default") === state.openedFolderId);
+    const raw = state.habits.filter((h) => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId);
     if (state.searchQuery.trim() === "") return raw;
     return raw.filter((h) => {
       const matchesTitle = h.title.toLowerCase().includes(state.searchQuery.toLowerCase());
@@ -77,11 +80,11 @@ export function WorkspacesScreen() {
       const matchesCategory = h.categoryId?.toLowerCase().includes(state.searchQuery.toLowerCase()) || false;
       return matchesTitle || matchesDesc || matchesCategory;
     });
-  }, [state.habits, state.openedFolderId, state.searchQuery]);
+  }, [state.habits, state.activeWorkspaceId, state.searchQuery]);
 
   const allResources = React.useMemo(() => {
-    return state.resources[state.openedFolderId || "default"] || [];
-  }, [state.resources, state.openedFolderId]);
+    return state.resources[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
+  }, [state.resources, state.activeWorkspaceId]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -94,7 +97,7 @@ export function WorkspacesScreen() {
   useFocusEffect(
     React.useCallback(() => {
       const onBackPress = () => {
-        if (state.openedFolderId) {
+        if (state.activeWorkspaceId) {
           state.handleBackToWorkspaces();
           state.setSearchQuery("");
           setIsSearchActive(false);
@@ -105,7 +108,7 @@ export function WorkspacesScreen() {
 
       const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
       return () => subscription.remove();
-    }, [state.openedFolderId, state.handleBackToWorkspaces])
+    }, [state.activeWorkspaceId, state.handleBackToWorkspaces])
   );
 
   return (
@@ -114,7 +117,7 @@ export function WorkspacesScreen() {
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.container}>
             {/* Header */}
-            {state.openedFolderId ? (
+            {state.activeWorkspaceId ? (
               <View style={{ marginBottom: 12 }}>
                 <View
                   style={{
@@ -142,7 +145,7 @@ export function WorkspacesScreen() {
                     </TouchableOpacity>
 
                     {(() => {
-                      const currentFolder = state.lists.find((l) => l.id === state.openedFolderId) as any;
+                      const currentFolder = state.workspaces.find((l) => l.id === state.activeWorkspaceId) as any;
                       const hasIcon = currentFolder?.iconType === "icon";
                       const folderColor = currentFolder?.color || colors.primary;
                       return (
@@ -199,7 +202,7 @@ export function WorkspacesScreen() {
 
                 {/* Subtitle */}
                 {(() => {
-                  const folderTodos = state.todos[state.openedFolderId || "default"] || [];
+                  const folderTodos = state.todos[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
                   const totalTasks = folderTodos.filter(t => !t.archivedAt && t.status !== "completed").length;
                   const dueToday = folderTodos.filter(t => {
                     if (t.archivedAt || t.status === "completed") return false;
@@ -211,15 +214,15 @@ export function WorkspacesScreen() {
                   }).length;
 
                   let subtitle = "";
-                  if (state.folderSegment === "tasks") {
+                  if (state.workspaceSegment === "tasks") {
                     subtitle = `${totalTasks} tasks • ${dueToday} due today`;
-                  } else if (state.folderSegment === "habits") {
+                  } else if (state.workspaceSegment === "habits") {
                     const todayKey = getDateKey();
-                    const activeHabits = state.habits.filter(h => !h.archivedAt && (h.workspaceId || "default") === state.openedFolderId);
+                    const activeHabits = state.habits.filter(h => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId);
                     const dueTodayCount = activeHabits.filter(h => isRecurringOccurrenceForDate(h, todayKey)).length;
                     subtitle = `${activeHabits.length} active habits • ${dueTodayCount} due today`;
-                  } else if (state.folderSegment === "checklists") {
-                    const folderChecklists = (state.checklists[state.openedFolderId || "default"] || []).filter(c => !c.archivedAt);
+                  } else if (state.workspaceSegment === "checklists") {
+                    const folderChecklists = (state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || []).filter(c => !c.archivedAt);
                     const completed = folderChecklists.filter(c => c.items.length > 0 && c.items.every(i => i.completed)).length;
                     subtitle = `${folderChecklists.length} checklists • ${completed} completed`;
                   } else {
@@ -277,7 +280,7 @@ export function WorkspacesScreen() {
                 <AppHeader
                   kicker="Planner"
                   title="Workspaces"
-                  subtitle={`${state.lists.length} workspaces active`}
+                  subtitle={`${state.workspaces.length} workspaces active`}
                   profile={state.profile}
                   hasUnreadNotifs={state.hasUnreadNotifs}
                   showProfile={false}
@@ -327,7 +330,7 @@ export function WorkspacesScreen() {
             )}
 
             {/* Active Content Screens */}
-            {state.openedFolderId === null ? (
+            {state.activeWorkspaceId === null ? (
               <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
                 <SuggestionBanner
                   activeSuggestions={state.activeSuggestions}
@@ -336,13 +339,13 @@ export function WorkspacesScreen() {
                   persistHabits={state.persistHabits}
                   setTodos={state.setTodos}
                   persistState={state.persistState}
-                  lists={state.lists}
-                  selectedList={state.selectedList}
-                  openedFolderId={state.openedFolderId}
+                  lists={state.workspaces}
+                  selectedWorkspaceId={state.selectedWorkspaceId}
+                  activeWorkspaceId={state.activeWorkspaceId}
                   getDateKey={getDateKey}
                 />
                 <WorkspaceGrid
-                  lists={state.lists}
+                  workspaces={state.workspaces}
                   todos={state.todos}
                   habits={state.habits}
                   collections={state.resources as any}
@@ -353,16 +356,16 @@ export function WorkspacesScreen() {
                     state.handleSelectWorkspace(id);
                   }}
                   onEditWorkspace={(id) => {
-                    if (id === "unassigned") {
+                    if (id === INBOX_WORKSPACE_ID) {
                       setInboxProtectionVisible(true);
                       return;
                     }
-                    state.setEditingFolderId(id);
-                    state.setFolderModalVisible(true);
+                    state.setEditingWorkspaceId(id);
+                    state.setWorkspaceModalVisible(true);
                   }}
                   onCreateWorkspace={() => {
-                    state.setEditingFolderId(null);
-                    state.setFolderModalVisible(true);
+                    state.setEditingWorkspaceId(null);
+                    state.setWorkspaceModalVisible(true);
                   }}
                 />
               </ScrollView>
@@ -374,7 +377,7 @@ export function WorkspacesScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 {/* Tasks Section */}
-                {state.folderSegment === "tasks" && (
+                {state.workspaceSegment === "tasks" && (
                   <View style={{ gap: 10 }}>
                     <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
                       Tasks
@@ -402,7 +405,7 @@ export function WorkspacesScreen() {
                           if (inlineTodoTitle.trim()) {
                             const newTodo: Task = {
                               id: String(Date.now()),
-                              workspaceId: state.openedFolderId || "default",
+                              workspaceId: state.activeWorkspaceId || INBOX_WORKSPACE_ID,
                               title: inlineTodoTitle.trim(),
                               status: "todo",
                               categoryId: DEFAULT_TASK_CATEGORY,
@@ -428,7 +431,7 @@ export function WorkspacesScreen() {
                           if (inlineTodoTitle.trim()) {
                             const newTodo: Task = {
                               id: String(Date.now()),
-                              workspaceId: state.openedFolderId || "default",
+                              workspaceId: state.activeWorkspaceId || INBOX_WORKSPACE_ID,
                               title: inlineTodoTitle.trim(),
                               status: "todo",
                               categoryId: DEFAULT_TASK_CATEGORY,
@@ -454,8 +457,8 @@ export function WorkspacesScreen() {
                       todayTodos={state.todayTodos}
                       upcomingTodos={state.upcomingTodos}
                       inboxTodos={state.inboxTodos}
-                      lists={state.lists}
-                      selectedList={state.selectedList}
+                      workspaces={state.workspaces}
+                      selectedWorkspaceId={state.selectedWorkspaceId}
                       selectedDate={state.selectedDate}
                       completedCount={state.completedCount}
                       onClearCompleted={state.clearCompleted}
@@ -485,7 +488,7 @@ export function WorkspacesScreen() {
                 )}
 
                 {/* Habits Section */}
-                {state.folderSegment === "habits" && (
+                {state.workspaceSegment === "habits" && (
                   <View style={{ gap: 10 }}>
                     <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
                       Habits
@@ -495,17 +498,6 @@ export function WorkspacesScreen() {
                     <Pressable
                       onPress={() => {
                         state.setIsAddingHabit(true);
-                        state.setEditingHabit({
-                          id: `habit-${Date.now()}`,
-                          title: "",
-                          streak: 0,
-                          bestStreak: 0,
-                          completedToday: false,
-                          priority: "medium",
-                          folderId: state.openedFolderId || "default",
-                          category: "health",
-                          createdAt: Date.now(),
-                        } as any);
                       }}
                     >
                       <AppCard style={styles.addTaskCard}>
@@ -541,28 +533,19 @@ export function WorkspacesScreen() {
                           return next;
                         });
                       }}
-                      onEditHabit={(item) => state.setEditingHabit(item)}
+                      onEditHabit={(item) => {
+                        router.push(`/task-details?id=${item.id}&type=habit`);
+                      }}
                       onCreateHabit={() => {
                         state.setIsAddingHabit(true);
-                        state.setEditingHabit({
-                          id: `habit-${Date.now()}`,
-                          title: "",
-                          streak: 0,
-                          bestStreak: 0,
-                          completedToday: false,
-                          priority: "medium",
-                          folderId: state.openedFolderId || "default",
-                          category: "health",
-                          createdAt: Date.now(),
-                        } as any);
                       }}
                     />
                   </View>
                 )}
 
                 {/* Checklists Section */}
-                {state.folderSegment === "checklists" && (() => {
-                  const folderChecklists = state.checklists[state.openedFolderId || "default"] || [];
+                {state.workspaceSegment === "checklists" && (() => {
+                  const folderChecklists = state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
                   const activeChecklists = folderChecklists.filter(c => !c.archivedAt);
                   const filteredChecklists = state.searchQuery.trim() === ""
                     ? activeChecklists
@@ -603,7 +586,7 @@ export function WorkspacesScreen() {
                           colors={colors}
                           colorScheme={colorScheme}
                           onUpdateChecklist={state.updateChecklist}
-                          onDeleteChecklist={(id) => state.deleteChecklist(id, state.openedFolderId || "default")}
+                          onDeleteChecklist={(id) => state.deleteChecklist(id, state.activeWorkspaceId || INBOX_WORKSPACE_ID)}
                           onToggleLinkResource={state.toggleLinkResource}
                         />
                       )}
@@ -612,17 +595,17 @@ export function WorkspacesScreen() {
                 })()}
 
                 {/* Resources Section */}
-                {(state.folderSegment as string) === "resources" && (
+                {(state.workspaceSegment as string) === "resources" && (
                   <View style={{ gap: 10 }}>
                     <ResourceSection
                       resources={state.resources}
-                      lists={state.lists}
+                      lists={state.workspaces}
                       createResource={state.createResource as any}
                       updateResource={state.updateResource}
                       deleteResource={state.deleteResource}
                       toggleArchiveResource={state.toggleArchiveResource}
                       searchQuery={state.searchQuery}
-                      activeFolderId={state.openedFolderId || "unassigned"}
+                      activeFolderId={state.activeWorkspaceId || INBOX_WORKSPACE_ID}
                       stateTodos={Object.values(state.todos).flat()}
                       stateHabits={state.habits}
                       stateChecklists={Object.values(state.checklists).flat()}
@@ -635,17 +618,17 @@ export function WorkspacesScreen() {
 
             {/* Workspace Creator Modal */}
             <WorkspaceModal
-              visible={state.folderModalVisible}
-              onClose={() => state.setFolderModalVisible(false)}
-              editingFolderId={state.editingFolderId}
-              lists={state.lists}
-              setLists={state.setLists}
+              visible={state.workspaceModalVisible}
+              onClose={() => state.setWorkspaceModalVisible(false)}
+              editingWorkspaceId={state.editingWorkspaceId}
+              workspaces={state.workspaces}
+              setWorkspaces={state.setWorkspaces}
               todos={state.todos}
               setTodos={state.setTodos}
-              selectedList={state.selectedList}
-              setSelectedList={state.setSelectedList}
-              openedFolderId={state.openedFolderId}
-              setOpenedFolderId={state.setOpenedFolderId}
+              selectedWorkspaceId={state.selectedWorkspaceId}
+              setSelectedWorkspaceId={state.setSelectedWorkspaceId}
+              activeWorkspaceId={state.activeWorkspaceId}
+              setActiveWorkspaceId={state.setActiveWorkspaceId}
               persistState={state.persistState}
               habits={state.habits}
               setHabits={state.setHabits}
@@ -659,9 +642,9 @@ export function WorkspacesScreen() {
               type="bottom-sheet"
             >
               {(close) => {
-                const folder = state.lists.find((l) => l.id === state.openedFolderId) as any;
+                const folder = state.workspaces.find((l) => l.id === state.activeWorkspaceId) as any;
                 const folderName = folder ? folder.name : "Workspace";
-                const isInbox = state.openedFolderId === null || state.openedFolderId === "unassigned";
+                const isInbox = state.activeWorkspaceId === null || state.activeWorkspaceId === INBOX_WORKSPACE_ID;
 
                 return (
                   <View
@@ -702,8 +685,8 @@ export function WorkspacesScreen() {
                             return;
                           }
                           if (folder) {
-                            state.setEditingFolderId(folder.id);
-                            state.setFolderModalVisible(true);
+                            state.setEditingWorkspaceId(folder.id);
+                            state.setWorkspaceModalVisible(true);
                           }
                         }}
                         style={{
@@ -760,11 +743,11 @@ export function WorkspacesScreen() {
                                       text: "Rename",
                                       onPress: async (newName?: string) => {
                                         if (newName && newName.trim()) {
-                                          const updated = state.lists.map((l) =>
+                                          const updated = state.workspaces.map((l) =>
                                             l.id === folder.id ? { ...l, name: newName.trim() } : l
                                           );
-                                          state.setLists(updated);
-                                          await state.persistState(updated, state.selectedList, state.todos);
+                                          state.setWorkspaces(updated);
+                                          await state.persistState(updated, state.selectedWorkspaceId, state.todos);
                                           emitStateChange("tasks_changed");
                                           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
                                         }
@@ -776,8 +759,8 @@ export function WorkspacesScreen() {
                                 );
                               }, 300);
                             } else {
-                              state.setEditingFolderId(folder.id);
-                              state.setFolderModalVisible(true);
+                              state.setEditingWorkspaceId(folder.id);
+                              state.setWorkspaceModalVisible(true);
                             }
                           }
                         }}
@@ -814,13 +797,13 @@ export function WorkspacesScreen() {
                                     text: "Archive",
                                     style: "destructive",
                                     onPress: async () => {
-                                      const updated = state.lists.map((l) =>
-                                        l.id === folder.id ? { ...l, archived: true } : l
+                                      const updated = state.workspaces.map((l) =>
+                                        l.id === folder.id ? { ...l, archivedAt: Date.now() } : l
                                       );
-                                      state.setLists(updated);
-                                      await state.persistState(updated, "default", state.todos);
-                                      state.setOpenedFolderId("default");
-                                      state.setSelectedList("default");
+                                      state.setWorkspaces(updated);
+                                      await state.persistState(updated, INBOX_WORKSPACE_ID, state.todos);
+                                      state.setActiveWorkspaceId(INBOX_WORKSPACE_ID);
+                                      state.setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
                                       emitStateChange("tasks_changed");
                                       emitStateChange("habits_changed");
                                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -919,7 +902,7 @@ export function WorkspacesScreen() {
               visible={!!state.alarmMenu}
               todoId={state.alarmMenu}
               todos={state.todos}
-              selectedList={state.selectedList}
+              selectedList={state.selectedWorkspaceId}
               onClose={() => state.setAlarmMenu(null)}
               onScheduleAlarm={state.scheduleAlarm}
               onScheduleAlarmWithDays={state.scheduleAlarmWithDays}
@@ -927,26 +910,8 @@ export function WorkspacesScreen() {
           </View>
         </KeyboardAvoidingView>
 
-        <TaskEditorSheet
-          task={state.editingTask || state.addingTask}
-          lists={state.lists}
-          mode={state.addingTask ? "add" : "edit"}
-          onClose={() => {
-            if (state.editingTask) state.setEditingTask(null);
-            if (state.addingTask) state.setAddingTask(null);
-          }}
-          onSave={state.addingTask ? state.onSaveNewTask : state.onSaveEditedTask}
-          onDelete={state.editingTask ? state.deleteTodo : undefined}
-        />
-        <TaskEditorSheet
-          task={state.editingHabit}
-          lists={state.lists}
-          mode="edit"
-          itemType="habit"
-          onClose={() => state.setEditingHabit(null)}
-          onSave={state.handleSaveEditedHabit}
-          onDelete={state.handleDeleteEditedHabit}
-        />
+        {/* Task Editor — routed to full-screen task-details.tsx */}
+        {/* Habit Editor — routed to full-screen task-details.tsx */}
         {/* NLPCapture deprecated in favor of global UnifiedCapture */}
       </Animated.View>
 
@@ -976,7 +941,7 @@ export function WorkspacesScreen() {
               Select target workspace for {state.selectedItemIds.size} item(s):
             </Text>
             <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 8 }}>
-              {state.lists.filter((ws) => !ws.archivedAt).map((ws) => (
+              {state.workspaces.filter((ws) => !ws.archivedAt).map((ws) => (
                 <TouchableOpacity
                   key={ws.id}
                   onPress={() => (state as any).handleBulkMove?.(ws.id)}
@@ -1105,7 +1070,7 @@ export function WorkspacesScreen() {
                     .filter(i => i.length > 0);
 
                   if (editingChecklistId) {
-                    const folderChecklists = state.checklists[state.openedFolderId || "default"] || [];
+                    const folderChecklists = state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
                     const target = folderChecklists.find(c => c.id === editingChecklistId);
                     if (target) {
                       const updatedItems = itemsArray.map((title) => {
@@ -1127,7 +1092,7 @@ export function WorkspacesScreen() {
                     state.addChecklist(
                       newChecklistTitle.trim(),
                       itemsArray,
-                      state.openedFolderId || "default"
+                      state.activeWorkspaceId || INBOX_WORKSPACE_ID
                     );
                   }
 

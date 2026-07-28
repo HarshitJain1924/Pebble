@@ -27,7 +27,7 @@ import {
   getRecycleBinItems,
   saveRecycleBinItems,
 } from "@/services/storage/storage.service";
-import type { Habit, Workspace, HabitCompletion } from "@/shared/types/domain.types";
+import { type Habit, type Workspace, type HabitCompletion, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isHabitCompletedToday, getTodayDateKey } from "@/shared/utils/domain-selectors";
 import * as Haptics from "expo-haptics";
 import { useCallback } from "react";
@@ -35,14 +35,14 @@ import { useCallback } from "react";
 export interface UseHabitCrudDeps {
   habits: Habit[];
   setHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
-  selectedList: string;
-  lists: Workspace[];
+  selectedWorkspaceId: string;
+  workspaces: Workspace[];
   showUndo: (opts: { message: string; onUndo: () => Promise<void> }) => void;
   showToast: (msg: string) => void;
 }
 
 export function useHabitCrud(deps: UseHabitCrudDeps) {
-  const { habits, setHabits, selectedList, lists, showUndo, showToast } = deps;
+  const { habits, setHabits, selectedWorkspaceId, workspaces, showUndo, showToast } = deps;
 
   const persistHabits = useCallback(
     async (nextHabits: Habit[]) => {
@@ -51,7 +51,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
           nextHabits.map((h) =>
             HabitRepository.saveHabit({
               ...h,
-              workspaceId: h.workspaceId || selectedList || "default",
+              workspaceId: h.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID,
             }),
           ),
         );
@@ -60,7 +60,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         console.warn("Failed to persist current habits:", e);
       }
     },
-    [selectedList],
+    [selectedWorkspaceId],
   );
 
   const addHabit = useCallback(
@@ -73,7 +73,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         id: `habit-${Date.now()}`,
         title,
         categoryId: category,
-        workspaceId: selectedList || "default",
+        workspaceId: selectedWorkspaceId || INBOX_WORKSPACE_ID,
         recurrence: {
           frequency: "daily",
           interval: 1,
@@ -93,7 +93,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         TASK_CATEGORY_META.find((c) => c.key === category)?.label || "Health";
       showToast(`✓ Habit added to ${catLabel}`);
     },
-    [habits, setHabits, selectedList, persistHabits, showToast],
+    [habits, setHabits, selectedWorkspaceId, persistHabits, showToast],
   );
 
   const deleteHabit = useCallback(
@@ -102,8 +102,8 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
       if (!target) return;
 
       const originalWorkspace =
-        lists.find((l) => l.id === (target.workspaceId || "default"))?.name ||
-        "Default";
+        workspaces.find((l) => l.id === (target.workspaceId || INBOX_WORKSPACE_ID))?.name ||
+        "Inbox";
 
       await cancelReminderIds(target.reminder?.notificationIds ?? []);
 
@@ -124,12 +124,12 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
           const rescheduled = await rescheduleHabitReminders(target);
 
           const currentHabitsMap =
-            await HabitRepository.getHabits(selectedList);
+            await HabitRepository.getHabits(selectedWorkspaceId);
           const currentHabits = Object.values(currentHabitsMap);
           if (!currentHabits.some((h) => h.id === id)) {
             await HabitRepository.saveHabit({
               ...rescheduled,
-              workspaceId: selectedList,
+              workspaceId: selectedWorkspaceId,
             });
             const restored = [...currentHabits, rescheduled];
             await persistHabits(restored);
@@ -141,7 +141,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         },
       });
     },
-    [habits, setHabits, selectedList, lists, persistHabits, showUndo],
+    [habits, setHabits, selectedWorkspaceId, workspaces, persistHabits, showUndo],
   );
 
   const toggleHabit = useCallback(

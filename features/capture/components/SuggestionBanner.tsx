@@ -7,7 +7,7 @@ import * as Haptics from "expo-haptics";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { resolveSuggestion, type SmartSuggestion } from "@/features/capture/services/suggestions.service";
-import { Task, type Habit, Workspace } from "@/shared/types/domain.types";
+import { Task, type Habit, Workspace, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskRepository, HabitRepository, UiStateRepository } from "@/repositories";
@@ -24,8 +24,8 @@ interface SuggestionBannerProps {
     todos: Record<string, Task[]>,
   ) => Promise<void> | void;
   lists: Workspace[];
-  selectedList: string;
-  openedFolderId: string | null;
+  selectedWorkspaceId: string;
+  activeWorkspaceId: string | null;
   getDateKey: (date?: Date) => string;
 }
 
@@ -37,8 +37,8 @@ export function SuggestionBanner({
   setTodos,
   persistState,
   lists,
-  selectedList,
-  openedFolderId,
+  selectedWorkspaceId,
+  activeWorkspaceId,
   getDateKey,
 }: SuggestionBannerProps) {
   const colorScheme = useColorScheme();
@@ -134,7 +134,7 @@ export function SuggestionBanner({
                     `"${suggestion.title}" has been converted to a recurring daily habit!`,
                   );
                 } else {
-                  const listId = openedFolderId || selectedList || "default";
+                  const listId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
                   const newTodo: Task = {
                     id: String(Date.now()),
                     workspaceId: listId,

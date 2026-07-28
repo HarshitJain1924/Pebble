@@ -4,7 +4,7 @@
  * Resource persistence — partitioned by workspaceId using canonical Resource model.
  */
 import {
-  DEFAULT_WORKSPACE_ID,
+  INBOX_WORKSPACE_ID,
   type Attachment,
   type Resource,
   type ResourceType,
@@ -15,8 +15,7 @@ export function normalizeResource(
   rawResource: any,
   defaultWorkspaceId: string,
 ): Resource {
-  const wsId =
-    rawResource.workspaceId || rawResource.folderId || defaultWorkspaceId;
+  const wsId = rawResource.workspaceId || defaultWorkspaceId;
 
   // Determine type
   let type: ResourceType = "note";
@@ -157,7 +156,7 @@ export class ResourceRepository {
 
   static async saveResource(resource: any): Promise<void> {
     this.validateId(resource?.id, "saveResource");
-    const workspaceId = resource.workspaceId || DEFAULT_WORKSPACE_ID;
+    const workspaceId = resource.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getResourcesKey(workspaceId);
     const records = await this.getResources(workspaceId);
 

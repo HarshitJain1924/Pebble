@@ -144,7 +144,7 @@ const checkIfDailyClear = async (): Promise<boolean> => {
     let completedCount = 0;
 
     Object.values(tasksMap).forEach((todo: any) => {
-      if (!todo.archived) {
+      if (!todo.archivedAt) {
         const todoDate = todo.dueDate || todayStr;
         if (todoDate <= todayStr || todo.dueDate === "inbox") {
           if (todo.completed) {
@@ -159,7 +159,7 @@ const checkIfDailyClear = async (): Promise<boolean> => {
     const habits = Object.values(habitsMap);
     const dayOfWeek = new Date().getDay();
     habits.forEach((h: any) => {
-      if (!h.archived) {
+      if (!h.archivedAt) {
         const isActive = !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
         if (isActive) {
           const completedToday = h.completedDates?.includes(todayStr) || false;

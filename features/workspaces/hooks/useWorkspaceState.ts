@@ -7,7 +7,11 @@ import {
   addStateListener,
   emitStateChange,
 } from "@/services/events/state-events";
-import { Workspace } from "@/shared/types/domain.types";
+import {
+  INBOX_WORKSPACE_ID,
+  MY_PEBBLES_WORKSPACE_ID,
+  type Workspace,
+} from "@/shared/types/domain.types";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -16,7 +20,6 @@ export function useWorkspaceState() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     segment?: string;
-    folderId?: string;
     workspaceId?: string;
   }>();
 
@@ -27,10 +30,15 @@ export function useWorkspaceState() {
     () => globalLists !== null,
   );
   const [selectedWorkspaceId, setSelectedWorkspaceId] =
-    useState<string>("default");
+    useState<string>(INBOX_WORKSPACE_ID);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
     null,
   );
+
+  const isProtectedWorkspace = useCallback((id: string) => {
+    return id === INBOX_WORKSPACE_ID || id === MY_PEBBLES_WORKSPACE_ID;
+  }, []);
+
   const [workspaceSegment, setWorkspaceSegment] = useState<
     "tasks" | "habits" | "checklists" | "resources"
   >("tasks");
@@ -82,7 +90,7 @@ export function useWorkspaceState() {
     return unsub;
   }, []);
 
-  const targetWsId = params.workspaceId || params.folderId;
+  const targetWsId = params.workspaceId;
 
   useEffect(() => {
     if (targetWsId && targetWsId !== "null") {
@@ -108,11 +116,11 @@ export function useWorkspaceState() {
   const handleBackToWorkspaces = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});
     setActiveWorkspaceId(null);
-    UiStateRepository.saveUiState({ activeWorkspaceId: "default" }).catch(
-      () => {},
-    );
+    UiStateRepository.saveUiState({
+      activeWorkspaceId: null,
+    }).catch(() => {});
     try {
-      router.setParams({ workspaceId: undefined, folderId: undefined });
+      router.setParams({ workspaceId: undefined });
     } catch (e) {}
     emitStateChange("workspace_mode_changed", "null");
   }, [router]);
@@ -141,26 +149,18 @@ export function useWorkspaceState() {
         const now = Date.now();
         currentLists = [
           {
-            id: "default",
-            name: "My Pebbles",
-            emoji: "⚡",
+            id: INBOX_WORKSPACE_ID,
+            name: "Inbox",
+            emoji: "📥",
             color: "#6366F1",
             createdAt: now,
             updatedAt: now,
           },
           {
-            id: "personal",
-            name: "Personal",
-            emoji: "🏠",
-            color: "#10B981",
-            createdAt: now,
-            updatedAt: now,
-          },
-          {
-            id: "work",
-            name: "Work",
-            emoji: "💼",
-            color: "#3B82F6",
+            id: MY_PEBBLES_WORKSPACE_ID,
+            name: "My Pebbles",
+            emoji: "⚡",
+            color: "#8B5CF6",
             createdAt: now,
             updatedAt: now,
           },
@@ -173,15 +173,12 @@ export function useWorkspaceState() {
       const uiState = await UiStateRepository.getUiState();
       const rawActive = uiState.activeWorkspaceId;
 
-      if (
-        rawActive &&
-        rawActive !== "default" &&
-        currentLists.some((l) => l.id === rawActive)
-      ) {
+      if (rawActive && currentLists.some((l) => l.id === rawActive)) {
         setSelectedWorkspaceId(rawActive);
         setActiveWorkspaceId(rawActive);
         emitStateChange("workspace_mode_changed", rawActive);
-      } else if (!rawActive || rawActive === "default") {
+      } else {
+        setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
         setActiveWorkspaceId(null);
       }
       return currentLists;
@@ -211,9 +208,12 @@ export function useWorkspaceState() {
 
   const handleDeleteWorkspace = useCallback(
     async (id: string) => {
+      if (isProtectedWorkspace(id)) {
+        return;
+      }
       await WorkspaceRepository.deleteWorkspace(id);
       if (selectedWorkspaceId === id) {
-        setSelectedWorkspaceId("default");
+        setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
       }
       if (activeWorkspaceId === id) {
         setActiveWorkspaceId(null);
@@ -221,7 +221,12 @@ export function useWorkspaceState() {
       await loadWorkspaces();
       emitStateChange("workspace_changed", "tasks_screen");
     },
-    [selectedWorkspaceId, activeWorkspaceId, loadWorkspaces],
+    [
+      selectedWorkspaceId,
+      activeWorkspaceId,
+      isProtectedWorkspace,
+      loadWorkspaces,
+    ],
   );
 
   return {
@@ -233,6 +238,7 @@ export function useWorkspaceState() {
     setSelectedWorkspaceId,
     activeWorkspaceId,
     setActiveWorkspaceId,
+    isProtectedWorkspace,
     workspaceSegment,
     setWorkspaceSegment,
     activeSegment,
@@ -248,18 +254,5 @@ export function useWorkspaceState() {
     handleCreateWorkspace,
     handleDeleteWorkspace,
     loadWorkspaces,
-    // Canonical aliases for backwards compatibility across UI callers
-    lists: workspaces,
-    setLists: setWorkspaces,
-    selectedList: selectedWorkspaceId,
-    setSelectedList: setSelectedWorkspaceId,
-    openedFolderId: activeWorkspaceId,
-    setOpenedFolderId: setActiveWorkspaceId,
-    folderSegment: workspaceSegment,
-    setFolderSegment: setWorkspaceSegment,
-    folderModalVisible: workspaceModalVisible,
-    setFolderModalVisible: setWorkspaceModalVisible,
-    editingFolderId: editingWorkspaceId,
-    setEditingFolderId: setEditingWorkspaceId,
   };
 }

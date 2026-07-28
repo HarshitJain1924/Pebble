@@ -4,12 +4,12 @@ import {
   UiStateRepository,
   WorkspaceRepository,
 } from "@/repositories";
+import { INBOX_WORKSPACE_ID, Workspace } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, ScrollView, View } from "react-native";
-import { Workspace } from "@/shared/types/domain.types";
 import { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
 import {
@@ -80,7 +80,6 @@ export function useCalendarState() {
 
   // Workspaces list
   const [lists, setLists] = useState<Workspace[]>([]);
-  const [addingTask, setAddingTask] = useState<any | null>(null);
 
   // Drag and Drop rescheduling states
   const [isDragging, setIsDragging] = useState(false);
@@ -200,9 +199,10 @@ export function useCalendarState() {
   }, []);
 
   const loadDataFromStorage = useCallback(async () => {
+    console.log("[INSTRUMENT] [useCalendarState] loadDataFromStorage() CALLED");
     try {
       const uiState = await UiStateRepository.getUiState();
-      const activeWorkspace = uiState.activeWorkspaceId || "default";
+      const activeWorkspace = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
       const currentLists = await WorkspaceRepository.getWorkspaces();
       setLists(currentLists);
 
@@ -210,57 +210,18 @@ export function useCalendarState() {
       const tasksMap = await TaskRepository.getTasks(activeWorkspace);
       const habitsMap = await HabitRepository.getHabits(activeWorkspace);
 
-      const listTodos = Object.values(tasksMap)
-        .filter((t) => !t.archivedAt);
+      const listTodos = Object.values(tasksMap).filter((t) => !t.archivedAt);
 
-      const listHabits = Object.values(habitsMap)
-        .filter((h) => !h.archivedAt);
+      const listHabits = Object.values(habitsMap).filter((h) => !h.archivedAt);
 
+      console.log("[INSTRUMENT] [useCalendarState] loadDataFromStorage() loaded", listTodos.length, "todos, calling setAllTodos");
       setAllTodos(listTodos as any[]);
+      console.log("[INSTRUMENT] [useCalendarState] setAllTodos CALLED");
       setAllHabits(listHabits as any[]);
     } catch (e) {
       console.log("Error loading storage data in calendar current", e);
     }
   }, []);
-
-  // Save Quick Add Task
-  const onSaveNewTask = async (newTask: any) => {
-    if (!newTask.title || newTask.title.trim() === "") return;
-    const uiState = await UiStateRepository.getUiState();
-    const activeWorkspace = uiState.activeWorkspaceId;
-
-    const taskWithCreatedAt = {
-      ...newTask,
-      id: newTask.id || String(Date.now()),
-      createdAt: newTask.createdAt || Date.now(),
-      folderId: activeWorkspace,
-    };
-
-    // Save using Repository
-    await TaskRepository.saveTask({
-      id: taskWithCreatedAt.id,
-      workspaceId: activeWorkspace,
-      title: taskWithCreatedAt.title,
-      createdAt: taskWithCreatedAt.createdAt,
-      updatedAt: Date.now(),
-      archived: false,
-      completed: taskWithCreatedAt.completed || false,
-      priority: taskWithCreatedAt.priority || "medium",
-      dueDate: taskWithCreatedAt.scheduledDate,
-      category: taskWithCreatedAt.category || "work",
-    });
-
-    // Reschedule alarms if alarmTime is set
-    await rescheduleTodoReminders(taskWithCreatedAt);
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {},
-    );
-    await loadDataFromStorage();
-    void loadMonth(month.year, month.month);
-    emitStateChange("tasks_changed");
-    setAddingTask(null);
-  };
 
   // Load data on focus and when month changes
   useFocusEffect(
@@ -282,6 +243,7 @@ export function useCalendarState() {
 
   useEffect(() => {
     const unsubTasks = addStateListener("tasks_changed", () => {
+      console.log("[INSTRUMENT] [useCalendarState] tasks_changed listener FIRED, calling loadDataFromStorage()");
       loadDataFromStorage();
       AsyncStorage.getItem("todoapp:calendar:selectedDate").then(
         (storedDate) => {
@@ -332,7 +294,7 @@ export function useCalendarState() {
           isRecurringOccurrenceForDate(todo, selectedDate) ||
           (todo.alarmTime &&
             getDateKey(new Date(todo.alarmTime)) === selectedDate);
-        return matchesDate && todo.scheduledDate !== "inbox";
+        return matchesDate && todo.schedule?.date !== "inbox";
       })
       .map((todo) => {
         const sched = getStructuredSchedule(todo, 60);
@@ -357,21 +319,11 @@ export function useCalendarState() {
         };
       });
 
-    const dateParts = selectedDate.split("-").map(Number);
-    const selDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
-    const dayOfWeek = selDate.getDay();
     const isTodaySelected = selectedDate === getDateKey(new Date());
 
     const habits = allHabits
       .filter((habit) => {
-        if (habit.recurrence) {
-          return isRecurringOccurrenceForDate(habit, selectedDate);
-        }
-        return (
-          !habit.reminderDays ||
-          habit.reminderDays.length === 0 ||
-          habit.reminderDays.includes(dayOfWeek)
-        );
+        return isRecurringOccurrenceForDate(habit, selectedDate);
       })
       .map((habit) => {
         let completed = false;
@@ -782,12 +734,13 @@ export function useCalendarState() {
           ).catch(() => {});
           try {
             const uiState = await UiStateRepository.getUiState();
-            const activeWorkspace = uiState.activeWorkspaceId;
+            const activeWorkspace =
+              uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
             if (dragItem.type === "task") {
               const taskMap = await TaskRepository.getTasks(activeWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
-                await cancelReminderIds(todo.notificationIds || []);
+                await cancelReminderIds(todo.reminder?.notificationIds || []);
 
                 // Re-set alarm time using current selectedDate + hoveredHour
                 const [year, monthVal, dayVal] = selDate.split("-").map(Number);
@@ -801,12 +754,14 @@ export function useCalendarState() {
                   0,
                 );
 
+                // Build intermediate with updated reminder for reschedule
                 const todoToReschedule = {
                   ...todo,
-                  reminderHour: hHour,
-                  reminderMinute: 0,
-                  alarmTime: newAlarmDate.getTime(),
-                  scheduledDate: selDate,
+                  reminder: {
+                    ...(todo.reminder || { enabled: true }),
+                    enabled: true,
+                    triggerAt: newAlarmDate.getTime(),
+                  },
                 };
 
                 const rescheduled =
@@ -825,7 +780,26 @@ export function useCalendarState() {
                 if (habit.reminder?.notificationIds) {
                   await cancelReminderIds(habit.reminder.notificationIds);
                 }
-                const rescheduled = await rescheduleHabitReminders(habit);
+                // Update habit reminder time to match the dropped hour
+                const [year, monthVal, dayVal] = selDate.split("-").map(Number);
+                const newReminderDate = new Date(
+                  year,
+                  monthVal - 1,
+                  dayVal,
+                  hHour,
+                  0,
+                  0,
+                  0,
+                );
+                const habitWithUpdatedReminder = {
+                  ...habit,
+                  reminder: {
+                    ...(habit.reminder || { enabled: true }),
+                    enabled: true,
+                    triggerAt: newReminderDate.getTime(),
+                  },
+                };
+                const rescheduled = await rescheduleHabitReminders(habitWithUpdatedReminder);
                 await HabitRepository.saveHabit({
                   ...habit,
                   reminder: rescheduled.reminder,
@@ -856,13 +830,14 @@ export function useCalendarState() {
           ).catch(() => {});
           try {
             const uiState = await UiStateRepository.getUiState();
-            const activeWorkspace = uiState.activeWorkspaceId;
+            const activeWorkspace =
+              uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
             if (dragItem.type === "task") {
               const taskMap = await TaskRepository.getTasks(activeWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
-                // Cancel old reminders
-                await cancelReminderIds(todo.notificationIds || []);
+                // Cancel old reminders — use canonical reminder field
+                await cancelReminderIds(todo.reminder?.notificationIds || []);
 
                 // Reschedule alarm time if it exists
                 let newAlarmTime = todo.alarmTime;
@@ -887,8 +862,11 @@ export function useCalendarState() {
 
                 const todoToReschedule = {
                   ...todo,
-                  scheduledDate: hDate,
-                  alarmTime: newAlarmTime,
+                  reminder: {
+                    ...(todo.reminder || { enabled: true }),
+                    enabled: true,
+                    triggerAt: newAlarmTime,
+                  },
                 };
 
                 const rescheduled =
@@ -907,7 +885,29 @@ export function useCalendarState() {
                 if (habit.reminder?.notificationIds) {
                   await cancelReminderIds(habit.reminder.notificationIds);
                 }
-                const rescheduled = await rescheduleHabitReminders(habit);
+                // Update habit reminder date to the dropped date, preserve time if any
+                const [year, monthVal, dayVal] = hDate.split("-").map(Number);
+                const existingReminderDate = habit.reminder?.triggerAt
+                  ? new Date(habit.reminder.triggerAt)
+                  : new Date();
+                const newReminderDate = new Date(
+                  year,
+                  monthVal - 1,
+                  dayVal,
+                  existingReminderDate.getHours(),
+                  existingReminderDate.getMinutes(),
+                  0,
+                  0,
+                );
+                const habitWithUpdatedReminder = {
+                  ...habit,
+                  reminder: {
+                    ...(habit.reminder || { enabled: true }),
+                    enabled: true,
+                    triggerAt: newReminderDate.getTime(),
+                  },
+                };
+                const rescheduled = await rescheduleHabitReminders(habitWithUpdatedReminder);
                 await HabitRepository.saveHabit({
                   ...habit,
                   reminder: rescheduled.reminder,
@@ -989,9 +989,7 @@ export function useCalendarState() {
     allHabits,
     history,
     lists,
-    addingTask,
-    setAddingTask,
-    onSaveNewTask,
+
     calendarViewMode,
     setCalendarViewMode,
     isDragging,

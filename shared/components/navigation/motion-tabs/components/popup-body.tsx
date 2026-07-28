@@ -11,6 +11,7 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import {
   WorkspaceRepository,
   TaskRepository,
@@ -85,7 +86,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         
         let pendingCount = 0;
         Object.values(tasksMap).forEach((todo: any) => {
-          if (todo.archived) return;
+          if (todo.archivedAt) return;
           const todoDate = todo.dueDate || getDateKey();
           const isTodayOrOverdue = todoDate <= todayStr || todo.dueDate === "inbox";
           if (isTodayOrOverdue) {
@@ -127,7 +128,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       const dayOfWeek = new Date().getDay();
       
       todayActiveHabits = allHabits.filter((h: any) => {
-        if (h.archived) return false;
+        if (h.archivedAt) return false;
         if (h.recurrence) {
           return isRecurringOccurrenceForDate(h, todayStr);
         }
@@ -206,7 +207,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       const uiState = await UiStateRepository.getUiState();
-      const activeWorkspace = uiState.activeWorkspaceId || "default";
+      const activeWorkspace = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
       const h = await HabitRepository.getHabit(habitId, activeWorkspace);
       if (!h) return;
 
@@ -254,7 +255,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const completeTaskInDrawer = async (taskId: string, folderId: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const wsId = folderId || "default";
+      const wsId = folderId || INBOX_WORKSPACE_ID;
       const todo = await TaskRepository.getTask(taskId, wsId);
       if (todo) {
         await TaskRepository.saveTask({
@@ -292,7 +293,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   // Workspace Actions
   const selectWorkspace = (wsId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    router.navigate({ pathname: "/tasks", params: { folderId: wsId } });
+    router.navigate({ pathname: "/tasks", params: { workspaceId: wsId } });
     emitStateChange("close_drawer");
   };
 

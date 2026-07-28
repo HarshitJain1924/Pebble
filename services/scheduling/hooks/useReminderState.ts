@@ -9,16 +9,16 @@ import { emitStateChange } from "@/services/events/state-events";
 export function useReminderState(
   todos: Record<string, Task[]>,
   setTodos: React.Dispatch<React.SetStateAction<Record<string, Task[]>>>,
-  selectedList: string,
+  selectedWorkspaceId: string,
   currentTodos: Task[],
   remainingCount: number,
   persistState: (listsToSave: Workspace[], selected: string, todosToSave: Record<string, Task[]>) => Promise<void>,
-  lists: Workspace[],
+  workspaces: Workspace[],
 ) {
   const [alarmMenu, setAlarmMenu] = useState<string | null>(null);
 
   const scheduleAlarm = useCallback(async (todoId: string, minutesFromNow: number) => {
-    const todo = (todos[selectedList] ?? []).find((t) => t.id === todoId);
+    const todo = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === todoId);
     if (!todo) return;
 
     if (todo.reminder?.notificationIds) {
@@ -43,7 +43,7 @@ export function useReminderState(
       },
     });
 
-    const listTodos = todos[selectedList] ?? [];
+    const listTodos = todos[selectedWorkspaceId] ?? [];
     const updatedList = listTodos.map((item) =>
       item.id === todoId
         ? {
@@ -57,15 +57,15 @@ export function useReminderState(
           }
         : item
     );
-    const updated = { ...todos, [selectedList]: updatedList };
+    const updated = { ...todos, [selectedWorkspaceId]: updatedList };
     setTodos(updated);
-    await persistState(lists, selectedList, updated);
+    await persistState(workspaces, selectedWorkspaceId, updated);
     void syncWidgetData().catch(() => {});
     emitStateChange("tasks_changed", "tasks_screen");
-  }, [todos, selectedList, currentTodos, persistState, lists]);
+  }, [todos, selectedWorkspaceId, currentTodos, persistState, workspaces]);
 
   const scheduleAlarmWithDays = useCallback(async (todoId: string, hour: number, minute: number, days?: number[]) => {
-    const todo = (todos[selectedList] ?? []).find((t) => t.id === todoId);
+    const todo = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === todoId);
     if (!todo) return;
 
     if (todo.reminder?.notificationIds) {
@@ -91,7 +91,7 @@ export function useReminderState(
     const triggerDate = new Date();
     triggerDate.setHours(hour, minute, 0, 0);
 
-    const listTodos = todos[selectedList] ?? [];
+    const listTodos = todos[selectedWorkspaceId] ?? [];
     const updatedList = listTodos.map((item) =>
       item.id === todoId
         ? {
@@ -105,20 +105,20 @@ export function useReminderState(
           }
         : item
     );
-    const updated = { ...todos, [selectedList]: updatedList };
+    const updated = { ...todos, [selectedWorkspaceId]: updatedList };
     setTodos(updated);
-    await persistState(lists, selectedList, updated);
+    await persistState(workspaces, selectedWorkspaceId, updated);
     void syncWidgetData().catch(() => {});
     emitStateChange("tasks_changed", "tasks_screen");
     setAlarmMenu(null);
-  }, [todos, selectedList, remainingCount, currentTodos, persistState, lists]);
+  }, [todos, selectedWorkspaceId, remainingCount, currentTodos, persistState, workspaces]);
 
   const cancelAlarm = useCallback(async (todoId: string) => {
-    const todo = (todos[selectedList] ?? []).find((t) => t.id === todoId);
+    const todo = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === todoId);
     if (todo?.reminder?.notificationIds) {
       await cancelReminderIds(todo.reminder.notificationIds);
     }
-    const listTodos = todos[selectedList] ?? [];
+    const listTodos = todos[selectedWorkspaceId] ?? [];
     const updatedList = listTodos.map((t) =>
       t.id === todoId
         ? {
@@ -128,13 +128,13 @@ export function useReminderState(
           }
         : t
     );
-    const updated = { ...todos, [selectedList]: updatedList };
+    const updated = { ...todos, [selectedWorkspaceId]: updatedList };
     setTodos(updated);
-    await persistState(lists, selectedList, updated);
+    await persistState(workspaces, selectedWorkspaceId, updated);
     void syncWidgetData().catch(() => {});
     emitStateChange("tasks_changed", "tasks_screen");
     setAlarmMenu(null);
-  }, [todos, selectedList, persistState, lists]);
+  }, [todos, selectedWorkspaceId, persistState, workspaces]);
 
   return {
     alarmMenu,

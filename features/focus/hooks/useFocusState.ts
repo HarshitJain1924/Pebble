@@ -1,3 +1,4 @@
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { earnPebble } from "@/features/profile/services/pebble.service";
 import {
   addStateListener,
@@ -88,7 +89,7 @@ export function useFocusState() {
     try {
       const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
-        new Set(["default", ...folderList.map((f) => f.id)]),
+        new Set([INBOX_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
       );
 
       const incomplete: any[] = [];
@@ -789,7 +790,7 @@ export function useFocusState() {
         // 2. Log System Event
         await GraphRepository.logSystemEvent({
           id: `log_${focusSession.id}`,
-          workspaceId: "default",
+          workspaceId: INBOX_WORKSPACE_ID,
           itemId: focusSession.id,
           itemType: "focus_session",
           action: "focused",
@@ -899,7 +900,7 @@ export function useFocusState() {
                   }
                   const habit = await HabitRepository.getHabit(
                     taskId,
-                    habitObj.workspaceId || "default",
+                    habitObj.workspaceId || INBOX_WORKSPACE_ID,
                   );
                   if (habit) {
                     const yesterday = new Date(
@@ -1059,7 +1060,7 @@ export function useFocusState() {
         // 3. Log System Event
         await GraphRepository.logSystemEvent({
           id: `log_${focusSession.id}`,
-          workspaceId: "default",
+          workspaceId: INBOX_WORKSPACE_ID,
           itemId: focusSession.id,
           itemType: "focus_session",
           action: "focused",
@@ -1109,10 +1110,10 @@ export function useFocusState() {
     try {
       const folderList = await WorkspaceRepository.getWorkspaces();
       const folderIds = Array.from(
-        new Set(["default", ...folderList.map((f) => f.id)]),
+        new Set([INBOX_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
       );
       let foundTask = null;
-      let targetFolderId = "default";
+      let targetFolderId = INBOX_WORKSPACE_ID;
       for (const fId of folderIds) {
         const task = await TaskRepository.getTask(taskId, fId);
         if (task) {

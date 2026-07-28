@@ -2,7 +2,8 @@
 // PEBBLE CANONICAL DOMAIN MODEL
 // ==========================================
 
-export const DEFAULT_WORKSPACE_ID = "default";
+export const INBOX_WORKSPACE_ID = "inbox";
+export const MY_PEBBLES_WORKSPACE_ID = "my-pebbles";
 
 /**
  * 1. Workspace Entity
@@ -200,7 +201,7 @@ export interface UserProfile {
  * 11. UiState Entity
  */
 export interface UiState {
-  activeWorkspaceId: string;
+  activeWorkspaceId: string | null;
   completedOnboarding: boolean;
   themeCache: "dark" | "light";
 }
@@ -212,7 +213,12 @@ export interface Relationship {
   id: string;
   source: { id: string; type: string };
   target: { id: string; type: string };
-  relationType: "supports" | "references" | "blocked_by" | "focuses_on" | "related";
+  relationType:
+    | "supports"
+    | "references"
+    | "blocked_by"
+    | "focuses_on"
+    | "related";
   createdAt: number;
 }
 

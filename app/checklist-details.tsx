@@ -20,7 +20,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { type Checklist, type ChecklistItem, Resource, Workspace } from "@/shared/types/domain.types";
+import { type Checklist, type ChecklistItem, Resource, Workspace, INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { emitStateChange } from "@/services/events/state-events";
 import {
     addToRecycleBin,
@@ -36,7 +36,6 @@ export default function ChecklistDetailsScreen() {
   const params = useLocalSearchParams<{
     id?: string;
     workspaceId?: string;
-    folderId?: string; // legacy param fallback
     edit?: string;
   }>();
 
@@ -58,7 +57,7 @@ export default function ChecklistDetailsScreen() {
   // Form Fields States
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [workspaceId, setWorkspaceId] = useState("default");
+  const [workspaceId, setWorkspaceId] = useState<string>(INBOX_WORKSPACE_ID);
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [linkedCollectionIds, setLinkedCollectionIds] = useState<string[]>([]);
 
@@ -87,8 +86,8 @@ export default function ChecklistDetailsScreen() {
   const currentWorkspace = useMemo(() => {
     return (
       workspaces.find((ws) => ws.id === workspaceId) || {
-        name: "My Pebbles",
-        emoji: "📁",
+        name: "Inbox",
+        emoji: "📥",
       }
     );
   }, [workspaces, workspaceId]);
@@ -97,7 +96,7 @@ export default function ChecklistDetailsScreen() {
     if (!item) return false;
     if (title.trim() !== (item.title || "").trim()) return true;
     if (description.trim() !== (item.description || "").trim()) return true;
-    if (workspaceId !== (item.workspaceId || "default")) return true;
+    if (workspaceId !== (item.workspaceId || INBOX_WORKSPACE_ID)) return true;
 
     // Compare items
     if (items.length !== item.items.length) return true;
@@ -142,7 +141,7 @@ export default function ChecklistDetailsScreen() {
       // 2. Load checklist item
       let foundChecklist: Checklist | undefined;
       const folderIds = Array.from(
-        new Set(["default", "unassigned", ...loadedFolders.map((f) => f.id)]),
+        new Set([INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID, ...loadedFolders.map((f) => f.id)]),
       );
 
       for (const fId of folderIds) {
@@ -170,7 +169,7 @@ export default function ChecklistDetailsScreen() {
   const initForm = (chk: Checklist) => {
     setTitle(chk.title || "");
     setDescription(chk.description || "");
-    setWorkspaceId(chk.workspaceId || "default");
+    setWorkspaceId(chk.workspaceId || INBOX_WORKSPACE_ID);
     setItems(chk.items || []);
     setLinkedCollectionIds(chk.resourceIds || []);
   };
@@ -193,7 +192,7 @@ export default function ChecklistDetailsScreen() {
         updatedAt: Date.now(),
       };
 
-      const oldFolderId = item.workspaceId || "default";
+      const oldFolderId = item.workspaceId || INBOX_WORKSPACE_ID;
       if (oldFolderId !== workspaceId) {
         await ChecklistRepository.deleteChecklist(item.id, oldFolderId);
       }
@@ -216,8 +215,6 @@ export default function ChecklistDetailsScreen() {
   const handleDuplicate = async () => {
     if (!item) return;
     try {
-      const folderId = item.workspaceId || "default";
-
       const duplicate: Checklist = {
         ...item,
         id: `checklist-${Date.now()}`,
@@ -241,7 +238,7 @@ export default function ChecklistDetailsScreen() {
     try {
       await ChecklistRepository.saveChecklist({
         ...item,
-        archived: true,
+        archivedAt: Date.now(),
       });
       emitStateChange("checklists_changed");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -255,7 +252,7 @@ export default function ChecklistDetailsScreen() {
   const handleDelete = async () => {
     if (!item) return;
     try {
-      const folderId = item.workspaceId || "default";
+      const folderId = item.workspaceId || INBOX_WORKSPACE_ID;
       await ChecklistRepository.deleteChecklist(item.id, folderId);
       await addToRecycleBin("checklist", item, `${folderId}:${item.id}`);
       emitStateChange("checklists_changed");

@@ -111,8 +111,8 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
           {/* Content Area */}
           {(() => {
             if (activeZenTask) {
-              const folder = activeZenTask.workspaceId || (activeZenTask as any).folderId
-                ? getFolderById((activeZenTask.workspaceId || (activeZenTask as any).folderId)!)
+              const folder = activeZenTask.workspaceId
+                ? getFolderById(activeZenTask.workspaceId)
                 : null;
               return (
                 <View
@@ -176,8 +176,8 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                 </View>
               );
             } else if (activeZenHabit) {
-              const folder = activeZenHabit.workspaceId || (activeZenHabit as any).folderId
-                ? getFolderById((activeZenHabit.workspaceId || (activeZenHabit as any).folderId)!)
+              const folder = activeZenHabit.workspaceId
+                ? getFolderById(activeZenHabit.workspaceId)
                 : null;
               return (
                 <View

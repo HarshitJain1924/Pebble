@@ -32,7 +32,7 @@ export function ReminderModal({
   visible,
   todoId,
   todos,
-  selectedList,
+  selectedList: selectedWorkspaceId,
   onClose,
   onScheduleAlarm,
   onScheduleAlarmWithDays,
@@ -47,7 +47,7 @@ export function ReminderModal({
 
   useEffect(() => {
     if (visible && todoId) {
-      const todoList = todos[selectedList] ?? [];
+      const todoList = todos[selectedWorkspaceId] ?? Object.values(todos).flat();
       const todo = todoList.find((t) => t.id === todoId);
       const reminderDate = todo?.reminder?.triggerAt ? new Date(todo.reminder.triggerAt) : null;
       setAlarmCustomHour(reminderDate ? reminderDate.getHours() : 9);
@@ -57,7 +57,7 @@ export function ReminderModal({
     } else {
       setAlarmCustomVisible(false);
     }
-  }, [visible, todoId, todos, selectedList]);
+  }, [visible, todoId, todos, selectedWorkspaceId]);
 
   return (
     <Modal
@@ -156,16 +156,15 @@ export function ReminderModal({
             <TimeSelectorDial
               initialHour={alarmCustomHour}
               initialMinute={alarmCustomMinute}
-              initialDays={alarmCustomDays}
               colors={colors}
               saveLabel="Save Reminder"
-              onSave={(h: number, m: number, d?: number[]) => {
+              onSave={(h: number, m: number) => {
                 if (todoId) {
                   onScheduleAlarmWithDays(
                     todoId,
                     h,
                     m,
-                    d && d.length > 0 ? d : undefined,
+                    alarmCustomDays.length > 0 ? alarmCustomDays : undefined,
                   );
                 }
                 onClose();

@@ -2,6 +2,7 @@ import { Alert, Platform } from "react-native";
 
 import { getNotificationPayload } from "@/services/scheduling/notification-routes";
 import { DAY_MS } from "@/services/storage/storage.service";
+import { type SchedulerRecurrence, recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
 
 export type ReminderKind = "todo" | "habit";
 
@@ -27,13 +28,8 @@ export type ReminderScheduleOptions = {
   dailyDays?: number[]; // 0 = Sunday .. 6 = Saturday
   escalationMinutes?: number[];
   context?: ReminderContext;
-  recurrence?: {
-    type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-    interval?: number;
-    unit?: "hours" | "days";
-    days?: number[];
-    dayOfMonth?: number;
-  };
+  /** Only accepts the scheduler's internal recurrence format. */
+  recurrence?: SchedulerRecurrence;
 };
 
 export type ScheduledReminderBatch = {
@@ -712,12 +708,43 @@ import { type Task, type Habit } from "@/shared/types/domain.types";
 export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
   try {
     if (todo.reminder && todo.reminder.enabled && todo.reminder.triggerAt > Date.now()) {
+      const triggerDate = new Date(todo.reminder.triggerAt);
+      const hour = triggerDate.getHours();
+      const minute = triggerDate.getMinutes();
+
+      // If the task has recurrence, schedule as recurring (dailyTime + recurrence)
+      // instead of one-time. This preserves recurring reminder semantics so
+      // rescheduled notifications repeat according to the original recurrence rule.
+      if (todo.recurrence) {
+        const batch = await scheduleReminderBatch({
+          kind: "todo",
+          itemId: todo.id,
+          title: todo.title,
+          category: todo.categoryId,
+          dailyTime: { hour, minute },
+          dailyDays: todo.recurrence.daysOfWeek,
+          recurrence: recurrenceRuleToScheduler(todo.recurrence),
+          escalationMinutes: [120, 240],
+          channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+        });
+        return {
+          ...todo,
+          reminder: {
+            ...todo.reminder,
+            notificationIds: batch.ids,
+          },
+        };
+      }
+
+      // No recurrence: schedule as one-time notification (original behavior)
       const batch = await scheduleReminderBatch({
         kind: "todo",
         itemId: todo.id,
         title: todo.title,
         oneTimeAt: new Date(todo.reminder.triggerAt),
         category: todo.categoryId,
+        escalationMinutes: [120, 240],
+        channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
       });
       return {
         ...todo,
@@ -737,12 +764,44 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
 export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
   try {
     if (habit.reminder && habit.reminder.enabled && habit.reminder.triggerAt > Date.now()) {
+      const triggerDate = new Date(habit.reminder.triggerAt);
+      const hour = triggerDate.getHours();
+      const minute = triggerDate.getMinutes();
+
+      // If the habit has recurrence, schedule as recurring (dailyTime + recurrence)
+      // instead of one-time. This preserves recurring reminder semantics so
+      // rescheduled notifications repeat daily/weekly/monthly according to
+      // the original recurrence rule, rather than firing once and stopping.
+      if (habit.recurrence) {
+        const batch = await scheduleReminderBatch({
+          kind: "habit",
+          itemId: habit.id,
+          title: habit.title,
+          category: habit.categoryId,
+          dailyTime: { hour, minute },
+          dailyDays: habit.recurrence.daysOfWeek,
+          recurrence: recurrenceRuleToScheduler(habit.recurrence),
+          escalationMinutes: [120, 240],
+          channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+        });
+        return {
+          ...habit,
+          reminder: {
+            ...habit.reminder,
+            notificationIds: batch.ids,
+          },
+        };
+      }
+
+      // No recurrence: schedule as one-time notification (original behavior)
       const batch = await scheduleReminderBatch({
         kind: "habit",
         itemId: habit.id,
         title: habit.title,
         oneTimeAt: new Date(habit.reminder.triggerAt),
         category: habit.categoryId,
+        escalationMinutes: [120, 240],
+        channelId: Platform.OS === "android" ? "daily-habits" : undefined,
       });
       return {
         ...habit,

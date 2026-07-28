@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Task, Habit, Workspace } from "@/shared/types/domain.types";
+import { Task, Habit, Workspace, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted, isHabitCompletedToday, getHabitBestStreak } from "@/shared/utils/domain-selectors";
 import { isOverdue, getTodoDateKey, getPriorityWeight } from "@/features/tasks/utils/task-formatting";
 import { isRecurringOccurrenceForDate, getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
@@ -7,14 +7,14 @@ import { isRecurringOccurrenceForDate, getRecurrenceLabel } from "@/services/sch
 export function useTaskFiltering(
   todos: Record<string, Task[]>,
   habits: Habit[],
-  selectedList: string,
+  selectedWorkspaceId: string,
   selectedDate: string,
-  lists: Workspace[],
+  workspaces: Workspace[],
 ) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedListPriorityFilter, setSelectedListPriorityFilter] = useState("all");
+  const [selectedWorkspacePriorityFilter, setSelectedWorkspacePriorityFilter] = useState("all");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all");
-  const [selectedListHabitPriorityFilter, setSelectedListHabitPriorityFilter] = useState("all");
+  const [selectedWorkspaceHabitPriorityFilter, setSelectedWorkspaceHabitPriorityFilter] = useState("all");
 
   const effectiveSelectedDate = useMemo(() => {
     try {
@@ -35,24 +35,24 @@ export function useTaskFiltering(
   }, [selectedDate]);
 
   const currentTodos = useMemo(
-    () => (todos[selectedList] ?? []).filter((t) => !t.archivedAt),
-    [todos, selectedList]
+    () => (todos[selectedWorkspaceId] ?? []).filter((t) => !t.archivedAt),
+    [todos, selectedWorkspaceId]
   );
 
   const filteredTodos = useMemo(() => {
-    const raw = (todos[selectedList] ?? []).filter((t) => !t.archivedAt);
+    const raw = (todos[selectedWorkspaceId] ?? []).filter((t) => !t.archivedAt);
     if (searchQuery.trim() === "") return raw;
     return raw.filter((todo) => {
       const matchesTitle = todo.title.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesDesc = todo.description?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
       const matchesCategory = todo.categoryId?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
-      const wsName = lists.find((l) => l.id === todo.workspaceId)?.name || "";
+      const wsName = workspaces.find((l) => l.id === todo.workspaceId)?.name || "";
       const matchesWorkspace = wsName.toLowerCase().includes(searchQuery.toLowerCase());
       const recLabel = getRecurrenceLabel(todo.recurrence) || "";
       const matchesRecurrence = recLabel.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesTitle || matchesDesc || matchesCategory || matchesWorkspace || matchesRecurrence;
     });
-  }, [todos, selectedList, searchQuery, lists]);
+  }, [todos, selectedWorkspaceId, searchQuery, workspaces]);
 
   const overdueTodos = useMemo(() => {
     let filtered = filteredTodos.filter((todo) => todo.schedule?.date !== "inbox" && isOverdue(todo, selectedDate));
@@ -60,11 +60,11 @@ export function useTaskFiltering(
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
     }
     const matched =
-      selectedListPriorityFilter === "all"
+      selectedWorkspacePriorityFilter === "all"
         ? filtered
-        : filtered.filter((todo) => todo.priority === selectedListPriorityFilter);
+        : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [filteredTodos, selectedListPriorityFilter, selectedCategoryFilter, selectedDate]);
+  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const todayTodos = useMemo(() => {
     let filtered = filteredTodos.filter((todo) => {
@@ -76,11 +76,11 @@ export function useTaskFiltering(
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
     }
     const matched =
-      selectedListPriorityFilter === "all"
+      selectedWorkspacePriorityFilter === "all"
         ? filtered
-        : filtered.filter((todo) => todo.priority === selectedListPriorityFilter);
+        : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [filteredTodos, selectedListPriorityFilter, selectedCategoryFilter, selectedDate]);
+  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const upcomingTodos = useMemo(() => {
     let filtered = filteredTodos.filter(
@@ -90,11 +90,11 @@ export function useTaskFiltering(
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
     }
     const matched =
-      selectedListPriorityFilter === "all"
+      selectedWorkspacePriorityFilter === "all"
         ? filtered
-        : filtered.filter((todo) => todo.priority === selectedListPriorityFilter);
+        : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [filteredTodos, selectedListPriorityFilter, selectedCategoryFilter, selectedDate]);
+  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const inboxTodos = useMemo(() => {
     let filtered = filteredTodos.filter((todo) => todo.schedule?.date === "inbox");
@@ -102,11 +102,11 @@ export function useTaskFiltering(
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
     }
     const matched =
-      selectedListPriorityFilter === "all"
+      selectedWorkspacePriorityFilter === "all"
         ? filtered
-        : filtered.filter((todo) => todo.priority === selectedListPriorityFilter);
+        : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
-  }, [filteredTodos, selectedListPriorityFilter, selectedCategoryFilter]);
+  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter]);
 
   const remainingCount = useMemo(() => currentTodos.filter((todo) => !isTaskCompleted(todo)).length, [currentTodos]);
   const completedCount = currentTodos.length - remainingCount;
@@ -116,7 +116,7 @@ export function useTaskFiltering(
 
   const displayedHabits = useMemo(() => {
     const activeHabits = habits.filter((habit) => {
-      if ((habit.workspaceId || "default") !== selectedList) {
+      if ((habit.workspaceId || INBOX_WORKSPACE_ID) !== selectedWorkspaceId) {
         return false;
       }
       if (habit.archivedAt) {
@@ -135,7 +135,7 @@ export function useTaskFiltering(
             const matchesTitle = h.title.toLowerCase().includes(searchQuery.toLowerCase());
             const matchesDesc = h.description?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
             const matchesCategory = h.categoryId?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
-            const wsName = lists.find((l) => l.id === h.workspaceId)?.name || "";
+            const wsName = workspaces.find((l) => l.id === h.workspaceId)?.name || "";
             const matchesWorkspace = wsName.toLowerCase().includes(searchQuery.toLowerCase());
             const recLabel = getRecurrenceLabel(h.recurrence) || "";
             const matchesRecurrence = recLabel.toLowerCase().includes(searchQuery.toLowerCase());
@@ -143,7 +143,7 @@ export function useTaskFiltering(
           });
 
     return searchFiltered;
-  }, [habits, selectedDate, searchQuery, lists, selectedList]);
+  }, [habits, selectedDate, searchQuery, workspaces, selectedWorkspaceId]);
 
   const completedHabitCount = habits.length - unfinishedHabitCount;
   const habitCompletionPct = habits.length === 0 ? 0 : completedHabitCount / habits.length;
@@ -153,12 +153,12 @@ export function useTaskFiltering(
     // State
     searchQuery,
     setSearchQuery,
-    selectedListPriorityFilter,
-    setSelectedListPriorityFilter,
+    selectedWorkspacePriorityFilter,
+    setSelectedWorkspacePriorityFilter,
     selectedCategoryFilter,
     setSelectedCategoryFilter,
-    selectedListHabitPriorityFilter,
-    setSelectedListHabitPriorityFilter,
+    selectedWorkspaceHabitPriorityFilter,
+    setSelectedWorkspaceHabitPriorityFilter,
     effectiveSelectedDate,
 
     // Memos

@@ -36,7 +36,7 @@ interface TodoItemProps {
   colorScheme: "light" | "dark" | null;
   isOverdue: boolean;
   lists: Workspace[];
-  selectedList: string;
+  selectedWorkspaceId: string;
   onToggleTodo: () => void;
   onDeleteTodo: () => void;
   onEditTodo?: () => void;
@@ -63,7 +63,7 @@ export function TodoItem({
   colorScheme,
   isOverdue: overdue,
   lists,
-  selectedList,
+  selectedWorkspaceId,
   onToggleTodo,
   onDeleteTodo,
   onEditTodo,

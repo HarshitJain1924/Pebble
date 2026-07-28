@@ -22,6 +22,7 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 import { getProfile, type UserProfile } from "@/features/settings/services/settings.service";
 import { WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
+import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -63,7 +64,7 @@ export default function AchievementsScreen() {
 
       // Load completed todos via repository
       const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+      const folderIds = Array.from(new Set([INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID, ...folderList.map((f) => f.id)]));
 
       let totalCompletedTodos = 0;
       for (const fId of folderIds) {

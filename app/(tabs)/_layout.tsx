@@ -1,44 +1,44 @@
+import UnifiedCapture from "@/features/capture/components/UnifiedCapture";
+import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
+import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
+import { loadQuickSuggestions } from "@/features/capture/services/quick-suggestions.service";
+import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
+import { getWorkspaceSuggestions } from "@/features/workspaces/services/workspace-suggestions.service";
+import {
+  ChecklistRepository,
+  HabitRepository,
+  ResourceRepository,
+  TaskRepository,
+  WorkspaceRepository,
+} from "@/repositories";
+import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
+import {
+  addStateListener,
+  emitStateChange,
+} from "@/services/events/state-events";
+import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
 import { MascotOverlay } from "@/shared/components/layout/MascotOverlay";
 import { AnimatedTabBar } from "@/shared/components/navigation/motion-tabs";
 import { useUndo } from "@/shared/components/ui/UndoContext";
-import UnifiedCapture from "@/features/capture/components/UnifiedCapture";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
-import { Resource } from "@/shared/types/domain.types";
-import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
-import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
-import { loadQuickSuggestions } from "@/features/capture/services/quick-suggestions.service";
-import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
-import { addStateListener, emitStateChange } from "@/services/events/state-events";
-import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 import {
-    TaskRepository,
-    HabitRepository,
-    ChecklistRepository,
-    WorkspaceRepository,
-    ResourceRepository,
-} from "@/repositories";
-import { getWorkspaceSuggestions } from "@/features/workspaces/services/workspace-suggestions.service";
+  INBOX_WORKSPACE_ID,
+  type Workspace,
+} from "@/shared/types/domain.types";
 import { Feather } from "@expo/vector-icons";
-import {
-    BottomSheetModal
-} from "@gorhom/bottom-sheet";
+import { BottomSheetModal } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
 import { Tabs, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-    Platform,
-    StyleSheet,
-    View
-} from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
 import {
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
-    withTiming,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 
 const getDateKey = (date = new Date()) => {
@@ -87,23 +87,23 @@ export default function TabLayout() {
   const [vaultContent, setVaultContent] = useState("");
   const [vaultUrl, setVaultUrl] = useState("");
   const [taskTags, setTaskTags] = useState<string[]>([]);
-  const [folders, setFolders] = useState<any[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [quickSuggestions, setQuickSuggestions] = useState<string[]>([
     "Gym every weekday at 7am",
     "Study Kubernetes tomorrow at 8pm",
     "Drink water every 2 hours",
     "Pay rent every month on the 1st",
   ]);
-  const [selectedFolderId, setSelectedFolderId] = useState<string>("default");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] =
+    useState<string>(INBOX_WORKSPACE_ID);
 
   useEffect(() => {
     const unsubWorkspace = addStateListener(
       "workspace_mode_changed",
       (folderId) => {
         if (folderId && folderId !== "null") {
-          setSelectedFolderId(folderId);
-        } else {
-          setSelectedFolderId((prev) => (prev && prev !== "null" ? prev : "default"));
+          setSelectedWorkspaceId(folderId);
         }
       },
     );
@@ -146,8 +146,6 @@ export default function TabLayout() {
     const today = new Date();
     return { year: today.getFullYear(), month: today.getMonth() };
   });
-
-
 
   // Voice Capture Hook Integration
   const {
@@ -238,12 +236,12 @@ export default function TabLayout() {
           const suggestions = await getWorkspaceSuggestions(
             parsed.title,
             parsed.category || "work",
-            folders,
+            workspaces,
             {},
           );
           const top = suggestions[0];
           if (top && top.score >= 70) {
-            setSelectedFolderId(top.workspaceId);
+            setSelectedWorkspaceId(top.workspaceId);
           }
         } catch (e) {
           // ignore
@@ -267,12 +265,12 @@ export default function TabLayout() {
           const suggestions = await getWorkspaceSuggestions(
             parsed.title,
             parsed.category || "health",
-            folders,
+            workspaces,
             {},
           );
           const top = suggestions[0];
           if (top && top.score >= 70) {
-            setSelectedFolderId(top.workspaceId);
+            setSelectedWorkspaceId(top.workspaceId);
           }
         } catch (e) {
           // ignore
@@ -281,25 +279,22 @@ export default function TabLayout() {
     }, 250);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [taskTitle, activeSegment, folders]);
+  }, [taskTitle, activeSegment, workspaces]);
 
   const quickAddSheetRef = useRef<BottomSheetModal>(null);
 
-  const loadSmartSuggestions = async (currentFolders: any[]) => {
+  const loadSmartSuggestions = async (currentWorkspaces: Workspace[]) => {
     try {
       const allTasks: any[] = [];
       const allHabits: any[] = [];
-      const folderIds = Array.from(
-        new Set([
-          "default",
-          "unassigned",
-          ...currentFolders.map((folder) => folder.id),
-        ]),
-      );
-      for (const folderId of folderIds) {
+      const workspaceIds = [
+        INBOX_WORKSPACE_ID,
+        ...currentWorkspaces.map((ws) => ws.id),
+      ];
+      for (const wsId of workspaceIds) {
         const [tasksMap, habitsMap] = await Promise.all([
-          TaskRepository.getTasks(folderId),
-          HabitRepository.getHabits(folderId),
+          TaskRepository.getTasks(wsId),
+          HabitRepository.getHabits(wsId),
         ]);
         allTasks.push(...Object.values(tasksMap));
         allHabits.push(...Object.values(habitsMap));
@@ -307,7 +302,7 @@ export default function TabLayout() {
       const suggestions = await loadQuickSuggestions({
         tasks: allTasks,
         habits: allHabits,
-        workspaces: currentFolders,
+        workspaces: currentWorkspaces,
       });
       if (suggestions.length > 0) setQuickSuggestions(suggestions);
     } catch {
@@ -317,30 +312,32 @@ export default function TabLayout() {
 
   const openQuickAdd = () => {
     setQuickAddVisible(true);
-    // Load folders first, then generate smart suggestions from live data
+    // Load workspaces from repository — single source of truth
     WorkspaceRepository.getWorkspaces()
-      .then((folderList) => {
-        const currentFolders =
-          folderList.length > 0
-            ? folderList.map((folder) => ({
-                id: folder.id,
-                name: folder.name,
-                emoji: folder.emoji || "📁",
-                color: folder.color || "#6366F1",
-              }))
-            : [
-                {
-                  id: "default",
-                  name: "My Pebbles",
-                  emoji: "⚡",
-                  color: "#6366F1",
-                },
-              ];
-        setFolders(currentFolders);
+      .then((workspaceList) => {
+        const currentWorkspaces = workspaceList.map((ws) => ({
+          id: ws.id,
+          name: ws.name,
+          emoji: ws.emoji || "📁",
+          color: ws.color || "#6366F1",
+          createdAt: ws.createdAt || Date.now(),
+          updatedAt: ws.updatedAt || Date.now(),
+        }));
+        setWorkspaces(currentWorkspaces);
+        setWorkspacesLoaded(true);
+
+        // Set default workspace to Inbox if none selected
+        if (!currentWorkspaces.some((w) => w.id === selectedWorkspaceId)) {
+          setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
+        }
 
         // Generate smart suggestions from active items & history
-        const activeIds = currentFolders.map((f) => f.id);
-        getWorkspaceSuggestions(taskTitle, selectedCategory || "work", currentFolders, {})
+        getWorkspaceSuggestions(
+          taskTitle,
+          selectedCategory || "work",
+          currentWorkspaces,
+          {},
+        )
           .then((suggs) => setQuickSuggestions(suggs as any))
           .catch(() => {});
       })
@@ -405,31 +402,6 @@ export default function TabLayout() {
     });
   };
 
-  const loadFolders = async () => {
-    try {
-      const folderList = await WorkspaceRepository.getWorkspaces();
-      if (folderList.length > 0) {
-        const mappedFolders = folderList.map((folder) => ({
-          id: folder.id,
-          name: folder.name,
-          emoji: folder.emoji || "📁",
-          color: folder.color || "#6366F1",
-        }));
-        setFolders(mappedFolders);
-        setSelectedFolderId(mappedFolders[0].id);
-        return;
-      }
-
-      const defaultFolders = [
-        { id: "default", name: "My Pebbles", emoji: "📋", color: "#6366F1" },
-      ];
-      setFolders(defaultFolders);
-      setSelectedFolderId("default");
-    } catch (e) {
-      console.warn("Failed to load folders for Quick Add", e);
-    }
-  };
-
   const handleSheetChange = (index: number) => {
     if (index === -1) {
       setQuickAddVisible(false);
@@ -463,11 +435,27 @@ export default function TabLayout() {
     }
   };
 
+  const validateSelectedWorkspace = (): string => {
+    if (
+      selectedWorkspaceId &&
+      workspaces.some((w) => w.id === selectedWorkspaceId)
+    ) {
+      return selectedWorkspaceId;
+    }
+    const inboxExists = workspaces.some((w) => w.id === INBOX_WORKSPACE_ID);
+    if (inboxExists) {
+      return INBOX_WORKSPACE_ID;
+    }
+    // This should not happen if initialization is correct, but fall back to Inbox
+    return INBOX_WORKSPACE_ID;
+  };
+
   const handleCreateTask = async () => {
     const trimmed = taskTitle.trim();
     if (!trimmed) return;
 
     try {
+      const targetWorkspaceId = validateSelectedWorkspace();
       const titleToSave = parsedItem ? parsedItem.title : trimmed;
       const descToSave = taskDescription.trim() || undefined;
       const priorityToSave = parsedItem?.priority || selectedPriority;
@@ -545,7 +533,8 @@ export default function TabLayout() {
         title: titleToSave,
         description: descToSave,
         completed: false,
-        folderId: selectedFolderId,
+        workspaceId: targetWorkspaceId,
+        folderId: targetWorkspaceId,
         category: parsedItem?.category || selectedCategory || "work",
         priority: priorityToSave,
         scheduledDate: dateToSave,
@@ -573,7 +562,7 @@ export default function TabLayout() {
       emitStateChange("tasks_changed");
 
       const wsName =
-        folders.find((l) => l.id === selectedFolderId)?.name || "My Pebbles";
+        workspaces.find((l) => l.id === selectedWorkspaceId)?.name || "Inbox";
       showToast(`✓ Task added to ${wsName}`);
 
       closeQuickAdd();
@@ -587,6 +576,7 @@ export default function TabLayout() {
     if (!trimmed) return;
 
     try {
+      const targetWorkspaceId = validateSelectedWorkspace();
       const titleToSave = parsedItem ? parsedItem.title : trimmed;
       const priorityToSave = parsedItem?.priority || selectedPriority;
       const recurrenceToSave = parsedItem?.recurrence;
@@ -641,7 +631,8 @@ export default function TabLayout() {
         completedToday: false,
         priority: priorityToSave,
         category: parsedItem?.category || selectedCategory || "health",
-        folderId: selectedFolderId,
+        workspaceId: targetWorkspaceId,
+        folderId: targetWorkspaceId,
         reminderDays,
         reminderHour: hour,
         reminderMinute: minute,
@@ -679,13 +670,12 @@ export default function TabLayout() {
     if (!trimmed) return;
 
     try {
-      const folderId = selectedFolderId || "unassigned";
+      const targetWorkspaceId = validateSelectedWorkspace();
       const titleToSave = parsedItem ? parsedItem.title : trimmed;
 
       await ResourceRepository.saveResource({
         id: `res-${Date.now()}`,
-        workspaceId: folderId,
-        folderId,
+        workspaceId: targetWorkspaceId,
         title: titleToSave,
         resourceType: vaultType === "idea" ? "note" : vaultType,
         kind: vaultType === "idea" ? "idea" : undefined,
@@ -703,9 +693,7 @@ export default function TabLayout() {
       emitStateChange("resources_changed");
 
       const wsName =
-        folderId === "unassigned"
-          ? "Inbox"
-          : folders.find((l) => l.id === folderId)?.name || "Workspace";
+        workspaces.find((l) => l.id === targetWorkspaceId)?.name || "Inbox";
       showToast(`✓ Resource created in ${wsName}`);
 
       closeQuickAdd();
@@ -719,23 +707,21 @@ export default function TabLayout() {
     if (!trimmedTitle) return;
 
     try {
+      const targetWorkspaceId = validateSelectedWorkspace();
       const itemsArray = checklistItemsText
         .split(/,|\n/)
         .map((i) => i.trim())
         .filter((i) => i.length > 0);
 
-      const folderId = selectedFolderId || "default";
-
       const newChecklist = {
         id: Date.now().toString(),
-        folderId,
+        workspaceId: targetWorkspaceId,
         title: trimmedTitle,
         items: itemsArray.map((title, index) => ({
           id: `${Date.now()}-${index}`,
           title,
           completed: false,
         })),
-        archived: false,
         createdAt: Date.now(),
       };
 
@@ -747,9 +733,7 @@ export default function TabLayout() {
       emitStateChange("checklists_changed");
 
       const wsName =
-        folderId === "unassigned" || folderId === "default"
-          ? "My Pebbles"
-          : folders.find((l) => l.id === folderId)?.name || "Workspace";
+        workspaces.find((l) => l.id === targetWorkspaceId)?.name || "Inbox";
       showToast(`✓ Checklist "${trimmedTitle}" added to ${wsName}`);
 
       setChecklistItemsText("");
@@ -861,19 +845,8 @@ export default function TabLayout() {
       {/* Unified Capture — replaces Quick Add */}
       <UnifiedCapture
         sheetRef={quickAddSheetRef}
-        workspaces={
-          folders.length > 0
-            ? folders
-            : [
-                {
-                  id: "default",
-                  name: "My Pebbles",
-                  emoji: "📋",
-                  color: "#6366F1",
-                },
-              ]
-        }
-        defaultWorkspaceId={selectedFolderId}
+        workspaces={workspaces}
+        defaultWorkspaceId={selectedWorkspaceId}
         entryTab={undefined}
         onSaveComplete={() => {
           void recordDailyHistorySnapshot();
@@ -998,109 +971,5 @@ const modalStyles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginTop: 4,
-  },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 50,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-  },
-  titleInput: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "600",
-    paddingVertical: 0,
-  },
-  categoryWrapper: {
-    height: 48,
-    marginBottom: 20,
-  },
-  categoryScroll: {
-    alignItems: "center",
-    gap: 8,
-    paddingRight: 20,
-  },
-  categoryCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 38,
-    paddingHorizontal: 14,
-    borderRadius: 19,
-  },
-  indicatorDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  categoryText: {
-    fontSize: 12,
-  },
-  habitInfoBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 20,
-  },
-  habitInfoText: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "500",
-    lineHeight: 16,
-  },
-  priorityWrapper: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 20,
-  },
-  priorityCard: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 38,
-    borderRadius: 19,
-  },
-  actionsContainer: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    height: 50,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelBtn: {
-    borderWidth: 1.5,
-    borderColor: "transparent",
-  },
-  btnText: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  actionPill: {
-    borderWidth: 1.2,
-    flexDirection: "row",
-    alignItems: "center",
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 17,
-  },
-  popupLabel: {
-    fontSize: 10,
-    textTransform: "uppercase",
-    fontWeight: "700",
-    letterSpacing: 0.5,
-    marginBottom: 8,
   },
 });

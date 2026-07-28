@@ -260,7 +260,7 @@ export const WorkspaceContextCarousel: React.FC<
                             router.push({
                               pathname: "/tasks",
                               params: {
-                                folderId: folder.id,
+                                workspaceId: folder.id,
                                 segment: "vault",
                               },
                             } as any);
@@ -422,7 +422,7 @@ export const WorkspaceContextCarousel: React.FC<
                                       dateKey,
                                     ).toUpperCase();
                                   subtitle = `OVERDUE • ${overdueLabel}`;
-                                } else if (todo.recurrence) {
+                                } else if (todo.recurrence?.frequency) {
                                   const typeLabel =
                                     todo.recurrence.frequency.toUpperCase();
                                   subtitle = `RECURS • ${typeLabel}`;
@@ -495,7 +495,7 @@ export const WorkspaceContextCarousel: React.FC<
                                           router.push({
                                             pathname: "/tasks",
                                             params: {
-                                              folderId: todo.workspaceId,
+                                              workspaceId: todo.workspaceId,
                                             },
                                           } as any)
                                         }
@@ -928,7 +928,7 @@ export const WorkspaceContextCarousel: React.FC<
                             onPress={() =>
                               router.push({
                                 pathname: "/tasks",
-                                params: { folderId: folder.id },
+                                params: { workspaceId: folder.id },
                               } as any)
                             }
                             haptic

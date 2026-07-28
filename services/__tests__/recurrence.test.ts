@@ -72,7 +72,7 @@ describe("recurrence service unit tests", () => {
     };
 
     it("should ignore archived items", () => {
-      const archived = { ...mockItemDaily, archived: true };
+      const archived = { ...mockItemDaily, archivedAt: Date.now() };
       expect(isRecurringOccurrenceForDate(archived, "2026-06-10")).toBe(false);
     });
 

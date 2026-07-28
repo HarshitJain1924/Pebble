@@ -6,18 +6,19 @@ import {
   type Habit,
   type Task,
   type Workspace,
+  INBOX_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
 import { isTaskOverdue } from "@/shared/utils/domain-selectors";
 import { useCallback, useMemo } from "react";
 
 /**
- * Resolves a workspace ID from an entity, falling back to "default" if none is set.
+ * Resolves a workspace ID from an entity, falling back to INBOX_WORKSPACE_ID if none is set.
  */
 export function resolveWorkspaceId(entity?: {
   workspaceId?: string;
   folderId?: string;
 }): string {
-  return entity?.workspaceId || entity?.folderId || "default";
+  return entity?.workspaceId || entity?.folderId || INBOX_WORKSPACE_ID;
 }
 
 export interface UseTodaySelectorsOptions {
@@ -60,9 +61,9 @@ export function useTodaySelectors({
       const found = folders.find((f) => f.id === fId);
       if (found) return found;
       return {
-        id: "default",
-        name: "My Pebbles",
-        emoji: "📋",
+        id: INBOX_WORKSPACE_ID,
+        name: "Inbox",
+        emoji: "📥",
         color: "#6366F1",
         createdAt: Date.now(),
         updatedAt: Date.now(),

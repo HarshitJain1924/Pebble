@@ -4,7 +4,7 @@
  * Task persistence — partitioned by workspaceId using canonical Task model.
  */
 import {
-  DEFAULT_WORKSPACE_ID,
+  INBOX_WORKSPACE_ID,
   type RecurrenceRule,
   type Task,
   type TaskPriority,
@@ -13,10 +13,10 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
-  const wsId = rawTask.workspaceId || rawTask.folderId || defaultWorkspaceId;
-  const status: TaskStatus = rawTask.status
-    ? rawTask.status
-    : rawTask.completed
+  console.log("[DEBUG-4] task entering normalizeTask():", JSON.stringify({ id: rawTask.id, title: rawTask.title, categoryId: rawTask.categoryId, category: rawTask.category, scheduledDate: rawTask.scheduledDate, schedule: rawTask.schedule, reminder: rawTask.reminder, reminderHour: rawTask.reminderHour, alarmTime: rawTask.alarmTime, workspaceId: rawTask.workspaceId, recurrence: rawTask.recurrence, linkedCollectionIds: rawTask.linkedCollectionIds, resourceIds: rawTask.resourceIds }, null, 2));
+  const wsId = rawTask.workspaceId || defaultWorkspaceId;
+  const status: TaskStatus =
+    rawTask.status === "completed" || rawTask.completed === true
       ? "completed"
       : "todo";
 
@@ -42,16 +42,27 @@ export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
     }
   }
 
-  // Construct reminder if present
+  // Construct canonical Reminder from legacy flat fields if not already present.
+  // Only reconstruct when alarmTime is a valid number — never fall back to Date.now()
+  // because that would silently corrupt the stored timestamp.
   let reminder = rawTask.reminder;
-  if (!reminder && (rawTask.alarmTime || rawTask.notificationIds)) {
+  if (!reminder && typeof rawTask.alarmTime === "number") {
     reminder = {
       enabled: true,
-      triggerAt: rawTask.alarmTime || Date.now(),
+      triggerAt: rawTask.alarmTime,
       notificationIds:
         rawTask.notificationIds ||
         (rawTask.alarmId ? [rawTask.alarmId] : undefined),
     };
+  }
+
+  // Warn about legacy records that have notificationIds but no alarmTime.
+  // These cannot be reconstructed into a valid canonical Reminder and would
+  // have silently produced Date.now() under the old fallback.
+  if (!reminder && rawTask.notificationIds?.length && rawTask.alarmTime == null) {
+    console.warn(
+      "[Reminder] Legacy task " + rawTask.id + " has notificationIds but no alarmTime — reminder not reconstructed"
+    );
   }
 
   // Normalize recurrence
@@ -93,7 +104,7 @@ export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
     });
   }
 
-  return {
+  const result = {
     id: rawTask.id,
     workspaceId: wsId,
     title: rawTask.title || "",
@@ -113,6 +124,8 @@ export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
     archivedAt:
       rawTask.archivedAt || (rawTask.archived ? Date.now() : undefined),
   };
+  console.log("[DEBUG-5] cleanTask leaving normalizeTask():", JSON.stringify({ id: result.id, title: result.title, categoryId: result.categoryId, schedule: result.schedule, reminder: result.reminder, workspaceId: result.workspaceId, recurrence: result.recurrence, resourceIds: result.resourceIds }, null, 2));
+  return result;
 }
 
 export class TaskRepository {
@@ -145,7 +158,9 @@ export class TaskRepository {
     const records: Record<string, any> = JSON.parse(raw);
     const rawTask = records[id] || null;
     if (rawTask) {
-      return normalizeTask(rawTask, workspaceId);
+      const result = normalizeTask(rawTask, workspaceId);
+      console.log("[DEBUG-7] object returned by getTask():", JSON.stringify({ id: result.id, title: result.title, categoryId: result.categoryId, schedule: result.schedule, reminder: result.reminder, workspaceId: result.workspaceId, recurrence: result.recurrence, resourceIds: result.resourceIds }, null, 2));
+      return result;
     }
     return null;
   }
@@ -167,14 +182,29 @@ export class TaskRepository {
 
   static async saveTask(task: any): Promise<void> {
     this.validateId(task?.id, "saveTask");
-    const workspaceId = task.workspaceId || DEFAULT_WORKSPACE_ID;
+    const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(workspaceId);
     const records = await this.getTasks(workspaceId);
 
     const cleanTask: Task = normalizeTask(task, workspaceId);
     cleanTask.updatedAt = Date.now();
 
+    // Pre-persistence guard: catch any code path that produces an enabled
+    // reminder with an invalid triggerAt (e.g. Date.now() instead of the
+    // user-selected time). This would have been silently persisted before.
+    const validTrigger =
+      Number.isFinite(cleanTask.reminder?.triggerAt) &&
+      (cleanTask.reminder?.triggerAt ?? 0) > 0;
+    if (cleanTask.reminder?.enabled && !validTrigger) {
+      console.warn(
+        "[Reminder] Invalid triggerAt on task " + cleanTask.id + " before persistence",
+        cleanTask.reminder
+      );
+    }
+
     records[task.id] = cleanTask;
+    const toWrite = JSON.parse(JSON.stringify(records)); // clone to avoid mutation
+    console.log("[DEBUG-6] object written to AsyncStorage:", JSON.stringify({ key, records: Object.fromEntries(Object.entries(toWrite).map(([id, t]: [string, any]) => [id, { id: t.id, title: t.title, categoryId: t.categoryId, schedule: t.schedule, reminder: t.reminder, workspaceId: t.workspaceId, recurrence: t.recurrence, resourceIds: t.resourceIds }])) }, null, 2));
     await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
@@ -187,7 +217,7 @@ export class TaskRepository {
 
     for (const task of tasks) {
       const targetWorkspaceId =
-        workspaceId || task.workspaceId || DEFAULT_WORKSPACE_ID;
+        workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
       const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
       cleanTask.updatedAt = Date.now();
       records[task.id] = cleanTask;

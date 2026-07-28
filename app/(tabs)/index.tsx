@@ -34,7 +34,7 @@ import { useTodayActions } from "@/features/today/hooks/useTodayActions";
 import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
 import { AppHeader } from "@/shared/components/ui/AppHeader";
-import { type Checklist, type Habit, Task } from "@/shared/types/domain.types";
+import type { Checklist } from "@/shared/types/domain.types";
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -98,8 +98,6 @@ export function TodayScreen() {
   const [monthlyPebbles, setMonthlyPebbles] = useState<number>(0);
   const [pebbleBalance, setPebbleBalance] = useState<number>(0);
   const [gemsBalance, setGemsBalance] = useState<number>(0);
-  const [mainStreakRecoveryInfo, setMainStreakRecoveryInfo] =
-    useState<any>(null);
   const [monthlyTypes, setMonthlyTypes] = useState<{
     task: number;
     habit: number;
@@ -121,7 +119,6 @@ export function TodayScreen() {
   const [fallingPebbleType, setFallingPebbleType] = useState<
     "task" | "habit" | "focus" | undefined
   >(undefined);
-  const [streak, setStreak] = useState<number>(0);
   const [weeklyStatus, setWeeklyStatus] = useState<any[]>([]);
   const [pebbleJarModalVisible, setPebbleJarModalVisible] = useState(false);
   const [isZenModeActive, setIsZenModeActive] = useState(false);
@@ -132,19 +129,6 @@ export function TodayScreen() {
   const [rewardStartCount, setRewardStartCount] = useState(0);
   const [rewardTargetCount, setRewardTargetCount] = useState(0);
 
-  const [todoStats, setTodoStats] = useState({
-    completed: 0,
-    total: 0,
-    pending: [] as Task[],
-    overdue: [] as Task[],
-  });
-  const [habitStats, setHabitStats] = useState({
-    completed: 0,
-    total: 0,
-    maxStreak: 0,
-  });
-  const [pendingHabits, setPendingHabits] = useState<Habit[]>([]);
-  const [completedHabits, setCompletedHabits] = useState<Habit[]>([]);
   const [activeSegment, setActiveSegment] = useState<"tasks" | "habits">(
     "tasks",
   );
@@ -156,24 +140,16 @@ export function TodayScreen() {
   const [selectedSortOption, setSelectedSortOption] = useState<
     "default" | "priority" | "alphabetical"
   >("default");
-  const [nextReminder, setNextReminder] = useState<string | null>(null);
-  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>(
-    {},
-  );
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [hasUnreadNotifs, setHasUnreadNotifs] = useState<boolean>(false);
-  const [folders, setFolders] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
-  const [allChecklists, setAllChecklists] = useState<
-    Record<string, Checklist[]>
-  >({});
   const [expandedChecklistIds, setExpandedChecklistIds] = useState<
     Record<string, boolean>
   >({});
-  const [allCollections, setAllCollections] = useState<Record<string, any[]>>(
-    {},
-  );
+  const [allChecklistsLocal, setAllChecklistsLocal] = useState<
+    Record<string, Checklist[]>
+  >({});
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const jarFillAnim = useSharedValue(0);
   const cardScrollX = useSharedValue(0);
@@ -213,7 +189,22 @@ export function TodayScreen() {
     }, 150);
   }, []);
 
-  const { loadDashboardData } = useTodayDashboard();
+  // Single source of truth for dashboard data — useTodayDashboard owns all state
+  const {
+    todoStats,
+    pendingHabits,
+    completedHabits,
+    allChecklists,
+    allResources,
+    categoryCounts,
+    habitStats,
+    folders,
+    mainStreak,
+    recoveryInfo: mainStreakRecoveryInfo,
+    closestReminderTime: nextReminder,
+    isLoading,
+    loadDashboardData,
+  } = useTodayDashboard();
 
   const {
     completeTodoFromDashboard,
@@ -225,7 +216,7 @@ export function TodayScreen() {
     loadDashboardData,
     showUndo,
     setFlyingPebbles,
-    setAllChecklists,
+    setAllChecklists: setAllChecklistsLocal,
     gratitudeText,
     setGratitudeText,
     intentionText,
@@ -242,6 +233,7 @@ export function TodayScreen() {
   // Synchronize dashboard state immediately when tasks/habits/profile are modified in other tabs/modals
   useEffect(() => {
     const unsubscribeTasks = addStateListener("tasks_changed", () => {
+      console.log("[INSTRUMENT] [TodayScreen] tasks_changed listener FIRED, calling loadDashboardData()");
       void loadDashboardData();
     });
 
@@ -261,6 +253,10 @@ export function TodayScreen() {
       void loadDashboardData();
     });
 
+    const unsubscribeResources = addStateListener("resources_changed", () => {
+      void loadDashboardData();
+    });
+
     const unsubscribeZen = addStateListener("zen_mode_toggle", () => {
       setIsZenModeActive(true);
     });
@@ -275,6 +271,7 @@ export function TodayScreen() {
       unsubscribeProfile();
       unsubscribePebbles();
       unsubscribeChecklists();
+      unsubscribeResources();
       unsubscribeZen();
       unsubscribeReview();
     };
@@ -367,9 +364,9 @@ export function TodayScreen() {
             kicker={getGreetingTime()}
             title={profile ? profile.name : "User"}
             profile={profile}
-            nextReminder={nextReminder}
+            nextReminder={nextReminder !== null ? String(nextReminder) : null}
             hasUnreadNotifs={hasUnreadNotifs}
-            streak={streak}
+            streak={mainStreak}
             showSearch={true}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
@@ -393,7 +390,7 @@ export function TodayScreen() {
 
           {/* Compact Streak Banner */}
           <StreakBanner
-            streak={streak}
+            streak={mainStreak}
             recoveryInfo={mainStreakRecoveryInfo}
             onRecover={handleRecoverMainStreak}
             colors={colors}
@@ -406,7 +403,7 @@ export function TodayScreen() {
             onPressWorkspace={(workspaceId) =>
               router.push({
                 pathname: "/tasks",
-                params: { folderId: workspaceId },
+                params: { workspaceId },
               } as any)
             }
             colors={colors}
@@ -427,6 +424,7 @@ export function TodayScreen() {
             activeContexts={activeContexts}
             colors={colors}
             colorScheme={colorScheme}
+            allCollections={allResources}
             expandedChecklistIds={expandedChecklistIds}
             setExpandedChecklistIds={setExpandedChecklistIds}
             activeCardIndex={activeCardIndex}

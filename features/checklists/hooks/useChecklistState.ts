@@ -1,16 +1,16 @@
 import { useState, useCallback } from "react";
-import { Checklist } from "@/shared/types/domain.types";
+import { Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ChecklistRepository } from "@/repositories";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { globalChecklists } from "@/features/tasks/utils/task-formatting";
 
-export function useChecklistState(selectedList: string) {
+export function useChecklistState(selectedWorkspaceId: string) {
   const [checklists, setChecklists] = useState<Record<string, Checklist[]>>(() => globalChecklists || {});
 
   const loadChecklistsState = useCallback(async () => {
     try {
-      const activeList = selectedList || "default";
+      const activeList = selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const checklistsMap = await ChecklistRepository.getChecklists(activeList);
       const activeChecklists = Object.values(checklistsMap);
       setChecklists((prev) => ({
@@ -20,11 +20,11 @@ export function useChecklistState(selectedList: string) {
     } catch (e) {
       console.warn("Failed to load current checklists", e);
     }
-  }, [selectedList]);
+  }, [selectedWorkspaceId]);
 
-  const addChecklist = useCallback(async (title: string, itemTitles: string[], folderId: string) => {
+  const addChecklist = useCallback(async (title: string, itemTitles: string[], workspaceId?: string) => {
     try {
-      const activeList = folderId || selectedList || "default";
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const newChecklist: Checklist = {
         id: `checklist-${Date.now()}`,
         workspaceId: activeList,
@@ -43,11 +43,11 @@ export function useChecklistState(selectedList: string) {
     } catch (e) {
       console.warn("Failed to add checklist current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
   const updateChecklist = useCallback(async (updated: Checklist) => {
     try {
-      const activeList = updated.workspaceId || selectedList || "default";
+      const activeList = updated.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       await ChecklistRepository.saveChecklist({
         id: updated.id,
         workspaceId: activeList,
@@ -62,11 +62,11 @@ export function useChecklistState(selectedList: string) {
     } catch (e) {
       console.warn("Failed to update checklist current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
-  const deleteChecklist = useCallback(async (id: string, folderId: string) => {
+  const deleteChecklist = useCallback(async (id: string, workspaceId?: string) => {
     try {
-      const activeList = folderId || selectedList || "default";
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const existing = await ChecklistRepository.getChecklist(id, activeList);
       if (existing) {
         await addToRecycleBin("checklist", existing, `${activeList}:${id}`);
@@ -77,11 +77,11 @@ export function useChecklistState(selectedList: string) {
     } catch (e) {
       console.warn("Failed to delete checklist current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
-  const toggleChecklistItem = useCallback(async (checklistId: string, itemId: string, folderId: string) => {
+  const toggleChecklistItem = useCallback(async (checklistId: string, itemId: string, workspaceId?: string) => {
     try {
-      const activeList = folderId || selectedList || "default";
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const existing = await ChecklistRepository.getChecklist(checklistId, activeList);
       if (existing) {
         const nextItems = existing.items.map((i) =>
@@ -98,7 +98,7 @@ export function useChecklistState(selectedList: string) {
     } catch (e) {
       console.warn("Failed to toggle checklist item current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
   return {
     checklists,

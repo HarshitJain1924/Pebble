@@ -18,7 +18,7 @@ import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-se
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface WorkspaceGridProps {
-  lists: Workspace[];
+  workspaces: Workspace[];
   todos: Record<string, Task[]>;
   habits: any[];
   collections?: Record<string, any[]>;
@@ -31,7 +31,7 @@ interface WorkspaceGridProps {
 }
 
 export function WorkspaceGrid({
-  lists,
+  workspaces,
   todos,
   habits,
   collections,
@@ -46,7 +46,7 @@ export function WorkspaceGrid({
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
 
-  if (!isHydrated && lists.length === 0) {
+  if (!isHydrated && workspaces.length === 0) {
     const cardBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
     const borderCol = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
     return (
@@ -92,42 +92,27 @@ export function WorkspaceGrid({
     );
   }
 
-  const showInbox = searchQuery.trim() === "" || "inbox".includes(searchQuery.toLowerCase());
-  
-  // Counts for Inbox
-  const inboxCollections = collections ? (collections["unassigned"] || []) : [];
-  const inboxRefsCount = inboxCollections.reduce(
-    (sum: number, c: any) => sum + (c.items ? c.items.filter((i: any) => !i.archived).length : 0),
-    0
-  );
-  const inboxTasks = todos["unassigned"] ?? [];
-  const inboxActiveTasksCount = inboxTasks.filter((t) => !isTaskCompleted(t)).length;
-  const inboxHabits = habits ? habits.filter((h) => h.workspaceId === "unassigned") : [];
-  const inboxActiveHabitsCount = inboxHabits.filter((h) => !isHabitCompletedToday(h)).length;
-  const inboxChecklists = checklists ? (checklists["unassigned"] || []) : [];
-  const inboxChecklistsCount = inboxChecklists.filter((c) => !c.archivedAt).length;
-
-  const activeLists = lists.filter((l) => !(l as any).archived);
-  const filteredLists =
+  const activeWorkspaces = workspaces.filter((w) => !(w as any).archived);
+  const filteredWorkspaces =
     searchQuery.trim() === ""
-      ? activeLists
-      : activeLists.filter((l) =>
-          l.name.toLowerCase().includes(searchQuery.toLowerCase()),
+      ? activeWorkspaces
+      : activeWorkspaces.filter((w) =>
+          w.name.toLowerCase().includes(searchQuery.toLowerCase()),
         );
 
   const getCardBgColor = (baseColor: string) => {
     if (isDark) {
-      return `${baseColor}22`; // ~13% opacity of folder color over dark background
+      return `${baseColor}22`;
     } else {
-      return `${baseColor}0C`; // ~5% opacity of folder color over light background
+      return `${baseColor}0C`;
     }
   };
 
   const getBorderColor = (baseColor: string) => {
     if (isDark) {
-      return `${baseColor}44`; // ~27% opacity for clean visible borders in dark mode
+      return `${baseColor}44`;
     } else {
-      return `${baseColor}22`; // ~13% opacity in light mode
+      return `${baseColor}22`;
     }
   };
 
@@ -155,119 +140,37 @@ export function WorkspaceGrid({
   return (
     <View style={{ flex: 1, paddingVertical: 10 }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-        {showInbox && (
-          <View style={gridStyles.workspaceGridCard}>
-            {/* Nub */}
-            <View
-              style={{
-                position: "absolute",
-                top: -11,
-                left: 16,
-                width: "45%",
-                height: 12,
-                backgroundColor: colors.primary,
-                borderTopLeftRadius: 8,
-                borderTopRightRadius: 8,
-                zIndex: 2,
-              }}
-            />
-            {/* Card Content Container */}
-            <PressableScale
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                onSelectWorkspace("unassigned");
-              }}
-              haptic={true}
-              style={gridStyles.cardPressable}
-              contentStyle={[
-                gridStyles.cardContainer, 
-                { 
-                  borderColor: getBorderColor(colors.primary), 
-                  backgroundColor: isDark ? "#12131A" : "#FFFFFF" 
-                }
-              ]}
-            >
-              {/* Solid Background Color Overlay */}
-              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: getCardBgColor(colors.primary) }]} />
-
-              {/* Top Row: Icon container (no absolute child edit button) */}
-              <View style={gridStyles.topRow}>
-                <View style={[gridStyles.iconWrapper, { backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.03)" }]}>
-                  <Text style={{ fontSize: 24 }}>📥</Text>
-                </View>
-              </View>
-
-              {/* Middle Row: Title & Description */}
-              <View style={gridStyles.detailsBlock}>
-                <Text style={[gridStyles.workspaceName, { color: isDark ? "#FFFFFF" : "#111111" }]} numberOfLines={1}>
-                  Inbox
-                </Text>
-                <Text style={[gridStyles.workspaceDescription, { color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)" }]} numberOfLines={2}>
-                  Quick capture of tasks and ideas.
-                </Text>
-              </View>
-
-              {/* Bottom Row: Badge Counts */}
-              <View style={gridStyles.countBadgeRow}>
-                {renderCountBadge(
-                  "check-square",
-                  inboxActiveTasksCount,
-                  colors.primary,
-                  inboxActiveTasksCount > 0 && (inboxActiveHabitsCount === 0 && inboxChecklistsCount === 0 && inboxRefsCount === 0),
-                  "task"
-                )}
-                {renderCountBadge("refresh-cw", inboxActiveHabitsCount, "#F59E0B", false, "habit")}
-                {renderCountBadge("list", inboxChecklistsCount, "#10B981", false, "checklist")}
-                {renderCountBadge("folder", inboxRefsCount, "#A855F7", false, "resource")}
-              </View>
-            </PressableScale>
-
-            {/* Absolute Sibling Edit Menu Trigger */}
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                onEditWorkspace("unassigned");
-              }}
-              style={gridStyles.moreButtonAbsolute}
-              hitSlop={15}
-            >
-              <Feather name="more-horizontal" size={20} color={isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.4)"} />
-            </Pressable>
-          </View>
-        )}
-
-        {filteredLists.map((folder) => {
-          const folderColor = folder.color || "#6366F1";
-          const folderTasks = todos[folder.id] ?? [];
-          const activeCount = folderTasks.filter((t) => !isTaskCompleted(t)).length;
+        {filteredWorkspaces.map((workspace) => {
+          const workspaceColor = workspace.color || "#6366F1";
+          const workspaceTasks = todos[workspace.id] ?? [];
+          const activeCount = workspaceTasks.filter((t) => !isTaskCompleted(t)).length;
           
-          const folderHabits = habits ? habits.filter((h) => h.workspaceId === folder.id) : [];
-          const habitCount = folderHabits.filter((h) => !isHabitCompletedToday(h)).length;
+          const workspaceHabits = habits ? habits.filter((h) => h.workspaceId === workspace.id) : [];
+          const habitCount = workspaceHabits.filter((h) => !isHabitCompletedToday(h)).length;
 
-          const folderCollections = collections ? (collections[folder.id] || []) : [];
-          const resourceCount = folderCollections.reduce(
+          const workspaceCollections = collections ? (collections[workspace.id] || []) : [];
+          const resourceCount = workspaceCollections.reduce(
             (sum: number, col: any) => sum + (col.items ? col.items.filter((i: any) => !i.archivedAt).length : 0),
             0
           );
 
-          const folderChecklists = checklists ? (checklists[folder.id] || []) : [];
-          const checklistCount = folderChecklists.filter((c) => !c.archivedAt).length;
+          const workspaceChecklists = checklists ? (checklists[workspace.id] || []) : [];
+          const checklistCount = workspaceChecklists.filter((c) => !c.archivedAt).length;
 
           // Compute if we should show badge labels
           const totalActiveBadges = (activeCount > 0 ? 1 : 0) + (habitCount > 0 ? 1 : 0) + (checklistCount > 0 ? 1 : 0) + (resourceCount > 0 ? 1 : 0);
           const showLabel = totalActiveBadges <= 1;
 
-          // Default descriptions mapping to match the mock
-          const defaultDescription = folder.name.toLowerCase() === "my pebbles" 
-            ? "Your main workspace for getting things done." 
-            : folder.name.toLowerCase() === "devops" 
-              ? "Tasks and notes for devops activities." 
-              : `Tasks and notes for ${folder.name.toLowerCase()} activities.`;
+          const defaultDescription = workspace.name.toLowerCase() === "inbox"
+            ? "Quick capture of tasks and ideas."
+            : workspace.name.toLowerCase() === "my pebbles" 
+              ? "Your main workspace for getting things done." 
+              : `Tasks and notes for ${workspace.name.toLowerCase()} activities.`;
 
-          const descriptionText = folder.description || defaultDescription;
+          const descriptionText = workspace.description || defaultDescription;
 
           return (
-            <View key={folder.id} style={gridStyles.workspaceGridCard}>
+            <View key={workspace.id} style={gridStyles.workspaceGridCard}>
               {/* Nub */}
               <View
                 style={{
@@ -276,7 +179,7 @@ export function WorkspaceGrid({
                   left: 16,
                   width: "45%",
                   height: 12,
-                  backgroundColor: folderColor,
+                  backgroundColor: workspaceColor,
                   borderTopLeftRadius: 8,
                   borderTopRightRadius: 8,
                   zIndex: 2,
@@ -286,36 +189,36 @@ export function WorkspaceGrid({
               <PressableScale
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  onSelectWorkspace(folder.id);
+                  onSelectWorkspace(workspace.id);
                 }}
                 onLongPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                  onEditWorkspace(folder.id);
+                  onEditWorkspace(workspace.id);
                 }}
                 haptic={true}
                 style={gridStyles.cardPressable}
                 contentStyle={[
                   gridStyles.cardContainer, 
                   { 
-                    borderColor: getBorderColor(folderColor), 
+                    borderColor: getBorderColor(workspaceColor), 
                     backgroundColor: isDark ? "#12131A" : "#FFFFFF" 
                   }
                 ]}
               >
                 {/* Solid Background Color Overlay */}
-                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: getCardBgColor(folderColor) }]} />
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: getCardBgColor(workspaceColor) }]} />
 
                 {/* Top Row: Icon on left */}
                 <View style={gridStyles.topRow}>
                   <View style={[gridStyles.iconWrapper, { backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.03)" }]}>
-                    <Text style={{ fontSize: 24 }}>{folder.emoji || "📁"}</Text>
+                    <Text style={{ fontSize: 24 }}>{workspace.emoji || "📁"}</Text>
                   </View>
                 </View>
 
                 {/* Middle Row: Title & Description */}
                 <View style={gridStyles.detailsBlock}>
                   <Text style={[gridStyles.workspaceName, { color: isDark ? "#FFFFFF" : "#111111" }]} numberOfLines={1}>
-                    {folder.name}
+                    {workspace.name}
                   </Text>
                   <Text style={[gridStyles.workspaceDescription, { color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)" }]} numberOfLines={2}>
                     {descriptionText}
@@ -324,7 +227,7 @@ export function WorkspaceGrid({
 
                 {/* Bottom Row: Badge Counts */}
                 <View style={gridStyles.countBadgeRow}>
-                  {renderCountBadge("check-square", activeCount, folderColor, showLabel, "task")}
+                  {renderCountBadge("check-square", activeCount, workspaceColor, showLabel, "task")}
                   {renderCountBadge("refresh-cw", habitCount, "#F59E0B", showLabel, "habit")}
                   {renderCountBadge("list", checklistCount, "#10B981", showLabel, "checklist")}
                   {renderCountBadge("folder", resourceCount, "#A855F7", showLabel, "resource")}
@@ -335,7 +238,7 @@ export function WorkspaceGrid({
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  onEditWorkspace(folder.id);
+                  onEditWorkspace(workspace.id);
                 }}
                 style={gridStyles.moreButtonAbsolute}
                 hitSlop={15}
