@@ -172,7 +172,7 @@ export default function TaskDetailsScreen() {
   }, [allResourceItems, activeFilter]);
 
   // Helper: compute epoch timestamp from hour/minute + schedule date (must be defined BEFORE hasChanges)
-  const computeTriggerEpoch = (hour: number, minute: number, dateStr: string): number | undefined => {
+  const computeTriggerEpoch = (hour: number, minute: number, dateStr: string): number => {
     if (dateStr && dateStr !== "inbox") {
       return new Date(dateStr + `T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`).getTime();
     }
@@ -441,7 +441,7 @@ export default function TaskDetailsScreen() {
       if (reminderTime) {
         updatedReminder = {
           enabled: true,
-          triggerAt: computeTriggerEpoch(reminderTime.hour, reminderTime.minute, scheduleDate) || Date.now(),
+          triggerAt: computeTriggerEpoch(reminderTime.hour, reminderTime.minute, scheduleDate),
         };
       } else {
         updatedReminder = { enabled: false, triggerAt: 0 };
@@ -468,7 +468,7 @@ export default function TaskDetailsScreen() {
           reminder: reminderTime
             ? {
                 enabled: true,
-                triggerAt: computeTriggerEpoch(reminderTime.hour, reminderTime.minute, selectedOccurrenceDate) || Date.now(),
+                triggerAt: computeTriggerEpoch(reminderTime.hour, reminderTime.minute, selectedOccurrenceDate),
               }
             : undefined,
           lastUpdated: getDateKey(),
@@ -556,12 +556,11 @@ export default function TaskDetailsScreen() {
         delete updatedItem.scheduledDate;
 
         // Cancel previous notifications
-        await cancelReminderIds(item.notificationIds || []);
+        await cancelReminderIds(item.reminder?.notificationIds);
 
         // Schedule new notifications — from canonical reminder + recurrence
         let notificationIds: string[] = [];
-        let alarmId: string | undefined;
-        let alarmTime: number | undefined;
+        // notificationIds are stored inside the canonical reminder, not top-level
 
         if (reminderTime) {
           // For non-recurring tasks WITH a specific schedule date, use oneTimeAt (DATE trigger)
@@ -590,8 +589,6 @@ export default function TaskDetailsScreen() {
                   : undefined,
             });
             notificationIds = scheduled.ids;
-            alarmId = scheduled.primaryId;
-            alarmTime = scheduled.alarmTime;
           } else {
             // Inbox tasks (no date) or recurring: use dailyTime + recurrence
             const scheduled = await scheduleReminderBatch({
@@ -611,14 +608,15 @@ export default function TaskDetailsScreen() {
                   : undefined,
             });
             notificationIds = scheduled.ids;
-            alarmId = scheduled.primaryId;
-            alarmTime = scheduled.alarmTime;
           }
         }
 
-        updatedItem.notificationIds = notificationIds;
-        updatedItem.alarmId = alarmId;
-        updatedItem.alarmTime = alarmTime;
+        if (notificationIds.length > 0) {
+          updatedItem.reminder = {
+            ...(updatedItem.reminder || { enabled: true, triggerAt: 0 }),
+            notificationIds,
+          };
+        }
 
         savedItemForRefresh = { ...updatedItem, workspaceId };
 
@@ -723,7 +721,7 @@ export default function TaskDetailsScreen() {
       const newId = isTask ? `habit-${Date.now()}` : String(Date.now());
 
       // Cancel previous reminders
-      await cancelReminderIds(item.notificationIds || []);
+      await cancelReminderIds(item.reminder?.notificationIds);
 
       if (isTask) {
         // Convert Task -> Habit
@@ -853,7 +851,7 @@ export default function TaskDetailsScreen() {
           workspaces.find((w) => w.id === (item.workspaceId || INBOX_WORKSPACE_ID))?.name ||
           "Inbox";
 
-        await cancelReminderIds(item.notificationIds || []);
+        await cancelReminderIds(item.reminder?.notificationIds);
 
         await addToRecycleBin(
           isTask ? "task" : "habit",
@@ -1609,7 +1607,7 @@ export default function TaskDetailsScreen() {
                     const nextArchived = !(item.archived || item.archivedAt);
                     const isTask = itemType === "task";
 
-                    await cancelReminderIds(item.notificationIds || []);
+                    await cancelReminderIds(item.reminder?.notificationIds);
                     let notificationIds: string[] = [];
                     if (
                       !nextArchived &&
@@ -1666,7 +1664,9 @@ export default function TaskDetailsScreen() {
                     const updatedItem = {
                       ...item,
                       archivedAt: nextArchived ? Date.now() : undefined,
-                      notificationIds,
+                      reminder: notificationIds.length > 0
+                        ? { ...(item.reminder || { enabled: true, triggerAt: 0 }), notificationIds }
+                        : item.reminder ? { ...item.reminder, notificationIds: undefined } : undefined,
                       lastUpdated: getDateKey(),
                     };
 

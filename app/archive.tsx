@@ -149,11 +149,17 @@ export default function ArchiveScreen() {
         });
         notificationIds = scheduled.ids;
       }
-      updatedItem.notificationIds = notificationIds;
+      // Write notificationIds into canonical reminder (not top-level legacy)
+      if (notificationIds.length > 0) {
+        updatedItem.reminder = {
+          ...(updatedItem.reminder || { enabled: true, triggerAt: item.reminder?.triggerAt || 0 }),
+          notificationIds,
+        };
+      }
 
       // Write canonical schedule (no legacy fields)
       if (isTask) {
-        updatedItem.schedule = updatedItem.schedule || { date: item.scheduledDate || item.dueDate || undefined };
+        // Repository has already normalized via normalizeTask — schedule.date is canonical
         delete updatedItem.scheduledDate;
         delete updatedItem.dueDate;
       }
@@ -209,7 +215,7 @@ export default function ArchiveScreen() {
           onPress: async () => {
             try {
               const wsId = item.workspaceId || INBOX_WORKSPACE_ID;
-              await cancelReminderIds(item.notificationIds || item.reminder?.notificationIds || []);
+              await cancelReminderIds(item.reminder?.notificationIds);
 
               if (type === "task") {
                 await TaskRepository.deleteTask(item.id, wsId);

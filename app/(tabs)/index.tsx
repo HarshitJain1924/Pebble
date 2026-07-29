@@ -44,11 +44,13 @@ const getDateKey = (date = new Date()) => {
 };
 
 const getTodoDateKey = (todo: any) => {
-  if (todo.scheduledDate) {
-    return todo.scheduledDate;
+  // Canonical schedule.date (repository normalizes scheduledDate → schedule.date)
+  if (todo.schedule?.date) {
+    return todo.schedule.date;
   }
-  if (todo.alarmTime) {
-    return getDateKey(new Date(todo.alarmTime));
+  // Derive from canonical reminder.triggerAt
+  if (todo.reminder?.triggerAt) {
+    return getDateKey(new Date(todo.reminder.triggerAt));
   }
   const idNum = Number(todo.id);
   if (!isNaN(idNum) && idNum > 100000000000) {

@@ -1,7 +1,16 @@
 import React from "react";
 import { View, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { type CognitiveFlowStats } from "@/features/capture/services/cognitive-flow.service";
+
+// Cognitive flow stats interface — previously sourced from cognitive-flow.service.ts
+// which has been removed as dead code. The defaults are used as static display data.
+export interface CognitiveFlowStats {
+  morningPct: number;
+  afternoonPct: number;
+  eveningPct: number;
+  peakZone: string;
+  icon: string;
+}
 
 export interface FocusRhythmPeaksProps {
   cognitiveFlowStats: CognitiveFlowStats;

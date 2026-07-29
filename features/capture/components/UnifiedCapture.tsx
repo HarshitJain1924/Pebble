@@ -17,7 +17,7 @@ import {
   View,
   TouchableOpacity,
   StyleSheet,
-  Platform,
+  ActivityIndicator,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -57,11 +57,8 @@ import {
   getWorkspaceSuggestions,
   type WorkspaceSuggestionResult,
 } from "@/features/workspaces/services/workspace-suggestions.service";
-import { emitStateChange } from "@/services/events/state-events";
-import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
-import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { TaskRepository, HabitRepository, ChecklistRepository, ResourceRepository } from "@/repositories";
+import { saveParsedItem } from "@/features/capture/services/CaptureService";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -182,7 +179,6 @@ interface UnifiedCaptureProps {
   defaultDate?: string;
   defaultType?: ParsedProductivityItem["type"];
   entryTab?: string;
-  onSaveComplete?: () => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -194,7 +190,6 @@ export default function UnifiedCapture({
   defaultDate,
   defaultType,
   entryTab,
-  onSaveComplete,
 }: UnifiedCaptureProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -211,6 +206,7 @@ export default function UnifiedCapture({
   const [clipboardUrl, setClipboardUrl] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isParsing, setIsParsing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [attachedFile, setAttachedFile] = useState<{ name: string; size: number; uri: string } | null>(null);
 
   // Workspace suggestion from parser
@@ -264,8 +260,7 @@ export default function UnifiedCapture({
   // Generate adaptive suggestions on mount
   useEffect(() => {
     const hour = new Date().getHours();
-    const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name;
-    setSuggestions(getAdaptiveSuggestions(hour, entryTab, wsName));
+    setSuggestions(getAdaptiveSuggestions(hour, entryTab));
   }, [entryTab, selectedWorkspaceId]);
 
   // Check clipboard for URL on sheet open (don't auto-read, just detect)
@@ -323,14 +318,14 @@ export default function UnifiedCapture({
       // Workspace suggestion
       if (parsed.type === "task" || parsed.type === "habit") {
         try {
-          const suggestions = await getWorkspaceSuggestions(
+          const wsSuggestions = await getWorkspaceSuggestions(
             parsed.title,
             parsed.category || "work",
             workspaces,
             {},
           );
-          const top = suggestions[0];
-          if (top && top.score >= 70) {
+          const top = wsSuggestions[0];
+          if (top && top.score >= 75) {
             setTopSuggestion(top);
             setSelectedWorkspaceId(top.workspaceId);
           }
@@ -342,7 +337,7 @@ export default function UnifiedCapture({
       // Subtle card animation on parse
       cardScale.value = 0.98;
       cardScale.value = withSpring(1, { damping: 15, stiffness: 300 });
-    }, 450); // slight stagger feel
+    }, 450);
 
     return () => clearTimeout(timer);
   }, [inputText]);
@@ -397,37 +392,18 @@ export default function UnifiedCapture({
     }
   }, []);
 
-  // ─── Save Handlers ─────────────────────────────────────────────────────
+  // ─── Save Handler ──────────────────────────────────────────────────────
 
   const handleSave = useCallback(async () => {
-    if (!parsedItem || !parsedItem.title.trim()) return;
+    if (!parsedItem || !parsedItem.title.trim() || isSaving) return;
 
+    setIsSaving(true);
     try {
-      switch (parsedItem.type) {
-        case "task":
-          await saveTask(parsedItem);
-          break;
-        case "habit":
-          await saveHabit(parsedItem);
-          break;
-        case "checklist":
-          await saveChecklist(parsedItem);
-          break;
-        case "note":
-        case "idea":
-          await saveResource(parsedItem, parsedItem.type === "idea");
-          break;
-        case "link":
-          await saveResource(parsedItem, false);
-          break;
-        case "file":
-          await saveResource(parsedItem, false);
-          break;
-      }
+      const wsId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
+
+      await saveParsedItem(parsedItem, wsId);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      void recordDailyHistorySnapshot();
-
       const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
       const typeLabel = TYPE_META[parsedItem.type].label;
       showToast(`✓ ${typeLabel} added to ${wsName}`);
@@ -439,239 +415,13 @@ export default function UnifiedCapture({
       setShowMoreOptions(false);
       setShowTypeOverride(false);
       sheetRef.current?.dismiss();
-      onSaveComplete?.();
+      // Disable re-enables after dismiss is triggered (not awaited)
+      setTimeout(() => setIsSaving(false), 300);
     } catch (e) {
       console.warn("UnifiedCapture save failed:", e);
+      setIsSaving(false);
     }
-  }, [parsedItem, selectedWorkspaceId, workspaces]);
-
-  const saveTask = async (item: ParsedProductivityItem) => {
-    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
-    const generatedId = String(Date.now());
-    let notificationIds: string[] = [];
-    let alarmTime: number | undefined;
-
-    if (item.time && item.date && item.date !== "inbox") {
-      const [hours, minutes] = item.time.split(":").map(Number);
-      if (item.recurrence) {
-        // Recurring task with date: store canonical reminder from today+time
-        // (recurrence handles future dates)
-        const d = new Date();
-        d.setHours(hours, minutes, 0, 0);
-        alarmTime = d.getTime();
-        try {
-          const scheduled = await scheduleReminderBatch({
-            kind: "todo",
-            itemId: generatedId,
-            title: item.title,
-            category: item.category || "work",
-            dailyTime: { hour: hours, minute: minutes },
-            recurrence: item.recurrence,
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-            context: { title: item.title, remainingCount: 1, totalCount: 1 },
-          });
-          notificationIds = scheduled.ids;
-        } catch (e) {
-          console.error("Failed to schedule task reminder:", e);
-        }
-      } else {
-        const [year, monthVal, dayVal] = item.date.split("-").map(Number);
-        const alarmDate = new Date(year, monthVal - 1, dayVal, hours, minutes, 0, 0);
-        if (alarmDate.getTime() > Date.now()) {
-          alarmTime = alarmDate.getTime();
-          try {
-            const batch = await scheduleReminderBatch({
-              kind: "todo",
-              itemId: generatedId,
-              title: item.title,
-              oneTimeAt: alarmDate,
-              category: item.category || "work",
-              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-            });
-            notificationIds = batch.ids;
-          } catch (e) {
-            console.error("Failed to schedule one-time task reminder:", e);
-          }
-        }
-      }
-    } else if (item.time) {
-      // Inbox task with a time but no specific date: store canonical reminder from today+time
-      const [hours, minutes] = item.time.split(":").map(Number);
-      const d = new Date();
-      d.setHours(hours, minutes, 0, 0);
-      alarmTime = d.getTime();
-      if (item.recurrence) {
-        try {
-          const scheduled = await scheduleReminderBatch({
-            kind: "todo",
-            itemId: generatedId,
-            title: item.title,
-            category: item.category || "work",
-            dailyTime: { hour: hours, minute: minutes },
-            recurrence: item.recurrence,
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-            context: { title: item.title, remainingCount: 1, totalCount: 1 },
-          });
-          notificationIds = scheduled.ids;
-        } catch (e) {
-          console.error("Failed to schedule recurring task reminder:", e);
-        }
-      } else {
-        try {
-          const batch = await scheduleReminderBatch({
-            kind: "todo",
-            itemId: generatedId,
-            title: item.title,
-            oneTimeAt: d,
-            category: item.category || "work",
-            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-          });
-          notificationIds = batch.ids;
-        } catch (e) {
-          console.error("Failed to schedule task reminder:", e);
-        }
-      }
-    }
-
-    await TaskRepository.saveTask({
-      id: generatedId,
-      workspaceId: folderId,
-      title: item.title,
-      completed: false,
-      priority: (item.priority || "medium") as any,
-      dueDate: item.date || getDateKey(),
-      category: item.category || "work",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      recurrence: item.recurrence || undefined,
-      // Canonical Reminder — NOT flat legacy fields (alarmTime, alarmId, reminderHour, reminderMinute)
-      reminder: alarmTime
-        ? {
-            enabled: true,
-            triggerAt: alarmTime,
-            notificationIds,
-          }
-        : undefined,
-    } as any);
-
-    emitStateChange("tasks_changed");
-  };
-
-  const saveHabit = async (item: ParsedProductivityItem) => {
-    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
-    const generatedId = `habit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    let reminderDays: number[] | undefined;
-    if (item.recurrence) {
-      if (item.recurrence.type === "weekdays") reminderDays = [1, 2, 3, 4, 5];
-      else if (item.recurrence.type === "weekly") reminderDays = item.recurrence.days;
-    }
-
-    let hour: number | undefined;
-    let minute: number | undefined;
-    let notificationIds: string[] = [];
-    let triggerAtValue: number | undefined;
-
-    if (item.time) {
-      hour = Number(item.time.split(":")[0]);
-      minute = Number(item.time.split(":")[1]);
-      // Compute triggerAt as today at the parsed time (habits always recur from today)
-      const todayAtTime = new Date();
-      todayAtTime.setHours(hour, minute, 0, 0);
-      triggerAtValue = todayAtTime.getTime();
-
-      try {
-        const scheduled = await scheduleReminderBatch({
-          kind: "habit",
-          itemId: generatedId,
-          title: item.title,
-          dailyTime: { hour, minute },
-          dailyDays: reminderDays,
-          recurrence: item.recurrence || undefined,
-          escalationMinutes: [120, 240],
-          channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-          context: { title: item.title, remainingCount: 1, totalCount: 1, streak: 0, bestStreak: 0 },
-        });
-        notificationIds = scheduled.ids;
-      } catch (e) {
-        console.error("Failed to schedule habit reminder:", e);
-      }
-    }
-
-    await HabitRepository.saveHabit({
-      id: generatedId,
-      workspaceId: folderId,
-      title: item.title,
-      streak: 0,
-      bestStreak: 0,
-      completedDates: [],
-      recurrenceRule: item.recurrence ? JSON.stringify(item.recurrence) : "FREQ=DAILY",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      // Canonical Reminder — NOT flat legacy fields (reminderHour, reminderMinute, notificationIds)
-      reminder: triggerAtValue
-        ? {
-            enabled: true,
-            triggerAt: triggerAtValue,
-            notificationIds,
-          }
-        : undefined,
-    } as any);
-
-    emitStateChange("habits_changed");
-  };
-
-  const saveChecklist = async (item: ParsedProductivityItem) => {
-    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
-    const itemsArray = item.items || [];
-
-    const newChecklist = {
-      id: `checklist-${Date.now()}`,
-      workspaceId: folderId,
-      title: item.title,
-      items: itemsArray.map((title, index) => ({
-        id: `checklist-item-${Date.now()}-${index}`,
-        title,
-        completed: false,
-      })),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    await ChecklistRepository.saveChecklist(newChecklist);
-    emitStateChange("checklists_changed");
-  };
-
-  const saveResource = async (item: ParsedProductivityItem, isIdea: boolean) => {
-    const folderId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
-    const itemId = `res-${Date.now()}`;
-    const payload = item.type === "link" ? { url: item.url || "" } : { content: item.title || "" };
-
-    const metadataRaw = await AsyncStorage.getItem(`pebble:core:collections_metadata:${folderId}`);
-    const collectionsMeta: any[] = metadataRaw ? JSON.parse(metadataRaw) : [];
-    
-    let targetColl = collectionsMeta.find((c) => c.name === "Quick Captures");
-    if (!targetColl) {
-      targetColl = { id: `quick-captures-${folderId}-${Date.now()}`, name: "Quick Captures", emoji: "⚡" };
-      collectionsMeta.push(targetColl);
-      await AsyncStorage.setItem(`pebble:core:collections_metadata:${folderId}`, JSON.stringify(collectionsMeta));
-    }
-
-    await ResourceRepository.saveResource({
-      id: itemId,
-      workspaceId: folderId,
-      title: item.title,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      resourceType: isIdea ? "idea" : (item.type === "link" ? "link" : "note"),
-      payload,
-      pinned: false,
-      tags: [isIdea ? "idea" : "", `collection_${targetColl.id}`].filter(Boolean),
-    });
-
-    emitStateChange("resources_changed");
-  };
+  }, [parsedItem, selectedWorkspaceId, workspaces, isSaving]);
 
   // ─── Derived Values ─────────────────────────────────────────────────────
 
@@ -804,6 +554,16 @@ export default function UnifiedCapture({
             maxLength: 500,
           }}
         />
+
+        {/* ── Voice Error Banner ── */}
+        {voiceStatus === "error" && voiceError && (
+          <Animated.View entering={FadeInDown.duration(200)} style={[styles.voiceErrorBanner, { backgroundColor: "rgba(239, 68, 68, 0.08)", borderColor: "rgba(239, 68, 68, 0.25)" }]}>
+            <Feather name="alert-circle" size={14} color="#EF4444" />
+            <Text style={{ fontSize: 12, fontWeight: "600", color: "#EF4444", flex: 1 }}>
+              {voiceError}
+            </Text>
+          </Animated.View>
+        )}
 
         {/* ── Companion Progress Bar (Parsing working animation) ── */}
         {isParsing && (
@@ -1032,6 +792,7 @@ export default function UnifiedCapture({
                 <PressableScale
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    if (workspaces.length === 0) return;
                     const idx = workspaces.findIndex((w) => w.id === selectedWorkspaceId);
                     const nextIdx = (idx + 1) % workspaces.length;
                     setSelectedWorkspaceId(workspaces[nextIdx].id);
@@ -1142,39 +903,40 @@ export default function UnifiedCapture({
 
               <PressableScale
                 onPress={handleSave}
+                disabled={isSaving}
+                scaleTo={isSaving ? 1 : 0.95}
                 style={[
                   styles.saveButton,
                   {
-                    backgroundColor: theme.primary,
-                    shadowColor: theme.primary,
+                    backgroundColor: isSaving ? theme.textMuted : theme.primary,
+                    shadowColor: isSaving ? "transparent" : theme.primary,
                     shadowOffset: { width: 0, height: 6 },
-                    shadowOpacity: 0.25,
+                    shadowOpacity: isSaving ? 0 : 0.25,
                     shadowRadius: 10,
-                    elevation: 5,
+                    elevation: isSaving ? 0 : 5,
                     flex: 1,
                   },
                 ]}
               >
-                <Text style={styles.saveButtonText}>{saveButtonLabel}</Text>
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveButtonText}>{saveButtonLabel}</Text>
+                )}
               </PressableScale>
             </View>
           </Animated.View>
         )}
 
-        {/* ── Smart Suggestions (Recently Captured / Suggested for you) ── */}
-        {!inputText.trim() && (
+        {/* ── Smart Suggestions (from computed adaptive suggestions) ── */}
+        {!inputText.trim() && suggestions.length > 0 && (
           <Animated.View entering={FadeInUp.duration(200)} exiting={FadeOut.duration(150)} style={styles.suggestionsContainer}>
             <Text style={[styles.suggestionsLabel, { color: textMuted }]}>Suggested for you</Text>
             <View style={styles.suggestionsRow}>
-              {[
-                { title: "Gym 7:00 AM", icon: "activity", text: "Gym every morning at 7am" },
-                { title: "Review PRs", icon: "check-circle", text: "Review open pull requests" },
-                { title: "Read 20 pages", icon: "book-open", text: "Read for 30 minutes" },
-                { title: "Deploy to staging", icon: "cpu", text: "Deploy build to staging" },
-              ].map((s, i) => (
+              {suggestions.slice(0, 4).map((text, i) => (
                 <PressableScale
                   key={i}
-                  onPress={() => handleSuggestionTap(s.text)}
+                  onPress={() => handleSuggestionTap(text)}
                   style={[
                     styles.suggestionChip,
                     {
@@ -1183,9 +945,9 @@ export default function UnifiedCapture({
                     },
                   ]}
                 >
-                  <Feather name={s.icon as any} size={12} color={theme.primary} />
+                  <Feather name="zap" size={12} color={theme.primary} />
                   <Text style={[styles.suggestionChipText, { color: textPrimary }]}>
-                    {s.title}
+                    {text.length > 24 ? `${text.slice(0, 24)}…` : text}
                   </Text>
                 </PressableScale>
               ))}
@@ -1200,6 +962,17 @@ export default function UnifiedCapture({
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  // Voice error banner
+  voiceErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.2,
+    marginBottom: 12,
+  },
   sheetHeaderContainer: {
     paddingHorizontal: 20,
     paddingTop: 16,

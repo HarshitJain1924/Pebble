@@ -39,24 +39,6 @@ import Svg, { Rect, Path, Line, Circle } from "react-native-svg";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 
 export default function CalendarScreen() {
-  const [optimalHours, setOptimalHours] = React.useState<number[]>([]);
-  const [peakZone, setPeakZone] = React.useState<string>("Balanced Flow");
-
-  React.useEffect(() => {
-    async function loadOptimalHours() {
-      try {
-        const { getOptimalHours, getCognitiveFlowStats } = require("@/features/capture/services/cognitive-flow.service");
-        const hours = await getOptimalHours();
-        const stats = await getCognitiveFlowStats();
-        setOptimalHours(hours);
-        setPeakZone(stats.peakZone);
-      } catch (e) {
-        console.warn("Failed to load optimal hours for calendar:", e);
-      }
-    }
-    loadOptimalHours();
-  }, []);
-
   const {
     handleDragStart,
     router,
@@ -833,26 +815,6 @@ export default function CalendarScreen() {
               </View>
             )}
 
-            {optimalHours.length > 0 && (
-              <View style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                marginVertical: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                backgroundColor: isLight ? "rgba(99, 102, 241, 0.04)" : "rgba(99, 102, 241, 0.06)",
-                borderRadius: 12,
-                borderColor: colors.border,
-                borderWidth: 1,
-              }}>
-                <Feather name="zap" size={12} color="#F59E0B" style={{ marginTop: 1 }} />
-                <Text style={{ fontSize: 11, fontWeight: "700", color: colors.text, flex: 1 }}>
-                  Peak Focus Active: Highlighted hours are optimal for {peakZone.toLowerCase().split(" ")[0]} flow.
-                </Text>
-              </View>
-            )}
-
             {/* Hourly Planner Visual Blocks */}
             <View
               ref={timelineGridRef}
@@ -864,52 +826,18 @@ export default function CalendarScreen() {
                 const displayHour = hr === 12 ? 12 : hr % 12;
                 const ampm = hr >= 12 ? "PM" : "AM";
                 const timeStr = `${displayHour} ${ampm}`;
-                const isOptimal = optimalHours.includes(hr);
-
-                let highlightColor = "transparent";
-                let badgeIcon: any = null;
-                let optimalTextColor = colors.textMuted;
-
-                if (isOptimal) {
-                  if (peakZone === "Morning Focus Peak") {
-                    highlightColor = isLight ? "rgba(99, 102, 241, 0.04)" : "rgba(99, 102, 241, 0.06)";
-                    badgeIcon = "sun";
-                    optimalTextColor = colors.primary;
-                  } else if (peakZone === "Afternoon Steady Flow") {
-                    highlightColor = isLight ? "rgba(16, 185, 129, 0.04)" : "rgba(16, 185, 129, 0.06)";
-                    badgeIcon = "award";
-                    optimalTextColor = colors.success;
-                  } else if (peakZone === "Night Owl Momentum") {
-                    highlightColor = isLight ? "rgba(245, 158, 11, 0.04)" : "rgba(245, 158, 11, 0.06)";
-                    badgeIcon = "moon";
-                    optimalTextColor = "#F59E0B";
-                  } else {
-                    highlightColor = isLight ? "rgba(99, 102, 241, 0.02)" : "rgba(99, 102, 241, 0.04)";
-                    badgeIcon = "activity";
-                    optimalTextColor = colors.primary;
-                  }
-                }
 
                 return (
-                  <View key={hr} style={[styles.hourRow, { backgroundColor: highlightColor }]}>
+                  <View key={hr} style={styles.hourRow}>
                     <View style={styles.hourLabelCol}>
-                      {isOptimal && badgeIcon ? (
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 3, justifyContent: "flex-end" }}>
-                          <Feather name={badgeIcon} size={8} color={optimalTextColor} />
-                          <Text style={[styles.hourLabelText, { color: optimalTextColor, fontSize: 9, fontWeight: "800" }]}>
-                            {timeStr}
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text style={[styles.hourLabelText, { color: colors.textMuted }]}>{timeStr}</Text>
-                      )}
+                      <Text style={[styles.hourLabelText, { color: colors.textMuted }]}>{timeStr}</Text>
                     </View>
                     <Pressable
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                         router.push(`/task-details?id=${String(Date.now())}&type=task&date=${selectedDate}`);
                       }}
-                      style={[styles.hourLineCol, { borderColor: isOptimal ? `${optimalTextColor}25` : colors.border }]}
+                      style={[styles.hourLineCol, { borderColor: colors.border }]}
                     />
                   </View>
                 );

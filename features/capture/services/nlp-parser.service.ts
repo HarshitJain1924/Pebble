@@ -1,5 +1,4 @@
 import * as chrono from "chrono-node";
-import nlp from "compromise";
 
 export type ParsedProductivityItem = {
   type: "task" | "habit" | "checklist" | "note" | "link" | "idea" | "file";
@@ -150,22 +149,10 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     }
   }
 
-  // 0c. Note and Idea keyword detection
+  // 0c. Idea keyword detection (natural patterns only)
   if (type === "task") {
     const lowerTrimmed = originalText.toLowerCase().trim();
     if (
-      lowerTrimmed.startsWith("note:") ||
-      lowerTrimmed.startsWith("note ") ||
-      lowerTrimmed.startsWith("remember:") ||
-      lowerTrimmed.startsWith("remember ") ||
-      lowerTrimmed.startsWith("memo:") ||
-      lowerTrimmed.startsWith("memo ")
-    ) {
-      type = "note";
-      cleanedText = originalText.replace(/^(note|remember|memo)[:\s]+/i, "").trim();
-      confidence = 0.75;
-      detectionSignal = "keyword_note";
-    } else if (
       lowerTrimmed.startsWith("idea:") ||
       lowerTrimmed.startsWith("idea ") ||
       lowerTrimmed.startsWith("thought:") ||
@@ -196,9 +183,7 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     saturday: 6, sat: 6
   };
 
-  // --- 1. Category Detection (Early for Heuristic Classification) ---
-  const compromiseDoc = nlp(cleanedText);
-  
+  // --- 1. Category Detection ---
   for (const [catName, keywords] of Object.entries(CATEGORY_MAP)) {
     const hasKeyword = keywords.some(keyword => {
       const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -212,19 +197,6 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
       category = catName as any;
       confidence += 0.15;
       break;
-    }
-  }
-
-  if (!category) {
-    if (compromiseDoc.match("#Verb (study|read|learn|write|code)").found) {
-      category = "learning";
-      confidence += 0.1;
-    } else if (compromiseDoc.match("#Verb (run|walk|gym|stretch|swim|train)").found) {
-      category = "health";
-      confidence += 0.1;
-    } else if (compromiseDoc.match("(meeting|client|office|presentation|sprint)").found) {
-      category = "work";
-      confidence += 0.1;
     }
   }
 
@@ -586,7 +558,7 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
   confidence = Math.min(1.0, Math.max(0.1, confidence));
 
   // For non-task/habit types, strip metadata that doesn't apply
-  const isResource = type === "note" || type === "link" || type === "idea";
+  const isResource = type === "link" || type === "idea";
   const isList = type === "checklist";
 
   if (!detectionSignal && type === "task") {

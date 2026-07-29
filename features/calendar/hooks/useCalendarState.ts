@@ -290,10 +290,12 @@ export function useCalendarState() {
   const timelineItems = useMemo(() => {
     const tasks = allTodos
       .filter((todo) => {
+        const matchesReminderDate = todo.reminder?.triggerAt
+          ? getDateKey(new Date(todo.reminder.triggerAt)) === selectedDate
+          : false;
         const matchesDate =
           isRecurringOccurrenceForDate(todo, selectedDate) ||
-          (todo.alarmTime &&
-            getDateKey(new Date(todo.alarmTime)) === selectedDate);
+          matchesReminderDate;
         return matchesDate && todo.schedule?.date !== "inbox";
       })
       .map((todo) => {
@@ -839,16 +841,16 @@ export function useCalendarState() {
                 // Cancel old reminders — use canonical reminder field
                 await cancelReminderIds(todo.reminder?.notificationIds || []);
 
-                // Reschedule alarm time if it exists
-                let newAlarmTime = todo.alarmTime;
-                if (todo.alarmTime) {
-                  const alarmDate = new Date(todo.alarmTime);
+                // Derive hour/minute from canonical reminder.triggerAt
+                let newTriggerAt: number | undefined;
+                if (todo.reminder?.triggerAt) {
+                  const triggerDate = new Date(todo.reminder.triggerAt);
                   const [hours, minutes] = [
-                    alarmDate.getHours(),
-                    alarmDate.getMinutes(),
+                    triggerDate.getHours(),
+                    triggerDate.getMinutes(),
                   ];
                   const [year, monthVal, dayVal] = hDate.split("-").map(Number);
-                  const newAlarmDate = new Date(
+                  newTriggerAt = new Date(
                     year,
                     monthVal - 1,
                     dayVal,
@@ -856,8 +858,7 @@ export function useCalendarState() {
                     minutes,
                     0,
                     0,
-                  );
-                  newAlarmTime = newAlarmDate.getTime();
+                  ).getTime();
                 }
 
                 const todoToReschedule = {
@@ -865,7 +866,7 @@ export function useCalendarState() {
                   reminder: {
                     ...(todo.reminder || { enabled: true }),
                     enabled: true,
-                    triggerAt: newAlarmTime,
+                    triggerAt: newTriggerAt ?? (todo.reminder?.triggerAt),
                   },
                 };
 

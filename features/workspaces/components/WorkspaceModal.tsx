@@ -296,7 +296,7 @@ export function WorkspaceModal({
                   currentTodos[wsId] = Object.values(tasksMap).map(
                     (t: any) => ({
                       ...t,
-                      scheduledDate: t.dueDate,
+                      schedule: t.schedule || (t.dueDate ? { date: t.dueDate } : undefined),
                     }),
                   ) as Task[];
                 }

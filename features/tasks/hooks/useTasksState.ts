@@ -438,8 +438,10 @@ export function useTasksState() {
       if (Platform.OS === "web") {
         Object.values(allTodosMap).forEach((listTodos) => {
           listTodos.forEach((t: any) => {
-            if (t.alarmTime && !t.alarmId && t.alarmTime > Date.now()) {
-              const delay = t.alarmTime - Date.now();
+            // Use canonical reminder.triggerAt instead of legacy alarmTime
+            const triggerAt = t.reminder?.triggerAt;
+            if (triggerAt && triggerAt > Date.now() && t.reminder?.enabled !== false) {
+              const delay = triggerAt - Date.now();
               const timeoutId = setTimeout(() => {
                 try {
                   new Notification("Task reminder", { body: t.title });
@@ -447,12 +449,13 @@ export function useTasksState() {
                   Alert.alert("Reminder", t.title);
                 }
               }, delay);
+              // Store timeout reference in a web-specific field (not legacy alarmId)
               setTodos((current) => {
                 const updatedLists = { ...current };
                 for (const lid in updatedLists) {
                   updatedLists[lid] = updatedLists[lid].map((tt) =>
                     tt.id === t.id
-                      ? { ...tt, alarmId: `web-${String(timeoutId)}` }
+                      ? { ...tt, _webTimeoutId: `web-${String(timeoutId)}` }
                       : tt,
                   );
                 }

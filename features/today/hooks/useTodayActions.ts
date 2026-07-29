@@ -102,8 +102,7 @@ export function useTodayActions({
         if (checklist) {
           const updatedChecklist = {
             ...checklist,
-            item
-            s: (checklist.items || []).map((i) =>
+            items: (checklist.items || []).map((i) =>
               i.id === itemId ? { ...i, completed: !i.completed } : i,
             ),
           };
@@ -152,11 +151,8 @@ export function useTodayActions({
 
         const { xpAwarded } = await handleTaskXpChange(prevTodo, true);
 
-        const reminderIdsToClear = [
-          ...(prevTodo.notificationIds || []),
-          ...(prevTodo.alarmId ? [prevTodo.alarmId] : []),
-        ];
-        await cancelReminderIds(reminderIdsToClear);
+        // Cancel reminders from canonical reminder.notificationIds
+        await cancelReminderIds(prevTodo.reminder?.notificationIds);
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});

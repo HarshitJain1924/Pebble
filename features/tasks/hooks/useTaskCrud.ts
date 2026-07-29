@@ -210,7 +210,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           const listTodos = Object.values(currentTasksMap).map((t: any) => ({
             ...t,
             workspaceId: selectedWorkspaceId,
-            scheduledDate: t.scheduledDate || t.dueDate,
+            schedule: t.schedule || (t.scheduledDate || t.dueDate ? { date: t.scheduledDate || t.dueDate } : undefined),
           })) as Task[];
           if (!listTodos.some((t) => t.id === id)) {
             await TaskRepository.saveTask({
@@ -222,7 +222,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
               (t: any) => ({
                 ...t,
                 workspaceId: selectedWorkspaceId,
-                scheduledDate: t.scheduledDate || t.dueDate,
+                schedule: t.schedule || (t.scheduledDate || t.dueDate ? { date: t.scheduledDate || t.dueDate } : undefined),
               }),
             ) as Task[];
             const updated = { ...todos, [selectedWorkspaceId]: updatedList };

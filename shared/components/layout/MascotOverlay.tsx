@@ -160,7 +160,9 @@ const checkIfDailyClear = async (): Promise<boolean> => {
     const dayOfWeek = new Date().getDay();
     habits.forEach((h: any) => {
       if (!h.archivedAt) {
-        const isActive = !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
+        // Use canonical recurrence.daysOfWeek
+        const hDays = h.recurrence?.daysOfWeek;
+        const isActive = !hDays || hDays.length === 0 || hDays.includes(dayOfWeek);
         if (isActive) {
           const completedToday = h.completedDates?.includes(todayStr) || false;
           if (completedToday) {
@@ -949,7 +951,7 @@ export function MascotOverlay() {
       const parsedTodos = await TaskRepository.getTasks(activeWorkspace);
       const tasks = Object.values(parsedTodos).map((t: any) => ({
         ...t,
-        scheduledDate: t.dueDate,
+        schedule: t.schedule || (t.dueDate ? { date: t.dueDate } : undefined),
       })) as Task[];
 
       const habitsMap = await HabitRepository.getHabits(activeWorkspace);

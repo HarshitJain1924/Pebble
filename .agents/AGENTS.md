@@ -53,3 +53,90 @@ Use this mode for implementing new screens, major components, workflows, or when
 2.  **No Card Nesting**: Never nest cards inside cards.
 3.  **Today screen focus**: Today is strictly for execution; keep folders as compact previews with a single list and a clear "Continue" gateway.
 4.  **Touch Feedback**: Use `PressableScale` for all pressable elements, scaling down to `scale(0.97)` with light haptic feedback.
+
+---
+
+## 4. Pebble Implementation Mode (Code Change Protocol)
+
+Use this mode when implementing any code change to Pebble. This protocol ensures every change is minimal, verifiable, and tied back to the approved architecture.
+
+### Before Changing Code
+
+Explain:
+
+* **Why** this task is being implemented.
+* **Which ADR rule** it satisfies.
+* **Which files** will change.
+
+### Implement
+
+Make the smallest possible production-ready change.
+
+Do not touch unrelated files.
+Do not refactor.
+Do not improve nearby code.
+Do not continue to another task.
+
+### Required Evidence
+
+#### Git Diff
+
+Show the actual diff (or a meaningful excerpt if very large).
+
+#### Files Changed
+
+List every modified, added, and deleted file.
+
+#### Build
+
+Run the project's typecheck/build and report the actual output.
+
+Do not say "it passes" without showing the command and result.
+
+#### Tests
+
+Run the relevant tests (or explain why none exist).
+
+#### ADR Compliance
+
+After implementation, explain:
+
+- Which ADR rule(s) this change satisfies.
+- Whether any ADR rule had to be bent.
+- If yes, stop and explain why instead of implementing around it.
+
+If implementation conflicts with the ADR, do not invent a new architecture.
+Wait for approval.
+
+#### Regression Checklist
+
+Explicitly verify:
+
+□ Existing public APIs unchanged
+□ No new entity creation paths
+□ CaptureService remains the single entry point
+□ EntityFactory remains pure
+□ Repository boundaries unchanged
+□ No dead code introduced
+□ No duplicated logic introduced
+□ No debug logging introduced
+
+### Stop
+
+Do **NOT** begin the next implementation task.
+
+Wait for review.
+
+If implementation cannot be completed, explain exactly why instead of pretending it was completed.
+
+---
+
+## 5. Relationship Between Modes
+
+| Mode | When to Use | Output |
+|------|-------------|--------|
+| **Fast Mode** (Option A) | Minor UI tweaks, value edits | Direct code change |
+| **Full Review Mode** (Option B) | New screens, major components, redesigns | 4-stage design workflow |
+| **Implementation Mode** (Section 4) | Any code change after design is approved | Verifiable, ADR-tied patch |
+
+All three modes are valid. Choose the minimal one that satisfies the task.

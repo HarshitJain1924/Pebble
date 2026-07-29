@@ -13,7 +13,6 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
-  console.log("[DEBUG-4] task entering normalizeTask():", JSON.stringify({ id: rawTask.id, title: rawTask.title, categoryId: rawTask.categoryId, category: rawTask.category, scheduledDate: rawTask.scheduledDate, schedule: rawTask.schedule, reminder: rawTask.reminder, reminderHour: rawTask.reminderHour, alarmTime: rawTask.alarmTime, workspaceId: rawTask.workspaceId, recurrence: rawTask.recurrence, linkedCollectionIds: rawTask.linkedCollectionIds, resourceIds: rawTask.resourceIds }, null, 2));
   const wsId = rawTask.workspaceId || defaultWorkspaceId;
   const status: TaskStatus =
     rawTask.status === "completed" || rawTask.completed === true
@@ -124,7 +123,6 @@ export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
     archivedAt:
       rawTask.archivedAt || (rawTask.archived ? Date.now() : undefined),
   };
-  console.log("[DEBUG-5] cleanTask leaving normalizeTask():", JSON.stringify({ id: result.id, title: result.title, categoryId: result.categoryId, schedule: result.schedule, reminder: result.reminder, workspaceId: result.workspaceId, recurrence: result.recurrence, resourceIds: result.resourceIds }, null, 2));
   return result;
 }
 
@@ -159,7 +157,6 @@ export class TaskRepository {
     const rawTask = records[id] || null;
     if (rawTask) {
       const result = normalizeTask(rawTask, workspaceId);
-      console.log("[DEBUG-7] object returned by getTask():", JSON.stringify({ id: result.id, title: result.title, categoryId: result.categoryId, schedule: result.schedule, reminder: result.reminder, workspaceId: result.workspaceId, recurrence: result.recurrence, resourceIds: result.resourceIds }, null, 2));
       return result;
     }
     return null;
@@ -203,8 +200,6 @@ export class TaskRepository {
     }
 
     records[task.id] = cleanTask;
-    const toWrite = JSON.parse(JSON.stringify(records)); // clone to avoid mutation
-    console.log("[DEBUG-6] object written to AsyncStorage:", JSON.stringify({ key, records: Object.fromEntries(Object.entries(toWrite).map(([id, t]: [string, any]) => [id, { id: t.id, title: t.title, categoryId: t.categoryId, schedule: t.schedule, reminder: t.reminder, workspaceId: t.workspaceId, recurrence: t.recurrence, resourceIds: t.resourceIds }])) }, null, 2));
     await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 

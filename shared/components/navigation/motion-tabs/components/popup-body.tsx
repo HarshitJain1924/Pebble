@@ -35,8 +35,12 @@ const getDateKey = (date = new Date()) => {
 };
 
 const getTodoDateKey = (todo: any) => {
+  // Canonical schedule.date
+  if (todo.schedule?.date) return todo.schedule.date;
+  // Legacy fallback for migration
   if (todo.scheduledDate) return todo.scheduledDate;
-  if (todo.alarmTime) return getDateKey(new Date(todo.alarmTime));
+  // Derive from canonical reminder.triggerAt
+  if (todo.reminder?.triggerAt) return getDateKey(new Date(todo.reminder.triggerAt));
   const idNum = Number(todo.id);
   if (!isNaN(idNum) && idNum > 100000000000) return getDateKey(new Date(idNum));
   return getDateKey();
@@ -87,8 +91,8 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         let pendingCount = 0;
         Object.values(tasksMap).forEach((todo: any) => {
           if (todo.archivedAt) return;
-          const todoDate = todo.dueDate || getDateKey();
-          const isTodayOrOverdue = todoDate <= todayStr || todo.dueDate === "inbox";
+          const todoDate = todo.schedule?.date || getDateKey();
+          const isTodayOrOverdue = todoDate <= todayStr || todo.schedule?.date === "inbox";
           if (isTodayOrOverdue) {
             if (todo.completed) {
               tComp++;
@@ -97,11 +101,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
             }
             tTotal++;
           }
-          const isOverdue = !todo.completed && todoDate < todayStr && todo.dueDate !== "inbox";
+          const isOverdue = !todo.completed && todoDate < todayStr && todo.schedule?.date !== "inbox";
           if (isOverdue) {
             overdueList.push({
               ...todo,
-              scheduledDate: todo.dueDate,
+              schedule: todo.schedule || (todo.dueDate ? { date: todo.dueDate } : undefined),
               folderId: wsId,
             });
           }
@@ -132,7 +136,9 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         if (h.recurrence) {
           return isRecurringOccurrenceForDate(h, todayStr);
         }
-        return !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
+        // Use canonical recurrence.daysOfWeek
+        const hDays = h.recurrence?.daysOfWeek;
+        return !hDays || hDays.length === 0 || hDays.includes(dayOfWeek);
       });
       hTotal = todayActiveHabits.length;
       hComp = todayActiveHabits.filter((h: any) => h.completedDates?.includes(todayStr)).length;

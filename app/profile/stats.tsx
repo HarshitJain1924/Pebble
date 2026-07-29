@@ -248,15 +248,6 @@ export default function StatsScreen() {
       }
       setWeeklyTrends(trends);
 
-      // Cognitive Flow Peaks
-      const { getCognitiveFlowStats } = require("@/features/capture/services/cognitive-flow.service");
-      const flowStats = await getCognitiveFlowStats();
-      setCognitiveFlowStats({
-        morning: 0, // Mock fields not directly shown in ProgressSection
-        afternoon: 0,
-        evening: 0,
-        ...flowStats,
-      });
 
       // Category breakdowns
       const catColors: Record<string, string> = {};

@@ -84,30 +84,10 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       color: isLight ? "#B45309" : "#F59E0B",
     });
 
-    // 2. Schedule / Recurrence
+    // 2. Schedule / Recurrence — use canonical recurrence.daysOfWeek
     let recLabel = "";
     if (habit.recurrence) {
       recLabel = getRecurrenceLabel(habit.recurrence) ?? "";
-    } else if (habit.reminderDays && habit.reminderDays.length > 0) {
-      const DAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      const sorted = [...habit.reminderDays].sort((a, b) => a - b);
-      if (sorted.length === 7) {
-        recLabel = "Daily";
-      } else if (
-        sorted.length === 5 &&
-        !sorted.includes(0) &&
-        !sorted.includes(6)
-      ) {
-        recLabel = "Weekdays";
-      } else if (
-        sorted.length === 2 &&
-        sorted.includes(0) &&
-        sorted.includes(6)
-      ) {
-        recLabel = "Weekends";
-      } else {
-        recLabel = sorted.map((d) => DAY_FULL[d]?.substring(0, 3)).join(" ");
-      }
     } else {
       recLabel = "Daily";
     }
@@ -120,15 +100,13 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       });
     }
 
-    // 3. Reminder (no bell icon, clean 12h format e.g. 8:00 AM)
-    if (
-      habit.reminderHour !== undefined &&
-      habit.reminderMinute !== undefined
-    ) {
-      const ampm = habit.reminderHour >= 12 ? "PM" : "AM";
+    // 3. Reminder — use canonical reminder.triggerAt
+    if (habit.reminder?.triggerAt) {
+      const d = new Date(habit.reminder.triggerAt);
+      const ampm = d.getHours() >= 12 ? "PM" : "AM";
       const displayHour =
-        habit.reminderHour % 12 === 0 ? 12 : habit.reminderHour % 12;
-      const displayMinute = String(habit.reminderMinute).padStart(2, "0");
+        d.getHours() % 12 === 0 ? 12 : d.getHours() % 12;
+      const displayMinute = String(d.getMinutes()).padStart(2, "0");
       parts.push({
         key: "reminder",
         text: `${displayHour}:${displayMinute} ${ampm}`,
@@ -141,9 +119,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   }, [
     streak,
     habit.recurrence,
-    habit.reminderDays,
-    habit.reminderHour,
-    habit.reminderMinute,
+    habit.reminder?.triggerAt,
     isLight,
   ]);
 
