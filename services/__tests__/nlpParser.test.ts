@@ -1,4 +1,5 @@
-import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
+import { parseProductivityText, type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
+import { buildResource } from "@/features/capture/services/entity-factory.service";
 
 describe("nlpParser service unit tests", () => {
   it("should handle empty or whitespace inputs gracefully", () => {
@@ -100,5 +101,30 @@ describe("nlpParser service unit tests", () => {
     expect(cleanResult.title).toBe("Submit assignment");
     expect(cleanResult.priority).toBe("high");
     expect(cleanResult.time).toBe("17:00");
+  });
+
+  it("should preserve file attachment metadata when buildResource is called", () => {
+    const fileItem: ParsedProductivityItem = {
+      type: "file",
+      title: "project-spec.pdf",
+      confidence: 0.95,
+      attachments: [
+        {
+          id: "att-123",
+          name: "project-spec.pdf",
+          uri: "file:///path/to/project-spec.pdf",
+          mimeType: "application/pdf",
+          size: 10240,
+        },
+      ],
+    };
+
+    const resource = buildResource(fileItem, "ws-1");
+    expect(resource.type).toBe("note");
+    expect(resource.title).toBe("project-spec.pdf");
+    expect(resource.attachments).toBeDefined();
+    expect(resource.attachments).toHaveLength(1);
+    expect(resource.attachments![0].name).toBe("project-spec.pdf");
+    expect(resource.attachments![0].uri).toBe("file:///path/to/project-spec.pdf");
   });
 });

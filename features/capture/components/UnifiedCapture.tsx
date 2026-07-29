@@ -57,7 +57,7 @@ import {
   getWorkspaceSuggestions,
   type WorkspaceSuggestionResult,
 } from "@/features/workspaces/services/workspace-suggestions.service";
-import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { INBOX_WORKSPACE_ID, type Attachment } from "@/shared/types/domain.types";
 import { saveParsedItem } from "@/features/capture/services/CaptureService";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -376,6 +376,13 @@ export default function UnifiedCapture({
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
+        const attachment: Attachment = {
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: asset.name,
+          uri: asset.uri,
+          mimeType: asset.mimeType || "application/octet-stream",
+          size: asset.size || 0,
+        };
         setAttachedFile({
           name: asset.name,
           size: asset.size || 0,
@@ -385,6 +392,7 @@ export default function UnifiedCapture({
           type: "file",
           title: asset.name,
           confidence: 0.95,
+          attachments: [attachment],
         });
       }
     } catch (err) {

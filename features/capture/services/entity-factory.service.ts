@@ -24,6 +24,7 @@ import {
   type Checklist,
   type Resource,
   type RecurrenceRule,
+  type Attachment,
 } from "@/shared/types/domain.types";
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 
@@ -211,6 +212,7 @@ export function buildResource(
     type: typeMap[item.type] || "note",
     title: item.title,
     body: item.type === "link" ? item.url || item.title : undefined,
+    attachments: item.attachments && item.attachments.length > 0 ? item.attachments : undefined,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };

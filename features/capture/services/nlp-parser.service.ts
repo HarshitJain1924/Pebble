@@ -1,4 +1,5 @@
 import * as chrono from "chrono-node";
+import { type Attachment } from "@/shared/types/domain.types";
 
 export type ParsedProductivityItem = {
   type: "task" | "habit" | "checklist" | "note" | "link" | "idea" | "file";
@@ -20,6 +21,8 @@ export type ParsedProductivityItem = {
   items?: string[];
   // Link-specific: extracted URL
   url?: string;
+  // File-specific: attached document metadata
+  attachments?: Attachment[];
   // Detection metadata: what signal triggered the type detection
   detectionSignal?: "url_pattern" | "multiline_bullets" | "multiline_short_lines" | "recurrence_health" | "keyword_note" | "keyword_idea" | "default_task";
   // Checklist confidence level for medium-confidence suggestions
