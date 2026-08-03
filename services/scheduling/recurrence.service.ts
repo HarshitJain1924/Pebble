@@ -28,6 +28,10 @@ export function isRecurringOccurrenceForDate(
 ): boolean {
   if (item.archivedAt) return false;
 
+  if (item.recurrenceExceptions && Array.isArray(item.recurrenceExceptions) && item.recurrenceExceptions.includes(dateKey)) {
+    return false;
+  }
+
   const recurrence: RecurrenceRule | undefined = item.recurrence;
   const scheduleDate = item.schedule?.date || item.scheduledDate;
 
@@ -47,11 +51,13 @@ export function isRecurringOccurrenceForDate(
   const targetDate = parseDateKey(dateKey);
   const dayOfWeek = targetDate.getDay(); // 0 = Sunday .. 6 = Saturday
 
-  const freq = recurrence.frequency || (recurrence as any).type || "daily";
+  const freq: string = (recurrence.frequency || (recurrence as any).type || "daily") as string;
 
   switch (freq) {
     case "daily":
       return true;
+    case "weekdays":
+      return dayOfWeek >= 1 && dayOfWeek <= 5;
     case "weekly": {
       const targetDays = recurrence.daysOfWeek || (recurrence as any).days || [parseDateKey(startDayKey).getDay()];
       return targetDays.includes(dayOfWeek);
@@ -65,8 +71,13 @@ export function isRecurringOccurrenceForDate(
       const diff = dayDiff(startDayKey, dateKey);
       return diff >= 0 && diff % (interval * 365) === 0;
     }
+    case "interval":
     case "custom": {
       const interval = recurrence.interval || 1;
+      const unit = recurrence.unit || (recurrence as any).unit || "days";
+      if (unit === "hours") {
+        return true;
+      }
       const diff = dayDiff(startDayKey, dateKey);
       return diff >= 0 && diff % interval === 0;
     }
@@ -81,11 +92,13 @@ export function isRecurringOccurrenceForDate(
 export function getRecurrenceLabel(recurrence: RecurrenceRule | any): string | null {
   if (!recurrence) return null;
   
-  const freq = recurrence.frequency || recurrence.type;
+  const freq: string = (recurrence.frequency || recurrence.type) as string;
 
   switch (freq) {
     case "daily":
       return "Daily";
+    case "weekdays":
+      return "Weekdays";
     case "weekly": {
       const daysOfWeek = recurrence.daysOfWeek || recurrence.days;
       if (daysOfWeek && daysOfWeek.length > 0) {
@@ -114,8 +127,15 @@ export function getRecurrenceLabel(recurrence: RecurrenceRule | any): string | n
         return `Monthly on the ${recurrence.dayOfMonth}${suffix(recurrence.dayOfMonth)}`;
       }
       return "Monthly";
-    case "custom":
-      return recurrence.interval === 1 ? "Every Day" : `Every ${recurrence.interval} Days`;
+    case "interval":
+    case "custom": {
+      const interval = recurrence.interval || 1;
+      const unit = recurrence.unit || (recurrence as any).unit || "days";
+      if (unit === "hours") {
+        return interval === 1 ? "Every Hour" : `Every ${interval} Hours`;
+      }
+      return interval === 1 ? "Every Day" : `Every ${interval} Days`;
+    }
     default:
       return null;
   }

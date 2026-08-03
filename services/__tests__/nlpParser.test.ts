@@ -94,6 +94,12 @@ describe("nlpParser service unit tests", () => {
     expect(reportMonthly.type).toBe("task");
     expect(reportMonthly.recurrence?.type).toBe("monthly");
     expect(reportMonthly.recurrence?.dayOfMonth).toBe(15);
+
+    // Recurring start/target date preservation
+    const recurringWithDate = parseProductivityText("Submit project report every month starting tomorrow at 5pm");
+    expect(recurringWithDate.type).toBe("task");
+    expect(recurringWithDate.date).toBeDefined();
+    expect(recurringWithDate.time).toBe("17:00");
   });
 
   it("should clean up date and time keywords from final title", () => {

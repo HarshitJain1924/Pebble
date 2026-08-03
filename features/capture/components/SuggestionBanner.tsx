@@ -7,25 +7,18 @@ import * as Haptics from "expo-haptics";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { resolveSuggestion, type SmartSuggestion } from "@/features/capture/services/suggestions.service";
-import { Task, type Habit, Workspace, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Task, type Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskRepository, HabitRepository, UiStateRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 
 interface SuggestionBannerProps {
   activeSuggestions: SmartSuggestion[];
   loadSuggestions: () => Promise<void> | void;
   setHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
-  persistHabits: (nextHabits: Habit[]) => Promise<void> | void;
   setTodos: React.Dispatch<React.SetStateAction<Record<string, Task[]>>>;
-  persistState: (
-    lists: Workspace[],
-    selected: string,
-    todos: Record<string, Task[]>,
-  ) => Promise<void> | void;
-  lists: Workspace[];
-  selectedWorkspaceId: string;
   activeWorkspaceId: string | null;
+  selectedWorkspaceId: string;
   getDateKey: (date?: Date) => string;
 }
 
@@ -33,12 +26,9 @@ export function SuggestionBanner({
   activeSuggestions,
   loadSuggestions,
   setHabits,
-  persistHabits,
   setTodos,
-  persistState,
-  lists,
-  selectedWorkspaceId,
   activeWorkspaceId,
+  selectedWorkspaceId,
   getDateKey,
 }: SuggestionBannerProps) {
   const colorScheme = useColorScheme();
@@ -126,7 +116,9 @@ export function SuggestionBanner({
                   const currentHabits: Habit[] = Object.values(habitsMap);
 
                   const updated = [newHabit, ...currentHabits];
-                  await persistHabits(updated);
+                  await EntityCommandService.createHabit(newHabit, activeWorkspace, {
+                    skipEvents: true,
+                  });
                   setHabits(updated);
                   emitStateChange("habits_changed");
                   Alert.alert(
@@ -155,7 +147,9 @@ export function SuggestionBanner({
                   const updated = {
                     [listId]: updatedList,
                   };
-                  await persistState(lists, listId, updated);
+                  await EntityCommandService.createTask(newTodo, listId, {
+                    skipEvents: true,
+                  });
                   setTodos(updated);
                   emitStateChange("tasks_changed");
                   Alert.alert(

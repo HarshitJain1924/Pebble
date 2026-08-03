@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ChecklistRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { globalChecklists } from "@/features/tasks/utils/task-formatting";
@@ -37,7 +38,10 @@ export function useChecklistState(selectedWorkspaceId: string) {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      await ChecklistRepository.saveChecklist(newChecklist);
+      await EntityCommandService.createChecklist(newChecklist, activeList, {
+        skipEvents: true,
+        skipAnalytics: true,
+      });
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {

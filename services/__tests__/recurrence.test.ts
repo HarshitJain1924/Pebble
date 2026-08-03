@@ -135,6 +135,8 @@ describe("recurrence service unit tests", () => {
       expect(getRecurrenceLabel({ type: "monthly", dayOfMonth: 3 })).toBe("Monthly on the 3rd");
       expect(getRecurrenceLabel({ type: "interval", unit: "hours", interval: 1 })).toBe("Every Hour");
       expect(getRecurrenceLabel({ type: "interval", unit: "days", interval: 5 })).toBe("Every 5 Days");
+      expect(getRecurrenceLabel({ frequency: "custom", unit: "hours", interval: 1 })).toBe("Every Hour");
+      expect(getRecurrenceLabel({ frequency: "custom", unit: "hours", interval: 2 })).toBe("Every 2 Hours");
     });
   });
 });

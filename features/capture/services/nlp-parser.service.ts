@@ -477,8 +477,8 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
       for (const result of chronoResults) {
         const parsedDate = result.start.date();
         
-        // If task, extract target date (only if NOT recurring)
-        if (type === "task" && !recurrence) {
+        // Extract target date for task or habit items
+        if (type === "task" || type === "habit") {
           dateStr = formatDate(parsedDate);
         }
 
@@ -519,11 +519,11 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
       const todayRegex = /\btoday\b/i;
       const tomorrowRegex = /\btomorrow\b/i;
       if (todayRegex.test(cleanedText)) {
-        if (type === "task" && !recurrence) dateStr = formatDate(new Date());
+        if (type === "task" || type === "habit") dateStr = formatDate(new Date());
         cleanedText = cleanedText.replace(todayRegex, "");
         confidence += 0.1;
       } else if (tomorrowRegex.test(cleanedText)) {
-        if (type === "task" && !recurrence) {
+        if (type === "task" || type === "habit") {
           const tomorrow = new Date();
           tomorrow.setDate(tomorrow.getDate() + 1);
           dateStr = formatDate(tomorrow);

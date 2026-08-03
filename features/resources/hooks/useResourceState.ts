@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import { Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ResourceRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { globalResources, setGlobalResources } from "@/features/tasks/utils/task-formatting";
@@ -54,7 +55,10 @@ export function useResourceState(
         updatedAt: Date.now(),
       };
 
-      await ResourceRepository.saveResource(newResource);
+      await EntityCommandService.createResource(newResource, wsId, {
+        skipEvents: true,
+        skipAnalytics: true,
+      });
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});

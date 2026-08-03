@@ -90,6 +90,7 @@ export function buildRecurrenceRule(
   return {
     frequency: frequencyMap[parserRecurrence.type] || "daily",
     interval: parserRecurrence.interval || 1,
+    unit: parserRecurrence.unit,
     daysOfWeek:
       parserRecurrence.type === "weekdays"
         ? [1, 2, 3, 4, 5]

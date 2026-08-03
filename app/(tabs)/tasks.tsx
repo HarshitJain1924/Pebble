@@ -336,12 +336,9 @@ export function WorkspacesScreen() {
                   activeSuggestions={state.activeSuggestions}
                   loadSuggestions={state.loadSuggestions}
                   setHabits={state.setHabits}
-                  persistHabits={state.persistHabits}
                   setTodos={state.setTodos}
-                  persistState={state.persistState}
-                  lists={state.workspaces}
-                  selectedWorkspaceId={state.selectedWorkspaceId}
                   activeWorkspaceId={state.activeWorkspaceId}
+                  selectedWorkspaceId={state.selectedWorkspaceId}
                   getDateKey={getDateKey}
                 />
                 <WorkspaceGrid

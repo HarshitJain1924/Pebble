@@ -6,6 +6,7 @@ import { handleTaskXpChange } from "@/features/settings/services/settings.servic
 import type { TaskCategory } from "@/features/tasks/services/task-categories";
 import { pluginManager } from "@/plugin";
 import { TaskRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 import { emitStateChange } from "@/services/events/state-events";
@@ -34,6 +35,49 @@ export interface UseTaskCrudDeps {
 export function useTaskCrud(deps: UseTaskCrudDeps) {
   const { todos, setTodos, selectedWorkspaceId, workspaces, showUndo, showToast } = deps;
 
+  // ── Focused Persistence Helpers ────────────────────────────────────────
+
+  /** Persist active workspace ID in UI state. */
+  const persistUiState = useCallback(async (workspaceId: string) => {
+    const { UiStateRepository } = await import("@/repositories");
+    if (workspaceId && workspaceId !== "null") {
+      await UiStateRepository.saveUiState({ activeWorkspaceId: workspaceId });
+    }
+  }, []);
+
+  /** Persist the workspace list. */
+  const persistWorkspaceState = useCallback(async (listsToSave: Workspace[]) => {
+    const { WorkspaceRepository } = await import("@/repositories");
+    await WorkspaceRepository.saveWorkspaces(listsToSave);
+  }, []);
+
+  /** Batch-save all task collections. */
+  const persistTaskState = useCallback(
+    async (todosToSave: Record<string, Task[]>) => {
+      for (const [wsId, taskList] of Object.entries(todosToSave)) {
+        await TaskRepository.saveTasks(taskList, wsId);
+      }
+    },
+    [],
+  );
+
+  /** Fire daily history snapshot (fire-and-forget). */
+  const recordAnalyticsSnapshot = useCallback(() => {
+    void recordDailyHistorySnapshot();
+  }, []);
+
+  /** Finalize a mutation: sync widgets, emit state events. */
+  const finalizeMutation = useCallback(() => {
+    void syncWidgetData().catch(() => {});
+    emitStateChange("tasks_changed", "tasks_screen");
+  }, []);
+
+  /**
+   * Persist all state in a single batch.
+   *
+   * Delegates to focused helpers while preserving the original
+   * failure semantics: if ANY step fails, the whole batch is caught.
+   */
   const persistState = useCallback(
     async (
       listsToSave: Workspace[],
@@ -41,22 +85,15 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       todosToSave: Record<string, Task[]>,
     ) => {
       try {
-        const { WorkspaceRepository, UiStateRepository } =
-          await import("@/repositories");
-        if (selected && selected !== "null") {
-          await UiStateRepository.saveUiState({ activeWorkspaceId: selected });
-        }
-        await WorkspaceRepository.saveWorkspaces(listsToSave);
-
-        for (const [wsId, taskList] of Object.entries(todosToSave)) {
-          await TaskRepository.saveTasks(taskList, wsId);
-        }
-        void recordDailyHistorySnapshot();
+        await persistUiState(selected);
+        await persistWorkspaceState(listsToSave);
+        await persistTaskState(todosToSave);
+        recordAnalyticsSnapshot(); // fire-and-forget, matching original behavior
       } catch (e) {
         console.warn("Failed to persist current state:", e);
       }
     },
-    [],
+    [persistUiState, persistWorkspaceState, persistTaskState, recordAnalyticsSnapshot],
   );
 
   const onSaveNewTask = useCallback(
@@ -84,13 +121,34 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         workspaces.find((l) => l.id === targetWorkspaceId)?.name || "My Pebbles";
       showToast(`✓ Task added to ${wsName}`);
 
-      await persistState(workspaces, selectedWorkspaceId, updatedTodos);
-      void syncWidgetData().catch(() => {});
-      emitStateChange("tasks_changed", "tasks_screen");
+      // Persist via ECS: creates the task, then persist non-task state separately.
+      // persistTaskState is intentionally skipped — ECS already persisted the entity.
+      try {
+        await EntityCommandService.createTask(taskWithCreatedAt, targetWorkspaceId, {
+          skipEvents: true,
+          skipAnalytics: true,
+        });
+        await persistUiState(selectedWorkspaceId);
+        await persistWorkspaceState(workspaces);
+        recordAnalyticsSnapshot();
+      } catch (e) {
+        console.warn("Failed to persist current state:", e);
+      }
+
+      finalizeMutation();
 
       pluginManager.dispatchTaskCreated(taskWithCreatedAt);
     },
-    [todos, setTodos, selectedWorkspaceId, workspaces, showToast, persistState],
+    [
+      todos,
+      setTodos,
+      selectedWorkspaceId,
+      workspaces,
+      showToast,
+      persistUiState,
+      persistWorkspaceState,
+      recordAnalyticsSnapshot,
+    ],
   );
 
   const updateTodoTitle = useCallback(
@@ -104,8 +162,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const updated = { ...todos, [selectedWorkspaceId]: updatedList };
       setTodos(updated);
       await persistState(workspaces, selectedWorkspaceId, updated);
-      void syncWidgetData().catch(() => {});
-      emitStateChange("tasks_changed", "tasks_screen");
+      finalizeMutation();
     },
     [todos, selectedWorkspaceId, setTodos, workspaces, persistState],
   );
@@ -131,8 +188,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
 
       setTodos(updated);
       await persistState(workspaces, selectedWorkspaceId, updated);
-      void syncWidgetData().catch(() => {});
-      emitStateChange("tasks_changed", "tasks_screen");
+      finalizeMutation();
     },
     [todos, selectedWorkspaceId, setTodos, workspaces, persistState],
   );
@@ -195,8 +251,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
 
       pluginManager.dispatchTaskDeleted(id);
       await persistState(workspaces, selectedWorkspaceId, updatedTodos);
-      void syncWidgetData().catch(() => {});
-      emitStateChange("tasks_changed", "tasks_screen");
+      finalizeMutation();
 
       showUndo({
         message: `Deleted "${toDelete.title}"`,
@@ -230,8 +285,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
             setTodos(updated);
           }
 
-          void syncWidgetData().catch(() => {});
-          emitStateChange("tasks_changed", "tasks_screen");
+          finalizeMutation();
         },
       });
     },
@@ -247,8 +301,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const updated = { ...todos, [selectedWorkspaceId]: updatedList };
       setTodos(updated);
       await persistState(workspaces, selectedWorkspaceId, updated);
-      void syncWidgetData().catch(() => {});
-      emitStateChange("tasks_changed", "tasks_screen");
+      finalizeMutation();
     },
     [todos, selectedWorkspaceId, setTodos, workspaces, persistState],
   );
@@ -268,8 +321,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
     };
     setTodos(updated);
     await persistState(workspaces, selectedWorkspaceId, updated);
-    void syncWidgetData().catch(() => {});
-    emitStateChange("tasks_changed", "tasks_screen");
+    finalizeMutation();
   }, [todos, selectedWorkspaceId, setTodos, workspaces, persistState]);
 
   const convertCollectionItemToTask = useCallback(
@@ -289,14 +341,17 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           updatedAt: Date.now(),
         };
 
-        await TaskRepository.saveTask(newTask);
+        await EntityCommandService.createTask(newTask, destinationWorkspaceId, {
+          skipEvents: true,
+          skipAnalytics: true,
+        });
         const refreshedTasksMap = await TaskRepository.getTasks(
-          newTask.workspaceId || INBOX_WORKSPACE_ID,
+          destinationWorkspaceId,
         );
         const refreshedTodos = Object.values(refreshedTasksMap);
         setTodos({
           ...todos,
-          [newTask.workspaceId || INBOX_WORKSPACE_ID]: refreshedTodos,
+          [destinationWorkspaceId]: refreshedTodos,
         });
 
         await earnPebble("task");

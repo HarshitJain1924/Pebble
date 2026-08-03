@@ -12,9 +12,11 @@ import {
 import { emitStateChange } from "@/services/events/state-events";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import { appendGratitudeHistoryEntry } from "@/services/storage/storage.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import {
   INBOX_WORKSPACE_ID,
   type Checklist,
+  type Task,
 } from "@/shared/types/domain.types";
 import * as Haptics from "expo-haptics";
 import { useCallback } from "react";
@@ -371,17 +373,21 @@ export function useTodayActions({
         tomorrow.setDate(tomorrow.getDate() + 1);
         const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
 
-        const newTodo = {
+        const newTask: Task = {
           id: String(Date.now()),
           title: intentionText.trim(),
-          completed: false,
-          priority: "high", // high priority!
+          status: "todo",
+          priority: "high",
           workspaceId: INBOX_WORKSPACE_ID,
-          scheduledDate: tomorrowStr,
-          created: Date.now(),
+          schedule: { date: tomorrowStr },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
         };
 
-        await TaskRepository.saveTask(newTodo);
+        await EntityCommandService.createTask(newTask, INBOX_WORKSPACE_ID, {
+          skipEvents: true,
+          skipAnalytics: true,
+        });
       }
 
       // Reset fields and close

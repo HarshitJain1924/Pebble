@@ -15,6 +15,7 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { usePathname, useRouter } from "expo-router";
 import { getSmartQuickSuggestions } from "@/features/capture/services/quick-suggestions.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import type { Task, Habit, Workspace } from "@/shared/types/domain.types";
 import {
   TaskRepository,
@@ -1122,18 +1123,23 @@ export function MascotOverlay() {
         }, 1500);
 
         const activeWorkspace = (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
+        const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
 
-        await TaskRepository.saveTask({
-          id: String(Date.now()),
-          workspaceId: activeWorkspace,
-          title: payload.title,
-          completed: false,
-          category: "learning",
-          priority: "medium",
-          dueDate: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+        await EntityCommandService.createTask(
+          {
+            id: String(Date.now()),
+            workspaceId: activeWorkspace,
+            title: payload.title,
+            status: "todo",
+            categoryId: "learning",
+            priority: "medium",
+            schedule: { date: todayStr },
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          activeWorkspace,
+          { skipEvents: true, skipAnalytics: true },
+        );
         emitStateChange("tasks_changed");
         setTimeout(() => {
           triggerBubble("Caw! Suggestion added to tasks! 📋✨", 4000);
@@ -1146,17 +1152,20 @@ export function MascotOverlay() {
 
         const activeWorkspace = (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
 
-        await HabitRepository.saveHabit({
-          id: `habit-${Date.now()}`,
-          workspaceId: activeWorkspace,
-          title: payload.title,
-          streak: 0,
-          bestStreak: 0,
-          completedDates: [],
-          recurrenceRule: "FREQ=DAILY",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+        await EntityCommandService.createHabit(
+          {
+            id: `habit-${Date.now()}`,
+            workspaceId: activeWorkspace,
+            title: payload.title,
+            categoryId: "health",
+            recurrence: { frequency: "daily", interval: 1 },
+            completionHistory: [],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          activeWorkspace,
+          { skipEvents: true, skipAnalytics: true },
+        );
         emitStateChange("habits_changed");
         setTimeout(() => {
           triggerBubble("Caw! Suggestion added to habits! 🔥✨", 4000);

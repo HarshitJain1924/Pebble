@@ -14,6 +14,7 @@ import {
 } from "@/features/tasks/services/task-categories";
 import { getDateKey } from "@/features/tasks/utils/task-formatting";
 import { pluginManager } from "@/plugin";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { HabitRepository } from "@/repositories";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
@@ -85,7 +86,16 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
 
       const nextHabits = [next, ...habits];
       setHabits(nextHabits);
-      await persistHabits(nextHabits);
+
+      // Persist via ECS — skip persistHabits as ECS already handled persistence.
+      try {
+        await EntityCommandService.createHabit(next, selectedWorkspaceId || INBOX_WORKSPACE_ID, {
+          skipEvents: true,
+        });
+      } catch (e) {
+        console.warn("Failed to persist habit:", e);
+      }
+
       void syncWidgetData().catch(() => {});
       emitStateChange("habits_changed", "tasks_screen");
 
@@ -93,7 +103,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         TASK_CATEGORY_META.find((c) => c.key === category)?.label || "Health";
       showToast(`✓ Habit added to ${catLabel}`);
     },
-    [habits, setHabits, selectedWorkspaceId, persistHabits, showToast],
+    [habits, setHabits, selectedWorkspaceId, showToast],
   );
 
   const deleteHabit = useCallback(

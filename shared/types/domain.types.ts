@@ -41,6 +41,7 @@ export interface Reminder {
 export interface RecurrenceRule {
   frequency: "daily" | "weekly" | "monthly" | "yearly" | "custom";
   interval: number;
+  unit?: "hours" | "days";
   daysOfWeek?: number[]; // 0 = Sunday ... 6 = Saturday
   dayOfMonth?: number;
   endDate?: string; // YYYY-MM-DD

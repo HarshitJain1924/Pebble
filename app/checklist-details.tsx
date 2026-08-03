@@ -30,6 +30,7 @@ import {
     ResourceRepository,
     WorkspaceRepository,
 } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 
 export default function ChecklistDetailsScreen() {
   const router = useRouter();
@@ -223,7 +224,11 @@ export default function ChecklistDetailsScreen() {
         createdAt: Date.now(),
       };
 
-      await ChecklistRepository.saveChecklist(duplicate);
+      await EntityCommandService.createChecklist(
+        duplicate,
+        duplicate.workspaceId || INBOX_WORKSPACE_ID,
+        { skipEvents: true, skipAnalytics: true },
+      );
       emitStateChange("checklists_changed");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       Alert.alert("Success", "Checklist duplicated successfully!");

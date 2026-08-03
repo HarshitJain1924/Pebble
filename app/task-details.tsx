@@ -30,6 +30,7 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Resource, type Habit, type RecurrenceRule, Workspace, Task, INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ResourceRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { getAllHistory } from "@/services/analytics/productivity-history.service";
 import { getDateKey, getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import {
@@ -490,43 +491,37 @@ export default function TaskDetailsScreen() {
 
         savedItemForRefresh = updatedMaster;
 
-        // 3. Save both via Repository
+        // 3. Persist the master (update) via Repository and the new copy via ECS (creation).
+        //    ECS re-schedules notifications from the copy's canonical reminder, so no
+        //    manual scheduleReminderBatch is needed here.
         if (isTask) {
           await TaskRepository.saveTask({
             ...updatedMaster,
             workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
           });
-          await TaskRepository.saveTask({
-            ...newCopy,
+          await EntityCommandService.createTask(
+            {
+              ...newCopy,
+              workspaceId,
+              status: "todo",
+              completed: false,
+            },
             workspaceId,
-          });
+            { skipEvents: true, skipAnalytics: true },
+          );
         } else {
           await HabitRepository.saveHabit({
             ...updatedMaster,
             workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
           });
-          await HabitRepository.saveHabit({
-            ...newCopy,
+          await EntityCommandService.createHabit(
+            {
+              ...newCopy,
+              workspaceId,
+            },
             workspaceId,
-          });
-        }
-
-        // 4. Schedule reminders for new copy — from canonical reminder
-        if (reminderTime) {
-          await scheduleReminderBatch({
-            kind: itemType === "task" ? "todo" : "habit",
-            itemId: newId,
-            title: title.trim(),
-            category,
-            dailyTime: { hour: reminderTime.hour, minute: reminderTime.minute },
-            escalationMinutes: [120, 240],
-            channelId:
-              Platform.OS === "android"
-                ? isTask
-                  ? "todo-reminders"
-                  : "daily-habits"
-                : undefined,
-          });
+            { skipEvents: true, skipAnalytics: true },
+          );
         }
       } else {
         // Master update logic — canonical V3 fields only
@@ -673,37 +668,29 @@ export default function TaskDetailsScreen() {
         createdAt: Date.now(),
       };
 
+      // ECS re-schedules notifications from the duplicate's reminder (one-time for
+      // non-recurring items, recurring otherwise) and attaches the fresh IDs.
+      const targetWsId = item.workspaceId || INBOX_WORKSPACE_ID;
       if (isTask) {
-        await TaskRepository.saveTask({
-          ...duplicate,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-        });
+        await EntityCommandService.createTask(
+          {
+            ...duplicate,
+            workspaceId: targetWsId,
+            status: "todo",
+            completed: false,
+          },
+          targetWsId,
+          { skipEvents: true, skipAnalytics: true },
+        );
       } else {
-        await HabitRepository.saveHabit({
-          ...duplicate,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-        });
-      }
-
-      // Schedule reminders for duplicate — from canonical reminder
-      if (item.reminder?.triggerAt) {
-        const triggerDate = new Date(item.reminder.triggerAt);
-        await scheduleReminderBatch({
-          kind: itemType === "task" ? "todo" : "habit",
-          itemId: newId,
-          title: duplicate.title,
-          category: item.category,
-          dailyTime: { hour: triggerDate.getHours(), minute: triggerDate.getMinutes() },
-          dailyDays: item.recurrence?.daysOfWeek,
-          recurrence: recurrenceRuleToScheduler(item.recurrence),
-          escalationMinutes: [120, 240],
-          channelId:
-            Platform.OS === "android"
-              ? isTask
-                ? "todo-reminders"
-                : "daily-habits"
-              : undefined,
-        });
+        await EntityCommandService.createHabit(
+          {
+            ...duplicate,
+            workspaceId: targetWsId,
+          },
+          targetWsId,
+          { skipEvents: true, skipAnalytics: true },
+        );
       }
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -741,7 +728,11 @@ export default function TaskDetailsScreen() {
           item.id,
           item.workspaceId || INBOX_WORKSPACE_ID,
         );
-        await HabitRepository.saveHabit(newHabit);
+        await EntityCommandService.createHabit(
+          newHabit,
+          newHabit.workspaceId || INBOX_WORKSPACE_ID,
+          { skipEvents: true, skipAnalytics: true },
+        );
 
         emitStateChange("tasks_changed");
         emitStateChange("habits_changed");
@@ -768,10 +759,11 @@ export default function TaskDetailsScreen() {
           item.id,
           item.workspaceId || INBOX_WORKSPACE_ID,
         );
-        await TaskRepository.saveTask({
-          ...newTodo,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-        });
+        await EntityCommandService.createTask(
+          newTodo,
+          newTodo.workspaceId || INBOX_WORKSPACE_ID,
+          { skipEvents: true, skipAnalytics: true },
+        );
 
         // Schedule reminder for new task — from canonical reminder
         if (item.reminder?.triggerAt) {
