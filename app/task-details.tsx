@@ -677,43 +677,25 @@ export default function TaskDetailsScreen() {
   const handleConvert = async () => {
     try {
       const isTask = itemType === "task";
-      const newId = isTask ? generateId("habit-") : generateId("task-");
-
-      // Cancel previous reminders
-      await cancelReminderIds(item.reminder?.notificationIds);
 
       if (isTask) {
         // Convert Task -> Habit
-        const newHabit: Habit = {
-          id: newId,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-          title: title.trim(),
-          description: description.trim() || undefined,
-          categoryId: (category as any) || "work",
-          recurrence: { frequency: "daily", interval: 1 },
-          completionHistory: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-
-        await TaskRepository.deleteTask(
+        const newHabit = await EntityCommandService.convertTaskToHabit(
           item.id,
           item.workspaceId || INBOX_WORKSPACE_ID,
-        );
-        await EntityCommandService.createHabit(
-          newHabit,
-          newHabit.workspaceId || INBOX_WORKSPACE_ID,
-          { skipEvents: true, skipAnalytics: true },
+          { source: "ui_convert" }
         );
 
-        emitStateChange("tasks_changed");
-        emitStateChange("habits_changed");
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
-        router.replace(`/task-details?id=${newId}&type=habit`);
+        router.replace(`/task-details?id=${newHabit.id}&type=habit`);
       } else {
         // Convert Habit -> Task
+        const newId = generateId("task-");
+
+        // Cancel previous reminders
+        await cancelReminderIds(item.reminder?.notificationIds);
         const newTodo: Task = {
           id: newId,
           workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,

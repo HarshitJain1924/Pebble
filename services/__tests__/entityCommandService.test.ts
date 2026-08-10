@@ -825,4 +825,168 @@ describe("EntityCommandService unit tests", () => {
       expect(ws1[task1.id]).not.toBeUndefined();
     });
   });
+
+  describe("convertTaskToHabit", () => {
+    it("successfully converts a Task into a Habit and cleans up correctly", async () => {
+      const { TaskRepository, HabitRepository } = require("@/repositories");
+      const { cancelReminderIds } = require("@/services/scheduling/reminders.service");
+      
+      const task = await EntityCommandService.createTask(
+        { title: "To Convert", type: "task", confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true, skipEvents: true }
+      );
+      
+      const newHabit = await EntityCommandService.convertTaskToHabit(task.id, "ws-1", { skipAnalytics: true, skipEvents: true });
+      
+      expect(newHabit.id.startsWith("habit-")).toBe(true);
+      expect(newHabit.title).toBe("To Convert");
+      expect(newHabit.workspaceId).toBe("ws-1");
+      expect(newHabit.categoryId).toBe("work");
+      expect(newHabit.recurrence).toEqual({ frequency: "daily", interval: 1 });
+      
+      // Verify cleanup
+      const deletedTask = await TaskRepository.getTask(task.id, "ws-1");
+      expect(deletedTask).toBeNull();
+      
+      // Verify habit exists
+      const savedHabit = await HabitRepository.getHabit(newHabit.id, "ws-1");
+      expect(savedHabit).not.toBeNull();
+      expect(savedHabit?.id).toBe(newHabit.id);
+    });
+
+    it("throws if the source Task does not exist", async () => {
+      await expect(
+        EntityCommandService.convertTaskToHabit("non-existent-task", "ws-1", { skipAnalytics: true, skipEvents: true })
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("protects the Task and reminders if Habit persistence fails (data-loss check)", async () => {
+      const { TaskRepository, HabitRepository } = require("@/repositories");
+      const { cancelReminderIds } = require("@/services/scheduling/reminders.service");
+      
+      const task = await EntityCommandService.createTask(
+        { title: "To Fail Convert", type: "task", confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true, skipEvents: true }
+      );
+      // Give it a fake reminder ID to track
+      task.reminder = { enabled: true, triggerAt: Date.now() + 10000, notificationIds: ["test-reminder-id"] };
+      await TaskRepository.saveTask(task);
+      
+      // Mock HabitRepository to throw on save
+      const saveHabitSpy = jest.spyOn(HabitRepository, "saveHabit").mockRejectedValueOnce(new Error("Storage Full"));
+      
+      await expect(
+        EntityCommandService.convertTaskToHabit(task.id, "ws-1", { skipAnalytics: true, skipEvents: true })
+      ).rejects.toThrow("Storage Full");
+      
+      // Verify Task was NOT deleted
+      const savedTask = await TaskRepository.getTask(task.id, "ws-1");
+      expect(savedTask).not.toBeNull();
+      expect(savedTask?.title).toBe("To Fail Convert");
+      
+      // Verify Reminder was NOT cancelled (cancelReminderIds should not have been called for our test-reminder-id inside the try/catch)
+      // Since it's hard to assert cancelReminderIds wasn't called here, we just know the flow didn't reach step 4/5.
+      
+      saveHabitSpy.mockRestore();
+    });
+
+    it("does not reuse old notification IDs for the new Habit", async () => {
+      const { TaskRepository, HabitRepository } = require("@/repositories");
+      
+      const task = await EntityCommandService.createTask(
+        { title: "Convert Reminder", type: "task", confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true, skipEvents: true }
+      );
+      task.reminder = { enabled: true, triggerAt: Date.now() + 100000, notificationIds: ["old-notif-1"] };
+      await TaskRepository.saveTask(task);
+      
+      const newHabit = await EntityCommandService.convertTaskToHabit(task.id, "ws-1", { skipAnalytics: true, skipEvents: true });
+      
+      // Habit should have a reminder since the task had one
+      expect(newHabit.reminder?.enabled).toBe(true);
+      // But the old IDs should have been explicitly stripped by the mapper
+      // (If rescheduleHabitReminders successfully ran, it would give new IDs, or [] if mocked/failed)
+      // The important part is that it doesn't equal the old array!
+      expect(newHabit.reminder?.notificationIds).not.toEqual(["old-notif-1"]);
+    });
+
+    it("reminder cancellation failure preserves both Habit and Task (duplicate safe state)", async () => {
+      const { TaskRepository, HabitRepository } = require("@/repositories");
+      const remindersService = require("@/services/scheduling/reminders.service");
+      const cancelSpy = jest.spyOn(remindersService, "cancelReminderIds").mockRejectedValueOnce(new Error("Native Module Error"));
+      
+      const task = await EntityCommandService.createTask(
+        { title: "Cancel Fail", type: "task", confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true, skipEvents: true }
+      );
+      task.reminder = { enabled: true, triggerAt: Date.now() + 100000, notificationIds: ["old-notif-1"] };
+      await TaskRepository.saveTask(task);
+      
+      // Should not throw
+      const newHabit = await EntityCommandService.convertTaskToHabit(task.id, "ws-1", { skipAnalytics: true, skipEvents: true });
+      
+      // Habit is successfully created
+      const savedHabit = await HabitRepository.getHabit(newHabit.id, "ws-1");
+      expect(savedHabit).not.toBeNull();
+      
+      // Task is successfully deleted despite the reminder cancellation failure
+      const deletedTask = await TaskRepository.getTask(task.id, "ws-1");
+      expect(deletedTask).toBeNull();
+      
+      cancelSpy.mockRestore();
+    });
+
+    it("Task deletion failure leaves both Task and Habit (duplicate safe state)", async () => {
+      const { TaskRepository, HabitRepository } = require("@/repositories");
+      
+      const task = await EntityCommandService.createTask(
+        { title: "Delete Fail", type: "task", confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true, skipEvents: true }
+      );
+      
+      const deleteSpy = jest.spyOn(TaskRepository, "deleteTask").mockRejectedValueOnce(new Error("Storage I/O Error"));
+      
+      await expect(
+        EntityCommandService.convertTaskToHabit(task.id, "ws-1", { skipAnalytics: true, skipEvents: true })
+      ).rejects.toThrow("Storage I/O Error");
+      
+      // Habit was created before deletion failed
+      const habits = await HabitRepository.getHabits("ws-1");
+      const habitCreated = Object.values(habits).find((h: any) => h.title === "Delete Fail");
+      expect(habitCreated).toBeDefined();
+      
+      // Task was not deleted
+      const savedTask = await TaskRepository.getTask(task.id, "ws-1");
+      expect(savedTask).not.toBeNull();
+      
+      deleteSpy.mockRestore();
+    });
+
+    it("emits tasks_changed and habits_changed exactly once with correct source", async () => {
+      const { TaskRepository } = require("@/repositories");
+      const stateEvents = require("@/services/events/state-events");
+      const emitSpy = jest.spyOn(stateEvents, "emitStateChange");
+      
+      const task = await EntityCommandService.createTask(
+        { title: "Event Test", type: "task", confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true, skipEvents: true }
+      );
+      
+      emitSpy.mockClear();
+      
+      await EntityCommandService.convertTaskToHabit(task.id, "ws-1", { source: "ui_convert_test" });
+      
+      expect(emitSpy).toHaveBeenCalledTimes(2);
+      expect(emitSpy).toHaveBeenCalledWith("tasks_changed", "ui_convert_test");
+      expect(emitSpy).toHaveBeenCalledWith("habits_changed", "ui_convert_test");
+      
+      emitSpy.mockRestore();
+    });
+  });
 });

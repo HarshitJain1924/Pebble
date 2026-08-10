@@ -254,6 +254,81 @@ export class EntityCommandService {
   }
 
   /**
+   * Batch 7F: convertTaskToHabit
+   *
+   * Safely converts an existing Task into a Habit.
+   * Guarantees that the original Task is NEVER deleted if Habit creation fails.
+   */
+  static async convertTaskToHabit(
+    taskId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Habit> {
+    const { generateId } = await import("@/shared/utils/id");
+
+    // 1. Load Task
+    const task = await TaskRepository.getTask(taskId, workspaceId);
+    if (!task) {
+      throw new Error(`[EntityCommandService] convertTaskToHabit failed: Task ${taskId} not found in workspace ${workspaceId}`);
+    }
+
+    // 2. Construct Habit
+    const habitId = generateId("habit-");
+    const habit: Habit = {
+      id: habitId,
+      workspaceId: task.workspaceId,
+      title: task.title,
+      description: task.description,
+      categoryId: task.categoryId || "work",
+      tags: task.tags,
+      recurrence: task.recurrence || { frequency: "daily", interval: 1 },
+      recurrenceExceptions: task.recurrenceExceptions,
+      completionHistory: [],
+      reminder: task.reminder
+        ? {
+            enabled: task.reminder.enabled,
+            triggerAt: task.reminder.triggerAt,
+            notificationIds: undefined, // Strip old IDs so createHabit generates new ones
+          }
+        : undefined,
+      resourceIds: task.resourceIds,
+      createdAt: task.createdAt,
+      updatedAt: Date.now(),
+      archivedAt: task.archivedAt,
+    };
+
+    // 3. Persist Habit (internally reschedules reminder with fresh IDs)
+    const newHabit = await this.createHabit(habit, habit.workspaceId, {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    // 4. Cancel Old Reminders
+    if (task.reminder && task.reminder.notificationIds) {
+      try {
+        await cancelReminderIds(task.reminder.notificationIds);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to cancel old reminders during Task->Habit conversion for ${taskId}`, e);
+      }
+    }
+
+    // 5. Delete Task
+    await TaskRepository.deleteTask(taskId, workspaceId);
+
+    // 6. Side Effects
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+      emitStateChange("habits_changed", options?.source);
+    }
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+    void syncWidgetData().catch(() => {});
+
+    return newHabit;
+  }
+
+  /**
    * Create and persist a Checklist entity.
    */
   static async createChecklist(
