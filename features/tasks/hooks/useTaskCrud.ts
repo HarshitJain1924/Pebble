@@ -20,6 +20,7 @@ import {
   saveRecycleBinItems,
 } from "@/services/storage/storage.service";
 import { INBOX_WORKSPACE_ID, Task, Workspace } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { useCallback } from "react";
 
@@ -187,10 +188,14 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       };
 
       setTodos(updated);
-      await persistState(workspaces, selectedWorkspaceId, updated);
+      
+      // Persist the move through EntityCommandService without emitting an event
+      // since we already updated the optimistic local state.
+      await EntityCommandService.moveTask(todoId, fromListId, toListId, { skipEvents: true });
+      
       finalizeMutation();
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, persistState],
+    [todos, setTodos, finalizeMutation],
   );
 
   const toggleTodo = useCallback(
@@ -241,9 +246,13 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const originalWorkspace =
         workspaces.find((l) => l.id === selectedWorkspaceId)?.name || "Inbox";
 
-      await cancelReminderIds(toDelete.reminder?.notificationIds ?? []);
-
-      await addToRecycleBin("task", toDelete, originalWorkspace);
+      // Delegate repository mutation and side effects to ECS
+      await EntityCommandService.recycleTask(
+        id,
+        selectedWorkspaceId,
+        originalWorkspace,
+        { source: "useTaskCrud" }
+      );
 
       const currentListTodos = todos[selectedWorkspaceId] ?? [];
       const updatedTodos = {
@@ -253,7 +262,9 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       setTodos(updatedTodos);
 
       pluginManager.dispatchTaskDeleted(id);
-      await persistState(workspaces, selectedWorkspaceId, updatedTodos);
+      // We still update local state in React, but do not push the array back to TaskRepository via persistState 
+      // since recycleTask has already mutated the repository.
+      
       finalizeMutation();
 
       showUndo({
@@ -332,7 +343,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       try {
         const destinationWorkspaceId = targetWorkspaceId || INBOX_WORKSPACE_ID;
         const newTask: Task = {
-          id: String(Date.now()),
+          id: generateId("task-"),
           title: item.title,
           description: item.content || undefined,
           status: "todo",

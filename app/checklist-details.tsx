@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { generateId } from "@/shared/utils/id";
 import React, { useEffect, useMemo, useState } from "react";
 import {
     Alert,
@@ -218,7 +219,7 @@ export default function ChecklistDetailsScreen() {
     try {
       const duplicate: Checklist = {
         ...item,
-        id: `checklist-${Date.now()}`,
+        id: generateId("checklist-"),
         title: `${item.title} (Copy)`,
         updatedAt: Date.now(),
         createdAt: Date.now(),

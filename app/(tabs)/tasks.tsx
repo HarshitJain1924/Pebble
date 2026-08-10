@@ -22,6 +22,7 @@ import * as Haptics from "expo-haptics";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 import { Task, Habit, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 
@@ -401,7 +402,7 @@ export function WorkspacesScreen() {
                         onSubmitEditing={() => {
                           if (inlineTodoTitle.trim()) {
                             const newTodo: Task = {
-                              id: String(Date.now()),
+                              id: generateId("task-"),
                               workspaceId: state.activeWorkspaceId || INBOX_WORKSPACE_ID,
                               title: inlineTodoTitle.trim(),
                               status: "todo",
@@ -427,7 +428,7 @@ export function WorkspacesScreen() {
                         onPress={() => {
                           if (inlineTodoTitle.trim()) {
                             const newTodo: Task = {
-                              id: String(Date.now()),
+                              id: generateId("task-"),
                               workspaceId: state.activeWorkspaceId || INBOX_WORKSPACE_ID,
                               title: inlineTodoTitle.trim(),
                               status: "todo",

@@ -34,6 +34,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { generateId } from "@/shared/utils/id";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -1127,7 +1128,7 @@ export function MascotOverlay() {
 
         await EntityCommandService.createTask(
           {
-            id: String(Date.now()),
+            id: generateId("task-"),
             workspaceId: activeWorkspace,
             title: payload.title,
             status: "todo",
@@ -1154,7 +1155,7 @@ export function MascotOverlay() {
 
         await EntityCommandService.createHabit(
           {
-            id: `habit-${Date.now()}`,
+            id: generateId("habit-"),
             workspaceId: activeWorkspace,
             title: payload.title,
             categoryId: "health",

@@ -594,26 +594,20 @@ export function useTasksState() {
       }
       if (!existingTask) return;
 
-      const updatedTask: Task = {
-        ...existingTask,
-        title: parsed.title,
-        categoryId: parsed.category || existingTask.categoryId,
-        schedule: parsed.date
-          ? { ...existingTask.schedule, date: parsed.date }
-          : existingTask.schedule,
-        priority: parsed.priority || existingTask.priority,
-        updatedAt: Date.now(),
-      };
+      await EntityCommandService.updateTask(
+        existingTask.id,
+        existingTask.workspaceId || INBOX_WORKSPACE_ID,
+        {
+          title: parsed.title,
+          categoryId: parsed.category || existingTask.categoryId,
+          schedule: parsed.date
+            ? { ...existingTask.schedule, date: parsed.date }
+            : existingTask.schedule,
+          priority: parsed.priority || existingTask.priority,
+        },
+        { source: "tasks_screen" }
+      );
 
-      if (existingTask.reminder?.notificationIds) {
-        await cancelReminderIds(existingTask.reminder.notificationIds);
-      }
-      const rescheduled = await rescheduleTodoReminders(updatedTask);
-      await TaskRepository.saveTask({
-        ...rescheduled,
-        workspaceId: rescheduled.workspaceId || INBOX_WORKSPACE_ID,
-      });
-      emitStateChange("tasks_changed", "tasks_screen");
       showToast(`✓ Task updated`);
     }
   };
@@ -1004,20 +998,28 @@ export function useTasksState() {
               workspaces.find((l) => l.id === selectedWorkspaceId)?.name || "Inbox";
 
             if (taskIds.length > 0) {
-              const listTodos = todos[selectedWorkspaceId] ?? [];
-              const todosToDelete = listTodos.filter((t) =>
-                selectedItemIds.has(t.id),
-              );
+              const todosToDelete: Task[] = [];
+              const itemsToRecycle: { taskId: string; workspaceId: string }[] = [];
 
-              for (const todo of todosToDelete) {
-                if (todo.reminder?.notificationIds) {
-                  await cancelReminderIds(todo.reminder.notificationIds);
+              for (const [listId, listTodos] of Object.entries(todos)) {
+                for (const t of listTodos) {
+                  if (selectedItemIds.has(t.id)) {
+                    todosToDelete.push(t);
+                    itemsToRecycle.push({
+                      taskId: t.id,
+                      workspaceId: t.workspaceId || listId,
+                    });
+                  }
                 }
-                const folderName =
-                  workspaces.find((l) => l.id === (todo.workspaceId || selectedWorkspaceId))
-                    ?.name || originalWorkspaceName;
-                await addToRecycleBin("task", todo, folderName);
               }
+
+              const { EntityCommandService } = await import(
+                "@/services/command/EntityCommandService"
+              );
+              await EntityCommandService.recycleTasks(itemsToRecycle, {
+                originalWorkspaceName,
+                source: "tasks_screen",
+              });
 
               const nextTodos = { ...todos };
               for (const listId in nextTodos) {
@@ -1026,8 +1028,6 @@ export function useTasksState() {
                 );
               }
               setTodos(nextTodos);
-              await persistState(workspaces, selectedWorkspaceId, nextTodos);
-              emitStateChange("tasks_changed", "tasks_screen");
 
               showUndo({
                 message: `Deleted ${taskIds.length} task(s)`,
@@ -1138,6 +1138,8 @@ export function useTasksState() {
     if (taskIds.length > 0) {
       const nextTodos = { ...todos };
       const itemsToMove: Task[] = [];
+      const movesToExecute: { id: string; oldWorkspaceId: string }[] = [];
+      
       for (const listId in nextTodos) {
         const itemsToKeep: Task[] = [];
         nextTodos[listId].forEach((t) => {
@@ -1147,6 +1149,7 @@ export function useTasksState() {
               workspaceId: targetWorkspaceId,
               updatedAt: Date.now(),
             });
+            movesToExecute.push({ id: t.id, oldWorkspaceId: listId });
           } else {
             itemsToKeep.push(t);
           }
@@ -1161,7 +1164,17 @@ export function useTasksState() {
         ...nextTodos[targetWorkspaceId],
       ];
       setTodos(nextTodos);
-      await persistState(workspaces, selectedWorkspaceId, nextTodos);
+      
+      // Execute all moves via EntityCommandService (skipping events to avoid noisy refetches)
+      await Promise.all(
+        movesToExecute.map((move) =>
+          EntityCommandService.moveTask(move.id, move.oldWorkspaceId, targetWorkspaceId, {
+            skipEvents: true,
+            skipAnalytics: true,
+          })
+        )
+      );
+      
       emitStateChange("tasks_changed", "tasks_screen");
     }
 

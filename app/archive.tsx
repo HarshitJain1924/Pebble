@@ -25,6 +25,7 @@ import { cancelReminderIds, scheduleReminderBatch } from "@/services/scheduling/
 import { recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
 import { getDateKey } from "@/services/scheduling/recurrence.service";
 import { emitStateChange } from "@/services/events/state-events";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import {
     TaskRepository,
@@ -215,22 +216,28 @@ export default function ArchiveScreen() {
           onPress: async () => {
             try {
               const wsId = item.workspaceId || INBOX_WORKSPACE_ID;
-              await cancelReminderIds(item.reminder?.notificationIds);
 
               if (type === "task") {
-                await TaskRepository.deleteTask(item.id, wsId);
-              } else if (type === "habit") {
-                await HabitRepository.deleteHabit(item.id, wsId);
-              } else if (type === "checklist") {
-                await ChecklistRepository.deleteChecklist(item.id, wsId);
-              } else if (type === "resource") {
-                await ResourceRepository.deleteResource(item.id, wsId);
+                await EntityCommandService.permanentlyDeleteTask(item.id, wsId);
+              } else {
+                await cancelReminderIds(item.reminder?.notificationIds);
+                if (type === "habit") {
+                  await HabitRepository.deleteHabit(item.id, wsId);
+                } else if (type === "checklist") {
+                  await ChecklistRepository.deleteChecklist(item.id, wsId);
+                } else if (type === "resource") {
+                  await ResourceRepository.deleteResource(item.id, wsId);
+                }
               }
 
               Haptics.notificationAsync(
                 Haptics.NotificationFeedbackType.Warning,
               ).catch(() => {});
-              emitStateChange(type === "task" ? "tasks_changed" : type === "habit" ? "habits_changed" : type === "checklist" ? "checklists_changed" : "resources_changed");
+              
+              if (type !== "task") {
+                emitStateChange(type === "habit" ? "habits_changed" : type === "checklist" ? "checklists_changed" : "resources_changed");
+              }
+              
               loadArchivedData();
             } catch (e) {
               console.warn("Failed to delete item permanently", e);

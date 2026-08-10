@@ -228,4 +228,20 @@ export class TaskRepository {
       await AsyncStorage.setItem(key, JSON.stringify(records));
     }
   }
+
+  static async deleteTasks(ids: string[], workspaceId: string): Promise<void> {
+    if (ids.length === 0) return;
+    const key = this.getTasksKey(workspaceId);
+    const records = await this.getTasks(workspaceId);
+    let modified = false;
+    for (const id of ids) {
+      if (records[id]) {
+        delete records[id];
+        modified = true;
+      }
+    }
+    if (modified) {
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    }
+  }
 }

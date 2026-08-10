@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import { Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
 import { ResourceRepository } from "@/repositories";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { addToRecycleBin } from "@/services/storage/storage.service";
@@ -40,7 +41,7 @@ export function useResourceState(
     item: Omit<Resource, "id" | "createdAt">
   ) => {
     try {
-      const resourceId = `res-${Date.now()}`;
+      const resourceId = generateId("res-");
       const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
       const newResource: Resource = {

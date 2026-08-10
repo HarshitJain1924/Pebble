@@ -29,12 +29,7 @@ import {
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import { getDateKey } from "@/services/scheduling/recurrence.service";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function generateId(prefix: string = ""): string {
-  return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
+import { generateId } from "@/shared/utils/id";
 export function parseTime(item: ParsedProductivityItem): {
   hours: number | undefined;
   minutes: number | undefined;

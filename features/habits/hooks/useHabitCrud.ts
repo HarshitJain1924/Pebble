@@ -28,7 +28,8 @@ import {
   getRecycleBinItems,
   saveRecycleBinItems,
 } from "@/services/storage/storage.service";
-import { type Habit, type Workspace, type HabitCompletion, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { Habit, INBOX_WORKSPACE_ID, Workspace } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
 import { isHabitCompletedToday, getTodayDateKey } from "@/shared/utils/domain-selectors";
 import * as Haptics from "expo-haptics";
 import { useCallback } from "react";
@@ -71,7 +72,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
       category: TaskCategory,
     ) => {
       const next: Habit = {
-        id: `habit-${Date.now()}`,
+        id: generateId("habit-"),
         title,
         categoryId: category,
         workspaceId: selectedWorkspaceId || INBOX_WORKSPACE_ID,

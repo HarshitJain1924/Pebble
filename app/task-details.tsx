@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { generateId } from "@/shared/utils/id";
 import React, { useEffect, useMemo, useState } from "react";
 import {
     Alert,
@@ -454,7 +455,7 @@ export default function TaskDetailsScreen() {
       if (thisOccurrenceOnly) {
         // Exception logic:
         // 1. Create a non-recurring copy for selectedOccurrenceDate
-        const newId = `${itemType}-${Date.now()}`;
+        const newId = generateId(`${itemType}-`);
         const newCopy = {
           ...item,
           id: newId,
@@ -618,8 +619,9 @@ export default function TaskDetailsScreen() {
         if (isTask) {
           const oldFolderId = item.workspaceId || INBOX_WORKSPACE_ID;
           if (oldFolderId !== workspaceId) {
-            await TaskRepository.deleteTask(item.id, oldFolderId);
+            await EntityCommandService.moveTask(item.id, oldFolderId, workspaceId, { skipEvents: true, skipAnalytics: true });
           }
+          // Note: we still save the task using TaskRepository to preserve unrelated field updates for this batch.
           await TaskRepository.saveTask({
             ...updatedItem,
             workspaceId,
@@ -655,7 +657,7 @@ export default function TaskDetailsScreen() {
   const handleDuplicate = async () => {
     try {
       const isTask = itemType === "task";
-      const newId = `${itemType}-${Date.now()}`;
+      const newId = generateId(`${itemType}-`);
       const duplicate = {
         ...item,
         id: newId,
@@ -705,7 +707,7 @@ export default function TaskDetailsScreen() {
   const handleConvert = async () => {
     try {
       const isTask = itemType === "task";
-      const newId = isTask ? `habit-${Date.now()}` : String(Date.now());
+      const newId = isTask ? generateId("habit-") : generateId("task-");
 
       // Cancel previous reminders
       await cancelReminderIds(item.reminder?.notificationIds);
@@ -843,20 +845,22 @@ export default function TaskDetailsScreen() {
           workspaces.find((w) => w.id === (item.workspaceId || INBOX_WORKSPACE_ID))?.name ||
           "Inbox";
 
-        await cancelReminderIds(item.reminder?.notificationIds);
-
-        await addToRecycleBin(
-          isTask ? "task" : "habit",
-          item,
-          originalWorkspace,
-        );
-
         if (isTask) {
-          await TaskRepository.deleteTask(
+          await EntityCommandService.recycleTask(
             item.id,
             item.workspaceId || INBOX_WORKSPACE_ID,
+            originalWorkspace,
+            { source: "task-details" }
           );
         } else {
+          await cancelReminderIds(item.reminder?.notificationIds);
+
+          await addToRecycleBin(
+            "habit",
+            item,
+            originalWorkspace,
+          );
+
           await HabitRepository.deleteHabit(
             item.id,
             item.workspaceId || INBOX_WORKSPACE_ID,

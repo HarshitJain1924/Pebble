@@ -13,14 +13,13 @@ import { emitStateChange } from "@/services/events/state-events";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import { appendGratitudeHistoryEntry } from "@/services/storage/storage.service";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
-import {
-  INBOX_WORKSPACE_ID,
-  type Checklist,
-  type Task,
-} from "@/shared/types/domain.types";
+import { Task, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
 import * as Haptics from "expo-haptics";
+import { useNavigation } from "expo-router";
 import { useCallback } from "react";
 import { Alert, Dimensions } from "react-native";
+import { type Checklist } from "@/shared/types/domain.types";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -299,7 +298,7 @@ export function useTodayActions({
         const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
 
         const newTask: Task = {
-          id: String(Date.now()),
+          id: generateId("task-"),
           title: intentionText.trim(),
           status: "todo",
           priority: "high",

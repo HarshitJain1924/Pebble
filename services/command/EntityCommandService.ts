@@ -422,6 +422,129 @@ export class EntityCommandService {
   }
 
   /**
+   * Update an existing Task.
+   * Modifies task fields and intelligently reschedules reminders only if relevant state changed.
+   */
+  static async updateTask(
+    taskId: string,
+    workspaceId: string,
+    updates: Partial<Task>,
+    options?: CreateEntityOptions,
+  ): Promise<Task> {
+    const tasksMap = await TaskRepository.getTasks(workspaceId);
+    const existing = tasksMap[taskId];
+    if (!existing) {
+      throw new Error(`Task ${taskId} not found in workspace ${workspaceId}`);
+    }
+
+    if (updates.workspaceId && updates.workspaceId !== workspaceId) {
+      throw new Error("Workspace movement is not supported in updateTask.");
+    }
+
+    let updatedTask: Task = {
+      ...existing,
+      ...updates,
+      id: existing.id,
+      createdAt: existing.createdAt,
+      workspaceId: existing.workspaceId,
+      updatedAt: Date.now(),
+    };
+
+    // Reminder evaluation
+    const titleChanged = updates.title !== undefined && updates.title !== existing.title;
+    const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
+    const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
+    const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
+    const statusChanged = updates.status !== undefined && updates.status !== existing.status;
+
+    const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || statusChanged;
+
+    if (needsReminderUpdate) {
+      // 1. Cancel existing
+      if (existing.reminder?.notificationIds?.length) {
+        await cancelReminderIds(existing.reminder.notificationIds);
+      }
+      
+      // 2. Reschedule if still applicable
+      if (updatedTask.status !== "completed") {
+        try {
+          const rescheduled = await rescheduleTodoReminders(updatedTask);
+          updatedTask = {
+            ...updatedTask,
+            reminder: rescheduled.reminder,
+          };
+        } catch (e) {
+          console.warn("[EntityCommandService] Failed to reschedule task reminder during update:", e);
+        }
+      }
+    }
+
+    await TaskRepository.saveTask(updatedTask);
+
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+    }
+
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    void syncWidgetData().catch(() => {});
+
+    return updatedTask;
+  }
+
+  /**
+   * Move a Task from one workspace to another.
+   * Modifies only the workspaceId and updatedAt.
+   * Performs the correct sequence of save and delete to persist the move safely.
+   */
+  static async moveTask(
+    taskId: string,
+    sourceWorkspaceId: string,
+    targetWorkspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Task> {
+    if (sourceWorkspaceId === targetWorkspaceId) {
+      const tasksMap = await TaskRepository.getTasks(sourceWorkspaceId);
+      const existing = tasksMap[taskId];
+      if (!existing) {
+        throw new Error(`Task ${taskId} not found in workspace ${sourceWorkspaceId}`);
+      }
+      return existing; // Nothing to do
+    }
+
+    const tasksMap = await TaskRepository.getTasks(sourceWorkspaceId);
+    const existing = tasksMap[taskId];
+    if (!existing) {
+      throw new Error(`Task ${taskId} not found in workspace ${sourceWorkspaceId}`);
+    }
+
+    const movedTask: Task = {
+      ...existing,
+      workspaceId: targetWorkspaceId,
+      updatedAt: Date.now(),
+    };
+
+    // Save in new workspace first to avoid data loss
+    await TaskRepository.saveTask(movedTask);
+    // Then delete from old workspace
+    await TaskRepository.deleteTask(taskId, sourceWorkspaceId);
+
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+    }
+
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    void syncWidgetData().catch(() => {});
+
+    return movedTask;
+  }
+
+  /**
    * Complete a Habit for today.
    */
   static async completeHabit(
@@ -622,5 +745,221 @@ export class EntityCommandService {
     }
 
     return { previous: habit, updated: updatedHabit };
+  }
+
+  // ─── BATCH 3: RECYCLE TASK ──────────────────────────────────────────────────
+
+  /**
+   * Batch 3: recycleTask
+   *
+   * Safely moves a Task from active storage (TaskRepository) to the RecycleBin,
+   * while cancelling any associated native OS reminders.
+   *
+   * Ordering:
+   * 1. Load task from source workspace
+   * 2. Verify existence
+   * 3. Snapshot task & save to RecycleBinRepository
+   * 4. Cancel native reminders
+   * 5. Delete from TaskRepository
+   * 6. Emit events & analytics
+   */
+  static async recycleTask(
+    taskId: string,
+    workspaceId: string,
+    originalWorkspaceName: string,
+    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+  ): Promise<void> {
+    const { addToRecycleBin } = await import("@/services/storage/storage.service");
+    const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    // 1. Verify existence
+    const tasksMap = await TaskRepository.getTasks(workspaceId);
+    const task = tasksMap[taskId];
+    if (!task) {
+      throw new Error(
+        `[EntityCommandService] Task ${taskId} not found in workspace ${workspaceId}`
+      );
+    }
+
+    // 2. Snapshot task into Recycle Bin (Safe operation first)
+    await addToRecycleBin("task", task, originalWorkspaceName);
+
+    // 3. Cancel native reminders
+    if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
+      await cancelReminderIds(task.reminder.notificationIds);
+    }
+
+    // 4. Remove from active storage
+    await TaskRepository.deleteTask(taskId, workspaceId);
+
+    // 5. Emit events
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed");
+    }
+
+    // 6. Analytics
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+  }
+
+  /**
+   * Batch 5: bulk Task recycling
+   *
+   * Safely moves multiple Tasks from active storage (TaskRepository) to the RecycleBin,
+   * while cancelling any associated native OS reminders.
+   */
+  static async recycleTasks(
+    items: { taskId: string; workspaceId: string }[],
+    options?: {
+      originalWorkspaceName?: string;
+      skipEvents?: boolean;
+      skipAnalytics?: boolean;
+      source?: string;
+    }
+  ): Promise<{ recycledCount: number }> {
+    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/repositories/RecycleBinRepository").then(m => m.RecycleBinRepository);
+    const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    // Group items by workspaceId
+    const itemsByWorkspace = new Map<string, Set<string>>();
+    for (const item of items) {
+      if (!itemsByWorkspace.has(item.workspaceId)) {
+        itemsByWorkspace.set(item.workspaceId, new Set<string>());
+      }
+      itemsByWorkspace.get(item.workspaceId)!.add(item.taskId);
+    }
+
+    const validTasksToRecycle: Task[] = [];
+    const workspaceTasksMap = new Map<string, Record<string, Task>>();
+
+    // 1. Load active tasks and validate existence
+    for (const [workspaceId, taskIds] of itemsByWorkspace.entries()) {
+      const activeTasks = await TaskRepository.getTasks(workspaceId);
+      workspaceTasksMap.set(workspaceId, activeTasks);
+
+      for (const taskId of taskIds) {
+        const task = activeTasks[taskId];
+        if (task) {
+          validTasksToRecycle.push(task);
+        }
+      }
+    }
+
+    if (validTasksToRecycle.length === 0) {
+      return { recycledCount: 0 };
+    }
+
+    // 2. Atomic RecycleBin snapshot
+    const existingRecycleBinItems = await getRecycleBinItems();
+    const newSnapshots = validTasksToRecycle.map(task => {
+      const entityId = task.id;
+      return {
+        id: `rb-${entityId}`,
+        entityType: "task" as const,
+        entityId,
+        snapshot: JSON.stringify(task),
+        deletedAt: Date.now(),
+      };
+    });
+
+    const validEntityIds = new Set(validTasksToRecycle.map(t => t.id));
+    const filteredExisting = existingRecycleBinItems.filter(
+      item => !validEntityIds.has(item.entityId) && !validEntityIds.has(item.id)
+    );
+
+    await saveRecycleBinItems([...newSnapshots, ...filteredExisting]);
+
+    // 3. Batch cancel reminders
+    const allNotificationIds: string[] = [];
+    for (const task of validTasksToRecycle) {
+      if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
+        allNotificationIds.push(...task.reminder.notificationIds);
+      }
+    }
+
+    if (allNotificationIds.length > 0) {
+      await cancelReminderIds(allNotificationIds);
+    }
+
+    // 4. Remove from active storage and save per workspace
+    for (const [workspaceId, activeTasks] of workspaceTasksMap.entries()) {
+      const targetIds = Array.from(itemsByWorkspace.get(workspaceId) || []);
+      const idsToDelete = targetIds.filter(id => activeTasks[id]);
+      if (idsToDelete.length > 0) {
+        await TaskRepository.deleteTasks(idsToDelete, workspaceId);
+      }
+    }
+
+    // 5. Emit events
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+    }
+
+    // 6. Analytics
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    return { recycledCount: validTasksToRecycle.length };
+  }
+
+  // ─── BATCH 4: PERMANENTLY DELETE TASK ───────────────────────────────────────
+
+  /**
+   * Batch 4: permanentlyDeleteTask
+   *
+   * Permanently destroys an ACTIVE TaskRepository task.
+   * This is NOT for recycle bin items.
+   *
+   * Ordering:
+   * 1. Load task from source workspace
+   * 2. Verify existence
+   * 3. Cancel native reminders
+   * 4. Delete from TaskRepository
+   * 5. Emit events & analytics
+   */
+  static async permanentlyDeleteTask(
+    taskId: string,
+    workspaceId: string,
+    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+  ): Promise<void> {
+    const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    // 1. Verify existence
+    const tasksMap = await TaskRepository.getTasks(workspaceId);
+    const task = tasksMap[taskId];
+    if (!task) {
+      throw new Error(
+        `[EntityCommandService] Task ${taskId} not found in workspace ${workspaceId}`
+      );
+    }
+
+    // 2. Cancel native reminders
+    if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
+      await cancelReminderIds(task.reminder.notificationIds);
+    }
+
+    // 3. Remove from active storage
+    await TaskRepository.deleteTask(taskId, workspaceId);
+
+    // 4. Emit events
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed");
+    }
+
+    // 5. Analytics
+    // Preserve existing analytics behavior: Currently there are no explicit
+    // analytics tracks for permanent deletion of tasks in archive.tsx,
+    // so we skip if not asked, or we can use recordDailyHistorySnapshot
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
   }
 }

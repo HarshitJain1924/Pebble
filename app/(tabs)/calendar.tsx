@@ -28,7 +28,8 @@ import {
   MONTH_NAMES,
   getDateKey,
 } from "@/features/calendar/hooks/useCalendarState";
-import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { Task, Habit, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 
@@ -835,7 +836,7 @@ export default function CalendarScreen() {
                     <Pressable
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        router.push(`/task-details?id=${String(Date.now())}&type=task&date=${selectedDate}`);
+                        router.push(`/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`);
                       }}
                       style={[styles.hourLineCol, { borderColor: colors.border }]}
                     />
@@ -1143,7 +1144,7 @@ export default function CalendarScreen() {
                       router.push("/settings");
                     } else {
                       setTimeout(() => {
-                        router.push(`/task-details?id=${String(Date.now())}&type=task&date=${selectedDate}`);
+                        router.push(`/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`);
                       }, 300);
                     }
                   }}
@@ -1307,7 +1308,7 @@ export default function CalendarScreen() {
                       router.push("/settings");
                     } else {
                       setTimeout(() => {
-                        router.push(`/task-details?id=${String(Date.now())}&type=task&date=${selectedDate}`);
+                        router.push(`/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`);
                       }, 300);
                     }
                   }}

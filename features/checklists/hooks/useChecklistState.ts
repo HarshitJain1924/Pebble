@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ChecklistRepository } from "@/repositories";
+import { generateId } from "@/shared/utils/id";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
@@ -27,7 +28,7 @@ export function useChecklistState(selectedWorkspaceId: string) {
     try {
       const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const newChecklist: Checklist = {
-        id: `checklist-${Date.now()}`,
+        id: generateId("checklist-"),
         workspaceId: activeList,
         title,
         items: itemTitles.map((it, idx) => ({

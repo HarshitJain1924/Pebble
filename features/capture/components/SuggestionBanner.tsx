@@ -11,6 +11,7 @@ import { Task, type Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.type
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskRepository, HabitRepository, UiStateRepository } from "@/repositories";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { generateId } from "@/shared/utils/id";
 
 interface SuggestionBannerProps {
   activeSuggestions: SmartSuggestion[];
@@ -101,7 +102,7 @@ export function SuggestionBanner({
                 const activeWorkspace = uiState.activeWorkspaceId || "default";
                 if (suggestion.type === "convert_habit") {
                   const newHabit: Habit = {
-                    id: `habit-${Date.now()}`,
+                    id: generateId("habit-"),
                     workspaceId: activeWorkspace,
                     title: suggestion.title,
                     categoryId: "learning",
@@ -128,7 +129,7 @@ export function SuggestionBanner({
                 } else {
                   const listId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
                   const newTodo: Task = {
-                    id: String(Date.now()),
+                    id: generateId("task-"),
                     workspaceId: listId,
                     title: `Study schedule: ${suggestion.title}`,
                     status: "todo",
