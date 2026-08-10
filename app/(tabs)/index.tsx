@@ -224,6 +224,8 @@ export function TodayScreen() {
     intentionText,
     setIntentionText,
     setIsReviewModalVisible,
+    allTodos: todoStats.pending.concat(todoStats.overdue),
+    allHabits: pendingHabits.concat(completedHabits),
   });
 
   useFocusEffect(

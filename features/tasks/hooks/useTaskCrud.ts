@@ -200,13 +200,24 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       if (!todo) return;
       const currentlyCompleted = isTaskCompleted(todo);
       const nextCompleted = !currentlyCompleted;
-      await handleTaskXpChange(todo, nextCompleted);
-      const updatedTodo: Task = {
-        ...todo,
-        status: nextCompleted ? "completed" : "todo",
-        completedAt: nextCompleted ? Date.now() : undefined,
-        updatedAt: Date.now(),
-      };
+
+      let result;
+      if (nextCompleted) {
+        result = await EntityCommandService.completeTask(id, selectedWorkspaceId, {
+          source: "tasks_screen",
+          skipAnalytics: true,
+          skipEvents: true,
+        });
+      } else {
+        result = await EntityCommandService.uncompleteTask(id, selectedWorkspaceId, {
+          source: "tasks_screen",
+          skipAnalytics: true,
+          skipEvents: true,
+        });
+      }
+
+      if (!result) return;
+      const updatedTodo = result.updated;
 
       const currentListTodos = todos[selectedWorkspaceId] ?? [];
       const updatedList = currentListTodos.map((t) =>
@@ -215,15 +226,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       const updatedTodos = { ...todos, [selectedWorkspaceId]: updatedList };
       setTodos(updatedTodos);
 
-      if (nextCompleted) {
-        pluginManager.dispatchTaskCompleted(updatedTodo);
-        await earnPebble("task");
-      } else {
-        pluginManager.dispatchTaskUncompleted(updatedTodo);
-        await undoLastPebble("task");
-      }
-      await persistState(workspaces, selectedWorkspaceId, updatedTodos);
-      await syncWidgetData().catch(() => {});
+      // Removed duplicate `persistState` write since ECS handles persistence natively.
       emitStateChange("tasks_changed", "tasks_screen");
     },
     [todos, selectedWorkspaceId, setTodos, workspaces, persistState],

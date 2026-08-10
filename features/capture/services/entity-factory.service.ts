@@ -27,6 +27,7 @@ import {
   type Attachment,
 } from "@/shared/types/domain.types";
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
+import { getDateKey } from "@/services/scheduling/recurrence.service";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,9 @@ export function computeTriggerAt(item: ParsedProductivityItem): number | undefin
 
   if (item.date && item.date !== "inbox") {
     const date = new Date(`${item.date}T${item.time}:00`);
+    if (item.reminderOffsetMinutes) {
+      date.setMinutes(date.getMinutes() - item.reminderOffsetMinutes);
+    }
     if (date.getTime() > Date.now()) return date.getTime();
     // Past time on the specified date — don't schedule a stale reminder
     return undefined;
@@ -65,6 +69,9 @@ export function computeTriggerAt(item: ParsedProductivityItem): number | undefin
   // Inbox or no date: use today at the specified time
   const todayAtTime = new Date();
   todayAtTime.setHours(hours, minutes, 0, 0);
+  if (item.reminderOffsetMinutes) {
+    todayAtTime.setMinutes(todayAtTime.getMinutes() - item.reminderOffsetMinutes);
+  }
   if (todayAtTime.getTime() > Date.now()) return todayAtTime.getTime();
   // Time already passed today — don't schedule a stale reminder
   return undefined;
@@ -127,7 +134,9 @@ export function buildTask(
     status: "todo",
     priority: priorityMap[item.priority || "medium"] || "medium",
     categoryId: item.category || "work",
-    schedule: item.date ? { date: item.date } : undefined,
+    schedule: {
+      date: item.date || (item.time ? getDateKey() : "inbox"),
+    },
     reminder: triggerAt
       ? { enabled: true, triggerAt, notificationIds: undefined }
       : undefined,

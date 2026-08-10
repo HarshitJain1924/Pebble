@@ -22,6 +22,8 @@ import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
+import { getRecycleBinItems, saveRecycleBinItems } from "@/services/storage/storage.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 
 export function useFocusState() {
   // Core states
@@ -903,21 +905,10 @@ export function useFocusState() {
                     habitObj.workspaceId || INBOX_WORKSPACE_ID,
                   );
                   if (habit) {
-                    const yesterday = new Date(
-                      today.getTime() - 24 * 60 * 60 * 1000,
+                    await EntityCommandService.recoverHabitStreak(
+                      habit.id,
+                      habitObj.workspaceId || INBOX_WORKSPACE_ID
                     );
-                    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-                    const updatedHistory = [
-                      ...(habit.completionHistory || []),
-                      { date: yesterdayKey, completedAt: Date.now() },
-                    ];
-                    await HabitRepository.saveHabit({
-                      ...habit,
-                      completionHistory: updatedHistory,
-                      updatedAt: Date.now(),
-                    });
-                    emitStateChange("habits_changed");
-                    emitStateChange("pebbles_changed");
                   }
                 } catch (e) {
                   console.warn("Failed to recover habit streak", e);
@@ -1124,10 +1115,8 @@ export function useFocusState() {
       }
 
       if (foundTask) {
-        await TaskRepository.saveTask({
-          ...foundTask,
-          completed: true,
-          completedAt: Date.now(),
+        await EntityCommandService.completeTask(taskId, targetFolderId, {
+          skipEvents: true,
         });
         emitStateChange("tasks_changed");
         await loadActiveTasks();

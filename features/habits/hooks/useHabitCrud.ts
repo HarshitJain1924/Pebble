@@ -162,42 +162,35 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
 
       const currentlyCompleted = isHabitCompletedToday(habit, today);
       const isCompleting = !currentlyCompleted;
-      await handleHabitXpChange(habit, isCompleting, today);
 
-      let nextHistory: HabitCompletion[];
+      let result;
       if (isCompleting) {
-        nextHistory = [
-          ...habit.completionHistory.filter((c) => c.date !== today),
-          { date: today, completedAt: Date.now() },
-        ];
+        result = await EntityCommandService.completeHabit(id, selectedWorkspaceId || INBOX_WORKSPACE_ID, {
+          source: "tasks_screen",
+          skipAnalytics: true,
+          skipEvents: true,
+        });
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
       } else {
-        nextHistory = habit.completionHistory.filter((c) => c.date !== today);
+        result = await EntityCommandService.uncompleteHabit(id, selectedWorkspaceId || INBOX_WORKSPACE_ID, {
+          source: "tasks_screen",
+          skipAnalytics: true,
+          skipEvents: true,
+        });
       }
 
-      const updatedHabit: Habit = {
-        ...habit,
-        completionHistory: nextHistory,
-        updatedAt: Date.now(),
-      };
+      if (!result) return;
+      const updatedHabit = result.updated;
 
       const nextHabits = habits.map((h) => (h.id === id ? updatedHabit : h));
       setHabits(nextHabits);
-      await persistHabits(nextHabits);
+      // Removed duplicate `persistHabits` write since ECS handles persistence natively.
 
-      if (isCompleting) {
-        await earnPebble("habit");
-        pluginManager.dispatchHabitCompleted(updatedHabit);
-      } else {
-        await undoLastPebble("habit");
-      }
-
-      void syncWidgetData().catch(() => {});
       emitStateChange("habits_changed", "tasks_screen");
     },
-    [habits, setHabits, persistHabits],
+    [habits, setHabits, persistHabits, selectedWorkspaceId],
   );
 
   return {

@@ -28,6 +28,7 @@ import {
 } from "@/shared/types/domain.types";
 
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import {
   getActiveSuggestions,
   logTaskCreation,
@@ -506,103 +507,15 @@ export function useTasksState() {
   ) => {
     if (!parsed.title || parsed.title.trim() === "") return;
 
+    const destinationWorkspaceId =
+      targetWorkspaceId || activeWorkspaceId || INBOX_WORKSPACE_ID;
+
     if (parsed.type === "task") {
-      const generatedTaskId = String(Date.now());
-      let alarmTime: number | undefined;
-      let notificationIds: string[] = [];
-      let alarmId: string | undefined;
-
-      if (parsed.time && parsed.recurrence) {
-        try {
-          const scheduled = await scheduleReminderBatch({
-            kind: "todo",
-            itemId: generatedTaskId,
-            title: parsed.title,
-            category: parsed.category || DEFAULT_TASK_CATEGORY,
-            dailyTime: {
-              hour: Number(parsed.time.split(":")[0]),
-              minute: Number(parsed.time.split(":")[1]),
-            },
-            recurrence: parsed.recurrence,
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-            context: {
-              title: parsed.title,
-              remainingCount: 1,
-              totalCount: 1,
-            },
-          });
-          alarmId = scheduled.primaryId;
-          notificationIds = scheduled.ids;
-        } catch (e) {
-          console.error("Failed to schedule NLP recurring task reminder:", e);
-        }
-      } else if (parsed.time && parsed.date) {
-        const [hours, minutes] = parsed.time.split(":").map(Number);
-        const [year, monthVal, dayVal] = parsed.date.split("-").map(Number);
-        const dateObj = new Date(
-          year,
-          monthVal - 1,
-          dayVal,
-          hours,
-          minutes,
-          0,
-          0,
-        );
-
-        if (parsed.reminderOffsetMinutes) {
-          dateObj.setMinutes(
-            dateObj.getMinutes() - parsed.reminderOffsetMinutes,
-          );
-        }
-
-        if (dateObj.getTime() > Date.now()) {
-          alarmTime = dateObj.getTime();
-          try {
-            const scheduled = await scheduleReminderBatch({
-              kind: "todo",
-              itemId: generatedTaskId,
-              title: parsed.title,
-              category: parsed.category || DEFAULT_TASK_CATEGORY,
-              oneTimeAt: dateObj,
-              escalationMinutes: [120, 240],
-              channelId:
-                Platform.OS === "android" ? "todo-reminders" : undefined,
-              context: {
-                title: parsed.title,
-                remainingCount: 1,
-                totalCount: 1,
-              },
-            });
-            alarmId = scheduled.primaryId;
-            notificationIds = scheduled.ids;
-          } catch (e) {
-            console.error("Failed to schedule NLP task reminder:", e);
-          }
-        }
-      }
-
-      const destinationWorkspaceId =
-        targetWorkspaceId || activeWorkspaceId || INBOX_WORKSPACE_ID;
-
-      const newTodo: Task = {
-        id: generatedTaskId,
-        workspaceId: destinationWorkspaceId,
-        title: parsed.title,
-        status: "todo",
-        priority: parsed.priority || "none",
-        categoryId: parsed.category || DEFAULT_TASK_CATEGORY,
-        schedule: parsed.date ? { date: parsed.date } : undefined,
-        reminder: alarmTime
-          ? {
-              enabled: true,
-              triggerAt: alarmTime,
-              notificationIds,
-            }
-          : undefined,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
+      const newTodo = await EntityCommandService.createTask(
+        parsed,
+        destinationWorkspaceId,
+        { source: "tasks_screen" },
+      );
 
       const listTodos = todos[destinationWorkspaceId] ?? [];
       const updatedTodos = {
@@ -616,8 +529,6 @@ export function useTasksState() {
         "My Pebbles";
       showToast(`✓ Task added to ${wsName}`);
 
-      await persistState(workspaces, selectedWorkspaceId, updatedTodos);
-      emitStateChange("tasks_changed", "tasks_screen");
       pluginManager.dispatchTaskCreated(newTodo);
 
       const newSuggestion = await logTaskCreation(parsed.title);
@@ -625,93 +536,23 @@ export function useTasksState() {
         await loadSuggestions();
       }
     } else {
-      const hour = parsed.time ? Number(parsed.time.split(":")[0]) : undefined;
-      const minute = parsed.time
-        ? Number(parsed.time.split(":")[1])
-        : undefined;
-      let notificationIds: string[] = [];
-
-      let reminderDays: number[] | undefined = undefined;
-      if (parsed.recurrence) {
-        if (parsed.recurrence.type === "weekdays") {
-          reminderDays = [1, 2, 3, 4, 5];
-        } else if (parsed.recurrence.type === "weekly") {
-          reminderDays = parsed.recurrence.days;
-        }
-      }
-
-      const generatedHabitId = `habit-${Date.now()}`;
-      if (hour !== undefined && minute !== undefined) {
-        try {
-          const scheduled = await scheduleReminderBatch({
-            kind: "habit",
-            itemId: generatedHabitId,
-            title: parsed.title,
-            dailyTime: { hour, minute },
-            dailyDays: reminderDays,
-            recurrence: parsed.recurrence,
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-            context: {
-              title: parsed.title,
-              remainingCount: 1,
-              totalCount: 1,
-              streak: 0,
-              bestStreak: 0,
-            },
-          });
-          notificationIds = scheduled.ids;
-        } catch (e) {
-          console.error("Failed to schedule NLP habit reminder:", e);
-        }
-      }
-
-      const destinationWorkspaceId =
-        targetWorkspaceId || activeWorkspaceId || INBOX_WORKSPACE_ID;
-
-      // Compute canonical triggerAt from parsed hour/minute (habits always recur from today)
-      const habitTriggerAt =
-        hour !== undefined && minute !== undefined
-          ? new Date().setHours(hour, minute, 0, 0)
-          : undefined;
-
-      const newHabit: Habit = {
-        id: generatedHabitId,
-        workspaceId: destinationWorkspaceId,
-        title: parsed.title,
-        categoryId: parsed.category || "health",
-        recurrence: {
-          frequency: "daily",
-          interval: 1,
-        },
-        completionHistory: [],
-        reminder:
-          habitTriggerAt !== undefined
-            ? {
-                enabled: true,
-                triggerAt: habitTriggerAt,
-                notificationIds,
-              }
-            : undefined,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
+      const newHabit = await EntityCommandService.createHabit(
+        parsed,
+        destinationWorkspaceId,
+        { source: "tasks_screen" },
+      );
 
       const nextHabits = [newHabit, ...habits];
       setHabits(nextHabits);
-      await persistHabits(nextHabits);
 
       const catLabel =
         TASK_CATEGORY_META.find(
           (c) => c.key === (newHabit.categoryId || "health"),
         )?.label || "Health";
       showToast(`✓ Habit added to ${catLabel}`);
-
-      emitStateChange("habits_changed", "tasks_screen");
     }
 
     void syncWidgetData().catch(() => {});
-    void recordDailyHistorySnapshot();
   };
 
 

@@ -68,6 +68,7 @@ export interface Task {
   updatedAt: number;
   completedAt?: number;
   archivedAt?: number;
+  xpAwarded?: boolean; // Added for UI tracking
 }
 
 /**
@@ -92,6 +93,10 @@ export interface Habit {
   createdAt: number;
   updatedAt: number;
   archivedAt?: number;
+  streak?: number; // Added for UI tracking
+  bestStreak?: number; // Added for UI tracking
+  lastCompletedDate?: string; // Added for UI tracking
+  xpAwardedDate?: string; // Added for UI tracking
 }
 
 /**
