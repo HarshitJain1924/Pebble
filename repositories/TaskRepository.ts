@@ -11,6 +11,7 @@ import {
   type TaskStatus,
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
   const wsId = rawTask.workspaceId || defaultWorkspaceId;
@@ -181,26 +182,29 @@ export class TaskRepository {
     this.validateId(task?.id, "saveTask");
     const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(workspaceId);
-    const records = await this.getTasks(workspaceId);
+    
+    await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
 
-    const cleanTask: Task = normalizeTask(task, workspaceId);
-    cleanTask.updatedAt = Date.now();
+      const cleanTask: Task = normalizeTask(task, workspaceId);
+      cleanTask.updatedAt = Date.now();
 
-    // Pre-persistence guard: catch any code path that produces an enabled
-    // reminder with an invalid triggerAt (e.g. Date.now() instead of the
-    // user-selected time). This would have been silently persisted before.
-    const validTrigger =
-      Number.isFinite(cleanTask.reminder?.triggerAt) &&
-      (cleanTask.reminder?.triggerAt ?? 0) > 0;
-    if (cleanTask.reminder?.enabled && !validTrigger) {
-      console.warn(
-        "[Reminder] Invalid triggerAt on task " + cleanTask.id + " before persistence",
-        cleanTask.reminder
-      );
-    }
+      // Pre-persistence guard: catch any code path that produces an enabled
+      // reminder with an invalid triggerAt (e.g. Date.now() instead of the
+      // user-selected time). This would have been silently persisted before.
+      const validTrigger =
+        Number.isFinite(cleanTask.reminder?.triggerAt) &&
+        (cleanTask.reminder?.triggerAt ?? 0) > 0;
+      if (cleanTask.reminder?.enabled && !validTrigger) {
+        console.warn(
+          "[Reminder] Invalid triggerAt on task " + cleanTask.id + " before persistence",
+          cleanTask.reminder
+        );
+      }
 
-    records[task.id] = cleanTask;
-    await AsyncStorage.setItem(key, JSON.stringify(records));
+      records[task.id] = cleanTask;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    });
   }
 
   static async saveTasks(tasks: any[], workspaceId: string): Promise<void> {
@@ -208,40 +212,47 @@ export class TaskRepository {
       this.validateId(task?.id, "saveTasks");
     }
     const key = this.getTasksKey(workspaceId);
-    const records = await this.getTasks(workspaceId);
+    
+    await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
 
-    for (const task of tasks) {
-      const targetWorkspaceId =
-        workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
-      const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
-      cleanTask.updatedAt = Date.now();
-      records[task.id] = cleanTask;
-    }
-    await AsyncStorage.setItem(key, JSON.stringify(records));
+      for (const task of tasks) {
+        const targetWorkspaceId =
+          workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
+        const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
+        cleanTask.updatedAt = Date.now();
+        records[task.id] = cleanTask;
+      }
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    });
   }
 
   static async deleteTask(id: string, workspaceId: string): Promise<void> {
     const key = this.getTasksKey(workspaceId);
-    const records = await this.getTasks(workspaceId);
-    if (records[id]) {
-      delete records[id];
-      await AsyncStorage.setItem(key, JSON.stringify(records));
-    }
+    await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
+      if (records[id]) {
+        delete records[id];
+        await AsyncStorage.setItem(key, JSON.stringify(records));
+      }
+    });
   }
 
   static async deleteTasks(ids: string[], workspaceId: string): Promise<void> {
     if (ids.length === 0) return;
     const key = this.getTasksKey(workspaceId);
-    const records = await this.getTasks(workspaceId);
-    let modified = false;
-    for (const id of ids) {
-      if (records[id]) {
-        delete records[id];
-        modified = true;
+    await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
+      let modified = false;
+      for (const id of ids) {
+        if (records[id]) {
+          delete records[id];
+          modified = true;
+        }
       }
-    }
-    if (modified) {
-      await AsyncStorage.setItem(key, JSON.stringify(records));
-    }
+      if (modified) {
+        await AsyncStorage.setItem(key, JSON.stringify(records));
+      }
+    });
   }
 }

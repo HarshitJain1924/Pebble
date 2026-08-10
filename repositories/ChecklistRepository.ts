@@ -9,6 +9,7 @@ import {
   type ChecklistItem,
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 export function normalizeChecklist(
   rawChecklist: any,
@@ -122,24 +123,29 @@ export class ChecklistRepository {
     this.validateId(checklist?.id, "saveChecklist");
     const workspaceId = checklist.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getChecklistsKey(workspaceId);
-    const records = await this.getChecklists(workspaceId);
+    
+    await withLock(key, async () => {
+      const records = await this.getChecklists(workspaceId);
 
-    const cleanChecklist: Checklist = normalizeChecklist(
-      checklist,
-      workspaceId,
-    );
-    cleanChecklist.updatedAt = Date.now();
+      const cleanChecklist: Checklist = normalizeChecklist(
+        checklist,
+        workspaceId,
+      );
+      cleanChecklist.updatedAt = Date.now();
 
-    records[checklist.id] = cleanChecklist;
-    await AsyncStorage.setItem(key, JSON.stringify(records));
+      records[checklist.id] = cleanChecklist;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    });
   }
 
   static async deleteChecklist(id: string, workspaceId: string): Promise<void> {
     const key = this.getChecklistsKey(workspaceId);
-    const records = await this.getChecklists(workspaceId);
-    if (records[id]) {
-      delete records[id];
-      await AsyncStorage.setItem(key, JSON.stringify(records));
-    }
+    await withLock(key, async () => {
+      const records = await this.getChecklists(workspaceId);
+      if (records[id]) {
+        delete records[id];
+        await AsyncStorage.setItem(key, JSON.stringify(records));
+      }
+    });
   }
 }

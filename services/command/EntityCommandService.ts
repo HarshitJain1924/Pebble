@@ -192,7 +192,14 @@ export class EntityCommandService {
       }
     }
 
-    await TaskRepository.saveTask(task);
+    try {
+      await TaskRepository.saveTask(task);
+    } catch (e) {
+      if (task.reminder?.notificationIds?.length) {
+        await cancelReminderIds(task.reminder.notificationIds, { throwOnError: false });
+      }
+      throw e;
+    }
 
     if (!options?.skipEvents) {
       emitStateChange("tasks_changed", options?.source);
@@ -240,7 +247,14 @@ export class EntityCommandService {
       }
     }
 
-    await HabitRepository.saveHabit(habit);
+    try {
+      await HabitRepository.saveHabit(habit);
+    } catch (e) {
+      if (habit.reminder?.notificationIds?.length) {
+        await cancelReminderIds(habit.reminder.notificationIds, { throwOnError: false });
+      }
+      throw e;
+    }
 
     if (!options?.skipEvents) {
       emitStateChange("habits_changed", options?.source);
@@ -326,6 +340,79 @@ export class EntityCommandService {
     void syncWidgetData().catch(() => {});
 
     return newHabit;
+  }
+
+  /**
+   * Phase 8: convertHabitToTask
+   *
+   * Safely converts an existing Habit into a Task.
+   * Guarantees that the original Habit is NEVER deleted if Task creation fails.
+   */
+  static async convertHabitToTask(
+    habitId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Task> {
+    const { generateId } = await import("@/shared/utils/id");
+
+    // 1. Load Habit
+    const habitMap = await HabitRepository.getHabits(workspaceId);
+    const habit = habitMap[habitId];
+    if (!habit) {
+      throw new Error(`[EntityCommandService] convertHabitToTask failed: Habit ${habitId} not found in workspace ${workspaceId}`);
+    }
+
+    // 2. Construct Task
+    const newTaskId = generateId("task-");
+    const newTask: Task = {
+      id: newTaskId,
+      workspaceId: habit.workspaceId || INBOX_WORKSPACE_ID,
+      title: habit.title,
+      description: habit.description,
+      status: "todo",
+      priority: "medium",
+      categoryId: habit.categoryId || "work",
+      schedule: { date: new Date().toISOString().split("T")[0] },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      reminder: habit.reminder
+        ? {
+            enabled: habit.reminder.enabled,
+            triggerAt: habit.reminder.triggerAt,
+            notificationIds: undefined, // Strip old IDs so createTask generates new ones
+          }
+        : undefined,
+    };
+
+    // 3. Persist Task (internally reschedules reminder with fresh IDs)
+    const createdTask = await this.createTask(newTask, newTask.workspaceId, {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    // 4. Cancel Old Reminders
+    if (habit.reminder && habit.reminder.notificationIds) {
+      try {
+        await cancelReminderIds(habit.reminder.notificationIds);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to cancel old reminders during Habit->Task conversion for ${habitId}`, e);
+      }
+    }
+
+    // 5. Delete Habit
+    await HabitRepository.deleteHabit(habitId, workspaceId);
+
+    // 6. Side Effects
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+      emitStateChange("habits_changed", options?.source);
+    }
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+    void syncWidgetData().catch(() => {});
+
+    return createdTask;
   }
 
   /**
@@ -479,9 +566,13 @@ export class EntityCommandService {
       updatedAt: Date.now(),
     };
 
-    await TaskRepository.saveTask(updatedTask);
+    // If the task has an enabled reminder in the future, it must be re-scheduled
+    // because completeTask previously cancelled it.
+    const finalTask = await rescheduleTodoReminders(updatedTask);
 
-    pluginManager.dispatchTaskUncompleted(updatedTask);
+    await TaskRepository.saveTask(finalTask);
+
+    pluginManager.dispatchTaskUncompleted(finalTask);
 
     if (!options?.skipAnalytics) {
       void recordDailyHistorySnapshot().catch(() => {});
@@ -580,6 +671,83 @@ export class EntityCommandService {
     void syncWidgetData().catch(() => {});
 
     return updatedTask;
+  }
+
+  /**
+   * Update an existing Habit.
+   * Modifies habit fields and intelligently reschedules reminders only if relevant state changed.
+   */
+  static async updateHabit(
+    habitId: string,
+    workspaceId: string,
+    updates: Partial<Habit>,
+    options?: CreateEntityOptions,
+  ): Promise<Habit> {
+    const habitsMap = await HabitRepository.getHabits(workspaceId);
+    const existing = habitsMap[habitId];
+    if (!existing) {
+      throw new Error(`Habit ${habitId} not found in workspace ${workspaceId}`);
+    }
+
+    if (updates.workspaceId && updates.workspaceId !== workspaceId) {
+      throw new Error("Workspace movement is not supported in updateHabit.");
+    }
+
+    let updatedHabit: Habit = {
+      ...existing,
+      ...updates,
+      updatedAt: Date.now(),
+    };
+
+    const titleChanged = updates.title !== undefined && updates.title !== existing.title;
+    const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
+    const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
+    const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
+    const archivedChanged = ("archivedAt" in updates) && updates.archivedAt !== existing.archivedAt;
+
+    const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || archivedChanged;
+
+    if (needsReminderUpdate) {
+      // 1. Cancel existing
+      if (existing.reminder?.notificationIds?.length) {
+        await cancelReminderIds(existing.reminder.notificationIds);
+      }
+      
+      // 2. Reschedule if still applicable
+      const isArchived = !!updatedHabit.archivedAt;
+
+      if (!isArchived) {
+        try {
+          const rescheduled = await rescheduleHabitReminders(updatedHabit);
+          updatedHabit = {
+            ...updatedHabit,
+            reminder: rescheduled.reminder,
+          };
+        } catch (e) {
+          console.warn("[EntityCommandService] Failed to reschedule habit reminder during update:", e);
+        }
+      } else if (isArchived) {
+        // Clear reminder IDs explicitly if archived
+        if (updatedHabit.reminder) {
+          updatedHabit = {
+            ...updatedHabit,
+            reminder: { ...updatedHabit.reminder, notificationIds: undefined },
+          };
+        }
+      }
+    }
+
+    await HabitRepository.saveHabit(updatedHabit);
+
+    if (!options?.skipEvents) {
+      emitStateChange("habits_changed", options?.source);
+    }
+
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    return updatedHabit;
   }
 
   /**
@@ -835,6 +1003,92 @@ export class EntityCommandService {
     return { previous: habit, updated: updatedHabit };
   }
 
+  static async recycleHabit(
+    habitId: string,
+    workspaceId: string,
+    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+  ): Promise<void> {
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+    
+    const habitMap = await HabitRepository.getHabits(workspaceId);
+    const habit = habitMap[habitId];
+    if (!habit) return;
+
+    await RecycleBinRepository.addToRecycleBin("habit", habit, workspaceId, { throwOnError: true });
+
+    if (habit.reminder?.notificationIds?.length) {
+      await cancelReminderIds(habit.reminder.notificationIds, { throwOnError: true });
+    }
+
+    await HabitRepository.deleteHabit(habitId, workspaceId);
+
+    if (!options?.skipEvents) {
+      emitStateChange("habits_changed", options?.source);
+    }
+  }
+
+  static async restoreHabit(
+    recycleBinItemId: string,
+    options?: CreateEntityOptions
+  ): Promise<Habit> {
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    
+    const items = await RecycleBinRepository.getRecycleBinItems();
+    const item = items.find(i => i.id === recycleBinItemId);
+    if (!item || item.entityType !== "habit") throw new Error("Invalid habit recycle bin item");
+
+    const habit: Habit = JSON.parse(item.snapshot);
+    habit.reminder = habit.reminder ? { ...habit.reminder, notificationIds: undefined } : undefined;
+    
+    const restored = await this.createHabit(habit, habit.workspaceId || INBOX_WORKSPACE_ID, options);
+    
+    const remaining = items.filter(i => i.id !== recycleBinItemId);
+    await RecycleBinRepository.saveRecycleBinItems(remaining, { throwOnError: true });
+    
+    return restored;
+  }
+
+  static async recycleChecklist(
+    checklistId: string,
+    workspaceId: string,
+    options?: { skipEvents?: boolean; source?: string }
+  ): Promise<void> {
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+    
+    const checklists = await ChecklistRepository.getChecklists(workspaceId);
+    const checklist = checklists[checklistId];
+    if (!checklist) return;
+
+    await RecycleBinRepository.addToRecycleBin("checklist", checklist, workspaceId, { throwOnError: true });
+    await ChecklistRepository.deleteChecklist(checklistId, workspaceId);
+
+    if (!options?.skipEvents) {
+      emitStateChange("checklists_changed", options?.source);
+    }
+  }
+
+  static async recycleResource(
+    resourceId: string,
+    workspaceId: string,
+    options?: { skipEvents?: boolean; source?: string }
+  ): Promise<void> {
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    const { ResourceRepository } = await import("@/repositories/ResourceRepository");
+    
+    const resources = await ResourceRepository.getResources(workspaceId);
+    const resource = resources[resourceId];
+    if (!resource) return;
+
+    await RecycleBinRepository.addToRecycleBin("resource", resource, workspaceId, { throwOnError: true });
+    await ResourceRepository.deleteResource(resourceId, workspaceId);
+
+    if (!options?.skipEvents) {
+      emitStateChange("resources_changed", options?.source);
+    }
+  }
+
   // ─── BATCH 3: RECYCLE TASK ──────────────────────────────────────────────────
 
   /**
@@ -994,6 +1248,25 @@ export class EntityCommandService {
     }
 
     return { recycledCount: validTasksToRecycle.length };
+  }
+
+  /**
+   * Clears all completed tasks in a given workspace, moving them to the recycle bin safely.
+   */
+  static async clearCompletedTasks(
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    const tasks = await TaskRepository.getTasks(workspaceId);
+    const completedTasks = Object.values(tasks).filter(
+      (t) => t.status === "completed" || !!t.completedAt,
+    );
+    if (completedTasks.length === 0) return;
+
+    await this.recycleTasks(
+      completedTasks.map((t) => ({ taskId: t.id, workspaceId })),
+      { source: options?.source || "clear_completed" },
+    );
   }
 
   // ─── BATCH 4: PERMANENTLY DELETE TASK ───────────────────────────────────────

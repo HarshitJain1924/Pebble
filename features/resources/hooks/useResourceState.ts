@@ -98,11 +98,10 @@ export function useResourceState(
   const deleteResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
       const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
-      const existing = await ResourceRepository.getResource(resourceId, wsId);
-      if (existing) {
-        await addToRecycleBin("resource", existing, wsId);
-      }
-      await ResourceRepository.deleteResource(resourceId, wsId);
+      await EntityCommandService.recycleResource(resourceId, wsId, {
+        source: "tasks_screen",
+        skipEvents: true,
+      });
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});

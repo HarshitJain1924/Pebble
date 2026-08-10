@@ -10,6 +10,7 @@ import {
   type RecurrenceRule,
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 export function normalizeHabit(
   rawHabit: any,
@@ -145,34 +146,39 @@ export class HabitRepository {
     this.validateId(habit?.id, "saveHabit");
     const workspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getHabitsKey(workspaceId);
-    const records = await this.getHabits(workspaceId);
+    
+    await withLock(key, async () => {
+      const records = await this.getHabits(workspaceId);
 
-    const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
-    cleanHabit.updatedAt = Date.now();
+      const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
+      cleanHabit.updatedAt = Date.now();
 
-    // Pre-persistence guard: catch any code path that produces an enabled
-    // reminder with an invalid triggerAt (e.g. Date.now() instead of the
-    // user-selected time). This would have been silently persisted before.
-    const validTrigger =
-      Number.isFinite(cleanHabit.reminder?.triggerAt) &&
-      (cleanHabit.reminder?.triggerAt ?? 0) > 0;
-    if (cleanHabit.reminder?.enabled && !validTrigger) {
-      console.warn(
-        "[Reminder] Invalid triggerAt on habit " + cleanHabit.id + " before persistence",
-        cleanHabit.reminder
-      );
-    }
+      // Pre-persistence guard: catch any code path that produces an enabled
+      // reminder with an invalid triggerAt (e.g. Date.now() instead of the
+      // user-selected time). This would have been silently persisted before.
+      const validTrigger =
+        Number.isFinite(cleanHabit.reminder?.triggerAt) &&
+        (cleanHabit.reminder?.triggerAt ?? 0) > 0;
+      if (cleanHabit.reminder?.enabled && !validTrigger) {
+        console.warn(
+          "[Reminder] Invalid triggerAt on habit " + cleanHabit.id + " before persistence",
+          cleanHabit.reminder
+        );
+      }
 
-    records[habit.id] = cleanHabit;
-    await AsyncStorage.setItem(key, JSON.stringify(records));
+      records[habit.id] = cleanHabit;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    });
   }
 
   static async deleteHabit(id: string, workspaceId: string): Promise<void> {
     const key = this.getHabitsKey(workspaceId);
-    const records = await this.getHabits(workspaceId);
-    if (records[id]) {
-      delete records[id];
-      await AsyncStorage.setItem(key, JSON.stringify(records));
-    }
+    await withLock(key, async () => {
+      const records = await this.getHabits(workspaceId);
+      if (records[id]) {
+        delete records[id];
+        await AsyncStorage.setItem(key, JSON.stringify(records));
+      }
+    });
   }
 }

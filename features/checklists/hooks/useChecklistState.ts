@@ -72,11 +72,10 @@ export function useChecklistState(selectedWorkspaceId: string) {
   const deleteChecklist = useCallback(async (id: string, workspaceId?: string) => {
     try {
       const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
-      const existing = await ChecklistRepository.getChecklist(id, activeList);
-      if (existing) {
-        await addToRecycleBin("checklist", existing, `${activeList}:${id}`);
-      }
-      await ChecklistRepository.deleteChecklist(id, activeList);
+      await EntityCommandService.recycleChecklist(id, activeList, {
+        source: "tasks_screen",
+        skipEvents: true,
+      });
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {

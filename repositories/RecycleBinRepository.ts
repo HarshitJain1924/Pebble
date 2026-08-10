@@ -6,6 +6,7 @@
  */
 import { type RecycleBinItem } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 export function normalizeRecycleBinItem(raw: any): RecycleBinItem {
   let entityType: RecycleBinItem["entityType"] = "task";
@@ -74,23 +75,25 @@ export class RecycleBinRepository {
     options?: { throwOnError?: boolean }
   ): Promise<void> {
     try {
-      const items = await this.getRecycleBinItems();
-      const entityId = item.id || item.list?.id || String(Date.now());
+      await withLock(this.RECYCLE_BIN_KEY, async () => {
+        const items = await this.getRecycleBinItems();
+        const entityId = item.id || item.list?.id || String(Date.now());
 
-      // Remove any existing entry for the same entity ID to prevent duplicates
-      const filtered = items.filter(
-        (existing) =>
-          existing.entityId !== entityId && existing.id !== entityId,
-      );
+        // Remove any existing entry for the same entity ID to prevent duplicates
+        const filtered = items.filter(
+          (existing) =>
+            existing.entityId !== entityId && existing.id !== entityId,
+        );
 
-      const newItem: RecycleBinItem = {
-        id: `rb-${entityId}`,
-        entityType,
-        entityId,
-        snapshot: JSON.stringify(item),
-        deletedAt: Date.now(),
-      };
-      await this.saveRecycleBinItems([newItem, ...filtered], options);
+        const newItem: RecycleBinItem = {
+          id: `rb-${entityId}`,
+          entityType,
+          entityId,
+          snapshot: JSON.stringify(item),
+          deletedAt: Date.now(),
+        };
+        await this.saveRecycleBinItems([newItem, ...filtered], options);
+      });
     } catch (e) {
       if (options?.throwOnError) {
         console.warn("Failed to add item to recycle bin (strict mode)", e);
@@ -103,44 +106,46 @@ export class RecycleBinRepository {
 
   static async cleanupRecycleBin(): Promise<void> {
     try {
-      const items = await this.getRecycleBinItems();
-      const now = Date.now();
-      const thirtyDaysAgo = now - 30 * this.DAY_MS;
-      const expired = items.filter((item) => item.deletedAt < thirtyDaysAgo);
-      const remaining = items.filter((item) => item.deletedAt >= thirtyDaysAgo);
+      await withLock(this.RECYCLE_BIN_KEY, async () => {
+        const items = await this.getRecycleBinItems();
+        const now = Date.now();
+        const thirtyDaysAgo = now - 30 * this.DAY_MS;
+        const expired = items.filter((item) => item.deletedAt < thirtyDaysAgo);
+        const remaining = items.filter((item) => item.deletedAt >= thirtyDaysAgo);
 
-      if (expired.length > 0) {
-        const notificationIdsToCancel: string[] = [];
-        for (const item of expired) {
-          if (item.snapshot) {
-            try {
-              const parsed = JSON.parse(item.snapshot);
-              if (
-                parsed.reminder?.notificationIds &&
-                Array.isArray(parsed.reminder.notificationIds)
-              ) {
-                notificationIdsToCancel.push(
-                  ...parsed.reminder.notificationIds,
-                );
-              } else if (
-                parsed.notificationIds &&
-                Array.isArray(parsed.notificationIds)
-              ) {
-                notificationIdsToCancel.push(...parsed.notificationIds);
-              }
-            } catch {}
+        if (expired.length > 0) {
+          const notificationIdsToCancel: string[] = [];
+          for (const item of expired) {
+            if (item.snapshot) {
+              try {
+                const parsed = JSON.parse(item.snapshot);
+                if (
+                  parsed.reminder?.notificationIds &&
+                  Array.isArray(parsed.reminder.notificationIds)
+                ) {
+                  notificationIdsToCancel.push(
+                    ...parsed.reminder.notificationIds,
+                  );
+                } else if (
+                  parsed.notificationIds &&
+                  Array.isArray(parsed.notificationIds)
+                ) {
+                  notificationIdsToCancel.push(...parsed.notificationIds);
+                }
+              } catch {}
+            }
+          }
+          if (notificationIdsToCancel.length > 0) {
+            const { cancelReminderIds } =
+              await import("@/services/scheduling/reminders.service");
+            await cancelReminderIds(notificationIdsToCancel);
           }
         }
-        if (notificationIdsToCancel.length > 0) {
-          const { cancelReminderIds } =
-            await import("@/services/scheduling/reminders.service");
-          await cancelReminderIds(notificationIdsToCancel);
-        }
-      }
 
-      if (remaining.length !== items.length) {
-        await this.saveRecycleBinItems(remaining);
-      }
+        if (remaining.length !== items.length) {
+          await this.saveRecycleBinItems(remaining);
+        }
+      });
     } catch (e) {
       console.warn("Recycle bin cleanup failed", e);
     }

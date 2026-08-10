@@ -10,6 +10,7 @@ import {
   type ResourceType,
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 export function normalizeResource(
   rawResource: any,
@@ -158,21 +159,26 @@ export class ResourceRepository {
     this.validateId(resource?.id, "saveResource");
     const workspaceId = resource.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getResourcesKey(workspaceId);
-    const records = await this.getResources(workspaceId);
+    
+    await withLock(key, async () => {
+      const records = await this.getResources(workspaceId);
 
-    const cleanResource: Resource = normalizeResource(resource, workspaceId);
-    cleanResource.updatedAt = Date.now();
+      const cleanResource: Resource = normalizeResource(resource, workspaceId);
+      cleanResource.updatedAt = Date.now();
 
-    records[resource.id] = cleanResource;
-    await AsyncStorage.setItem(key, JSON.stringify(records));
+      records[resource.id] = cleanResource;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    });
   }
 
   static async deleteResource(id: string, workspaceId: string): Promise<void> {
     const key = this.getResourcesKey(workspaceId);
-    const records = await this.getResources(workspaceId);
-    if (records[id]) {
-      delete records[id];
-      await AsyncStorage.setItem(key, JSON.stringify(records));
-    }
+    await withLock(key, async () => {
+      const records = await this.getResources(workspaceId);
+      if (records[id]) {
+        delete records[id];
+        await AsyncStorage.setItem(key, JSON.stringify(records));
+      }
+    });
   }
 }

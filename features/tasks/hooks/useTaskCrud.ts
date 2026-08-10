@@ -162,10 +162,11 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       );
       const updated = { ...todos, [selectedWorkspaceId]: updatedList };
       setTodos(updated);
-      await persistState(workspaces, selectedWorkspaceId, updated);
+      
+      await EntityCommandService.updateTask(id, selectedWorkspaceId, { title: newTitle }, { skipEvents: true });
       finalizeMutation();
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, persistState],
+    [todos, selectedWorkspaceId, setTodos, workspaces, finalizeMutation],
   );
 
   const moveTodoToList = useCallback(
@@ -300,33 +301,32 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
     async (todoId: string, newCategory: TaskCategory) => {
       const listTodos = todos[selectedWorkspaceId] ?? [];
       const updatedList = listTodos.map((todo) =>
-        todo.id === todoId ? { ...todo, category: newCategory } : todo,
+        todo.id === todoId ? { ...todo, category: newCategory as any } : todo,
       );
       const updated = { ...todos, [selectedWorkspaceId]: updatedList };
       setTodos(updated);
-      await persistState(workspaces, selectedWorkspaceId, updated);
+      
+      await EntityCommandService.updateTask(todoId, selectedWorkspaceId, { categoryId: newCategory }, { skipEvents: true });
       finalizeMutation();
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, persistState],
+    [todos, selectedWorkspaceId, setTodos, workspaces, finalizeMutation],
   );
 
   const clearCompleted = useCallback(async () => {
     const listTodos = todos[selectedWorkspaceId] ?? [];
-    for (const t of listTodos) {
-      if (isTaskCompleted(t)) {
-        if (t.reminder?.notificationIds) {
-          await cancelReminderIds(t.reminder.notificationIds);
-        }
-      }
-    }
+    
+    // Update local UI state
     const updated = {
       ...todos,
       [selectedWorkspaceId]: listTodos.filter((todo) => !isTaskCompleted(todo)),
     };
     setTodos(updated);
-    await persistState(workspaces, selectedWorkspaceId, updated);
+    
+    // Delegate to ECS
+    await EntityCommandService.clearCompletedTasks(selectedWorkspaceId, { source: "tasks_screen" });
+    
     finalizeMutation();
-  }, [todos, selectedWorkspaceId, setTodos, workspaces, persistState]);
+  }, [todos, selectedWorkspaceId, setTodos, finalizeMutation]);
 
   const convertCollectionItemToTask = useCallback(
     async (item: any, targetWorkspaceId?: string) => {

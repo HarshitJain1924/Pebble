@@ -9,6 +9,7 @@ import {
   type Workspace,
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 const WORKSPACES_KEY = "pebble:v1:workspaces";
 const LEGACY_WORKSPACES_KEY = "pebble:core:folders";
@@ -44,17 +45,19 @@ export class WorkspaceRepository {
 
   static async saveWorkspace(workspace: Workspace): Promise<void> {
     try {
-      const workspaces = await this.getWorkspaces();
-      const cleanWs = normalizeWorkspace(workspace);
-      cleanWs.updatedAt = Date.now();
+      await withLock(WORKSPACES_KEY, async () => {
+        const workspaces = await this.getWorkspaces();
+        const cleanWs = normalizeWorkspace(workspace);
+        cleanWs.updatedAt = Date.now();
 
-      const idx = workspaces.findIndex((w) => w.id === cleanWs.id);
-      if (idx >= 0) {
-        workspaces[idx] = cleanWs;
-      } else {
-        workspaces.push(cleanWs);
-      }
-      await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
+        const idx = workspaces.findIndex((w) => w.id === cleanWs.id);
+        if (idx >= 0) {
+          workspaces[idx] = cleanWs;
+        } else {
+          workspaces.push(cleanWs);
+        }
+        await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
+      });
     } catch (e) {
       console.warn("Failed to save workspace", e);
     }
@@ -62,8 +65,10 @@ export class WorkspaceRepository {
 
   static async saveWorkspaces(workspaces: Workspace[]): Promise<void> {
     try {
-      const normalized = workspaces.map(normalizeWorkspace);
-      await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(normalized));
+      await withLock(WORKSPACES_KEY, async () => {
+        const normalized = workspaces.map(normalizeWorkspace);
+        await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(normalized));
+      });
     } catch (e) {
       console.warn("Failed to save workspaces batch", e);
     }
@@ -75,9 +80,11 @@ export class WorkspaceRepository {
       return;
     }
     try {
-      let workspaces = await this.getWorkspaces();
-      workspaces = workspaces.filter((w) => w.id !== id);
-      await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
+      await withLock(WORKSPACES_KEY, async () => {
+        let workspaces = await this.getWorkspaces();
+        workspaces = workspaces.filter((w) => w.id !== id);
+        await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
+      });
     } catch (e) {
       console.warn("Failed to delete workspace", e);
     }

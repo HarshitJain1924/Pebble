@@ -692,55 +692,16 @@ export default function TaskDetailsScreen() {
         router.replace(`/task-details?id=${newHabit.id}&type=habit`);
       } else {
         // Convert Habit -> Task
-        const newId = generateId("task-");
-
-        // Cancel previous reminders
-        await cancelReminderIds(item.reminder?.notificationIds);
-        const newTodo: Task = {
-          id: newId,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-          title: title.trim(),
-          description: description.trim() || undefined,
-          status: "todo",
-          priority: (priority as any) || "none",
-          categoryId: (category as any) || "work",
-          schedule: { date: getDateKey() },
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-
-        await HabitRepository.deleteHabit(
+        const newTask = await EntityCommandService.convertHabitToTask(
           item.id,
           item.workspaceId || INBOX_WORKSPACE_ID,
-        );
-        await EntityCommandService.createTask(
-          newTodo,
-          newTodo.workspaceId || INBOX_WORKSPACE_ID,
-          { skipEvents: true, skipAnalytics: true },
+          { source: "ui_convert" }
         );
 
-        // Schedule reminder for new task — from canonical reminder
-        if (item.reminder?.triggerAt) {
-          const triggerDate = new Date(item.reminder.triggerAt);
-          await scheduleReminderBatch({
-            kind: "todo",
-            itemId: newId,
-            title: newTodo.title,
-            category: item.category || "work",
-            dailyTime: { hour: triggerDate.getHours(), minute: triggerDate.getMinutes() },
-            dailyDays: item.recurrence?.daysOfWeek,
-            recurrence: recurrenceRuleToScheduler(item.recurrence),
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-          });
-        }
-
-        emitStateChange("tasks_changed");
-        emitStateChange("habits_changed");
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
-        router.replace(`/task-details?id=${newId}&type=task`);
+        router.replace(`/task-details?id=${newTask.id}&type=task`);
       }
     } catch (e) {
       console.warn("Failed to convert item", e);
@@ -807,42 +768,21 @@ export default function TaskDetailsScreen() {
             { source: "task-details" }
           );
         } else {
-          await cancelReminderIds(item.reminder?.notificationIds);
-
-          await addToRecycleBin(
-            "habit",
-            item,
-            originalWorkspace,
-          );
-
-          await HabitRepository.deleteHabit(
+          await EntityCommandService.recycleHabit(
             item.id,
             item.workspaceId || INBOX_WORKSPACE_ID,
+            { source: "task-details" }
           );
         }
 
         showUndo({
           message: `Deleted "${item.title}"`,
           onUndo: async () => {
-            const binItems = await getRecycleBinItems();
-            await saveRecycleBinItems(
-              binItems.filter((bi) => bi.id !== item.id),
-            );
-
+            const recycleBinId = `rb-${item.id}`;
             if (isTask) {
-              const rescheduled = await rescheduleTodoReminders(item);
-              await TaskRepository.saveTask({
-                ...rescheduled,
-                workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-              });
-              emitStateChange("tasks_changed");
+              await EntityCommandService.restoreTask(recycleBinId, { source: "task-details" });
             } else {
-              const rescheduled = await rescheduleHabitReminders(item);
-              await HabitRepository.saveHabit({
-                ...rescheduled,
-                workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-              });
-              emitStateChange("habits_changed");
+              await EntityCommandService.restoreHabit(recycleBinId, { source: "task-details" });
             }
           },
         });
@@ -1565,63 +1505,12 @@ export default function TaskDetailsScreen() {
                         { skipEvents: true, skipAnalytics: true }
                       );
                     } else {
-                      await cancelReminderIds(item.reminder?.notificationIds);
-                      let notificationIds: string[] = [];
-                      if (
-                        !nextArchived &&
-                        item.reminder?.triggerAt
-                      ) {
-                        const triggerDate = new Date(item.reminder.triggerAt);
-                        // If the item has a specific schedule date (not inbox), use oneTimeAt
-                        // so the notification fires once at the correct date+time.
-                        const scheduleDate = item.schedule?.date || "inbox";
-                        const hasSpecificDate = false; // Only applies to Tasks, Habit logic never had specific scheduleDate
-                        const isNonRecurring = !item.recurrence;
-
-                        if (hasSpecificDate && isNonRecurring) {
-                          const oneTimeDate = new Date(
-                            scheduleDate +
-                              `T${String(triggerDate.getHours()).padStart(2, "0")}:${String(triggerDate.getMinutes()).padStart(2, "0")}:00`,
-                          );
-                          const scheduled = await scheduleReminderBatch({
-                            kind: "habit",
-                            itemId: item.id,
-                            title: item.title,
-                            category: item.category,
-                            oneTimeAt: oneTimeDate,
-                            escalationMinutes: [120, 240],
-                            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-                          });
-                          notificationIds = scheduled.ids;
-                        } else {
-                          const scheduled = await scheduleReminderBatch({
-                            kind: "habit",
-                            itemId: item.id,
-                            title: item.title,
-                            category: item.category,
-                            dailyTime: { hour: triggerDate.getHours(), minute: triggerDate.getMinutes() },
-                            dailyDays: item.recurrence?.daysOfWeek,
-                            recurrence: recurrenceRuleToScheduler(item.recurrence),
-                            escalationMinutes: [120, 240],
-                            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-                          });
-                          notificationIds = scheduled.ids;
-                        }
-                      }
-
-                      const updatedItem = {
-                        ...item,
-                        archivedAt: nextArchived ? Date.now() : undefined,
-                        reminder: notificationIds.length > 0
-                          ? { ...(item.reminder || { enabled: true, triggerAt: 0 }), notificationIds }
-                          : item.reminder ? { ...item.reminder, notificationIds: undefined } : undefined,
-                        lastUpdated: getDateKey(),
-                      };
-
-                      await HabitRepository.saveHabit({
-                        ...updatedItem,
-                        workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-                      });
+                      await EntityCommandService.updateHabit(
+                        item.id,
+                        item.workspaceId || INBOX_WORKSPACE_ID,
+                        { archivedAt: nextArchived ? Date.now() : undefined },
+                        { skipEvents: true, skipAnalytics: true }
+                      );
                     }
 
                     Haptics.notificationAsync(

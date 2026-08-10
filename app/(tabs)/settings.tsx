@@ -280,14 +280,24 @@ export default function SettingsScreen() {
   // C. Export Backup
   const exportBackup = async () => {
     try {
-      const keys = [
-        TODOS_STORAGE_KEY,
-        DAILY_STORAGE_KEY,
-        HISTORY_STORAGE_KEY,
-        PROFILE_STORAGE_KEY,
-        SETTINGS_STORAGE_KEY,
-      ];
-      const items = await AsyncStorage.multiGet(keys);
+      const allKeys = await AsyncStorage.getAllKeys();
+      const keysToExport = allKeys.filter(k => 
+        k.startsWith("pebble:") || 
+        k.startsWith("todoapp:") || 
+        k === TODOS_STORAGE_KEY ||
+        k === DAILY_STORAGE_KEY ||
+        k === HISTORY_STORAGE_KEY ||
+        k === PROFILE_STORAGE_KEY ||
+        k === SETTINGS_STORAGE_KEY ||
+        k === RECYCLE_BIN_STORAGE_KEY ||
+        k === COLLECTIONS_STORAGE_KEY ||
+        k === CHECKLISTS_STORAGE_KEY ||
+        k === "PEBBLE_CAPTURE_CREATION_HISTORY" ||
+        k === "PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS" ||
+        k === "todoapp_mascot_dismissed"
+      );
+      
+      const items = await AsyncStorage.multiGet(keysToExport);
       const backup: Record<string, string | null> = {};
       items.forEach(([key, val]) => {
         backup[key] = val;
@@ -315,44 +325,15 @@ export default function SettingsScreen() {
         throw new Error("Backup payload must be a JSON object.");
       }
 
-      const hasCoreKeys = [
-        TODOS_STORAGE_KEY,
-        DAILY_STORAGE_KEY,
-        PROFILE_STORAGE_KEY,
-      ].some((key) => key in parsed);
+      const hasCoreKeys = Object.keys(parsed).some((key) => 
+        key.startsWith("pebble:") || 
+        key.startsWith("todoapp:") || 
+        key === TODOS_STORAGE_KEY ||
+        key === DAILY_STORAGE_KEY ||
+        key === PROFILE_STORAGE_KEY
+      );
       if (!hasCoreKeys) {
         throw new Error("Backup does not contain any valid Pebble data keys.");
-      }
-
-      // Validate TODOS_STORAGE_KEY
-      if (TODOS_STORAGE_KEY in parsed) {
-        const rawVal = parsed[TODOS_STORAGE_KEY];
-        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
-        if (
-          !valObj ||
-          !Array.isArray(valObj.lists) ||
-          typeof valObj.todos !== "object"
-        ) {
-          throw new Error("Invalid format for tasks and workspaces.");
-        }
-      }
-
-      // Validate DAILY_STORAGE_KEY
-      if (DAILY_STORAGE_KEY in parsed) {
-        const rawVal = parsed[DAILY_STORAGE_KEY];
-        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
-        if (!valObj || !Array.isArray(valObj.dailyHabits)) {
-          throw new Error("Invalid format for habits.");
-        }
-      }
-
-      // Validate PROFILE_STORAGE_KEY
-      if (PROFILE_STORAGE_KEY in parsed) {
-        const rawVal = parsed[PROFILE_STORAGE_KEY];
-        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
-        if (!valObj || typeof valObj !== "object") {
-          throw new Error("Invalid format for user profile.");
-        }
       }
 
       const keyValPairs: [string, string][] = [];
