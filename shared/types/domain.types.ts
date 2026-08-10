@@ -63,6 +63,7 @@ export interface Task {
   schedule?: TaskSchedule;
   reminder?: Reminder;
   recurrence?: RecurrenceRule;
+  recurrenceExceptions?: string[];
   resourceIds?: string[];
   createdAt: number;
   updatedAt: number;
@@ -87,6 +88,7 @@ export interface Habit {
   categoryId?: string;
   tags?: string[];
   recurrence: RecurrenceRule;
+  recurrenceExceptions?: string[];
   completionHistory: HabitCompletion[];
   reminder?: Reminder;
   resourceIds?: string[];

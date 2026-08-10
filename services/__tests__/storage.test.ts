@@ -9,6 +9,10 @@ import {
 import { type RecycleBinItem } from "@/shared/types/domain.types";
 import * as reminders from "@/services/scheduling/reminders.service";
 
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+);
+
 jest.mock("@/services/scheduling/reminders.service", () => ({
   cancelReminderIds: jest.fn().mockResolvedValue(undefined),
 }));
@@ -44,6 +48,26 @@ describe("storage.service", () => {
     expect(retrieved.length).toBe(1);
     expect(retrieved[0].entityId).toBe("todo-abc");
     expect(retrieved[0].entityType).toBe("task");
+  });
+
+  it("should swallow save errors by default", async () => {
+    jest.spyOn(AsyncStorage, "setItem").mockRejectedValueOnce(new Error("Storage fail"));
+    await expect(saveRecycleBinItems([])).resolves.toBeUndefined();
+  });
+
+  it("should throw save errors when throwOnError is true", async () => {
+    jest.spyOn(AsyncStorage, "setItem").mockRejectedValueOnce(new Error("Storage fail"));
+    await expect(saveRecycleBinItems([], { throwOnError: true })).rejects.toThrow("Storage fail");
+  });
+
+  it("should swallow add errors by default", async () => {
+    jest.spyOn(AsyncStorage, "setItem").mockRejectedValueOnce(new Error("Storage fail"));
+    await expect(addToRecycleBin("task", { id: "1" }, "Inbox")).resolves.toBeUndefined();
+  });
+
+  it("should throw add errors when throwOnError is true", async () => {
+    jest.spyOn(AsyncStorage, "setItem").mockRejectedValueOnce(new Error("Storage fail"));
+    await expect(addToRecycleBin("task", { id: "1" }, "Inbox", { throwOnError: true })).rejects.toThrow("Storage fail");
   });
 
   it("should parse workspace/task/habit recycled ids correctly", async () => {

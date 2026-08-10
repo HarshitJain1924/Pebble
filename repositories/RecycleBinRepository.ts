@@ -51,11 +51,19 @@ export class RecycleBinRepository {
     }
   }
 
-  static async saveRecycleBinItems(items: RecycleBinItem[]): Promise<void> {
+  static async saveRecycleBinItems(
+    items: RecycleBinItem[],
+    options?: { throwOnError?: boolean }
+  ): Promise<void> {
     try {
       await AsyncStorage.setItem(this.RECYCLE_BIN_KEY, JSON.stringify(items));
     } catch (e) {
-      console.warn("Failed to save recycle bin items", e);
+      if (options?.throwOnError) {
+        console.warn("Failed to save recycle bin items (strict mode)", e);
+        throw e;
+      } else {
+        console.warn("Failed to save recycle bin items (tolerant mode)", e);
+      }
     }
   }
 
@@ -63,6 +71,7 @@ export class RecycleBinRepository {
     entityType: RecycleBinItem["entityType"],
     item: any,
     originalLocation?: string,
+    options?: { throwOnError?: boolean }
   ): Promise<void> {
     try {
       const items = await this.getRecycleBinItems();
@@ -81,9 +90,14 @@ export class RecycleBinRepository {
         snapshot: JSON.stringify(item),
         deletedAt: Date.now(),
       };
-      await this.saveRecycleBinItems([newItem, ...filtered]);
+      await this.saveRecycleBinItems([newItem, ...filtered], options);
     } catch (e) {
-      console.warn("Failed to add item to recycle bin", e);
+      if (options?.throwOnError) {
+        console.warn("Failed to add item to recycle bin (strict mode)", e);
+        throw e;
+      } else {
+        console.warn("Failed to add item to recycle bin (tolerant mode)", e);
+      }
     }
   }
 

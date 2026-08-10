@@ -6,11 +6,19 @@ import {
 } from "@/services/scheduling/reminders.service";
 import { type Habit, type Task } from "@/shared/types/domain.types";
 
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+);
+
 jest.mock("expo-notifications", () => ({
   scheduleNotificationAsync: jest.fn().mockResolvedValue("mock-notif-id"),
   cancelScheduledNotificationAsync: jest.fn().mockResolvedValue(undefined),
   getAllScheduledNotificationsAsync: jest.fn().mockResolvedValue([]),
   setNotificationChannelAsync: jest.fn().mockResolvedValue(undefined),
+  SchedulableTriggerInputTypes: {
+    DATE: "date",
+    DAILY: "daily"
+  }
 }));
 
 describe("reminders.service", () => {
@@ -40,6 +48,7 @@ describe("reminders.service", () => {
         itemId: "task-2",
         title: "Past Task",
         oneTimeAt: pastDate,
+        escalationMinutes: [],
       });
 
       expect(res.primaryId).toBeUndefined();
@@ -69,6 +78,20 @@ describe("reminders.service", () => {
       expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith("id-1");
       expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith("id-2");
       expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith("id-3");
+    });
+
+    it("should swallow errors by default", async () => {
+      const Notifications = await import("expo-notifications");
+      (Notifications.cancelScheduledNotificationAsync as jest.Mock).mockRejectedValueOnce(new Error("Notification error"));
+      
+      await expect(cancelReminderIds(["err-id-1"])).resolves.toBeUndefined();
+    });
+
+    it("should throw errors when throwOnError is true", async () => {
+      const Notifications = await import("expo-notifications");
+      (Notifications.cancelScheduledNotificationAsync as jest.Mock).mockRejectedValueOnce(new Error("Notification error"));
+      
+      await expect(cancelReminderIds(["err-id-2"], { throwOnError: true })).rejects.toThrow("Notification error");
     });
   });
 

@@ -156,27 +156,39 @@ function notifyFallback(title: string, body: string) {
   Alert.alert(title, body);
 }
 
-export async function cancelReminderIds(ids?: string[]) {
+export async function cancelReminderIds(
+  ids?: string[],
+  options?: { throwOnError?: boolean }
+) {
   if (!ids?.length) {
     return;
   }
 
-  await Promise.all(
-    ids.map(async (id) => {
-      if (id.startsWith("web-timeout-")) {
-        clearTimeout(Number(id.replace("web-timeout-", "")));
-        return;
-      }
+  try {
+    await Promise.all(
+      ids.map(async (id) => {
+        if (id.startsWith("web-timeout-")) {
+          clearTimeout(Number(id.replace("web-timeout-", "")));
+          return;
+        }
 
-      if (id.startsWith("web-interval-")) {
-        clearInterval(Number(id.replace("web-interval-", "")));
-        return;
-      }
+        if (id.startsWith("web-interval-")) {
+          clearInterval(Number(id.replace("web-interval-", "")));
+          return;
+        }
 
-      const Notifications = await loadNotifications();
-      await Notifications.cancelScheduledNotificationAsync(id).catch(() => {});
-    }),
-  );
+        const Notifications = await loadNotifications();
+        await Notifications.cancelScheduledNotificationAsync(id);
+      }),
+    );
+  } catch (e) {
+    if (options?.throwOnError) {
+      console.warn("[cancelReminderIds] Failed (strict mode):", e);
+      throw e;
+    } else {
+      console.warn("[cancelReminderIds] Swallowed error (tolerant mode):", e);
+    }
+  }
 }
 
 // Request Android exact-alarm permission (best-effort). Opens settings/intent.
@@ -247,7 +259,7 @@ export async function cancelAllScheduledNotifications(): Promise<void> {
 export async function scheduleReminderBatch(
   options: ReminderScheduleOptions,
 ): Promise<ScheduledReminderBatch> {
-  const escalationMinutes = options.escalationMinutes?.length
+  const escalationMinutes = options.escalationMinutes !== undefined
     ? options.escalationMinutes
     : DEFAULT_ESCALATION_MINUTES;
 
@@ -310,12 +322,13 @@ export async function scheduleReminderBatch(
         console.log(`[scheduleReminderBatch] Skipping offset ${offset} for oneTimeAt because it falls inside Quiet Hours.`);
         continue;
       }
+      const delay = triggerDate.getTime() - Date.now();
+      if (delay <= 0) {
+        continue;
+      }
+
       if (isWeb) {
         const canNotify = await ensureWebPermission();
-        const delay = triggerDate.getTime() - Date.now();
-        if (delay <= 0) {
-          continue;
-        }
 
         const timeoutId = setTimeout(() => {
           if (canNotify) {

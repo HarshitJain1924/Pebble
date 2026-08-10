@@ -270,36 +270,26 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       showUndo({
         message: `Deleted "${toDelete.title}"`,
         onUndo: async () => {
-          const binItems = await getRecycleBinItems();
-          await saveRecycleBinItems(binItems.filter((item) => item.id !== id));
-
-          const rescheduled = await rescheduleTodoReminders(toDelete);
-
-          const currentTasksMap = await TaskRepository.getTasks(selectedWorkspaceId);
-          const listTodos = Object.values(currentTasksMap).map((t: any) => ({
-            ...t,
-            workspaceId: selectedWorkspaceId,
-            schedule: t.schedule || (t.scheduledDate || t.dueDate ? { date: t.scheduledDate || t.dueDate } : undefined),
-          })) as Task[];
-          if (!listTodos.some((t) => t.id === id)) {
-            await TaskRepository.saveTask({
-              ...rescheduled,
-              workspaceId: selectedWorkspaceId,
+          try {
+            const restoredTask = await EntityCommandService.restoreTask(id, { skipEvents: true, skipAnalytics: true });
+            
+            setTodos((prevTodos) => {
+              const targetWs = restoredTask.workspaceId;
+              const currentList = prevTodos[targetWs] || [];
+              if (!currentList.some((t) => t.id === restoredTask.id)) {
+                return {
+                  ...prevTodos,
+                  [targetWs]: [restoredTask, ...currentList],
+                };
+              }
+              return prevTodos;
             });
-            const updatedTodosMap = await TaskRepository.getTasks(selectedWorkspaceId);
-            const updatedList = Object.values(updatedTodosMap).map(
-              (t: any) => ({
-                ...t,
-                workspaceId: selectedWorkspaceId,
-                schedule: t.schedule || (t.scheduledDate || t.dueDate ? { date: t.scheduledDate || t.dueDate } : undefined),
-              }),
-            ) as Task[];
-            const updated = { ...todos, [selectedWorkspaceId]: updatedList };
-            await persistState(workspaces, selectedWorkspaceId, updated);
-            setTodos(updated);
+            
+            finalizeMutation();
+          } catch (e) {
+            console.warn("Failed to restore task", e);
+            showToast("Failed to restore task");
           }
-
-          finalizeMutation();
         },
       });
     },

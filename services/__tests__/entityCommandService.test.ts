@@ -134,15 +134,32 @@ describe("EntityCommandService unit tests", () => {
   });
 
   describe("Batch 3: recycleTask", () => {
+    let cancelReminderIdsSpy: jest.SpyInstance;
+    let emitStateChangeSpy: jest.SpyInstance;
+    let addToRecycleBinSpy: jest.SpyInstance;
+
     beforeEach(async () => {
+      jest.clearAllMocks();
+      const scheduling = require("@/services/scheduling/reminders.service");
+      cancelReminderIdsSpy = jest.spyOn(scheduling, "cancelReminderIds").mockResolvedValue(undefined);
+      
+      const events = require("@/services/events/state-events");
+      emitStateChangeSpy = jest.spyOn(events, "emitStateChange");
+      
+      const recycleBinRepo = require("@/repositories/RecycleBinRepository").RecycleBinRepository;
+      addToRecycleBinSpy = jest.spyOn(recycleBinRepo, "addToRecycleBin");
+
       // Clear recycle bin before each test
-      const { saveRecycleBinItems } = await import("@/services/storage/storage.service");
+      const { saveRecycleBinItems } = require("@/services/storage/storage.service");
       await saveRecycleBinItems([]);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
     });
 
     it("should safely recycle an existing task, preserve fields, and cancel reminders", async () => {
       const { getRecycleBinItems } = await import("@/services/storage/storage.service");
-      const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
       
       const item: ParsedProductivityItem = {
         type: "task",
@@ -154,7 +171,7 @@ describe("EntityCommandService unit tests", () => {
       task.reminder = { enabled: true, triggerAt: Date.now(), notificationIds: ["notif-1"] };
       await TaskRepository.saveTask(task);
       
-      await EntityCommandService.recycleTask(task.id, "ws-1", "Original Workspace", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task.id, "ws-1", "Original Workspace", { skipAnalytics: true, source: "test-source" });
       
       // Verify source is empty
       const sourceTask = await TaskRepository.getTask(task.id, "ws-1");
@@ -170,8 +187,46 @@ describe("EntityCommandService unit tests", () => {
       expect(snap.title).toBe("Task to recycle");
       expect(snap.reminder.notificationIds).toContain("notif-1");
       
-      // Verify cancelReminderIds was called (via module mock or implicit behavior if we mocked it, 
-      // but here we just ensure it didn't throw and ran the path)
+      // 1. source is propagated to tasks_changed
+      expect(emitStateChangeSpy).toHaveBeenCalledWith("tasks_changed", "test-source");
+    });
+
+    it("should preserve active task, not cancel reminders, and not emit event if recycle-bin persistence fails", async () => {
+      const task = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 0.9 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.reminder = { enabled: true, triggerAt: Date.now(), notificationIds: ["n1"] };
+      await TaskRepository.saveTask(task);
+      
+      addToRecycleBinSpy.mockRejectedValueOnce(new Error("Storage Error"));
+
+      await expect(
+        EntityCommandService.recycleTask(task.id, "ws-1", "Inbox")
+      ).rejects.toThrow("Storage Error");
+
+      // 2. recycle-bin persistence failure preserves active Task
+      const sourceTask = await TaskRepository.getTask(task.id, "ws-1");
+      expect(sourceTask).not.toBeNull();
+
+      // 3. recycle-bin persistence failure does not cancel reminders
+      expect(cancelReminderIdsSpy).not.toHaveBeenCalled();
+
+      // 4. recycle-bin persistence failure does not emit tasks_changed
+      expect(emitStateChangeSpy).not.toHaveBeenCalled();
+    });
+
+    it("should preserve active task if reminder cancellation fails", async () => {
+      const task = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 0.9 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.reminder = { enabled: true, triggerAt: Date.now(), notificationIds: ["n1"] };
+      await TaskRepository.saveTask(task);
+      
+      cancelReminderIdsSpy.mockRejectedValueOnce(new Error("Reminder Error"));
+
+      await expect(
+        EntityCommandService.recycleTask(task.id, "ws-1", "Inbox")
+      ).rejects.toThrow("Reminder Error");
+
+      // 5. reminder cancellation failure preserves active Task
+      const sourceTask = await TaskRepository.getTask(task.id, "ws-1");
+      expect(sourceTask).not.toBeNull();
     });
 
     it("should throw an error if the task does not exist in the source workspace", async () => {
@@ -182,7 +237,19 @@ describe("EntityCommandService unit tests", () => {
   });
 
   describe("Batch 4: permanentlyDeleteTask", () => {
-    it("should permanently delete an active task and cancel its reminders", async () => {
+    let emitStateChangeSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      const events = require("@/services/events/state-events");
+      emitStateChangeSpy = jest.spyOn(events, "emitStateChange");
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("should permanently delete an active task, cancel its reminders, and propagate source", async () => {
       const { getRecycleBinItems } = await import("@/services/storage/storage.service");
       const item: ParsedProductivityItem = {
         title: "Task to hard delete",
@@ -195,7 +262,7 @@ describe("EntityCommandService unit tests", () => {
       task.reminder = { enabled: true, triggerAt: Date.now(), notificationIds: ["notif-2"] };
       await TaskRepository.saveTask(task);
       
-      await EntityCommandService.permanentlyDeleteTask(task.id, "ws-1", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.permanentlyDeleteTask(task.id, "ws-1", { skipAnalytics: true, source: "hard-delete-source" });
       
       // Verify source is empty
       const sourceTask = await TaskRepository.getTask(task.id, "ws-1");
@@ -204,6 +271,9 @@ describe("EntityCommandService unit tests", () => {
       // Verify recycle bin does NOT contain the item (it bypassed the bin)
       const bin = await getRecycleBinItems();
       expect(bin.length).toBe(0);
+
+      // 7. source is propagated to tasks_changed
+      expect(emitStateChangeSpy).toHaveBeenCalledWith("tasks_changed", "hard-delete-source");
     });
 
     it("should throw an error if the task does not exist in the source workspace", async () => {
@@ -264,7 +334,7 @@ describe("EntityCommandService unit tests", () => {
       
       // 8. notification IDs cancelled once
       expect(cancelReminderIdsSpy).toHaveBeenCalledTimes(1);
-      expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["n1", "n2"]);
+      expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["n1", "n2"], { throwOnError: true });
       
       // 9. exactly one tasks_changed event
       expect(emitStateChangeSpy).toHaveBeenCalledTimes(1);
@@ -353,6 +423,406 @@ describe("EntityCommandService unit tests", () => {
        
        expect(saveRecycleBinItemsSpy).toHaveBeenCalledTimes(1);
        deleteTasksSpy.mockRestore();
+    });
+  });
+
+  describe("updateTask behaviors (Batch 7A)", () => {
+    let rescheduleTodoRemindersSpy: jest.SpyInstance;
+    let cancelReminderIdsSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      const remindersService = require("@/services/scheduling/reminders.service");
+      rescheduleTodoRemindersSpy = jest.spyOn(remindersService, "rescheduleTodoReminders").mockResolvedValue({ reminder: { enabled: true, triggerAt: Date.now(), notificationIds: ["new-id"] } });
+      cancelReminderIdsSpy = jest.spyOn(remindersService, "cancelReminderIds").mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("1. Changing schedule triggers reminder rescheduling", async () => {
+      const task = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.updateTask(task.id, "ws-1", { schedule: { date: "2025-01-01" } }, { skipAnalytics: true, skipEvents: true });
+      expect(rescheduleTodoRemindersSpy).toHaveBeenCalled();
+    });
+
+    it("2. Unchanged schedule does not trigger reminder rescheduling", async () => {
+      const task = await EntityCommandService.createTask({ title: "T2", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      jest.clearAllMocks();
+      await EntityCommandService.updateTask(task.id, "ws-1", { priority: "high" }, { skipAnalytics: true, skipEvents: true });
+      expect(rescheduleTodoRemindersSpy).not.toHaveBeenCalled();
+    });
+
+    it("3. Archiving cancels existing reminders and does not recreate them", async () => {
+      let task = await EntityCommandService.createTask({ title: "T3", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.reminder = { enabled: true, triggerAt: Date.now(), notificationIds: ["notif-1"] };
+      await TaskRepository.saveTask(task);
+      jest.clearAllMocks();
+      
+      const updated = await EntityCommandService.updateTask(task.id, "ws-1", { archivedAt: Date.now() }, { skipAnalytics: true, skipEvents: true });
+      expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["notif-1"]);
+      expect(rescheduleTodoRemindersSpy).not.toHaveBeenCalled();
+      expect(updated.reminder?.notificationIds).toBeUndefined();
+    });
+
+    it("4. Unarchiving recreates reminders", async () => {
+      let task = await EntityCommandService.createTask({ title: "T4", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.archivedAt = 12345;
+      await TaskRepository.saveTask(task);
+      jest.clearAllMocks();
+      
+      await EntityCommandService.updateTask(task.id, "ws-1", { archivedAt: undefined }, { skipAnalytics: true, skipEvents: true });
+      expect(rescheduleTodoRemindersSpy).toHaveBeenCalled();
+    });
+
+    it("4b. Existing reminder configuration survives archive/unarchive", async () => {
+      let task = await EntityCommandService.createTask({ title: "T4b", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.reminder = { enabled: true, triggerAt: 999999999, notificationIds: ["notif-old"] };
+      await TaskRepository.saveTask(task);
+      
+      // Archive
+      const archived = await EntityCommandService.updateTask(task.id, "ws-1", { archivedAt: Date.now() }, { skipAnalytics: true, skipEvents: true });
+      expect(archived.reminder?.enabled).toBe(true);
+      expect(archived.reminder?.triggerAt).toBe(999999999);
+      expect(archived.reminder?.notificationIds).toBeUndefined();
+
+      // Unarchive
+      rescheduleTodoRemindersSpy.mockResolvedValueOnce({
+        reminder: { enabled: true, triggerAt: 999999999, notificationIds: ["new-id"] }
+      });
+      const unarchived = await EntityCommandService.updateTask(task.id, "ws-1", { archivedAt: undefined }, { skipAnalytics: true, skipEvents: true });
+      expect(unarchived.reminder?.enabled).toBe(true);
+      expect(unarchived.reminder?.triggerAt).toBe(999999999);
+      expect(unarchived.reminder?.notificationIds).toEqual(["new-id"]);
+    });
+
+    it("5. Archived Task does not receive reminders from an unrelated update", async () => {
+      let task = await EntityCommandService.createTask({ title: "T5", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.archivedAt = 12345;
+      await TaskRepository.saveTask(task);
+      jest.clearAllMocks();
+      
+      await EntityCommandService.updateTask(task.id, "ws-1", { title: "New Title" }, { skipAnalytics: true, skipEvents: true });
+      expect(rescheduleTodoRemindersSpy).not.toHaveBeenCalled();
+    });
+
+    it("6. Existing completed-task reminder behavior remains unchanged", async () => {
+      let task = await EntityCommandService.createTask({ title: "T6", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.status = "completed";
+      await TaskRepository.saveTask(task);
+      jest.clearAllMocks();
+      
+      await EntityCommandService.updateTask(task.id, "ws-1", { schedule: { date: "2025-01-01" } }, { skipAnalytics: true, skipEvents: true });
+      expect(rescheduleTodoRemindersSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("updateTask behaviors (Batch 7B)", () => {
+    let rescheduleTodoRemindersSpy: jest.SpyInstance;
+    
+    beforeEach(() => {
+      const remindersService = require("@/services/scheduling/reminders.service");
+      rescheduleTodoRemindersSpy = jest.spyOn(remindersService, "rescheduleTodoReminders").mockResolvedValue({ reminder: { enabled: true, triggerAt: Date.now(), notificationIds: ["new-id"] } });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("1. updateTask can persist recurrenceExceptions", async () => {
+      const task = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      const updated = await EntityCommandService.updateTask(task.id, "ws-1", { recurrenceExceptions: ["2026-10-10"] }, { skipAnalytics: true, skipEvents: true });
+      expect(updated.recurrenceExceptions).toEqual(["2026-10-10"]);
+    });
+
+    it("2/3. Adding or removing an exception does not trigger reminder rescheduling", async () => {
+      const task = await EntityCommandService.createTask({ title: "T2", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      jest.clearAllMocks();
+      
+      // Add
+      await EntityCommandService.updateTask(task.id, "ws-1", { recurrenceExceptions: ["2026-10-10"] }, { skipAnalytics: true, skipEvents: true });
+      expect(rescheduleTodoRemindersSpy).not.toHaveBeenCalled();
+      
+      // Remove
+      await EntityCommandService.updateTask(task.id, "ws-1", { recurrenceExceptions: [] }, { skipAnalytics: true, skipEvents: true });
+      expect(rescheduleTodoRemindersSpy).not.toHaveBeenCalled();
+    });
+
+    it("4/7. Master saveChanges updates all expected fields and triggers reminders", async () => {
+      const task = await EntityCommandService.createTask({ title: "T3", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      jest.clearAllMocks();
+      
+      const updated = await EntityCommandService.updateTask(task.id, "ws-1", {
+        title: "New Title",
+        description: "New Desc",
+        categoryId: "health",
+        priority: "high",
+        status: "todo",
+        recurrence: { frequency: "daily", interval: 1 }
+      }, { skipAnalytics: true, skipEvents: true });
+      
+      expect(updated.title).toBe("New Title");
+      expect(updated.description).toBe("New Desc");
+      expect(updated.categoryId).toBe("health");
+      expect(updated.priority).toBe("high");
+      expect(updated.status).toBe("todo");
+      expect(updated.recurrence?.frequency).toBe("daily");
+      expect(rescheduleTodoRemindersSpy).toHaveBeenCalled();
+    });
+
+    it("5/6. Workspace movement followed by updateTask persists in destination and removes from source", async () => {
+      const task = await EntityCommandService.createTask({ title: "T4", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      
+      // Move
+      await EntityCommandService.moveTask(task.id, "ws-1", "ws-2", { skipAnalytics: true, skipEvents: true });
+      
+      // Update in new workspace
+      const updated = await EntityCommandService.updateTask(task.id, "ws-2", { title: "Moved" }, { skipAnalytics: true, skipEvents: true });
+      expect(updated.workspaceId).toBe("ws-2");
+      expect(updated.title).toBe("Moved");
+      
+      // Verify no longer in old workspace
+      const { TaskRepository } = require("@/repositories");
+      const oldWs = await TaskRepository.getTasks("ws-1");
+      expect(oldWs[task.id]).toBeUndefined();
+    });
+  });
+
+  describe("Batch 7D: restoreTask", () => {
+    let emitStateChangeSpy: jest.SpyInstance;
+    let cancelReminderIdsSpy: jest.SpyInstance;
+    let rescheduleTodoRemindersSpy: jest.SpyInstance;
+    let saveRecycleBinItemsSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      const events = require("@/services/events/state-events");
+      emitStateChangeSpy = jest.spyOn(events, "emitStateChange");
+      
+      const remindersService = require("@/services/scheduling/reminders.service");
+      cancelReminderIdsSpy = jest.spyOn(remindersService, "cancelReminderIds").mockResolvedValue(undefined);
+      rescheduleTodoRemindersSpy = jest.spyOn(remindersService, "rescheduleTodoReminders").mockImplementation(async (t: any) => {
+        return { ...t, reminder: { ...t.reminder, notificationIds: ["new-id"] } };
+      });
+      
+      const storageService = require("@/services/storage/storage.service");
+      saveRecycleBinItemsSpy = jest.spyOn(storageService, "saveRecycleBinItems");
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("1. Successfully restores a Task from RecycleBin into its original workspace", async () => {
+      const task = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const item = bin.find((i: any) => i.entityId === task.id);
+      
+      const restored = await EntityCommandService.restoreTask(item.id, { source: "test-source" });
+      
+      expect(restored.id).toBe(task.id);
+      expect(restored.workspaceId).toBe("ws-1"); // 9. Snapshot workspaceId is used
+      expect(emitStateChangeSpy).toHaveBeenCalledWith("tasks_changed", "test-source"); // 10. Appropriate tasks_changed
+    });
+
+    it("2. RecycleBin item is removed only after TaskRepository.saveTask succeeds", async () => {
+      const task = await EntityCommandService.createTask({ title: "T2", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const item = bin.find((i: any) => i.entityId === task.id);
+      
+      // Spy on saveTask
+      const { TaskRepository } = require("@/repositories");
+      const saveTaskSpy = jest.spyOn(TaskRepository, "saveTask");
+      
+      await EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true });
+      
+      expect(saveTaskSpy).toHaveBeenCalled();
+      expect(saveRecycleBinItemsSpy).toHaveBeenCalled();
+      // Assert saveTask was called before saveRecycleBinItems
+      expect(saveTaskSpy.mock.invocationCallOrder[0]).toBeLessThan(saveRecycleBinItemsSpy.mock.invocationCallOrder[0]);
+    });
+
+    it("3. saveTask failure leaves the RecycleBin item intact", async () => {
+      const task = await EntityCommandService.createTask({ title: "T3", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const item = bin.find((i: any) => i.entityId === task.id);
+      
+      const { TaskRepository } = require("@/repositories");
+      jest.spyOn(TaskRepository, "saveTask").mockRejectedValueOnce(new Error("Storage Error"));
+      
+      await expect(EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true })).rejects.toThrow("Storage Error");
+      
+      expect(saveRecycleBinItemsSpy).not.toHaveBeenCalled(); // Bin intact
+    });
+
+    it("4. RecycleBin removal failure after successful Task save does not delete the restored Task", async () => {
+      const task = await EntityCommandService.createTask({ title: "T4", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const item = bin.find((i: any) => i.entityId === task.id);
+      
+      saveRecycleBinItemsSpy.mockRejectedValueOnce(new Error("Bin Storage Error"));
+      
+      const restored = await EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true });
+      
+      // Did not throw
+      expect(restored.id).toBe(task.id);
+      
+      // Task is restored
+      const { TaskRepository } = require("@/repositories");
+      const saved = await TaskRepository.getTask(task.id, "ws-1");
+      expect(saved).not.toBeNull();
+    });
+
+    it("5. Old notificationIds are not reused & 6. Successful reminder rescheduling produces fresh notificationIds", async () => {
+      const task = await EntityCommandService.createTask({ title: "T5", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.reminder = { enabled: true, triggerAt: Date.now() + 100000, notificationIds: ["old-id"] };
+      const { TaskRepository } = require("@/repositories");
+      await TaskRepository.saveTask(task);
+      
+      await EntityCommandService.recycleTask(task.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const item = bin.find((i: any) => i.entityId === task.id);
+      
+      const restored = await EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true });
+      
+      expect(rescheduleTodoRemindersSpy).toHaveBeenCalled();
+      expect(restored.reminder?.notificationIds).not.toContain("old-id");
+      expect(restored.reminder?.notificationIds).toContain("new-id");
+    });
+
+    it("7. Missing recycle-bin item throws", async () => {
+      await expect(EntityCommandService.restoreTask("non-existent", { skipAnalytics: true, skipEvents: true }))
+        .rejects.toThrow("not found");
+    });
+
+    it("8. Non-Task recycle-bin item is rejected", async () => {
+      const { saveRecycleBinItems } = require("@/services/storage/storage.service");
+      await saveRecycleBinItems([{ id: "fake-id", entityId: "e", entityType: "habit", snapshot: "{}", deletedAt: 0, originalWorkspace: "ws-1" }]);
+      
+      await expect(EntityCommandService.restoreTask("fake-id", { skipAnalytics: true, skipEvents: true }))
+        .rejects.toThrow("Cannot restore non-task entity");
+    });
+    
+    it("Reminder scheduling failure preserves Task with stale IDs removed", async () => {
+      const task = await EntityCommandService.createTask({ title: "T_Rem_Fail", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      task.reminder = { enabled: true, triggerAt: Date.now() + 100000, notificationIds: ["stale"] };
+      const { TaskRepository } = require("@/repositories");
+      await TaskRepository.saveTask(task);
+      await EntityCommandService.recycleTask(task.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const item = bin.find((i: any) => i.entityId === task.id);
+      
+      rescheduleTodoRemindersSpy.mockRejectedValueOnce(new Error("Reminder Failure"));
+      
+      const restored = await EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true });
+      
+      // Restored successfully
+      expect(restored.id).toBe(task.id);
+      // Stale IDs removed
+      expect(restored.reminder?.notificationIds).toBeUndefined();
+      // Original config remains
+      expect(restored.reminder?.enabled).toBe(true);
+    });
+  });
+
+  describe("Batch 7E: restoreTasks", () => {
+    let emitStateChangeSpy: jest.SpyInstance;
+    let cancelReminderIdsSpy: jest.SpyInstance;
+    let rescheduleTodoRemindersSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      const events = require("@/services/events/state-events");
+      emitStateChangeSpy = jest.spyOn(events, "emitStateChange");
+      
+      const remindersService = require("@/services/scheduling/reminders.service");
+      cancelReminderIdsSpy = jest.spyOn(remindersService, "cancelReminderIds").mockResolvedValue(undefined);
+      rescheduleTodoRemindersSpy = jest.spyOn(remindersService, "rescheduleTodoReminders").mockImplementation(async (t: any) => {
+        return { ...t, reminder: { ...t.reminder, notificationIds: ["new-id"] } };
+      });
+      
+      const { WorkspaceRepository } = require("@/repositories");
+      jest.spyOn(WorkspaceRepository, "getWorkspaces").mockResolvedValue([
+        { id: "ws-1", name: "Workspace 1" },
+        { id: "ws-2", name: "Workspace 2" },
+        { id: "inbox", name: "Inbox" }
+      ]);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("Successfully restores multiple tasks across workspaces in a single batch", async () => {
+      const task1 = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      const task2 = await EntityCommandService.createTask({ title: "T2", type: "task", confidence: 1 }, "ws-2", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task1.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task2.id, "ws-2", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const items = bin.filter((i: any) => i.entityId === task1.id || i.entityId === task2.id);
+      
+      const { restoredCount, successfulItemIds, failedItemIds } = await EntityCommandService.restoreTasks(items, { source: "test-bulk" });
+      
+      expect(restoredCount).toBe(2);
+      expect(successfulItemIds.length).toBe(2);
+      expect(failedItemIds.length).toBe(0);
+      
+      const { TaskRepository } = require("@/repositories");
+      const ws1 = await TaskRepository.getTasks("ws-1");
+      const ws2 = await TaskRepository.getTasks("ws-2");
+      expect(ws1[task1.id]).not.toBeUndefined();
+      expect(ws2[task2.id]).not.toBeUndefined();
+      
+      expect(emitStateChangeSpy).toHaveBeenCalledWith("tasks_changed", "test-bulk");
+    });
+
+    it("Partial failure isolates the failing workspace without dropping successful workspaces", async () => {
+      const task1 = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 1 }, "ws-1", { skipAnalytics: true, skipEvents: true });
+      const task2 = await EntityCommandService.createTask({ title: "T2", type: "task", confidence: 1 }, "ws-2", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task1.id, "ws-1", "Inbox", { skipAnalytics: true, skipEvents: true });
+      await EntityCommandService.recycleTask(task2.id, "ws-2", "Inbox", { skipAnalytics: true, skipEvents: true });
+      
+      const { getRecycleBinItems } = require("@/services/storage/storage.service");
+      const bin = await getRecycleBinItems();
+      const items = bin.filter((i: any) => i.entityId === task1.id || i.entityId === task2.id);
+      
+      const { TaskRepository } = require("@/repositories");
+      const originalSaveTasks = TaskRepository.saveTasks;
+      jest.spyOn(TaskRepository, "saveTasks").mockImplementation(async (tasks: any, wsId: any) => {
+        if (wsId === "ws-2") throw new Error("Batch Save Error");
+        return originalSaveTasks.call(TaskRepository, tasks, wsId);
+      });
+      
+      const { restoredCount, successfulItemIds, failedItemIds } = await EntityCommandService.restoreTasks(items, { skipAnalytics: true, skipEvents: true });
+      
+      expect(restoredCount).toBe(1); // Only ws-1 succeeded
+      
+      const successfulItemForWs1 = items.find((i: any) => i.entityId === task1.id)!;
+      const failedItemForWs2 = items.find((i: any) => i.entityId === task2.id)!;
+      
+      expect(successfulItemIds).toContain(successfulItemForWs1.id);
+      expect(failedItemIds).toContain(failedItemForWs2.id);
+      
+      const ws1 = await TaskRepository.getTasks("ws-1");
+      expect(ws1[task1.id]).not.toBeUndefined();
     });
   });
 });

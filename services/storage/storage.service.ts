@@ -39,11 +39,17 @@ export async function getRecycleBinItems(): Promise<RecycleBinItem[]> {
 
 export async function saveRecycleBinItems(
   items: RecycleBinItem[],
+  options?: { throwOnError?: boolean }
 ): Promise<void> {
   try {
-    await RecycleBinRepository.saveRecycleBinItems(items);
+    await RecycleBinRepository.saveRecycleBinItems(items, options);
   } catch (e) {
-    console.warn("Failed to save recycle bin items", e);
+    if (options?.throwOnError) {
+      console.warn("Failed to save recycle bin items (strict mode)", e);
+      throw e;
+    } else {
+      console.warn("Failed to save recycle bin items (tolerant mode)", e);
+    }
   }
 }
 
@@ -51,15 +57,22 @@ export async function addToRecycleBin(
   entityType: RecycleBinItem["entityType"],
   data: any,
   originalLocation: string,
+  options?: { throwOnError?: boolean }
 ): Promise<void> {
   try {
     await RecycleBinRepository.addToRecycleBin(
       entityType,
       data,
       originalLocation,
+      options
     );
   } catch (e) {
-    console.warn("Failed to add item to recycle bin", e);
+    if (options?.throwOnError) {
+      console.warn("Failed to add item to recycle bin (strict mode)", e);
+      throw e;
+    } else {
+      console.warn("Failed to add item to recycle bin (tolerant mode)", e);
+    }
   }
 }
 
@@ -211,41 +224,55 @@ export async function restoreRecycleBinItems(
 ): Promise<void> {
   if (itemsToRestore.length === 0) return;
 
-  const { rescheduleTodoReminders, rescheduleHabitReminders } =
-    await import("@/services/scheduling/reminders.service");
+  const { rescheduleHabitReminders } = await import("@/services/scheduling/reminders.service");
   const { emitStateChange } = await import("@/services/events/state-events");
+  const { EntityCommandService } = await import("@/services/command/EntityCommandService");
 
+  const taskItems = itemsToRestore.filter((i) => i.entityType === "task");
+  const legacyItems = itemsToRestore.filter((i) => i.entityType !== "task");
+
+  const successfulRestoreIds = new Set<string>();
+
+  // 1. Delegate Task restoration to ECS
   let tasksRestored = false;
+  if (taskItems.length > 0) {
+    const { restoredCount, successfulItemIds } = await EntityCommandService.restoreTasks(taskItems, {
+      skipEvents: true, // We emit below to consolidate with legacy
+      skipAnalytics: true, // Legacy didn't have analytics, but ECS provides it; we'll rely on ECS for tasks if we wanted, but let's just let ECS do it, wait, skipEvents: true means ECS doesn't emit. We should probably let ECS do its own sync! Actually ECS already did widget sync!
+    });
+    for (const id of successfulItemIds) successfulRestoreIds.add(id);
+    if (restoredCount > 0) tasksRestored = true;
+  }
+
   let habitsRestored = false;
   let workspacesRestored = false;
   let checklistsRestored = false;
   let resourcesRestored = false;
 
-  for (const item of itemsToRestore) {
+  // 2. Legacy N+1 restore for non-tasks
+  for (const item of legacyItems) {
     let parsedData: any = {};
     try {
       parsedData = JSON.parse(item.snapshot);
     } catch {}
 
-    if (item.entityType === "task") {
-      // Restore preserves original ID — repository upserts by ID, preventing duplicates
-      const rescheduled = await rescheduleTodoReminders(parsedData);
-      await TaskRepository.saveTask(rescheduled);
-      tasksRestored = true;
-    } else if (item.entityType === "habit") {
+    if (item.entityType === "habit") {
       const rescheduled = await rescheduleHabitReminders(parsedData);
       await HabitRepository.saveHabit(rescheduled);
       habitsRestored = true;
+      successfulRestoreIds.add(item.id);
     } else if (item.entityType === "workspace") {
-      // Restore canonical workspace — snapshot stores the canonical Workspace object
       await WorkspaceRepository.saveWorkspace(parsedData);
       workspacesRestored = true;
+      successfulRestoreIds.add(item.id);
     } else if (item.entityType === "resource") {
       await ResourceRepository.saveResource(parsedData);
       resourcesRestored = true;
+      successfulRestoreIds.add(item.id);
     } else if (item.entityType === "checklist") {
       await ChecklistRepository.saveChecklist(parsedData);
       checklistsRestored = true;
+      successfulRestoreIds.add(item.id);
     }
   }
 
@@ -255,9 +282,8 @@ export async function restoreRecycleBinItems(
   if (resourcesRestored) emitStateChange("resources_changed");
   if (checklistsRestored) emitStateChange("checklists_changed");
 
-  // Remove restored items from recycle bin atomically
+  // Remove ONLY restored items from recycle bin
   const binItems = await getRecycleBinItems();
-  const restoreIds = new Set(itemsToRestore.map((i) => i.id));
-  const remaining = binItems.filter((i) => !restoreIds.has(i.id));
+  const remaining = binItems.filter((i) => !successfulRestoreIds.has(i.id));
   await saveRecycleBinItems(remaining);
 }

@@ -742,9 +742,6 @@ export function useCalendarState() {
               const taskMap = await TaskRepository.getTasks(activeWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
-                await cancelReminderIds(todo.reminder?.notificationIds || []);
-
-                // Re-set alarm time using current selectedDate + hoveredHour
                 const [year, monthVal, dayVal] = selDate.split("-").map(Number);
                 const newAlarmDate = new Date(
                   year,
@@ -756,24 +753,15 @@ export function useCalendarState() {
                   0,
                 );
 
-                // Build intermediate with updated reminder for reschedule
-                const todoToReschedule = {
-                  ...todo,
+                const { EntityCommandService } = require("@/services/command/EntityCommandService");
+                await EntityCommandService.updateTask(todo.id, activeWorkspace, {
+                  schedule: { ...todo.schedule, date: selDate },
                   reminder: {
                     ...(todo.reminder || { enabled: true }),
                     enabled: true,
                     triggerAt: newAlarmDate.getTime(),
                   },
-                };
-
-                const rescheduled =
-                  await rescheduleTodoReminders(todoToReschedule);
-                await TaskRepository.saveTask({
-                  ...todo,
-                  schedule: { ...todo.schedule, date: selDate },
-                  reminder: rescheduled.reminder,
-                  updatedAt: Date.now(),
-                });
+                }, { source: "calendar_drag_drop", skipEvents: true });
               }
             } else if (dragItem.type === "habit") {
               const habitMap = await HabitRepository.getHabits(activeWorkspace);
@@ -838,9 +826,6 @@ export function useCalendarState() {
               const taskMap = await TaskRepository.getTasks(activeWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
-                // Cancel old reminders — use canonical reminder field
-                await cancelReminderIds(todo.reminder?.notificationIds || []);
-
                 // Derive hour/minute from canonical reminder.triggerAt
                 let newTriggerAt: number | undefined;
                 if (todo.reminder?.triggerAt) {
@@ -861,23 +846,17 @@ export function useCalendarState() {
                   ).getTime();
                 }
 
-                const todoToReschedule = {
-                  ...todo,
-                  reminder: {
-                    ...(todo.reminder || { enabled: true }),
-                    enabled: true,
-                    triggerAt: newTriggerAt ?? (todo.reminder?.triggerAt),
-                  },
-                };
-
-                const rescheduled =
-                  await rescheduleTodoReminders(todoToReschedule);
-                await TaskRepository.saveTask({
-                  ...todo,
+                const { EntityCommandService } = require("@/services/command/EntityCommandService");
+                await EntityCommandService.updateTask(todo.id, activeWorkspace, {
                   schedule: { ...todo.schedule, date: hDate },
-                  reminder: rescheduled.reminder,
-                  updatedAt: Date.now(),
-                });
+                  ...(newTriggerAt ? {
+                    reminder: {
+                      ...(todo.reminder || { enabled: true }),
+                      enabled: true,
+                      triggerAt: newTriggerAt,
+                    }
+                  } : {})
+                }, { source: "calendar_drag_drop", skipEvents: true });
               }
             } else if (dragItem.type === "habit") {
               const habitMap = await HabitRepository.getHabits(activeWorkspace);

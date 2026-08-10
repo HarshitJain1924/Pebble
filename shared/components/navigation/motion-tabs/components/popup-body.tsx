@@ -262,23 +262,10 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       const wsId = folderId || INBOX_WORKSPACE_ID;
-      const todo = await TaskRepository.getTask(taskId, wsId);
-      if (todo) {
-        await TaskRepository.saveTask({
-          ...todo,
-          completed: true,
-          completedAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-      }
-
-      try {
-        const { earnPebble } = require("@/features/profile/services/pebble.service");
-        await earnPebble("task");
-      } catch {}
+      const { EntityCommandService } = require("@/services/command/EntityCommandService");
+      await EntityCommandService.completeTask(taskId, wsId, { source: "popup_drawer" });
 
       await loadData();
-      emitStateChange("tasks_changed");
     } catch (e) {
       console.warn("Failed to complete task in drawer", e);
     }
