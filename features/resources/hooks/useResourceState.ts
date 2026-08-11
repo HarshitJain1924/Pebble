@@ -85,7 +85,7 @@ export function useResourceState(
         updatedAt: Date.now(),
       };
 
-      await ResourceRepository.saveResource(updatedResource);
+      await EntityCommandService.updateResource(updatedResource.id, wsId, updatedResource, { skipEvents: true, skipAnalytics: true });
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -123,7 +123,7 @@ export function useResourceState(
         archivedAt: isArchived ? undefined : Date.now(),
         updatedAt: Date.now(),
       };
-      await ResourceRepository.saveResource(updatedResource);
+      await EntityCommandService.updateResource(updatedResource.id, wsId, updatedResource, { skipEvents: true, skipAnalytics: true });
 
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");

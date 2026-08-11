@@ -219,40 +219,15 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
 
       const today = getDateKey();
       const isCompletedToday = h.completionHistory.some((c) => c.date === today);
-      const nextCompleted = !isCompletedToday;
 
-      let nextHistory = h.completionHistory;
-      if (nextCompleted) {
-        nextHistory = [
-          ...h.completionHistory.filter((c) => c.date !== today),
-          { date: today, completedAt: Date.now() },
-        ];
+      const { EntityCommandService } = require("@/services/command/EntityCommandService");
+      if (!isCompletedToday) {
+        await EntityCommandService.completeHabit(habitId, activeWorkspace, { source: "popup_drawer" });
       } else {
-        nextHistory = h.completionHistory.filter((c) => c.date !== today);
+        await EntityCommandService.uncompleteHabit(habitId, activeWorkspace, { source: "popup_drawer" });
       }
 
-      await HabitRepository.saveHabit({
-        ...h,
-        completionHistory: nextHistory,
-        updatedAt: Date.now(),
-      });
-
-      try {
-        const { recordDailyHistorySnapshot } = require("@/services/analytics/productivity-history.service");
-        void recordDailyHistorySnapshot();
-      } catch {}
-
-      try {
-        const { earnPebble, undoLastPebble } = require("@/features/profile/services/pebble.service");
-        if (!isCompletedToday) {
-          await earnPebble("habit");
-        } else {
-          await undoLastPebble("habit");
-        }
-      } catch {}
-
       await loadData();
-      emitStateChange("habits_changed");
     } catch (e) {
       console.warn("Failed to toggle habit in drawer", e);
     }

@@ -53,15 +53,11 @@ export function useChecklistState(selectedWorkspaceId: string) {
   const updateChecklist = useCallback(async (updated: Checklist) => {
     try {
       const activeList = updated.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
-      await ChecklistRepository.saveChecklist({
-        id: updated.id,
-        workspaceId: activeList,
+      await EntityCommandService.updateChecklist(updated.id, activeList, {
         title: updated.title,
         items: updated.items,
-        createdAt: updated.createdAt || Date.now(),
-        updatedAt: Date.now(),
         archivedAt: updated.archivedAt,
-      });
+      }, { skipEvents: true, skipAnalytics: true });
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {

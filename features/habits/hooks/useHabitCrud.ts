@@ -51,10 +51,9 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
       try {
         await Promise.all(
           nextHabits.map((h) =>
-            HabitRepository.saveHabit({
+            EntityCommandService.updateHabit(h.id, h.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID, {
               ...h,
-              workspaceId: h.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID,
-            }),
+            }, { skipEvents: true, skipAnalytics: true })
           ),
         );
         void recordDailyHistorySnapshot();

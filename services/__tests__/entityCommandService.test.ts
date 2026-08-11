@@ -989,4 +989,26 @@ describe("EntityCommandService unit tests", () => {
       emitSpy.mockRestore();
     });
   });
+  describe("Permanent Deletions", () => {
+    it("should permanently delete a habit", async () => {
+      const habit = await EntityCommandService.createHabit({ title: "H1", type: "habit", confidence: 1 }, "ws-1", { skipAnalytics: true });
+      await EntityCommandService.permanentlyDeleteHabit(habit.id, "ws-1", { skipAnalytics: true });
+      const fetched = await HabitRepository.getHabit(habit.id, "ws-1");
+      expect(fetched).toBeNull();
+    });
+
+    it("should permanently delete a checklist", async () => {
+      const checklist = await EntityCommandService.createChecklist({ title: "C1", type: "checklist", items: [], confidence: 1 }, "ws-1", { skipAnalytics: true });
+      await EntityCommandService.permanentlyDeleteChecklist(checklist.id, "ws-1", { skipAnalytics: true });
+      const fetched = await ChecklistRepository.getChecklists("ws-1");
+      expect(fetched[checklist.id]).toBeUndefined();
+    });
+
+    it("should permanently delete a resource", async () => {
+      const resource = await EntityCommandService.createResource({ title: "R1", type: "note", confidence: 1 }, "ws-1", { skipAnalytics: true });
+      await EntityCommandService.permanentlyDeleteResource(resource.id, "ws-1", { skipAnalytics: true });
+      const fetched = await ResourceRepository.getResource(resource.id, "ws-1");
+      expect(fetched).toBeNull();
+    });
+  });
 });

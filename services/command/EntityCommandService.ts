@@ -1356,6 +1356,69 @@ export class EntityCommandService {
     }
   }
 
+  static async permanentlyDeleteHabit(
+    habitId: string,
+    workspaceId: string,
+    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+  ): Promise<void> {
+    const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    const habitsMap = await HabitRepository.getHabits(workspaceId);
+    const habit = habitsMap[habitId];
+    if (!habit) throw new Error(`Habit ${habitId} not found`);
+
+    if (habit.reminder?.notificationIds?.length) {
+      await cancelReminderIds(habit.reminder.notificationIds);
+    }
+
+    await HabitRepository.deleteHabit(habitId, workspaceId);
+
+    if (!options?.skipEvents) emitStateChange("habits_changed", options?.source);
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+  }
+
+  static async permanentlyDeleteChecklist(
+    checklistId: string,
+    workspaceId: string,
+    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+  ): Promise<void> {
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+    if (!checklistsMap[checklistId]) throw new Error(`Checklist ${checklistId} not found`);
+
+    await ChecklistRepository.deleteChecklist(checklistId, workspaceId);
+
+    if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+  }
+
+  static async permanentlyDeleteResource(
+    resourceId: string,
+    workspaceId: string,
+    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+  ): Promise<void> {
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    const resourcesMap = await ResourceRepository.getResources(workspaceId);
+    if (!resourcesMap[resourceId]) throw new Error(`Resource ${resourceId} not found`);
+
+    await ResourceRepository.deleteResource(resourceId, workspaceId);
+
+    if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+  }
+
   // ─── BATCH 7D: RESTORE TASK ──────────────────────────────────────────────────
 
   /**
@@ -1547,6 +1610,61 @@ export class EntityCommandService {
     }
 
     return { restoredCount, successfulItemIds, failedItemIds };
+  }
+
+  static async restoreChecklist(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Checklist> {
+    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    const binItems = await getRecycleBinItems();
+    const item = binItems.find((i) => i.id === recycleBinItemId);
+    if (!item || item.entityType !== "checklist") throw new Error(`RecycleBin item not found or not checklist`);
+
+    const parsedData = JSON.parse(item.snapshot);
+    await ChecklistRepository.saveChecklist(parsedData);
+
+    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
+    await saveRecycleBinItems(remainingBinItems);
+
+    if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
+    return parsedData;
+  }
+
+  static async restoreResource(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Resource> {
+    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { emitStateChange } = await import("@/services/events/state-events");
+
+    const binItems = await getRecycleBinItems();
+    const item = binItems.find((i) => i.id === recycleBinItemId);
+    if (!item || item.entityType !== "resource") throw new Error(`RecycleBin item not found or not resource`);
+
+    const parsedData = JSON.parse(item.snapshot);
+    await ResourceRepository.saveResource(parsedData);
+
+    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
+    await saveRecycleBinItems(remainingBinItems);
+
+    if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
+    return parsedData;
+  }
+
+  static async restoreWorkspace(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Workspace> {
+    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { emitStateChange } = await import("@/services/events/state-events");
+    const { WorkspaceRepository } = await import("@/repositories");
+
+    const binItems = await getRecycleBinItems();
+    const item = binItems.find((i) => i.id === recycleBinItemId);
+    if (!item || item.entityType !== "workspace") throw new Error(`RecycleBin item not found or not workspace`);
+
+    const parsedData = JSON.parse(item.snapshot);
+    await WorkspaceRepository.saveWorkspace(parsedData);
+
+    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
+    await saveRecycleBinItems(remainingBinItems);
+
+    if (!options?.skipEvents) emitStateChange("workspace_mode_changed", options?.source);
+    return parsedData;
   }
 
   // ============================================================================

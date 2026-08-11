@@ -206,25 +206,23 @@ export default function ArchiveScreen() {
               const wsId = item.workspaceId || INBOX_WORKSPACE_ID;
 
               if (type === "task") {
-                await EntityCommandService.permanentlyDeleteTask(item.id, wsId);
-              } else {
-                await cancelReminderIds(item.reminder?.notificationIds);
-                if (type === "habit") {
-                  await HabitRepository.deleteHabit(item.id, wsId);
-                } else if (type === "checklist") {
-                  await ChecklistRepository.deleteChecklist(item.id, wsId);
-                } else if (type === "resource") {
-                  await ResourceRepository.deleteResource(item.id, wsId);
-                }
+                await EntityCommandService.permanentlyDeleteTask(item.id, wsId, { skipEvents: true, skipAnalytics: true });
+              } else if (type === "habit") {
+                await EntityCommandService.permanentlyDeleteHabit(item.id, wsId, { skipEvents: true, skipAnalytics: true });
+              } else if (type === "checklist") {
+                await EntityCommandService.permanentlyDeleteChecklist(item.id, wsId, { skipEvents: true, skipAnalytics: true });
+              } else if (type === "resource") {
+                await EntityCommandService.permanentlyDeleteResource(item.id, wsId, { skipEvents: true, skipAnalytics: true });
               }
 
               Haptics.notificationAsync(
                 Haptics.NotificationFeedbackType.Warning,
               ).catch(() => {});
               
-              if (type !== "task") {
-                emitStateChange(type === "habit" ? "habits_changed" : type === "checklist" ? "checklists_changed" : "resources_changed");
-              }
+              if (type === "task") emitStateChange("tasks_changed");
+              else if (type === "habit") emitStateChange("habits_changed");
+              else if (type === "checklist") emitStateChange("checklists_changed");
+              else if (type === "resource") emitStateChange("resources_changed");
               
               loadArchivedData();
             } catch (e) {

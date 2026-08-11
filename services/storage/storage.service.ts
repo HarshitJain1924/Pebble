@@ -132,20 +132,6 @@ export async function getChecklists(): Promise<Record<string, Checklist[]>> {
   }
 }
 
-export async function saveChecklists(
-  checklists: Record<string, Checklist[]>,
-): Promise<void> {
-  try {
-    for (const [wsId, chkList] of Object.entries(checklists)) {
-      for (const chk of chkList) {
-        await ChecklistRepository.saveChecklist({ ...chk, workspaceId: wsId });
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to save checklists", e);
-  }
-}
-
 // ─── Gratitude History ──────────────────────────────────────────────
 
 export type GratitudeHistoryEntry = {
@@ -249,26 +235,20 @@ export async function restoreRecycleBinItems(
 
   // 2. Legacy N+1 restore for non-tasks
   for (const item of legacyItems) {
-    let parsedData: any = {};
-    try {
-      parsedData = JSON.parse(item.snapshot);
-    } catch {}
-
     if (item.entityType === "habit") {
-      const rescheduled = await rescheduleHabitReminders(parsedData);
-      await HabitRepository.saveHabit(rescheduled);
+      await EntityCommandService.restoreHabit(item.id, { skipEvents: true, skipAnalytics: true });
       habitsRestored = true;
       successfulRestoreIds.add(item.id);
     } else if (item.entityType === "workspace") {
-      await WorkspaceRepository.saveWorkspace(parsedData);
+      await EntityCommandService.restoreWorkspace(item.id, { skipEvents: true, skipAnalytics: true });
       workspacesRestored = true;
       successfulRestoreIds.add(item.id);
     } else if (item.entityType === "resource") {
-      await ResourceRepository.saveResource(parsedData);
+      await EntityCommandService.restoreResource(item.id, { skipEvents: true, skipAnalytics: true });
       resourcesRestored = true;
       successfulRestoreIds.add(item.id);
     } else if (item.entityType === "checklist") {
-      await ChecklistRepository.saveChecklist(parsedData);
+      await EntityCommandService.restoreChecklist(item.id, { skipEvents: true, skipAnalytics: true });
       checklistsRestored = true;
       successfulRestoreIds.add(item.id);
     }
@@ -279,9 +259,4 @@ export async function restoreRecycleBinItems(
   if (workspacesRestored) emitStateChange("workspace_mode_changed");
   if (resourcesRestored) emitStateChange("resources_changed");
   if (checklistsRestored) emitStateChange("checklists_changed");
-
-  // Remove ONLY restored items from recycle bin
-  const binItems = await getRecycleBinItems();
-  const remaining = binItems.filter((i) => !successfulRestoreIds.has(i.id));
-  await saveRecycleBinItems(remaining);
 }

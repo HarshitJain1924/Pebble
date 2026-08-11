@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import { Task, Habit, Workspace, Resource, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ResourceRepository, ChecklistRepository } from "@/repositories";
 import { emitStateChange } from "@/services/events/state-events";
-
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 export function useResourceLinkState(
   todos: Record<string, Task[]>,
   setTodos: React.Dispatch<React.SetStateAction<Record<string, Task[]>>>,
@@ -68,7 +68,7 @@ export function useResourceLinkState(
                 ? linked.filter((id: string) => id !== resourceId)
                 : [...linked, resourceId];
               const updatedChk: Checklist = { ...chk, resourceIds: updated, workspaceId: wsId, updatedAt: Date.now() };
-              void ChecklistRepository.saveChecklist(updatedChk);
+              void EntityCommandService.updateChecklist(updatedChk.id, wsId, updatedChk, { skipEvents: true, skipAnalytics: true });
               return updatedChk;
             }
             return chk;

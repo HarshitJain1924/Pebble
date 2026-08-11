@@ -262,9 +262,7 @@ export default function ChecklistDetailsScreen() {
     if (!item) return;
     try {
       const folderId = item.workspaceId || INBOX_WORKSPACE_ID;
-      await ChecklistRepository.deleteChecklist(item.id, folderId);
-      await addToRecycleBin("checklist", item, `${folderId}:${item.id}`);
-      emitStateChange("checklists_changed");
+      await EntityCommandService.recycleChecklist(item.id, folderId);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       showToast("✓ Checklist moved to Recycle Bin");
       router.back();

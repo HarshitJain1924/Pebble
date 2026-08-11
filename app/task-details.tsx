@@ -596,12 +596,14 @@ export default function TaskDetailsScreen() {
 
           const oldFolderId = item.workspaceId || INBOX_WORKSPACE_ID;
           if (oldFolderId !== workspaceId) {
-            await HabitRepository.deleteHabit(item.id, oldFolderId);
+            await EntityCommandService.moveHabit(item.id, oldFolderId, workspaceId, { skipEvents: true, skipAnalytics: true });
           }
-          await HabitRepository.saveHabit({
-            ...updatedItem,
+          await EntityCommandService.updateHabit(
+            item.id,
             workspaceId,
-          });
+            updatedItem,
+            { skipEvents: true, skipAnalytics: true, source: "task-details" }
+          );
         }
       }
 
