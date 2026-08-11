@@ -513,10 +513,7 @@ export default function TaskDetailsScreen() {
             { skipEvents: true, skipAnalytics: true },
           );
         } else {
-          await HabitRepository.saveHabit({
-            ...updatedMaster,
-            workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-          });
+          await EntityCommandService.updateHabit(updatedMaster.id, item.workspaceId || INBOX_WORKSPACE_ID, updatedMaster, { skipEvents: true, skipAnalytics: true });
           await EntityCommandService.createHabit(
             {
               ...newCopy,
@@ -750,10 +747,12 @@ export default function TaskDetailsScreen() {
             { skipEvents: true, skipAnalytics: true }
           );
         } else {
-          await HabitRepository.saveHabit({
-            ...updatedItem,
-            workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-          });
+          await EntityCommandService.updateHabit(
+            item.id,
+            item.workspaceId || INBOX_WORKSPACE_ID,
+            { recurrenceExceptions: updatedItem.recurrenceExceptions },
+            { skipEvents: true, skipAnalytics: true }
+          );
         }
       } else {
         const originalWorkspace =

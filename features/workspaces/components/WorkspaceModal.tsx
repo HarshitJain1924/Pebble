@@ -231,9 +231,10 @@ export function WorkspaceModal({
               "Workspaces",
             );
             try {
-              await WorkspaceRepository.deleteWorkspace(editingWorkspaceId);
+              const { EntityCommandService } = require("@/services/command/EntityCommandService");
+              await EntityCommandService.deleteWorkspace(editingWorkspaceId);
             } catch (e) {
-              console.warn("Failed to clear workspace via repository:", e);
+              console.warn("Failed to clear workspace via ECS:", e);
             }
 
             // 3. Update state

@@ -195,12 +195,17 @@ export default function ChecklistDetailsScreen() {
       };
 
       const oldFolderId = item.workspaceId || INBOX_WORKSPACE_ID;
-      if (oldFolderId !== workspaceId) {
-        await ChecklistRepository.deleteChecklist(item.id, oldFolderId);
-      }
+      
+      await EntityCommandService.updateChecklist(item.id, oldFolderId, {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        items,
+        resourceIds: linkedCollectionIds,
+      });
 
-      await ChecklistRepository.saveChecklist(updatedChecklist);
-      emitStateChange("checklists_changed");
+      if (oldFolderId !== workspaceId) {
+        await EntityCommandService.moveChecklist(item.id, oldFolderId, workspaceId);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
       );
@@ -242,11 +247,9 @@ export default function ChecklistDetailsScreen() {
   const handleArchive = async () => {
     if (!item) return;
     try {
-      await ChecklistRepository.saveChecklist({
-        ...item,
+      await EntityCommandService.updateChecklist(item.id, item.workspaceId || INBOX_WORKSPACE_ID, {
         archivedAt: Date.now(),
       });
-      emitStateChange("checklists_changed");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       showToast("✓ Checklist archived");
       router.back();

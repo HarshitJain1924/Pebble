@@ -28,11 +28,13 @@ import { earnPebble, undoLastPebble } from "@/features/profile/services/pebble.s
 import { pluginManager } from "@/plugin";
 import { getTodayDateKey, getOffsetDateKey, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 import {
-  INBOX_WORKSPACE_ID,
-  type Checklist,
-  type Habit,
-  type Resource,
   type Task,
+  type Habit,
+  type Checklist,
+  type Resource,
+  type Workspace,
+  INBOX_WORKSPACE_ID,
+  MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
 
 /**
@@ -156,6 +158,36 @@ async function scheduleHabitNotifications(
  *   Entity construction/normalization → Persistence → Notification scheduling → State events → Analytics
  */
 export class EntityCommandService {
+  /**
+   * Create and persist a Workspace entity.
+   */
+  static async createWorkspace(workspace: Workspace): Promise<void> {
+    try {
+      await WorkspaceRepository.saveWorkspace(workspace);
+      emitStateChange("workspace_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to create workspace", e);
+      throw e;
+    }
+  }
+
+  /**
+   * Delete a Workspace entity and gracefully fallback active/selected states.
+   * Note: The UI handles cascading deletes or moves of items inside the workspace.
+   */
+  static async deleteWorkspace(workspaceId: string): Promise<void> {
+    try {
+      if (workspaceId === INBOX_WORKSPACE_ID || workspaceId === MY_PEBBLES_WORKSPACE_ID) {
+        throw new Error("Cannot delete protected workspace.");
+      }
+      await WorkspaceRepository.deleteWorkspace(workspaceId);
+      emitStateChange("workspace_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to delete workspace", e);
+      throw e;
+    }
+  }
+
   /**
    * Create and persist a Task entity.
    */
@@ -1515,5 +1547,128 @@ export class EntityCommandService {
     }
 
     return { restoredCount, successfulItemIds, failedItemIds };
+  }
+
+  // ============================================================================
+  // Additional Update & Move Methods (Phase 9 Bypasses)
+  // ============================================================================
+
+  static async updateChecklist(
+    checklistId: string,
+    workspaceId: string,
+    updates: Partial<Omit<Checklist, "id" | "workspaceId">>,
+    options?: CreateEntityOptions,
+  ): Promise<Checklist> {
+    const map = await ChecklistRepository.getChecklists(workspaceId);
+    const existing = map[checklistId];
+    if (!existing) throw new Error(`Checklist ${checklistId} not found`);
+    const updated = { ...existing, ...updates, updatedAt: Date.now() };
+    await ChecklistRepository.saveChecklist(updated);
+    if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    return updated;
+  }
+
+  static async updateResource(
+    resourceId: string,
+    workspaceId: string,
+    updates: Partial<Omit<Resource, "id" | "workspaceId">>,
+    options?: CreateEntityOptions,
+  ): Promise<Resource> {
+    const map = await ResourceRepository.getResources(workspaceId);
+    const existing = map[resourceId];
+    if (!existing) throw new Error(`Resource ${resourceId} not found`);
+    const updated = { ...existing, ...updates, updatedAt: Date.now() };
+    await ResourceRepository.saveResource(updated);
+    if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    return updated;
+  }
+
+  static async moveHabit(
+    habitId: string,
+    sourceWorkspaceId: string,
+    targetWorkspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Habit> {
+    if (sourceWorkspaceId === targetWorkspaceId) {
+      const map = await HabitRepository.getHabits(sourceWorkspaceId);
+      if (!map[habitId]) throw new Error(`Habit ${habitId} not found`);
+      return map[habitId];
+    }
+    const map = await HabitRepository.getHabits(sourceWorkspaceId);
+    const existing = map[habitId];
+    if (!existing) throw new Error(`Habit ${habitId} not found`);
+    const moved: Habit = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+    await HabitRepository.saveHabit(moved);
+    await HabitRepository.deleteHabit(habitId, sourceWorkspaceId);
+    if (!options?.skipEvents) emitStateChange("habits_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    void syncWidgetData().catch(() => {});
+    return moved;
+  }
+
+  static async moveChecklist(
+    checklistId: string,
+    sourceWorkspaceId: string,
+    targetWorkspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Checklist> {
+    if (sourceWorkspaceId === targetWorkspaceId) {
+      const map = await ChecklistRepository.getChecklists(sourceWorkspaceId);
+      if (!map[checklistId]) throw new Error(`Checklist ${checklistId} not found`);
+      return map[checklistId];
+    }
+    const map = await ChecklistRepository.getChecklists(sourceWorkspaceId);
+    const existing = map[checklistId];
+    if (!existing) throw new Error(`Checklist ${checklistId} not found`);
+    const moved: Checklist = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+    await ChecklistRepository.saveChecklist(moved);
+    await ChecklistRepository.deleteChecklist(checklistId, sourceWorkspaceId);
+    if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    return moved;
+  }
+
+  static async moveResource(
+    resourceId: string,
+    sourceWorkspaceId: string,
+    targetWorkspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Resource> {
+    if (sourceWorkspaceId === targetWorkspaceId) {
+      const map = await ResourceRepository.getResources(sourceWorkspaceId);
+      if (!map[resourceId]) throw new Error(`Resource ${resourceId} not found`);
+      return map[resourceId];
+    }
+    const map = await ResourceRepository.getResources(sourceWorkspaceId);
+    const existing = map[resourceId];
+    if (!existing) throw new Error(`Resource ${resourceId} not found`);
+    const moved: Resource = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+    await ResourceRepository.saveResource(moved);
+    await ResourceRepository.deleteResource(resourceId, sourceWorkspaceId);
+    if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    return moved;
+  }
+
+  static async reorderTasks(
+    orderedTasks: Task[],
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    await TaskRepository.saveTasks(orderedTasks, workspaceId);
+    if (!options?.skipEvents) emitStateChange("tasks_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    void syncWidgetData().catch(() => {});
+  }
+
+  static async reorderWorkspaces(
+    orderedWorkspaces: Workspace[],
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    await WorkspaceRepository.saveWorkspaces(orderedWorkspaces);
+    if (!options?.skipEvents) emitStateChange("workspace_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
   }
 }

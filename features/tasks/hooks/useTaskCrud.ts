@@ -48,15 +48,16 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
 
   /** Persist the workspace list. */
   const persistWorkspaceState = useCallback(async (listsToSave: Workspace[]) => {
-    const { WorkspaceRepository } = await import("@/repositories");
-    await WorkspaceRepository.saveWorkspaces(listsToSave);
+    const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+    await EntityCommandService.reorderWorkspaces(listsToSave, { skipEvents: true, skipAnalytics: true });
   }, []);
 
   /** Batch-save all task collections. */
   const persistTaskState = useCallback(
     async (todosToSave: Record<string, Task[]>) => {
+      const { EntityCommandService } = await import("@/services/command/EntityCommandService");
       for (const [wsId, taskList] of Object.entries(todosToSave)) {
-        await TaskRepository.saveTasks(taskList, wsId);
+        await EntityCommandService.reorderTasks(taskList, wsId, { skipEvents: true, skipAnalytics: true });
       }
     },
     [],

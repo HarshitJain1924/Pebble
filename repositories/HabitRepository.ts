@@ -105,19 +105,12 @@ export class HabitRepository {
     return `pebble:v1:habits:${workspaceId}`;
   }
 
-  private static getLegacyHabitsKey(workspaceId: string) {
-    return `pebble:core:habits:${workspaceId}`;
-  }
-
   static async getHabit(
     id: string,
     workspaceId: string,
   ): Promise<Habit | null> {
     const key = this.getHabitsKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyHabitsKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
     const records: Record<string, any> = JSON.parse(raw);
     const rawHabit = records[id] || null;
@@ -129,10 +122,7 @@ export class HabitRepository {
 
   static async getHabits(workspaceId: string): Promise<Record<string, Habit>> {
     const key = this.getHabitsKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyHabitsKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     const records: Record<string, Habit> = {};

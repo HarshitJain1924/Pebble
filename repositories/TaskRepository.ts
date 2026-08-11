@@ -143,16 +143,9 @@ export class TaskRepository {
     return `pebble:v1:tasks:${workspaceId}`;
   }
 
-  private static getLegacyTasksKey(workspaceId: string) {
-    return `pebble:core:tasks:${workspaceId}`;
-  }
-
   static async getTask(id: string, workspaceId: string): Promise<Task | null> {
     const key = this.getTasksKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyTasksKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
     const records: Record<string, any> = JSON.parse(raw);
     const rawTask = records[id] || null;
@@ -165,10 +158,7 @@ export class TaskRepository {
 
   static async getTasks(workspaceId: string): Promise<Record<string, Task>> {
     const key = this.getTasksKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyTasksKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     const records: Record<string, Task> = {};

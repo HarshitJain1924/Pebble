@@ -767,9 +767,6 @@ export function useCalendarState() {
               const habitMap = await HabitRepository.getHabits(activeWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
-                if (habit.reminder?.notificationIds) {
-                  await cancelReminderIds(habit.reminder.notificationIds);
-                }
                 // Update habit reminder time to match the dropped hour
                 const [year, monthVal, dayVal] = selDate.split("-").map(Number);
                 const newReminderDate = new Date(
@@ -781,20 +778,14 @@ export function useCalendarState() {
                   0,
                   0,
                 );
-                const habitWithUpdatedReminder = {
-                  ...habit,
+                const { EntityCommandService } = require("@/services/command/EntityCommandService");
+                await EntityCommandService.updateHabit(habit.id, activeWorkspace, {
                   reminder: {
                     ...(habit.reminder || { enabled: true }),
                     enabled: true,
                     triggerAt: newReminderDate.getTime(),
                   },
-                };
-                const rescheduled = await rescheduleHabitReminders(habitWithUpdatedReminder);
-                await HabitRepository.saveHabit({
-                  ...habit,
-                  reminder: rescheduled.reminder,
-                  updatedAt: Date.now(),
-                });
+                }, { source: "calendar_drag_drop", skipEvents: true });
               }
             }
 
@@ -862,9 +853,6 @@ export function useCalendarState() {
               const habitMap = await HabitRepository.getHabits(activeWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
-                if (habit.reminder?.notificationIds) {
-                  await cancelReminderIds(habit.reminder.notificationIds);
-                }
                 // Update habit reminder date to the dropped date, preserve time if any
                 const [year, monthVal, dayVal] = hDate.split("-").map(Number);
                 const existingReminderDate = habit.reminder?.triggerAt
@@ -879,20 +867,14 @@ export function useCalendarState() {
                   0,
                   0,
                 );
-                const habitWithUpdatedReminder = {
-                  ...habit,
+                const { EntityCommandService } = require("@/services/command/EntityCommandService");
+                await EntityCommandService.updateHabit(habit.id, activeWorkspace, {
                   reminder: {
                     ...(habit.reminder || { enabled: true }),
                     enabled: true,
                     triggerAt: newReminderDate.getTime(),
                   },
-                };
-                const rescheduled = await rescheduleHabitReminders(habitWithUpdatedReminder);
-                await HabitRepository.saveHabit({
-                  ...habit,
-                  reminder: rescheduled.reminder,
-                  updatedAt: Date.now(),
-                });
+                }, { source: "calendar_drag_drop", skipEvents: true });
               }
             }
 

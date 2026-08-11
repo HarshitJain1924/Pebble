@@ -26,7 +26,6 @@ import { emitStateChange } from "@/services/events/state-events";
 import {
   CHECKLISTS_STORAGE_KEY,
   COLLECTIONS_STORAGE_KEY,
-  DAILY_STORAGE_KEY,
   DASHBOARD_FILTER_STORAGE_KEY,
   DASHBOARD_PRIORITY_STORAGE_KEY,
   HISTORY_STORAGE_KEY,
@@ -34,7 +33,6 @@ import {
   PROFILE_STORAGE_KEY,
   RECYCLE_BIN_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
-  TODOS_STORAGE_KEY,
 } from "@/services/storage/storage.service";
 import { clearRepositoryStorage } from "@/repositories";
 import { WIDGET_PAYLOAD_KEY } from "@/services/analytics/widget-data.service";
@@ -212,8 +210,6 @@ export default function SettingsScreen() {
             try {
               await Promise.all([
                 clearRepositoryStorage(),
-                AsyncStorage.removeItem(TODOS_STORAGE_KEY),
-                AsyncStorage.removeItem(DAILY_STORAGE_KEY),
                 AsyncStorage.removeItem(HISTORY_STORAGE_KEY),
                 AsyncStorage.removeItem(PROFILE_STORAGE_KEY),
                 AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
@@ -284,17 +280,8 @@ export default function SettingsScreen() {
       const keysToExport = allKeys.filter(k => 
         k.startsWith("pebble:") || 
         k.startsWith("todoapp:") || 
-        k === TODOS_STORAGE_KEY ||
-        k === DAILY_STORAGE_KEY ||
-        k === HISTORY_STORAGE_KEY ||
-        k === PROFILE_STORAGE_KEY ||
-        k === SETTINGS_STORAGE_KEY ||
-        k === RECYCLE_BIN_STORAGE_KEY ||
-        k === COLLECTIONS_STORAGE_KEY ||
-        k === CHECKLISTS_STORAGE_KEY ||
         k === "PEBBLE_CAPTURE_CREATION_HISTORY" ||
-        k === "PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS" ||
-        k === "todoapp_mascot_dismissed"
+        k === "PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS"
       );
       
       const items = await AsyncStorage.multiGet(keysToExport);
@@ -327,10 +314,7 @@ export default function SettingsScreen() {
 
       const hasCoreKeys = Object.keys(parsed).some((key) => 
         key.startsWith("pebble:") || 
-        key.startsWith("todoapp:") || 
-        key === TODOS_STORAGE_KEY ||
-        key === DAILY_STORAGE_KEY ||
-        key === PROFILE_STORAGE_KEY
+        key.startsWith("todoapp:")
       );
       if (!hasCoreKeys) {
         throw new Error("Backup does not contain any valid Pebble data keys.");

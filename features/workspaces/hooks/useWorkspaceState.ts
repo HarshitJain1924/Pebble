@@ -165,7 +165,8 @@ export function useWorkspaceState() {
             updatedAt: now,
           },
         ];
-        await WorkspaceRepository.saveWorkspaces(currentLists);
+        const { EntityCommandService } = require("@/services/command/EntityCommandService");
+        await EntityCommandService.reorderWorkspaces(currentLists, { skipEvents: true, skipAnalytics: true });
       }
 
       setWorkspaces(currentLists);
@@ -199,9 +200,9 @@ export function useWorkspaceState() {
 
   const handleCreateWorkspace = useCallback(
     async (newWs: Workspace) => {
-      await WorkspaceRepository.saveWorkspace(newWs);
+      const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+      await EntityCommandService.createWorkspace(newWs);
       await loadWorkspaces();
-      emitStateChange("workspace_changed", "tasks_screen");
     },
     [loadWorkspaces],
   );
@@ -211,7 +212,8 @@ export function useWorkspaceState() {
       if (isProtectedWorkspace(id)) {
         return;
       }
-      await WorkspaceRepository.deleteWorkspace(id);
+      const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+      await EntityCommandService.deleteWorkspace(id);
       if (selectedWorkspaceId === id) {
         setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
       }
@@ -219,7 +221,6 @@ export function useWorkspaceState() {
         setActiveWorkspaceId(null);
       }
       await loadWorkspaces();
-      emitStateChange("workspace_changed", "tasks_screen");
     },
     [
       selectedWorkspaceId,

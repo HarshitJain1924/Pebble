@@ -34,15 +34,11 @@ export function normalizeRecycleBinItem(raw: any): RecycleBinItem {
 
 export class RecycleBinRepository {
   private static readonly RECYCLE_BIN_KEY = "pebble:v1:recycle_bin";
-  private static readonly LEGACY_RECYCLE_BIN_KEY = "pebble:core:recycle_bin";
   private static readonly DAY_MS = 24 * 60 * 60 * 1000;
 
   static async getRecycleBinItems(): Promise<RecycleBinItem[]> {
     try {
-      let raw = await AsyncStorage.getItem(this.RECYCLE_BIN_KEY);
-      if (!raw) {
-        raw = await AsyncStorage.getItem(this.LEGACY_RECYCLE_BIN_KEY);
-      }
+      const raw = await AsyncStorage.getItem(this.RECYCLE_BIN_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return parsed.map(normalizeRecycleBinItem);

@@ -12,7 +12,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { withLock } from "@/shared/utils/mutex";
 
 const WORKSPACES_KEY = "pebble:v1:workspaces";
-const LEGACY_WORKSPACES_KEY = "pebble:core:folders";
 
 export function normalizeWorkspace(raw: any): Workspace {
   return {
@@ -30,10 +29,7 @@ export function normalizeWorkspace(raw: any): Workspace {
 export class WorkspaceRepository {
   static async getWorkspaces(): Promise<Workspace[]> {
     try {
-      let raw = await AsyncStorage.getItem(WORKSPACES_KEY);
-      if (!raw) {
-        raw = await AsyncStorage.getItem(LEGACY_WORKSPACES_KEY);
-      }
+      const raw = await AsyncStorage.getItem(WORKSPACES_KEY);
       if (!raw) return [];
       const parsed: any[] = JSON.parse(raw);
       return parsed.map(normalizeWorkspace);

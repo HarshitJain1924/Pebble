@@ -565,8 +565,7 @@ export function useTasksState() {
     if (type === "habit") {
       const existing = habits.find((h) => h.id === existingId);
       if (!existing) return;
-      const updatedHabit: Habit = {
-        ...existing,
+      const updates: Partial<Habit> = {
         title: parsed.title,
         categoryId: parsed.category || existing.categoryId,
         recurrence: parsed.recurrence
@@ -576,9 +575,14 @@ export function useTasksState() {
               daysOfWeek: parsed.recurrence.days,
             }
           : existing.recurrence,
-        updatedAt: Date.now(),
       };
-      await HabitRepository.saveHabit(updatedHabit);
+      
+      const updatedHabit = await EntityCommandService.updateHabit(
+        existingId,
+        existing.workspaceId || INBOX_WORKSPACE_ID,
+        updates
+      );
+      
       const next = habits.map((h) => (h.id === updatedHabit.id ? updatedHabit : h));
       setHabits(next);
       await persistHabits(next);
@@ -1032,35 +1036,22 @@ export function useTasksState() {
               showUndo({
                 message: `Deleted ${taskIds.length} task(s)`,
                 onUndo: async () => {
-                  const binItems = await getRecycleBinItems();
-                  await saveRecycleBinItems(
-                    binItems.filter(
-                      (item) => !selectedItemIds.has(item.entityId),
-                    ),
-                  );
-
-                  const rescheduledTodos = await Promise.all(
-                    todosToDelete.map((t) => rescheduleTodoReminders(t)),
-                  );
-
-                  for (const todo of rescheduledTodos) {
-                    const listId = todo.workspaceId || selectedWorkspaceId;
-                    await TaskRepository.saveTask({
-                      ...todo,
-                      workspaceId: listId,
-                    });
+                  try {
+                    await EntityCommandService.restoreTasks(taskIds);
+                    // Re-read state from current
+                    const refreshedMap =
+                      await TaskRepository.getTasks(selectedWorkspaceId);
+                    const refreshedTodos = Object.values(refreshedMap) as Task[];
+                    const currentTodos = {
+                      ...todos,
+                      [selectedWorkspaceId]: refreshedTodos,
+                    };
+                    await persistState(workspaces, selectedWorkspaceId, currentTodos);
+                    setTodos(currentTodos);
+                    emitStateChange("tasks_changed", "tasks_screen");
+                  } catch (e) {
+                    console.error("Failed to undo task deletion", e);
                   }
-                  // Re-read state from current
-                  const refreshedMap =
-                    await TaskRepository.getTasks(selectedWorkspaceId);
-                  const refreshedTodos = Object.values(refreshedMap) as Task[];
-                  const currentTodos = {
-                    ...todos,
-                    [selectedWorkspaceId]: refreshedTodos,
-                  };
-                  await persistState(workspaces, selectedWorkspaceId, currentTodos);
-                  setTodos(currentTodos);
-                  emitStateChange("tasks_changed", "tasks_screen");
                 },
               });
             }
@@ -1071,13 +1062,9 @@ export function useTasksState() {
               );
 
               for (const habit of habitsToDelete) {
-                if (habit.reminder?.notificationIds) {
-                  await cancelReminderIds(habit.reminder.notificationIds);
-                }
-                const folderName =
-                  workspaces.find((l) => l.id === (habit.workspaceId || INBOX_WORKSPACE_ID))
-                    ?.name || "Inbox";
-                await addToRecycleBin("habit", habit, folderName);
+                await EntityCommandService.recycleHabit(habit.id, habit.workspaceId || INBOX_WORKSPACE_ID, {
+                  source: "tasks_screen"
+                });
               }
 
               const nextHabits = habits.filter(
@@ -1090,30 +1077,20 @@ export function useTasksState() {
               showUndo({
                 message: `Deleted ${habitIds.length} habit(s)`,
                 onUndo: async () => {
-                  const binItems = await getRecycleBinItems();
-                  await saveRecycleBinItems(
-                    binItems.filter(
-                      (item) => !selectedItemIds.has(item.entityId),
-                    ),
-                  );
-
-                  const rescheduledHabits = await Promise.all(
-                    habitsToDelete.map((h) => rescheduleHabitReminders(h)),
-                  );
-
-                  for (const habit of rescheduledHabits) {
-                    await HabitRepository.saveHabit({
-                      ...habit,
-                      workspaceId: selectedWorkspaceId,
-                    });
+                  try {
+                    for (const id of habitIds) {
+                      await EntityCommandService.restoreHabit(id);
+                    }
+                    // Re-read state from current
+                    const refreshedHabitsMap =
+                      await HabitRepository.getHabits(selectedWorkspaceId);
+                    const restored = Object.values(refreshedHabitsMap) as Habit[];
+                    await persistHabits(restored);
+                    setHabits(restored);
+                    emitStateChange("habits_changed", "tasks_screen");
+                  } catch (e) {
+                    console.error("Failed to undo habit deletion", e);
                   }
-                  // Re-read state from current
-                  const refreshedHabitsMap =
-                    await HabitRepository.getHabits(selectedWorkspaceId);
-                  const restored = Object.values(refreshedHabitsMap) as Habit[];
-                  await persistHabits(restored);
-                  setHabits(restored);
-                  emitStateChange("habits_changed", "tasks_screen");
                 },
               });
             }

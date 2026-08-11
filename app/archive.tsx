@@ -170,32 +170,20 @@ export default function ArchiveScreen() {
       delete updatedItem.reminderMinute;
       delete updatedItem.reminderDays;
 
+      const wsId = item.workspaceId || INBOX_WORKSPACE_ID;
       if (type === "task") {
-        await TaskRepository.saveTask({
-          ...updatedItem,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-        });
+        await EntityCommandService.updateTask(updatedItem.id, wsId, updatedItem);
       } else if (type === "habit") {
-        await HabitRepository.saveHabit({
-          ...updatedItem,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-        });
+        await EntityCommandService.updateHabit(updatedItem.id, wsId, updatedItem);
       } else if (type === "checklist") {
-        await ChecklistRepository.saveChecklist({
-          ...updatedItem,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-        });
+        await EntityCommandService.updateChecklist(updatedItem.id, wsId, updatedItem);
       } else if (type === "resource") {
-        await ResourceRepository.saveResource({
-          ...updatedItem,
-          workspaceId: item.workspaceId || INBOX_WORKSPACE_ID,
-        });
+        await EntityCommandService.updateResource(updatedItem.id, wsId, updatedItem);
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
       );
-      emitStateChange(type === "task" ? "tasks_changed" : type === "habit" ? "habits_changed" : type === "checklist" ? "checklists_changed" : "resources_changed");
       showToast(`Restored "${item.title}"`);
       loadArchivedData();
     } catch (e) {

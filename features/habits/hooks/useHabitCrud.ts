@@ -116,39 +116,35 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         workspaces.find((l) => l.id === (target.workspaceId || INBOX_WORKSPACE_ID))?.name ||
         "Inbox";
 
-      await cancelReminderIds(target.reminder?.notificationIds ?? []);
-
-      await addToRecycleBin("habit", target, originalWorkspace);
-
       const updated = habits.filter((habit) => habit.id !== id);
       setHabits(updated);
-      await persistHabits(updated);
-      void syncWidgetData().catch(() => {});
-      emitStateChange("habits_changed", "tasks_screen");
+
+      try {
+        await EntityCommandService.recycleHabit(id, target.workspaceId || INBOX_WORKSPACE_ID, {
+          source: "tasks_screen",
+        });
+      } catch (e) {
+        console.warn("Failed to recycle habit:", e);
+        // Revert optimistic update
+        setHabits(habits);
+        return;
+      }
 
       showUndo({
         message: `Deleted "${target.title}"`,
         onUndo: async () => {
-          const binItems = await getRecycleBinItems();
-          await saveRecycleBinItems(binItems.filter((item) => item.id !== id));
-
-          const rescheduled = await rescheduleHabitReminders(target);
-
-          const currentHabitsMap =
-            await HabitRepository.getHabits(selectedWorkspaceId);
-          const currentHabits = Object.values(currentHabitsMap);
-          if (!currentHabits.some((h) => h.id === id)) {
-            await HabitRepository.saveHabit({
-              ...rescheduled,
-              workspaceId: selectedWorkspaceId,
-            });
-            const restored = [...currentHabits, rescheduled];
-            await persistHabits(restored);
-            setHabits(restored);
+          try {
+            const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+            const binItems = await RecycleBinRepository.getRecycleBinItems();
+            const binItem = binItems.find((i) => i.entityId === id && i.entityType === "habit");
+            if (binItem) {
+              await EntityCommandService.restoreHabit(binItem.id, {
+                source: "tasks_screen",
+              });
+            }
+          } catch (e) {
+            console.warn("Failed to undo habit deletion:", e);
           }
-
-          void syncWidgetData().catch(() => {});
-          emitStateChange("habits_changed", "tasks_screen");
         },
       });
     },

@@ -116,19 +116,14 @@ export class ResourceRepository {
     return `pebble:v1:resources:${workspaceId}`;
   }
 
-  private static getLegacyResourcesKey(workspaceId: string) {
-    return `pebble:core:resources:${workspaceId}`;
-  }
+
 
   static async getResource(
     id: string,
     workspaceId: string,
   ): Promise<Resource | null> {
     const key = this.getResourcesKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyResourcesKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
     const records: Record<string, any> = JSON.parse(raw);
     const rawResource = records[id] || null;
@@ -142,10 +137,7 @@ export class ResourceRepository {
     workspaceId: string,
   ): Promise<Record<string, Resource>> {
     const key = this.getResourcesKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyResourcesKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     const records: Record<string, Resource> = {};

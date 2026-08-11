@@ -290,7 +290,7 @@ docs/
 | Debt | When to Fix | Trigger |
 |---|---|---|
 | `ResourceRepository` 5-way if-chain for `body` | When adding a new Resource field | Adding a 6th legacy format. |
-| `pebble:core:` legacy keys accumulate storage | When storage usage becomes a concern | User report of high storage. |
+
 | `500-char` input limit not validated downstream | When adding new input sources | New widget or CLI input bypasses the limit. |
 | `useTasksState.ts` imports parser type | When entity shape changes cause a bug | The third creation path surfaces an inconsistency. |
 

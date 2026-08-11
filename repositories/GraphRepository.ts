@@ -21,12 +21,7 @@ export class GraphRepository {
   private static readonly FOCUS_SESSIONS_KEY = "pebble:v1:focus_sessions";
   private static readonly SYSTEM_EVENT_LOG_KEY = "pebble:v1:system_event_log";
 
-  private static readonly LEGACY_RELATIONSHIPS_KEY =
-    "pebble:core:relationships";
-  private static readonly LEGACY_FOCUS_SESSIONS_KEY =
-    "pebble:core:focus_sessions";
-  private static readonly LEGACY_SYSTEM_EVENT_LOG_KEY =
-    "pebble:core:system_event_log";
+
 
   private static relationships: Record<string, Relationship> = {};
   private static index: RelationshipIndex = {
@@ -44,10 +39,7 @@ export class GraphRepository {
   private static async ensureLoaded() {
     if (this.loaded) return;
     try {
-      let raw = await AsyncStorage.getItem(this.RELATIONSHIPS_KEY);
-      if (!raw) {
-        raw = await AsyncStorage.getItem(this.LEGACY_RELATIONSHIPS_KEY);
-      }
+      const raw = await AsyncStorage.getItem(this.RELATIONSHIPS_KEY);
       this.relationships = raw ? JSON.parse(raw) : {};
       this.rebuildIndex();
       this.loaded = true;
@@ -116,10 +108,7 @@ export class GraphRepository {
 
   // Focus Sessions
   static async saveFocusSession(session: any): Promise<void> {
-    let raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.LEGACY_FOCUS_SESSIONS_KEY);
-    }
+    const raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
     const sessions: any[] = raw ? JSON.parse(raw) : [];
 
     const taskId =
@@ -148,10 +137,7 @@ export class GraphRepository {
   }
 
   static async getFocusSessions(): Promise<FocusSession[]> {
-    let raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.LEGACY_FOCUS_SESSIONS_KEY);
-    }
+    const raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
     const sessions: any[] = raw ? JSON.parse(raw) : [];
     return sessions.map((s: any) => ({
       id: s.id,
@@ -164,10 +150,7 @@ export class GraphRepository {
 
   // System Event Logs
   static async logSystemEvent(event: any): Promise<void> {
-    let raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.LEGACY_SYSTEM_EVENT_LOG_KEY);
-    }
+    const raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
     const logs: SystemEventLog[] = raw ? JSON.parse(raw) : [];
 
     const cleanLog: SystemEventLog = {
@@ -187,10 +170,7 @@ export class GraphRepository {
   static async getSystemEvents(
     workspaceId?: string,
   ): Promise<SystemEventLog[]> {
-    let raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.LEGACY_SYSTEM_EVENT_LOG_KEY);
-    }
+    const raw = await AsyncStorage.getItem(this.SYSTEM_EVENT_LOG_KEY);
     const logs: SystemEventLog[] = raw ? JSON.parse(raw) : [];
     if (workspaceId) {
       return logs.filter((l) => l.workspaceId === workspaceId);

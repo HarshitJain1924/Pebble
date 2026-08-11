@@ -76,21 +76,14 @@ export class ChecklistRepository {
     return `pebble:v1:checklists:${workspaceId}`;
   }
 
-  private static getLegacyChecklistsKey(workspaceId: string) {
-    return `pebble:core:checklists:${workspaceId}`;
-  }
+
 
   static async getChecklist(
     id: string,
     workspaceId: string,
   ): Promise<Checklist | null> {
     const key = this.getChecklistsKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(
-        this.getLegacyChecklistsKey(workspaceId),
-      );
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
     const records: Record<string, any> = JSON.parse(raw);
     const rawChecklist = records[id] || null;
@@ -104,12 +97,7 @@ export class ChecklistRepository {
     workspaceId: string,
   ): Promise<Record<string, Checklist>> {
     const key = this.getChecklistsKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(
-        this.getLegacyChecklistsKey(workspaceId),
-      );
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     const records: Record<string, Checklist> = {};

@@ -13,14 +13,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class UiStateRepository {
   private static readonly UI_STATE_KEY = "pebble:v1:ui_state";
-  private static readonly LEGACY_UI_STATE_KEY = "pebble:core:ui_state";
 
   static async getUiState(): Promise<UiState> {
     try {
-      let raw = await AsyncStorage.getItem(this.UI_STATE_KEY);
-      if (!raw) {
-        raw = await AsyncStorage.getItem(this.LEGACY_UI_STATE_KEY);
-      }
+      const raw = await AsyncStorage.getItem(this.UI_STATE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         return {

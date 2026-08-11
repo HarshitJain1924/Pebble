@@ -12,8 +12,6 @@ import {
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export const TODOS_STORAGE_KEY = "pebble:tasks";
-export const DAILY_STORAGE_KEY = "pebble:habits";
 export const HISTORY_STORAGE_KEY = "pebble:history";
 export const PROFILE_STORAGE_KEY = "pebble:profile";
 export const SETTINGS_STORAGE_KEY = "pebble:settings";

@@ -24,6 +24,7 @@ import NotificationListener from "@/shared/components/ui/NotificationListener";
 
 import { cleanupRecycleBin } from "@/services/storage/storage.service";
 
+
 SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = {
@@ -46,7 +47,7 @@ export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    cleanupRecycleBin();
+    // Moved cleanupRecycleBin to checkOnboarding sequence to prevent race conditions
   }, []);
 
   useEffect(() => {
@@ -56,6 +57,9 @@ export default function RootLayout() {
 
     const checkOnboarding = async () => {
       try {
+
+        await cleanupRecycleBin();
+
         const completed = await AsyncStorage.getItem(
           "todoapp:onboarding_completed",
         );
