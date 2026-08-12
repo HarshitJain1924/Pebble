@@ -330,12 +330,13 @@ export function PebbleJar({
     return x - Math.floor(x);
   };
 
-  const pebbleTypesList: ("task" | "habit" | "focus")[] = [];
+  const pebbleTypesList: ("task" | "habit" | "focus" | "checklist")[] = [];
   if (monthlyTypes) {
-    const { task = 0, habit = 0, focus = 0 } = monthlyTypes;
+    const { task = 0, habit = 0, focus = 0, checklist = 0 } = monthlyTypes;
     for (let i = 0; i < task; i++) pebbleTypesList.push("task");
     for (let i = 0; i < habit; i++) pebbleTypesList.push("habit");
     for (let i = 0; i < focus; i++) pebbleTypesList.push("focus");
+    for (let i = 0; i < checklist; i++) pebbleTypesList.push("checklist");
   }
 
   const shuffledTypes = [...pebbleTypesList];
@@ -559,7 +560,9 @@ export function PebbleJar({
                     ? "#10B981"
                     : fallingPebbleType === "habit"
                       ? "#F59E0B"
-                      : "#6366F1"
+                      : fallingPebbleType === "checklist"
+                        ? "#3B82F6"
+                        : "#6366F1"
                 }
                 opacity={0.35}
               />
@@ -593,7 +596,9 @@ export function PebbleJar({
                 ? "#10B981"
                 : pType === "habit"
                   ? "#F59E0B"
-                  : "#6366F1";
+                  : pType === "checklist"
+                    ? "#3B82F6"
+                    : "#6366F1";
 
             return (
               <G

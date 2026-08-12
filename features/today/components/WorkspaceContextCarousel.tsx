@@ -16,6 +16,10 @@ import { type ThemeColors } from "@/shared/constants/theme";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted, isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
 import { getDateKey, getTodoDateKey } from "@/features/tasks/utils/task-formatting";
+import {
+  getCheckboxAction,
+  getRowContentAction,
+} from "@/features/today/utils/today-interactions";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -55,8 +59,8 @@ export interface WorkspaceContextCarouselProps {
   setActiveCardIndex: (index: number) => void;
   parentScrollRef: React.RefObject<any>;
   router: Router;
-  completeTodoFromDashboard: (todoId: string, event?: any) => Promise<void>;
-  completeHabitFromDashboard: (habitId: string, event?: any) => Promise<void>;
+  completeTodoFromDashboard: (todoId: string, event?: any, workspaceId?: string) => Promise<void>;
+  completeHabitFromDashboard: (habitId: string, event?: any, workspaceId?: string) => Promise<void>;
   toggleChecklistItemFromDashboard: (
     checklistId: string,
     itemId: string,
@@ -437,6 +441,14 @@ export const WorkspaceContextCarousel: React.FC<
                                 }
 
                                 const isCompleted = isTaskCompleted(todo);
+                                const checkboxAction = getCheckboxAction(
+                                  "task",
+                                  isCompleted,
+                                );
+                                const contentAction = getRowContentAction(
+                                  "task",
+                                  todo.id,
+                                );
 
                                 return (
                                   <View key={item.key}>
@@ -456,10 +468,12 @@ export const WorkspaceContextCarousel: React.FC<
                                       <View style={{ width: 6 }} />
 
                                       <PressableScale
+                                        disabled={checkboxAction === "locked"}
                                         onPress={(e) =>
                                           completeTodoFromDashboard(
                                             todo.id,
                                             e,
+                                            folder.id,
                                           )
                                         }
                                         haptic
@@ -491,14 +505,14 @@ export const WorkspaceContextCarousel: React.FC<
                                       <View style={{ width: 10 }} />
 
                                       <PressableScale
-                                        onPress={() =>
-                                          router.push({
-                                            pathname: "/tasks",
-                                            params: {
-                                              workspaceId: todo.workspaceId,
-                                            },
-                                          } as any)
-                                        }
+                                        onPress={() => {
+                                          if (
+                                            contentAction.action ===
+                                            "open-details"
+                                          ) {
+                                            router.push(contentAction.route);
+                                          }
+                                        }}
                                         style={{ flex: 1 }}
                                         contentStyle={{
                                           flex: 1,
@@ -555,6 +569,14 @@ export const WorkspaceContextCarousel: React.FC<
                               if (item.type === "habit") {
                                 const habit = item.original;
                                 const isCompletedHabit = isHabitCompletedToday(habit);
+                                const checkboxAction = getCheckboxAction(
+                                  "habit",
+                                  isCompletedHabit,
+                                );
+                                const contentAction = getRowContentAction(
+                                  "habit",
+                                  habit.id,
+                                );
                                 const currentStreak = getHabitCurrentStreak(habit);
 
                                 let subtitle = "";
@@ -585,10 +607,12 @@ export const WorkspaceContextCarousel: React.FC<
                                       <View style={{ width: 6 }} />
 
                                       <PressableScale
+                                        disabled={checkboxAction === "locked"}
                                         onPress={(e) =>
                                           completeHabitFromDashboard(
                                             habit.id,
                                             e,
+                                            folder.id,
                                           )
                                         }
                                         haptic
@@ -622,11 +646,14 @@ export const WorkspaceContextCarousel: React.FC<
                                       <View style={{ width: 10 }} />
 
                                       <PressableScale
-                                        onPress={() =>
-                                          router.push(
-                                            `/task-details?id=${habit.id}&type=habit`,
-                                          )
-                                        }
+                                        onPress={() => {
+                                          if (
+                                            contentAction.action ===
+                                            "open-details"
+                                          ) {
+                                            router.push(contentAction.route);
+                                          }
+                                        }}
                                         style={{ flex: 1 }}
                                         contentStyle={{
                                           flex: 1,
@@ -686,6 +713,14 @@ export const WorkspaceContextCarousel: React.FC<
                                 const checklist = item.original;
                                 const isExpanded =
                                   !!expandedChecklistIds[checklist.id];
+                                const checkboxAction = getCheckboxAction(
+                                  "checklist",
+                                  item.completed,
+                                );
+                                const contentAction = getRowContentAction(
+                                  "checklist",
+                                  checklist.id,
+                                );
                                 const remainingCount =
                                   item.totalCount - item.completedCount;
                                 const subtitle = item.completed
@@ -708,17 +743,20 @@ export const WorkspaceContextCarousel: React.FC<
                                       <View style={{ width: 6 }} />
 
                                       <PressableScale
+                                        disabled={checkboxAction === "locked"}
                                         onPress={() => {
-                                          setExpandedChecklistIds(
-                                            (prev) => ({
-                                              ...prev,
-                                              [checklist.id]: !isExpanded,
-                                            }),
-                                          );
-                                          Haptics.impactAsync(
-                                            Haptics.ImpactFeedbackStyle
-                                              .Light,
-                                          ).catch(() => {});
+                                          if (checkboxAction === "toggle-expand") {
+                                            setExpandedChecklistIds(
+                                              (prev) => ({
+                                                ...prev,
+                                                [checklist.id]: !isExpanded,
+                                              }),
+                                            );
+                                            Haptics.impactAsync(
+                                              Haptics.ImpactFeedbackStyle
+                                                .Light,
+                                            ).catch(() => {});
+                                          }
                                         }}
                                         style={{
                                           width: 20,
@@ -749,16 +787,21 @@ export const WorkspaceContextCarousel: React.FC<
 
                                       <PressableScale
                                         onPress={() => {
-                                          setExpandedChecklistIds(
-                                            (prev) => ({
-                                              ...prev,
-                                              [checklist.id]: !isExpanded,
-                                            }),
-                                          );
-                                          Haptics.impactAsync(
-                                            Haptics.ImpactFeedbackStyle
-                                              .Light,
-                                          ).catch(() => {});
+                                          if (
+                                            contentAction.action ===
+                                            "toggle-expand"
+                                          ) {
+                                            setExpandedChecklistIds(
+                                              (prev) => ({
+                                                ...prev,
+                                                [checklist.id]: !isExpanded,
+                                              }),
+                                            );
+                                            Haptics.impactAsync(
+                                              Haptics.ImpactFeedbackStyle
+                                                .Light,
+                                            ).catch(() => {});
+                                          }
                                         }}
                                         style={{ flex: 1 }}
                                         contentStyle={{

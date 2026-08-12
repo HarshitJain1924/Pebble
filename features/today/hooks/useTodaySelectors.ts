@@ -21,11 +21,165 @@ export function resolveWorkspaceId(entity?: {
   return entity?.workspaceId || entity?.folderId || INBOX_WORKSPACE_ID;
 }
 
+export interface BuildActiveContextsInput {
+  folders: Workspace[];
+  displayedTodos: Task[];
+  displayedCompletedTodos: Task[];
+  displayedOverdue: Task[];
+  pendingHabits: Habit[];
+  completedHabits: Habit[];
+  allChecklists: Record<string, Checklist[]>;
+  activeFilter: string;
+  searchQuery: string;
+}
+
+export interface TodayActiveContext {
+  folder: Workspace;
+  tasks: Task[];
+  habits: Habit[];
+  checklists: Checklist[];
+  totalCount: number;
+}
+
+/**
+ * Builds the per-workspace contexts rendered by the Today screen carousel.
+ *
+ * Completed tasks are included alongside pending ones so they stay visible in
+ * their workspace after being checked off (the carousel applies their completed
+ * styling and locks their checkbox).
+ */
+export function buildActiveContexts({
+  folders,
+  displayedTodos,
+  displayedCompletedTodos,
+  displayedOverdue,
+  pendingHabits,
+  completedHabits,
+  allChecklists,
+  activeFilter,
+  searchQuery,
+}: BuildActiveContextsInput): TodayActiveContext[] {
+  const todayStr = getDateKey();
+
+  const contextMap: Record<
+    string,
+    {
+      tasks: Task[];
+      habits: Habit[];
+      checklists: Checklist[];
+    }
+  > = {};
+
+  const activeTasks = [...displayedTodos, ...displayedCompletedTodos];
+  const overdueTasks = displayedOverdue;
+  const activeHabits = [...pendingHabits, ...completedHabits];
+
+  const activeChecklists: Checklist[] = [];
+  Object.entries(allChecklists).forEach(([_fId, list]) => {
+    list.forEach((c) => {
+      if (!c.archivedAt) {
+        activeChecklists.push(c);
+      }
+    });
+  });
+
+  folders.forEach((f) => {
+    contextMap[f.id] = { tasks: [], habits: [], checklists: [] };
+  });
+
+  activeTasks.forEach((t) => {
+    const fId = resolveWorkspaceId(t);
+    if (!contextMap[fId])
+      contextMap[fId] = { tasks: [], habits: [], checklists: [] };
+    contextMap[fId].tasks.push(t);
+  });
+  overdueTasks.forEach((t) => {
+    const fId = resolveWorkspaceId(t);
+    if (!contextMap[fId])
+      contextMap[fId] = { tasks: [], habits: [], checklists: [] };
+    if (!contextMap[fId].tasks.some((existing) => existing.id === t.id)) {
+      contextMap[fId].tasks.push(t);
+    }
+  });
+
+  activeHabits.forEach((h) => {
+    const fId = resolveWorkspaceId(h);
+    if (!contextMap[fId])
+      contextMap[fId] = { tasks: [], habits: [], checklists: [] };
+    contextMap[fId].habits.push(h);
+  });
+
+  activeChecklists.forEach((c) => {
+    const fId = resolveWorkspaceId(c);
+    if (!contextMap[fId])
+      contextMap[fId] = { tasks: [], habits: [], checklists: [] };
+    contextMap[fId].checklists.push(c);
+  });
+
+  const activeList = folders
+    .map((folder) => {
+      const items = contextMap[folder.id] || {
+        tasks: [],
+        habits: [],
+        checklists: [],
+      };
+
+      let filteredTasks = items.tasks;
+      let filteredHabits = items.habits;
+      let filteredChecklists = items.checklists;
+
+      if (activeFilter === "tasks") {
+        filteredHabits = [];
+        filteredChecklists = [];
+      } else if (activeFilter === "habits") {
+        filteredTasks = [];
+        filteredChecklists = [];
+      } else if (activeFilter === "checklists") {
+        filteredTasks = [];
+        filteredHabits = [];
+      } else if (activeFilter === "overdue") {
+        filteredTasks = items.tasks.filter((t) => isTaskOverdue(t, todayStr));
+        filteredHabits = [];
+        filteredChecklists = [];
+      }
+
+      if (searchQuery.trim() !== "") {
+        const query = searchQuery.toLowerCase();
+        filteredTasks = filteredTasks.filter((t) =>
+          t.title.toLowerCase().includes(query),
+        );
+        filteredHabits = filteredHabits.filter((h) =>
+          h.title.toLowerCase().includes(query),
+        );
+        filteredChecklists = filteredChecklists.filter((c) =>
+          c.title.toLowerCase().includes(query),
+        );
+      }
+
+      const totalItemsCount =
+        filteredTasks.length +
+        filteredHabits.length +
+        filteredChecklists.length;
+
+      return {
+        folder,
+        tasks: filteredTasks,
+        habits: filteredHabits,
+        checklists: filteredChecklists,
+        totalCount: totalItemsCount,
+      };
+    })
+    .filter((ctx) => ctx.totalCount > 0);
+
+  return activeList;
+}
+
 export interface UseTodaySelectorsOptions {
   folders: Workspace[];
   todoStats: {
     pending: Task[];
     overdue: Task[];
+    completedTasks?: Task[];
     completed: number;
     total: number;
   };
@@ -120,6 +274,42 @@ export function useTodaySelectors({
     selectedPriorityFilter,
     selectedSortOption,
     getFolderById,
+    matchesSearch,
+  ]);
+
+  const displayedCompletedTodos = useMemo(() => {
+    const list = todoStats.completedTasks || [];
+    return list.filter((todo) => {
+      const folder = getFolderById(resolveWorkspaceId(todo));
+      const folderName = folder?.name || "";
+      const queryMatches =
+        searchQuery.trim() === "" ||
+        matchesSearch(todo.title, searchQuery) ||
+        matchesSearch(todo.description || "", searchQuery) ||
+        matchesSearch(folderName, searchQuery);
+
+      if (!queryMatches) return false;
+      if (activeFilter === "habits") return false;
+
+      const fId = resolveWorkspaceId(todo);
+      if (selectedFolderFilter !== "all" && fId !== selectedFolderFilter) {
+        return false;
+      }
+      if (
+        selectedPriorityFilter !== "all" &&
+        todo.priority !== selectedPriorityFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    todoStats.completedTasks,
+    getFolderById,
+    searchQuery,
+    activeFilter,
+    selectedFolderFilter,
+    selectedPriorityFilter,
     matchesSearch,
   ]);
 
@@ -394,130 +584,31 @@ export function useTodaySelectors({
     return folders.find((f) => f.id === bestFolderId) || null;
   }, [folders, todoStats.pending]);
 
-  const activeContexts = useMemo(() => {
-    const todayStr = getDateKey();
-
-    const contextMap: Record<
-      string,
-      {
-        tasks: Task[];
-        habits: Habit[];
-        checklists: Checklist[];
-      }
-    > = {};
-
-    const activeTasks = displayedTodos;
-    const overdueTasks = displayedOverdue;
-    const activeHabits = [...pendingHabits, ...completedHabits];
-
-    const activeChecklists: Checklist[] = [];
-    Object.entries(allChecklists).forEach(([_fId, list]) => {
-      list.forEach((c) => {
-        if (!c.archivedAt) {
-          activeChecklists.push(c);
-        }
-      });
-    });
-
-    folders.forEach((f) => {
-      contextMap[f.id] = { tasks: [], habits: [], checklists: [] };
-    });
-
-    activeTasks.forEach((t) => {
-      const fId = resolveWorkspaceId(t);
-      if (!contextMap[fId])
-        contextMap[fId] = { tasks: [], habits: [], checklists: [] };
-      contextMap[fId].tasks.push(t);
-    });
-    overdueTasks.forEach((t) => {
-      const fId = resolveWorkspaceId(t);
-      if (!contextMap[fId])
-        contextMap[fId] = { tasks: [], habits: [], checklists: [] };
-      if (!contextMap[fId].tasks.some((existing) => existing.id === t.id)) {
-        contextMap[fId].tasks.push(t);
-      }
-    });
-
-    activeHabits.forEach((h) => {
-      const fId = resolveWorkspaceId(h);
-      if (!contextMap[fId])
-        contextMap[fId] = { tasks: [], habits: [], checklists: [] };
-      contextMap[fId].habits.push(h);
-    });
-
-    activeChecklists.forEach((c) => {
-      const fId = resolveWorkspaceId(c);
-      if (!contextMap[fId])
-        contextMap[fId] = { tasks: [], habits: [], checklists: [] };
-      contextMap[fId].checklists.push(c);
-    });
-
-    const activeList = folders
-      .map((folder) => {
-        const items = contextMap[folder.id] || {
-          tasks: [],
-          habits: [],
-          checklists: [],
-        };
-
-        let filteredTasks = items.tasks;
-        let filteredHabits = items.habits;
-        let filteredChecklists = items.checklists;
-
-        if (activeFilter === "tasks") {
-          filteredHabits = [];
-          filteredChecklists = [];
-        } else if (activeFilter === "habits") {
-          filteredTasks = [];
-          filteredChecklists = [];
-        } else if (activeFilter === "checklists") {
-          filteredTasks = [];
-          filteredHabits = [];
-        } else if (activeFilter === "overdue") {
-          filteredTasks = items.tasks.filter((t) => isTaskOverdue(t, todayStr));
-          filteredHabits = [];
-          filteredChecklists = [];
-        }
-
-        if (searchQuery.trim() !== "") {
-          const query = searchQuery.toLowerCase();
-          filteredTasks = filteredTasks.filter((t) =>
-            t.title.toLowerCase().includes(query),
-          );
-          filteredHabits = filteredHabits.filter((h) =>
-            h.title.toLowerCase().includes(query),
-          );
-          filteredChecklists = filteredChecklists.filter((c) =>
-            c.title.toLowerCase().includes(query),
-          );
-        }
-
-        const totalItemsCount =
-          filteredTasks.length +
-          filteredHabits.length +
-          filteredChecklists.length;
-
-        return {
-          folder,
-          tasks: filteredTasks,
-          habits: filteredHabits,
-          checklists: filteredChecklists,
-          totalCount: totalItemsCount,
-        };
-      })
-      .filter((ctx) => ctx.totalCount > 0);
-
-    return activeList;
-  }, [
-    displayedTodos,
-    displayedOverdue,
-    pendingHabits,
-    completedHabits,
-    allChecklists,
-    folders,
-    activeFilter,
-    searchQuery,
-  ]);
+  const activeContexts = useMemo(
+    () =>
+      buildActiveContexts({
+        folders,
+        displayedTodos,
+        displayedCompletedTodos,
+        displayedOverdue,
+        pendingHabits,
+        completedHabits,
+        allChecklists,
+        activeFilter,
+        searchQuery,
+      }),
+    [
+      displayedTodos,
+      displayedCompletedTodos,
+      displayedOverdue,
+      pendingHabits,
+      completedHabits,
+      allChecklists,
+      folders,
+      activeFilter,
+      searchQuery,
+    ],
+  );
 
   return {
     displayedTodos,

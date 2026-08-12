@@ -12,7 +12,7 @@ export interface ProjectilePebbleProps {
   endX: number;
   endY: number;
   onComplete: () => void;
-  type: "task" | "habit";
+  type: "task" | "habit" | "checklist" | "focus";
 }
 
 export const ProjectilePebble: React.FC<ProjectilePebbleProps> = ({
@@ -53,7 +53,13 @@ export const ProjectilePebble: React.FC<ProjectilePebbleProps> = ({
 
   return (
     <Animated.Text style={[animatedStyle, { fontSize: 24 }]}>
-      {type === "habit" ? "🟡" : "🟣"}
+      {type === "habit"
+        ? "🟡"
+        : type === "checklist"
+          ? "🔵"
+          : type === "focus"
+            ? "🟢"
+            : "🟣"}
     </Animated.Text>
   );
 };

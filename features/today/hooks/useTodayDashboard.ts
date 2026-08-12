@@ -27,6 +27,7 @@ export interface TodayDashboardStats {
   todoStats: {
     pending: Task[];
     overdue: Task[];
+    completedTasks?: Task[];
     completed: number;
     total: number;
   };
@@ -49,9 +50,16 @@ export interface TodayDashboardStats {
 }
 
 export function useTodayDashboard(): TodayDashboardStats {
-  const [todoStats, setTodoStats] = useState({
-    pending: [] as Task[],
-    overdue: [] as Task[],
+  const [todoStats, setTodoStats] = useState<{
+    pending: Task[];
+    overdue: Task[];
+    completedTasks: Task[];
+    completed: number;
+    total: number;
+  }>({
+    pending: [],
+    overdue: [],
+    completedTasks: [],
     completed: 0,
     total: 0,
   });
@@ -87,7 +95,18 @@ export function useTodayDashboard(): TodayDashboardStats {
       setIsLoading(true);
       const todayStr = getDateKey();
       const loadedFolders = await WorkspaceRepository.getWorkspaces();
-      setFolders(loadedFolders);
+      const allFolders = [...loadedFolders];
+      if (!allFolders.some((f) => f.id === INBOX_WORKSPACE_ID)) {
+        allFolders.unshift({
+          id: INBOX_WORKSPACE_ID,
+          name: "Inbox",
+          emoji: "📥",
+          color: "#6366F1",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+      setFolders(allFolders);
 
       const workspaceIds = Array.from(
         new Set([INBOX_WORKSPACE_ID, ...loadedFolders.map((f) => f.id)]),
@@ -132,9 +151,7 @@ export function useTodayDashboard(): TodayDashboardStats {
       const pendingTasks = allTasks.filter(
         (t) => !isTaskCompleted(t) && !isTaskOverdue(t, todayStr),
       );
-      const completedTasksCount = allTasks.filter((t) =>
-        isTaskCompleted(t),
-      ).length;
+      const completedTasks = allTasks.filter((t) => isTaskCompleted(t));
 
       pendingTasks.sort((a, b) => {
         const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
@@ -164,14 +181,13 @@ export function useTodayDashboard(): TodayDashboardStats {
         }
       });
 
-      console.log("[INSTRUMENT] [useTodayDashboard] loadDashboard() calling setTodoStats with", allTasks.length, "total tasks");
       setTodoStats({
         pending: pendingTasks,
         overdue: overdueTasks,
-        completed: completedTasksCount,
+        completedTasks,
+        completed: completedTasks.length,
         total: allTasks.length,
       });
-      console.log("[INSTRUMENT] [useTodayDashboard] setTodoStats CALLED");
       setCategoryCounts(nextCategoryCounts);
       setClosestReminderTime(closestReminder);
 

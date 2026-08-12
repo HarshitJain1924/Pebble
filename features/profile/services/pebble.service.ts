@@ -123,7 +123,10 @@ export async function getPebbleCounts() {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
 
+    const todayKey = getOffsetDateKey(0);
+    let today = 0;
     let monthly = 0;
+    const todayTypes = { task: 0, habit: 0, focus: 0, checklist: 0 };
     const monthlyTypes = { task: 0, habit: 0, focus: 0, checklist: 0 };
 
     log.forEach((entry) => {
@@ -134,6 +137,15 @@ export async function getPebbleCounts() {
       ) {
         monthly++;
         monthlyTypes[entry.type]++;
+      }
+
+      const d = entryDate;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      if (`${y}-${m}-${day}` === todayKey) {
+        today++;
+        todayTypes[entry.type]++;
       }
     });
 
@@ -152,6 +164,8 @@ export async function getPebbleCounts() {
     return {
       lifetime: log.length,
       monthly,
+      today,
+      todayTypes,
       monthlyTypes,
       lifetimeTypes,
       streak,
@@ -160,7 +174,7 @@ export async function getPebbleCounts() {
       log,
     };
   } catch {
-    return { lifetime: 0, monthly: 0, monthlyTypes: { task: 0, habit: 0, focus: 0, checklist: 0 }, lifetimeTypes: { task: 0, habit: 0, focus: 0, checklist: 0 }, streak: 0, bestStreak: 0, weeklyStatus: [] };
+    return { lifetime: 0, monthly: 0, today: 0, todayTypes: { task: 0, habit: 0, focus: 0, checklist: 0 }, monthlyTypes: { task: 0, habit: 0, focus: 0, checklist: 0 }, lifetimeTypes: { task: 0, habit: 0, focus: 0, checklist: 0 }, streak: 0, bestStreak: 0, weeklyStatus: [] };
   }
 }
 

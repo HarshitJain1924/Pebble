@@ -129,27 +129,22 @@ export function useTodayActions({
   );
 
   const completeTodoFromDashboard = useCallback(
-    async (todoId: string, event?: any) => {
+    async (todoId: string, event?: any, workspaceId?: string) => {
       try {
-        let wsIdFound: string | null = null;
-        let prevTodo: any = null;
-        // Find the task in memory instead of reading from the repository
-        prevTodo = allTodos.find((t) => t.id === todoId) || null;
-        wsIdFound = prevTodo?.workspaceId || null;
+        const prevTodo: any = allTodos.find((t) => t.id === todoId) || null;
+        const wsIdFound: string =
+          workspaceId ||
+          prevTodo?.workspaceId ||
+          prevTodo?.folderId ||
+          INBOX_WORKSPACE_ID;
 
-        if (!prevTodo || !wsIdFound) return;
-
-        const isCompleting = prevTodo.status !== "completed";
+        const isCompleting = prevTodo ? prevTodo.status !== "completed" : true;
 
         let result;
         if (isCompleting) {
-          result = await EntityCommandService.completeTask(todoId, wsIdFound, {
-            skipEvents: true,
-          });
+          result = await EntityCommandService.completeTask(todoId, wsIdFound);
         } else {
-          result = await EntityCommandService.uncompleteTask(todoId, wsIdFound, {
-            skipEvents: true,
-          });
+          result = await EntityCommandService.uncompleteTask(todoId, wsIdFound);
         }
 
         if (!result) return;
@@ -177,6 +172,7 @@ export function useTodayActions({
 
         await loadDashboardData();
         emitStateChange("tasks_changed");
+        emitStateChange("pebbles_changed");
 
         // show undo snackbar — restore previous todo state when undone
         try {
@@ -186,11 +182,10 @@ export function useTodayActions({
               actionLabel: "Undo",
               onUndo: async () => {
                 try {
-                  await EntityCommandService.uncompleteTask(todoId, wsIdFound!, {
-                    skipEvents: true,
-                  });
+                  await EntityCommandService.uncompleteTask(todoId, wsIdFound);
                   await loadDashboardData();
                   emitStateChange("tasks_changed");
+                  emitStateChange("pebbles_changed");
                 } catch {
                   // ignore
                 }
@@ -204,35 +199,30 @@ export function useTodayActions({
         // ignore
       }
     },
-    [loadDashboardData, showUndo, setFlyingPebbles],
+    [allTodos, loadDashboardData, showUndo, setFlyingPebbles],
   );
 
   const completeHabitFromDashboard = useCallback(
-    async (habitId: string, event?: any) => {
+    async (habitId: string, event?: any, workspaceId?: string) => {
       try {
-        let wsIdFound: string | null = null;
-        let prevHabit: any = null;
-        // Find the habit in memory instead of reading from the repository
-        prevHabit = allHabits.find((h) => h.id === habitId) || null;
-        wsIdFound = prevHabit?.workspaceId || null;
-
-        if (!prevHabit || !wsIdFound) return;
+        const prevHabit: any = allHabits.find((h) => h.id === habitId) || null;
+        const wsIdFound: string =
+          workspaceId ||
+          prevHabit?.workspaceId ||
+          prevHabit?.folderId ||
+          INBOX_WORKSPACE_ID;
 
         const today = getDateKey();
         const completedToday =
-          prevHabit.completionHistory?.some((e: any) => e.date === today) ||
+          prevHabit?.completionHistory?.some((e: any) => e.date === today) ||
           false;
         const isCompleting = !completedToday;
 
         let result;
         if (isCompleting) {
-          result = await EntityCommandService.completeHabit(habitId, wsIdFound, {
-            skipEvents: true,
-          });
+          result = await EntityCommandService.completeHabit(habitId, wsIdFound);
         } else {
-          result = await EntityCommandService.uncompleteHabit(habitId, wsIdFound, {
-            skipEvents: true,
-          });
+          result = await EntityCommandService.uncompleteHabit(habitId, wsIdFound);
         }
 
         if (!result) return;
@@ -260,11 +250,12 @@ export function useTodayActions({
 
         await loadDashboardData();
         emitStateChange("habits_changed");
+        emitStateChange("pebbles_changed");
       } catch (e) {
         console.warn("Failed to complete habit on dashboard", e);
       }
     },
-    [loadDashboardData, setFlyingPebbles],
+    [allHabits, loadDashboardData, setFlyingPebbles],
   );
 
   const handleSaveReview = useCallback(async () => {

@@ -35,6 +35,7 @@ import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import type { Checklist } from "@/shared/types/domain.types";
+import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 
 const getDateKey = (date = new Date()) => {
   const y = date.getFullYear();
@@ -98,6 +99,18 @@ export function TodayScreen() {
 
   const [lifetimePebbles, setLifetimePebbles] = useState<number>(0);
   const [monthlyPebbles, setMonthlyPebbles] = useState<number>(0);
+  const [todayPebbles, setTodayPebbles] = useState<number>(0);
+  const [todayTypes, setTodayTypes] = useState<{
+    task: number;
+    habit: number;
+    focus: number;
+    checklist: number;
+  }>({
+    task: 0,
+    habit: 0,
+    focus: 0,
+    checklist: 0,
+  });
   const [pebbleBalance, setPebbleBalance] = useState<number>(0);
   const [gemsBalance, setGemsBalance] = useState<number>(0);
   const [monthlyTypes, setMonthlyTypes] = useState<{
@@ -228,14 +241,35 @@ export function TodayScreen() {
     intentionText,
     setIntentionText,
     setIsReviewModalVisible,
-    allTodos: todoStats.pending.concat(todoStats.overdue),
+    allTodos: todoStats.pending
+      .concat(todoStats.overdue)
+      .concat(todoStats.completedTasks ?? []),
     allHabits: pendingHabits.concat(completedHabits),
   });
+
+  const loadPebbleStats = useCallback(async () => {
+    try {
+      const counts = await getPebbleCounts();
+      setLifetimePebbles(counts.lifetime);
+      setMonthlyPebbles(counts.monthly);
+      setTodayPebbles(counts.today ?? 0);
+      setTodayTypes(counts.todayTypes ?? { task: 0, habit: 0, focus: 0, checklist: 0 });
+      setMonthlyTypes(counts.monthlyTypes);
+      setLifetimeTypes(counts.lifetimeTypes);
+      setWeeklyStatus(counts.weeklyStatus);
+
+      const gems = await getGemsBalance();
+      setGemsBalance(gems);
+    } catch (e) {
+      console.warn("Failed to load pebble stats", e);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadDashboardData();
-    }, [loadDashboardData]),
+      void loadPebbleStats();
+    }, [loadDashboardData, loadPebbleStats]),
   );
 
   // Synchronize dashboard state immediately when tasks/habits/profile are modified in other tabs/modals
@@ -255,6 +289,7 @@ export function TodayScreen() {
 
     const unsubscribePebbles = addStateListener("pebbles_changed", () => {
       void loadDashboardData();
+      void loadPebbleStats();
     });
 
     const unsubscribeChecklists = addStateListener("checklists_changed", () => {
@@ -386,6 +421,9 @@ export function TodayScreen() {
             colorScheme={colorScheme ?? "dark"}
             todoStats={todoStats}
             habitStats={habitStats}
+            todayPebbles={todayPebbles}
+            todayTypes={todayTypes}
+            monthlyTypes={monthlyTypes}
             monthlyPebbles={monthlyPebbles}
             lifetimePebbles={lifetimePebbles}
             jarFillAnim={jarFillAnim}
