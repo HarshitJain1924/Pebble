@@ -89,10 +89,12 @@ export default function ProfileScreen() {
     task: number;
     habit: number;
     focus: number;
+    checklist: number;
   }>({
     task: 0,
     habit: 0,
     focus: 0,
+    checklist: 0,
   });
   const [pebbleBalance, setPebbleBalance] = useState<number>(0);
   const [gemsBalance, setGemsBalance] = useState<number>(0);
@@ -216,7 +218,7 @@ export default function ProfileScreen() {
       setLifetimePebbles(pebbleStats.lifetime);
       setMonthlyPebbles(pebbleStats.monthly);
       setLifetimeTypes(
-        pebbleStats.lifetimeTypes || { task: 0, habit: 0, focus: 0 },
+        pebbleStats.lifetimeTypes || { task: 0, habit: 0, focus: 0, checklist: 0 },
       );
 
       setStats({
@@ -290,10 +292,9 @@ export default function ProfileScreen() {
     );
   }
 
-  const levelInfo = getLevelInfo(profile.xp);
-
   // Pebble progression and Crow stage/speech bubble calculations
   const totalPebbles = lifetimePebbles;
+  const levelInfo = getLevelInfo(totalPebbles);
 
   let crowStage: "beginner" | "advanced" | "power" = "beginner";
   if (totalPebbles >= 101) {
@@ -1012,7 +1013,7 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
                 <Text style={[styles.xpLabel, { color: colors.textMuted }]}>
-                  {levelInfo.xpInCurrentLevel} / {levelInfo.xpNeededForNext} XP
+                  {levelInfo.xpInCurrentLevel} / {levelInfo.xpNeededForNext} Pebbles
                 </Text>
               </View>
 
@@ -1047,7 +1048,7 @@ export default function ProfileScreen() {
               </View>
 
               <Text style={styles.xpSubText}>
-                {levelInfo.xpNeededForNext - levelInfo.xpInCurrentLevel} XP to
+                {levelInfo.xpNeededForNext - levelInfo.xpInCurrentLevel} Pebbles to
                 Level {levelInfo.level + 1}
               </Text>
             </Pressable>

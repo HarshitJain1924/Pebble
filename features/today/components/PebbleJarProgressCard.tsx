@@ -118,6 +118,7 @@ export interface PebbleJarProgressCardProps {
     completed: number;
     total: number;
   };
+  monthlyTypes?: { task: number; habit: number; focus: number; checklist: number };
   monthlyPebbles: number;
   lifetimePebbles: number;
   jarFillAnim: SharedValue<number>;

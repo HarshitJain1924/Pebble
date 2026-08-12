@@ -36,6 +36,7 @@ import {
 } from "@/services/storage/storage.service";
 import { clearRepositoryStorage } from "@/repositories";
 import { WIDGET_PAYLOAD_KEY } from "@/services/analytics/widget-data.service";
+import { BackupService } from "@/services/storage/backup.service";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
@@ -276,23 +277,15 @@ export default function SettingsScreen() {
   // C. Export Backup
   const exportBackup = async () => {
     try {
-      const allKeys = await AsyncStorage.getAllKeys();
-      const keysToExport = allKeys.filter(k => 
-        k.startsWith("pebble:") || 
-        k.startsWith("todoapp:") || 
-        k === "PEBBLE_CAPTURE_CREATION_HISTORY" ||
-        k === "PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS"
-      );
-      
-      const items = await AsyncStorage.multiGet(keysToExport);
-      const backup: Record<string, string | null> = {};
-      items.forEach(([key, val]) => {
-        backup[key] = val;
-      });
-      setExportDataString(JSON.stringify(backup, null, 2));
+      setLoading(true);
+      const backupString = await BackupService.generateStructuredBackup();
+      setExportDataString(backupString);
       setExportModalVisible(true);
-    } catch {
+    } catch (e) {
+      console.warn(e);
       Alert.alert("Error", "Could not compile data backup.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -303,37 +296,9 @@ export default function SettingsScreen() {
       return;
     }
     try {
-      const parsed = JSON.parse(importDataString);
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
-        throw new Error("Backup payload must be a JSON object.");
-      }
-
-      const hasCoreKeys = Object.keys(parsed).some((key) => 
-        key.startsWith("pebble:") || 
-        key.startsWith("todoapp:")
-      );
-      if (!hasCoreKeys) {
-        throw new Error("Backup does not contain any valid Pebble data keys.");
-      }
-
-      const keyValPairs: [string, string][] = [];
-      Object.entries(parsed).forEach(([key, val]) => {
-        if (typeof val === "string") {
-          keyValPairs.push([key, val]);
-        } else if (val) {
-          keyValPairs.push([key, JSON.stringify(val)]);
-        }
-      });
-
-      if (keyValPairs.length === 0) {
-        throw new Error("No valid keys found.");
-      }
-
-      await AsyncStorage.multiSet(keyValPairs);
+      setLoading(true);
+      await BackupService.restoreStructuredBackup(importDataString);
+      
       setImportModalVisible(false);
       setImportDataString("");
       await loadSettingsData();
@@ -341,6 +306,9 @@ export default function SettingsScreen() {
       // Emit changes to all screens to load restored state
       emitStateChange("tasks_changed");
       emitStateChange("habits_changed");
+      emitStateChange("checklists_changed");
+      emitStateChange("resources_changed");
+      emitStateChange("workspace_changed");
       emitStateChange("profile_changed");
 
       Alert.alert(
@@ -348,10 +316,13 @@ export default function SettingsScreen() {
         "Backup restored successfully! All lists and parameters are up to date.",
       );
     } catch (err: any) {
+      console.warn(err);
       Alert.alert(
         "Restore Failed",
         `Could not parse or write backup: ${err.message || "Verify formatting."}`,
       );
+    } finally {
+      setLoading(false);
     }
   };
 

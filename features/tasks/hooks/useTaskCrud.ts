@@ -1,8 +1,7 @@
 import {
   earnPebble,
-  undoLastPebble,
 } from "@/features/profile/services/pebble.service";
-import { handleTaskXpChange } from "@/features/settings/services/settings.service";
+
 import type { TaskCategory } from "@/features/tasks/services/task-categories";
 import { pluginManager } from "@/plugin";
 import { TaskRepository } from "@/repositories";
@@ -359,11 +358,8 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           [destinationWorkspaceId]: refreshedTodos,
         });
 
-        await earnPebble("task");
-
-        showToast("✓ Task created from reference (+10 XP!)");
+        showToast("✓ Task created from reference");
         emitStateChange("tasks_changed", "tasks_screen");
-        emitStateChange("profile_changed", "tasks_screen");
       } catch (e) {
         console.warn("Failed to convert collection item to task", e);
       }

@@ -8,6 +8,7 @@ import {
   getSettings,
   isCurrentlyInQuietHours,
   saveSettings,
+  getLevelInfo,
 } from "@/features/settings/services/settings.service";
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -224,16 +225,18 @@ export function MascotOverlay() {
   const [rewardStartCount, setRewardStartCount] = useState(0);
   const [rewardTargetCount, setRewardTargetCount] = useState(0);
   const [fallingPebbleType, setFallingPebbleType] = useState<
-    "task" | "habit" | "focus" | undefined
+    "task" | "habit" | "focus" | "checklist" | undefined
   >(undefined);
   const [monthlyTypes, setMonthlyTypes] = useState<{
     task: number;
     habit: number;
     focus: number;
+    checklist: number;
   }>({
     task: 0,
     habit: 0,
     focus: 0,
+    checklist: 0,
   });
 
   const lifetimePebblesRef = useRef(0);
@@ -355,8 +358,9 @@ export function MascotOverlay() {
     try {
       const prof = await getProfile();
       setProfile(prof);
+      const pebbleStats = await getPebbleCounts();
       if (prevLevelRef.current === 0 && prof) {
-        prevLevelRef.current = prof.level;
+        prevLevelRef.current = getLevelInfo(pebbleStats.lifetime || 0).level;
       }
 
       const settings = await getSettings();
@@ -366,11 +370,10 @@ export function MascotOverlay() {
         setIsDismissed(!settings.showMascot || isTempDismissed);
       }
 
-      const pebbleStats = await getPebbleCounts();
       setStreak(pebbleStats.streak || 0);
       lifetimePebblesRef.current = pebbleStats.lifetime || 0;
       setMonthlyTypes(
-        pebbleStats.monthlyTypes || { task: 0, habit: 0, focus: 0 },
+        pebbleStats.monthlyTypes || { task: 0, habit: 0, focus: 0, checklist: 0 },
       );
 
       // Parse pebble counts for today and yesterday from log
@@ -496,11 +499,9 @@ export function MascotOverlay() {
 
         // Check Big Win Triggers:
         // 1. Level up
-        const currentProf = await getProfile();
-        const isLevelUp = currentProf && prevLevel > 0 && currentProf.level > prevLevel;
-        if (currentProf) {
-          prevLevelRef.current = currentProf.level;
-        }
+        const currentLevel = getLevelInfo(newLifetime).level;
+        const isLevelUp = prevLevel > 0 && currentLevel > prevLevel;
+        prevLevelRef.current = currentLevel;
 
         // 2. Stage/milestone update
         const milestones = [10, 25, 50, 100, 250, 500];
@@ -993,7 +994,7 @@ export function MascotOverlay() {
     }, durationMs);
   };
 
-  const handlePebbleCompletedSuggestion = async (type: "task" | "habit" | "focus") => {
+  const handlePebbleCompletedSuggestion = async (type: "task" | "habit" | "focus" | "checklist") => {
     const phrases: Record<string, string[]> = {
       task: [
         "Task complete! Pebble dropped! Caw! 🦅",

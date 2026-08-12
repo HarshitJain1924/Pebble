@@ -23,8 +23,9 @@ import {
   scheduleReminderBatch,
 } from "@/services/scheduling/reminders.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
-import { handleTaskXpChange, handleHabitXpChange } from "@/features/settings/services/settings.service";
-import { earnPebble, undoLastPebble } from "@/features/profile/services/pebble.service";
+
+import { earnPebble, reversePebbleReward } from "@/features/profile/services/pebble.service";
+import { GraphRepository } from "@/repositories/GraphRepository";
 import { pluginManager } from "@/plugin";
 import { getTodayDateKey, getOffsetDateKey, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 import {
@@ -540,7 +541,6 @@ export class EntityCommandService {
       return { previous: task, updated: task }; // Already completed
     }
 
-    const { xpAwarded } = await handleTaskXpChange(task, true);
 
     if (task.reminder?.notificationIds) {
       await cancelReminderIds(task.reminder.notificationIds);
@@ -551,12 +551,11 @@ export class EntityCommandService {
       status: "completed",
       completedAt: Date.now(),
       updatedAt: Date.now(),
-      xpAwarded,
     };
 
     await TaskRepository.saveTask(updatedTask);
 
-    await earnPebble("task");
+    await earnPebble("task", `task:${task.id}`);
     pluginManager.dispatchTaskCompleted(updatedTask);
 
     if (!options?.skipAnalytics) {
@@ -588,8 +587,7 @@ export class EntityCommandService {
       return { previous: task, updated: task }; // Already uncompleted
     }
 
-    await handleTaskXpChange(task, false);
-    await undoLastPebble("task");
+    await reversePebbleReward(`task:${task.id}`);
 
     const updatedTask: Task = {
       ...task,
@@ -851,12 +849,7 @@ export class EntityCommandService {
 
     const yesterday = getOffsetDateKey(1, today);
 
-    // For XP, we mock completedToday = false
-    const { xpAwardedDate } = await handleHabitXpChange(
-      { ...habit, completedToday: false } as any,
-      true,
-      today,
-    );
+
 
     let streak = habit.streak || 0;
     const completionHistory = [...(habit.completionHistory || [])];
@@ -881,13 +874,12 @@ export class EntityCommandService {
       streak,
       bestStreak: Math.max(habit.bestStreak || 0, streak),
       lastCompletedDate: today,
-      xpAwardedDate,
       updatedAt: Date.now(),
     };
 
     await HabitRepository.saveHabit(updatedHabit);
 
-    await earnPebble("habit");
+    await earnPebble("habit", `habit:${habit.id}:${today}`);
     pluginManager.dispatchHabitCompleted(updatedHabit);
 
     if (!options?.skipAnalytics) {
@@ -922,12 +914,7 @@ export class EntityCommandService {
 
     const yesterday = getOffsetDateKey(1, today);
 
-    // For XP, we mock completedToday = true
-    const { xpAwardedDate } = await handleHabitXpChange(
-      { ...habit, completedToday: true } as any,
-      false,
-      today,
-    );
+
 
     let streak = habit.streak || 0;
     const completionHistory = (habit.completionHistory || []).filter(
@@ -941,13 +928,12 @@ export class EntityCommandService {
       completionHistory,
       streak,
       lastCompletedDate: streak > 0 ? yesterday : undefined,
-      xpAwardedDate,
       updatedAt: Date.now(),
     };
 
     await HabitRepository.saveHabit(updatedHabit);
 
-    await undoLastPebble("habit");
+    await reversePebbleReward(`habit:${habit.id}:${today}`);
 
     if (!options?.skipAnalytics) {
       void recordDailyHistorySnapshot().catch(() => {});
@@ -979,11 +965,19 @@ export class EntityCommandService {
       i.id === itemId ? { ...i, completed: !i.completed } : i
     );
 
+    const wasComplete = checklist.items && checklist.items.length > 0 && checklist.items.every(i => i.completed);
+    const isNowComplete = nextItems.length > 0 && nextItems.every(i => i.completed);
+
     const updatedChecklist: Checklist = {
       ...checklist,
       items: nextItems,
       updatedAt: Date.now(),
     };
+
+    if (isNowComplete && !wasComplete && !checklist.pebbleAwarded) {
+      updatedChecklist.pebbleAwarded = true;
+      await earnPebble("checklist", `checklist:${checklist.id}`);
+    }
 
     await ChecklistRepository.saveChecklist(updatedChecklist);
 
@@ -1779,6 +1773,51 @@ export class EntityCommandService {
     if (!options?.skipEvents) emitStateChange("tasks_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     void syncWidgetData().catch(() => {});
+  }
+
+
+  static async recordFocusSession(
+    durationSeconds: number,
+    taskId?: string,
+    itemType?: "task" | "habit" | "checklist",
+    options?: { sessionId?: string; startedAt?: number; endedAt?: number }
+  ): Promise<void> {
+    const sessionId = options?.sessionId || `focus_${Date.now()}`;
+    const endedAt = options?.endedAt || Date.now();
+    const startedAt =
+      options?.startedAt || endedAt - Math.floor(durationSeconds * 1000);
+    const session = {
+      id: sessionId,
+      taskId,
+      startedAt,
+      endedAt,
+      duration: Math.floor(durationSeconds),
+      completedAt: endedAt,
+    };
+
+    await GraphRepository.saveFocusSession(session);
+    await earnPebble("focus", `focus:${sessionId}`);
+
+    if (taskId && itemType) {
+      await GraphRepository.saveRelationship({
+        id: `rel_${Date.now()}`,
+        source: { id: sessionId, type: "focus" },
+        target: { id: taskId, type: itemType as any },
+        relationType: "focuses_on",
+        createdAt: Date.now(),
+      });
+    }
+
+    // emitStateChange("graph_changed", "EntityCommandService");
+  }
+
+  static async logSystemEvent(eventName: string, details?: any): Promise<void> {
+    await GraphRepository.logSystemEvent({
+      id: `evt_${Date.now()}`,
+      eventType: eventName,
+      timestamp: Date.now(),
+      details: details || {},
+    });
   }
 
   static async reorderWorkspaces(

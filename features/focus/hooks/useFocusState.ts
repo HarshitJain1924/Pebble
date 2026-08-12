@@ -1,5 +1,4 @@
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { earnPebble } from "@/features/profile/services/pebble.service";
 import {
   addStateListener,
   emitStateChange,
@@ -13,7 +12,6 @@ import {
   WorkspaceRepository,
 } from "@/repositories";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
-import { DomainEventBus } from "@/services/events/domain-events";
 import {
   isTaskCompleted
 } from "@/shared/utils/domain-selectors";
@@ -634,7 +632,19 @@ export function useFocusState() {
           if (remainingMinutes > 0) {
             await creditFocusTime(remainingMinutes);
           }
-          void earnPebble("focus");
+          const isHabit = habitList.some((h) => h.id === session.focusedTaskId);
+          const now = Date.now();
+          const startMs = session.startTime || now - duration * 1000;
+          await EntityCommandService.recordFocusSession(
+            duration,
+            session.focusedTaskId,
+            isHabit ? "habit" : "task",
+            {
+              sessionId: `focus_timer_${session.startTime}`,
+              startedAt: startMs,
+              endedAt: now,
+            }
+          );
           await incrementCompletedSessions();
           AlertFinishWork(session.focusedTaskId);
         } else {
@@ -779,32 +789,18 @@ export function useFocusState() {
 
     if (elapsed >= 10) {
       try {
-        const focusSession = {
-          id: `focus_sw_${Date.now()}`,
-          startedAt: Date.now() - elapsed * 1000,
-          endedAt: Date.now(),
-          duration: elapsed,
-        };
-
-        // 1. Save FocusSession
-        await GraphRepository.saveFocusSession(focusSession);
-
-        // 2. Log System Event
-        await GraphRepository.logSystemEvent({
-          id: `log_${focusSession.id}`,
-          workspaceId: INBOX_WORKSPACE_ID,
-          itemId: focusSession.id,
-          itemType: "focus_session",
-          action: "focused",
-          timestamp: Date.now(),
-          value: elapsed,
-        });
-
-        // 3. Emit Domain Event
-        DomainEventBus.emit("focus.session_ended", {
-          type: "focus.session_ended",
-          payload: { session: focusSession },
-        });
+        const now = Date.now();
+        const startMs = swStartTimeRef.current || now - elapsed * 1000;
+        await EntityCommandService.recordFocusSession(
+          elapsed,
+          undefined,
+          undefined,
+          {
+            sessionId: `focus_sw_${swStartTimeRef.current}`,
+            startedAt: startMs,
+            endedAt: now,
+          }
+        );
 
         // 4. Update Stats
         const sessions = await GraphRepository.getFocusSessions();
@@ -1026,44 +1022,18 @@ export function useFocusState() {
     if (pomodoroMode === "work") {
       try {
         const isHabit = habitList.some((h) => h.id === focusedTaskId);
-        const focusSession = {
-          id: `focus_${Date.now()}`,
-          taskId: focusedTaskId || undefined,
-          startedAt: Date.now() - totalSessionTime * 1000,
-          endedAt: Date.now(),
-          duration: totalSessionTime,
-        };
-
-        // 1. Save Focus Session log
-        await GraphRepository.saveFocusSession(focusSession);
-
-        // 2. Save focuses_on relationship if linked
-        if (focusedTaskId) {
-          await GraphRepository.saveRelationship({
-            id: `rel_${focusSession.id}_${focusedTaskId}`,
-            source: { id: focusSession.id, type: "focus_session" },
-            target: { id: focusedTaskId, type: isHabit ? "habit" : "task" },
-            relationType: "focuses_on",
-            createdAt: Date.now(),
-          });
-        }
-
-        // 3. Log System Event
-        await GraphRepository.logSystemEvent({
-          id: `log_${focusSession.id}`,
-          workspaceId: INBOX_WORKSPACE_ID,
-          itemId: focusSession.id,
-          itemType: "focus_session",
-          action: "focused",
-          timestamp: Date.now(),
-          value: totalSessionTime,
-        });
-
-        // 4. Emit Domain Event
-        DomainEventBus.emit("focus.session_ended", {
-          type: "focus.session_ended",
-          payload: { session: focusSession },
-        });
+        const now = Date.now();
+        const startMs = startTimeRef.current || now - totalSessionTime * 1000;
+        await EntityCommandService.recordFocusSession(
+          totalSessionTime,
+          focusedTaskId || undefined,
+          isHabit ? "habit" : "task",
+          {
+            sessionId: `focus_timer_${startTimeRef.current}`,
+            startedAt: startMs,
+            endedAt: now,
+          }
+        );
 
         // 5. Update Stats
         const sessions = await GraphRepository.getFocusSessions();
@@ -1090,7 +1060,6 @@ export function useFocusState() {
         console.warn("Failed to persist focus session:", err);
       }
 
-      void earnPebble("focus");
       AlertFinishWork(focusedTaskId);
     } else {
       AlertFinishBreak();

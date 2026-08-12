@@ -45,42 +45,49 @@ const DEFAULT_PROFILE: UserProfile = {
   name: "User",
   email: "local@me",
   avatar: "👨‍💻",
-  level: 1,
-  xp: 0,
 };
 
-export function getLevelInfo(xp: number) {
-  let level = 1;
-  let xpNeededForNext = 100;
-  let accumulatedXpForCurrent = 0;
-  let remaining = xp;
+export function getLevelInfo(totalPebbles: number) {
+  const STAGES = [
+    { max: 10, name: "First Steps" },
+    { max: 25, name: "Sprout" },
+    { max: 50, name: "Zen Stream" },
+    { max: 100, name: "Sanctuary Base" },
+    { max: 250, name: "Pebble Hoarder" },
+    { max: 500, name: "Zen Mountain" },
+    { max: Infinity, name: "Ocean of Focus" },
+  ];
 
-  while (true) {
-    const cost = level * 100;
-    if (remaining >= cost) {
-      remaining -= cost;
-      accumulatedXpForCurrent += cost;
-      level++;
-    } else {
-      xpNeededForNext = cost;
+  let level = 1;
+  let nextThreshold = 10;
+  let rank = "First Steps";
+  let minForLevel = 0;
+
+  for (let i = 0; i < STAGES.length; i++) {
+    if (totalPebbles <= STAGES[i].max) {
+      level = i + 1;
+      rank = STAGES[i].name;
+      nextThreshold = STAGES[i].max;
+      minForLevel = i === 0 ? 0 : STAGES[i - 1].max + 1;
       break;
     }
   }
+  
+  if (totalPebbles > 500) {
+    level = 7;
+    rank = "Ocean of Focus";
+    nextThreshold = totalPebbles;
+    minForLevel = 501;
+  }
 
-  const currentLevelProgressXp = remaining;
-  const progressPct = currentLevelProgressXp / xpNeededForNext;
-
-  let rank = "Mindful Starter";
-  if (level >= 10) rank = "Productivity Overlord 👑";
-  else if (level >= 7) rank = "Ultimate Focus Zen Master 🧘";
-  else if (level >= 5) rank = "Flow State Master ⚡";
-  else if (level >= 3) rank = "Efficiency Builder 🛠";
-  else if (level >= 2) rank = "Active Organizer 📋";
+  const inCurrentLevel = totalPebbles - minForLevel;
+  const neededForLevel = nextThreshold - minForLevel + (level === 7 ? 0 : 1);
+  const progressPct = level === 7 ? 1 : inCurrentLevel / neededForLevel;
 
   return {
     level,
-    xpInCurrentLevel: currentLevelProgressXp,
-    xpNeededForNext,
+    xpInCurrentLevel: inCurrentLevel,
+    xpNeededForNext: neededForLevel,
     progressPct,
     rank,
   };
@@ -120,77 +127,7 @@ export async function saveProfile(profile: UserProfile): Promise<void> {
   }
 }
 
-export async function addXp(amount: number): Promise<UserProfile> {
-  const profile = await getProfile();
-  const oldXp = profile.xp;
-  const newXp = oldXp + amount;
 
-  const newLevelInfo = getLevelInfo(newXp);
-
-  const updatedProfile: UserProfile = {
-    ...profile,
-    xp: newXp,
-    level: newLevelInfo.level,
-  };
-
-  await saveProfile(updatedProfile);
-  return updatedProfile;
-}
-
-export async function handleTaskXpChange(
-  todo: Task,
-  nextCompleted: boolean,
-): Promise<{ xpAwarded: boolean; xpChange: number }> {
-  let xpChange = 0;
-  const currentlyCompleted = isTaskCompleted(todo);
-  let xpAwarded = currentlyCompleted;
-
-  if (nextCompleted) {
-    if (!currentlyCompleted) {
-      xpChange = 10;
-      xpAwarded = true;
-    }
-  } else {
-    if (currentlyCompleted) {
-      xpChange = -10;
-      xpAwarded = false;
-    }
-  }
-
-  if (xpChange !== 0) {
-    await addXp(xpChange).catch(() => {});
-  }
-
-  return { xpAwarded, xpChange };
-}
-
-export async function handleHabitXpChange(
-  habit: Habit,
-  nextCompleted: boolean,
-  todayKey: string,
-): Promise<{ xpAwardedDate?: string; xpChange: number }> {
-  let xpChange = 0;
-  const currentlyCompleted = isHabitCompletedToday(habit, todayKey);
-  let xpAwardedDate = currentlyCompleted ? todayKey : undefined;
-
-  if (nextCompleted) {
-    if (!currentlyCompleted) {
-      xpChange = 15;
-      xpAwardedDate = todayKey;
-    }
-  } else {
-    if (currentlyCompleted) {
-      xpChange = -15;
-      xpAwardedDate = undefined;
-    }
-  }
-
-  if (xpChange !== 0) {
-    await addXp(xpChange).catch(() => {});
-  }
-
-  return { xpAwardedDate, xpChange };
-}
 
 export function isCurrentlyInQuietHours(
   settings: Settings,

@@ -1,7 +1,3 @@
-import {
-  handleHabitXpChange,
-  handleTaskXpChange,
-} from "@/features/settings/services/settings.service";
 import { getDateKey } from "@/features/tasks/utils/task-formatting";
 import {
   ChecklistRepository,

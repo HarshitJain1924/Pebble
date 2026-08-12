@@ -52,7 +52,7 @@ export function RankTiersModal({
           <Text
             style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}
           >
-            Level up by completing tasks (+10 XP) and habits (+15 XP).
+            Level up by completing tasks, habits, checklists, and focus sessions to collect Pebbles.
           </Text>
 
           <ScrollView
@@ -60,19 +60,20 @@ export function RankTiersModal({
             showsVerticalScrollIndicator={false}
           >
             {[
-              { lvl: 1, rank: "Mindful Starter", icon: "🌱", xp: "0 XP" },
-              { lvl: 2, rank: "Active Organizer", icon: "📋", xp: "100 XP" },
-              { lvl: 3, rank: "Efficiency Builder", icon: "🛠", xp: "300 XP" },
-              { lvl: 5, rank: "Flow State Master", icon: "⚡", xp: "600 XP" },
-              { lvl: 7, rank: "Ultimate Focus Zen Master", icon: "🧘", xp: "1,000 XP" },
-              { lvl: 10, rank: "Productivity Overlord", icon: "👑", xp: "1,500 XP" },
+              { lvl: 1, rank: "First Steps", icon: "🌱", xp: "0 Pebbles" },
+              { lvl: 2, rank: "Sprout", icon: "🌿", xp: "10 Pebbles" },
+              { lvl: 3, rank: "Zen Stream", icon: "💧", xp: "25 Pebbles" },
+              { lvl: 4, rank: "Sanctuary Base", icon: "🏡", xp: "50 Pebbles" },
+              { lvl: 5, rank: "Pebble Hoarder", icon: "🎒", xp: "100 Pebbles" },
+              { lvl: 6, rank: "Zen Mountain", icon: "🏔️", xp: "250 Pebbles" },
+              { lvl: 7, rank: "Ocean of Focus", icon: "🌊", xp: "500 Pebbles" },
             ].map((tier) => {
               const isCurrent =
                 levelInfo.level === tier.lvl ||
                 (levelInfo.level > tier.lvl &&
-                  (tier.lvl === 10 ||
+                  (tier.lvl === 7 ||
                     levelInfo.level <
-                      ([2, 3, 5, 7, 10].find((l) => l > tier.lvl) || 10)));
+                      ([2, 3, 4, 5, 6, 7].find((l) => l > tier.lvl) || 7)));
               const isUnlocked = levelInfo.level >= tier.lvl;
 
               return (

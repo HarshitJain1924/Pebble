@@ -5,9 +5,8 @@
  */
 import {
   earnPebble,
-  undoLastPebble,
 } from "@/features/profile/services/pebble.service";
-import { handleHabitXpChange } from "@/features/settings/services/settings.service";
+
 import {
   TASK_CATEGORY_META,
   type TaskCategory,

@@ -17,8 +17,8 @@ export interface InteractivePebbleJarProps {
   onComplete?: () => void; // callback on reward animation end
   colors: any;
   colorScheme: string;
-  monthlyTypes?: { task: number; habit: number; focus: number };
-  fallingPebbleType?: "task" | "habit" | "focus";
+  monthlyTypes?: { task: number; habit: number; focus: number; checklist: number };
+  fallingPebbleType?: "task" | "habit" | "focus" | "checklist";
   profileAvatar?: string;
 }
 

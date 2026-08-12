@@ -4,7 +4,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { TaskRepository, HabitRepository, ChecklistRepository, ResourceRepository } from "@/repositories";
+import { TaskRepository, HabitRepository, ChecklistRepository, ResourceRepository, GraphRepository } from "@/repositories";
 import type { ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 
 describe("EntityCommandService unit tests", () => {
@@ -1009,6 +1009,77 @@ describe("EntityCommandService unit tests", () => {
       await EntityCommandService.permanentlyDeleteResource(resource.id, "ws-1", { skipAnalytics: true });
       const fetched = await ResourceRepository.getResource(resource.id, "ws-1");
       expect(fetched).toBeNull();
+    });
+  });
+
+  describe("Focus Session & Checklist Pebble Integrity", () => {
+    it("should record focus session with exact duration (seconds) and preserve startedAt and endedAt timestamps", async () => {
+      const now = Date.now();
+      const durationSeconds = 1500; // 25 minutes
+      const startMs = now - durationSeconds * 1000;
+
+      await EntityCommandService.recordFocusSession(durationSeconds, undefined, undefined, {
+        sessionId: "focus_test_25m",
+        startedAt: startMs,
+        endedAt: now,
+      });
+
+      const sessions = await GraphRepository.getFocusSessions();
+      const recorded = sessions.find((s) => s.id === "focus_test_25m");
+
+      expect(recorded).toBeDefined();
+      expect(recorded?.duration).toBe(1500); // Exactly 1500 seconds for 25 mins
+      expect(recorded?.startedAt).toBe(startMs);
+      expect(recorded?.endedAt).toBe(now);
+
+      // Verify today's stats recognize the session
+      const today = new Date().toDateString();
+      const todaySessions = sessions.filter(
+        (s) => new Date(s.endedAt || s.startedAt).toDateString() === today
+      );
+      expect(todaySessions.length).toBeGreaterThanOrEqual(1);
+
+      const totalTimeMinutes = todaySessions.reduce(
+        (acc, s) => acc + Math.floor(s.duration / 60),
+        0
+      );
+      expect(totalTimeMinutes).toBeGreaterThanOrEqual(25);
+    });
+
+    it("should preserve pebbleAwarded across checklist repository persistence and prevent duplicate Pebble awards", async () => {
+      const checklist = await EntityCommandService.createChecklist(
+        {
+          title: "Pebble Deduplication Checklist",
+          type: "checklist",
+          items: ["Item 1"],
+          confidence: 1,
+        },
+        "ws-1",
+        { skipAnalytics: true }
+      );
+
+      const itemId = checklist.items[0].id;
+
+      // 1. Initial completion -> should award Pebble and set pebbleAwarded = true
+      await EntityCommandService.toggleChecklistItem(checklist.id, itemId, "ws-1", { skipAnalytics: true });
+
+      const reloaded1 = await ChecklistRepository.getChecklist(checklist.id, "ws-1");
+      expect(reloaded1?.pebbleAwarded).toBe(true);
+
+      // 2. Uncomplete item
+      await EntityCommandService.toggleChecklistItem(checklist.id, itemId, "ws-1", { skipAnalytics: true });
+      const reloaded2 = await ChecklistRepository.getChecklist(checklist.id, "ws-1");
+      expect(reloaded2?.pebbleAwarded).toBe(true);
+      expect(reloaded2?.items[0].completed).toBe(false);
+
+      // 3. Re-complete item
+      await EntityCommandService.toggleChecklistItem(checklist.id, itemId, "ws-1", { skipAnalytics: true });
+
+      // Verify Pebble log has EXACTLY ONE pebble award for this checklist
+      const rawLog = await AsyncStorage.getItem("todoapp:pebble_log");
+      const pebbleLog = rawLog ? JSON.parse(rawLog) : [];
+      const checklistPebbles = pebbleLog.filter((p: any) => p.rewardId === `checklist:${checklist.id}`);
+      expect(checklistPebbles.length).toBe(1);
     });
   });
 });

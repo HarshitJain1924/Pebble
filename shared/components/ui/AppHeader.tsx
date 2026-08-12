@@ -18,7 +18,7 @@ export type AppHeaderProps = {
   showTrash?: boolean;
   nextReminder?: string | null;
   hasUnreadNotifs?: boolean;
-  profile?: { name: string; avatar: string; level: number } | null;
+  profile?: { name: string; avatar: string } | null;
   streak?: number;
   onStreakPress?: () => void;
   searchQuery?: string;
@@ -226,18 +226,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                         ]}
                       />
                     )}
-                  </View>
-                  <View
-                    style={[
-                      styles.profileHeaderBadge,
-                      {
-                        backgroundColor: colors.primary,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.profileHeaderBadgeText}>
-                      {profile ? `Lvl ${profile.level}` : "Lvl 1"}
-                    </Text>
                   </View>
                 </Pressable>
               )}

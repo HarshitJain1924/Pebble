@@ -20,8 +20,8 @@ export interface PebbleSanctuaryModalProps {
   lifetimePebbles: number;
   monthlyPebbles: number;
   gemsBalance: number;
-  monthlyTypes: { task: number; habit: number; focus: number };
-  lifetimeTypes: { task: number; habit: number; focus: number };
+  monthlyTypes: { task: number; habit: number; focus: number; checklist: number };
+  lifetimeTypes: { task: number; habit: number; focus: number; checklist: number };
   profileAvatar?: string;
   getMilestoneInfo: (count: number) => {
     stage: number;

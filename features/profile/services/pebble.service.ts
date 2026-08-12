@@ -2,17 +2,20 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskRepository, WorkspaceRepository } from "@/repositories";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { withLock } from "@/shared/utils/mutex";
 
-export type PebbleType = "task" | "habit" | "focus";
+export type PebbleType = "task" | "habit" | "focus" | "checklist";
 
 export interface PebbleLogEntry {
   type: PebbleType;
   timestamp: number;
+  rewardId?: string;
 }
 
 export const PEBBLE_LOG_KEY = "todoapp:pebble_log";
+export const STREAK_RECOVERIES_KEY = "todoapp:streak_recoveries";
 
-export async function earnPebble(type: PebbleType): Promise<boolean> {
+export async function earnPebble(type: PebbleType, rewardId?: string): Promise<boolean> {
   try {
     const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
     let log: PebbleLogEntry[] = [];
@@ -36,7 +39,7 @@ export async function earnPebble(type: PebbleType): Promise<boolean> {
     }
 
     const isFirstPebbleToday = todayPebbles.length === 0;
-    log.push({ type, timestamp: Date.now() });
+    log.push({ type, timestamp: Date.now(), rewardId });
     await AsyncStorage.setItem(PEBBLE_LOG_KEY, JSON.stringify(log));
 
     if (isFirstPebbleToday) {
@@ -52,15 +55,18 @@ export async function earnPebble(type: PebbleType): Promise<boolean> {
 }
 
 
-export async function undoLastPebble(type: PebbleType) {
+export async function reversePebbleReward(rewardId: string) {
   try {
     const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
     if (!raw) return;
     let log: PebbleLogEntry[] = JSON.parse(raw);
 
-    // Find last index of this type
-    const idx = log.map((p) => p.type).lastIndexOf(type);
-    if (idx === -1) return;
+    // Find by exact reward identity (most recent first)
+    const idx = log.map((p) => p.rewardId).lastIndexOf(rewardId);
+    if (idx === -1) {
+      console.warn(`Pebble reward not found for reversal: ${rewardId}`);
+      return;
+    }
 
     const removedEntry = log[idx];
     const removedDate = new Date(removedEntry.timestamp);
@@ -104,8 +110,8 @@ export async function getPebbleCounts() {
       return {
         lifetime: 0,
         monthly: 0,
-        monthlyTypes: { task: 0, habit: 0, focus: 0 },
-        lifetimeTypes: { task: 0, habit: 0, focus: 0 },
+        monthlyTypes: { task: 0, habit: 0, focus: 0, checklist: 0 },
+        lifetimeTypes: { task: 0, habit: 0, focus: 0, checklist: 0 },
         streak: 0,
         bestStreak: 0,
         weeklyStatus: [],
@@ -118,7 +124,7 @@ export async function getPebbleCounts() {
     const currentMonth = now.getMonth();
 
     let monthly = 0;
-    const monthlyTypes = { task: 0, habit: 0, focus: 0 };
+    const monthlyTypes = { task: 0, habit: 0, focus: 0, checklist: 0 };
 
     log.forEach((entry) => {
       const entryDate = new Date(entry.timestamp);
@@ -131,11 +137,14 @@ export async function getPebbleCounts() {
       }
     });
 
-    const streak = calculateStreak(log);
-    const bestStreak = calculateBestStreak(log);
+    const recoveriesRaw = await AsyncStorage.getItem(STREAK_RECOVERIES_KEY);
+    const recoveredDates = new Set<string>(recoveriesRaw ? JSON.parse(recoveriesRaw) : []);
+
+    const streak = calculateStreak(log, recoveredDates);
+    const bestStreak = calculateBestStreak(log, recoveredDates);
     const weeklyStatus = getWeeklyStatus(log);
 
-    const lifetimeTypes = { task: 0, habit: 0, focus: 0 };
+    const lifetimeTypes = { task: 0, habit: 0, focus: 0, checklist: 0 };
     log.forEach((entry) => {
       lifetimeTypes[entry.type]++;
     });
@@ -151,14 +160,14 @@ export async function getPebbleCounts() {
       log,
     };
   } catch {
-    return { lifetime: 0, monthly: 0, monthlyTypes: { task: 0, habit: 0, focus: 0 }, lifetimeTypes: { task: 0, habit: 0, focus: 0 }, streak: 0, bestStreak: 0, weeklyStatus: [] };
+    return { lifetime: 0, monthly: 0, monthlyTypes: { task: 0, habit: 0, focus: 0, checklist: 0 }, lifetimeTypes: { task: 0, habit: 0, focus: 0, checklist: 0 }, streak: 0, bestStreak: 0, weeklyStatus: [] };
   }
 }
 
-function calculateBestStreak(log: PebbleLogEntry[]) {
+function calculateBestStreak(log: PebbleLogEntry[], recoveredDates: Set<string> = new Set()) {
   if (log.length === 0) return 0;
   
-  const completedDates = new Set<string>();
+  const completedDates = new Set<string>(recoveredDates);
   log.forEach((entry) => {
     const d = new Date(entry.timestamp);
     const y = d.getFullYear();
@@ -192,7 +201,7 @@ function calculateBestStreak(log: PebbleLogEntry[]) {
     }
   }
 
-  const activeStreak = calculateStreak(log);
+  const activeStreak = calculateStreak(log, recoveredDates);
   return Math.max(maxStreak, activeStreak);
 }
 
@@ -264,10 +273,10 @@ function getOffsetDateKey(offsetDays: number) {
   return `${y}-${m}-${day}`;
 }
 
-function calculateStreak(log: PebbleLogEntry[]) {
+function calculateStreak(log: PebbleLogEntry[], recoveredDates: Set<string> = new Set()) {
   if (log.length === 0) return 0;
   
-  const completedDates = new Set<string>();
+  const completedDates = new Set<string>(recoveredDates);
   log.forEach((entry) => {
     const d = new Date(entry.timestamp);
     const y = d.getFullYear();
@@ -396,20 +405,22 @@ export async function earnBonusGem(amount: number = 1): Promise<void> {
 }
 
 export async function spendGems(amount: number = 1): Promise<boolean> {
-  try {
-    const balance = await getGemsBalance();
-    if (balance < amount) {
+  return withLock("spend_gems_lock", async () => {
+    try {
+      const balance = await getGemsBalance();
+      if (balance < amount) {
+        return false;
+      }
+      const spentRaw = await AsyncStorage.getItem(GEMS_SPENT_KEY);
+      const spent = spentRaw ? parseInt(spentRaw, 10) || 0 : 0;
+      await AsyncStorage.setItem(GEMS_SPENT_KEY, String(spent + amount));
+      emitStateChange("pebbles_changed", "pebble_service");
+      return true;
+    } catch (e) {
+      console.warn("Failed to spend gems", e);
       return false;
     }
-    const spentRaw = await AsyncStorage.getItem(GEMS_SPENT_KEY);
-    const spent = spentRaw ? parseInt(spentRaw, 10) || 0 : 0;
-    await AsyncStorage.setItem(GEMS_SPENT_KEY, String(spent + amount));
-    emitStateChange("pebbles_changed", "pebble_service");
-    return true;
-  } catch (e) {
-    console.warn("Failed to spend gems", e);
-    return false;
-  }
+  });
 }
 
 export interface StreakRecoveryInfo {
@@ -434,6 +445,13 @@ export async function getMainStreakRecoveryInfo(): Promise<StreakRecoveryInfo> {
       const day = String(d.getDate()).padStart(2, "0");
       completedDates.add(`${y}-${m}-${day}`);
     });
+
+    // Include recovered dates
+    const recoveriesRaw = await AsyncStorage.getItem(STREAK_RECOVERIES_KEY);
+    if (recoveriesRaw) {
+      const parsed = JSON.parse(recoveriesRaw);
+      parsed.forEach((r: string) => completedDates.add(r));
+    }
 
     const yesterday = getOffsetDateKey(1);
 
@@ -483,18 +501,16 @@ export async function recoverMainStreak(): Promise<boolean> {
       return false;
     }
 
-    // Insert dummy focus pebble for yesterday to heal the streak
+    // Record the recovered date in STREAK_RECOVERIES_KEY
     const brokenDate = recoveryInfo.brokenDate;
-    const [y, m, d] = brokenDate.split("-").map(Number);
-    const timestamp = new Date(y, m - 1, d, 12, 0, 0).getTime(); // noon on broken date
-
-    const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
-    let log: PebbleLogEntry[] = [];
-    if (raw) {
-      log = JSON.parse(raw);
+    
+    const recoveriesRaw = await AsyncStorage.getItem(STREAK_RECOVERIES_KEY);
+    const recoveredDates = recoveriesRaw ? JSON.parse(recoveriesRaw) : [];
+    
+    if (!recoveredDates.includes(brokenDate)) {
+      recoveredDates.push(brokenDate);
+      await AsyncStorage.setItem(STREAK_RECOVERIES_KEY, JSON.stringify(recoveredDates));
     }
-    log.push({ type: "focus", timestamp });
-    await AsyncStorage.setItem(PEBBLE_LOG_KEY, JSON.stringify(log));
 
     emitStateChange("pebbles_changed", "pebble_service");
     return true;

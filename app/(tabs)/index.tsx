@@ -104,22 +104,26 @@ export function TodayScreen() {
     task: number;
     habit: number;
     focus: number;
+    checklist: number;
   }>({
     task: 0,
     habit: 0,
     focus: 0,
+    checklist: 0,
   });
   const [lifetimeTypes, setLifetimeTypes] = useState<{
     task: number;
     habit: number;
     focus: number;
+    checklist: number;
   }>({
     task: 0,
     habit: 0,
     focus: 0,
+    checklist: 0,
   });
   const [fallingPebbleType, setFallingPebbleType] = useState<
-    "task" | "habit" | "focus" | undefined
+    "task" | "habit" | "focus" | "checklist" | undefined
   >(undefined);
   const [weeklyStatus, setWeeklyStatus] = useState<any[]>([]);
   const [pebbleJarModalVisible, setPebbleJarModalVisible] = useState(false);

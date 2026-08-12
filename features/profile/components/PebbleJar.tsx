@@ -172,8 +172,8 @@ export interface PebbleJarProps {
   crowY: SharedValue<number>;
   crowOpacity: SharedValue<number>;
   crowStage: "beginner" | "advanced" | "power";
-  monthlyTypes?: { task: number; habit: number; focus: number };
-  fallingPebbleType?: "task" | "habit" | "focus";
+  monthlyTypes?: { task: number; habit: number; focus: number; checklist: number };
+  fallingPebbleType?: "task" | "habit" | "focus" | "checklist";
   profileAvatar?: string;
 }
 
