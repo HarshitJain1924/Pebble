@@ -24,10 +24,70 @@ export type ParsedProductivityItem = {
   // File-specific: attached document metadata
   attachments?: Attachment[];
   // Detection metadata: what signal triggered the type detection
-  detectionSignal?: "url_pattern" | "multiline_bullets" | "multiline_short_lines" | "recurrence_health" | "keyword_note" | "keyword_idea" | "default_task";
+  detectionSignal?:
+    | "url_pattern"
+    | "multiline_bullets"
+    | "multiline_short_lines"
+    | "recurrence_routine"
+    | "recurrence_health"
+    | "keyword_note"
+    | "keyword_idea"
+    | "action_task"
+    | "temporal_task"
+    | "default_task";
   // Checklist confidence level for medium-confidence suggestions
   checklistConfidence?: "high" | "medium";
 };
+
+export interface ProductivitySignals {
+  structural: {
+    url?: string;
+    urlDomain?: string;
+    isMultiline: boolean;
+    lineCount: number;
+    hasBulletList: boolean;
+    hasNumberedList: boolean;
+    bulletItems?: string[];
+    plainListCandidate: boolean;
+    plainListItems?: string[];
+    isLongProse: boolean;
+    lines: string[];
+  };
+  semantic: {
+    actionKeywords: string[];
+    routineKeywords: string[];
+    hasStrongAction: boolean;
+    hasStrongRoutine: boolean;
+    ideaLanguage: boolean;
+    ideaPrefix?: string;
+    noteLanguage: boolean;
+    notePrefixOrSuffix?: string;
+  };
+  temporal: {
+    date?: string; // YYYY-MM-DD
+    time?: string; // HH:MM
+    hasDate: boolean;
+    hasTime: boolean;
+    recurrence?: ParsedProductivityItem["recurrence"];
+    hasRecurrence: boolean;
+    reminderOffsetMinutes?: number;
+    matchedTemporalPhrases: string[];
+  };
+  metadata: {
+    category?: "work" | "personal" | "health" | "learning" | "creative" | "focus";
+    priority?: "high" | "medium" | "low";
+    matchedPriorityPhrase?: string;
+  };
+}
+
+export type CandidateIntentType = "link" | "checklist" | "habit" | "task" | "idea" | "note";
+
+export interface IntentRankingResult {
+  topIntent: CandidateIntentType;
+  confidence: number;
+  detectionSignal: ParsedProductivityItem["detectionSignal"];
+  scores: Record<CandidateIntentType, number>;
+}
 
 // Category keyword mapping
 const CATEGORY_MAP = {
@@ -46,6 +106,27 @@ const PRIORITY_MAP = {
   low: ["later", "someday", "optional", "low priority", "when free", "lowkey"],
 };
 
+const SPECIFIC_WORK_KEYWORDS = [
+  "submit", "client", "meeting", "project", "assignment", "report", "presentation",
+  "kubernetes", "docker", "dsa", "interview", "placement", "backup", "finance", "rent", "pay rent", "pay",
+  "buy", "call", "finish"
+];
+
+const ROUTINE_KEYWORDS = [
+  "read", "journal", "meditate", "water", "gym", "workout", "running", "run", "exercise",
+  "walk", "drink", "stretch", "swim", "train", "yoga", "hydration", "teeth", "brush"
+];
+
+const weekdayMap: Record<string, number> = {
+  sunday: 0, sun: 0,
+  monday: 1, mon: 1,
+  tuesday: 2, tue: 2,
+  wednesday: 3, wed: 3,
+  thursday: 4, thu: 4,
+  friday: 5, fri: 5,
+  saturday: 6, sat: 6
+};
+
 // Helper to format date as YYYY-MM-DD
 const formatDate = (date: Date): string => {
   const y = date.getFullYear();
@@ -61,155 +142,116 @@ const formatTime = (date: Date): string => {
   return `${h}:${m}`;
 };
 
-export function parseProductivityText(text: string): ParsedProductivityItem {
-  if (!text || text.trim() === "") {
-    return {
-      type: "task",
-      title: "",
-      confidence: 0.1,
-    };
-  }
+// ─── STEP 1: Signal Extraction ───────────────────────────────────────────────
 
+/**
+ * Extracts independent structural, semantic, temporal, and metadata signals
+ * without committing to a final entity intent.
+ */
+export function extractProductivitySignals(text: string): ProductivitySignals {
   const originalText = text.trim();
-  let cleanedText = originalText;
+  const lowerText = originalText.toLowerCase();
 
-  let type: ParsedProductivityItem["type"] = "task";
-  let category: "work" | "personal" | "health" | "learning" | "creative" | "focus" | undefined;
-  let priority: "high" | "medium" | "low" | undefined;
-  let dateStr: string | undefined;
-  let timeStr: string | undefined;
-  let confidence = 0.5;
-  let detectionSignal: ParsedProductivityItem["detectionSignal"] = undefined;
-  let checklistItems: string[] | undefined;
-  let checklistConfidence: "high" | "medium" | undefined;
-  let detectedUrl: string | undefined;
-
-  // --- 0. Early type detection: URL, Checklist, Note, Idea ---
-  // These run BEFORE category/recurrence and can short-circuit the type.
-
-  // 0a. URL detection — highest priority
+  // 1. Structural Signals
+  let url: string | undefined;
+  let urlDomain: string | undefined;
   const urlRegex = /\b(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9-]+\.(com|org|net|io|dev|app|co|me|xyz|ai|edu|gov)(\/[^\s]*)?)/i;
   const urlMatch = originalText.match(urlRegex);
   if (urlMatch) {
-    type = "link";
-    detectedUrl = urlMatch[0];
-    // Title is everything except the URL
-    const titleWithoutUrl = originalText.replace(urlMatch[0], "").trim();
-    if (titleWithoutUrl.length > 0) {
-      cleanedText = titleWithoutUrl;
-    } else {
-      // Try to extract a human title from the domain
-      try {
-        const domain = detectedUrl.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-        cleanedText = domain;
-      } catch {
-        cleanedText = detectedUrl;
-      }
+    url = urlMatch[0];
+    try {
+      urlDomain = url.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+    } catch {
+      urlDomain = url;
     }
-    confidence = 0.9;
-    detectionSignal = "url_pattern";
   }
 
-  // 0b. Checklist detection — multiline analysis
-  if (type === "task") {
-    const lines = originalText.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length >= 2) {
-      // High confidence: lines start with bullets or numbers
-      const bulletLines = lines.filter(l => /^[-*•]\s/.test(l) || /^\d+[.)\s]/.test(l));
-      if (bulletLines.length >= 2) {
-        type = "checklist";
-        // First non-bullet line is the title, or use a generated title
-        const firstLine = lines[0];
-        const isTitleLine = !(/^[-*•]\s/.test(firstLine) || /^\d+[.)\s]/.test(firstLine));
-        if (isTitleLine) {
-          cleanedText = firstLine;
-          checklistItems = lines.slice(1).map(l => l.replace(/^[-*•]\s*/, "").replace(/^\d+[.)\s]*/, "").trim()).filter(l => l.length > 0);
-        } else {
-          cleanedText = "Checklist";
-          checklistItems = lines.map(l => l.replace(/^[-*•]\s*/, "").replace(/^\d+[.)\s]*/, "").trim()).filter(l => l.length > 0);
-        }
-        confidence = 0.85;
-        detectionSignal = "multiline_bullets";
-        checklistConfidence = "high";
+  const lines = originalText.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const lineCount = lines.length;
+  const isMultiline = lineCount >= 2;
+
+  let hasBulletList = false;
+  let hasNumberedList = false;
+  let bulletItems: string[] | undefined;
+  let plainListCandidate = false;
+  let plainListItems: string[] | undefined;
+
+  if (isMultiline) {
+    const explicitBulletLines = lines.filter(l => /^[-*•]\s/.test(l));
+    const explicitNumberedLines = lines.filter(l => /^\d+[.)\s]/.test(l));
+
+    if (explicitBulletLines.length >= 2 || explicitNumberedLines.length >= 2 || (explicitBulletLines.length + explicitNumberedLines.length >= 2)) {
+      hasBulletList = explicitBulletLines.length > 0;
+      hasNumberedList = explicitNumberedLines.length > 0;
+      const firstLine = lines[0];
+      const isTitleLine = !(/^[-*•]\s/.test(firstLine) || /^\d+[.)\s]/.test(firstLine));
+      if (isTitleLine) {
+        bulletItems = lines.slice(1).map(l => l.replace(/^[-*•]\s*/, "").replace(/^\d+[.)\s]*/, "").trim()).filter(l => l.length > 0);
+      } else {
+        bulletItems = lines.map(l => l.replace(/^[-*•]\s*/, "").replace(/^\d+[.)\s]*/, "").trim()).filter(l => l.length > 0);
       }
-      // Medium confidence: multiple short lines without bullets
-      else if (lines.length >= 3 && lines.every(l => l.length < 60)) {
-        type = "checklist";
-        // First line could be a title if it's shorter or has different structure
-        const firstLine = lines[0];
-        // If first line ends with colon or is clearly a label, treat as title
-        if (firstLine.endsWith(":") || firstLine.endsWith("—") || (lines.length > 3 && firstLine.length < 30)) {
-          cleanedText = firstLine.replace(/:$/, "").trim();
-          checklistItems = lines.slice(1);
-        } else {
-          cleanedText = "List";
-          checklistItems = lines;
-        }
-        confidence = 0.65;
-        detectionSignal = "multiline_short_lines";
-        checklistConfidence = "medium";
+    } else if (lines.length >= 3 && lines.every(l => l.length < 60)) {
+      const endsWithPunctuation = lines.some(l => /[.!?]$/.test(l.trim()));
+      if (!endsWithPunctuation) {
+        plainListCandidate = true;
+        plainListItems = lines.slice(1);
       }
     }
   }
 
-  // 0c. Idea keyword detection (natural patterns only)
-  if (type === "task") {
-    const lowerTrimmed = originalText.toLowerCase().trim();
-    if (
-      lowerTrimmed.startsWith("idea:") ||
-      lowerTrimmed.startsWith("idea ") ||
-      lowerTrimmed.startsWith("thought:") ||
-      lowerTrimmed.startsWith("thought ") ||
-      lowerTrimmed.startsWith("what if ") ||
-      lowerTrimmed.startsWith("concept:") ||
-      lowerTrimmed.startsWith("concept ")
-    ) {
-      type = "idea";
-      cleanedText = originalText.replace(/^(idea|thought|concept)[:\s]+/i, "").trim();
-      confidence = 0.7;
-      detectionSignal = "keyword_idea";
+  const isLongProse = originalText.length > 80 && /[.!?]/.test(originalText) && !/^(call|buy|finish|submit|meeting|project|assignment)/i.test(originalText);
+
+  // 2. Semantic Signals
+  const matchedActions: string[] = [];
+  SPECIFIC_WORK_KEYWORDS.forEach(kw => {
+    const regex = new RegExp(`\\b${kw}\\b`, "i");
+    if (regex.test(lowerText)) {
+      matchedActions.push(kw);
     }
+  });
+
+  const matchedRoutines: string[] = [];
+  ROUTINE_KEYWORDS.forEach(kw => {
+    const regex = new RegExp(`\\b${kw}\\b`, "i");
+    if (regex.test(lowerText)) {
+      matchedRoutines.push(kw);
+    }
+  });
+
+  let ideaLanguage = false;
+  let ideaPrefix: string | undefined;
+  const ideaRegex = /^(idea:|idea\s+|thought:|thought\s+|concept:|concept\s+|what if\s+)/i;
+  const ideaMatch = originalText.match(ideaRegex);
+  if (ideaMatch) {
+    ideaLanguage = true;
+    ideaPrefix = ideaMatch[0];
   }
 
-  // If type was set by early detection (link/checklist/note/idea),
-  // skip recurrence-based habit detection but still run category/priority/date.
-  const skipHabitDetection = type !== "task";
-  let lowText = cleanedText.toLowerCase();
-
-  const weekdayMap: Record<string, number> = {
-    sunday: 0, sun: 0,
-    monday: 1, mon: 1,
-    tuesday: 2, tue: 2,
-    wednesday: 3, wed: 3,
-    thursday: 4, thu: 4,
-    friday: 5, fri: 5,
-    saturday: 6, sat: 6
-  };
-
-  // --- 1. Category Detection ---
-  for (const [catName, keywords] of Object.entries(CATEGORY_MAP)) {
-    const hasKeyword = keywords.some(keyword => {
-      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const startBoundary = /^\w/.test(keyword) ? '\\b' : '';
-      const endBoundary = /\w$/.test(keyword) ? '\\b' : '';
-      const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "i");
-      return regex.test(cleanedText);
-    });
-
-    if (hasKeyword) {
-      category = catName as any;
-      confidence += 0.15;
-      break;
-    }
+  let noteLanguage = false;
+  let notePrefixOrSuffix: string | undefined;
+  const notePrefixRegex = /^(notes on\s+|note:\s*|note\s+|thoughts on\s+)/i;
+  const notePrefixMatch = originalText.match(notePrefixRegex);
+  if (notePrefixMatch) {
+    noteLanguage = true;
+    notePrefixOrSuffix = notePrefixMatch[0];
+  } else if (/\s+notes$/i.test(originalText)) {
+    noteLanguage = true;
+    notePrefixOrSuffix = "notes";
+  } else if (/\bnotes\b/i.test(originalText) && !matchedActions.includes("submit") && !matchedActions.includes("assignment")) {
+    noteLanguage = true;
+    notePrefixOrSuffix = "notes";
   }
 
-  // --- 2. Recurrence Parsing ---
+  // 3. Temporal Signals
+  const matchedTemporalPhrases: string[] = [];
   let recurrence: ParsedProductivityItem["recurrence"] = undefined;
   let repeatType: "daily" | "weekdays" | "weekly" | "monthly" | "interval" | undefined;
   let repeatInterval: number | undefined;
   let repeatUnit: "hours" | "days" | undefined;
   let repeatDays: number[] | undefined;
   let repeatDayOfMonth: number | undefined;
+  let timeStr: string | undefined;
+  let dateStr: string | undefined;
 
   const intervalHoursRegex = /\bevery\s+(\d+)\s+hours?\b/i;
   const everyHourRegex = /\b(?:every\s+hour|hourly)\b/i;
@@ -219,68 +261,69 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
   const weekdaysRegex = /\b(?:every\s+weekday|weekdays)\b/i;
   const weekendsRegex = /\b(?:every\s+weekend|weekends)\b/i;
 
-  if (intervalHoursRegex.test(cleanedText)) {
-    const match = cleanedText.match(intervalHoursRegex);
+  let temporalTextWorking = originalText;
+
+  if (intervalHoursRegex.test(temporalTextWorking)) {
+    const match = temporalTextWorking.match(intervalHoursRegex);
     if (match) {
       repeatType = "interval";
       repeatInterval = Number(match[1]);
       repeatUnit = "hours";
-      cleanedText = cleanedText.replace(match[0], "");
-      confidence += 0.15;
+      matchedTemporalPhrases.push(match[0]);
+      temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
-  } else if (everyHourRegex.test(cleanedText)) {
-    const match = cleanedText.match(everyHourRegex);
+  } else if (everyHourRegex.test(temporalTextWorking)) {
+    const match = temporalTextWorking.match(everyHourRegex);
     if (match) {
       repeatType = "interval";
       repeatInterval = 1;
       repeatUnit = "hours";
-      cleanedText = cleanedText.replace(match[0], "");
-      confidence += 0.15;
+      matchedTemporalPhrases.push(match[0]);
+      temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
-  } else if (intervalDaysRegex.test(cleanedText)) {
-    const match = cleanedText.match(intervalDaysRegex);
+  } else if (intervalDaysRegex.test(temporalTextWorking)) {
+    const match = temporalTextWorking.match(intervalDaysRegex);
     if (match) {
       repeatType = "interval";
       repeatInterval = Number(match[1]);
       repeatUnit = "days";
-      cleanedText = cleanedText.replace(match[0], "");
-      confidence += 0.15;
+      matchedTemporalPhrases.push(match[0]);
+      temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
-  } else if (monthlyOnDayRegex.test(cleanedText)) {
-    const match = cleanedText.match(monthlyOnDayRegex);
+  } else if (monthlyOnDayRegex.test(temporalTextWorking)) {
+    const match = temporalTextWorking.match(monthlyOnDayRegex);
     if (match) {
       repeatType = "monthly";
       repeatDayOfMonth = Number(match[1]);
-      cleanedText = cleanedText.replace(match[0], "");
-      confidence += 0.15;
+      matchedTemporalPhrases.push(match[0]);
+      temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
-  } else if (monthlyDefaultRegex.test(cleanedText)) {
-    const match = cleanedText.match(monthlyDefaultRegex);
+  } else if (monthlyDefaultRegex.test(temporalTextWorking)) {
+    const match = temporalTextWorking.match(monthlyDefaultRegex);
     if (match) {
       repeatType = "monthly";
       repeatDayOfMonth = new Date().getDate();
-      cleanedText = cleanedText.replace(match[0], "");
-      confidence += 0.15;
+      matchedTemporalPhrases.push(match[0]);
+      temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
-  } else if (weekdaysRegex.test(cleanedText)) {
-    const match = cleanedText.match(weekdaysRegex);
+  } else if (weekdaysRegex.test(temporalTextWorking)) {
+    const match = temporalTextWorking.match(weekdaysRegex);
     if (match) {
       repeatType = "weekdays";
       repeatDays = [1, 2, 3, 4, 5];
-      cleanedText = cleanedText.replace(match[0], "");
-      confidence += 0.15;
+      matchedTemporalPhrases.push(match[0]);
+      temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
-  } else if (weekendsRegex.test(cleanedText)) {
-    const match = cleanedText.match(weekendsRegex);
+  } else if (weekendsRegex.test(temporalTextWorking)) {
+    const match = temporalTextWorking.match(weekendsRegex);
     if (match) {
       repeatType = "weekly";
       repeatDays = [0, 6];
-      cleanedText = cleanedText.replace(match[0], "");
-      confidence += 0.15;
+      matchedTemporalPhrases.push(match[0]);
+      temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
   } else {
-    // Specific weekdays check (e.g. "every monday and thursday")
-    const weeklyMatch = cleanedText.match(/\bevery\s+([a-z\s,and&]+)\b/i);
+    const weeklyMatch = temporalTextWorking.match(/\bevery\s+([a-z\s,and&]+)\b/i);
     let isWeeklyMatched = false;
     if (weeklyMatch) {
       const words = weeklyMatch[1].toLowerCase().split(/[\s,]+/);
@@ -294,196 +337,77 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
       if (matchedDays.length > 0) {
         repeatType = "weekly";
         repeatDays = Array.from(new Set(matchedDays)).sort((a, b) => a - b);
-        cleanedText = cleanedText.replace(weeklyMatch[0], "");
-        confidence += 0.15;
+        matchedTemporalPhrases.push(weeklyMatch[0]);
+        temporalTextWorking = temporalTextWorking.replace(weeklyMatch[0], "");
         isWeeklyMatched = true;
       }
     }
     
     if (!isWeeklyMatched) {
       const weeklyDefaultRegex = /\b(?:every\s+week|weekly)\b/i;
-      if (weeklyDefaultRegex.test(cleanedText)) {
+      if (weeklyDefaultRegex.test(temporalTextWorking)) {
         repeatType = "weekly";
         repeatDays = [new Date().getDay()];
-        cleanedText = cleanedText.replace(weeklyDefaultRegex, "");
-        confidence += 0.15;
-      } else if (/\b(?:every\s+day|daily|everyday)\b/i.test(cleanedText)) {
-        const match = cleanedText.match(/\b(?:every\s+day|daily|everyday)\b/i);
+        matchedTemporalPhrases.push(weeklyDefaultRegex.source);
+        temporalTextWorking = temporalTextWorking.replace(weeklyDefaultRegex, "");
+      } else if (/\b(?:every\s+day|daily|everyday)\b/i.test(temporalTextWorking)) {
+        const match = temporalTextWorking.match(/\b(?:every\s+day|daily|everyday)\b/i);
         if (match) {
           repeatType = "daily";
-          cleanedText = cleanedText.replace(match[0], "");
-          confidence += 0.15;
+          matchedTemporalPhrases.push(match[0]);
+          temporalTextWorking = temporalTextWorking.replace(match[0], "");
         }
-      } else if (/\bevery\s+morning\b/i.test(cleanedText)) {
-        const match = cleanedText.match(/\bevery\s+morning\b/i);
+      } else if (/\bevery\s+morning\b/i.test(temporalTextWorking)) {
+        const match = temporalTextWorking.match(/\bevery\s+morning\b/i);
         if (match) {
           repeatType = "daily";
           timeStr = "08:00";
-          cleanedText = cleanedText.replace(match[0], "");
-          confidence += 0.15;
+          matchedTemporalPhrases.push(match[0]);
+          temporalTextWorking = temporalTextWorking.replace(match[0], "");
         }
-      } else if (/\bevery\s+evening\b/i.test(cleanedText)) {
-        const match = cleanedText.match(/\bevery\s+evening\b/i);
+      } else if (/\bevery\s+(evening|night)\b/i.test(temporalTextWorking)) {
+        const match = temporalTextWorking.match(/\bevery\s+(evening|night)\b/i);
         if (match) {
           repeatType = "daily";
           timeStr = "18:00";
-          cleanedText = cleanedText.replace(match[0], "");
-          confidence += 0.15;
+          matchedTemporalPhrases.push(match[0]);
+          temporalTextWorking = temporalTextWorking.replace(match[0], "");
         }
       }
     }
   }
 
-  // If a recurrence pattern was matched, assemble the object and run classification heuristic
-  if (type === "task") {
-    if (repeatType) {
-      recurrence = {
-        type: repeatType,
-        interval: repeatInterval,
-        unit: repeatUnit,
-        days: repeatDays,
-        dayOfMonth: repeatDayOfMonth,
-      };
-
-      // Heuristic Classification: Habits vs Tasks
-      const lowTitle = cleanedText.toLowerCase().trim();
-      const originalLow = originalText.toLowerCase().trim();
-
-      let habitScore = 0;
-      let taskScore = 0;
-
-      // 1. Recurrence boost
-      if (/\bevery\s+day\b/i.test(originalLow) || /\bdaily\b/i.test(originalLow) || /\beveryday\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\s+morning\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\s+evening\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\s+night\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\s+weekday\b/i.test(originalLow) || /\bweekdays\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\s+weekend\b/i.test(originalLow) || /\bweekends\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\s+(?:sun|mon|tue|wed|thu|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\s+\d+\s+(?:hours?|days?)\b/i.test(originalLow) || /\bevery\s+hour\b/i.test(originalLow) || /\bhourly\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else if (/\bevery\b/i.test(originalLow) || /\bweekly\b/i.test(originalLow) || /\bmonthly\b/i.test(originalLow)) {
-        habitScore += 4.0;
-      } else {
-        habitScore += 3.0;
-      }
-
-      // 2. Category weights
-      if (category === "health") {
-        habitScore += 3.0;
-      } else if (category === "learning") {
-        taskScore += 1.0;
-      } else if (category === "work" || category === "creative" || category === "focus") {
-        taskScore += 2.0;
-      }
-
-      // 3. Keyword weights
-      const specificWorkKeywords = [
-        "submit", "client", "meeting", "project", "assignment", "report", "presentation",
-        "kubernetes", "docker", "dsa", "interview", "placement", "backup", "finance", "rent", "pay rent", "pay"
-      ];
-      // Compound phrases that are definitely work-tasks even if verbs are generic
-      const workPhrases = ["call client", "call meeting", "call interview"];
-      workPhrases.forEach(phrase => {
-        if (originalLow.includes(phrase)) {
-          taskScore += 4.5;
-        }
-      });
-      const weakWorkKeywords = ["task", "complete", "do", "update"];
-      const habitKeywords = [
-        "read", "journal", "meditate", "water", "gym", "workout", "running", "run", "exercise",
-        "walk", "drink", "stretch", "swim", "train", "yoga", "hydration", "teeth", "brush"
-      ];
-
-      specificWorkKeywords.forEach(kw => {
-        const regex = new RegExp(`\\b${kw}\\b`, "i");
-        if (regex.test(lowTitle)) {
-          taskScore += 4.5;
-        }
-      });
-
-      weakWorkKeywords.forEach(kw => {
-        const regex = new RegExp(`\\b${kw}\\b`, "i");
-        if (regex.test(lowTitle)) {
-          taskScore += 1.0;
-        }
-      });
-
-      habitKeywords.forEach(kw => {
-        const regex = new RegExp(`\\b${kw}\\b`, "i");
-        if (regex.test(lowTitle)) {
-          habitScore += 3.0;
-        }
-      });
-
-      if (habitScore > taskScore && !skipHabitDetection) {
-        type = "habit";
-        detectionSignal = "recurrence_health";
-      } else {
-        type = "task";
-      }
-    } else {
-      type = "task"; // non-recurring defaults to task
-    }
+  if (repeatType) {
+    recurrence = {
+      type: repeatType,
+      interval: repeatInterval,
+      unit: repeatUnit,
+      days: repeatDays,
+      dayOfMonth: repeatDayOfMonth,
+    };
   }
 
-  // --- 3. Reminder Offset parsing (e.g. "and remind me 30 minutes before") ---
+  // Reminder Offset
   let reminderOffsetMinutes: number | undefined;
   const reminderRegex = /\b(?:remind|alert)(?:\s+me)?\s+(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs|h)\s*(?:before|prior)\b/i;
-  const reminderMatch = cleanedText.match(reminderRegex);
+  const reminderMatch = temporalTextWorking.match(reminderRegex);
   if (reminderMatch) {
     const num = Number(reminderMatch[1]);
     const unit = reminderMatch[2].toLowerCase();
-    
-    if (unit.startsWith("h")) {
-      reminderOffsetMinutes = num * 60;
-    } else {
-      reminderOffsetMinutes = num;
-    }
-    
-    cleanedText = cleanedText.replace(reminderMatch[0], "");
-    confidence += 0.1;
+    reminderOffsetMinutes = unit.startsWith("h") ? num * 60 : num;
+    matchedTemporalPhrases.push(reminderMatch[0]);
+    temporalTextWorking = temporalTextWorking.replace(reminderMatch[0], "");
   }
 
-  // --- 4. Priority Detection ---
-  lowText = cleanedText.toLowerCase();
-  for (const [prio, keywords] of Object.entries(PRIORITY_MAP)) {
-    for (const keyword of keywords) {
-      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const startBoundary = /^\w/.test(keyword) ? '\\b' : '';
-      const endBoundary = /\w$/.test(keyword) ? '\\b' : '';
-      const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "i");
-      if (regex.test(cleanedText)) {
-        priority = prio as "high" | "medium" | "low";
-        cleanedText = cleanedText.replace(regex, "");
-        confidence += 0.15;
-        break;
-      }
-    }
-    if (priority) break;
-  }
-
-  // --- 5. Date & Time Parsing via Chrono ---
+  // Chrono & Date/Time parsing
   try {
-    const chronoResults = chrono.parse(cleanedText);
+    const chronoResults = chrono.parse(temporalTextWorking);
     if (chronoResults.length > 0) {
       for (const result of chronoResults) {
         const parsedDate = result.start.date();
-        
-        // Extract target date for task or habit items
-        if (type === "task" || type === "habit") {
-          dateStr = formatDate(parsedDate);
-        }
+        dateStr = formatDate(parsedDate);
 
-        const hourSpecified = result.start.isCertain("hour");
-        if (hourSpecified) {
+        if (result.start.isCertain("hour")) {
           timeStr = formatTime(parsedDate);
         } else {
           const timeRegexes = [
@@ -495,92 +419,358 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
             { pattern: /\bmidnight\b/i, hour: 0, min: 0 },
           ];
 
-          for (const timeRegex of timeRegexes) {
-            const match = cleanedText.match(timeRegex.pattern);
+          for (const tr of timeRegexes) {
+            const match = temporalTextWorking.match(tr.pattern);
             if (match) {
-              if ("hour" in timeRegex) {
-                timeStr = `${String(timeRegex.hour).padStart(2, "0")}:${String(timeRegex.min).padStart(2, "0")}`;
+              if ("hour" in tr) {
+                timeStr = `${String(tr.hour).padStart(2, "0")}:${String(tr.min).padStart(2, "0")}`;
               } else {
                 let h = Number(match[1]);
                 const m = match[2] ? Number(match[2]) : 0;
-                if (timeRegex.offset === 12 && h < 12) h += 12;
-                if (timeRegex.offset === 0 && h === 12) h = 0;
+                if (tr.offset === 12 && h < 12) h += 12;
+                if (tr.offset === 0 && h === 12) h = 0;
                 timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
               }
               break;
             }
           }
         }
-
-        cleanedText = cleanedText.replace(result.text, "");
+        matchedTemporalPhrases.push(result.text);
       }
-      confidence += 0.15;
     } else {
       const todayRegex = /\btoday\b/i;
       const tomorrowRegex = /\btomorrow\b/i;
-      if (todayRegex.test(cleanedText)) {
-        if (type === "task" || type === "habit") dateStr = formatDate(new Date());
-        cleanedText = cleanedText.replace(todayRegex, "");
-        confidence += 0.1;
-      } else if (tomorrowRegex.test(cleanedText)) {
-        if (type === "task" || type === "habit") {
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          dateStr = formatDate(tomorrow);
-        }
-        cleanedText = cleanedText.replace(tomorrowRegex, "");
-        confidence += 0.1;
+      if (todayRegex.test(temporalTextWorking)) {
+        dateStr = formatDate(new Date());
+        matchedTemporalPhrases.push("today");
+      } else if (tomorrowRegex.test(temporalTextWorking)) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        dateStr = formatDate(tomorrow);
+        matchedTemporalPhrases.push("tomorrow");
       }
     }
   } catch (err) {
     console.warn("Chrono parsing failed, falling back to regex: ", err);
   }
 
-  // --- 6. Final Title Clean Up ---
-  let title = cleanedText
-    .replace(/\s+/g, " ")
-    .trim();
+  // 4. Metadata Signals
+  let category: ProductivitySignals["metadata"]["category"] = undefined;
+  for (const [catName, keywords] of Object.entries(CATEGORY_MAP)) {
+    const hasKeyword = keywords.some(keyword => {
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const startBoundary = /^\w/.test(keyword) ? '\\b' : '';
+      const endBoundary = /\w$/.test(keyword) ? '\\b' : '';
+      const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "i");
+      return regex.test(originalText);
+    });
 
-  title = title
+    if (hasKeyword) {
+      category = catName as any;
+      break;
+    }
+  }
+
+  let priority: ProductivitySignals["metadata"]["priority"] = undefined;
+  let matchedPriorityPhrase: string | undefined;
+  for (const [prio, keywords] of Object.entries(PRIORITY_MAP)) {
+    for (const keyword of keywords) {
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const startBoundary = /^\w/.test(keyword) ? '\\b' : '';
+      const endBoundary = /\w$/.test(keyword) ? '\\b' : '';
+      const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "i");
+      if (regex.test(originalText)) {
+        priority = prio as "high" | "medium" | "low";
+        matchedPriorityPhrase = keyword;
+        break;
+      }
+    }
+    if (priority) break;
+  }
+
+  return {
+    structural: {
+      url,
+      urlDomain,
+      isMultiline,
+      lineCount,
+      hasBulletList,
+      hasNumberedList,
+      bulletItems,
+      plainListCandidate,
+      plainListItems,
+      isLongProse,
+      lines,
+    },
+    semantic: {
+      actionKeywords: matchedActions,
+      routineKeywords: matchedRoutines,
+      hasStrongAction: matchedActions.length > 0,
+      hasStrongRoutine: matchedRoutines.length > 0,
+      ideaLanguage,
+      ideaPrefix,
+      noteLanguage,
+      notePrefixOrSuffix,
+    },
+    temporal: {
+      date: dateStr,
+      time: timeStr,
+      hasDate: !!dateStr,
+      hasTime: !!timeStr,
+      recurrence,
+      hasRecurrence: !!recurrence,
+      reminderOffsetMinutes,
+      matchedTemporalPhrases,
+    },
+    metadata: {
+      category,
+      priority,
+      matchedPriorityPhrase,
+    },
+  };
+}
+
+// ─── STEP 2: Intent Ranking & Selection ─────────────────────────────────────
+
+/**
+ * Scores and ranks candidate intents using extracted signals.
+ */
+export function rankCandidateIntents(
+  signals: ProductivitySignals,
+  originalText: string,
+): IntentRankingResult {
+  const scores: Record<CandidateIntentType, number> = {
+    link: 0.0,
+    checklist: 0.0,
+    habit: 0.0,
+    task: 0.0,
+    idea: 0.0,
+    note: 0.0,
+  };
+
+  // 1. Link Score (Structural URL)
+  if (signals.structural.url) {
+    scores.link = 0.95;
+  }
+
+  // 2. Checklist Score (Multiline / Bullets / Numbered)
+  if (signals.structural.hasBulletList || signals.structural.hasNumberedList) {
+    scores.checklist = 0.90;
+  } else if (signals.structural.plainListCandidate) {
+    scores.checklist = 0.80;
+  }
+
+  // 3. Idea Score (Explicit Idea Language)
+  if (signals.semantic.ideaLanguage) {
+    scores.idea = 0.85;
+  }
+
+  // 4. Note Score (Explicit Note Language or Long Prose)
+  if (signals.semantic.noteLanguage) {
+    scores.note = 0.85;
+  } else if (signals.structural.isLongProse) {
+    scores.note = 0.70;
+  }
+
+  // 5. Habit vs Task Scoring
+  if (signals.temporal.hasRecurrence) {
+    // Has explicit recurrence pattern (e.g. "every morning", "weekdays", "every Sunday", "every month on the 15th")
+    const isWorkDeliverable =
+      signals.semantic.actionKeywords.includes("submit") ||
+      signals.semantic.actionKeywords.includes("report") ||
+      signals.semantic.actionKeywords.includes("assignment") ||
+      signals.semantic.actionKeywords.includes("presentation") ||
+      signals.semantic.actionKeywords.includes("client") ||
+      signals.metadata.category === "work";
+
+    if (isWorkDeliverable) {
+      // Work deliverable with recurring deadline -> Task
+      scores.task = 0.85;
+      scores.habit = 0.40;
+    } else {
+      // Habit or personal routine -> Habit (e.g. "Exercise every morning", "Buy milk every Sunday", "Meditate weekdays")
+      scores.habit = 0.90;
+      scores.task = 0.50;
+    }
+  } else {
+    // No recurrence
+    if (signals.temporal.hasDate || signals.temporal.hasTime) {
+      // One-off date/time specified -> Task (e.g. "Buy milk tomorrow", "Exercise tomorrow", "Call John tomorrow at 7")
+      scores.task = 0.85;
+      scores.habit = 0.15;
+    } else if (signals.semantic.hasStrongAction) {
+      // If the input is just 1 word (e.g. "meeting", "exercise", "groceries"), it is ambiguous
+      const words = originalText.trim().split(/\s+/);
+      if (words.length <= 1) {
+        scores.task = 0.55;
+        scores.habit = 0.45;
+      } else {
+        // Action phrase present -> Task (e.g. "Buy milk", "Call mom", "Finish report")
+        scores.task = 0.80;
+        scores.habit = 0.20;
+      }
+    } else {
+      // Short/ambiguous text without date/time/recurrence (e.g. "exercise", "groceries")
+      scores.task = 0.55;
+      scores.habit = 0.45;
+    }
+  }
+
+  // Determine winning intent by ranking
+  const intentOrder: CandidateIntentType[] = ["link", "checklist", "idea", "note", "habit", "task"];
+  let topIntent: CandidateIntentType = "task";
+  let maxScore = -1;
+
+  for (const intent of intentOrder) {
+    if (scores[intent] > maxScore) {
+      maxScore = scores[intent];
+      topIntent = intent;
+    }
+  }
+
+  // Derive detectionSignal
+  let detectionSignal: ParsedProductivityItem["detectionSignal"] = "default_task";
+  if (topIntent === "link") {
+    detectionSignal = "url_pattern";
+  } else if (topIntent === "checklist") {
+    detectionSignal = signals.structural.hasBulletList || signals.structural.hasNumberedList
+      ? "multiline_bullets"
+      : "multiline_short_lines";
+  } else if (topIntent === "idea") {
+    detectionSignal = "keyword_idea";
+  } else if (topIntent === "note") {
+    detectionSignal = "keyword_note";
+  } else if (topIntent === "habit") {
+    detectionSignal = "recurrence_routine";
+  } else if (topIntent === "task") {
+    if (signals.temporal.hasDate || signals.temporal.hasTime) {
+      detectionSignal = "temporal_task";
+    } else if (signals.semantic.hasStrongAction) {
+      detectionSignal = "action_task";
+    } else {
+      detectionSignal = "default_task";
+    }
+  }
+
+  return {
+    topIntent,
+    confidence: Math.round(maxScore * 100) / 100,
+    detectionSignal,
+    scores,
+  };
+}
+
+// ─── STEP 3: Complete Parser ────────────────────────────────────────────────
+
+/**
+ * Main parseProductivityText function orchestrating signal extraction,
+ * candidate intent ranking, and clean entity structure assembly.
+ */
+export function parseProductivityText(text: string): ParsedProductivityItem {
+  if (!text || text.trim() === "") {
+    return {
+      type: "task",
+      title: "",
+      confidence: 0.10,
+    };
+  }
+
+  const originalText = text.trim();
+  const signals = extractProductivitySignals(originalText);
+  const ranking = rankCandidateIntents(signals, originalText);
+
+  let cleanedTitle = originalText;
+  let checklistItems: string[] | undefined;
+  let checklistConfidence: "high" | "medium" | undefined;
+  let detectedUrl: string | undefined;
+
+  switch (ranking.topIntent) {
+    case "link": {
+      detectedUrl = signals.structural.url;
+      const titleWithoutUrl = originalText.replace(signals.structural.url || "", "").trim();
+      if (titleWithoutUrl.length > 0) {
+        cleanedTitle = titleWithoutUrl;
+      } else {
+        cleanedTitle = signals.structural.urlDomain || detectedUrl || originalText;
+      }
+      break;
+    }
+
+    case "checklist": {
+      const firstLine = signals.structural.lines[0] || "Checklist";
+      const isTitleLine = !(/^[-*•]\s/.test(firstLine) || /^\d+[.)\s]/.test(firstLine));
+      if (isTitleLine) {
+        cleanedTitle = firstLine.replace(/:$/, "").replace(/—$/, "").trim();
+      } else {
+        cleanedTitle = "Checklist";
+      }
+      checklistItems = signals.structural.bulletItems || signals.structural.plainListItems || signals.structural.lines.slice(1);
+      checklistConfidence = signals.structural.hasBulletList || signals.structural.hasNumberedList ? "high" : "medium";
+      break;
+    }
+
+    case "idea": {
+      cleanedTitle = originalText
+        .replace(/^(idea:|idea\s+|thought:|thought\s+|concept:|concept\s+|what if\s+)/i, "")
+        .trim();
+      break;
+    }
+
+    case "note": {
+      cleanedTitle = originalText
+        .replace(/^(notes on\s+|note:\s*|note\s+|thoughts on\s+)/i, "")
+        .replace(/\s+notes$/i, "")
+        .trim();
+      break;
+    }
+
+    case "habit":
+    case "task": {
+      // Remove matched temporal phrases and priority words from the title
+      let working = originalText;
+      for (const phrase of signals.temporal.matchedTemporalPhrases) {
+        const regex = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "gi");
+        working = working.replace(regex, "");
+      }
+      if (signals.metadata.matchedPriorityPhrase) {
+        const regex = new RegExp(`\\b${signals.metadata.matchedPriorityPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "gi");
+        working = working.replace(regex, "");
+      }
+      cleanedTitle = working;
+      break;
+    }
+  }
+
+  // Title formatting and cleanup
+  cleanedTitle = cleanedTitle
+    .replace(/\s+/g, " ")
+    .trim()
     .replace(/^(at|on|by|for|to|with|in)\s+/i, "")
     .replace(/\s+(at|on|by|for|to|with|in)$/i, "")
     .trim();
 
-  if (title.length > 0) {
-    title = title.charAt(0).toUpperCase() + title.slice(1);
-  } else {
-    title = originalText;
+  if (cleanedTitle.length === 0) {
+    cleanedTitle = originalText;
+  } else if (ranking.topIntent !== "link" && /^[a-z]/.test(cleanedTitle)) {
+    cleanedTitle = cleanedTitle.charAt(0).toUpperCase() + cleanedTitle.slice(1);
   }
 
-  if (!priority) {
-    priority = "medium";
-  }
-
-  const finalDateStr = dateStr;
-
-  confidence = Math.min(1.0, Math.max(0.1, confidence));
-
-  // For non-task/habit types, strip metadata that doesn't apply
-  const isResource = type === "link" || type === "idea";
-  const isList = type === "checklist";
-
-  if (!detectionSignal && type === "task") {
-    detectionSignal = "default_task";
-  }
+  const isResource = ranking.topIntent === "link" || ranking.topIntent === "idea" || ranking.topIntent === "note";
+  const isList = ranking.topIntent === "checklist";
 
   return {
-    type,
-    title,
-    date: isResource || isList ? undefined : finalDateStr,
-    time: isResource || isList ? undefined : timeStr,
-    category: isResource ? undefined : category,
-    priority: isResource || isList ? undefined : priority,
-    recurrence: isResource || isList ? undefined : recurrence,
-    reminderOffsetMinutes: isResource || isList ? undefined : reminderOffsetMinutes,
-    confidence: Math.round(confidence * 100) / 100,
+    type: ranking.topIntent,
+    title: cleanedTitle,
+    date: isResource || isList ? undefined : signals.temporal.date,
+    time: isResource || isList ? undefined : signals.temporal.time,
+    category: isResource ? undefined : signals.metadata.category,
+    priority: isResource || isList ? undefined : signals.metadata.priority || "medium",
+    recurrence: isResource || isList ? undefined : signals.temporal.recurrence,
+    reminderOffsetMinutes: isResource || isList ? undefined : signals.temporal.reminderOffsetMinutes,
+    confidence: ranking.confidence,
     items: checklistItems,
     url: detectedUrl,
-    detectionSignal,
+    detectionSignal: ranking.detectionSignal,
     checklistConfidence,
   };
 }

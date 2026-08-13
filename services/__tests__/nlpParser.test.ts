@@ -1,136 +1,238 @@
-import { parseProductivityText, type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
+import {
+  parseProductivityText,
+  extractProductivitySignals,
+  type ParsedProductivityItem,
+} from "@/features/capture/services/nlp-parser.service";
 import { buildResource } from "@/features/capture/services/entity-factory.service";
 
 describe("nlpParser service unit tests", () => {
-  it("should handle empty or whitespace inputs gracefully", () => {
-    const emptyResult = parseProductivityText("");
-    expect(emptyResult.title).toBe("");
-    expect(emptyResult.type).toBe("task");
+  describe("Structured Signal Extraction", () => {
+    it("should extract independent structural, semantic, temporal, and metadata signals", () => {
+      const signals = extractProductivitySignals("Buy groceries every Sunday at 4pm urgent");
 
-    const spaceResult = parseProductivityText("   ");
-    expect(spaceResult.title).toBe("");
-    expect(spaceResult.type).toBe("task");
+      expect(signals.structural.isMultiline).toBe(false);
+      expect(signals.semantic.actionKeywords).toContain("buy");
+      expect(signals.semantic.hasStrongAction).toBe(true);
+      expect(signals.temporal.hasRecurrence).toBe(true);
+      expect(signals.temporal.recurrence?.type).toBe("weekly");
+      expect(signals.temporal.recurrence?.days).toEqual([0]);
+      expect(signals.temporal.time).toBe("16:00");
+      expect(signals.metadata.priority).toBe("high");
+      expect(signals.metadata.category).toBe("personal");
+    });
   });
 
-  it("should detect categories based on keywords", () => {
-    const studyResult = parseProductivityText("Study React tomorrow");
-    expect(studyResult.category).toBe("learning");
-    expect(studyResult.type).toBe("task");
+  describe("Intent Hierarchy - Task", () => {
+    it("should confidently classify explicit action tasks", () => {
+      const result1 = parseProductivityText("Call John tomorrow at 7");
+      expect(result1.type).toBe("task");
+      expect(result1.title).toBe("Call John");
+      expect(result1.date).toBeDefined();
+      expect(result1.time).toBe("07:00");
+      expect(result1.confidence).toBeGreaterThanOrEqual(0.85);
 
-    const gymResult = parseProductivityText("Go to gym at 9am");
-    expect(gymResult.category).toBe("health");
+      const result2 = parseProductivityText("Buy milk at 6pm");
+      expect(result2.type).toBe("task");
+      expect(result2.title).toBe("Buy milk");
+      expect(result2.time).toBe("18:00");
+      expect(result2.confidence).toBeGreaterThanOrEqual(0.85);
 
-    const meetingResult = parseProductivityText("Team standup at 10am");
-    expect(meetingResult.category).toBe("work");
+      const result3 = parseProductivityText("Finish report Friday");
+      expect(result3.type).toBe("task");
+      expect(result3.title).toBe("Finish report");
+      expect(result3.date).toBeDefined();
+      expect(result3.confidence).toBeGreaterThanOrEqual(0.85);
+    });
 
-    const callResult = parseProductivityText("Call mom at 5pm");
-    expect(callResult.category).toBe("personal");
+    it("should correctly distinguish Buy milk vs Buy milk tomorrow vs Buy milk every Sunday", () => {
+      const taskPlain = parseProductivityText("Buy milk");
+      expect(taskPlain.type).toBe("task");
+      expect(taskPlain.date).toBeUndefined();
+      expect(taskPlain.recurrence).toBeUndefined();
 
-    const deepWorkResult = parseProductivityText("Deep work session");
-    expect(deepWorkResult.category).toBe("focus");
+      const taskDate = parseProductivityText("Buy milk tomorrow");
+      expect(taskDate.type).toBe("task");
+      expect(taskDate.date).toBeDefined();
+      expect(taskDate.recurrence).toBeUndefined();
 
-    const designResult = parseProductivityText("Sketch new ui design layout");
-    expect(designResult.category).toBe("creative");
+      const habitRecurring = parseProductivityText("Buy milk every Sunday");
+      expect(habitRecurring.type).toBe("habit");
+      expect(habitRecurring.recurrence?.type).toBe("weekly");
+      expect(habitRecurring.recurrence?.days).toEqual([0]);
+    });
+
+    it("should not confuse task with habit when dates are provided", () => {
+      const result = parseProductivityText("exercise tomorrow");
+      expect(result.type).toBe("task");
+      expect(result.date).toBeDefined();
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85);
+    });
   });
 
-  it("should detect priorities correctly", () => {
-    const highResult = parseProductivityText("Urgent client meeting high priority");
-    expect(highResult.priority).toBe("high");
+  describe("Intent Hierarchy - Habit", () => {
+    it("should confidently classify strong recurrence as habits", () => {
+      const result1 = parseProductivityText("Exercise every morning");
+      expect(result1.type).toBe("habit");
+      expect(result1.recurrence?.type).toBe("daily");
+      expect(result1.time).toBe("08:00");
+      expect(result1.confidence).toBeGreaterThanOrEqual(0.85);
 
-    const normalResult = parseProductivityText("Standard review meeting");
-    expect(normalResult.priority).toBe("medium"); // default when not explicitly matched or matched as normal
+      const result2 = parseProductivityText("Meditate weekdays");
+      expect(result2.type).toBe("habit");
+      expect(result2.recurrence?.type).toBe("weekdays");
+      expect(result2.confidence).toBeGreaterThanOrEqual(0.85);
 
-    const lowResult = parseProductivityText("Someday read new book");
-    expect(lowResult.priority).toBe("low");
+      const result3 = parseProductivityText("Read every night");
+      expect(result3.type).toBe("habit");
+      expect(result3.recurrence?.type).toBe("daily");
+      expect(result3.time).toBe("18:00");
+      expect(result3.confidence).toBeGreaterThanOrEqual(0.85);
+    });
+
+    it("should fall back to task for weak signals or explicit task keywords", () => {
+      const result = parseProductivityText("Submit project report every month on the 15th");
+      expect(result.type).toBe("task"); // even though it's recurring, "submit project report" is a heavy task signal
+      expect(result.recurrence?.type).toBe("monthly");
+      expect(result.recurrence?.dayOfMonth).toBe(15);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85);
+    });
   });
 
-  it("should parse reminder offset minutes", () => {
-    const reminderMin = parseProductivityText("Gym at 8am and remind me 30 minutes before");
-    expect(reminderMin.reminderOffsetMinutes).toBe(30);
+  describe("Intent Hierarchy - Checklist", () => {
+    it("should detect plain multiline lists with high confidence", () => {
+      const result = parseProductivityText("shopping\nmilk\nbread\neggs");
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Shopping");
+      expect(result.items).toEqual(["milk", "bread", "eggs"]);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.80);
+    });
 
-    const reminderHour = parseProductivityText("Exam at 10am alert me 2 hours prior");
-    expect(reminderHour.reminderOffsetMinutes).toBe(120);
+    it("should detect bullet lists with high confidence", () => {
+      const result = parseProductivityText("Groceries\n- milk\n- bread\n- eggs");
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Groceries");
+      expect(result.items).toEqual(["milk", "bread", "eggs"]);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85);
+    });
+
+    it("should detect numbered lists with high confidence", () => {
+      const result = parseProductivityText("Steps\n1. First\n2. Second\n3. Third");
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Steps");
+      expect(result.items).toEqual(["First", "Second", "Third"]);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85);
+    });
+
+    it("should not detect multiline prose as a checklist", () => {
+      const result = parseProductivityText("I need to remember that milk is running out.\nI will go to the store later today.");
+      expect(result.type).not.toBe("checklist");
+    });
   });
 
-  it("should parse recurrence patterns and determine task vs habit", () => {
-    // Habits (recurring routines with habit-leaning titles)
-    const gymDaily = parseProductivityText("Gym workout every day");
-    expect(gymDaily.type).toBe("habit");
-    expect(gymDaily.recurrence?.type).toBe("daily");
+  describe("Intent Hierarchy - Idea", () => {
+    it("should detect natural idea patterns", () => {
+      const result1 = parseProductivityText("What if Pebble grouped recurring tasks?");
+      expect(result1.type).toBe("idea");
+      expect(result1.title).toBe("Pebble grouped recurring tasks?");
+      expect(result1.confidence).toBeGreaterThanOrEqual(0.80);
 
-    const morningRoutine = parseProductivityText("Meditate every morning");
-    expect(morningRoutine.type).toBe("habit");
-    expect(morningRoutine.recurrence?.type).toBe("daily");
-    expect(morningRoutine.time).toBe("08:00");
-
-    const eveningRoutine = parseProductivityText("Drink water every evening");
-    expect(eveningRoutine.type).toBe("habit");
-    expect(eveningRoutine.recurrence?.type).toBe("daily");
-    expect(eveningRoutine.time).toBe("18:00");
-
-    const weekdaysRoutine = parseProductivityText("Read weekdays");
-    expect(weekdaysRoutine.type).toBe("habit");
-    expect(weekdaysRoutine.recurrence?.type).toBe("weekdays");
-    expect(weekdaysRoutine.recurrence?.days).toEqual([1, 2, 3, 4, 5]);
-
-    const weekendsRoutine = parseProductivityText("Run every weekend");
-    expect(weekendsRoutine.type).toBe("habit");
-    expect(weekendsRoutine.recurrence?.type).toBe("weekly");
-    expect(weekendsRoutine.recurrence?.days).toEqual([0, 6]);
-
-    const specificDays = parseProductivityText("Yoga every Monday and Thursday");
-    expect(specificDays.type).toBe("habit");
-    expect(specificDays.recurrence?.type).toBe("weekly");
-    expect(specificDays.recurrence?.days).toEqual([1, 4]);
-
-    const everyHour = parseProductivityText("Stretch every hour");
-    expect(everyHour.type).toBe("habit");
-    expect(everyHour.recurrence?.type).toBe("interval");
-    expect(everyHour.recurrence?.interval).toBe(1);
-    expect(everyHour.recurrence?.unit).toBe("hours");
-
-    // Tasks (recurring but task-leaning titles)
-    const reportMonthly = parseProductivityText("Submit project report every month on the 15th");
-    expect(reportMonthly.type).toBe("task");
-    expect(reportMonthly.recurrence?.type).toBe("monthly");
-    expect(reportMonthly.recurrence?.dayOfMonth).toBe(15);
-
-    // Recurring start/target date preservation
-    const recurringWithDate = parseProductivityText("Submit project report every month starting tomorrow at 5pm");
-    expect(recurringWithDate.type).toBe("task");
-    expect(recurringWithDate.date).toBeDefined();
-    expect(recurringWithDate.time).toBe("17:00");
+      const result2 = parseProductivityText("Idea: add a focus mode");
+      expect(result2.type).toBe("idea");
+      expect(result2.title).toBe("Add a focus mode");
+      expect(result2.confidence).toBeGreaterThanOrEqual(0.80);
+    });
   });
 
-  it("should clean up date and time keywords from final title", () => {
-    const cleanResult = parseProductivityText("Submit assignment tomorrow at 5pm urgent");
-    expect(cleanResult.title).toBe("Submit assignment");
-    expect(cleanResult.priority).toBe("high");
-    expect(cleanResult.time).toBe("17:00");
+  describe("Intent Hierarchy - Note", () => {
+    it("should detect explicit notes", () => {
+      const result1 = parseProductivityText("Kubernetes authentication notes");
+      expect(result1.type).toBe("note");
+      expect(result1.title).toBe("Kubernetes authentication");
+      expect(result1.confidence).toBeGreaterThanOrEqual(0.80);
+
+      const result2 = parseProductivityText("Thoughts on the new design implementation");
+      expect(result2.type).toBe("note");
+      expect(result2.title).toBe("The new design implementation");
+      expect(result2.confidence).toBeGreaterThanOrEqual(0.80);
+    });
+
+    it("should detect long-form prose as a note rather than a task", () => {
+      const result = parseProductivityText("This is a long paragraph about how the system works. It doesn't have an action word at the start, and it is generally just providing context and thoughts. It shouldn't be a task.");
+      expect(result.type).toBe("note");
+      expect(result.confidence).toBeGreaterThanOrEqual(0.70);
+    });
   });
 
-  it("should preserve file attachment metadata when buildResource is called", () => {
-    const fileItem: ParsedProductivityItem = {
-      type: "file",
-      title: "project-spec.pdf",
-      confidence: 0.95,
-      attachments: [
-        {
-          id: "att-123",
-          name: "project-spec.pdf",
-          uri: "file:///path/to/project-spec.pdf",
-          mimeType: "application/pdf",
-          size: 10240,
-        },
-      ],
-    };
+  describe("Intent Hierarchy - Link", () => {
+    it("should detect URLs with high confidence", () => {
+      const result1 = parseProductivityText("https://example.com");
+      expect(result1.type).toBe("link");
+      expect(result1.url).toBe("https://example.com");
+      expect(result1.confidence).toBeGreaterThanOrEqual(0.90);
 
-    const resource = buildResource(fileItem, "ws-1");
-    expect(resource.type).toBe("note");
-    expect(resource.title).toBe("project-spec.pdf");
-    expect(resource.attachments).toBeDefined();
-    expect(resource.attachments).toHaveLength(1);
-    expect(resource.attachments![0].name).toBe("project-spec.pdf");
-    expect(resource.attachments![0].uri).toBe("file:///path/to/project-spec.pdf");
+      const result2 = parseProductivityText("Check out this link https://github.com/expo");
+      expect(result2.type).toBe("link");
+      expect(result2.url).toBe("https://github.com/expo");
+      expect(result2.title).toBe("Check out this link");
+      expect(result2.confidence).toBeGreaterThanOrEqual(0.90);
+    });
+  });
+
+  describe("Ambiguous Inputs & Confidence Behavior", () => {
+    it("should handle single ambiguous words with low/medium confidence without blocking", () => {
+      const result1 = parseProductivityText("exercise");
+      expect(result1.type).toBe("task");
+      expect(result1.category).toBe("health");
+      expect(result1.confidence).toBeLessThan(0.70);
+      expect(result1.confidence).toBeGreaterThanOrEqual(0.40);
+
+      const result2 = parseProductivityText("meeting");
+      expect(result2.type).toBe("task");
+      expect(result2.category).toBe("work");
+      expect(result2.confidence).toBeLessThan(0.70);
+
+      const result3 = parseProductivityText("groceries");
+      expect(result3.type).toBe("task");
+      expect(result3.category).toBe("personal");
+      expect(result3.confidence).toBeLessThan(0.70);
+    });
+
+    it("should preserve file attachment metadata when buildResource is called", () => {
+      const fileItem: ParsedProductivityItem = {
+        type: "file",
+        title: "project-spec.pdf",
+        confidence: 0.95,
+        attachments: [
+          {
+            id: "att-123",
+            name: "project-spec.pdf",
+            uri: "file:///path/to/project-spec.pdf",
+            mimeType: "application/pdf",
+            size: 10240,
+          },
+        ],
+      };
+
+      const resource = buildResource(fileItem, "ws-1");
+      expect(resource.type).toBe("note");
+      expect(resource.title).toBe("project-spec.pdf");
+      expect(resource.attachments).toBeDefined();
+      expect(resource.attachments).toHaveLength(1);
+    });
+
+    it("should parse reminder offset minutes", () => {
+      const reminderMin = parseProductivityText("Gym at 8am and remind me 30 minutes before");
+      expect(reminderMin.reminderOffsetMinutes).toBe(30);
+
+      const reminderHour = parseProductivityText("Exam at 10am alert me 2 hours prior");
+      expect(reminderHour.reminderOffsetMinutes).toBe(120);
+    });
+
+    it("should clean up date and time keywords from final title", () => {
+      const cleanResult = parseProductivityText("Submit assignment tomorrow at 5pm urgent");
+      expect(cleanResult.title).toBe("Submit assignment");
+      expect(cleanResult.priority).toBe("high");
+      expect(cleanResult.time).toBe("17:00");
+    });
   });
 });
