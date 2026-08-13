@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import * as DocumentPicker from "expo-document-picker";
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Alert,
   Dimensions,
@@ -41,6 +41,8 @@ export interface ResourceSectionProps {
   stateHabits?: Habit[];
   stateChecklists?: Checklist[];
   onToggleLinkResource?: (itemId: string, itemType: "task" | "habit" | "checklist", resourceId: string) => void;
+  /** When set, auto-opens the detail overlay for this resource (one-shot from "Use Existing" navigation) */
+  focusResourceId?: string | null;
 }
 
 export function ResourceSection({
@@ -56,6 +58,7 @@ export function ResourceSection({
   stateHabits = [],
   stateChecklists = [],
   onToggleLinkResource,
+  focusResourceId,
 }: ResourceSectionProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? "dark"];
@@ -82,6 +85,16 @@ export function ResourceSection({
     const wsId = activeFolderId || INBOX_WORKSPACE_ID;
     return resources[wsId] || [];
   }, [resources, activeFolderId]);
+
+  // Auto-open resource detail overlay when navigated from "Use Existing"
+  useEffect(() => {
+    if (focusResourceId && folderResources.length > 0) {
+      const target = folderResources.find((r) => r.id === focusResourceId);
+      if (target) {
+        setSelectedResource(target);
+      }
+    }
+  }, [focusResourceId, folderResources]);
 
   const pinnedResources = useMemo(() => {
     return folderResources.filter((r) => r.type === "idea" && !r.archivedAt);

@@ -68,11 +68,12 @@ export default function TaskDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     id: string;
-    type: "task" | "habit";
+    type?: "task" | "habit";
+    workspaceId?: string;
     date?: string;
   }>();
   const itemId = params.id;
-  const itemType = params.type;
+  const itemType = params.type || (params.id?.startsWith("habit-") ? "habit" : "task");
   const isTask = itemType === "task";
   const selectedOccurrenceDate = params.date || getDateKey();
 
@@ -288,7 +289,12 @@ export default function TaskDetailsScreen() {
             ];
       setWorkspaces(loadedWorkspaces);
       const folderIds = Array.from(
-        new Set([INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
+        new Set([
+          params.workspaceId,
+          INBOX_WORKSPACE_ID,
+          MY_PEBBLES_WORKSPACE_ID,
+          ...folderList.map((f) => f.id),
+        ].filter(Boolean) as string[]),
       );
 
       // Load resources directly from ResourceRepository for all workspace folders

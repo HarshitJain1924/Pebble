@@ -4,7 +4,8 @@
  * Orchestrator for Quick Capture.
  *
  * Delegates entity construction, reminder scheduling, persistence, and state events
- * to EntityCommandService. CaptureService owns the analytics snapshot call.
+ * to EntityCommandService. CaptureService owns the analytics snapshot call and
+ * provides the duplicate validation gateway.
  *
  * This is the SINGLE entry point for creating entities from capture.
  * No screen, component, or hook should duplicate this workflow.
@@ -18,12 +19,31 @@ import {
   type Resource,
 } from "@/shared/types/domain.types";
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
+import {
+  analyzeDuplicate,
+  type DuplicateAnalysisResult,
+} from "@/features/capture/services/duplicate-detection.service";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export type SavedEntity = Task | Habit | Checklist | Resource;
+
+export interface SaveParsedItemOptions {
+  bypassDuplicateCheck?: boolean;
+}
+
+/**
+ * Validates a parsed productivity item against existing entities for potential duplicates.
+ * Strictly read-only analysis.
+ */
+export async function validateCaptureItem(
+  item: ParsedProductivityItem,
+  workspaceId: string = INBOX_WORKSPACE_ID,
+): Promise<DuplicateAnalysisResult> {
+  return analyzeDuplicate(item, workspaceId);
+}
 
 /**
  * Save a parsed productivity item through the complete capture pipeline.
@@ -38,6 +58,7 @@ export type SavedEntity = Task | Habit | Checklist | Resource;
 export async function saveParsedItem(
   item: ParsedProductivityItem,
   workspaceId: string = INBOX_WORKSPACE_ID,
+  _options?: SaveParsedItemOptions,
 ): Promise<SavedEntity> {
   let entity: SavedEntity;
 

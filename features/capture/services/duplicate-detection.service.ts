@@ -170,9 +170,23 @@ export function compareEntities(
       };
     }
 
+    // Cross-entity type (e.g., Task vs Resource/Note or Checklist vs Task)
+    if (candidateGeneralType !== existingType) {
+      return {
+        isPotentialDuplicate: false,
+        confidence: isSameWorkspace ? 0.60 : 0.30,
+        matchedEntity: matchedSummary,
+        reason: isSameWorkspace
+          ? `Existing ${existingType} with matching title found in current workspace`
+          : `Existing ${existingType} with matching title found in another workspace`,
+        relationship: "near_duplicate",
+      };
+    }
+
     // Check if dates differ between candidate and existing entity
-    const candidateDate = candidate.date;
-    const existingDate = (existing as any).schedule?.date || (existing as any).scheduledDate || (existing as any).dueDate;
+    const candidateDate = candidate.date && candidate.date !== "inbox" ? candidate.date : null;
+    const rawExistingDate = (existing as any).schedule?.date || (existing as any).scheduledDate || (existing as any).dueDate;
+    const existingDate = rawExistingDate && rawExistingDate !== "inbox" ? rawExistingDate : null;
 
     const hasDateDifference =
       (candidateDate && !existingDate) ||

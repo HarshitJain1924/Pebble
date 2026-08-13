@@ -47,10 +47,15 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
+import { useRouter } from "expo-router";
 import {
   parseProductivityText,
   type ParsedProductivityItem,
 } from "@/features/capture/services/nlp-parser.service";
+import {
+  analyzeDuplicate,
+  type DuplicateAnalysisResult,
+} from "@/features/capture/services/duplicate-detection.service";
 import {
   getWorkspaceSuggestions,
   type WorkspaceSuggestionResult,
@@ -193,11 +198,14 @@ export default function UnifiedCapture({
   const isDark = colorScheme === "dark";
   const theme = Colors[colorScheme ?? "dark"];
   const { showToast } = useUndo();
+  const router = useRouter();
 
   // ─── State ──────────────────────────────────────────────────────────────
 
   const [inputText, setInputText] = useState("");
   const [parsedItem, setParsedItem] = useState<ParsedProductivityItem | null>(null);
+  const [duplicateResult, setDuplicateResult] = useState<DuplicateAnalysisResult | null>(null);
+  const duplicateResultRef = useRef<DuplicateAnalysisResult | null>(null);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(defaultWorkspaceId);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [showTypeOverride, setShowTypeOverride] = useState(false);
@@ -229,7 +237,7 @@ export default function UnifiedCapture({
   // ─── Effects ────────────────────────────────────────────────────────────
 
   // Dynamic header updates based on type
-  const hasInput = inputText.trim().length > 0;
+  const hasInput = useMemo(() => inputText.trim().length > 0, [inputText.length > 0]);
   const smartHeader = useMemo(() => {
     if (isParsing) return { title: "Quick Capture", desc: "Understanding your thought..." };
     if (!parsedItem || !hasInput) {
@@ -282,18 +290,29 @@ export default function UnifiedCapture({
     if (defaultWorkspaceId) setSelectedWorkspaceId(defaultWorkspaceId);
   }, [defaultWorkspaceId]);
 
-  // Debounced NLP parsing
+  // Keep duplicateResultRef in sync for stable callback reads
+  useEffect(() => {
+    duplicateResultRef.current = duplicateResult;
+  }, [duplicateResult]);
+
+  // Debounced NLP parsing & non-blocking duplicate detection
   useEffect(() => {
     let isCancelled = false;
 
     if (!inputText.trim()) {
       if (parsedItem !== null) setParsedItem(null);
+      if (duplicateResult !== null) setDuplicateResult(null);
       if (showTypeOverride) setShowTypeOverride(false);
       if (showMoreOptions) setShowMoreOptions(false);
       if (isParsing) setIsParsing(false);
       loadingProgress.value = 0;
       return;
     }
+
+    // NOTE: Do NOT clear duplicateResult here on every keystroke.
+    // The previous duplicate result stays valid until the 450ms timer delivers
+    // new parse results. Clearing it eagerly was causing handleSave/handleSaveAnyway
+    // to get new references every character, defeating CaptureSummaryCard React.memo.
 
     const timer = setTimeout(async () => {
       if (isCancelled) return;
@@ -318,24 +337,40 @@ export default function UnifiedCapture({
       setIsParsing(false);
       loadingProgress.value = withTiming(1, { duration: 200 });
 
-      // Workspace suggestion
-      if (parsed.type === "task" || parsed.type === "habit") {
-        try {
-          const wsSuggestions = await getWorkspaceSuggestions(
-            parsed.title,
-            parsed.category || "work",
-            workspaces,
-            {},
-          );
-          if (isCancelled) return;
-          const top = wsSuggestions[0];
-          if (top && top.score >= 75) {
-            setTopSuggestion(top);
-            setSelectedWorkspaceId(top.workspaceId);
+      // Clear stale duplicate result before running new check
+      setDuplicateResult(null);
+
+      // Run duplicate check in the background after typing stops (non-blocking)
+      analyzeDuplicate(parsed, selectedWorkspaceId || INBOX_WORKSPACE_ID)
+        .then((dupRes) => {
+          if (!isCancelled) {
+            if (dupRes && (dupRes.relationship === "exact_duplicate" || dupRes.relationship === "near_duplicate")) {
+              setDuplicateResult(dupRes);
+            } else {
+              setDuplicateResult(null);
+            }
           }
-        } catch {
-          // ignore
-        }
+        })
+        .catch(() => {});
+
+      // Workspace suggestion (non-blocking)
+      if (parsed.type === "task" || parsed.type === "habit") {
+        getWorkspaceSuggestions(
+          parsed.title,
+          parsed.category || "work",
+          workspaces,
+          {},
+        )
+          .then((wsSuggestions) => {
+            if (!isCancelled) {
+              const top = wsSuggestions[0];
+              if (top && top.score >= 75) {
+                setTopSuggestion(top);
+                setSelectedWorkspaceId(top.workspaceId);
+              }
+            }
+          })
+          .catch(() => {});
       }
     }, 450);
 
@@ -343,7 +378,7 @@ export default function UnifiedCapture({
       isCancelled = true;
       clearTimeout(timer);
     };
-  }, [inputText]);
+  }, [inputText, selectedWorkspaceId]);
 
   // ─── Handlers ───────────────────────────────────────────────────────────
 
@@ -405,34 +440,111 @@ export default function UnifiedCapture({
 
   // ─── Save Handler ──────────────────────────────────────────────────────
 
-  const handleSave = useCallback(async () => {
-    if (!parsedItem || !parsedItem.title.trim() || isSaving) return;
+  const handleSave = useCallback(
+    async (bypassDuplicateCheck: boolean = false) => {
+      if (!parsedItem || !parsedItem.title.trim() || isSaving) return;
 
-    setIsSaving(true);
-    try {
       const wsId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
-      await saveParsedItem(parsedItem, wsId);
+      // Intercept exact duplicate in the same workspace unless user explicitly chose "Create anyway"
+      // Read from ref to avoid duplicateResult in dependency array (keeps handleSave stable)
+      if (!bypassDuplicateCheck) {
+        let dupCheck = duplicateResultRef.current;
+        if (!dupCheck) {
+          try {
+            dupCheck = await analyzeDuplicate(parsedItem, wsId);
+          } catch {
+            dupCheck = null;
+          }
+        }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
-      const typeLabel = TYPE_META[parsedItem.type].label;
-      showToast(`✓ ${typeLabel} added to ${wsName}`);
+        if (
+          dupCheck &&
+          dupCheck.isPotentialDuplicate &&
+          dupCheck.relationship === "exact_duplicate" &&
+          dupCheck.matchedEntity?.workspaceId === wsId
+        ) {
+          setDuplicateResult(dupCheck);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+          return;
+        }
+      }
 
-      // Reset
-      setInputText("");
-      setParsedItem(null);
-      setAttachedFile(null);
-      setShowMoreOptions(false);
-      setShowTypeOverride(false);
-      sheetRef.current?.dismiss();
-      // Disable re-enables after dismiss is triggered (not awaited)
-      setTimeout(() => setIsSaving(false), 300);
-    } catch (e) {
-      console.warn("UnifiedCapture save failed:", e);
-      setIsSaving(false);
+      setIsSaving(true);
+      try {
+        await saveParsedItem(parsedItem, wsId, { bypassDuplicateCheck: true });
+
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
+        const typeLabel = TYPE_META[parsedItem.type].label;
+        showToast(`✓ ${typeLabel} added to ${wsName}`);
+
+        // Reset
+        setInputText("");
+        setParsedItem(null);
+        setDuplicateResult(null);
+        setAttachedFile(null);
+        setShowMoreOptions(false);
+        setShowTypeOverride(false);
+        sheetRef.current?.dismiss();
+        // Disable re-enables after dismiss is triggered (not awaited)
+        setTimeout(() => setIsSaving(false), 300);
+      } catch (e) {
+        console.warn("UnifiedCapture save failed:", e);
+        setIsSaving(false);
+      }
+    },
+    [parsedItem, selectedWorkspaceId, workspaces, isSaving, showToast],
+  );
+
+  const handleSaveAnyway = useCallback(() => {
+    handleSave(true);
+  }, [handleSave]);
+
+  const handleUseExisting = useCallback(() => {
+    if (!duplicateResult?.matchedEntity) return;
+    const entity = duplicateResult.matchedEntity;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
+    // Reset capture input and dismiss sheet
+    setInputText("");
+    setParsedItem(null);
+    setDuplicateResult(null);
+    setAttachedFile(null);
+    sheetRef.current?.dismiss();
+
+    try {
+      if (entity.type === "task") {
+        router.push({
+          pathname: "/task-details",
+          params: { id: entity.id, type: "task", workspaceId: entity.workspaceId },
+        });
+      } else if (entity.type === "habit") {
+        router.push({
+          pathname: "/task-details",
+          params: { id: entity.id, type: "habit", workspaceId: entity.workspaceId },
+        });
+      } else if (entity.type === "checklist") {
+        router.push({
+          pathname: "/checklist-details",
+          params: { id: entity.id, workspaceId: entity.workspaceId },
+        });
+      } else if (entity.type === "resource") {
+        router.push({
+          pathname: "/(tabs)/tasks",
+          params: {
+            workspaceId: entity.workspaceId || INBOX_WORKSPACE_ID,
+            segment: "resources",
+            focusItemId: entity.id,
+            focusItemType: "resource",
+          },
+        });
+      }
+      showToast(`Focused existing ${entity.type}`);
+    } catch {
+      // Navigation fallback
     }
-  }, [parsedItem, selectedWorkspaceId, workspaces, isSaving]);
+  }, [duplicateResult, router, showToast]);
 
   const handleWorkspaceCycle = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -684,6 +796,7 @@ export default function UnifiedCapture({
         {parsedItem && parsedItem.title.trim().length > 0 && !isParsing && (
           <CaptureSummaryCard
             parsedItem={parsedItem}
+            duplicateResult={duplicateResult}
             isDark={isDark}
             textPrimary={textPrimary}
             textMuted={textMuted}
@@ -702,6 +815,8 @@ export default function UnifiedCapture({
             onToggleMoreOptions={handleToggleMoreOptions}
             onDismiss={handleDismiss}
             onSave={handleSave}
+            onSaveAnyway={handleSaveAnyway}
+            onUseExisting={handleUseExisting}
             isSaving={isSaving}
             saveButtonLabel={saveButtonLabel}
           />
@@ -727,6 +842,7 @@ export default function UnifiedCapture({
 
 interface CaptureSummaryCardProps {
   parsedItem: ParsedProductivityItem;
+  duplicateResult: DuplicateAnalysisResult | null;
   isDark: boolean;
   textPrimary: string;
   textMuted: string;
@@ -745,12 +861,15 @@ interface CaptureSummaryCardProps {
   onToggleMoreOptions: () => void;
   onDismiss: () => void;
   onSave: () => void;
+  onSaveAnyway: () => void;
+  onUseExisting: () => void;
   isSaving: boolean;
   saveButtonLabel: string;
 }
 
 const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   parsedItem,
+  duplicateResult,
   isDark,
   textPrimary,
   textMuted,
@@ -769,9 +888,27 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   onToggleMoreOptions,
   onDismiss,
   onSave,
+  onSaveAnyway,
+  onUseExisting,
   isSaving,
   saveButtonLabel,
 }: CaptureSummaryCardProps) {
+  const isSameWorkspaceExactDuplicate =
+    duplicateResult &&
+    duplicateResult.isPotentialDuplicate &&
+    duplicateResult.relationship === "exact_duplicate" &&
+    duplicateResult.matchedEntity?.workspaceId === (selectedWorkspaceId || INBOX_WORKSPACE_ID);
+
+  const isCrossWorkspaceExactDuplicate =
+    duplicateResult &&
+    duplicateResult.isPotentialDuplicate &&
+    duplicateResult.relationship === "exact_duplicate" &&
+    duplicateResult.matchedEntity?.workspaceId !== (selectedWorkspaceId || INBOX_WORKSPACE_ID);
+
+  const isNearDuplicate =
+    duplicateResult &&
+    duplicateResult.relationship === "near_duplicate";
+
   return (
     <Animated.View
       entering={FadeInDown.duration(200)}
@@ -1003,39 +1140,141 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
         </View>
       )}
 
-      {/* Dismiss and Primary Save Action buttons */}
-      <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
-        <TouchableOpacity
-          onPress={onDismiss}
-          style={[styles.dismissBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
-        >
-          <Text style={[styles.dismissBtnText, { color: textPrimary }]}>Dismiss</Text>
-        </TouchableOpacity>
-
-        <PressableScale
-          onPress={onSave}
-          disabled={isSaving}
-          scaleTo={isSaving ? 1 : 0.95}
+      {/* ── Duplicate Notices / Warnings ── */}
+      {isSameWorkspaceExactDuplicate && (
+        <Animated.View
+          entering={FadeInDown.duration(180)}
           style={[
-            styles.saveButton,
+            styles.duplicateWarningBox,
             {
-              backgroundColor: isSaving ? textMuted : themePrimary,
-              shadowColor: isSaving ? "transparent" : themePrimary,
-              shadowOffset: { width: 0, height: 6 },
-              shadowOpacity: isSaving ? 0 : 0.25,
-              shadowRadius: 10,
-              elevation: isSaving ? 0 : 5,
-              flex: 1,
+              backgroundColor: isDark ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.08)",
+              borderColor: isDark ? "#F59E0B" : "#D97706",
             },
           ]}
         >
-          {isSaving ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Text style={styles.saveButtonText}>{saveButtonLabel}</Text>
-          )}
-        </PressableScale>
-      </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Feather name="alert-circle" size={16} color={isDark ? "#FBBF24" : "#D97706"} />
+            <Text style={{ fontSize: 13, fontWeight: "700", color: isDark ? "#FBBF24" : "#D97706", flex: 1 }}>
+              Exact duplicate in this workspace
+            </Text>
+          </View>
+          <Text style={{ fontSize: 12, color: textMuted, marginTop: 4, lineHeight: 16 }}>
+            An identical {duplicateResult?.matchedEntity?.type || "item"} already exists: &ldquo;{duplicateResult?.matchedEntity?.title}&rdquo;
+          </Text>
+        </Animated.View>
+      )}
+
+      {isNearDuplicate && (
+        <Animated.View
+          entering={FadeInDown.duration(180)}
+          style={[
+            styles.duplicateInfoBox,
+            {
+              backgroundColor: isDark ? "rgba(99, 102, 241, 0.1)" : "rgba(99, 102, 241, 0.05)",
+              borderColor: isDark ? "rgba(99, 102, 241, 0.25)" : "rgba(99, 102, 241, 0.2)",
+            },
+          ]}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Feather name="info" size={14} color={themePrimary} />
+            <Text style={{ fontSize: 12, fontWeight: "600", color: textPrimary, flex: 1 }}>
+              Similar {duplicateResult?.matchedEntity?.type || "item"} exists: &ldquo;{duplicateResult?.matchedEntity?.title}&rdquo;
+            </Text>
+          </View>
+        </Animated.View>
+      )}
+
+      {isCrossWorkspaceExactDuplicate && (
+        <Animated.View
+          entering={FadeInDown.duration(180)}
+          style={[
+            styles.duplicateInfoBox,
+            {
+              backgroundColor: isDark ? "rgba(100, 116, 139, 0.08)" : "rgba(100, 116, 139, 0.04)",
+              borderColor: isDark ? "rgba(100, 116, 139, 0.2)" : "rgba(100, 116, 139, 0.15)",
+            },
+          ]}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Feather name="info" size={14} color={textMuted} />
+            <Text style={{ fontSize: 12, fontWeight: "500", color: textMuted, flex: 1 }}>
+              Identical item exists in another workspace ({duplicateResult?.matchedEntity?.workspaceId})
+            </Text>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* ── Action Buttons ── */}
+      {isSameWorkspaceExactDuplicate ? (
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
+          <TouchableOpacity
+            onPress={onUseExisting}
+            style={[
+              styles.useExistingBtn,
+              {
+                borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
+                backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                flex: 1,
+              },
+            ]}
+          >
+            <Feather name="external-link" size={14} color={textPrimary} />
+            <Text style={[styles.useExistingBtnText, { color: textPrimary }]}>Use existing</Text>
+          </TouchableOpacity>
+
+          <PressableScale
+            onPress={onSaveAnyway}
+            disabled={isSaving}
+            scaleTo={isSaving ? 1 : 0.95}
+            style={[
+              styles.saveAnywayBtn,
+              {
+                backgroundColor: isSaving ? textMuted : isDark ? "#F59E0B" : "#D97706",
+                flex: 1,
+              },
+            ]}
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.saveAnywayBtnText}>Create anyway</Text>
+            )}
+          </PressableScale>
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
+          <TouchableOpacity
+            onPress={onDismiss}
+            style={[styles.dismissBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
+          >
+            <Text style={[styles.dismissBtnText, { color: textPrimary }]}>Dismiss</Text>
+          </TouchableOpacity>
+
+          <PressableScale
+            onPress={onSave}
+            disabled={isSaving}
+            scaleTo={isSaving ? 1 : 0.95}
+            style={[
+              styles.saveButton,
+              {
+                backgroundColor: isSaving ? textMuted : themePrimary,
+                shadowColor: isSaving ? "transparent" : themePrimary,
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: isSaving ? 0 : 0.25,
+                shadowRadius: 10,
+                elevation: isSaving ? 0 : 5,
+                flex: 1,
+              },
+            ]}
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.saveButtonText}>{saveButtonLabel}</Text>
+            )}
+          </PressableScale>
+        </View>
+      )}
     </Animated.View>
   );
 });
@@ -1372,6 +1611,49 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     fontSize: 15,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.1,
+  },
+  // Duplicate warning & action styles
+  duplicateWarningBox: {
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  duplicateInfoBox: {
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  useExistingBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1.2,
+  },
+  useExistingBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  saveAnywayBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 15,
+    borderRadius: 16,
+  },
+  saveAnywayBtnText: {
+    fontSize: 14,
     fontWeight: "800",
     color: "#FFFFFF",
     letterSpacing: -0.1,

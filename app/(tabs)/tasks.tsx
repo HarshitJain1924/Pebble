@@ -606,6 +606,7 @@ export function WorkspacesScreen() {
                       stateHabits={state.habits}
                       stateChecklists={Object.values(state.checklists).flat()}
                       onToggleLinkResource={state.toggleLinkResource}
+                      focusResourceId={state.focusResourceId}
                     />
                   </View>
                 )}

@@ -170,6 +170,11 @@ export function useTasksState() {
       ? params.focusItemId
       : null;
 
+  const focusResourceId =
+    typeof params.focusItemId === "string" && params.focusItemType === "resource"
+      ? params.focusItemId
+      : null;
+
   // Tasks Screen State (local state not extracted yet)
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
     null,
@@ -815,6 +820,14 @@ export function useTasksState() {
     return undefined;
   }, [focusHabitId, habits, setActiveWorkspaceId, setSelectedWorkspaceId]);
 
+  // Resource focus from "Use Existing" navigation
+  useEffect(() => {
+    if (focusResourceId) {
+      setActiveSegment("resources" as any);
+      setWorkspaceSegment("resources");
+    }
+  }, [focusResourceId]);
+
   const selectWorkspace = async (listId: string) => {
     setSelectedWorkspaceId(listId);
     if (listId && listId !== "null") {
@@ -1334,6 +1347,7 @@ export function useTasksState() {
     updateResource,
     deleteResource,
     toggleArchiveResource,
+    focusResourceId,
     addChecklist,
     createChecklist: addChecklist,
     updateChecklist,
