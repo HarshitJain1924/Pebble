@@ -35,7 +35,8 @@ export type DuplicateRelationship =
   | "exact_duplicate"
   | "near_duplicate"
   | "related_different"
-  | "habit_conversion_candidate";
+  | "habit_conversion_candidate"
+  | "merge_candidate";
 
 export type MatchedEntitySummary = {
   id: string;
@@ -54,6 +55,8 @@ export type DuplicateAnalysisResult = {
   matchedEntity?: MatchedEntitySummary;
   reason?: string;
   relationship?: DuplicateRelationship;
+  overlappingItems?: string[];
+  newItems?: string[];
 };
 
 export type AnyEntity = Task | Habit | Checklist | Resource;
@@ -90,6 +93,18 @@ export function extractKeywords(title: string): string[] {
   return norm
     .split(/\s+/)
     .filter(token => token.length > 0 && !STOP_WORDS.has(token));
+}
+
+/**
+ * Normalizes checklist item text for comparison.
+ */
+export function normalizeChecklistItem(text: string): string {
+  if (!text) return "";
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getEntityType(entity: AnyEntity): "task" | "habit" | "checklist" | "resource" {
@@ -142,6 +157,60 @@ export function compareEntities(
 
   // 1. Exact Normalized Title Match
   if (candidateNorm === existingNorm) {
+    // Checklist Merge Candidate Detection
+    if (candidateGeneralType === "checklist" && existingType === "checklist") {
+      const existingChecklist = existing as Checklist;
+
+      const candidateItemTexts = candidate.items || [];
+      const existingItemTexts = existingChecklist.items.map((i) => i.title);
+
+      const normalizedExisting = new Map<string, string>(); // normalized -> original
+      existingItemTexts.forEach((text) => {
+        const norm = normalizeChecklistItem(text);
+        if (norm) normalizedExisting.set(norm, text);
+      });
+
+      const overlappingOriginals: string[] = [];
+      const newCandidateOriginals: string[] = [];
+
+      candidateItemTexts.forEach((text) => {
+        const norm = normalizeChecklistItem(text);
+        if (norm) {
+          if (normalizedExisting.has(norm)) {
+            // Deduplicate overlapping arrays
+            const orig = normalizedExisting.get(norm)!;
+            if (!overlappingOriginals.includes(orig)) {
+              overlappingOriginals.push(orig);
+            }
+          } else {
+            newCandidateOriginals.push(text);
+          }
+        }
+      });
+
+      if (newCandidateOriginals.length > 0 && overlappingOriginals.length > 0) {
+        return {
+          isPotentialDuplicate: true,
+          confidence: isSameWorkspace ? 0.85 : 0.45,
+          matchedEntity: matchedSummary,
+          reason: isSameWorkspace
+            ? "Existing checklist found with overlapping items and new items to merge"
+            : "Similar checklist in another workspace",
+          relationship: "merge_candidate",
+          overlappingItems: overlappingOriginals,
+          newItems: newCandidateOriginals,
+        };
+      }
+
+      if (overlappingOriginals.length === 0) {
+        // Completely different items despite same title
+        return null;
+      }
+
+      // If we are here, newItems === 0 and overlapping > 0 (exact subset or exact match)
+      // Fall through to exact duplicate below
+    }
+
     // Check Task vs Habit conversion
     if (
       (candidateGeneralType === "habit" && existingType === "task") ||

@@ -9,11 +9,15 @@ import {
   analyzeDuplicateAgainstEntities,
   analyzeDuplicate,
   type DuplicateAnalysisResult,
+  type AnyEntity,
 } from "@/features/capture/services/duplicate-detection.service";
-import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
+import {
+  parseProductivityText,
+  type ParsedProductivityItem,
+} from "@/features/capture/services/nlp-parser.service";
 import { TaskRepository } from "@/repositories/TaskRepository";
 import { HabitRepository } from "@/repositories/HabitRepository";
-import { type Task, type Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { type Task, type Habit, type Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 
 describe("DuplicateDetectionService", () => {
   beforeEach(async () => {
@@ -157,6 +161,88 @@ describe("DuplicateDetectionService", () => {
       expect(result.matchedEntity?.id).toBe("task-exact-same-ws");
       expect(result.confidence).toBe(1.0);
       expect(result.relationship).toBe("exact_duplicate");
+    });
+  });
+
+  describe("Checklist Merge Detection", () => {
+    it("identifies a merge_candidate when a checklist has overlapping and new items", () => {
+      const entities: AnyEntity[] = [
+        {
+          id: "checklist-1",
+          type: "checklist",
+          title: "Shopping",
+          workspaceId: "ws-1",
+          items: [{ id: "i1", title: "milk", completed: false }, { id: "i2", title: "bread", completed: false }],
+          createdAt: 1000,
+          updatedAt: 1000,
+        } as unknown as Checklist,
+      ];
+
+      const parsed: ParsedProductivityItem = {
+        title: "Shopping",
+        type: "checklist",
+        items: ["milk", "bread", "curd"],
+        confidence: 0.9,
+      };
+
+      const result = analyzeDuplicateAgainstEntities(parsed, "ws-1", entities);
+
+      expect(result.matchedEntity?.id).toBe("checklist-1");
+      expect(result.relationship).toBe("merge_candidate");
+      expect(result.overlappingItems).toContain("milk");
+      expect(result.overlappingItems).toContain("bread");
+      expect(result.newItems).toContain("curd");
+    });
+
+    it("identifies an exact_duplicate when a checklist has only overlapping items", () => {
+      const entities: AnyEntity[] = [
+        {
+          id: "checklist-2",
+          type: "checklist",
+          title: "Groceries",
+          workspaceId: "ws-1",
+          items: [{ id: "i1", title: "milk", completed: false }, { id: "i2", title: "bread", completed: false }],
+          createdAt: 1000,
+          updatedAt: 1000,
+        } as unknown as Checklist,
+      ];
+
+      const parsed: ParsedProductivityItem = {
+        title: "Groceries",
+        type: "checklist",
+        items: ["milk", "bread"],
+        confidence: 0.9,
+      };
+
+      const result = analyzeDuplicateAgainstEntities(parsed, "ws-1", entities);
+
+      expect(result.matchedEntity?.id).toBe("checklist-2");
+      expect(result.relationship).toBe("exact_duplicate");
+    });
+
+    it("returns null when a checklist has same title but zero overlapping items", () => {
+      const entities: AnyEntity[] = [
+        {
+          id: "checklist-3",
+          type: "checklist",
+          title: "Packing",
+          workspaceId: "ws-1",
+          items: [{ id: "i1", title: "shirts", completed: false }, { id: "i2", title: "pants", completed: false }],
+          createdAt: 1000,
+          updatedAt: 1000,
+        } as unknown as Checklist,
+      ];
+
+      const parsed: ParsedProductivityItem = {
+        title: "Packing",
+        type: "checklist",
+        items: ["shoes", "socks"],
+        confidence: 0.9,
+      };
+
+      const result = analyzeDuplicateAgainstEntities(parsed, "ws-1", entities);
+
+      expect(result.isPotentialDuplicate).toBe(false);
     });
   });
 

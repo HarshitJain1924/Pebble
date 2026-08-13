@@ -505,6 +505,49 @@ export class EntityCommandService {
   }
 
   /**
+   * Merge new missing items into an existing Checklist entity.
+   */
+  static async mergeChecklistItems(
+    checklistId: string,
+    workspaceId: string,
+    newItemsText: string[],
+    options?: CreateEntityOptions,
+  ): Promise<Checklist> {
+    const map = await ChecklistRepository.getChecklists(workspaceId);
+    const existing = map[checklistId];
+    if (!existing) throw new Error(`Checklist ${checklistId} not found`);
+
+    const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+    const existingNorms = new Set(existing.items.map(i => normalize(i.title)));
+
+    const itemsToAdd = newItemsText
+      .filter(text => {
+        const norm = normalize(text);
+        return norm.length > 0 && !existingNorms.has(norm);
+      })
+      .map(text => ({
+        id: "item-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 8),
+        title: text,
+        completed: false,
+      }));
+
+    if (itemsToAdd.length === 0) return existing;
+
+    const updated = {
+      ...existing,
+      items: [...existing.items, ...itemsToAdd],
+      updatedAt: Date.now(),
+    };
+
+    await ChecklistRepository.saveChecklist(updated);
+
+    if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+
+    return updated;
+  }
+
+  /**
    * Create and persist a Resource entity.
    */
   static async createResource(

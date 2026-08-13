@@ -111,3 +111,23 @@ export async function saveParsedItem(
 
   return entity;
 }
+
+/**
+ * Merge new items from a parsed checklist candidate into an existing Checklist.
+ */
+export async function mergeParsedChecklist(
+  item: ParsedProductivityItem,
+  targetChecklistId: string,
+  workspaceId: string = INBOX_WORKSPACE_ID,
+): Promise<void> {
+  if (item.type !== "checklist" || !item.items || item.items.length === 0) {
+    return;
+  }
+  await EntityCommandService.mergeChecklistItems(targetChecklistId, workspaceId, item.items);
+
+  try {
+    await recordDailyHistorySnapshot();
+  } catch {
+    // Analytics failure is non-blocking
+  }
+}

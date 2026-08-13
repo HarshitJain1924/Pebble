@@ -3,10 +3,11 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 );
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
+import { parseProductivityText, type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import {
   saveParsedItem,
   validateCaptureItem,
+  mergeParsedChecklist,
 } from "@/features/capture/services/CaptureService";
 import {
   analyzeDuplicate,
@@ -252,6 +253,133 @@ describe("Quick Capture Duplicate Detection & Navigation Integration", () => {
       const resInRepo = await ResourceRepository.getResource(dupCheck.matchedEntity!.id, "ws-dev");
       expect(resInRepo).not.toBeNull();
       expect(resInRepo?.title).toBe("docs.expo.dev");
+    });
+
+    it("14. Checklist: Detects merge_candidate with overlapping and new items, and successfully merges items into existing list", async () => {
+      // 1. Existing checklist: "shopping\nmilk\nbread"
+      const initialInput = parseProductivityText("shopping\nmilk\nbread");
+      expect(initialInput.type).toBe("checklist");
+      expect(initialInput.items).toEqual(["milk", "bread"]);
+
+      const existingList = await saveParsedItem(initialInput, INBOX_WORKSPACE_ID);
+      expect(existingList.id).toMatch(/^checklist-/);
+
+      // 2. New capture: "shopping\nmilk\nbread\ncurd"
+      const candidateInput = parseProductivityText("shopping\nmilk\nbread\ncurd");
+      expect(candidateInput.type).toBe("checklist");
+      expect(candidateInput.items).toEqual(["milk", "bread", "curd"]);
+
+      // 3. Duplicate analysis produces merge_candidate
+      const dupCheck = await validateCaptureItem(candidateInput, INBOX_WORKSPACE_ID);
+
+      expect(dupCheck.isPotentialDuplicate).toBe(true);
+      expect(dupCheck.relationship).toBe("merge_candidate");
+      expect(dupCheck.matchedEntity?.id).toBe(existingList.id);
+      expect(dupCheck.overlappingItems).toEqual(["milk", "bread"]);
+      expect(dupCheck.newItems).toEqual(["curd"]);
+
+      // 4. Executing mergeParsedChecklist appends only missing items
+      await mergeParsedChecklist(candidateInput, dupCheck.matchedEntity!.id, INBOX_WORKSPACE_ID);
+
+      // 5. Verify repository state
+      const updatedList = await ChecklistRepository.getChecklist(existingList.id, INBOX_WORKSPACE_ID);
+      expect(updatedList).not.toBeNull();
+      expect(updatedList?.items).toHaveLength(3);
+      expect(updatedList?.items.map((i) => i.title)).toEqual(["milk", "bread", "curd"]);
+    });
+
+    it("15. Checklist inverse: Same title with non-overlapping items does not produce a merge_candidate", async () => {
+      // 1. Existing checklist: "shopping\nmilk\nbread"
+      const initialInput = parseProductivityText("shopping\nmilk\nbread");
+      const existingList = await saveParsedItem(initialInput, INBOX_WORKSPACE_ID);
+      expect(existingList.id).toMatch(/^checklist-/);
+
+      // 2. Non-overlapping capture: "shopping\ncar\nbike"
+      const candidateInput = parseProductivityText("shopping\ncar\nbike");
+      expect(candidateInput.type).toBe("checklist");
+      expect(candidateInput.items).toEqual(["car", "bike"]);
+
+      // 3. Duplicate analysis produces no duplicate/merge candidate
+      const dupCheck = await validateCaptureItem(candidateInput, INBOX_WORKSPACE_ID);
+      expect(dupCheck.isPotentialDuplicate).toBe(false);
+      expect(dupCheck.relationship).not.toBe("merge_candidate");
+
+      // 4. Saving creates a separate checklist cleanly
+      const secondList = await saveParsedItem(candidateInput, INBOX_WORKSPACE_ID);
+      expect(secondList.id).not.toBe(existingList.id);
+
+      const allLists = await ChecklistRepository.getChecklists(INBOX_WORKSPACE_ID);
+      expect(Object.keys(allLists)).toHaveLength(2);
+    });
+  });
+
+  describe("Editable NLP Metadata Chips & User Overrides", () => {
+    it("16. Core Scenario: User overrides Priority (Medium -> High) on parsed task with tomorrow due date, persisted task reflects High priority and Tomorrow due date", async () => {
+      // 1. NLP parses input: "Buy milk tomorrow"
+      const parsed = parseProductivityText("Buy milk tomorrow");
+      expect(parsed.type).toBe("task");
+      expect(parsed.title).toBe("Buy milk");
+      expect(parsed.date).toBeDefined();
+      expect(parsed.priority || "medium").toBe("medium");
+
+      // 2. User simulates overriding Priority to "high"
+      const userOverridePriority: ParsedProductivityItem = {
+        ...parsed,
+        priority: "high",
+      };
+
+      // 3. User saves with override
+      const savedTask = await saveParsedItem(userOverridePriority, INBOX_WORKSPACE_ID);
+
+      // 4. Verify in TaskRepository
+      const persisted = await TaskRepository.getTask(savedTask.id, INBOX_WORKSPACE_ID);
+      expect(persisted).not.toBeNull();
+      expect(persisted?.priority).toBe("high");
+      expect(persisted?.schedule?.date).toBe(parsed.date);
+    });
+
+    it("17. Due date override: User changes due date from Tomorrow to Today before saving", async () => {
+      const parsed = parseProductivityText("Call John tomorrow");
+      expect(parsed.date).toBeDefined();
+
+      const today = new Date().toISOString().split("T")[0];
+      const overridden: ParsedProductivityItem = {
+        ...parsed,
+        date: today,
+      };
+
+      const savedTask = await saveParsedItem(overridden, INBOX_WORKSPACE_ID);
+      const persisted = await TaskRepository.getTask(savedTask.id, INBOX_WORKSPACE_ID);
+      expect(persisted?.schedule?.date).toBe(today);
+    });
+
+    it("18. Workspace override: User selects custom workspace before saving", async () => {
+      const parsed = parseProductivityText("Review Q3 roadmap");
+      const targetWorkspace = "ws-work-projects";
+
+      const savedTask = await saveParsedItem(parsed, targetWorkspace);
+      expect(savedTask.workspaceId).toBe(targetWorkspace);
+
+      const persisted = await TaskRepository.getTask(savedTask.id, targetWorkspace);
+      expect(persisted?.workspaceId).toBe(targetWorkspace);
+    });
+
+    it("19. Habit recurrence override: User changes weekdays habit to daily before saving", async () => {
+      const parsed = parseProductivityText("Go to gym every weekday");
+      expect(parsed.type).toBe("habit");
+      expect(parsed.recurrence?.type).toBe("weekdays");
+
+      const overridden: ParsedProductivityItem = {
+        ...parsed,
+        recurrence: {
+          type: "daily",
+          interval: 1,
+        },
+      };
+
+      const savedHabit = await saveParsedItem(overridden, "ws-wellness");
+      const persisted = await HabitRepository.getHabit(savedHabit.id, "ws-wellness");
+      expect(persisted?.recurrence.frequency).toBe("daily");
     });
   });
 });

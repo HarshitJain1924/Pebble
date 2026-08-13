@@ -12,7 +12,7 @@
  *   - Progressive disclosure keeps secondary attributes hidden.
  *   - File picking support using expo-document-picker.
  */
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef, forwardRef, useImperativeHandle } from "react";
 import {
   View,
   TouchableOpacity,
@@ -61,8 +61,9 @@ import {
   type WorkspaceSuggestionResult,
 } from "@/features/workspaces/services/workspace-suggestions.service";
 import { INBOX_WORKSPACE_ID, type Attachment } from "@/shared/types/domain.types";
-import { saveParsedItem } from "@/features/capture/services/CaptureService";
+import { saveParsedItem, mergeParsedChecklist } from "@/features/capture/services/CaptureService";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import { MetadataChipPicker, type ChipPickerOption } from "./MetadataChipPicker";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -93,7 +94,8 @@ const CATEGORY_META: Record<string, { label: string; color: string; icon: React.
 const PRIORITY_META: Record<string, { label: string; color: string }> = {
   high: { label: "High", color: "#EF4444" },
   medium: { label: "Medium", color: "#F59E0B" },
-  low: { label: "Low", color: "#10B981" },
+  low: { label: "Low", color: "#3B82F6" },
+  none: { label: "None", color: "#9CA3AF" },
 };
 
 const getDateKey = (date = new Date()) => {
@@ -173,6 +175,67 @@ function getOrdinal(n: number): string {
   }
 }
 
+// ─── LiveCaptureInput ───────────────────────────────────────────────────────────
+
+export interface LiveCaptureInputRef {
+  getValue: () => string;
+  setValue: (val: string) => void;
+}
+
+interface LiveCaptureInputProps extends Omit<React.ComponentProps<typeof CaptureInputBox>, "value" | "onChangeText"> {
+  initialValue?: string;
+  onEmptyChange: (isEmpty: boolean) => void;
+  onTypingStart: () => void;
+  onIdleText: (text: string) => void;
+}
+
+const LiveCaptureInput = forwardRef<LiveCaptureInputRef, LiveCaptureInputProps>(
+  ({ initialValue = "", onEmptyChange, onTypingStart, onIdleText, ...props }, ref) => {
+    const [text, setText] = useState(initialValue);
+    const timerRef = useRef<any>(null);
+    const latestCallbacks = useRef({ onEmptyChange, onTypingStart, onIdleText });
+
+    useEffect(() => {
+      latestCallbacks.current = { onEmptyChange, onTypingStart, onIdleText };
+    }, [onEmptyChange, onTypingStart, onIdleText]);
+
+    useImperativeHandle(ref, () => ({
+      getValue: () => text,
+      setValue: (val: string) => {
+        setText(val);
+        const isEmpty = val.trim().length === 0;
+        latestCallbacks.current.onEmptyChange(isEmpty);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (isEmpty) {
+          latestCallbacks.current.onIdleText("");
+        } else {
+          latestCallbacks.current.onIdleText(val);
+        }
+      },
+    }));
+
+    const handleChange = useCallback((val: string) => {
+      setText(val);
+      const isEmpty = val.trim().length === 0;
+      latestCallbacks.current.onEmptyChange(isEmpty);
+
+      if (timerRef.current) clearTimeout(timerRef.current);
+
+      if (isEmpty) {
+        latestCallbacks.current.onIdleText("");
+        return;
+      }
+
+      latestCallbacks.current.onTypingStart();
+      timerRef.current = setTimeout(() => {
+        latestCallbacks.current.onIdleText(val);
+      }, 450);
+    }, []);
+
+    return <CaptureInputBox value={text} onChangeText={handleChange} {...props} />;
+  }
+);
+
 // ─── Props ──────────────────────────────────────────────────────────────────
 
 interface UnifiedCaptureProps {
@@ -202,13 +265,19 @@ export default function UnifiedCapture({
 
   // ─── State ──────────────────────────────────────────────────────────────
 
-  const [inputText, setInputText] = useState("");
+  const inputRef = useRef<LiveCaptureInputRef>(null);
+  const [hasInput, setHasInput] = useState(false);
   const [parsedItem, setParsedItem] = useState<ParsedProductivityItem | null>(null);
   const [duplicateResult, setDuplicateResult] = useState<DuplicateAnalysisResult | null>(null);
   const duplicateResultRef = useRef<DuplicateAnalysisResult | null>(null);
+  const userOverridesRef = useRef<{
+    type?: ParsedProductivityItem["type"];
+    priority?: ParsedProductivityItem["priority"];
+    date?: string;
+    category?: ParsedProductivityItem["category"];
+    recurrence?: ParsedProductivityItem["recurrence"];
+  }>({});
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(defaultWorkspaceId);
-  const [showMoreOptions, setShowMoreOptions] = useState(false);
-  const [showTypeOverride, setShowTypeOverride] = useState(false);
   const [clipboardUrl, setClipboardUrl] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isParsing, setIsParsing] = useState(false);
@@ -227,8 +296,8 @@ export default function UnifiedCapture({
     stopRecording,
     cancelRecording,
   } = useVoiceCapture({
-    onTranscriptComplete: (finalText) => setInputText(finalText),
-    onTranscriptChange: (interimText) => setInputText(interimText),
+    onTranscriptComplete: (finalText) => inputRef.current?.setValue(finalText),
+    onTranscriptChange: (interimText) => inputRef.current?.setValue(interimText),
   });
 
   // Animation values
@@ -237,7 +306,6 @@ export default function UnifiedCapture({
   // ─── Effects ────────────────────────────────────────────────────────────
 
   // Dynamic header updates based on type
-  const hasInput = useMemo(() => inputText.trim().length > 0, [inputText.length > 0]);
   const smartHeader = useMemo(() => {
     if (isParsing) return { title: "Quick Capture", desc: "Understanding your thought..." };
     if (!parsedItem || !hasInput) {
@@ -295,27 +363,26 @@ export default function UnifiedCapture({
     duplicateResultRef.current = duplicateResult;
   }, [duplicateResult]);
 
-  // Debounced NLP parsing & non-blocking duplicate detection
-  useEffect(() => {
-    let isCancelled = false;
+  // ─── Live Input Callbacks ────────────────────────────────────────────────
 
-    if (!inputText.trim()) {
-      if (parsedItem !== null) setParsedItem(null);
-      if (duplicateResult !== null) setDuplicateResult(null);
-      if (showTypeOverride) setShowTypeOverride(false);
-      if (showMoreOptions) setShowMoreOptions(false);
-      if (isParsing) setIsParsing(false);
-      loadingProgress.value = 0;
-      return;
-    }
+  const handleEmptyChange = useCallback((isEmpty: boolean) => {
+    setHasInput(!isEmpty);
+  }, []);
 
-    // NOTE: Do NOT clear duplicateResult here on every keystroke.
-    // The previous duplicate result stays valid until the 450ms timer delivers
-    // new parse results. Clearing it eagerly was causing handleSave/handleSaveAnyway
-    // to get new references every character, defeating CaptureSummaryCard React.memo.
+  const handleTypingStart = useCallback(() => {
+    setIsParsing(true);
+  }, []);
 
-    const timer = setTimeout(async () => {
-      if (isCancelled) return;
+  const handleIdleText = useCallback(
+    (text: string) => {
+      if (!text.trim()) {
+        if (parsedItem !== null) setParsedItem(null);
+        if (duplicateResult !== null) setDuplicateResult(null);
+        if (isParsing) setIsParsing(false);
+        loadingProgress.value = 0;
+        return;
+      }
+
       setIsParsing(true);
       loadingProgress.value = 0;
       loadingProgress.value = withRepeat(
@@ -324,15 +391,32 @@ export default function UnifiedCapture({
         true,
       );
 
-      const parsed = parseProductivityText(inputText.trim());
-      // Apply default overrides from entry context
-      if (defaultType && parsed.type === "task" && parsed.detectionSignal === "default_task") {
+      const parsed = parseProductivityText(text.trim());
+      // Apply default overrides from entry context and explicit user overrides
+      if (userOverridesRef.current.type) {
+        parsed.type = userOverridesRef.current.type;
+      } else if (defaultType && parsed.type === "task" && parsed.detectionSignal === "default_task") {
         parsed.type = defaultType;
       }
-      if (defaultDate && parsed.type === "task" && !parsed.date) {
+
+      if (userOverridesRef.current.date !== undefined) {
+        parsed.date = userOverridesRef.current.date;
+      } else if (defaultDate && parsed.type === "task" && !parsed.date) {
         parsed.date = defaultDate;
       }
-      if (isCancelled) return;
+
+      if (userOverridesRef.current.priority) {
+        parsed.priority = userOverridesRef.current.priority;
+      }
+
+      if (userOverridesRef.current.category) {
+        parsed.category = userOverridesRef.current.category;
+      }
+
+      if (userOverridesRef.current.recurrence !== undefined) {
+        parsed.recurrence = userOverridesRef.current.recurrence;
+      }
+
       setParsedItem(parsed);
       setIsParsing(false);
       loadingProgress.value = withTiming(1, { duration: 200 });
@@ -343,12 +427,15 @@ export default function UnifiedCapture({
       // Run duplicate check in the background after typing stops (non-blocking)
       analyzeDuplicate(parsed, selectedWorkspaceId || INBOX_WORKSPACE_ID)
         .then((dupRes) => {
-          if (!isCancelled) {
-            if (dupRes && (dupRes.relationship === "exact_duplicate" || dupRes.relationship === "near_duplicate")) {
-              setDuplicateResult(dupRes);
-            } else {
-              setDuplicateResult(null);
-            }
+          if (
+            dupRes &&
+            (dupRes.relationship === "exact_duplicate" ||
+              dupRes.relationship === "near_duplicate" ||
+              dupRes.relationship === "merge_candidate")
+          ) {
+            setDuplicateResult(dupRes);
+          } else {
+            setDuplicateResult(null);
           }
         })
         .catch(() => {});
@@ -362,47 +449,60 @@ export default function UnifiedCapture({
           {},
         )
           .then((wsSuggestions) => {
-            if (!isCancelled) {
-              const top = wsSuggestions[0];
-              if (top && top.score >= 75) {
-                setTopSuggestion(top);
-                setSelectedWorkspaceId(top.workspaceId);
-              }
+            const top = wsSuggestions[0];
+            if (top && top.score >= 75) {
+              setTopSuggestion(top);
+              setSelectedWorkspaceId(top.workspaceId);
             }
           })
           .catch(() => {});
       }
-    }, 450);
-
-    return () => {
-      isCancelled = true;
-      clearTimeout(timer);
-    };
-  }, [inputText, selectedWorkspaceId]);
+    },
+    [parsedItem, duplicateResult, isParsing, defaultType, defaultDate, selectedWorkspaceId, workspaces],
+  );
 
   // ─── Handlers ───────────────────────────────────────────────────────────
 
-  const handleTypeOverride = useCallback(
-    (newType: ParsedProductivityItem["type"]) => {
-      if (!parsedItem) return;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      setParsedItem({ ...parsedItem, type: newType });
-      setShowTypeOverride(false);
-    },
-    [parsedItem],
-  );
+  const handleTypeChange = useCallback((newType: ParsedProductivityItem["type"]) => {
+    userOverridesRef.current.type = newType;
+    setParsedItem((prev) => (prev ? { ...prev, type: newType } : null));
+  }, []);
+
+  const handlePriorityChange = useCallback((newPriority: ParsedProductivityItem["priority"]) => {
+    userOverridesRef.current.priority = newPriority;
+    setParsedItem((prev) => (prev ? { ...prev, priority: newPriority } : null));
+  }, []);
+
+  const handleDateChange = useCallback((newDate: string | undefined) => {
+    userOverridesRef.current.date = newDate;
+    setParsedItem((prev) => (prev ? { ...prev, date: newDate } : null));
+  }, []);
+
+  const handleCategoryChange = useCallback((newCategory: ParsedProductivityItem["category"]) => {
+    userOverridesRef.current.category = newCategory;
+    setParsedItem((prev) => (prev ? { ...prev, category: newCategory } : null));
+  }, []);
+
+  const handleRecurrenceChange = useCallback((newRecurrence: ParsedProductivityItem["recurrence"]) => {
+    userOverridesRef.current.recurrence = newRecurrence;
+    setParsedItem((prev) => (prev ? { ...prev, recurrence: newRecurrence } : null));
+  }, []);
+
+  const handleWorkspaceChange = useCallback((workspaceId: string) => {
+    setSelectedWorkspaceId(workspaceId);
+  }, []);
 
   const handleClipboardPaste = useCallback(() => {
     if (clipboardUrl) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      setInputText(clipboardUrl);
+      inputRef.current?.setValue(clipboardUrl);
       setClipboardUrl(null);
     }
   }, [clipboardUrl]);
 
   const handleSuggestionTap = useCallback((text: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setInputText(text);
+    inputRef.current?.setValue(text);
   }, []);
 
   const handleAttachment = useCallback(async () => {
@@ -442,7 +542,34 @@ export default function UnifiedCapture({
 
   const handleSave = useCallback(
     async (bypassDuplicateCheck: boolean = false) => {
-      if (!parsedItem || !parsedItem.title.trim() || isSaving) return;
+      const liveText = inputRef.current?.getValue().trim();
+      if (!liveText || isSaving) return;
+
+      // Synchronously catch up if user pressed save before 450ms timer fired
+      let finalParsedItem = parsedItem;
+      if (!finalParsedItem || finalParsedItem.title !== liveText) {
+        finalParsedItem = parseProductivityText(liveText);
+        if (userOverridesRef.current.type) {
+          finalParsedItem.type = userOverridesRef.current.type;
+        } else if (defaultType && finalParsedItem.type === "task" && finalParsedItem.detectionSignal === "default_task") {
+          finalParsedItem.type = defaultType;
+        }
+        if (userOverridesRef.current.date !== undefined) {
+          finalParsedItem.date = userOverridesRef.current.date;
+        } else if (defaultDate && finalParsedItem.type === "task" && !finalParsedItem.date) {
+          finalParsedItem.date = defaultDate;
+        }
+        if (userOverridesRef.current.priority) {
+          finalParsedItem.priority = userOverridesRef.current.priority;
+        }
+        if (userOverridesRef.current.category) {
+          finalParsedItem.category = userOverridesRef.current.category;
+        }
+        if (userOverridesRef.current.recurrence !== undefined) {
+          finalParsedItem.recurrence = userOverridesRef.current.recurrence;
+        }
+        setParsedItem(finalParsedItem);
+      }
 
       const wsId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
@@ -450,9 +577,9 @@ export default function UnifiedCapture({
       // Read from ref to avoid duplicateResult in dependency array (keeps handleSave stable)
       if (!bypassDuplicateCheck) {
         let dupCheck = duplicateResultRef.current;
-        if (!dupCheck) {
+        if (!dupCheck || dupCheck.matchedEntity?.title !== liveText) {
           try {
-            dupCheck = await analyzeDuplicate(parsedItem, wsId);
+            dupCheck = await analyzeDuplicate(finalParsedItem, wsId);
           } catch {
             dupCheck = null;
           }
@@ -472,20 +599,19 @@ export default function UnifiedCapture({
 
       setIsSaving(true);
       try {
-        await saveParsedItem(parsedItem, wsId, { bypassDuplicateCheck: true });
+        await saveParsedItem(finalParsedItem, wsId, { bypassDuplicateCheck: true });
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
-        const typeLabel = TYPE_META[parsedItem.type].label;
+        const typeLabel = TYPE_META[finalParsedItem.type].label;
         showToast(`✓ ${typeLabel} added to ${wsName}`);
 
         // Reset
-        setInputText("");
+        userOverridesRef.current = {};
+        inputRef.current?.setValue("");
         setParsedItem(null);
         setDuplicateResult(null);
         setAttachedFile(null);
-        setShowMoreOptions(false);
-        setShowTypeOverride(false);
         sheetRef.current?.dismiss();
         // Disable re-enables after dismiss is triggered (not awaited)
         setTimeout(() => setIsSaving(false), 300);
@@ -501,13 +627,42 @@ export default function UnifiedCapture({
     handleSave(true);
   }, [handleSave]);
 
+  const handleMergeChecklist = useCallback(async () => {
+    if (!duplicateResult?.matchedEntity || !parsedItem || isSaving) return;
+    setIsSaving(true);
+    const wsId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
+    try {
+      await mergeParsedChecklist(parsedItem, duplicateResult.matchedEntity.id, wsId);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
+      const count = duplicateResult.newItems?.length || 0;
+      showToast(`✓ Added ${count} item${count !== 1 ? "s" : ""} to existing list in ${wsName}`);
+
+      // Reset
+      userOverridesRef.current = {};
+      inputRef.current?.setValue("");
+      setParsedItem(null);
+      setDuplicateResult(null);
+      setAttachedFile(null);
+      sheetRef.current?.dismiss();
+    } catch (e) {
+      console.warn("Failed to merge checklist", e);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      showToast("Failed to update checklist.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [duplicateResult, parsedItem, isSaving, selectedWorkspaceId, workspaces, showToast]);
+
   const handleUseExisting = useCallback(() => {
     if (!duplicateResult?.matchedEntity) return;
     const entity = duplicateResult.matchedEntity;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
     // Reset capture input and dismiss sheet
-    setInputText("");
+    userOverridesRef.current = {};
+    inputRef.current?.setValue("");
     setParsedItem(null);
     setDuplicateResult(null);
     setAttachedFile(null);
@@ -554,16 +709,6 @@ export default function UnifiedCapture({
     setSelectedWorkspaceId(workspaces[nextIdx].id);
   }, [workspaces, selectedWorkspaceId]);
 
-  const handleToggleTypeOverride = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setShowTypeOverride((prev) => !prev);
-  }, []);
-
-  const handleToggleMoreOptions = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setShowMoreOptions((prev) => !prev);
-  }, []);
-
   const handleRemoveAttachedFile = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setAttachedFile(null);
@@ -571,6 +716,11 @@ export default function UnifiedCapture({
   }, []);
 
   const handleDismiss = useCallback(() => {
+    userOverridesRef.current = {};
+    inputRef.current?.setValue("");
+    setParsedItem(null);
+    setDuplicateResult(null);
+    setAttachedFile(null);
     sheetRef.current?.dismiss();
   }, [sheetRef]);
 
@@ -629,11 +779,10 @@ export default function UnifiedCapture({
   const handleSheetChange = useCallback(
     (index: number) => {
       if (index === -1) {
-        setInputText("");
+        userOverridesRef.current = {};
+        inputRef.current?.setValue("");
         setParsedItem(null);
         setAttachedFile(null);
-        setShowMoreOptions(false);
-        setShowTypeOverride(false);
         setClipboardUrl(null);
         cancelRecording();
       }
@@ -687,9 +836,11 @@ export default function UnifiedCapture({
         showsVerticalScrollIndicator={false}
       >
         {/* ── Input Layer ── */}
-        <CaptureInputBox
-          value={inputText}
-          onChangeText={setInputText}
+        <LiveCaptureInput
+          ref={inputRef}
+          onEmptyChange={handleEmptyChange}
+          onTypingStart={handleTypingStart}
+          onIdleText={handleIdleText}
           placeholder={voiceStatus === "listening" ? "Listening..." : "What do you want to remember?"}
           placeholderTextColor={textMuted}
           voiceStatus={voiceStatus}
@@ -729,7 +880,7 @@ export default function UnifiedCapture({
         )}
 
         {/* ── Clipboard URL Suggestion ── */}
-        {clipboardUrl && !inputText.trim() && (
+        {clipboardUrl && !hasInput && (
           <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOut.duration(150)}>
             <PressableScale
               onPress={handleClipboardPaste}
@@ -805,25 +956,26 @@ export default function UnifiedCapture({
             themeSecondary={theme.secondary}
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
-            onWorkspaceCycle={handleWorkspaceCycle}
+            onTypeChange={handleTypeChange}
+            onPriorityChange={handlePriorityChange}
+            onDateChange={handleDateChange}
+            onCategoryChange={handleCategoryChange}
+            onRecurrenceChange={handleRecurrenceChange}
+            onWorkspaceChange={handleWorkspaceChange}
             attachedFile={attachedFile}
             onRemoveAttachedFile={handleRemoveAttachedFile}
-            showTypeOverride={showTypeOverride}
-            onToggleTypeOverride={handleToggleTypeOverride}
-            onTypeOverride={handleTypeOverride}
-            showMoreOptions={showMoreOptions}
-            onToggleMoreOptions={handleToggleMoreOptions}
             onDismiss={handleDismiss}
             onSave={handleSave}
             onSaveAnyway={handleSaveAnyway}
             onUseExisting={handleUseExisting}
+            onMergeChecklist={handleMergeChecklist}
             isSaving={isSaving}
             saveButtonLabel={saveButtonLabel}
           />
         )}
 
         {/* ── Smart Suggestions (from computed adaptive suggestions) ── */}
-        {!inputText.trim() && suggestions.length > 0 && (
+        {!hasInput && suggestions.length > 0 && (
           <CaptureSuggestions
             suggestions={suggestions}
             isDark={isDark}
@@ -851,18 +1003,19 @@ interface CaptureSummaryCardProps {
   themeSecondary: string;
   workspaces: { id: string; name: string; emoji?: string }[];
   selectedWorkspaceId?: string;
-  onWorkspaceCycle: () => void;
+  onTypeChange: (type: ParsedProductivityItem["type"]) => void;
+  onPriorityChange: (priority: ParsedProductivityItem["priority"]) => void;
+  onDateChange: (date: string | undefined) => void;
+  onCategoryChange: (category: ParsedProductivityItem["category"]) => void;
+  onRecurrenceChange: (recurrence: ParsedProductivityItem["recurrence"]) => void;
+  onWorkspaceChange: (workspaceId: string) => void;
   attachedFile: { name: string; size: number; uri: string } | null;
   onRemoveAttachedFile: () => void;
-  showTypeOverride: boolean;
-  onToggleTypeOverride: () => void;
-  onTypeOverride: (type: ParsedProductivityItem["type"]) => void;
-  showMoreOptions: boolean;
-  onToggleMoreOptions: () => void;
   onDismiss: () => void;
   onSave: () => void;
   onSaveAnyway: () => void;
   onUseExisting: () => void;
+  onMergeChecklist: () => void;
   isSaving: boolean;
   saveButtonLabel: string;
 }
@@ -878,21 +1031,24 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   themeSecondary,
   workspaces,
   selectedWorkspaceId,
-  onWorkspaceCycle,
+  onTypeChange,
+  onPriorityChange,
+  onDateChange,
+  onCategoryChange,
+  onRecurrenceChange,
+  onWorkspaceChange,
   attachedFile,
   onRemoveAttachedFile,
-  showTypeOverride,
-  onToggleTypeOverride,
-  onTypeOverride,
-  showMoreOptions,
-  onToggleMoreOptions,
   onDismiss,
   onSave,
   onSaveAnyway,
   onUseExisting,
+  onMergeChecklist,
   isSaving,
   saveButtonLabel,
 }: CaptureSummaryCardProps) {
+  const [activePicker, setActivePicker] = useState<"type" | "priority" | "date" | "category" | "recurrence" | "workspace" | null>(null);
+
   const isSameWorkspaceExactDuplicate =
     duplicateResult &&
     duplicateResult.isPotentialDuplicate &&
@@ -908,6 +1064,134 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   const isNearDuplicate =
     duplicateResult &&
     duplicateResult.relationship === "near_duplicate";
+
+  const isMergeCandidate =
+    duplicateResult &&
+    duplicateResult.relationship === "merge_candidate";
+
+  // Compute options for active picker
+  const pickerConfig = useMemo(() => {
+    if (!activePicker) return null;
+
+    if (activePicker === "type") {
+      return {
+        title: "Change Type",
+        options: (Object.keys(TYPE_META) as ParsedProductivityItem["type"][]).map((t) => ({
+          id: t,
+          label: TYPE_META[t].label,
+          icon: TYPE_META[t].icon,
+          color: TYPE_META[t].color,
+          isSelected: parsedItem.type === t,
+        })),
+        onSelect: (id: string) => onTypeChange(id as ParsedProductivityItem["type"]),
+      };
+    }
+
+    if (activePicker === "priority") {
+      return {
+        title: "Set Priority",
+        options: (["high", "medium", "low", "none"] as const).map((p) => ({
+          id: p,
+          label: PRIORITY_META[p].label,
+          color: PRIORITY_META[p].color,
+          isSelected: (parsedItem.priority || "medium") === p,
+        })),
+        onSelect: (id: string) => onPriorityChange(id as ParsedProductivityItem["priority"]),
+      };
+    }
+
+    if (activePicker === "date") {
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+
+      const weekend = new Date(today);
+      const dayOfWeek = today.getDay();
+      const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7;
+      weekend.setDate(today.getDate() + daysUntilSaturday);
+
+      const nextMonday = new Date(today);
+      const daysUntilNextMon = (1 - dayOfWeek + 7) % 7 || 7;
+      nextMonday.setDate(today.getDate() + daysUntilNextMon);
+
+      return {
+        title: "Set Due Date",
+        options: [
+          { id: getDateKey(today), label: "Today", subtitle: getFriendlyDateLabel(getDateKey(today)), icon: "sun" as const, isSelected: parsedItem.date === getDateKey(today) },
+          { id: getDateKey(tomorrow), label: "Tomorrow", subtitle: getFriendlyDateLabel(getDateKey(tomorrow)), icon: "arrow-right" as const, isSelected: parsedItem.date === getDateKey(tomorrow) },
+          { id: getDateKey(weekend), label: "This Weekend", subtitle: getFriendlyDateLabel(getDateKey(weekend)), icon: "coffee" as const, isSelected: parsedItem.date === getDateKey(weekend) },
+          { id: getDateKey(nextMonday), label: "Next Week", subtitle: getFriendlyDateLabel(getDateKey(nextMonday)), icon: "calendar" as const, isSelected: parsedItem.date === getDateKey(nextMonday) },
+          { id: "none", label: "No Due Date (Inbox)", subtitle: "Save without due date", icon: "inbox" as const, isSelected: !parsedItem.date },
+        ],
+        onSelect: (id: string) => onDateChange(id === "none" ? undefined : id),
+      };
+    }
+
+    if (activePicker === "category") {
+      const categories: (keyof typeof CATEGORY_META)[] = [
+        "work",
+        "personal",
+        "health",
+        "learning",
+        "creative",
+        "focus",
+      ];
+      return {
+        title: "Set Category",
+        options: [
+          ...categories.map((c) => ({
+            id: c,
+            label: CATEGORY_META[c].label,
+            color: CATEGORY_META[c].color,
+            icon: CATEGORY_META[c].icon,
+            isSelected: parsedItem.category === c,
+          })),
+          {
+            id: "none",
+            label: "No Category",
+            icon: "x" as const,
+            isSelected: !parsedItem.category,
+          },
+        ],
+        onSelect: (id: string) => onCategoryChange(id === "none" ? undefined : (id as ParsedProductivityItem["category"])),
+      };
+    }
+
+    if (activePicker === "recurrence") {
+      return {
+        title: "Set Recurrence",
+        options: [
+          { id: "daily", label: "Daily", icon: "repeat" as const, isSelected: parsedItem.recurrence?.type === "daily" },
+          { id: "weekdays", label: "Weekdays (Mon-Fri)", icon: "calendar" as const, isSelected: parsedItem.recurrence?.type === "weekdays" },
+          { id: "weekly", label: "Weekly", icon: "refresh-cw" as const, isSelected: parsedItem.recurrence?.type === "weekly" },
+          { id: "monthly", label: "Monthly", icon: "calendar" as const, isSelected: parsedItem.recurrence?.type === "monthly" },
+          { id: "none", label: "Don't Repeat (Once)", icon: "x" as const, isSelected: !parsedItem.recurrence },
+        ],
+        onSelect: (id: string) =>
+          onRecurrenceChange(
+            id === "none"
+              ? undefined
+              : { type: id as any, interval: 1 },
+          ),
+      };
+    }
+
+    if (activePicker === "workspace") {
+      return {
+        title: "Select Workspace",
+        options: workspaces.map((w) => ({
+          id: w.id,
+          label: `${w.emoji || "📂"} ${w.name}`,
+          isSelected: (selectedWorkspaceId || INBOX_WORKSPACE_ID) === w.id,
+        })),
+        onSelect: (id: string) => onWorkspaceChange(id),
+      };
+    }
+
+    return null;
+  }, [activePicker, parsedItem, selectedWorkspaceId, workspaces, onTypeChange, onPriorityChange, onDateChange, onCategoryChange, onRecurrenceChange, onWorkspaceChange]);
+
+  const currentWorkspace = workspaces.find((w) => w.id === selectedWorkspaceId);
 
   return (
     <Animated.View
@@ -925,18 +1209,29 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
         },
       ]}
     >
-      {/* Header: Type Badge + Confidence */}
+      {/* Header: Interactive Type Badge + Confidence */}
       <View style={styles.summaryHeader}>
-        <View style={[styles.typeBadge, { backgroundColor: `${TYPE_META[parsedItem.type].color}12` }]}>
+        <PressableScale
+          onPress={() => setActivePicker("type")}
+          style={[
+            styles.typeBadge,
+            {
+              backgroundColor: `${TYPE_META[parsedItem.type].color}14`,
+              borderColor: `${TYPE_META[parsedItem.type].color}30`,
+              borderWidth: 1,
+            },
+          ]}
+        >
           <Feather
             name={TYPE_META[parsedItem.type].icon}
-            size={13}
+            size={12}
             color={TYPE_META[parsedItem.type].color}
           />
           <Text style={[styles.typeBadgeText, { color: TYPE_META[parsedItem.type].color }]}>
             {TYPE_META[parsedItem.type].label}
           </Text>
-        </View>
+          <Feather name="chevron-down" size={10} color={TYPE_META[parsedItem.type].color} />
+        </PressableScale>
 
         {/* Confidence badge */}
         {parsedItem.confidence >= 0.8 ? (
@@ -959,7 +1254,6 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
         <Text style={[styles.summaryTitle, { color: textPrimary, flex: 1 }]}>
           {parsedItem.title}
         </Text>
-        <Feather name="edit-2" size={14} color={textMuted} style={{ opacity: 0.6 }} />
       </View>
 
       {/* Attached File Preview (if type file) */}
@@ -1006,138 +1300,160 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
         </View>
       )}
 
-      {/* Core details mapping */}
-      <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: borderColor, paddingTop: 12 }}>
-        {parsedItem.recurrence && (
-          <View style={styles.coreValueRow}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Feather name="refresh-cw" size={13} color={textMuted} />
-              <Text style={{ fontSize: 13, color: textMuted }}>Repeat</Text>
-            </View>
-            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-              {getRecurrenceLabel(parsedItem)}
-            </Text>
-          </View>
-        )}
-
-        {parsedItem.time && (
-          <View style={styles.coreValueRow}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Feather name="clock" size={13} color={textMuted} />
-              <Text style={{ fontSize: 13, color: textMuted }}>Time</Text>
-            </View>
-            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-              {getFriendlyTimeLabel(parsedItem.time)}
-            </Text>
-          </View>
-        )}
-
-        {parsedItem.date && parsedItem.type === "task" && (
-          <View style={styles.coreValueRow}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Feather name="calendar" size={13} color={textMuted} />
-              <Text style={{ fontSize: 13, color: textMuted }}>Date</Text>
-            </View>
-            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-              {getFriendlyDateLabel(parsedItem.date)}
-            </Text>
-          </View>
-        )}
-
-        <View style={styles.coreValueRow}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Feather name="folder" size={13} color={textMuted} />
-            <Text style={{ fontSize: 13, color: textMuted }}>Workspace</Text>
-          </View>
+      {/* ── Metadata Chips Row ── */}
+      <View style={styles.chipsContainer}>
+        {/* Date Chip (Tasks only) */}
+        {parsedItem.type === "task" && (
           <PressableScale
-            onPress={onWorkspaceCycle}
-            style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+            onPress={() => setActivePicker("date")}
+            style={[
+              styles.chip,
+              {
+                backgroundColor: parsedItem.date
+                  ? isDark ? "rgba(99, 102, 241, 0.12)" : "rgba(99, 102, 241, 0.08)"
+                  : isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)",
+                borderColor: parsedItem.date
+                  ? isDark ? "rgba(99, 102, 241, 0.3)" : "rgba(99, 102, 241, 0.2)"
+                  : borderColor,
+              },
+            ]}
           >
-            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-              {workspaces.find((w) => w.id === selectedWorkspaceId)?.emoji || "📂"}{" "}
-              {workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles"}
+            <Feather
+              name="calendar"
+              size={11}
+              color={parsedItem.date ? themePrimary : textMuted}
+            />
+            <Text
+              style={[
+                styles.chipText,
+                {
+                  color: parsedItem.date ? textPrimary : textMuted,
+                  fontWeight: parsedItem.date ? "600" : "500",
+                },
+              ]}
+            >
+              {parsedItem.date ? getFriendlyDateLabel(parsedItem.date) : "No date"}
             </Text>
-            <Feather name="chevron-down" size={12} color={textMuted} />
+            <Feather name="chevron-down" size={9} color={textMuted} />
           </PressableScale>
-        </View>
+        )}
+
+        {/* Recurrence Chip (Habits or Tasks with recurrence) */}
+        {(parsedItem.type === "habit" || parsedItem.recurrence) && (
+          <PressableScale
+            onPress={() => setActivePicker("recurrence")}
+            style={[
+              styles.chip,
+              {
+                backgroundColor: isDark ? "rgba(16, 185, 129, 0.12)" : "rgba(16, 185, 129, 0.08)",
+                borderColor: isDark ? "rgba(16, 185, 129, 0.3)" : "rgba(16, 185, 129, 0.2)",
+              },
+            ]}
+          >
+            <Feather name="refresh-cw" size={11} color={isDark ? "#34D399" : "#059669"} />
+            <Text
+              style={[
+                styles.chipText,
+                {
+                  color: isDark ? "#34D399" : "#059669",
+                  fontWeight: "600",
+                },
+              ]}
+            >
+              {getRecurrenceLabel(parsedItem) || "Daily"}
+            </Text>
+            <Feather name="chevron-down" size={9} color={isDark ? "#34D399" : "#059669"} />
+          </PressableScale>
+        )}
+
+        {/* Priority Chip (Tasks & Habits) */}
+        {(parsedItem.type === "task" || parsedItem.type === "habit") && (
+          <PressableScale
+            onPress={() => setActivePicker("priority")}
+            style={[
+              styles.chip,
+              {
+                backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)",
+                borderColor,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.priorityDot,
+                { backgroundColor: PRIORITY_META[parsedItem.priority || "medium"].color },
+              ]}
+            />
+            <Text style={[styles.chipText, { color: textPrimary, fontWeight: "500" }]}>
+              {PRIORITY_META[parsedItem.priority || "medium"].label}
+            </Text>
+            <Feather name="chevron-down" size={9} color={textMuted} />
+          </PressableScale>
+        )}
+
+        {/* Category Chip (Tasks & Habits - only if parsed or set) */}
+        {(parsedItem.type === "task" || parsedItem.type === "habit") && parsedItem.category && (
+          <PressableScale
+            onPress={() => setActivePicker("category")}
+            style={[
+              styles.chip,
+              {
+                backgroundColor: `${CATEGORY_META[parsedItem.category].color}12`,
+                borderColor: `${CATEGORY_META[parsedItem.category].color}30`,
+              },
+            ]}
+          >
+            <Feather
+              name={CATEGORY_META[parsedItem.category].icon}
+              size={11}
+              color={CATEGORY_META[parsedItem.category].color}
+            />
+            <Text
+              style={[
+                styles.chipText,
+                {
+                  color: CATEGORY_META[parsedItem.category].color,
+                  fontWeight: "600",
+                },
+              ]}
+            >
+              {CATEGORY_META[parsedItem.category].label}
+            </Text>
+            <Feather name="chevron-down" size={9} color={textMuted} />
+          </PressableScale>
+        )}
+
+        {/* Workspace Chip (All Types) */}
+        <PressableScale
+          onPress={() => setActivePicker("workspace")}
+          style={[
+            styles.chip,
+            {
+              backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)",
+              borderColor,
+            },
+          ]}
+        >
+          <Text style={{ fontSize: 11 }}>
+            {currentWorkspace?.emoji || "📂"}
+          </Text>
+          <Text style={[styles.chipText, { color: textPrimary, fontWeight: "500" }]} numberOfLines={1}>
+            {currentWorkspace?.name || "My Pebbles"}
+          </Text>
+          <Feather name="chevron-down" size={9} color={textMuted} />
+        </PressableScale>
       </View>
 
-      {/* Change Type Dropdown trigger */}
-      <TouchableOpacity
-        onPress={onToggleTypeOverride}
-        style={styles.changeTypeTrigger}
-      >
-        <Text style={[styles.changeTypeTriggerText, { color: themePrimary }]}>
-          Change type ▾
-        </Text>
-      </TouchableOpacity>
-
-      {/* Inline Change Type Dropdown list */}
-      {showTypeOverride && (
-        <Animated.View entering={FadeInDown.duration(150)} exiting={FadeOut.duration(100)} style={[styles.dropdownContainer, { borderColor }]}>
-          {(Object.keys(TYPE_META) as ParsedProductivityItem["type"][]).map((t) => {
-            const isActive = parsedItem.type === t;
-            const meta = TYPE_META[t];
-            return (
-              <TouchableOpacity
-                key={t}
-                onPress={() => onTypeOverride(t)}
-                style={[styles.dropdownItem, { borderBottomColor: borderColor }]}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                  <Feather name={meta.icon} size={14} color={isActive ? meta.color : textMuted} />
-                  <Text style={{ fontSize: 13, fontWeight: isActive ? "700" : "500", color: isActive ? textPrimary : textMuted }}>
-                    {meta.label}
-                  </Text>
-                </View>
-                {isActive && <Feather name="check" size={13} color={meta.color} />}
-              </TouchableOpacity>
-            );
-          })}
-        </Animated.View>
-      )}
-
-      {/* Progressive Metadata Details trigger */}
-      {(parsedItem.type === "task" || parsedItem.type === "habit") && (
-        <View style={{ borderTopWidth: 1, borderTopColor: borderColor, paddingTop: 10 }}>
-          <PressableScale
-            onPress={onToggleMoreOptions}
-            style={styles.moreDetailsTrigger}
-          >
-            <Text style={[styles.moreDetailsTriggerText, { color: textMuted }]}>
-              {showMoreOptions ? "− Hide details" : "+ More details (Priority, Reminder, Category, Notes)"}
-            </Text>
-          </PressableScale>
-
-          {showMoreOptions && (
-            <Animated.View entering={FadeInDown.duration(180)} style={styles.moreDetailsCard}>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: textMuted }]}>Priority</Text>
-                <Text style={[styles.detailValue, { color: PRIORITY_META[parsedItem.priority || "medium"].color, fontWeight: "700" }]}>
-                  {PRIORITY_META[parsedItem.priority || "medium"].label}
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: textMuted }]}>Reminder</Text>
-                <Text style={[styles.detailValue, { color: textPrimary }]}>
-                  {parsedItem.time ? `On time` : "None"}
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: textMuted }]}>Category</Text>
-                <Text style={[styles.detailValue, { color: textPrimary }]}>
-                  {parsedItem.category ? CATEGORY_META[parsedItem.category].label : "None"}
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: textMuted }]}>Notes</Text>
-                <Text style={[styles.detailValue, { color: textMuted, fontStyle: "italic" }]}>
-                  Add notes...
-                </Text>
-              </View>
-            </Animated.View>
-          )}
-        </View>
+      {/* Contextual Modal Picker */}
+      {pickerConfig && (
+        <MetadataChipPicker
+          visible={!!activePicker}
+          title={pickerConfig.title}
+          options={pickerConfig.options}
+          onSelect={pickerConfig.onSelect}
+          onClose={() => setActivePicker(null)}
+          isDark={isDark}
+        />
       )}
 
       {/* ── Duplicate Notices / Warnings ── */}
@@ -1205,7 +1521,83 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
       )}
 
       {/* ── Action Buttons ── */}
-      {isSameWorkspaceExactDuplicate ? (
+      {isMergeCandidate ? (
+        <View style={{ marginTop: 12 }}>
+          <Animated.View
+            entering={FadeInDown.duration(180)}
+            style={[
+              styles.duplicateInfoBox,
+              {
+                backgroundColor: isDark ? "rgba(16, 185, 129, 0.1)" : "rgba(16, 185, 129, 0.05)",
+                borderColor: isDark ? "rgba(16, 185, 129, 0.25)" : "rgba(16, 185, 129, 0.2)",
+                marginBottom: 10,
+              },
+            ]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+              <Feather name="layers" size={16} color={isDark ? "#10B981" : "#059669"} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: isDark ? "#10B981" : "#059669", marginBottom: 4 }}>
+                  Update existing {duplicateResult?.matchedEntity?.title} list?
+                </Text>
+                {duplicateResult?.overlappingItems && duplicateResult.overlappingItems.length > 0 && (
+                  <Text style={{ fontSize: 12, color: textMuted, marginBottom: 2 }}>
+                    <Text style={{ fontWeight: "600" }}>Already there: </Text>
+                    {duplicateResult.overlappingItems.join(", ")}
+                  </Text>
+                )}
+                {duplicateResult?.newItems && duplicateResult.newItems.length > 0 && (
+                  <Text style={{ fontSize: 12, color: textMuted }}>
+                    <Text style={{ fontWeight: "600" }}>Add: </Text>
+                    {duplicateResult.newItems.join(", ")}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </Animated.View>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <PressableScale
+              onPress={onMergeChecklist}
+              disabled={isSaving}
+              scaleTo={isSaving ? 1 : 0.95}
+              style={[
+                styles.saveButton,
+                {
+                  backgroundColor: isSaving ? textMuted : isDark ? "#10B981" : "#059669",
+                  shadowColor: isSaving ? "transparent" : (isDark ? "#10B981" : "#059669"),
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: isSaving ? 0 : 0.2,
+                  shadowRadius: 8,
+                  elevation: isSaving ? 0 : 4,
+                  flex: 1,
+                },
+              ]}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.saveButtonText}>
+                  Add {duplicateResult?.newItems?.length ?? 1} item{(duplicateResult?.newItems?.length || 0) === 1 ? "" : "s"} to existing list
+                </Text>
+              )}
+            </PressableScale>
+
+            <TouchableOpacity
+              onPress={onSaveAnyway}
+              style={[
+                styles.useExistingBtn,
+                {
+                  borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
+                  backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                  flex: 1,
+                },
+              ]}
+            >
+              <Text style={[styles.useExistingBtnText, { color: textPrimary }]}>Create separate</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : isSameWorkspaceExactDuplicate ? (
         <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
           <TouchableOpacity
             onPress={onUseExisting}
@@ -1450,11 +1842,35 @@ const styles = StyleSheet.create({
   },
   // Summary card
   summaryCard: {
-    borderWidth: 1.5,
-    borderRadius: 22,
-    padding: 20,
-    gap: 16,
+    borderWidth: 1.2,
+    borderRadius: 18,
+    padding: 14,
+    gap: 10,
     marginTop: 4,
+  },
+  chipsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 2,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  chipText: {
+    fontSize: 12,
+    letterSpacing: -0.1,
+  },
+  priorityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   summaryHeader: {
     flexDirection: "row",
@@ -1464,10 +1880,10 @@ const styles = StyleSheet.create({
   typeBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 7,
   },
   typeBadgeText: {
     fontSize: 11,
@@ -1476,57 +1892,57 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   confidenceBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   // Title
   summaryTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    lineHeight: 26,
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+    lineHeight: 22,
   },
   urlSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
-    marginTop: -8,
+    marginTop: -4,
     textDecorationLine: "underline",
   },
   // Attached File card
   fileCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 12,
-    borderRadius: 14,
+    gap: 10,
+    padding: 10,
+    borderRadius: 12,
     borderWidth: 1.2,
     backgroundColor: "rgba(100,116,139,0.03)",
   },
   fileName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
   },
   // Checklist preview
   checklistPreview: {
-    gap: 8,
+    gap: 6,
     backgroundColor: "rgba(100, 116, 139, 0.03)",
-    padding: 14,
-    borderRadius: 14,
+    padding: 10,
+    borderRadius: 12,
   },
   checklistRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   checklistBox: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    borderWidth: 1.8,
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
   },
   checklistItemText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     flex: 1,
     letterSpacing: -0.15,
@@ -1537,68 +1953,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  // Change Type triggers
-  changeTypeTrigger: {
-    alignSelf: "flex-start",
-    paddingVertical: 2,
-  },
-  changeTypeTriggerText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  dropdownContainer: {
-    borderWidth: 1.2,
-    borderRadius: 14,
-    backgroundColor: "rgba(100,116,139,0.02)",
-    overflow: "hidden",
-    marginTop: 4,
-  },
-  dropdownItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderBottomWidth: 0.8,
-  },
-  // More options details
-  moreDetailsTrigger: {
-    alignSelf: "flex-start",
-    paddingVertical: 4,
-  },
-  moreDetailsTriggerText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  moreDetailsCard: {
-    gap: 8,
-    backgroundColor: "rgba(100, 116, 139, 0.02)",
-    padding: 12,
-    borderRadius: 14,
-    marginTop: 8,
-  },
-  detailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  detailLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  detailValue: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
   // Dismiss and Save Buttons
   dismissBtn: {
-    paddingVertical: 15,
-    paddingHorizontal: 22,
-    borderRadius: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   dismissBtnText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
   saveButton: {
@@ -1606,42 +1970,42 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 15,
-    borderRadius: 16,
+    paddingVertical: 13,
+    borderRadius: 14,
   },
   saveButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "800",
     color: "#FFFFFF",
     letterSpacing: -0.1,
   },
   // Duplicate warning & action styles
   duplicateWarningBox: {
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1.2,
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  duplicateInfoBox: {
     padding: 10,
     borderRadius: 12,
+    borderWidth: 1.2,
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  duplicateInfoBox: {
+    padding: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    marginTop: 4,
-    marginBottom: 4,
+    marginTop: 2,
+    marginBottom: 2,
   },
   useExistingBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    borderRadius: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1.2,
   },
   useExistingBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
   },
   saveAnywayBtn: {
@@ -1649,11 +2013,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 15,
-    borderRadius: 16,
+    paddingVertical: 13,
+    borderRadius: 14,
   },
   saveAnywayBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
     color: "#FFFFFF",
     letterSpacing: -0.1,
