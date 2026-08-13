@@ -712,7 +712,7 @@ export function useTasksState() {
           const normalized = normalizeHabitsForToday(current);
           if (JSON.stringify(normalized) !== JSON.stringify(current)) {
             void persistHabits(normalized).then(() => {
-              emitStateChange("habits_changed");
+              emitStateChange("habits_changed", "tasks_screen");
             });
             return normalized;
           }

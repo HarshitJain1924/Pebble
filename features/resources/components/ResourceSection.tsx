@@ -54,6 +54,7 @@ export function ResourceSection({
   activeFolderId = INBOX_WORKSPACE_ID,
   stateTodos = [],
   stateHabits = [],
+  stateChecklists = [],
   onToggleLinkResource,
 }: ResourceSectionProps) {
   const colorScheme = useColorScheme();
@@ -615,6 +616,25 @@ export function ResourceSection({
                     }}
                   >
                     <Text style={[styles.linkItemText, { color: theme.text }]}>{habit.title}</Text>
+                    <Feather name={isLinked ? "check-square" : "square"} size={16} color={isLinked ? theme.primary : theme.textMuted} />
+                  </TouchableOpacity>
+                );
+              })}
+
+              <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 16 }]}>CHECKLISTS</Text>
+              {stateChecklists.map((checklist) => {
+                const isLinked = checklist.resourceIds?.includes(linkingResource.id);
+                return (
+                  <TouchableOpacity
+                    key={checklist.id}
+                    style={styles.linkItemRow}
+                    onPress={() => {
+                      if (onToggleLinkResource) {
+                        onToggleLinkResource(checklist.id, "checklist", linkingResource.id);
+                      }
+                    }}
+                  >
+                    <Text style={[styles.linkItemText, { color: theme.text }]}>{checklist.title}</Text>
                     <Feather name={isLinked ? "check-square" : "square"} size={16} color={isLinked ? theme.primary : theme.textMuted} />
                   </TouchableOpacity>
                 );

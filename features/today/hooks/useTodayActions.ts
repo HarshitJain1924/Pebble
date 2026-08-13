@@ -119,7 +119,7 @@ export function useTodayActions({
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
             () => {},
           );
-          emitStateChange("checklists_changed");
+          emitStateChange("checklists_changed", "today_dashboard");
         }
       } catch (e) {
         console.warn("Failed to toggle checklist item from dashboard", e);
@@ -142,9 +142,9 @@ export function useTodayActions({
 
         let result;
         if (isCompleting) {
-          result = await EntityCommandService.completeTask(todoId, wsIdFound);
+          result = await EntityCommandService.completeTask(todoId, wsIdFound, { source: "today_dashboard" });
         } else {
-          result = await EntityCommandService.uncompleteTask(todoId, wsIdFound);
+          result = await EntityCommandService.uncompleteTask(todoId, wsIdFound, { source: "today_dashboard" });
         }
 
         if (!result) return;
@@ -171,8 +171,8 @@ export function useTodayActions({
         }
 
         await loadDashboardData();
-        emitStateChange("tasks_changed");
-        emitStateChange("pebbles_changed");
+        emitStateChange("tasks_changed", "today_dashboard");
+        emitStateChange("pebbles_changed", "today_dashboard");
 
         // show undo snackbar — restore previous todo state when undone
         try {
@@ -182,10 +182,10 @@ export function useTodayActions({
               actionLabel: "Undo",
               onUndo: async () => {
                 try {
-                  await EntityCommandService.uncompleteTask(todoId, wsIdFound);
+                  await EntityCommandService.uncompleteTask(todoId, wsIdFound, { source: "today_dashboard" });
                   await loadDashboardData();
-                  emitStateChange("tasks_changed");
-                  emitStateChange("pebbles_changed");
+                  emitStateChange("tasks_changed", "today_dashboard");
+                  emitStateChange("pebbles_changed", "today_dashboard");
                 } catch {
                   // ignore
                 }
@@ -220,9 +220,9 @@ export function useTodayActions({
 
         let result;
         if (isCompleting) {
-          result = await EntityCommandService.completeHabit(habitId, wsIdFound);
+          result = await EntityCommandService.completeHabit(habitId, wsIdFound, { source: "today_dashboard" });
         } else {
-          result = await EntityCommandService.uncompleteHabit(habitId, wsIdFound);
+          result = await EntityCommandService.uncompleteHabit(habitId, wsIdFound, { source: "today_dashboard" });
         }
 
         if (!result) return;
@@ -249,8 +249,8 @@ export function useTodayActions({
         }
 
         await loadDashboardData();
-        emitStateChange("habits_changed");
-        emitStateChange("pebbles_changed");
+        emitStateChange("habits_changed", "today_dashboard");
+        emitStateChange("pebbles_changed", "today_dashboard");
       } catch (e) {
         console.warn("Failed to complete habit on dashboard", e);
       }
@@ -308,7 +308,7 @@ export function useTodayActions({
 
       // Refresh listings
       await loadDashboardData();
-      emitStateChange("tasks_changed");
+      emitStateChange("tasks_changed", "today_dashboard");
 
       Alert.alert(
         "Review Saved! 🌟",

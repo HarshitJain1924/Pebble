@@ -21,7 +21,7 @@ interface VoiceCaptureButtonProps {
   themePrimary: string;
 }
 
-export function VoiceCaptureButton({
+export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
   status,
   volume,
   onStart,
@@ -171,7 +171,9 @@ export function VoiceCaptureButton({
       )}
     </View>
   );
-}
+});
+
+export default VoiceCaptureButton;
 
 const styles = StyleSheet.create({
   container: {

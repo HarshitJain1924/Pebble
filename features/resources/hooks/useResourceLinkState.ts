@@ -83,7 +83,7 @@ export function useResourceLinkState(
             return next;
           });
 
-          emitStateChange("tasks_changed");
+          emitStateChange("tasks_changed", "tasks_screen");
         } else if (itemType === "habit") {
           const habitsMap = await HabitRepository.getHabits(wsId);
           const currentHabit = habitsMap[itemId] || habits.find((h) => h.id === itemId);
@@ -130,7 +130,7 @@ export function useResourceLinkState(
             return exists ? prev.map((h) => (h.id === itemId ? updatedHabit : h)) : [...prev, updatedHabit];
           });
 
-          emitStateChange("habits_changed");
+          emitStateChange("habits_changed", "tasks_screen");
         } else if (itemType === "checklist") {
           const checklistsMap = await ChecklistRepository.getChecklists(wsId);
           const currentChk = checklistsMap[itemId] || (checklists[wsId] || []).find((c) => c.id === itemId);
@@ -173,13 +173,13 @@ export function useResourceLinkState(
             return next;
           });
 
-          emitStateChange("checklists_changed");
+          emitStateChange("checklists_changed", "tasks_screen");
         }
 
         try {
           const existing = await ResourceRepository.getResource(resourceId, wsId);
           if (existing) {
-            emitStateChange("resources_changed");
+            emitStateChange("resources_changed", "tasks_screen");
           }
         } catch (e) {
           console.warn("Failed to update resource link state", e);

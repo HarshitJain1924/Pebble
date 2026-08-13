@@ -25,10 +25,8 @@ import Animated, {
   FadeInDown,
   FadeInUp,
   FadeOut,
-  Layout,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
   withRepeat,
   withSequence,
@@ -226,15 +224,15 @@ export default function UnifiedCapture({
   });
 
   // Animation values
-  const cardScale = useSharedValue(1);
   const loadingProgress = useSharedValue(0);
 
   // ─── Effects ────────────────────────────────────────────────────────────
 
   // Dynamic header updates based on type
+  const hasInput = inputText.trim().length > 0;
   const smartHeader = useMemo(() => {
     if (isParsing) return { title: "Quick Capture", desc: "Understanding your thought..." };
-    if (!parsedItem || !inputText.trim()) {
+    if (!parsedItem || !hasInput) {
       return { title: "Quick Capture", desc: "Drop a thought. We'll organize it." };
     }
     switch (parsedItem.type) {
@@ -255,7 +253,7 @@ export default function UnifiedCapture({
       default:
         return { title: "Quick Capture", desc: "Drop a thought. We'll organize it." };
     }
-  }, [parsedItem, isParsing, inputText]);
+  }, [parsedItem, isParsing, hasInput]);
 
   // Generate adaptive suggestions on mount
   useEffect(() => {
@@ -286,23 +284,27 @@ export default function UnifiedCapture({
 
   // Debounced NLP parsing
   useEffect(() => {
+    let isCancelled = false;
+
     if (!inputText.trim()) {
-      setParsedItem(null);
-      setShowTypeOverride(false);
-      setShowMoreOptions(false);
-      setIsParsing(false);
+      if (parsedItem !== null) setParsedItem(null);
+      if (showTypeOverride) setShowTypeOverride(false);
+      if (showMoreOptions) setShowMoreOptions(false);
+      if (isParsing) setIsParsing(false);
+      loadingProgress.value = 0;
       return;
     }
 
-    setIsParsing(true);
-    loadingProgress.value = 0;
-    loadingProgress.value = withRepeat(
-      withSequence(withTiming(0.4, { duration: 400 }), withTiming(0.9, { duration: 600 })),
-      -1,
-      true,
-    );
-
     const timer = setTimeout(async () => {
+      if (isCancelled) return;
+      setIsParsing(true);
+      loadingProgress.value = 0;
+      loadingProgress.value = withRepeat(
+        withSequence(withTiming(0.4, { duration: 400 }), withTiming(0.9, { duration: 600 })),
+        -1,
+        true,
+      );
+
       const parsed = parseProductivityText(inputText.trim());
       // Apply default overrides from entry context
       if (defaultType && parsed.type === "task" && parsed.detectionSignal === "default_task") {
@@ -311,6 +313,7 @@ export default function UnifiedCapture({
       if (defaultDate && parsed.type === "task" && !parsed.date) {
         parsed.date = defaultDate;
       }
+      if (isCancelled) return;
       setParsedItem(parsed);
       setIsParsing(false);
       loadingProgress.value = withTiming(1, { duration: 200 });
@@ -324,6 +327,7 @@ export default function UnifiedCapture({
             workspaces,
             {},
           );
+          if (isCancelled) return;
           const top = wsSuggestions[0];
           if (top && top.score >= 75) {
             setTopSuggestion(top);
@@ -333,13 +337,12 @@ export default function UnifiedCapture({
           // ignore
         }
       }
-
-      // Subtle card animation on parse
-      cardScale.value = 0.98;
-      cardScale.value = withSpring(1, { damping: 15, stiffness: 300 });
     }, 450);
 
-    return () => clearTimeout(timer);
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
   }, [inputText]);
 
   // ─── Handlers ───────────────────────────────────────────────────────────
@@ -431,16 +434,48 @@ export default function UnifiedCapture({
     }
   }, [parsedItem, selectedWorkspaceId, workspaces, isSaving]);
 
+  const handleWorkspaceCycle = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (workspaces.length === 0) return;
+    const idx = workspaces.findIndex((w) => w.id === selectedWorkspaceId);
+    const nextIdx = (idx + 1) % workspaces.length;
+    setSelectedWorkspaceId(workspaces[nextIdx].id);
+  }, [workspaces, selectedWorkspaceId]);
+
+  const handleToggleTypeOverride = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setShowTypeOverride((prev) => !prev);
+  }, []);
+
+  const handleToggleMoreOptions = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setShowMoreOptions((prev) => !prev);
+  }, []);
+
+  const handleRemoveAttachedFile = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setAttachedFile(null);
+    setParsedItem((prev) => (prev ? { ...prev, type: "task" } : null));
+  }, []);
+
+  const handleDismiss = useCallback(() => {
+    sheetRef.current?.dismiss();
+  }, [sheetRef]);
+
   // ─── Derived Values ─────────────────────────────────────────────────────
 
-  const inputBg = isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)";
-  const borderColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+  const inputBg = useMemo(() => (isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)"), [isDark]);
+  const borderColor = useMemo(() => (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"), [isDark]);
   const textPrimary = theme.text;
   const textMuted = theme.textMuted;
-
-  const animatedCardStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: cardScale.value }],
-  }));
+  const inputBoxTextInputProps = useMemo(
+    () => ({
+      autoCorrect: false,
+      autoFocus: voiceStatus !== "listening",
+      maxLength: 500,
+    }),
+    [voiceStatus !== "listening"],
+  );
 
   const animatedProgressStyle = useAnimatedStyle(() => ({
     width: `${loadingProgress.value * 100}%`,
@@ -556,11 +591,7 @@ export default function UnifiedCapture({
           borderColor={borderColor}
           textColor={textPrimary}
           TextInputComponent={BottomSheetTextInput as any}
-          textInputProps={{
-            autoCorrect: false,
-            autoFocus: voiceStatus !== "listening",
-            maxLength: 500,
-          }}
+          textInputProps={inputBoxTextInputProps}
         />
 
         {/* ── Voice Error Banner ── */}
@@ -651,321 +682,407 @@ export default function UnifiedCapture({
 
         {/* ── Capture Companion Card ── */}
         {parsedItem && parsedItem.title.trim().length > 0 && !isParsing && (
-          <Animated.View
-            layout={Layout.springify().damping(18).stiffness(200)}
-            style={[
-              styles.summaryCard,
-              animatedCardStyle,
-              {
-                backgroundColor: isDark ? "#1C1C21" : "#FFFFFF",
-                borderColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 10 },
-                shadowOpacity: isDark ? 0.25 : 0.06,
-                shadowRadius: 15,
-                elevation: 4,
-              },
-            ]}
-          >
-            {/* Header: Type Badge + Confidence */}
-            <View style={styles.summaryHeader}>
-              <View style={[styles.typeBadge, { backgroundColor: `${TYPE_META[parsedItem.type].color}12` }]}>
-                <Feather
-                  name={TYPE_META[parsedItem.type].icon}
-                  size={13}
-                  color={TYPE_META[parsedItem.type].color}
-                />
-                <Text style={[styles.typeBadgeText, { color: TYPE_META[parsedItem.type].color }]}>
-                  {TYPE_META[parsedItem.type].label}
-                </Text>
-              </View>
-
-              {/* Confidence badge */}
-              {parsedItem.confidence >= 0.8 ? (
-                <View style={[styles.confidenceBadge, { backgroundColor: "rgba(16, 185, 129, 0.1)" }]}>
-                  <Text style={{ fontSize: 10, fontWeight: "700", color: "#10B981" }}>
-                    {Math.round(parsedItem.confidence * 100)}% confident
-                  </Text>
-                </View>
-              ) : parsedItem.confidence >= 0.6 ? (
-                <View style={[styles.confidenceBadge, { backgroundColor: "rgba(245, 158, 11, 0.1)" }]}>
-                  <Text style={{ fontSize: 10, fontWeight: "700", color: "#F59E0B" }}>
-                    {Math.round(parsedItem.confidence * 100)}% confident
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/* Title */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <Text style={[styles.summaryTitle, { color: textPrimary, flex: 1 }]}>
-                {parsedItem.title}
-              </Text>
-              <Feather name="edit-2" size={14} color={textMuted} style={{ opacity: 0.6 }} />
-            </View>
-
-            {/* Attached File Preview (if type file) */}
-            {parsedItem.type === "file" && attachedFile && (
-              <View style={[styles.fileCard, { borderColor }]}>
-                <Feather name="file" size={24} color={TYPE_META.file.color} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.fileName, { color: textPrimary }]} numberOfLines={1}>
-                    {attachedFile.name}
-                  </Text>
-                  <Text style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>
-                    {(attachedFile.size / 1024).toFixed(1)} KB
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    setAttachedFile(null);
-                    setParsedItem({ ...parsedItem, type: "task" });
-                  }}
-                >
-                  <Feather name="x" size={16} color={textMuted} />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* URL subtitle (links only) */}
-            {parsedItem.type === "link" && parsedItem.url && (
-              <Text style={[styles.urlSubtitle, { color: theme.secondary }]} numberOfLines={1}>
-                {parsedItem.url.replace(/^https?:\/\//, "").replace(/^www\./, "")}
-              </Text>
-            )}
-
-            {/* Checklist preview */}
-            {parsedItem.type === "checklist" && parsedItem.items && parsedItem.items.length > 0 && (
-              <View style={styles.checklistPreview}>
-                {parsedItem.items.slice(0, 6).map((checkItem, i) => (
-                  <View key={i} style={styles.checklistRow}>
-                    <View style={[styles.checklistBox, { borderColor: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.15)" }]} />
-                    <Text style={[styles.checklistItemText, { color: textPrimary }]} numberOfLines={1}>
-                      {checkItem}
-                    </Text>
-                  </View>
-                ))}
-                {parsedItem.items.length > 6 && (
-                  <Text style={{ fontSize: 12, color: textMuted, paddingLeft: 28, fontWeight: "500" }}>
-                    +{parsedItem.items.length - 6} more items
-                  </Text>
-                )}
-              </View>
-            )}
-
-            {/* Core details mapping */}
-            <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: borderColor, paddingTop: 12 }}>
-              {parsedItem.recurrence && (
-                <View style={styles.coreValueRow}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Feather name="refresh-cw" size={13} color={textMuted} />
-                    <Text style={{ fontSize: 13, color: textMuted }}>Repeat</Text>
-                  </View>
-                  <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-                    {getRecurrenceLabel(parsedItem)}
-                  </Text>
-                </View>
-              )}
-
-              {parsedItem.time && (
-                <View style={styles.coreValueRow}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Feather name="clock" size={13} color={textMuted} />
-                    <Text style={{ fontSize: 13, color: textMuted }}>Time</Text>
-                  </View>
-                  <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-                    {getFriendlyTimeLabel(parsedItem.time)}
-                  </Text>
-                </View>
-              )}
-
-              {parsedItem.date && parsedItem.type === "task" && (
-                <View style={styles.coreValueRow}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Feather name="calendar" size={13} color={textMuted} />
-                    <Text style={{ fontSize: 13, color: textMuted }}>Date</Text>
-                  </View>
-                  <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-                    {getFriendlyDateLabel(parsedItem.date)}
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.coreValueRow}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Feather name="folder" size={13} color={textMuted} />
-                  <Text style={{ fontSize: 13, color: textMuted }}>Workspace</Text>
-                </View>
-                <PressableScale
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    if (workspaces.length === 0) return;
-                    const idx = workspaces.findIndex((w) => w.id === selectedWorkspaceId);
-                    const nextIdx = (idx + 1) % workspaces.length;
-                    setSelectedWorkspaceId(workspaces[nextIdx].id);
-                  }}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                >
-                  <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-                    {workspaces.find((w) => w.id === selectedWorkspaceId)?.emoji || "📂"}{" "}
-                    {workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles"}
-                  </Text>
-                  <Feather name="chevron-down" size={12} color={textMuted} />
-                </PressableScale>
-              </View>
-            </View>
-
-            {/* Change Type Dropdown trigger */}
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                setShowTypeOverride(!showTypeOverride);
-              }}
-              style={styles.changeTypeTrigger}
-            >
-              <Text style={[styles.changeTypeTriggerText, { color: theme.primary }]}>
-                Change type ▾
-              </Text>
-            </TouchableOpacity>
-
-            {/* Inline Change Type Dropdown list */}
-            {showTypeOverride && (
-              <Animated.View entering={FadeInDown.duration(150)} exiting={FadeOut.duration(100)} style={[styles.dropdownContainer, { borderColor }]}>
-                {(Object.keys(TYPE_META) as ParsedProductivityItem["type"][]).map((t) => {
-                  const isActive = parsedItem.type === t;
-                  const meta = TYPE_META[t];
-                  return (
-                    <TouchableOpacity
-                      key={t}
-                      onPress={() => handleTypeOverride(t)}
-                      style={[styles.dropdownItem, { borderBottomColor: borderColor }]}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                        <Feather name={meta.icon} size={14} color={isActive ? meta.color : textMuted} />
-                        <Text style={{ fontSize: 13, fontWeight: isActive ? "700" : "500", color: isActive ? textPrimary : textMuted }}>
-                          {meta.label}
-                        </Text>
-                      </View>
-                      {isActive && <Feather name="check" size={13} color={meta.color} />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </Animated.View>
-            )}
-
-            {/* Progressive Metadata Details trigger */}
-            {(parsedItem.type === "task" || parsedItem.type === "habit") && (
-              <View style={{ borderTopWidth: 1, borderTopColor: borderColor, paddingTop: 10 }}>
-                <PressableScale
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    setShowMoreOptions(!showMoreOptions);
-                  }}
-                  style={styles.moreDetailsTrigger}
-                >
-                  <Text style={[styles.moreDetailsTriggerText, { color: textMuted }]}>
-                    {showMoreOptions ? "− Hide details" : "+ More details (Priority, Reminder, Category, Notes)"}
-                  </Text>
-                </PressableScale>
-
-                {showMoreOptions && (
-                  <Animated.View entering={FadeInDown.duration(180)} style={styles.moreDetailsCard}>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: textMuted }]}>Priority</Text>
-                      <Text style={[styles.detailValue, { color: PRIORITY_META[parsedItem.priority || "medium"].color, fontWeight: "700" }]}>
-                        {PRIORITY_META[parsedItem.priority || "medium"].label}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: textMuted }]}>Reminder</Text>
-                      <Text style={[styles.detailValue, { color: textPrimary }]}>
-                        {parsedItem.time ? `On time` : "None"}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: textMuted }]}>Category</Text>
-                      <Text style={[styles.detailValue, { color: textPrimary }]}>
-                        {parsedItem.category ? CATEGORY_META[parsedItem.category].label : "None"}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: textMuted }]}>Notes</Text>
-                      <Text style={[styles.detailValue, { color: textMuted, fontStyle: "italic" }]}>
-                        Add notes...
-                      </Text>
-                    </View>
-                  </Animated.View>
-                )}
-              </View>
-            )}
-
-            {/* Dismiss and Primary Save Action buttons */}
-            <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
-              <TouchableOpacity
-                onPress={() => sheetRef.current?.dismiss()}
-                style={[styles.dismissBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
-              >
-                <Text style={[styles.dismissBtnText, { color: textPrimary }]}>Dismiss</Text>
-              </TouchableOpacity>
-
-              <PressableScale
-                onPress={handleSave}
-                disabled={isSaving}
-                scaleTo={isSaving ? 1 : 0.95}
-                style={[
-                  styles.saveButton,
-                  {
-                    backgroundColor: isSaving ? theme.textMuted : theme.primary,
-                    shadowColor: isSaving ? "transparent" : theme.primary,
-                    shadowOffset: { width: 0, height: 6 },
-                    shadowOpacity: isSaving ? 0 : 0.25,
-                    shadowRadius: 10,
-                    elevation: isSaving ? 0 : 5,
-                    flex: 1,
-                  },
-                ]}
-              >
-                {isSaving ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.saveButtonText}>{saveButtonLabel}</Text>
-                )}
-              </PressableScale>
-            </View>
-          </Animated.View>
+          <CaptureSummaryCard
+            parsedItem={parsedItem}
+            isDark={isDark}
+            textPrimary={textPrimary}
+            textMuted={textMuted}
+            borderColor={borderColor}
+            themePrimary={theme.primary}
+            themeSecondary={theme.secondary}
+            workspaces={workspaces}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onWorkspaceCycle={handleWorkspaceCycle}
+            attachedFile={attachedFile}
+            onRemoveAttachedFile={handleRemoveAttachedFile}
+            showTypeOverride={showTypeOverride}
+            onToggleTypeOverride={handleToggleTypeOverride}
+            onTypeOverride={handleTypeOverride}
+            showMoreOptions={showMoreOptions}
+            onToggleMoreOptions={handleToggleMoreOptions}
+            onDismiss={handleDismiss}
+            onSave={handleSave}
+            isSaving={isSaving}
+            saveButtonLabel={saveButtonLabel}
+          />
         )}
 
         {/* ── Smart Suggestions (from computed adaptive suggestions) ── */}
         {!inputText.trim() && suggestions.length > 0 && (
-          <Animated.View entering={FadeInUp.duration(200)} exiting={FadeOut.duration(150)} style={styles.suggestionsContainer}>
-            <Text style={[styles.suggestionsLabel, { color: textMuted }]}>Suggested for you</Text>
-            <View style={styles.suggestionsRow}>
-              {suggestions.slice(0, 4).map((text, i) => (
-                <PressableScale
-                  key={i}
-                  onPress={() => handleSuggestionTap(text)}
-                  style={[
-                    styles.suggestionChip,
-                    {
-                      backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.02)",
-                      borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
-                    },
-                  ]}
-                >
-                  <Feather name="zap" size={12} color={theme.primary} />
-                  <Text style={[styles.suggestionChipText, { color: textPrimary }]}>
-                    {text.length > 24 ? `${text.slice(0, 24)}…` : text}
-                  </Text>
-                </PressableScale>
-              ))}
-            </View>
-          </Animated.View>
+          <CaptureSuggestions
+            suggestions={suggestions}
+            isDark={isDark}
+            textPrimary={textPrimary}
+            textMuted={textMuted}
+            themePrimary={theme.primary}
+            onSuggestionTap={handleSuggestionTap}
+          />
         )}
       </BottomSheetScrollView>
     </BottomSheetModal>
   );
 }
+
+// ─── Memoized Subcomponents ──────────────────────────────────────────────────
+
+interface CaptureSummaryCardProps {
+  parsedItem: ParsedProductivityItem;
+  isDark: boolean;
+  textPrimary: string;
+  textMuted: string;
+  borderColor: string;
+  themePrimary: string;
+  themeSecondary: string;
+  workspaces: { id: string; name: string; emoji?: string }[];
+  selectedWorkspaceId?: string;
+  onWorkspaceCycle: () => void;
+  attachedFile: { name: string; size: number; uri: string } | null;
+  onRemoveAttachedFile: () => void;
+  showTypeOverride: boolean;
+  onToggleTypeOverride: () => void;
+  onTypeOverride: (type: ParsedProductivityItem["type"]) => void;
+  showMoreOptions: boolean;
+  onToggleMoreOptions: () => void;
+  onDismiss: () => void;
+  onSave: () => void;
+  isSaving: boolean;
+  saveButtonLabel: string;
+}
+
+const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
+  parsedItem,
+  isDark,
+  textPrimary,
+  textMuted,
+  borderColor,
+  themePrimary,
+  themeSecondary,
+  workspaces,
+  selectedWorkspaceId,
+  onWorkspaceCycle,
+  attachedFile,
+  onRemoveAttachedFile,
+  showTypeOverride,
+  onToggleTypeOverride,
+  onTypeOverride,
+  showMoreOptions,
+  onToggleMoreOptions,
+  onDismiss,
+  onSave,
+  isSaving,
+  saveButtonLabel,
+}: CaptureSummaryCardProps) {
+  return (
+    <Animated.View
+      entering={FadeInDown.duration(200)}
+      style={[
+        styles.summaryCard,
+        {
+          backgroundColor: isDark ? "#1C1C21" : "#FFFFFF",
+          borderColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: isDark ? 0.25 : 0.06,
+          shadowRadius: 15,
+          elevation: 4,
+        },
+      ]}
+    >
+      {/* Header: Type Badge + Confidence */}
+      <View style={styles.summaryHeader}>
+        <View style={[styles.typeBadge, { backgroundColor: `${TYPE_META[parsedItem.type].color}12` }]}>
+          <Feather
+            name={TYPE_META[parsedItem.type].icon}
+            size={13}
+            color={TYPE_META[parsedItem.type].color}
+          />
+          <Text style={[styles.typeBadgeText, { color: TYPE_META[parsedItem.type].color }]}>
+            {TYPE_META[parsedItem.type].label}
+          </Text>
+        </View>
+
+        {/* Confidence badge */}
+        {parsedItem.confidence >= 0.8 ? (
+          <View style={[styles.confidenceBadge, { backgroundColor: "rgba(16, 185, 129, 0.1)" }]}>
+            <Text style={{ fontSize: 10, fontWeight: "700", color: "#10B981" }}>
+              {Math.round(parsedItem.confidence * 100)}% confident
+            </Text>
+          </View>
+        ) : parsedItem.confidence >= 0.6 ? (
+          <View style={[styles.confidenceBadge, { backgroundColor: "rgba(245, 158, 11, 0.1)" }]}>
+            <Text style={{ fontSize: 10, fontWeight: "700", color: "#F59E0B" }}>
+              {Math.round(parsedItem.confidence * 100)}% confident
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Title */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <Text style={[styles.summaryTitle, { color: textPrimary, flex: 1 }]}>
+          {parsedItem.title}
+        </Text>
+        <Feather name="edit-2" size={14} color={textMuted} style={{ opacity: 0.6 }} />
+      </View>
+
+      {/* Attached File Preview (if type file) */}
+      {parsedItem.type === "file" && attachedFile && (
+        <View style={[styles.fileCard, { borderColor }]}>
+          <Feather name="file" size={24} color={TYPE_META.file.color} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.fileName, { color: textPrimary }]} numberOfLines={1}>
+              {attachedFile.name}
+            </Text>
+            <Text style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>
+              {(attachedFile.size / 1024).toFixed(1)} KB
+            </Text>
+          </View>
+          <TouchableOpacity onPress={onRemoveAttachedFile}>
+            <Feather name="x" size={16} color={textMuted} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* URL subtitle (links only) */}
+      {parsedItem.type === "link" && parsedItem.url && (
+        <Text style={[styles.urlSubtitle, { color: themeSecondary }]} numberOfLines={1}>
+          {parsedItem.url.replace(/^https?:\/\//, "").replace(/^www\./, "")}
+        </Text>
+      )}
+
+      {/* Checklist preview */}
+      {parsedItem.type === "checklist" && parsedItem.items && parsedItem.items.length > 0 && (
+        <View style={styles.checklistPreview}>
+          {parsedItem.items.slice(0, 6).map((checkItem, i) => (
+            <View key={i} style={styles.checklistRow}>
+              <View style={[styles.checklistBox, { borderColor: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.15)" }]} />
+              <Text style={[styles.checklistItemText, { color: textPrimary }]} numberOfLines={1}>
+                {checkItem}
+              </Text>
+            </View>
+          ))}
+          {parsedItem.items.length > 6 && (
+            <Text style={{ fontSize: 12, color: textMuted, paddingLeft: 28, fontWeight: "500" }}>
+              +{parsedItem.items.length - 6} more items
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Core details mapping */}
+      <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: borderColor, paddingTop: 12 }}>
+        {parsedItem.recurrence && (
+          <View style={styles.coreValueRow}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Feather name="refresh-cw" size={13} color={textMuted} />
+              <Text style={{ fontSize: 13, color: textMuted }}>Repeat</Text>
+            </View>
+            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
+              {getRecurrenceLabel(parsedItem)}
+            </Text>
+          </View>
+        )}
+
+        {parsedItem.time && (
+          <View style={styles.coreValueRow}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Feather name="clock" size={13} color={textMuted} />
+              <Text style={{ fontSize: 13, color: textMuted }}>Time</Text>
+            </View>
+            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
+              {getFriendlyTimeLabel(parsedItem.time)}
+            </Text>
+          </View>
+        )}
+
+        {parsedItem.date && parsedItem.type === "task" && (
+          <View style={styles.coreValueRow}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Feather name="calendar" size={13} color={textMuted} />
+              <Text style={{ fontSize: 13, color: textMuted }}>Date</Text>
+            </View>
+            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
+              {getFriendlyDateLabel(parsedItem.date)}
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.coreValueRow}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Feather name="folder" size={13} color={textMuted} />
+            <Text style={{ fontSize: 13, color: textMuted }}>Workspace</Text>
+          </View>
+          <PressableScale
+            onPress={onWorkspaceCycle}
+            style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+          >
+            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
+              {workspaces.find((w) => w.id === selectedWorkspaceId)?.emoji || "📂"}{" "}
+              {workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles"}
+            </Text>
+            <Feather name="chevron-down" size={12} color={textMuted} />
+          </PressableScale>
+        </View>
+      </View>
+
+      {/* Change Type Dropdown trigger */}
+      <TouchableOpacity
+        onPress={onToggleTypeOverride}
+        style={styles.changeTypeTrigger}
+      >
+        <Text style={[styles.changeTypeTriggerText, { color: themePrimary }]}>
+          Change type ▾
+        </Text>
+      </TouchableOpacity>
+
+      {/* Inline Change Type Dropdown list */}
+      {showTypeOverride && (
+        <Animated.View entering={FadeInDown.duration(150)} exiting={FadeOut.duration(100)} style={[styles.dropdownContainer, { borderColor }]}>
+          {(Object.keys(TYPE_META) as ParsedProductivityItem["type"][]).map((t) => {
+            const isActive = parsedItem.type === t;
+            const meta = TYPE_META[t];
+            return (
+              <TouchableOpacity
+                key={t}
+                onPress={() => onTypeOverride(t)}
+                style={[styles.dropdownItem, { borderBottomColor: borderColor }]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                  <Feather name={meta.icon} size={14} color={isActive ? meta.color : textMuted} />
+                  <Text style={{ fontSize: 13, fontWeight: isActive ? "700" : "500", color: isActive ? textPrimary : textMuted }}>
+                    {meta.label}
+                  </Text>
+                </View>
+                {isActive && <Feather name="check" size={13} color={meta.color} />}
+              </TouchableOpacity>
+            );
+          })}
+        </Animated.View>
+      )}
+
+      {/* Progressive Metadata Details trigger */}
+      {(parsedItem.type === "task" || parsedItem.type === "habit") && (
+        <View style={{ borderTopWidth: 1, borderTopColor: borderColor, paddingTop: 10 }}>
+          <PressableScale
+            onPress={onToggleMoreOptions}
+            style={styles.moreDetailsTrigger}
+          >
+            <Text style={[styles.moreDetailsTriggerText, { color: textMuted }]}>
+              {showMoreOptions ? "− Hide details" : "+ More details (Priority, Reminder, Category, Notes)"}
+            </Text>
+          </PressableScale>
+
+          {showMoreOptions && (
+            <Animated.View entering={FadeInDown.duration(180)} style={styles.moreDetailsCard}>
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailLabel, { color: textMuted }]}>Priority</Text>
+                <Text style={[styles.detailValue, { color: PRIORITY_META[parsedItem.priority || "medium"].color, fontWeight: "700" }]}>
+                  {PRIORITY_META[parsedItem.priority || "medium"].label}
+                </Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailLabel, { color: textMuted }]}>Reminder</Text>
+                <Text style={[styles.detailValue, { color: textPrimary }]}>
+                  {parsedItem.time ? `On time` : "None"}
+                </Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailLabel, { color: textMuted }]}>Category</Text>
+                <Text style={[styles.detailValue, { color: textPrimary }]}>
+                  {parsedItem.category ? CATEGORY_META[parsedItem.category].label : "None"}
+                </Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailLabel, { color: textMuted }]}>Notes</Text>
+                <Text style={[styles.detailValue, { color: textMuted, fontStyle: "italic" }]}>
+                  Add notes...
+                </Text>
+              </View>
+            </Animated.View>
+          )}
+        </View>
+      )}
+
+      {/* Dismiss and Primary Save Action buttons */}
+      <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
+        <TouchableOpacity
+          onPress={onDismiss}
+          style={[styles.dismissBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
+        >
+          <Text style={[styles.dismissBtnText, { color: textPrimary }]}>Dismiss</Text>
+        </TouchableOpacity>
+
+        <PressableScale
+          onPress={onSave}
+          disabled={isSaving}
+          scaleTo={isSaving ? 1 : 0.95}
+          style={[
+            styles.saveButton,
+            {
+              backgroundColor: isSaving ? textMuted : themePrimary,
+              shadowColor: isSaving ? "transparent" : themePrimary,
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: isSaving ? 0 : 0.25,
+              shadowRadius: 10,
+              elevation: isSaving ? 0 : 5,
+              flex: 1,
+            },
+          ]}
+        >
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.saveButtonText}>{saveButtonLabel}</Text>
+          )}
+        </PressableScale>
+      </View>
+    </Animated.View>
+  );
+});
+
+interface CaptureSuggestionsProps {
+  suggestions: string[];
+  isDark: boolean;
+  textPrimary: string;
+  textMuted: string;
+  themePrimary: string;
+  onSuggestionTap: (text: string) => void;
+}
+
+const CaptureSuggestions = React.memo(function CaptureSuggestions({
+  suggestions,
+  isDark,
+  textPrimary,
+  textMuted,
+  themePrimary,
+  onSuggestionTap,
+}: CaptureSuggestionsProps) {
+  return (
+    <Animated.View entering={FadeInUp.duration(200)} exiting={FadeOut.duration(150)} style={styles.suggestionsContainer}>
+      <Text style={[styles.suggestionsLabel, { color: textMuted }]}>Suggested for you</Text>
+      <View style={styles.suggestionsRow}>
+        {suggestions.slice(0, 4).map((text, i) => (
+          <PressableScale
+            key={i}
+            onPress={() => onSuggestionTap(text)}
+            style={[
+              styles.suggestionChip,
+              {
+                backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.02)",
+                borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
+              },
+            ]}
+          >
+            <Feather name="zap" size={12} color={themePrimary} />
+            <Text style={[styles.suggestionChipText, { color: textPrimary }]}>
+              {text.length > 24 ? `${text.slice(0, 24)}…` : text}
+            </Text>
+          </PressableScale>
+        ))}
+      </View>
+    </Animated.View>
+  );
+});
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 

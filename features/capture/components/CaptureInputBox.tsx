@@ -9,16 +9,16 @@
  *   paddingHorizontal : 16
  *   paddingVertical   : 16
  *   gap (children)    : 8
- *   TextInput minHeight: 44
+ *   TextInput minHeight: 88 (4 lines allocated space)
  *   button row height : 44
- *   Total min height  : 16 + 44 + 8 + 44 + 16 = 128px
+ *   Total min height  : 16 + 88 + 8 + 44 + 16 = 172px
  *
  * middleSlot
  *   Optional content rendered between the TextInput and the action row —
  *   stays visually inside the card border. Use for description fields,
  *   tags, etc. so they are grouped with the title input.
  */
-import React, { useState, useEffect, useRef } from "react";
+import React from "react";
 import {
   View,
   TextInput,
@@ -73,7 +73,7 @@ interface CaptureInputBoxProps {
   onAttachmentPress?: () => void;
 }
 
-export default function CaptureInputBox({
+export const CaptureInputBox = React.memo(function CaptureInputBox({
   value,
   onChangeText,
   placeholder,
@@ -95,31 +95,9 @@ export default function CaptureInputBox({
   middleSlot,
   onAttachmentPress,
 }: CaptureInputBoxProps) {
-  const [localValue, setLocalValue] = useState(value);
-  const debounceRef = useRef<any>(null);
-
-  // Sync value when parent resets or updates (e.g. from voice transcript or suggestion tap)
-  useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
-
-  const handleTextChange = (text: string) => {
-    setLocalValue(text);
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-    debounceRef.current = setTimeout(() => {
-      onChangeText(text);
-    }, 80); // 80ms is short enough to feel fast but long enough to group keystrokes and prevent jank
-  };
-
-  const handleClear = () => {
-    setLocalValue("");
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
+  const handleClear = React.useCallback(() => {
     onChangeText("");
-  };
+  }, [onChangeText]);
 
   return (
     <View
@@ -130,8 +108,8 @@ export default function CaptureInputBox({
       ]}
     >
       <TextInputComponent
-        value={localValue}
-        onChangeText={handleTextChange}
+        value={value}
+        onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={placeholderTextColor}
         onFocus={onFocus}
@@ -146,7 +124,7 @@ export default function CaptureInputBox({
 
       {/* Action row — always below text (and middleSlot), never overlapping */}
       <View style={styles.actionRow}>
-        {localValue.length > 0 && (
+        {value.length > 0 && (
           <TouchableOpacity
             onPress={handleClear}
             style={styles.actionBtn}
@@ -181,9 +159,11 @@ export default function CaptureInputBox({
       </View>
     </View>
   );
-}
+});
 
-export const CAPTURE_INPUT_MIN_HEIGHT = 128; // paddingV*2 + textMin + gap + actionRow
+export default CaptureInputBox;
+
+export const CAPTURE_INPUT_MIN_HEIGHT = 172; // paddingV*2 + textMin (88) + gap (8) + actionRow (44)
 
 const styles = StyleSheet.create({
   container: {
@@ -193,12 +173,16 @@ const styles = StyleSheet.create({
     paddingVertical: 16,   // ← canonical: 16 on both sides
     gap: 8,                // ← canonical: uniform gap between children
     marginBottom: 16,
+    minHeight: CAPTURE_INPUT_MIN_HEIGHT,
   },
   textInput: {
     fontSize: 16,
     fontWeight: "600",
     padding: 0,
-    minHeight: 44,          // ← canonical: comfortable on Android
+    paddingTop: 0,
+    paddingBottom: 0,
+    minHeight: 88,          // ← allocated for 4 lines without causing container reflow
+    maxHeight: 154,
     textAlignVertical: "top",
     lineHeight: 22,
   },
