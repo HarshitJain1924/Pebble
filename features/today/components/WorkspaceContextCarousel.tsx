@@ -14,7 +14,13 @@ import {
 import { styles } from "@/shared/constants/dashboardStyles";
 import { type ThemeColors } from "@/shared/constants/theme";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
-import { isTaskCompleted, isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
+import {
+  isTaskCompleted,
+  isHabitCompletedToday,
+  getHabitCurrentStreak,
+  getHabitBestStreak,
+  getTaskOccurrenceState,
+} from "@/shared/utils/domain-selectors";
 import { getDateKey, getTodoDateKey } from "@/features/tasks/utils/task-formatting";
 import {
   getCheckboxAction,
@@ -327,9 +333,10 @@ export const WorkspaceContextCarousel: React.FC<
                     {/* Unified actions preview list */}
                     {(() => {
                       const taskItems = tasks.map((todo) => {
-                        const isInbox = todo.schedule?.date === "inbox";
-                        const isOverdue =
-                          getTodoDateKey(todo) < getDateKey() && !isInbox;
+                        const isOverdue = getTaskOccurrenceState(
+                          todo,
+                          getDateKey(),
+                        ).isOverdue;
                         return {
                           type: "task" as const,
                           id: todo.id,

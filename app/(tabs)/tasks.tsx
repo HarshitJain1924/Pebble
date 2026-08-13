@@ -22,6 +22,7 @@ import * as Haptics from "expo-haptics";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 import { Task, Habit, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { generateId } from "@/shared/utils/id";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
@@ -207,11 +208,8 @@ export function WorkspacesScreen() {
                   const totalTasks = folderTodos.filter(t => !t.archivedAt && t.status !== "completed").length;
                   const dueToday = folderTodos.filter(t => {
                     if (t.archivedAt || t.status === "completed") return false;
-                    const today = getDateKey();
-                    const taskDate = t.schedule?.date;
-                    const isOverdue = taskDate && taskDate < today && taskDate !== "inbox";
-                    const isToday = taskDate === today;
-                    return isOverdue || isToday;
+                    const state = getTaskOccurrenceState(t, getDateKey());
+                    return state.isOverdue || state.occurs;
                   }).length;
 
                   let subtitle = "";

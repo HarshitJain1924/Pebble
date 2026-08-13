@@ -1,5 +1,5 @@
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
-import { isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { DAY_MS } from "@/services/storage/storage.service";
 
 export const getDateKey = (date = new Date()) => {
@@ -61,9 +61,9 @@ export const getTodoDateKey = (todo: Task) => {
 };
 
 export const isOverdue = (todo: Task, selectedDate: string) => {
-  if (isTaskCompleted(todo)) return false;
-  const todoDate = getTodoDateKey(todo);
-  return todoDate < selectedDate;
+  // Delegates to the authoritative occurrence classification so recurring
+  // tasks are never marked overdue merely because their base date is past.
+  return getTaskOccurrenceState(todo, selectedDate).isOverdue;
 };
 
 export const formatAlarm = (ms?: number) => {

@@ -1,7 +1,12 @@
 import { useState, useMemo } from "react";
 import { Task, Habit, Workspace, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { isTaskCompleted, isHabitCompletedToday, getHabitBestStreak } from "@/shared/utils/domain-selectors";
-import { isOverdue, getTodoDateKey, getPriorityWeight } from "@/features/tasks/utils/task-formatting";
+import {
+  isTaskCompleted,
+  isHabitCompletedToday,
+  getHabitBestStreak,
+  getTaskOccurrenceState,
+} from "@/shared/utils/domain-selectors";
+import { getPriorityWeight } from "@/features/tasks/utils/task-formatting";
 import { isRecurringOccurrenceForDate, getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 
 export function useTaskFiltering(
@@ -15,24 +20,6 @@ export function useTaskFiltering(
   const [selectedWorkspacePriorityFilter, setSelectedWorkspacePriorityFilter] = useState("all");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all");
   const [selectedWorkspaceHabitPriorityFilter, setSelectedWorkspaceHabitPriorityFilter] = useState("all");
-
-  const effectiveSelectedDate = useMemo(() => {
-    try {
-      const parts = selectedDate.split("-").map(Number);
-      const sel = new Date(parts[0], parts[1] - 1, parts[2]);
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      if (sel < today) {
-        const y = now.getFullYear();
-        const m = `${now.getMonth() + 1}`.padStart(2, "0");
-        const d = `${now.getDate()}`.padStart(2, "0");
-        return `${y}-${m}-${d}`;
-      }
-      return selectedDate;
-    } catch {
-      return selectedDate;
-    }
-  }, [selectedDate]);
 
   const currentTodos = useMemo(
     () => (todos[selectedWorkspaceId] ?? []).filter((t) => !t.archivedAt),
@@ -54,8 +41,13 @@ export function useTaskFiltering(
     });
   }, [todos, selectedWorkspaceId, searchQuery, workspaces]);
 
+  // All task buckets consume the single authoritative classification path
+  // (getTaskOccurrenceState) so recurring tasks are bucketed by their
+  // occurrence on the selected date, never by their base schedule date.
   const overdueTodos = useMemo(() => {
-    let filtered = filteredTodos.filter((todo) => todo.schedule?.date !== "inbox" && isOverdue(todo, selectedDate));
+    let filtered = filteredTodos.filter(
+      (todo) => todo.schedule?.date !== "inbox" && getTaskOccurrenceState(todo, selectedDate).isOverdue
+    );
     if (selectedCategoryFilter !== "all") {
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
     }
@@ -66,11 +58,12 @@ export function useTaskFiltering(
     return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
   }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
+  // `occurs` is completion-independent: TaskSections routes completed items
+  // to the Completed section while keeping them visible for that date.
   const todayTodos = useMemo(() => {
     let filtered = filteredTodos.filter((todo) => {
       if (todo.schedule?.date === "inbox") return false;
-      if (isOverdue(todo, selectedDate)) return false;
-      return isRecurringOccurrenceForDate(todo, selectedDate);
+      return getTaskOccurrenceState(todo, selectedDate).occurs;
     });
     if (selectedCategoryFilter !== "all") {
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
@@ -83,9 +76,11 @@ export function useTaskFiltering(
   }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const upcomingTodos = useMemo(() => {
-    let filtered = filteredTodos.filter(
-      (todo) => todo.schedule?.date !== "inbox" && !isOverdue(todo, selectedDate) && getTodoDateKey(todo) > selectedDate
-    );
+    let filtered = filteredTodos.filter((todo) => {
+      if (todo.schedule?.date === "inbox") return false;
+      const state = getTaskOccurrenceState(todo, selectedDate);
+      return !state.occurs && state.nextOccurrenceDate !== null;
+    });
     if (selectedCategoryFilter !== "all") {
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
     }
@@ -159,7 +154,6 @@ export function useTaskFiltering(
     setSelectedCategoryFilter,
     selectedWorkspaceHabitPriorityFilter,
     setSelectedWorkspaceHabitPriorityFilter,
-    effectiveSelectedDate,
 
     // Memos
     currentTodos,

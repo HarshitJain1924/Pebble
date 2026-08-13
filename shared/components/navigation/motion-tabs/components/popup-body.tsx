@@ -23,6 +23,7 @@ import * as Haptics from "expo-haptics";
 import type { IPopupRenderContext } from "../typings/motion-tabs";
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
@@ -101,7 +102,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
             }
             tTotal++;
           }
-          const isOverdue = !todo.completed && todoDate < todayStr && todo.schedule?.date !== "inbox";
+          const isOverdue = getTaskOccurrenceState(todo, todayStr).isOverdue;
           if (isOverdue) {
             overdueList.push({
               ...todo,

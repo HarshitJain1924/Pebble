@@ -8,28 +8,7 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { Task, Workspace } from "@/shared/types/domain.types";
-import { isTaskCompleted } from "@/shared/utils/domain-selectors";
-
-const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
-
-const getTodoDateKey = (todo: Task) => {
-  if (todo.schedule?.date) {
-    return todo.schedule.date;
-  }
-  if (todo.reminder?.triggerAt) {
-    return getDateKey(new Date(todo.reminder.triggerAt));
-  }
-  const idNum = Number(todo.id);
-  if (!isNaN(idNum) && idNum > 100000000000) {
-    return getDateKey(new Date(idNum));
-  }
-  return getDateKey();
-};
+import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 
 interface TaskSectionsProps {
   overdueTodos: Task[];
@@ -84,12 +63,6 @@ export function TaskSections({
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
 
-  const isOverdue = (todo: Task) => {
-    if (isTaskCompleted(todo)) return false;
-    const todoDate = getTodoDateKey(todo);
-    return todoDate < selectedDate;
-  };
-
   const renderTodoItem = (item: Task) => {
     return (
       <TodoItem
@@ -97,7 +70,7 @@ export function TaskSections({
         item={item}
         colors={colors}
         colorScheme={colorScheme}
-        isOverdue={isOverdue(item)}
+        isOverdue={getTaskOccurrenceState(item, selectedDate).isOverdue}
         lists={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
         onToggleTodo={() => onToggleTodo(item.id)}
