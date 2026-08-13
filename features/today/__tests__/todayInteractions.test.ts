@@ -57,13 +57,13 @@ describe("Today screen row interaction model", () => {
     );
   });
 
-  it("treats a pending task checkbox as a completion toggle only (no navigation)", () => {
+  it("treats task checkboxes as completion toggles in both directions (incomplete and completed)", () => {
     expect(getCheckboxAction("task", false)).toBe("toggle-completion");
-    // Completed tasks stay visible but cannot be unchecked on the Today screen.
-    expect(getCheckboxAction("task", true)).toBe("locked");
+    // Completed tasks stay visible and can be unchecked on the Today screen.
+    expect(getCheckboxAction("task", true)).toBe("toggle-completion");
   });
 
-  it("task checkbox only completes/uncompletes the task (ledger stays exact)", async () => {
+  it("task checkbox completes incomplete task and uncompletes completed task (ledger stays exact)", async () => {
     const task: Task = {
       id: "cb-task-1",
       workspaceId: "work",
@@ -75,11 +75,15 @@ describe("Today screen row interaction model", () => {
     };
     await TaskRepository.saveTask(task);
 
+    // Direction 1: incomplete task -> checking completes it
+    expect(getCheckboxAction("task", false)).toBe("toggle-completion");
     const completed = await EntityCommandService.completeTask(task.id, "work");
     expect(completed?.updated.status).toBe("completed");
     let counts = await getPebbleCounts();
     expect(counts.today).toBe(1);
 
+    // Direction 2: completed task -> unchecking uncompletes it
+    expect(getCheckboxAction("task", true)).toBe("toggle-completion");
     const uncompleted = await EntityCommandService.uncompleteTask(
       task.id,
       "work",
@@ -138,7 +142,7 @@ describe("Today screen row interaction model", () => {
 
     const done = ctx.tasks.find((t) => t.id === completed.id);
     expect(done).toBeDefined();
-    // The completed task stays classified as completed (styling + locked checkbox)
+    // The completed task stays classified as completed
     expect(isTaskCompleted(done!)).toBe(true);
   });
 

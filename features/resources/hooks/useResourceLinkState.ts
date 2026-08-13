@@ -1,9 +1,11 @@
 import { useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import { Task, Habit, Workspace, Resource, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { ResourceRepository, ChecklistRepository } from "@/repositories";
+import { ResourceRepository, TaskRepository, HabitRepository, ChecklistRepository } from "@/repositories";
 import { emitStateChange } from "@/services/events/state-events";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { withLock } from "@/shared/utils/mutex";
+
 export function useResourceLinkState(
   todos: Record<string, Task[]>,
   setTodos: React.Dispatch<React.SetStateAction<Record<string, Task[]>>>,
@@ -18,78 +20,174 @@ export function useResourceLinkState(
   persistState: (listsToSave: Workspace[], selected: string, todosToSave: Record<string, Task[]>) => Promise<void>,
   persistHabits: (nextHabits: Habit[]) => Promise<void>,
 ) {
-  const toggleLinkResource = useCallback(async (
-    itemId: string,
-    itemType: "task" | "habit" | "checklist",
-    resourceId: string,
-  ) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    if (itemType === "task") {
-      setTodos((current) => {
-        const next = { ...current };
-        const wsId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
-        if (next[wsId]) {
-          next[wsId] = next[wsId].map((todo) => {
-            if (todo.id === itemId) {
-              const linked = todo.resourceIds || [];
-              const updated = linked.includes(resourceId)
-                ? linked.filter((id: string) => id !== resourceId)
-                : [...linked, resourceId];
-              return { ...todo, resourceIds: updated, updatedAt: Date.now() };
-            }
-            return todo;
-          });
-        }
-        persistState(workspaces, wsId, next);
-        return next;
-      });
-    } else if (itemType === "habit") {
-      const nextHabits = habits.map((habit) => {
-        if (habit.id === itemId) {
-          const linked = habit.resourceIds || [];
-          const updated = linked.includes(resourceId)
+  const toggleLinkResource = useCallback(
+    async (
+      itemId: string,
+      itemType: "task" | "habit" | "checklist",
+      resourceId: string,
+    ) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      const wsId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+
+      return withLock(`resource-link:${itemType}:${itemId}`, async () => {
+        if (itemType === "task") {
+          const tasksMap = await TaskRepository.getTasks(wsId);
+          const currentTask = tasksMap[itemId] || todos[wsId]?.find((t) => t.id === itemId);
+
+          const linked = currentTask?.resourceIds || [];
+          const updatedResourceIds = linked.includes(resourceId)
             ? linked.filter((id: string) => id !== resourceId)
             : [...linked, resourceId];
-          return { ...habit, resourceIds: updated, updatedAt: Date.now() };
-        }
-        return habit;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-    } else if (itemType === "checklist") {
-      const wsId = activeWorkspaceId || INBOX_WORKSPACE_ID;
-      setChecklists((current) => {
-        const next = { ...current };
-        if (next[wsId]) {
-          next[wsId] = next[wsId].map((chk) => {
-            if (chk.id === itemId) {
-              const linked = chk.resourceIds || [];
-              const updated = linked.includes(resourceId)
-                ? linked.filter((id: string) => id !== resourceId)
-                : [...linked, resourceId];
-              const updatedChk: Checklist = { ...chk, resourceIds: updated, workspaceId: wsId, updatedAt: Date.now() };
-              void EntityCommandService.updateChecklist(updatedChk.id, wsId, updatedChk, { skipEvents: true, skipAnalytics: true });
-              return updatedChk;
-            }
-            return chk;
-          });
-        }
-        return next;
-      });
-    }
 
-    try {
-      const wsId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
-      const existing = await ResourceRepository.getResource(resourceId, wsId);
-      if (existing) {
-        const updatedResources = await ResourceRepository.getResources(wsId);
-        const list: Resource[] = Object.values(updatedResources);
-        emitStateChange("resources_changed");
-      }
-    } catch (e) {
-      console.warn("Failed to update resource link state", e);
-    }
-  }, [selectedWorkspaceId, habits, activeWorkspaceId, workspaces, setTodos, setHabits, setChecklists, persistState, persistHabits]);
+          let updatedTask: Task;
+          if (tasksMap[itemId]) {
+            updatedTask = await EntityCommandService.updateTask(
+              itemId,
+              wsId,
+              { resourceIds: updatedResourceIds },
+              { skipEvents: true, skipAnalytics: true },
+            );
+          } else {
+            updatedTask = {
+              ...(currentTask || {
+                id: itemId,
+                workspaceId: wsId,
+                title: "",
+                status: "todo",
+                priority: "none",
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              }),
+              resourceIds: updatedResourceIds,
+              updatedAt: Date.now(),
+            };
+          }
+
+          if (persistState) {
+            const nextTodos = { ...todos };
+            const currentList = nextTodos[wsId] || [];
+            nextTodos[wsId] = currentList.map((t) => (t.id === itemId ? updatedTask : { ...t }));
+            if (!nextTodos[wsId].some((t) => t.id === itemId)) {
+              nextTodos[wsId] = [...nextTodos[wsId], updatedTask];
+            }
+            await persistState(workspaces, wsId, nextTodos);
+          }
+
+          setTodos((prev) => {
+            const next = { ...prev };
+            const currentList = next[wsId] || [];
+            next[wsId] = currentList.map((t) => (t.id === itemId ? updatedTask : t));
+            if (!next[wsId].some((t) => t.id === itemId)) {
+              next[wsId] = [...next[wsId], updatedTask];
+            }
+            return next;
+          });
+
+          emitStateChange("tasks_changed");
+        } else if (itemType === "habit") {
+          const habitsMap = await HabitRepository.getHabits(wsId);
+          const currentHabit = habitsMap[itemId] || habits.find((h) => h.id === itemId);
+
+          const linked = currentHabit?.resourceIds || [];
+          const updatedResourceIds = linked.includes(resourceId)
+            ? linked.filter((id: string) => id !== resourceId)
+            : [...linked, resourceId];
+
+          let updatedHabit: Habit;
+          if (habitsMap[itemId]) {
+            updatedHabit = await EntityCommandService.updateHabit(
+              itemId,
+              wsId,
+              { resourceIds: updatedResourceIds },
+              { skipEvents: true, skipAnalytics: true },
+            );
+          } else {
+            updatedHabit = {
+              ...(currentHabit || {
+                id: itemId,
+                workspaceId: wsId,
+                title: "",
+                recurrence: { frequency: "daily", interval: 1 },
+                completionHistory: [],
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              }),
+              resourceIds: updatedResourceIds,
+              updatedAt: Date.now(),
+            };
+          }
+
+          if (persistHabits) {
+            const nextHabits = habits.map((h) => (h.id === itemId ? updatedHabit : h));
+            if (!nextHabits.some((h) => h.id === itemId)) {
+              nextHabits.push(updatedHabit);
+            }
+            await persistHabits(nextHabits);
+          }
+
+          setHabits((prev) => {
+            const exists = prev.some((h) => h.id === itemId);
+            return exists ? prev.map((h) => (h.id === itemId ? updatedHabit : h)) : [...prev, updatedHabit];
+          });
+
+          emitStateChange("habits_changed");
+        } else if (itemType === "checklist") {
+          const checklistsMap = await ChecklistRepository.getChecklists(wsId);
+          const currentChk = checklistsMap[itemId] || (checklists[wsId] || []).find((c) => c.id === itemId);
+
+          const linked = currentChk?.resourceIds || [];
+          const updatedResourceIds = linked.includes(resourceId)
+            ? linked.filter((id: string) => id !== resourceId)
+            : [...linked, resourceId];
+
+          let updatedChecklist: Checklist;
+          if (checklistsMap[itemId]) {
+            updatedChecklist = await EntityCommandService.updateChecklist(
+              itemId,
+              wsId,
+              { resourceIds: updatedResourceIds },
+              { skipEvents: true, skipAnalytics: true },
+            );
+          } else {
+            updatedChecklist = {
+              ...(currentChk || {
+                id: itemId,
+                workspaceId: wsId,
+                title: "",
+                items: [],
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              }),
+              resourceIds: updatedResourceIds,
+              updatedAt: Date.now(),
+            };
+          }
+
+          setChecklists((prev) => {
+            const next = { ...prev };
+            const currentList = next[wsId] || [];
+            next[wsId] = currentList.map((c) => (c.id === itemId ? updatedChecklist : c));
+            if (!next[wsId].some((c) => c.id === itemId)) {
+              next[wsId] = [...next[wsId], updatedChecklist];
+            }
+            return next;
+          });
+
+          emitStateChange("checklists_changed");
+        }
+
+        try {
+          const existing = await ResourceRepository.getResource(resourceId, wsId);
+          if (existing) {
+            emitStateChange("resources_changed");
+          }
+        } catch (e) {
+          console.warn("Failed to update resource link state", e);
+        }
+      });
+    },
+    [selectedWorkspaceId, activeWorkspaceId, workspaces, todos, habits, checklists, setTodos, setHabits, setChecklists, persistState, persistHabits],
+  );
 
   return {
     toggleLinkResource,

@@ -27,7 +27,14 @@ import { syncWidgetData } from "@/services/analytics/widget-data.service";
 import { earnPebble, reversePebbleReward } from "@/features/profile/services/pebble.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { pluginManager } from "@/plugin";
-import { getTodayDateKey, getOffsetDateKey, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
+import {
+  getTodayDateKey,
+  getOffsetDateKey,
+  isHabitCompletedToday,
+  getHabitCurrentStreak,
+  getHabitBestStreak,
+  getHabitLastCompletedDate,
+} from "@/shared/utils/domain-selectors";
 import {
   type Task,
   type Habit,
@@ -168,6 +175,19 @@ export class EntityCommandService {
       emitStateChange("workspace_changed", "tasks_screen");
     } catch (e) {
       console.warn("Failed to create workspace", e);
+      throw e;
+    }
+  }
+
+  /**
+   * Update and persist a Workspace entity (e.g. rename workspace).
+   */
+  static async updateWorkspace(workspace: Workspace): Promise<void> {
+    try {
+      await WorkspaceRepository.saveWorkspace(workspace);
+      emitStateChange("workspace_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to update workspace", e);
       throw e;
     }
   }
@@ -847,32 +867,20 @@ export class EntityCommandService {
       return { previous: habit, updated: habit };
     }
 
-    const yesterday = getOffsetDateKey(1, today);
-
-
-
-    let streak = habit.streak || 0;
     const completionHistory = [...(habit.completionHistory || [])];
-    
     if (!completionHistory.some((e: any) => e.date === today)) {
       completionHistory.push({ date: today, completedAt: Date.now() });
     }
 
-    // Sort completion history
-    const dates = completionHistory.map((e) => e.date).sort();
-    const lastDateBeforeToday = dates.length > 1 ? dates[dates.length - 2] : undefined;
-
-    let nextStreak = 1;
-    if (lastDateBeforeToday === yesterday) {
-      nextStreak = (habit.streak || 0) + 1;
-    }
-    streak = nextStreak;
+    const tempHabit: Habit = { ...habit, completionHistory };
+    const streak = getHabitCurrentStreak(tempHabit, today);
+    const bestStreak = Math.max(habit.bestStreak || 0, getHabitBestStreak(tempHabit));
 
     const updatedHabit: Habit = {
       ...habit,
       completionHistory,
       streak,
-      bestStreak: Math.max(habit.bestStreak || 0, streak),
+      bestStreak,
       lastCompletedDate: today,
       updatedAt: Date.now(),
     };
@@ -912,22 +920,19 @@ export class EntityCommandService {
       return { previous: habit, updated: habit };
     }
 
-    const yesterday = getOffsetDateKey(1, today);
-
-
-
-    let streak = habit.streak || 0;
     const completionHistory = (habit.completionHistory || []).filter(
       (c) => c.date !== today
     );
 
-    streak = Math.max(0, streak - 1);
+    const tempHabit: Habit = { ...habit, completionHistory };
+    const streak = getHabitCurrentStreak(tempHabit, today);
+    const lastCompletedDate = getHabitLastCompletedDate(tempHabit);
 
     const updatedHabit: Habit = {
       ...habit,
       completionHistory,
       streak,
-      lastCompletedDate: streak > 0 ? yesterday : undefined,
+      lastCompletedDate,
       updatedAt: Date.now(),
     };
 
@@ -978,6 +983,76 @@ export class EntityCommandService {
       updatedChecklist.pebbleAwarded = true;
       await earnPebble("checklist", `checklist:${checklist.id}`);
     }
+
+    await ChecklistRepository.saveChecklist(updatedChecklist);
+
+    if (!options?.skipEvents) {
+      emitStateChange("checklists_changed", options?.source);
+    }
+
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    return { previous: checklist, updated: updatedChecklist };
+  }
+
+  /**
+   * Add an item to a Checklist.
+   */
+  static async addChecklistItem(
+    checklistId: string,
+    itemTitle: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<{ previous: Checklist; updated: Checklist } | null> {
+    const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+    const checklist = checklistsMap[checklistId];
+    if (!checklist) return null;
+
+    const newItem = {
+      id: `checklist-item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      title: itemTitle,
+      completed: false,
+    };
+
+    const updatedChecklist: Checklist = {
+      ...checklist,
+      items: [...(checklist.items || []), newItem],
+      updatedAt: Date.now(),
+    };
+
+    await ChecklistRepository.saveChecklist(updatedChecklist);
+
+    if (!options?.skipEvents) {
+      emitStateChange("checklists_changed", options?.source);
+    }
+
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    return { previous: checklist, updated: updatedChecklist };
+  }
+
+  /**
+   * Delete an item from a Checklist.
+   */
+  static async deleteChecklistItem(
+    checklistId: string,
+    itemId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<{ previous: Checklist; updated: Checklist } | null> {
+    const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+    const checklist = checklistsMap[checklistId];
+    if (!checklist) return null;
+
+    const updatedChecklist: Checklist = {
+      ...checklist,
+      items: (checklist.items || []).filter((i) => i.id !== itemId),
+      updatedAt: Date.now(),
+    };
 
     await ChecklistRepository.saveChecklist(updatedChecklist);
 

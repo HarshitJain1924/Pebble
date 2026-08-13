@@ -510,7 +510,10 @@ export function MascotOverlay() {
         // 3. Daily Clear (all tasks/habits checked)
         const isDailyClear = await checkIfDailyClear();
 
-        if (isLevelUp || isMilestone || isDailyClear) {
+        // 4. First daily pebble completion
+        const isFirstPebbleToday = pebbleStats.today === 1;
+
+        if (isLevelUp || isMilestone || isDailyClear || isFirstPebbleToday) {
           setRewardStartCount(prevLifetime);
           setRewardTargetCount(newLifetime);
           setFallingPebbleType(pType);

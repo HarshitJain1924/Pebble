@@ -1,4 +1,4 @@
-﻿jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
+jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
 import React from "react";
 import { act, create } from "react-test-renderer";
 import { useTasksState } from "@/features/tasks/hooks/useTasksState";
@@ -20,14 +20,16 @@ jest.mock("@/features/tasks/hooks/useTaskFiltering", () => ({ useTaskFiltering: 
 jest.mock("@/features/habits/hooks/useHabitCrud", () => ({ useHabitCrud: () => ({ persistHabits: jest.fn(async () => undefined), addHabit: jest.fn(), deleteHabit: jest.fn(), toggleHabit: jest.fn() }) }));
 jest.mock("@/services/scheduling/hooks/useReminderState", () => ({ useReminderState: () => ({ alarmMenu: null, setAlarmMenu: jest.fn(), scheduleAlarm: jest.fn(), scheduleAlarmWithDays: jest.fn(), cancelAlarm: jest.fn() }) }));
 jest.mock("@/features/resources/hooks/useResourceState", () => ({ useResourceState: () => ({ resources: {}, loadResourcesState: jest.fn(async () => undefined), createResource: jest.fn(), updateResource: jest.fn(), deleteResource: jest.fn(), toggleArchiveResource: jest.fn() }) }));
-jest.mock("@/features/checklists/hooks/useChecklistState", () => ({ useChecklistState: () => ({ checklists: {}, setChecklists: jest.fn(), loadChecklistsState: jest.fn(async () => undefined), addChecklist: jest.fn(), updateChecklist: jest.fn(), deleteChecklist: jest.fn(), toggleChecklistItem: jest.fn() }) }));
+jest.mock("@/features/checklists/hooks/useChecklistState", () => ({ useChecklistState: () => ({ checklists: {}, setChecklists: jest.fn(), loadChecklistsState: jest.fn(async () => undefined), addChecklist: jest.fn(), updateChecklist: jest.fn(), deleteChecklist: jest.fn(), toggleChecklistItem: jest.fn(), addChecklistItem: jest.fn(), deleteChecklistItem: jest.fn() }) }));
 jest.mock("@/features/resources/hooks/useResourceLinkState", () => ({ useResourceLinkState: () => ({ toggleLinkResource: jest.fn() }) }));
+jest.mock("@/features/settings/services/settings.service", () => ({ getProfile: jest.fn(async () => null), getNotificationLogs: jest.fn(async () => []) }));
 jest.mock("@/services/events/state-events", () => ({ addStateListener: jest.fn(() => jest.fn()), emitStateChange: jest.fn() }));
 jest.mock("@/repositories", () => ({
   TaskRepository: { getTasks: jest.fn() },
   HabitRepository: { getHabits: jest.fn(async () => ({})) },
   ChecklistRepository: { getChecklists: jest.fn(async () => ({})) },
   ResourceRepository: { getResources: jest.fn(async () => ({})) },
+  ProfileRepository: { getProfile: jest.fn(async () => null), saveProfile: jest.fn(async () => undefined) },
   UiStateRepository: { getUiState: jest.fn(async () => ({ activeWorkspaceId: "ws", completedOnboarding: true, themeCache: "dark" })) },
 }));
 
@@ -36,25 +38,39 @@ const workspace: Workspace = { id: "ws", name: "Workspace", createdAt: 1, update
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((res) => { resolve = res; }); return { promise, resolve }; };
 
 describe("Phase 0 useTasksState load ordering", () => {
-  test.failing("commits only the newest load response", async () => {
+  jest.setTimeout(30000);
+  test("commits only the newest load response", async () => {
     const { TaskRepository } = jest.requireMock("@/repositories") as { TaskRepository: { getTasks: jest.Mock } };
     const first = deferred<Record<string, Task>>();
     const second = deferred<Record<string, Task>>();
-    TaskRepository.getTasks.mockReset().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    let count = 0;
+    TaskRepository.getTasks.mockImplementation(async () => {
+      count++;
+      if (count === 1) return first.promise;
+      return second.promise;
+    });
+
     let api: ReturnType<typeof useTasksState> | undefined;
     function Harness() { api = useTasksState(); return null; }
     let renderer: ReturnType<typeof create>;
     await act(async () => { renderer = create(React.createElement(Harness)); });
     try {
-      const load1 = api!.loadState();
-    const load2 = api!.loadState();
-    second.resolve({ task: task("new") });
-    await Promise.resolve();
-    first.resolve({ task: task("old") });
-    await Promise.all([load1, load2]);
+      let load1!: Promise<void>;
+      let load2!: Promise<void>;
+      act(() => {
+        load1 = api!.loadState();
+        load2 = api!.loadState();
+      });
+      await act(async () => {
+        second.resolve({ task: task("new") });
+        first.resolve({ task: task("old") });
+        await Promise.all([load1, load2]);
+      });
       expect(api!.todos.ws[0].title).toBe("new");
     } finally {
-      renderer!.unmount();
+      act(() => {
+        renderer!.unmount();
+      });
     }
   });
 });

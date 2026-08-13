@@ -21,7 +21,8 @@ import {
   isTaskOverdue,
 } from "@/shared/utils/domain-selectors";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
+import { addStateListener } from "@/services/events/state-events";
 
 export interface TodayDashboardStats {
   todoStats: {
@@ -89,8 +90,11 @@ export function useTodayDashboard(): TodayDashboardStats {
   );
   const [isLoading, setIsLoading] = useState(true);
 
+  const loadRequestIdRef = useRef(0);
+
   const loadDashboard = useCallback(async () => {
-    console.log("[INSTRUMENT] [useTodayDashboard] loadDashboard() CALLED");
+    const requestId = ++loadRequestIdRef.current;
+    console.log("[INSTRUMENT] [useTodayDashboard] loadDashboard() CALLED, requestId =", requestId);
     try {
       setIsLoading(true);
       const todayStr = getDateKey();
@@ -106,7 +110,6 @@ export function useTodayDashboard(): TodayDashboardStats {
           updatedAt: Date.now(),
         });
       }
-      setFolders(allFolders);
 
       const workspaceIds = Array.from(
         new Set([INBOX_WORKSPACE_ID, ...loadedFolders.map((f) => f.id)]),
@@ -141,6 +144,13 @@ export function useTodayDashboard(): TodayDashboardStats {
         );
       }
 
+      // Stale load request check — do not commit if superseded by a newer request
+      if (requestId !== loadRequestIdRef.current) {
+        console.log(`[useTodayDashboard] loadDashboard() request #${requestId} superseded by #${loadRequestIdRef.current} — skipping commit`);
+        return;
+      }
+
+      setFolders(allFolders);
       setAllChecklists(checklistsMap);
       setAllResources(resourcesMap);
 
@@ -220,12 +230,15 @@ export function useTodayDashboard(): TodayDashboardStats {
 
       // Streak recovery info
       const recovery = await getMainStreakRecoveryInfo();
+      if (requestId !== loadRequestIdRef.current) return;
       setRecoveryInfo(recovery);
       setMainStreak(maxStk);
     } catch (e) {
       console.warn("Failed to load today dashboard", e);
     } finally {
-      setIsLoading(false);
+      if (requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -234,6 +247,40 @@ export function useTodayDashboard(): TodayDashboardStats {
       loadDashboard();
     }, [loadDashboard]),
   );
+
+  // Event-driven targeted freshness updates from external surface mutations
+  useEffect(() => {
+    const unsubTasks = addStateListener("tasks_changed", (emitterId) => {
+      if (emitterId !== "today_dashboard") {
+        void loadDashboard();
+      }
+    });
+
+    const unsubHabits = addStateListener("habits_changed", (emitterId) => {
+      if (emitterId !== "today_dashboard") {
+        void loadDashboard();
+      }
+    });
+
+    const unsubChecklists = addStateListener("checklists_changed", (emitterId) => {
+      if (emitterId !== "today_dashboard") {
+        void loadDashboard();
+      }
+    });
+
+    const unsubWorkspaces = addStateListener("workspace_changed", (emitterId) => {
+      if (emitterId !== "today_dashboard") {
+        void loadDashboard();
+      }
+    });
+
+    return () => {
+      unsubTasks();
+      unsubHabits();
+      unsubChecklists();
+      unsubWorkspaces();
+    };
+  }, [loadDashboard]);
 
   return {
     todoStats,

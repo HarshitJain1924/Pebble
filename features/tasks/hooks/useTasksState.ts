@@ -154,6 +154,8 @@ export function useTasksState() {
     updateChecklist,
     deleteChecklist,
     toggleChecklistItem,
+    addChecklistItem,
+    deleteChecklistItem,
   } = useChecklistState(selectedWorkspaceId);
 
   const scrollViewRef = useRef<ScrollView>(null);
@@ -360,8 +362,11 @@ export function useTasksState() {
     return () => clearTimeout(timer);
   }, [params.quickAdd]);
 
+  const loadRequestIdRef = useRef(0);
+
   const loadState = useCallback(async () => {
-    console.log("[INSTRUMENT] [useTasksState] loadState() CALLED");
+    const requestId = ++loadRequestIdRef.current;
+    console.log("[INSTRUMENT] [useTasksState] loadState() CALLED, requestId =", requestId);
     try {
       // Load workspaces first and use the returned array directly (never read stale state)
       const currentLists = await loadWorkspaces();
@@ -421,6 +426,12 @@ export function useTasksState() {
         );
       }
 
+      // Generation counter check — skip commit if a newer load request was initiated
+      if (requestId !== loadRequestIdRef.current) {
+        console.log(`[useTasksState] loadState() request #${requestId} superseded by #${loadRequestIdRef.current} — skipping commit`);
+        return;
+      }
+
       console.log("[INSTRUMENT] [useTasksState] loadState() loaded", Object.keys(allTodosMap).length, "workspaces, calling setTodos(allTodosMap)");
       setTodos(allTodosMap);
       console.log("[INSTRUMENT] [useTasksState] setTodos(allTodosMap) CALLED — allTodosMap keys:", Object.keys(allTodosMap));
@@ -428,15 +439,21 @@ export function useTasksState() {
       setChecklists(allChecklistsMap);
       await loadResourcesState(selectedWorkspaceId);
 
+      if (requestId !== loadRequestIdRef.current) return;
+
       try {
         const userProfile = await getProfile();
+        if (requestId !== loadRequestIdRef.current) return;
         setProfile(userProfile);
         const logs = await getNotificationLogs();
+        if (requestId !== loadRequestIdRef.current) return;
         const hasUnread = logs.some((l: any) => !l.read);
         setHasUnreadNotifs(hasUnread);
       } catch {}
 
-      if (Platform.OS === "web") {
+      if (requestId !== loadRequestIdRef.current) return;
+
+      if (Platform?.OS === "web") {
         Object.values(allTodosMap).forEach((listTodos) => {
           listTodos.forEach((t: any) => {
             // Use canonical reminder.triggerAt instead of legacy alarmTime
@@ -1324,8 +1341,8 @@ export function useTasksState() {
     deleteChecklist,
     toggleArchiveChecklist: deleteChecklist,
     toggleChecklistItem,
-    addChecklistItem: (id: string, itemTitle: string) => {},
-    deleteChecklistItem: (id: string, itemId: string) => {},
+    addChecklistItem,
+    deleteChecklistItem,
     loadChecklistsState,
   };
 }

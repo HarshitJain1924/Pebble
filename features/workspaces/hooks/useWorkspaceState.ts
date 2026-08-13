@@ -103,26 +103,31 @@ export function useWorkspaceState() {
     }
   }, [targetWsId]);
 
-  const handleSelectWorkspace = useCallback((id: string) => {
+  const handleSelectWorkspace = useCallback(async (id: string) => {
     Haptics.selectionAsync().catch(() => {});
     setActiveWorkspaceId(id);
     setSelectedWorkspaceId(id);
     setWorkspaceSegment("tasks");
-    UiStateRepository.saveUiState({ activeWorkspaceId: id }).catch(() => {});
+    try {
+      await UiStateRepository.saveUiState({ activeWorkspaceId: id });
+    } catch (e) {}
     emitStateChange("workspace_mode_changed", id);
     emitStateChange("workspace_changed", "tasks_screen");
   }, []);
 
-  const handleBackToWorkspaces = useCallback(() => {
+  const handleBackToWorkspaces = useCallback(async () => {
     Haptics.selectionAsync().catch(() => {});
     setActiveWorkspaceId(null);
-    UiStateRepository.saveUiState({
-      activeWorkspaceId: null,
-    }).catch(() => {});
+    try {
+      await UiStateRepository.saveUiState({
+        activeWorkspaceId: null,
+      });
+    } catch (e) {}
     try {
       router.setParams({ workspaceId: undefined });
     } catch (e) {}
     emitStateChange("workspace_mode_changed", "null");
+    emitStateChange("workspace_changed", "tasks_screen");
   }, [router]);
 
   useEffect(() => {
@@ -179,8 +184,8 @@ export function useWorkspaceState() {
         setActiveWorkspaceId(rawActive);
         emitStateChange("workspace_mode_changed", rawActive);
       } else {
-        setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
-        setActiveWorkspaceId(null);
+        setSelectedWorkspaceId((prev) => (currentLists.some((l) => l.id === prev) ? prev : INBOX_WORKSPACE_ID));
+        setActiveWorkspaceId((prev) => (prev && currentLists.some((l) => l.id === prev) ? prev : null));
       }
       return currentLists;
     } catch (e) {
@@ -202,6 +207,15 @@ export function useWorkspaceState() {
     async (newWs: Workspace) => {
       const { EntityCommandService } = await import("@/services/command/EntityCommandService");
       await EntityCommandService.createWorkspace(newWs);
+      await loadWorkspaces();
+    },
+    [loadWorkspaces],
+  );
+
+  const handleUpdateWorkspace = useCallback(
+    async (updatedWs: Workspace) => {
+      const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+      await EntityCommandService.updateWorkspace(updatedWs);
       await loadWorkspaces();
     },
     [loadWorkspaces],
@@ -253,6 +267,7 @@ export function useWorkspaceState() {
     handleSelectWorkspace,
     handleBackToWorkspaces,
     handleCreateWorkspace,
+    handleUpdateWorkspace,
     handleDeleteWorkspace,
     loadWorkspaces,
   };

@@ -86,6 +86,10 @@ export function normalizeHabit(
     updatedAt: rawHabit.updatedAt || Date.now(),
     archivedAt:
       rawHabit.archivedAt || (rawHabit.archived ? Date.now() : undefined),
+    streak: typeof rawHabit.streak === "number" ? rawHabit.streak : undefined,
+    bestStreak:
+      typeof rawHabit.bestStreak === "number" ? rawHabit.bestStreak : undefined,
+    lastCompletedDate: rawHabit.lastCompletedDate || undefined,
   };
 }
 

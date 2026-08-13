@@ -8,8 +8,8 @@
  * - Habit rows:     content tap opens Habit Details; checkbox completes/uncompletes.
  * - Checklist rows: content tap expands/collapses items inline (no details navigation).
  *
- * Completed tasks stay visible in their workspace with their completed styling,
- * but their checkbox is locked ("remain uncheckable") on the Today screen.
+ * Completed tasks stay visible in their workspace with their completed styling
+ * and can be unchecked directly from the Today screen.
  */
 
 export type TodayRowKind = "task" | "habit" | "checklist";
@@ -50,14 +50,11 @@ export function getRowContentAction(
  * Decides what tapping a row's checkbox should do.
  * - task/habit checkboxes toggle completion only (never navigation)
  * - checklist checkboxes toggle expansion (mirrors the inline row behavior)
- * - a completed task's checkbox is locked: the task stays visible but cannot
- *   be unchecked from the Today screen ("remain uncheckable")
  */
 export function getCheckboxAction(
   kind: TodayRowKind,
   completed: boolean,
 ): TodayCheckboxAction {
   if (kind === "checklist") return "toggle-expand";
-  if (kind === "task" && completed) return "locked";
   return "toggle-completion";
 }

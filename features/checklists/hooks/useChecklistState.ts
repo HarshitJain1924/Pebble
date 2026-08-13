@@ -98,6 +98,42 @@ export function useChecklistState(selectedWorkspaceId: string) {
     }
   }, [selectedWorkspaceId, loadChecklistsState]);
 
+  const addChecklistItem = useCallback(async (checklistId: string, itemTitle: string, workspaceId?: string) => {
+    try {
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      const result = await EntityCommandService.addChecklistItem(checklistId, itemTitle, activeList, {
+        source: "tasks_screen",
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+
+      if (result) {
+        await loadChecklistsState();
+        emitStateChange("checklists_changed", "tasks_screen");
+      }
+    } catch (e) {
+      console.warn("Failed to add checklist item current", e);
+    }
+  }, [selectedWorkspaceId, loadChecklistsState]);
+
+  const deleteChecklistItem = useCallback(async (checklistId: string, itemId: string, workspaceId?: string) => {
+    try {
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      const result = await EntityCommandService.deleteChecklistItem(checklistId, itemId, activeList, {
+        source: "tasks_screen",
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+
+      if (result) {
+        await loadChecklistsState();
+        emitStateChange("checklists_changed", "tasks_screen");
+      }
+    } catch (e) {
+      console.warn("Failed to delete checklist item current", e);
+    }
+  }, [selectedWorkspaceId, loadChecklistsState]);
+
   return {
     checklists,
     setChecklists,
@@ -106,5 +142,7 @@ export function useChecklistState(selectedWorkspaceId: string) {
     updateChecklist,
     deleteChecklist,
     toggleChecklistItem,
+    addChecklistItem,
+    deleteChecklistItem,
   };
 }
