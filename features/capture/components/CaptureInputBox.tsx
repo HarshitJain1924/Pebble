@@ -26,6 +26,7 @@ import {
   StyleSheet,
   TextInputProps,
   ViewStyle,
+  Text,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { VoiceCaptureButton } from "@/features/capture/components/VoiceCaptureButton";
@@ -146,15 +147,20 @@ export const CaptureInputBox = React.memo(function CaptureInputBox({
           </TouchableOpacity>
         )}
 
-        <View style={styles.actionBtn}>
-          <VoiceCaptureButton
-            status={voiceStatus}
-            volume={voiceVolume}
-            onStart={onVoiceStart}
-            onStop={onVoiceStop}
-            onCancel={onVoiceCancel}
-            themePrimary={themePrimary}
-          />
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-end" }}>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: placeholderTextColor, marginRight: 12 }}>
+            {value.length}/500
+          </Text>
+          <View style={styles.actionBtn}>
+            <VoiceCaptureButton
+              status={voiceStatus}
+              volume={voiceVolume}
+              onStart={onVoiceStart}
+              onStop={onVoiceStop}
+              onCancel={onVoiceCancel}
+              themePrimary={themePrimary}
+            />
+          </View>
         </View>
       </View>
     </View>
@@ -167,24 +173,24 @@ export const CAPTURE_INPUT_MIN_HEIGHT = 172; // paddingV*2 + textMin (88) + gap 
 
 const styles = StyleSheet.create({
   container: {
-    borderWidth: 1.5,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,   // ← canonical: 16 on both sides
-    gap: 8,                // ← canonical: uniform gap between children
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    gap: 8,
     marginBottom: 16,
     minHeight: CAPTURE_INPUT_MIN_HEIGHT,
   },
   textInput: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "600",
     padding: 0,
     paddingTop: 0,
     paddingBottom: 0,
-    minHeight: 88,          // ← allocated for 4 lines without causing container reflow
+    minHeight: 88,
     maxHeight: 154,
     textAlignVertical: "top",
-    lineHeight: 22,
+    lineHeight: 26,
+    letterSpacing: -0.3,
   },
   actionRow: {
     flexDirection: "row",

@@ -956,19 +956,20 @@ export default function UnifiedCapture({
       {/* ── Smart Companion Header ── */}
       <View style={styles.sheetHeaderContainer}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={[styles.sheetHeaderTitle, { color: textPrimary }]}>
-            {smartHeader.title}
-          </Text>
-          <TouchableOpacity
-            onPress={() => sheetRef.current?.dismiss()}
-            style={[styles.closeIconBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
-          >
-            <Feather name="x" size={16} color={textMuted} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={{ fontSize: 16 }}>⚡</Text>
+            <Text style={[styles.sheetHeaderTitle, { color: textPrimary }]}>Quick Capture</Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <Feather name="star" size={16} color={textMuted} style={{ opacity: 0.5 }} />
+            <TouchableOpacity
+              onPress={() => sheetRef.current?.dismiss()}
+              style={[styles.closeIconBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}
+            >
+              <Feather name="x" size={18} color={textMuted} />
+            </TouchableOpacity>
+          </View>
         </View>
-        <Text style={[styles.sheetHeaderDesc, { color: textMuted }]}>
-          {smartHeader.desc}
-        </Text>
       </View>
 
       <BottomSheetScrollView
@@ -1122,6 +1123,39 @@ export default function UnifiedCapture({
             onSuggestionTap={handleSuggestionTap}
           />
         )}
+
+        {/* ── Contextual Action Bar ── */}
+        <View style={[styles.contextBar, { borderTopColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }]}>
+          <TouchableOpacity
+            onPress={() => handleActivePickerChange("workspace")}
+            style={[styles.contextBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
+          >
+            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
+              {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.emoji || "▣"} {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.name || "Inbox"}
+            </Text>
+            <Feather name="chevron-down" size={14} color={textMuted} />
+          </TouchableOpacity>
+
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <PressableScale
+              onPress={() => handleSave(false)}
+              disabled={isSaving || (duplicateResult?.isPotentialDuplicate === true)}
+              scaleTo={isSaving ? 1 : 0.95}
+              style={[
+                styles.bottomSaveBtn,
+                { backgroundColor: (isSaving || (duplicateResult?.isPotentialDuplicate === true)) ? textMuted : theme.primary },
+              ]}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.bottomSaveBtnText}>
+                  {saveButtonLabel}
+                </Text>
+              )}
+            </PressableScale>
+          </View>
+        </View>
       </BottomSheetScrollView>
     </BottomSheetModal>
 
@@ -1263,18 +1297,9 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
     });
   }
 
-  chipsMap.set("workspace", {
-    id: "workspace",
-    icon: null,
-    emoji: currentWorkspace?.emoji || "📂",
-    label: currentWorkspace?.name || "My Pebbles",
-    color: textPrimary,
-    bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
-  });
-
-  const taskOrder = ["date", "priority", "workspace", "category"];
-  const habitOrder = ["recurrence", "priority", "workspace", "category"];
-  const checklistOrder = ["workspace", "category"];
+  const taskOrder = ["date", "priority", "category"];
+  const habitOrder = ["recurrence", "priority", "category"];
+  const checklistOrder = ["category"];
 
   let currentOrder: string[] = [];
   if (parsedItem.type === "task") currentOrder = taskOrder;
@@ -1349,333 +1374,170 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
       style={[
         styles.summaryCard,
         {
-          backgroundColor: isDark ? "#1C1C21" : "#FFFFFF",
-          borderColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)",
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: isDark ? 0.25 : 0.06,
-          shadowRadius: 15,
-          elevation: 4,
+          padding: 0,
+          borderWidth: 0,
+          backgroundColor: "transparent",
+          shadowOpacity: 0,
+          elevation: 0,
         },
       ]}
     >
-      {/* Header: Interactive Type Badge + Confidence */}
-      <View style={styles.summaryHeader}>
+      {/* ── Intent Card ── */}
+      <View style={{ gap: 10, marginTop: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 4 }}>
+          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: textMuted, marginRight: 8, opacity: 0.5 }} />
+          <Text style={{ fontSize: 13, color: textMuted, fontWeight: "500" }}>
+            Pebble understands this as
+          </Text>
+        </View>
+
         <PressableScale
           onPress={() => onActivePickerChange("type")}
           style={[
-            styles.typeBadge,
+            styles.intentCard,
             {
-              backgroundColor: `${TYPE_META[parsedItem.type].color}14`,
-              borderColor: `${TYPE_META[parsedItem.type].color}30`,
-              borderWidth: 1,
-            },
+              backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)",
+              borderColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+            }
           ]}
         >
-          <Feather
-            name={TYPE_META[parsedItem.type].icon}
-            size={12}
-            color={TYPE_META[parsedItem.type].color}
-          />
-          <Text style={[styles.typeBadgeText, { color: TYPE_META[parsedItem.type].color }]}>
-            {TYPE_META[parsedItem.type].label}
-          </Text>
-          <Feather name="chevron-down" size={10} color={TYPE_META[parsedItem.type].color} />
-        </PressableScale>
-
-        {/* Confidence badge */}
-        {parsedItem.confidence >= 0.8 ? (
-          <View style={[styles.confidenceBadge, { backgroundColor: "rgba(16, 185, 129, 0.1)" }]}>
-            <Text style={{ fontSize: 10, fontWeight: "700", color: "#10B981" }}>
-              {Math.round(parsedItem.confidence * 100)}% confident
-            </Text>
+          <View style={[styles.intentIconCircle, { backgroundColor: TYPE_META[parsedItem.type].color }]}>
+            <Feather name="check" size={16} color="#FFF" />
           </View>
-        ) : parsedItem.confidence >= 0.6 ? (
-          <View style={[styles.confidenceBadge, { backgroundColor: "rgba(245, 158, 11, 0.1)" }]}>
-            <Text style={{ fontSize: 10, fontWeight: "700", color: "#F59E0B" }}>
-              {Math.round(parsedItem.confidence * 100)}% confident
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* Title */}
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <Text style={[styles.summaryTitle, { color: textPrimary, flex: 1 }]}>
-          {parsedItem.title}
-        </Text>
-      </View>
-
-      {/* Attached File Preview (if type file) */}
-      {parsedItem.type === "file" && attachedFile && (
-        <View style={[styles.fileCard, { borderColor }]}>
-          <Feather name="file" size={24} color={TYPE_META.file.color} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.fileName, { color: textPrimary }]} numberOfLines={1}>
-              {attachedFile.name}
+            <Text style={{ fontSize: 16, fontWeight: "700", color: textPrimary }}>
+              {TYPE_META[parsedItem.type].label}
             </Text>
-            <Text style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>
-              {(attachedFile.size / 1024).toFixed(1)} KB
+            <Text style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
+              {parsedItem.type === "task" ? "To-do item" : parsedItem.type === "habit" ? "Recurring routine" : parsedItem.type === "checklist" ? "List" : "Note"}
             </Text>
           </View>
-          <TouchableOpacity onPress={onRemoveAttachedFile}>
-            <Feather name="x" size={16} color={textMuted} />
-          </TouchableOpacity>
-        </View>
-      )}
+        </PressableScale>
+      </View>
 
-      {/* URL subtitle (links only) */}
-      {parsedItem.type === "link" && parsedItem.url && (
-        <Text style={[styles.urlSubtitle, { color: themeSecondary }]} numberOfLines={1}>
-          {parsedItem.url.replace(/^https?:\/\//, "").replace(/^www\./, "")}
-        </Text>
-      )}
-
-      {/* Checklist preview */}
-      {parsedItem.type === "checklist" && parsedItem.items && parsedItem.items.length > 0 && (
-        <View style={styles.checklistPreview}>
-          {parsedItem.items.slice(0, 6).map((checkItem, i) => (
-            <View key={i} style={styles.checklistRow}>
-              <View style={[styles.checklistBox, { borderColor: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.15)" }]} />
-              <Text style={[styles.checklistItemText, { color: textPrimary }]} numberOfLines={1}>
-                {checkItem}
-              </Text>
-            </View>
-          ))}
-          {parsedItem.items.length > 6 && (
-            <Text style={{ fontSize: 12, color: textMuted, paddingLeft: 28, fontWeight: "500" }}>
-              +{parsedItem.items.length - 6} more items
+      {/* ── Metadata Section ── */}
+      <View style={{ gap: 12, marginTop: 24 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: textMuted, marginRight: 8, opacity: 0.5 }} />
+            <Text style={{ fontSize: 13, color: textMuted, fontWeight: "500" }}>Detected details</Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={{ fontSize: 12, color: textMuted, fontWeight: "500" }}>AI Confidence:</Text>
+            <Text style={{ fontSize: 12, color: parsedItem.confidence > 0.8 ? "#10B981" : parsedItem.confidence > 0.6 ? "#F59E0B" : textPrimary, fontWeight: "600" }}>
+              {parsedItem.confidence > 0.8 ? "High" : parsedItem.confidence > 0.6 ? "Medium" : "Low"}
             </Text>
+          </View>
+        </View>
+
+        <View style={styles.chipsContainer}>
+          {visibleChips}
+          {extraChipsCount > 0 && (
+            <PressableScale
+              onPress={handleMorePress}
+              style={[styles.chip, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)" }]}
+            >
+              <Text numberOfLines={1} style={[styles.chipText, { color: textPrimary, fontWeight: "600" }]}>
+                ••• More
+              </Text>
+            </PressableScale>
           )}
         </View>
-      )}
-
-      {/* ── Metadata Chips Row ── */}
-      <View style={styles.chipsContainer}>
-        {visibleChips}
-        {extraChipsCount > 0 && (
-          <PressableScale
-            onPress={handleMorePress}
-            accessibilityRole="button"
-            accessibilityLabel="Show more metadata"
-            style={[styles.chip, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)" }]}
-          >
-            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.chipText, { color: textMuted, fontWeight: "600", fontSize: 14, letterSpacing: 1, paddingHorizontal: 2 }]}>
-              •••
-            </Text>
-          </PressableScale>
-        )}
       </View>
 
-      {/* ── Duplicate Notices / Warnings ── */}
+      {/* ── Duplicate Notices ── */}
       {isSameWorkspaceExactDuplicate && (
         <Animated.View
           entering={FadeInDown.duration(180)}
           style={[
-            styles.duplicateWarningBox,
+            styles.intentCard,
             {
-              backgroundColor: isDark ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.08)",
-              borderColor: isDark ? "#F59E0B" : "#D97706",
-            },
+              marginTop: 24,
+              backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)",
+              borderColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+            }
           ]}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Feather name="alert-circle" size={16} color={isDark ? "#FBBF24" : "#D97706"} />
-            <Text style={{ fontSize: 13, fontWeight: "700", color: isDark ? "#FBBF24" : "#D97706", flex: 1 }}>
-              Exact duplicate in this workspace
+          <View style={[styles.intentIconCircle, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
+            <Feather name="clipboard" size={16} color={isDark ? "#FBBF24" : "#D97706"} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: textPrimary }}>
+              Similar item found
+            </Text>
+            <Text style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
+              {duplicateResult?.matchedEntity?.title}
             </Text>
           </View>
-          <Text style={{ fontSize: 12, color: textMuted, marginTop: 4, lineHeight: 16 }}>
-            An identical {duplicateResult?.matchedEntity?.type || "item"} already exists: &ldquo;{duplicateResult?.matchedEntity?.title}&rdquo;
-          </Text>
+          <Feather name="chevron-right" size={18} color={textMuted} />
         </Animated.View>
       )}
 
-      {isNearDuplicate && (
+      {isMergeCandidate && (
         <Animated.View
           entering={FadeInDown.duration(180)}
           style={[
-            styles.duplicateInfoBox,
+            styles.intentCard,
             {
-              backgroundColor: isDark ? "rgba(99, 102, 241, 0.1)" : "rgba(99, 102, 241, 0.05)",
-              borderColor: isDark ? "rgba(99, 102, 241, 0.25)" : "rgba(99, 102, 241, 0.2)",
-            },
+              marginTop: 24,
+              backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)",
+              borderColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+            }
           ]}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Feather name="info" size={14} color={themePrimary} />
-            <Text style={{ fontSize: 12, fontWeight: "600", color: textPrimary, flex: 1 }}>
-              Similar {duplicateResult?.matchedEntity?.type || "item"} exists: &ldquo;{duplicateResult?.matchedEntity?.title}&rdquo;
+          <View style={[styles.intentIconCircle, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
+            <Feather name="layers" size={16} color={isDark ? "#10B981" : "#059669"} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: textPrimary }}>
+              Update existing list?
             </Text>
+            {duplicateResult?.newItems && (
+              <Text style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
+                Add {duplicateResult.newItems.join(", ")}
+              </Text>
+            )}
           </View>
         </Animated.View>
       )}
-
-      {isCrossWorkspaceExactDuplicate && (
-        <Animated.View
-          entering={FadeInDown.duration(180)}
-          style={[
-            styles.duplicateInfoBox,
-            {
-              backgroundColor: isDark ? "rgba(100, 116, 139, 0.08)" : "rgba(100, 116, 139, 0.04)",
-              borderColor: isDark ? "rgba(100, 116, 139, 0.2)" : "rgba(100, 116, 139, 0.15)",
-            },
-          ]}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Feather name="info" size={14} color={textMuted} />
-            <Text style={{ fontSize: 12, fontWeight: "500", color: textMuted, flex: 1 }}>
-              Identical item exists in another workspace ({duplicateResult?.matchedEntity?.workspaceId})
-            </Text>
-          </View>
-        </Animated.View>
-      )}
-
-      {/* ── Action Buttons ── */}
-      {isMergeCandidate ? (
-        <View style={{ marginTop: 12 }}>
-          <Animated.View
-            entering={FadeInDown.duration(180)}
-            style={[
-              styles.duplicateInfoBox,
-              {
-                backgroundColor: isDark ? "rgba(16, 185, 129, 0.1)" : "rgba(16, 185, 129, 0.05)",
-                borderColor: isDark ? "rgba(16, 185, 129, 0.25)" : "rgba(16, 185, 129, 0.2)",
-                marginBottom: 10,
-              },
-            ]}
-          >
-            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
-              <Feather name="layers" size={16} color={isDark ? "#10B981" : "#059669"} style={{ marginTop: 2 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: "700", color: isDark ? "#10B981" : "#059669", marginBottom: 4 }}>
-                  Update existing {duplicateResult?.matchedEntity?.title} list?
-                </Text>
-                {duplicateResult?.overlappingItems && duplicateResult.overlappingItems.length > 0 && (
-                  <Text style={{ fontSize: 12, color: textMuted, marginBottom: 2 }}>
-                    <Text style={{ fontWeight: "600" }}>Already there: </Text>
-                    {duplicateResult.overlappingItems.join(", ")}
-                  </Text>
+      {/* ── Action Buttons (Only for Duplicates) ── */}
+      {(isMergeCandidate || isSameWorkspaceExactDuplicate) && (
+        <View style={{ gap: 8, marginTop: 24, flexDirection: "row", justifyContent: "flex-end" }}>
+          {isMergeCandidate && (
+            <>
+              <TouchableOpacity onPress={onSaveAnyway} style={[styles.secondaryActionBtn, { paddingHorizontal: 16 }]}>
+                <Text style={[styles.secondaryActionBtnText, { color: textPrimary }]}>Create new</Text>
+              </TouchableOpacity>
+              <PressableScale
+                onPress={onMergeChecklist}
+                disabled={isSaving}
+                scaleTo={isSaving ? 1 : 0.97}
+                style={[styles.primaryActionBtn, { backgroundColor: isSaving ? textMuted : themePrimary, paddingHorizontal: 20, paddingVertical: 12 }]}
+              >
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={[styles.primaryActionBtnText, { fontSize: 14 }]}>Add to existing</Text>
                 )}
-                {duplicateResult?.newItems && duplicateResult.newItems.length > 0 && (
-                  <Text style={{ fontSize: 12, color: textMuted }}>
-                    <Text style={{ fontWeight: "600" }}>Add: </Text>
-                    {duplicateResult.newItems.join(", ")}
-                  </Text>
-                )}
-              </View>
-            </View>
-          </Animated.View>
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <PressableScale
-              onPress={onMergeChecklist}
-              disabled={isSaving}
-              scaleTo={isSaving ? 1 : 0.95}
-              style={[
-                styles.saveButton,
-                {
-                  backgroundColor: isSaving ? textMuted : isDark ? "#10B981" : "#059669",
-                  shadowColor: isSaving ? "transparent" : (isDark ? "#10B981" : "#059669"),
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: isSaving ? 0 : 0.2,
-                  shadowRadius: 8,
-                  elevation: isSaving ? 0 : 4,
-                  flex: 1,
-                },
-              ]}
-            >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.saveButtonText}>
-                  Add {duplicateResult?.newItems?.length ?? 1} item{(duplicateResult?.newItems?.length || 0) === 1 ? "" : "s"} to existing list
-                </Text>
-              )}
-            </PressableScale>
+              </PressableScale>
+            </>
+          )}
 
-            <TouchableOpacity
-              onPress={onSaveAnyway}
-              style={[
-                styles.useExistingBtn,
-                {
-                  borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
-                  backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-                  flex: 1,
-                },
-              ]}
-            >
-              <Text style={[styles.useExistingBtnText, { color: textPrimary }]}>Create separate</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : isSameWorkspaceExactDuplicate ? (
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
-          <TouchableOpacity
-            onPress={onUseExisting}
-            style={[
-              styles.useExistingBtn,
-              {
-                borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
-                backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-                flex: 1,
-              },
-            ]}
-          >
-            <Feather name="external-link" size={14} color={textPrimary} />
-            <Text style={[styles.useExistingBtnText, { color: textPrimary }]}>Use existing</Text>
-          </TouchableOpacity>
-
-          <PressableScale
-            onPress={onSaveAnyway}
-            disabled={isSaving}
-            scaleTo={isSaving ? 1 : 0.95}
-            style={[
-              styles.saveAnywayBtn,
-              {
-                backgroundColor: isSaving ? textMuted : isDark ? "#F59E0B" : "#D97706",
-                flex: 1,
-              },
-            ]}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text style={styles.saveAnywayBtnText}>Create anyway</Text>
-            )}
-          </PressableScale>
-        </View>
-      ) : (
-        <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
-          <TouchableOpacity
-            onPress={onDismiss}
-            style={[styles.dismissBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
-          >
-            <Text style={[styles.dismissBtnText, { color: textPrimary }]}>Dismiss</Text>
-          </TouchableOpacity>
-
-          <PressableScale
-            onPress={onSave}
-            disabled={isSaving}
-            scaleTo={isSaving ? 1 : 0.95}
-            style={[
-              styles.saveButton,
-              {
-                backgroundColor: isSaving ? textMuted : themePrimary,
-                shadowColor: isSaving ? "transparent" : themePrimary,
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: isSaving ? 0 : 0.25,
-                shadowRadius: 10,
-                elevation: isSaving ? 0 : 5,
-                flex: 1,
-              },
-            ]}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text style={styles.saveButtonText}>{saveButtonLabel}</Text>
-            )}
-          </PressableScale>
+          {isSameWorkspaceExactDuplicate && (
+            <>
+              <TouchableOpacity onPress={onSaveAnyway} style={[styles.secondaryActionBtn, { paddingHorizontal: 16 }]}>
+                <Text style={[styles.secondaryActionBtnText, { color: textPrimary }]}>Create anyway</Text>
+              </TouchableOpacity>
+              <PressableScale
+                onPress={onUseExisting}
+                disabled={isSaving}
+                scaleTo={isSaving ? 1 : 0.97}
+                style={[styles.primaryActionBtn, { backgroundColor: isSaving ? textMuted : themePrimary, paddingHorizontal: 20, paddingVertical: 12 }]}
+              >
+                <Text style={[styles.primaryActionBtnText, { fontSize: 14 }]}>Use existing</Text>
+              </PressableScale>
+            </>
+          )}
         </View>
       )}
     </Animated.View>
@@ -2037,4 +1899,77 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     letterSpacing: -0.1,
   },
+  // New Styles for Redesign
+  intentCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1.2,
+  },
+  intentIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: 16,
+  },
+  primaryActionBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    letterSpacing: -0.2,
+  },
+  secondaryActionBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+  },
+  secondaryActionBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  contextBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 16,
+    marginTop: 16,
+    borderTopWidth: 1,
+  },
+  contextBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  iconActionBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bottomSaveBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: "auto",
+  },
+  bottomSaveBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  }
 });
