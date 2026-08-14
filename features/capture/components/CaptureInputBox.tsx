@@ -13,6 +13,9 @@
  *   button row height : 44
  *   Total min height  : 16 + 88 + 8 + 44 + 16 = 172px
  *
+ * Border: 1px hairline (borderColor is provided by the caller; borderWidth is
+ * applied here so the borderColor actually renders).
+ *
  * middleSlot
  *   Optional content rendered between the TextInput and the action row —
  *   stays visually inside the card border. Use for description fields,
@@ -108,7 +111,9 @@ export const CaptureInputBox = React.memo(function CaptureInputBox({
         containerStyle,
       ]}
     >
+      {/* Forward props first so the component's base layout can never be overwritten. */}
       <TextInputComponent
+        {...(textInputProps as any)}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -116,8 +121,7 @@ export const CaptureInputBox = React.memo(function CaptureInputBox({
         onFocus={onFocus}
         onBlur={onBlur}
         multiline
-        style={[styles.textInput, { color: textColor }]}
-        {...(textInputProps as any)}
+        style={[styles.textInput, { color: textColor }, (textInputProps as any)?.style]}
       />
 
       {/* middleSlot — description, tags, etc. Always inside the card */}
@@ -148,9 +152,12 @@ export const CaptureInputBox = React.memo(function CaptureInputBox({
         )}
 
         <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-end" }}>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: placeholderTextColor, marginRight: 12 }}>
-            {value.length}/500
-          </Text>
+          {/* Character count only when it matters (approaching the limit) */}
+          {value.length >= 400 && (
+            <Text style={{ fontSize: 12, fontWeight: "500", color: placeholderTextColor, marginRight: 12 }}>
+              {value.length}/500
+            </Text>
+          )}
           <View style={styles.actionBtn}>
             <VoiceCaptureButton
               status={voiceStatus}
@@ -173,24 +180,25 @@ export const CAPTURE_INPUT_MIN_HEIGHT = 172; // paddingV*2 + textMin (88) + gap 
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     gap: 8,
     marginBottom: 16,
     minHeight: CAPTURE_INPUT_MIN_HEIGHT,
   },
   textInput: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "500",
     padding: 0,
     paddingTop: 0,
     paddingBottom: 0,
     minHeight: 88,
     maxHeight: 154,
     textAlignVertical: "top",
-    lineHeight: 26,
-    letterSpacing: -0.3,
+    lineHeight: 24,
+    letterSpacing: -0.2,
   },
   actionRow: {
     flexDirection: "row",

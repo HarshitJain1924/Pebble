@@ -8,6 +8,8 @@ export type ParsedProductivityItem = {
   time?: string; // HH:MM
   category?: "work" | "personal" | "health" | "learning" | "creative" | "focus";
   priority?: "high" | "medium" | "low";
+  /** True when priority was explicitly expressed in the input (not the parser's default). */
+  priorityDetected?: boolean;
   recurrence?: {
     type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
     interval?: number;
@@ -765,6 +767,7 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     time: isResource || isList ? undefined : signals.temporal.time,
     category: isResource ? undefined : signals.metadata.category,
     priority: isResource || isList ? undefined : signals.metadata.priority || "medium",
+    priorityDetected: !!signals.metadata.priority,
     recurrence: isResource || isList ? undefined : signals.temporal.recurrence,
     reminderOffsetMinutes: isResource || isList ? undefined : signals.temporal.reminderOffsetMinutes,
     confidence: ranking.confidence,

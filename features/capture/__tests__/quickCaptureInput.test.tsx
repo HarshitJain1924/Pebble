@@ -23,8 +23,9 @@ jest.mock("@gorhom/bottom-sheet", () => {
     BottomSheetBackdrop: () => null,
   };
 });
+const mockUndoApi = { showToast: jest.fn(), showUndo: jest.fn() };
 jest.mock("@/shared/components/ui/UndoContext", () => ({
-  useUndo: () => ({ showToast: jest.fn(), showUndo: jest.fn() }),
+  useUndo: () => mockUndoApi,
 }));
 jest.mock("@/features/workspaces/services/workspace-suggestions.service", () => ({
   getWorkspaceSuggestions: jest.fn(async () => []),
@@ -35,13 +36,15 @@ jest.mock("@/services/events/state-events", () => ({
 }));
 
 import React, { useState } from "react";
-import { TextInput } from "react-native";
+import { TextInput, Modal, Image } from "react-native";
 import { act, create } from "react-test-renderer";
 import CaptureInputBox from "@/features/capture/components/CaptureInputBox";
 import UnifiedCapture from "@/features/capture/components/UnifiedCapture";
 import { parseProductivityText } from "@/features/capture/services/nlp-parser.service";
 import { saveParsedItem } from "@/features/capture/services/CaptureService";
 import { getWorkspaceSuggestions } from "@/features/workspaces/services/workspace-suggestions.service";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ResourceRepository, TaskRepository } from "@/repositories";
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -568,5 +571,522 @@ describe("Quick Capture text-input concurrency, multiline & integrity suite", ()
     expect(flatContainerStyle.minHeight).toBe(172);
     expect(flatTextInputStyle.minHeight).toBe(88);
     expect(flatTextInputStyle.maxHeight).toBe(154);
+  });
+
+  describe("Quick Capture draft persistence, checklist preview & undo suite", () => {
+    const sheetRef = { current: { dismiss: jest.fn() } } as any;
+    const workspaces = [{ id: "ws-work", name: "Work", emoji: "💼" }];
+
+    beforeEach(async () => {
+      jest.clearAllMocks();
+      jest.useFakeTimers();
+      await AsyncStorage.clear();
+    });
+
+    const renderCapture = async () => {
+      let renderer: any;
+      await act(async () => {
+        renderer = create(
+          <UnifiedCapture
+            sheetRef={sheetRef}
+            workspaces={workspaces}
+            defaultWorkspaceId="ws-work"
+          />
+        );
+      });
+      return renderer;
+    };
+
+    it("12. Persists the in-progress draft on idle and restores it on a fresh mount", async () => {
+      let renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      act(() => {
+        getTextInput().props.onChangeText("Finish the report tomorrow");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      await act(async () => {});
+
+      // Draft is persisted to storage
+      expect(await AsyncStorage.getItem("quick_capture_draft_v1")).toBe("Finish the report tomorrow");
+
+      // Simulate an app restart: unmount and mount fresh
+      await act(async () => {
+        renderer.unmount();
+      });
+      renderer = await renderCapture();
+      await act(async () => {});
+
+      // Draft is restored into the input (and its metadata re-parsed)
+      expect(getTextInput().props.value).toBe("Finish the report tomorrow");
+    });
+
+    it("13. Clears the draft when the input is emptied", async () => {
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      act(() => {
+        getTextInput().props.onChangeText("Buy milk");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      await act(async () => {});
+      expect(await AsyncStorage.getItem("quick_capture_draft_v1")).toBe("Buy milk");
+
+      act(() => {
+        getTextInput().props.onChangeText("");
+      });
+      await act(async () => {});
+      expect(await AsyncStorage.getItem("quick_capture_draft_v1")).toBeNull();
+    });
+
+    it("14. Shows a compact preview of parsed checklist items", async () => {
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      act(() => {
+        getTextInput().props.onChangeText("- Apples\n- Oranges\n- Bananas\n- Butter");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450); // debounce → parse runs
+      });
+      act(() => {
+        jest.advanceTimersByTime(600); // parsing phase → "understood", summary card appears
+      });
+      await act(async () => {});
+
+      const renderedStrings = renderer.root
+        .findAll((n: any) => typeof n.props?.children === "string")
+        .map((n: any) => n.props.children as string);
+
+      expect(renderedStrings).toContain("Apples");
+      expect(renderedStrings).toContain("Oranges");
+      expect(renderedStrings).toContain("Bananas");
+      expect(renderedStrings).toContain("+1 more");
+    });
+
+    it("15. Add offers Undo; invoking it deletes the created entity and restores the text", async () => {
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      act(() => {
+        getTextInput().props.onChangeText("Buy milk tomorrow");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      await act(async () => {});
+
+      // Tap the Add button (walk up from the label to the pressable with the handler)
+      const addText = renderer.root.find((n: any) => n.props?.children === "Add");
+      let pressable: any = addText.parent;
+      while (pressable && typeof pressable.props?.onPress !== "function") {
+        pressable = pressable.parent;
+      }
+      await act(async () => {
+        pressable.props.onPress();
+      });
+
+      // Undo was offered with the correct contract
+      expect(mockUndoApi.showUndo).toHaveBeenCalledTimes(1);
+      const undoOpts = mockUndoApi.showUndo.mock.calls[0][0];
+      expect(undoOpts.actionLabel).toBe("Undo");
+      expect(undoOpts.message).toContain("Task added");
+      expect(typeof undoOpts.onUndo).toBe("function");
+
+      // The task exists in the repository
+      const tasks = await TaskRepository.getTasks("ws-work");
+      const saved = Object.values(tasks).find((t: any) => t.title === "Buy milk");
+      expect(saved).toBeDefined();
+
+      // Invoking Undo deletes it and restores the capture text
+      await act(async () => {
+        await undoOpts.onUndo();
+      });
+
+      const tasksAfter = await TaskRepository.getTasks("ws-work");
+      expect(Object.values(tasksAfter).some((t: any) => t.id === (saved as any).id)).toBe(false);
+      expect(getTextInput().props.value).toBe("Buy milk tomorrow");
+    });
+
+    const getAddDisabled = (renderer: any) => {
+      const addText = renderer.root.find((n: any) => n.props?.children === "Add");
+      let pressable: any = addText.parent;
+      while (pressable && typeof pressable.props?.onPress !== "function") {
+        pressable = pressable.parent;
+      }
+      return pressable.props.disabled === true;
+    };
+
+    const pressLabel = (renderer: any, label: string) => {
+      const labelNode = renderer.root.find((n: any) => n.props?.children === label);
+      let pressable: any = labelNode.parent;
+      while (pressable && typeof pressable.props?.onPress !== "function") {
+        pressable = pressable.parent;
+      }
+      return act(async () => {
+        pressable.props.onPress();
+      });
+    };
+
+    it("16. A near-duplicate (same title, different date) offers Create anyway / Use existing", async () => {
+      // Seed an existing task with no date
+      await saveParsedItem(parseProductivityText("Buy milk"), "ws-work");
+
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      // Same title but with a date → near_duplicate (isPotentialDuplicate: true)
+      act(() => {
+        getTextInput().props.onChangeText("Buy milk tomorrow");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+      await act(async () => {});
+
+      // Explicit choice UI, same as exact duplicates / habits — no dead end
+      const renderedStrings = renderer.root
+        .findAll((n: any) => typeof n.props?.children === "string")
+        .map((n: any) => n.props.children as string);
+      expect(renderedStrings).toContain("Similar item found");
+      expect(renderedStrings).toContain("Create anyway");
+      expect(renderedStrings).toContain("Use existing");
+      expect(getAddDisabled(renderer)).toBe(true);
+
+      // "Create anyway" actually saves
+      await pressLabel(renderer, "Create anyway");
+      expect(mockUndoApi.showUndo).toHaveBeenCalled();
+    });
+
+    it("17. Editing text immediately re-enables Add (stale duplicate cleared on keystroke)", async () => {
+      // Seed an exact duplicate target
+      await saveParsedItem(parseProductivityText("Buy milk"), "ws-work");
+
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      // Exact duplicate → Add disabled (the intended block with Create anyway / Use existing)
+      act(() => {
+        getTextInput().props.onChangeText("Buy milk");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+      await act(async () => {});
+      expect(getAddDisabled(renderer)).toBe(true);
+
+      // User edits — Add re-enables on the keystroke itself, no 450ms wait
+      act(() => {
+        getTextInput().props.onChangeText("Buy milk and eggs");
+      });
+      expect(getAddDisabled(renderer)).toBe(false);
+    });
+
+    it("18. Saves a Note resource via Quick Capture", async () => {
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      act(() => {
+        getTextInput().props.onChangeText("Note: project requirements");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+      await act(async () => {});
+
+      await pressLabel(renderer, "Add");
+
+      // The resource was persisted through the real capture pipeline
+      const resources = await ResourceRepository.getResources("ws-work");
+      expect(Object.values(resources).some((r: any) => r.title === "Project requirements")).toBe(true);
+      expect(mockUndoApi.showUndo).toHaveBeenCalled();
+    });
+
+    it("19. Saves a picked file as a Resource with the attachment (no typed text needed)", async () => {
+      const { getDocumentAsync } = require("expo-document-picker");
+      (getDocumentAsync as jest.Mock).mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            name: "report.pdf",
+            uri: "file:///cache/report.pdf",
+            mimeType: "application/pdf",
+            size: 2048,
+          },
+        ],
+      });
+
+      const renderer = await renderCapture();
+
+      // Tap the paperclip (attachment) button
+      const paperclip = renderer.root.findAll((n: any) => n.props?.name === "paperclip")[0];
+      let attachBtn: any = paperclip.parent;
+      while (attachBtn && typeof attachBtn.props?.onPress !== "function") {
+        attachBtn = attachBtn.parent;
+      }
+      await act(async () => {
+        await attachBtn.props.onPress();
+      });
+
+      // The attachment preview renders as a standalone file card (editable name +
+      // size · type details), as independent metadata — no "File" type chip.
+      const renameInput = renderer.root.findAll((n: any) => n.props?.accessibilityLabel === "Rename file")[0];
+      expect(renameInput.props.value).toBe("report.pdf");
+      const metaStrings = renderer.root
+        .findAll((n: any) => typeof n.props?.children === "string")
+        .map((n: any) => n.props.children as string);
+      expect(metaStrings).toContain("2 KB · PDF");
+      expect(metaStrings).not.toContain("File");
+
+      // Add saves the Resource with the attachment — no typed text required
+      await pressLabel(renderer, "Add");
+
+      const resources = await ResourceRepository.getResources("ws-work");
+      const saved = Object.values(resources).find((r: any) => r.title === "report.pdf");
+      expect(saved).toBeDefined();
+      expect((saved as any).attachments?.[0]?.uri).toBe("file:///cache/report.pdf");
+      expect(mockUndoApi.showUndo).toHaveBeenCalled();
+    });
+
+    it("20. Attaching a file keeps typed text as the title and saves the attachment", async () => {
+      const { getDocumentAsync } = require("expo-document-picker");
+      (getDocumentAsync as jest.Mock).mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            name: "invoice.pdf",
+            uri: "file:///cache/invoice.pdf",
+            mimeType: "application/pdf",
+            size: 1024,
+          },
+        ],
+      });
+
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+
+      // Type a title first, then attach a file
+      act(() => {
+        getTextInput().props.onChangeText("Client invoice");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      await act(async () => {});
+
+      const paperclip = renderer.root.findAll((n: any) => n.props?.name === "paperclip")[0];
+      let attachBtn: any = paperclip.parent;
+      while (attachBtn && typeof attachBtn.props?.onPress !== "function") {
+        attachBtn = attachBtn.parent;
+      }
+      await act(async () => {
+        await attachBtn.props.onPress();
+      });
+
+      // Add → saved as a Resource titled by the typed text, with the attachment
+      await pressLabel(renderer, "Add");
+
+      const resources = await ResourceRepository.getResources("ws-work");
+      const saved = Object.values(resources).find((r: any) => r.title === "Client invoice");
+      expect(saved).toBeDefined();
+      expect((saved as any).attachments?.[0]?.uri).toBe("file:///cache/invoice.pdf");
+    });
+
+    it("21. Eye button previews image attachments in-app", async () => {
+      const { getDocumentAsync } = require("expo-document-picker");
+      (getDocumentAsync as jest.Mock).mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            name: "photo.png",
+            uri: "file:///cache/photo.png",
+            mimeType: "image/png",
+            size: 512,
+          },
+        ],
+      });
+
+      const renderer = await renderCapture();
+
+      // Attach the image
+      const paperclip = renderer.root.findAll((n: any) => n.props?.name === "paperclip")[0];
+      let attachBtn: any = paperclip.parent;
+      while (attachBtn && typeof attachBtn.props?.onPress !== "function") {
+        attachBtn = attachBtn.parent;
+      }
+      await act(async () => {
+        await attachBtn.props.onPress();
+      });
+
+      // Eye button is present on the preview
+      const eye = renderer.root.findAll((n: any) => n.props?.name === "eye")[0];
+      expect(eye).toBeDefined();
+
+      // Tapping it opens the in-app image preview modal with the picked uri
+      let eyeBtn: any = eye.parent;
+      while (eyeBtn && typeof eyeBtn.props?.onPress !== "function") {
+        eyeBtn = eyeBtn.parent;
+      }
+      await act(async () => {
+        eyeBtn.props.onPress();
+      });
+
+      const modal = renderer.root.findAll((n: any) => n.type === Modal).find((m: any) => m.props.visible === true);
+      expect(modal).toBeDefined();
+      const previewImage = renderer.root
+        .findAll((n: any) => n.type === Image)
+        .find((n: any) => n.props?.source?.uri === "file:///cache/photo.png");
+      expect(previewImage).toBeDefined();
+    });
+
+    it("22. Renames a file before adding", async () => {
+      const { getDocumentAsync } = require("expo-document-picker");
+      (getDocumentAsync as jest.Mock).mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            name: "IMG-20240101-WA0001.jpg",
+            uri: "file:///cache/img.jpg",
+            mimeType: "image/jpeg",
+            size: 2048,
+          },
+        ],
+      });
+
+      const renderer = await renderCapture();
+
+      // Attach the file
+      const paperclip = renderer.root.findAll((n: any) => n.props?.name === "paperclip")[0];
+      let attachBtn: any = paperclip.parent;
+      while (attachBtn && typeof attachBtn.props?.onPress !== "function") {
+        attachBtn = attachBtn.parent;
+      }
+      await act(async () => {
+        await attachBtn.props.onPress();
+      });
+
+      // Rename via the editable name field
+      const renameInput = renderer.root.findAll((n: any) => n.props?.accessibilityLabel === "Rename file")[0];
+      act(() => {
+        renameInput.props.onChangeText("Family trip");
+      });
+
+      // Add saves the resource under the new name
+      await pressLabel(renderer, "Add");
+
+      const resources = await ResourceRepository.getResources("ws-work");
+      const saved = Object.values(resources).find((r: any) => r.title === "Family trip");
+      expect(saved).toBeDefined();
+      expect((saved as any).attachments?.[0]?.name).toBe("Family trip");
+    });
+
+    it("23. Non-image files get an open-in-another-app button instead of in-app preview", async () => {
+      const { getDocumentAsync } = require("expo-document-picker");
+      (getDocumentAsync as jest.Mock).mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            name: "contract.pdf",
+            uri: "file:///cache/contract.pdf",
+            mimeType: "application/pdf",
+            size: 4096,
+          },
+        ],
+      });
+
+      const renderer = await renderCapture();
+
+      const paperclip = renderer.root.findAll((n: any) => n.props?.name === "paperclip")[0];
+      let attachBtn: any = paperclip.parent;
+      while (attachBtn && typeof attachBtn.props?.onPress !== "function") {
+        attachBtn = attachBtn.parent;
+      }
+      await act(async () => {
+        await attachBtn.props.onPress();
+      });
+
+      // external-link (open in another app) is shown; no in-app eye for non-images
+      expect(renderer.root.findAll((n: any) => n.props?.name === "external-link").length).toBeGreaterThan(0);
+      expect(renderer.root.findAll((n: any) => n.props?.name === "eye").length).toBe(0);
+
+      // Tapping it hands off to the system handler without crashing
+      const openBtn = renderer.root.find((n: any) => n.props?.accessibilityLabel === "Open in another app");
+      let pressable: any = openBtn;
+      while (pressable && typeof pressable.props?.onPress !== "function") {
+        pressable = pressable.parent;
+      }
+      await act(async () => {
+        pressable.props.onPress();
+      });
+    });
+
+    it("24. Editing the rename field letter-by-letter keeps every keystroke without triggering re-parses", async () => {
+      const { getDocumentAsync } = require("expo-document-picker");
+      (getDocumentAsync as jest.Mock).mockResolvedValueOnce({
+        canceled: false,
+        assets: [
+          {
+            name: "IMG-20240101-WA0001.jpg",
+            uri: "file:///cache/img.jpg",
+            mimeType: "image/jpeg",
+            size: 2048,
+          },
+        ],
+      });
+
+      const renderer = await renderCapture();
+
+      const paperclip = renderer.root.findAll((n: any) => n.props?.name === "paperclip")[0];
+      let attachBtn: any = paperclip.parent;
+      while (attachBtn && typeof attachBtn.props?.onPress !== "function") {
+        attachBtn = attachBtn.parent;
+      }
+      await act(async () => {
+        await attachBtn.props.onPress();
+      });
+
+      const renameInput = renderer.root.findAll((n: any) => n.props?.accessibilityLabel === "Rename file")[0];
+
+      // Simulate the laggy path: deleting characters one at a time
+      const edits = [
+        "IMG-20240101-WA0001.jp",
+        "IMG-20240101-WA0001.j",
+        "IMG-20240101-WA0001",
+        "Family photo",
+      ];
+      for (const s of edits) {
+        act(() => {
+          renameInput.props.onChangeText(s);
+        });
+        expect(renameInput.props.value).toBe(s);
+      }
+
+      // The rename edits are isolated — they must not trigger the NLP parse pipeline
+      const renderedStrings = renderer.root
+        .findAll((n: any) => typeof n.props?.children === "string")
+        .map((n: any) => n.props.children as string);
+      expect(renderedStrings).not.toContain("Interpreting…");
+
+      // And the final name is what gets saved
+      await pressLabel(renderer, "Add");
+
+      const resources = await ResourceRepository.getResources("ws-work");
+      const saved = Object.values(resources).find((r: any) => r.title === "Family photo");
+      expect(saved).toBeDefined();
+      expect((saved as any).attachments?.[0]?.name).toBe("Family photo");
+    });
   });
 });

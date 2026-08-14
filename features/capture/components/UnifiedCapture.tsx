@@ -18,8 +18,14 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  ScrollView,
+  Pressable,
+  Keyboard,
+  Image,
+  Linking,
+  Modal,
+  Platform,
 } from "react-native";
+import * as IntentLauncher from "expo-intent-launcher";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, {
@@ -62,13 +68,28 @@ import {
   type WorkspaceSuggestionResult,
 } from "@/features/workspaces/services/workspace-suggestions.service";
 import { INBOX_WORKSPACE_ID, type Attachment } from "@/shared/types/domain.types";
-import { saveParsedItem, mergeParsedChecklist } from "@/features/capture/services/CaptureService";
+import { saveParsedItem, mergeParsedChecklist, type SavedEntity } from "@/features/capture/services/CaptureService";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { MetadataChipPicker, type ChipPickerOption } from "./MetadataChipPicker";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const SNAP_POINTS = ["90%"];
+
+// AsyncStorage key for the in-progress capture draft (restored on next session).
+const QUICK_CAPTURE_DRAFT_KEY = "quick_capture_draft_v1";
+
+/**
+ * Discriminate the concrete entity type returned by the save pipeline
+ * so Undo can call the correct permanent-delete command.
+ */
+function getSavedEntityKind(entity: SavedEntity): "task" | "habit" | "checklist" | "resource" {
+  if ("completionHistory" in entity) return "habit";
+  if ("items" in entity) return "checklist";
+  if ("status" in entity && "priority" in entity) return "task";
+  return "resource";
+}
 
 const TYPE_META: Record<
   ParsedProductivityItem["type"],
@@ -106,6 +127,14 @@ const getDateKey = (date = new Date()) => {
   return `${y}-${m}-${d}`;
 };
 
+function getDomainFromUrl(url: string): string {
+  try {
+    return url.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+  } catch {
+    return "link";
+  }
+}
+
 function getAdaptiveSuggestions(
   hour: number,
   currentTab?: string,
@@ -125,6 +154,35 @@ function getAdaptiveSuggestions(
   }
   // Evening
   return ["Study Kubernetes at 8pm", "Run 5km every evening", "Journal before bed", "Idea: new side project"];
+}
+
+function getFileIcon(mimeType?: string): React.ComponentProps<typeof Feather>["name"] {
+  const mime = (mimeType || "").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "music";
+  if (mime === "application/pdf" || mime.startsWith("text/")) return "file-text";
+  return "file";
+}
+
+function getFileTypeLabel(mimeType?: string): string {
+  const mime = (mimeType || "").toLowerCase();
+  if (mime.startsWith("image/")) return "Image";
+  if (mime.startsWith("video/")) return "Video";
+  if (mime.startsWith("audio/")) return "Audio";
+  if (mime === "application/pdf") return "PDF";
+  if (mime.startsWith("text/")) return "Text";
+  if (mime.includes("word")) return "Document";
+  if (mime.includes("sheet")) return "Spreadsheet";
+  if (mime.includes("presentation")) return "Slides";
+  return "File";
+}
+
+function formatFileSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function getFriendlyDateLabel(dateStr?: string): string {
@@ -174,6 +232,44 @@ function getOrdinal(n: number): string {
     case 3: return "rd";
     default: return "th";
   }
+}
+
+function formatDateTimeLabel(dateStr?: string, timeStr?: string): string {
+  if (dateStr && timeStr) return `${getFriendlyDateLabel(dateStr)} ${getFriendlyTimeLabel(timeStr)}`;
+  if (dateStr) return getFriendlyDateLabel(dateStr);
+  if (timeStr) return getFriendlyTimeLabel(timeStr);
+  return "No date";
+}
+
+function getReminderLabel(offset?: number): string | null {
+  if (offset == null) return null;
+  if (offset === 0) return "At time of task";
+  if (offset % 60 === 0) return `${offset / 60} hour${offset === 60 ? "" : "s"} before`;
+  return `${offset} min before`;
+}
+
+function getReminderShortLabel(offset?: number): string | null {
+  if (offset == null || offset <= 0) return null;
+  if (offset % 60 === 0) return `${offset / 60}h`;
+  return `${offset}m`;
+}
+
+/**
+ * One-line, at-a-glance readout of what the parser understood.
+ * Only shows values that were actually detected or edited (never defaults).
+ */
+function getParsedSummary(item: ParsedProductivityItem): string {
+  const parts: string[] = [TYPE_META[item.type]?.label ?? "Task"];
+  if (item.date || item.time) parts.push(formatDateTimeLabel(item.date, item.time));
+  if (item.priorityDetected && item.priority) parts.push(PRIORITY_META[item.priority].label);
+  if (item.recurrence) parts.push(getRecurrenceLabel(item) || "Repeats");
+  const reminderShort = getReminderShortLabel(item.reminderOffsetMinutes);
+  if (reminderShort) parts.push(`${reminderShort} reminder`);
+  if (item.category) parts.push(CATEGORY_META[item.category]?.label ?? item.category);
+  if (item.type === "checklist" && item.items?.length) {
+    parts.push(`${item.items.length} ${item.items.length === 1 ? "item" : "items"}`);
+  }
+  return parts.join(" · ");
 }
 
 // ─── LiveCaptureInput ───────────────────────────────────────────────────────────
@@ -237,6 +333,59 @@ const LiveCaptureInput = forwardRef<LiveCaptureInputRef, LiveCaptureInputProps>(
   }
 );
 
+// ─── FileRenameInput ───────────────────────────────────────────────────────────
+// Isolates the rename field's text in local component state (same pattern as
+// LiveCaptureInput) so editing the name never re-renders the whole capture tree.
+// The parent reads the final value on demand via getValue() at save time.
+
+export interface FileRenameInputRef {
+  getValue: () => string;
+}
+
+const FileRenameInput = forwardRef<FileRenameInputRef, {
+  initialValue: string;
+  textColor: string;
+  placeholderTextColor: string;
+}>(
+  function FileRenameInput({ initialValue, textColor, placeholderTextColor }, ref) {
+    const [text, setText] = useState(initialValue);
+
+    useImperativeHandle(ref, () => ({
+      getValue: () => text,
+    }));
+
+    return (
+      <BottomSheetTextInput
+        value={text}
+        onChangeText={setText}
+        style={[styles.fileOnlyNameInput, { color: textColor }]}
+        placeholder="File name"
+        placeholderTextColor={placeholderTextColor}
+        accessibilityLabel="Rename file"
+        maxLength={120}
+      />
+    );
+  }
+);
+
+// ─── Picker Config ───────────────────────────────────────────────────────────
+
+interface PickerConfig {
+  title: string;
+  options: ChipPickerOption[];
+  onSelect: (id: string) => void;
+  /** Keep the picker open after selecting (drill-in navigation from More). */
+  closeOnSelect?: boolean;
+  /** Selected date (YYYY-MM-DD) for the real calendar. */
+  calendarDate?: string;
+  /** When provided, the Date picker renders a real calendar. */
+  onCalendarSelect?: (dateStr: string) => void;
+  /** Current time (HH:MM) for the time dial. */
+  timeValue?: string;
+  /** When provided, the picker renders the real time dial. */
+  onTimeSelect?: (timeStr: string) => void;
+}
+
 // ─── Props ──────────────────────────────────────────────────────────────────
 
 interface UnifiedCaptureProps {
@@ -261,12 +410,15 @@ export default function UnifiedCapture({
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const theme = Colors[colorScheme ?? "dark"];
-  const { showToast } = useUndo();
+  const { showToast, showUndo } = useUndo();
   const router = useRouter();
 
   // ─── State ──────────────────────────────────────────────────────────────
 
   const inputRef = useRef<LiveCaptureInputRef>(null);
+  // Isolated rename field state — read the final name on demand at save time
+  // (keystrokes only re-render the small FileRenameInput, never this tree).
+  const renameInputRef = useRef<FileRenameInputRef>(null);
   const [hasInput, setHasInput] = useState(false);
   const [parsedItem, setParsedItem] = useState<ParsedProductivityItem | null>(null);
   const [duplicateResult, setDuplicateResult] = useState<DuplicateAnalysisResult | null>(null);
@@ -275,15 +427,24 @@ export default function UnifiedCapture({
     type?: ParsedProductivityItem["type"];
     priority?: ParsedProductivityItem["priority"];
     date?: string;
+    time?: string;
     category?: ParsedProductivityItem["category"];
     recurrence?: ParsedProductivityItem["recurrence"];
+    reminderOffsetMinutes?: number;
   }>({});
+  // Guards stale async parse/duplicate/workspace results from overwriting newer input.
+  const parseVersionRef = useRef(0);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(defaultWorkspaceId);
   const [clipboardUrl, setClipboardUrl] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isParsing, setIsParsing] = useState(false);
+  // Parser feedback phases: idle → interpreting → understood (minimum display time).
+  const [parsePhase, setParsePhase] = useState<"idle" | "interpreting" | "understood">("idle");
+  const parsePhaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [attachedFile, setAttachedFile] = useState<{ name: string; size: number; uri: string } | null>(null);
+  // Full Attachment object (id/name/uri/mimeType/size) so the saved item can carry it.
+  const [attachedFile, setAttachedFile] = useState<Attachment | null>(null);
+  // Full-screen in-app preview for image attachments (set by the eye button).
+  const [imagePreviewUri, setImagePreviewUri] = useState<string | null>(null);
 
   // Workspace suggestion from parser
   const [topSuggestion, setTopSuggestion] = useState<WorkspaceSuggestionResult | null>(null);
@@ -310,32 +471,6 @@ export default function UnifiedCapture({
 
   // ─── Effects ────────────────────────────────────────────────────────────
 
-  // Dynamic header updates based on type
-  const smartHeader = useMemo(() => {
-    if (isParsing) return { title: "Quick Capture", desc: "Understanding your thought..." };
-    if (!parsedItem || !hasInput) {
-      return { title: "Quick Capture", desc: "Drop a thought. We'll organize it." };
-    }
-    switch (parsedItem.type) {
-      case "task":
-        return { title: "Create Task", desc: "Organizing your next action..." };
-      case "habit":
-        return { title: "Add Habit", desc: "Forming positive routines..." };
-      case "checklist":
-        return { title: "Create Checklist", desc: "Building your reference list..." };
-      case "note":
-        return { title: "Save Note", desc: "Saving context to Vault..." };
-      case "link":
-        return { title: "Save Link", desc: "Clipping resource to reference..." };
-      case "idea":
-        return { title: "Save Idea", desc: "Incubating dynamic concepts..." };
-      case "file":
-        return { title: "Save File", desc: "Linking file reference..." };
-      default:
-        return { title: "Quick Capture", desc: "Drop a thought. We'll organize it." };
-    }
-  }, [parsedItem, isParsing, hasInput]);
-
   // Generate adaptive suggestions on mount
   useEffect(() => {
     const hour = new Date().getHours();
@@ -358,6 +493,24 @@ export default function UnifiedCapture({
     })();
   }, []);
 
+  // Restore any in-progress draft from a previous session (sheet content stays mounted,
+  // so this only matters across app restarts). Restoring also re-runs the parser, which
+  // is exactly what we want: the chips reappear with the draft when the sheet opens.
+  // Guard: only restore if the user hasn't already entered text (async read can resolve
+  // after the user started typing — never clobber newer input).
+  useEffect(() => {
+    (async () => {
+      try {
+        const draft = await AsyncStorage.getItem(QUICK_CAPTURE_DRAFT_KEY);
+        if (draft && draft.trim() && !inputRef.current?.getValue().trim()) {
+          inputRef.current?.setValue(draft);
+        }
+      } catch {
+        // Draft restore is best-effort
+      }
+    })();
+  }, []);
+
   // Apply defaults from entry context
   useEffect(() => {
     if (defaultWorkspaceId) setSelectedWorkspaceId(defaultWorkspaceId);
@@ -368,6 +521,13 @@ export default function UnifiedCapture({
     duplicateResultRef.current = duplicateResult;
   }, [duplicateResult]);
 
+  // Clear the parse-phase timer on unmount
+  useEffect(() => {
+    return () => {
+      if (parsePhaseTimerRef.current) clearTimeout(parsePhaseTimerRef.current);
+    };
+  }, []);
+
   // ─── Live Input Callbacks ────────────────────────────────────────────────
 
   const handleEmptyChange = useCallback((isEmpty: boolean) => {
@@ -375,20 +535,71 @@ export default function UnifiedCapture({
   }, []);
 
   const handleTypingStart = useCallback(() => {
-    setIsParsing(true);
+    if (parsePhaseTimerRef.current) {
+      clearTimeout(parsePhaseTimerRef.current);
+      parsePhaseTimerRef.current = null;
+    }
+    setParsePhase("interpreting");
+    // The text changed — any duplicate result (and its Add-disabling state) is stale.
+    // Clear immediately so Add re-enables the instant the user edits, instead of
+    // lingering until the 450ms debounce re-runs the check.
+    setDuplicateResult(null);
   }, []);
+
+  // Apply explicit user overrides (and entry-context defaults) to a freshly parsed item.
+  // Shared by the idle parse path, the save catch-up path, and attachment removal.
+  const applyUserOverrides = useCallback(
+    (parsed: ParsedProductivityItem): ParsedProductivityItem => {
+      if (userOverridesRef.current.type) {
+        parsed.type = userOverridesRef.current.type;
+      } else if (defaultType && parsed.type === "task" && parsed.detectionSignal === "default_task") {
+        parsed.type = defaultType;
+      }
+      if (userOverridesRef.current.date !== undefined) {
+        parsed.date = userOverridesRef.current.date;
+      } else if (defaultDate && parsed.type === "task" && !parsed.date) {
+        parsed.date = defaultDate;
+      }
+      if (userOverridesRef.current.priority) {
+        parsed.priority = userOverridesRef.current.priority;
+        parsed.priorityDetected = true;
+      }
+      if (userOverridesRef.current.time !== undefined) {
+        parsed.time = userOverridesRef.current.time;
+      }
+      if (userOverridesRef.current.reminderOffsetMinutes !== undefined) {
+        parsed.reminderOffsetMinutes = userOverridesRef.current.reminderOffsetMinutes;
+      }
+      if (userOverridesRef.current.category) {
+        parsed.category = userOverridesRef.current.category;
+      }
+      if (userOverridesRef.current.recurrence !== undefined) {
+        parsed.recurrence = userOverridesRef.current.recurrence;
+      }
+      return parsed;
+    },
+    [defaultType, defaultDate],
+  );
 
   const handleIdleText = useCallback(
     (text: string) => {
+      // Invalidate any in-flight async results from a previous parse.
+      const version = ++parseVersionRef.current;
       if (!text.trim()) {
+        if (parsePhaseTimerRef.current) {
+          clearTimeout(parsePhaseTimerRef.current);
+          parsePhaseTimerRef.current = null;
+        }
         if (parsedItem !== null) setParsedItem(null);
         if (duplicateResult !== null) setDuplicateResult(null);
-        if (isParsing) setIsParsing(false);
+        setParsePhase("idle");
+        setTopSuggestion(null);
         loadingProgress.value = 0;
+        AsyncStorage.removeItem(QUICK_CAPTURE_DRAFT_KEY).catch(() => {});
         return;
       }
 
-      setIsParsing(true);
+      setParsePhase("interpreting");
       loadingProgress.value = 0;
       loadingProgress.value = withRepeat(
         withSequence(withTiming(0.4, { duration: 400 }), withTiming(0.9, { duration: 600 })),
@@ -396,35 +607,28 @@ export default function UnifiedCapture({
         true,
       );
 
-      const parsed = parseProductivityText(text.trim());
-      // Apply default overrides from entry context and explicit user overrides
-      if (userOverridesRef.current.type) {
-        parsed.type = userOverridesRef.current.type;
-      } else if (defaultType && parsed.type === "task" && parsed.detectionSignal === "default_task") {
-        parsed.type = defaultType;
-      }
+      const parsed = applyUserOverrides(parseProductivityText(text.trim()));
 
-      if (userOverridesRef.current.date !== undefined) {
-        parsed.date = userOverridesRef.current.date;
-      } else if (defaultDate && parsed.type === "task" && !parsed.date) {
-        parsed.date = defaultDate;
-      }
-
-      if (userOverridesRef.current.priority) {
-        parsed.priority = userOverridesRef.current.priority;
-      }
-
-      if (userOverridesRef.current.category) {
-        parsed.category = userOverridesRef.current.category;
-      }
-
-      if (userOverridesRef.current.recurrence !== undefined) {
-        parsed.recurrence = userOverridesRef.current.recurrence;
+      // An attached file is independent metadata — keep the parsed type.
+      if (attachedFile) {
+        parsed.attachments = [attachedFile];
       }
 
       setParsedItem(parsed);
-      setIsParsing(false);
       loadingProgress.value = withTiming(1, { duration: 200 });
+
+      // Persist the in-progress draft (debounced: this runs once typing settles).
+      AsyncStorage.setItem(QUICK_CAPTURE_DRAFT_KEY, text.trim()).catch(() => {});
+
+      // Keep the indicator visible long enough to be perceived, then confirm.
+      if (parsePhaseTimerRef.current) {
+        clearTimeout(parsePhaseTimerRef.current);
+        parsePhaseTimerRef.current = null;
+      }
+      parsePhaseTimerRef.current = setTimeout(() => {
+        setParsePhase("understood");
+        parsePhaseTimerRef.current = setTimeout(() => setParsePhase("idle"), 1200);
+      }, 600);
 
       // Clear stale duplicate result before running new check
       setDuplicateResult(null);
@@ -432,6 +636,7 @@ export default function UnifiedCapture({
       // Run duplicate check in the background after typing stops (non-blocking)
       analyzeDuplicate(parsed, selectedWorkspaceId || INBOX_WORKSPACE_ID)
         .then((dupRes) => {
+          if (version !== parseVersionRef.current) return;
           if (
             dupRes &&
             (dupRes.relationship === "exact_duplicate" ||
@@ -445,7 +650,7 @@ export default function UnifiedCapture({
         })
         .catch(() => {});
 
-      // Workspace suggestion (non-blocking)
+      // Workspace suggestion (non-blocking; never silently overrides the user's selection)
       if (parsed.type === "task" || parsed.type === "habit") {
         getWorkspaceSuggestions(
           parsed.title,
@@ -454,16 +659,16 @@ export default function UnifiedCapture({
           {},
         )
           .then((wsSuggestions) => {
+            if (version !== parseVersionRef.current) return;
             const top = wsSuggestions[0];
             if (top && top.score >= 75) {
               setTopSuggestion(top);
-              setSelectedWorkspaceId(top.workspaceId);
             }
           })
           .catch(() => {});
       }
     },
-    [parsedItem, duplicateResult, isParsing, defaultType, defaultDate, selectedWorkspaceId, workspaces],
+    [parsedItem, duplicateResult, selectedWorkspaceId, workspaces, attachedFile, applyUserOverrides],
   );
 
   // ─── Handlers ───────────────────────────────────────────────────────────
@@ -473,14 +678,24 @@ export default function UnifiedCapture({
     setParsedItem((prev) => (prev ? { ...prev, type: newType } : null));
   }, []);
 
-  const handlePriorityChange = useCallback((newPriority: ParsedProductivityItem["priority"]) => {
+  const handlePriorityChange = useCallback((newPriority: ParsedProductivityItem["priority"] | undefined) => {
     userOverridesRef.current.priority = newPriority;
-    setParsedItem((prev) => (prev ? { ...prev, priority: newPriority } : null));
+    setParsedItem((prev) => (prev ? { ...prev, priority: newPriority, priorityDetected: !!newPriority } : null));
   }, []);
 
   const handleDateChange = useCallback((newDate: string | undefined) => {
     userOverridesRef.current.date = newDate;
     setParsedItem((prev) => (prev ? { ...prev, date: newDate } : null));
+  }, []);
+
+  const handleTimeChange = useCallback((newTime: string | undefined) => {
+    userOverridesRef.current.time = newTime;
+    setParsedItem((prev) => (prev ? { ...prev, time: newTime } : null));
+  }, []);
+
+  const handleReminderChange = useCallback((offset: number | undefined) => {
+    userOverridesRef.current.reminderOffsetMinutes = offset;
+    setParsedItem((prev) => (prev ? { ...prev, reminderOffsetMinutes: offset } : null));
   }, []);
 
   const handleCategoryChange = useCallback((newCategory: ParsedProductivityItem["category"]) => {
@@ -495,7 +710,15 @@ export default function UnifiedCapture({
 
   const handleWorkspaceChange = useCallback((workspaceId: string) => {
     setSelectedWorkspaceId(workspaceId);
+    setTopSuggestion(null);
   }, []);
+
+  const handleAcceptWorkspaceSuggestion = useCallback(() => {
+    if (!topSuggestion) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setSelectedWorkspaceId(topSuggestion.workspaceId);
+    setTopSuggestion(null);
+  }, [topSuggestion]);
 
   const handleClipboardPaste = useCallback(() => {
     if (clipboardUrl) {
@@ -526,17 +749,10 @@ export default function UnifiedCapture({
           mimeType: asset.mimeType || "application/octet-stream",
           size: asset.size || 0,
         };
-        setAttachedFile({
-          name: asset.name,
-          size: asset.size || 0,
-          uri: asset.uri,
-        });
-        setParsedItem({
-          type: "file",
-          title: asset.name,
-          confidence: 0.95,
-          attachments: [attachment],
-        });
+        setAttachedFile(attachment);
+        // The attachment is independent capture metadata: merge it onto the
+        // current parse without changing its type (no "File" type chip).
+        setParsedItem((prev) => (prev ? { ...prev, attachments: [attachment] } : prev));
       }
     } catch (err) {
       console.warn("Document picker error", err);
@@ -548,32 +764,35 @@ export default function UnifiedCapture({
   const handleSave = useCallback(
     async (bypassDuplicateCheck: boolean = false) => {
       const liveText = inputRef.current?.getValue().trim();
-      if (!liveText || isSaving) return;
+      const hasAttachment = !!attachedFile;
+      if ((!liveText && !hasAttachment) || isSaving) return;
 
       // Synchronously catch up if user pressed save before 450ms timer fired
       let finalParsedItem = parsedItem;
-      if (!finalParsedItem || finalParsedItem.title !== liveText) {
-        finalParsedItem = parseProductivityText(liveText);
-        if (userOverridesRef.current.type) {
-          finalParsedItem.type = userOverridesRef.current.type;
-        } else if (defaultType && finalParsedItem.type === "task" && finalParsedItem.detectionSignal === "default_task") {
-          finalParsedItem.type = defaultType;
-        }
-        if (userOverridesRef.current.date !== undefined) {
-          finalParsedItem.date = userOverridesRef.current.date;
-        } else if (defaultDate && finalParsedItem.type === "task" && !finalParsedItem.date) {
-          finalParsedItem.date = defaultDate;
-        }
-        if (userOverridesRef.current.priority) {
-          finalParsedItem.priority = userOverridesRef.current.priority;
-        }
-        if (userOverridesRef.current.category) {
-          finalParsedItem.category = userOverridesRef.current.category;
-        }
-        if (userOverridesRef.current.recurrence !== undefined) {
-          finalParsedItem.recurrence = userOverridesRef.current.recurrence;
-        }
+      if (liveText && (!finalParsedItem || finalParsedItem.title !== liveText)) {
+        finalParsedItem = applyUserOverrides(parseProductivityText(liveText));
         setParsedItem(finalParsedItem);
+      }
+
+      if (attachedFile) {
+        // Attachments persist on Resources only, so an attached file saves as a
+        // reference Resource (title = typed text or file name). The UI treats it
+        // as independent metadata — no "File" type chip — the save decides here.
+        // The renamed name (if any) comes from the isolated rename field.
+        const finalName = renameInputRef.current?.getValue() || attachedFile.name;
+        const renamedAttachment = { ...attachedFile, name: finalName };
+        finalParsedItem = {
+          ...(finalParsedItem ?? { confidence: 0.95 }),
+          type: "file",
+          title: liveText || finalParsedItem?.title || finalName,
+          attachments: [renamedAttachment],
+        };
+        setParsedItem(finalParsedItem);
+      }
+
+      if (!finalParsedItem) {
+        // Nothing to save (guards above make this unreachable, but keep the type safe).
+        return;
       }
 
       const wsId = selectedWorkspaceId || INBOX_WORKSPACE_ID;
@@ -604,19 +823,46 @@ export default function UnifiedCapture({
 
       setIsSaving(true);
       try {
-        await saveParsedItem(finalParsedItem, wsId, { bypassDuplicateCheck: true });
+        const saved = await saveParsedItem(finalParsedItem, wsId, { bypassDuplicateCheck: true });
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
         const typeLabel = TYPE_META[finalParsedItem.type].label;
-        showToast(`✓ ${typeLabel} added to ${wsName}`);
+
+        // Offer Undo for a few seconds: permanently delete the just-created entity
+        // (this also cancels its reminders) and restore the capture text for re-editing.
+        showUndo({
+          message: `${typeLabel} added to ${wsName}`,
+          actionLabel: "Undo",
+          duration: 5000,
+          onUndo: async () => {
+            try {
+              const kind = getSavedEntityKind(saved);
+              if (kind === "task") {
+                await EntityCommandService.permanentlyDeleteTask(saved.id, saved.workspaceId);
+              } else if (kind === "habit") {
+                await EntityCommandService.permanentlyDeleteHabit(saved.id, saved.workspaceId);
+              } else if (kind === "checklist") {
+                await EntityCommandService.permanentlyDeleteChecklist(saved.id, saved.workspaceId);
+              } else {
+                await EntityCommandService.permanentlyDeleteResource(saved.id, saved.workspaceId);
+              }
+              // Put the text back so the user can re-edit instead of retyping.
+              inputRef.current?.setValue(liveText ?? "");
+            } catch (err) {
+              console.warn("Quick Capture undo failed:", err);
+            }
+          },
+        });
 
         // Reset
         userOverridesRef.current = {};
         inputRef.current?.setValue("");
         setParsedItem(null);
         setDuplicateResult(null);
+        setTopSuggestion(null);
         setAttachedFile(null);
+        AsyncStorage.removeItem(QUICK_CAPTURE_DRAFT_KEY).catch(() => {});
         sheetRef.current?.dismiss();
         // Disable re-enables after dismiss is triggered (not awaited)
         setTimeout(() => setIsSaving(false), 300);
@@ -625,7 +871,7 @@ export default function UnifiedCapture({
         setIsSaving(false);
       }
     },
-    [parsedItem, selectedWorkspaceId, workspaces, isSaving, showToast],
+    [parsedItem, selectedWorkspaceId, workspaces, isSaving, showToast, showUndo, attachedFile, applyUserOverrides],
   );
 
   const handleSaveAnyway = useCallback(() => {
@@ -650,6 +896,7 @@ export default function UnifiedCapture({
       setParsedItem(null);
       setDuplicateResult(null);
       setAttachedFile(null);
+      AsyncStorage.removeItem(QUICK_CAPTURE_DRAFT_KEY).catch(() => {});
       sheetRef.current?.dismiss();
     } catch (e) {
       console.warn("Failed to merge checklist", e);
@@ -671,6 +918,7 @@ export default function UnifiedCapture({
     setParsedItem(null);
     setDuplicateResult(null);
     setAttachedFile(null);
+    AsyncStorage.removeItem(QUICK_CAPTURE_DRAFT_KEY).catch(() => {});
     sheetRef.current?.dismiss();
 
     try {
@@ -712,13 +960,54 @@ export default function UnifiedCapture({
     const idx = workspaces.findIndex((w) => w.id === selectedWorkspaceId);
     const nextIdx = (idx + 1) % workspaces.length;
     setSelectedWorkspaceId(workspaces[nextIdx].id);
+    setTopSuggestion(null);
   }, [workspaces, selectedWorkspaceId]);
 
   const handleRemoveAttachedFile = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setAttachedFile(null);
-    setParsedItem((prev) => (prev ? { ...prev, type: "task" } : null));
-  }, []);
+    const text = inputRef.current?.getValue().trim();
+    if (!text) {
+      // No text left behind the file — reset to empty capture.
+      setParsedItem(null);
+      return;
+    }
+    // Re-derive the item from the current text (overrides reapplied, no file semantics).
+    setParsedItem(applyUserOverrides(parseProductivityText(text)));
+  }, [applyUserOverrides]);
+
+  const handleOpenAttachment = useCallback(
+    (attachment: Attachment) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      if (attachment.mimeType?.startsWith("image/")) {
+        // Genuine in-app preview for images (full-screen modal).
+        setImagePreviewUri(attachment.uri);
+        return;
+      }
+      // Other file types: hand off to another supported app via the system
+      // "Open with…" chooser (Android intent / iOS Linking).
+      const openWithSystem = async () => {
+        if (Platform.OS === "android") {
+          try {
+            await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+              data: attachment.uri,
+              type: attachment.mimeType || undefined,
+            });
+            return;
+          } catch {
+            // Fall through to Linking
+          }
+        }
+        try {
+          await Linking.openURL(attachment.uri);
+        } catch {
+          showToast("Couldn't open this file");
+        }
+      };
+      openWithSystem();
+    },
+    [showToast],
+  );
 
   const handleDismiss = useCallback(() => {
     userOverridesRef.current = {};
@@ -748,52 +1037,34 @@ export default function UnifiedCapture({
     width: `${loadingProgress.value * 100}%`,
   }));
 
-  const saveButtonLabel = useMemo(() => {
-    if (!parsedItem) return "Add";
-    const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
-    
-    switch (parsedItem.type) {
-      case "task":
-        return `Add Task to ${wsName}`;
-      case "habit":
-        return `Add Habit to ${wsName}`;
-      case "checklist":
-        return `Create List in ${wsName}`;
-      case "note":
-        return `Save Note to ${wsName}`;
-      case "link":
-        return `Save Link to ${wsName}`;
-      case "idea":
-        return `Save Idea to ${wsName}`;
-      case "file":
-        return `Save File to ${wsName}`;
-      default:
-        return `Add to ${wsName}`;
-    }
-  }, [parsedItem, selectedWorkspaceId, workspaces]);
-
   // ─── Picker Config ────────────────────────────────────────────────────────
 
   const handleActivePickerChange = useCallback((picker: string | null, extraOptions?: ChipPickerOption[]) => {
+    // Dismiss the keyboard so the centered modal card is never pushed behind it.
+    if (picker) Keyboard.dismiss();
     setActivePicker(picker);
     if (extraOptions) setMorePickerOptions(extraOptions);
   }, []);
 
-  const pickerConfig = useMemo(() => {
+  const pickerConfig = useMemo<PickerConfig | null>(() => {
     if (!activePicker) return null;
 
     if (activePicker === "more") {
       return {
-        title: "More Metadata",
+        title: "Details",
         options: morePickerOptions,
+        // Drill into the tapped field's picker (Details editor stays mounted, no double-close).
         onSelect: (id: string) => setActivePicker(id),
+        closeOnSelect: false,
       };
     }
 
     if (activePicker === "type") {
+      // User-facing capture intents only; Link/File stay internal (auto-detected / attachments).
+      const userTypeOrder: ParsedProductivityItem["type"][] = ["task", "habit", "checklist", "note", "idea"];
       return {
         title: "Change Type",
-        options: (Object.keys(TYPE_META) as ParsedProductivityItem["type"][]).map((t) => ({
+        options: userTypeOrder.map((t) => ({
           id: t,
           label: TYPE_META[t].label,
           icon: TYPE_META[t].icon,
@@ -811,36 +1082,51 @@ export default function UnifiedCapture({
           id: p,
           label: PRIORITY_META[p].label,
           color: PRIORITY_META[p].color,
-          isSelected: (parsedItem?.priority || "medium") === p,
+          isSelected: p === "none" ? !parsedItem?.priorityDetected : parsedItem?.priority === p,
         })),
-        onSelect: (id: string) => handlePriorityChange(id as ParsedProductivityItem["priority"]),
+        onSelect: (id: string) =>
+          handlePriorityChange(id === "none" ? undefined : (id as ParsedProductivityItem["priority"])),
       };
     }
 
     if (activePicker === "date") {
       const today = new Date();
-      const tomorrow = new Date(today);
-      tomorrow.setDate(today.getDate() + 1);
-
-      const weekend = new Date(today);
-      const dayOfWeek = today.getDay();
-      const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7;
-      weekend.setDate(today.getDate() + daysUntilSaturday);
-
-      const nextMonday = new Date(today);
-      const daysUntilNextMon = (1 - dayOfWeek + 7) % 7 || 7;
-      nextMonday.setDate(today.getDate() + daysUntilNextMon);
-
       return {
-        title: "Set Due Date",
-        options: [
-          { id: getDateKey(today), label: "Today", subtitle: getFriendlyDateLabel(getDateKey(today)), icon: "sun" as const, isSelected: parsedItem?.date === getDateKey(today) },
-          { id: getDateKey(tomorrow), label: "Tomorrow", subtitle: getFriendlyDateLabel(getDateKey(tomorrow)), icon: "arrow-right" as const, isSelected: parsedItem?.date === getDateKey(tomorrow) },
-          { id: getDateKey(weekend), label: "This Weekend", subtitle: getFriendlyDateLabel(getDateKey(weekend)), icon: "coffee" as const, isSelected: parsedItem?.date === getDateKey(weekend) },
-          { id: getDateKey(nextMonday), label: "Next Week", subtitle: getFriendlyDateLabel(getDateKey(nextMonday)), icon: "calendar" as const, isSelected: parsedItem?.date === getDateKey(nextMonday) },
-          { id: "none", label: "No Due Date (Inbox)", subtitle: "Save without due date", icon: "inbox" as const, isSelected: !parsedItem?.date },
-        ],
+        title: "Due Date",
+        // Real calendar + real time dial; the "No due date" row is a clear action.
+        calendarDate: parsedItem?.date || getDateKey(today),
+        onCalendarSelect: (dateStr: string) => handleDateChange(dateStr),
+        timeValue: parsedItem?.time,
+        onTimeSelect: (timeStr: string) => handleTimeChange(timeStr),
+        options: [{ id: "none", label: "No due date", icon: "inbox" as const, isSelected: !parsedItem?.date }],
         onSelect: (id: string) => handleDateChange(id === "none" ? undefined : id),
+      };
+    }
+
+    if (activePicker === "time") {
+      return {
+        title: "Time",
+        options: [],
+        onSelect: () => {},
+        timeValue: parsedItem?.time,
+        onTimeSelect: (timeStr: string) => handleTimeChange(timeStr),
+      };
+    }
+
+    if (activePicker === "reminder") {
+      const offset = parsedItem?.reminderOffsetMinutes;
+      return {
+        title: "Reminder",
+        options: [
+          { id: "none", label: "None", icon: "x" as const, isSelected: offset == null },
+          { id: "0", label: "At time of task", icon: "bell" as const, isSelected: offset === 0 },
+          { id: "5", label: "5 min before", isSelected: offset === 5 },
+          { id: "15", label: "15 min before", isSelected: offset === 15 },
+          { id: "30", label: "30 min before", isSelected: offset === 30 },
+          { id: "60", label: "1 hour before", isSelected: offset === 60 },
+          { id: "custom", label: "Custom…", icon: "sliders" as const },
+        ],
+        onSelect: (id: string) => handleReminderChange(id === "none" ? undefined : Number(id)),
       };
     }
 
@@ -906,9 +1192,13 @@ export default function UnifiedCapture({
     }
 
     return null;
-  }, [activePicker, parsedItem, selectedWorkspaceId, workspaces, morePickerOptions, handleTypeChange, handlePriorityChange, handleDateChange, handleCategoryChange, handleRecurrenceChange, handleWorkspaceChange]);
+  }, [activePicker, parsedItem, selectedWorkspaceId, workspaces, morePickerOptions, handleTypeChange, handlePriorityChange, handleDateChange, handleTimeChange, handleReminderChange, handleCategoryChange, handleRecurrenceChange, handleWorkspaceChange]);
 
   // ─── Render ─────────────────────────────────────────────────────────────
+
+  const suggestedWorkspace = topSuggestion
+    ? workspaces.find((w) => w.id === topSuggestion.workspaceId) ?? null
+    : null;
 
   const renderBackdrop = useCallback(
     (props: any) => (
@@ -923,6 +1213,8 @@ export default function UnifiedCapture({
         userOverridesRef.current = {};
         inputRef.current?.setValue("");
         setParsedItem(null);
+        setDuplicateResult(null);
+        setTopSuggestion(null);
         setAttachedFile(null);
         setClipboardUrl(null);
         cancelRecording();
@@ -930,6 +1222,79 @@ export default function UnifiedCapture({
     },
     [cancelRecording],
   );
+
+  // The Add button must be disabled exactly when handleSave would actually block:
+  // a same-workspace exact duplicate (which offers Create anyway / Use existing)
+  // or a checklist merge candidate (Create new / Add to existing). Near-duplicates
+  // and cross-workspace duplicates are NOT blocked by handleSave — they only get
+  // an informational notice — so Add stays enabled there.
+  const blocksSave =
+    duplicateResult?.isPotentialDuplicate === true &&
+    (duplicateResult.relationship === "merge_candidate" ||
+      ((duplicateResult.relationship === "exact_duplicate" || duplicateResult.relationship === "near_duplicate") &&
+        duplicateResult.matchedEntity?.workspaceId === (selectedWorkspaceId || INBOX_WORKSPACE_ID)));
+
+  // File-only mode: when a file is picked, the sheet shows just this card — the
+  // input box, suggestions, chips and indicators are hidden so the file is the focus.
+  const fileOnlyCard = attachedFile ? (
+    <View style={[styles.fileOnlyCard, { backgroundColor: inputBg, borderColor }]}>
+      {attachedFile.mimeType?.startsWith("image/") ? (
+        <Image source={{ uri: attachedFile.uri }} style={styles.fileOnlyThumb} />
+      ) : (
+        <View
+          style={[
+            styles.fileOnlyIcon,
+            { backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)" },
+          ]}
+        >
+          <Feather name={getFileIcon(attachedFile.mimeType)} size={22} color={theme.primary} />
+        </View>
+      )}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {/* Editable name — rename the file before adding (e.g. cryptic camera names) */}
+        <FileRenameInput
+          key={attachedFile.id}
+          ref={renameInputRef}
+          initialValue={attachedFile.name}
+          textColor={textPrimary}
+          placeholderTextColor={textMuted}
+        />
+        <Text style={[styles.fileOnlyMeta, { color: textMuted }]}>
+          {[formatFileSize(attachedFile.size), getFileTypeLabel(attachedFile.mimeType)].filter(Boolean).join(" · ") || "File"}
+        </Text>
+      </View>
+      {attachedFile.mimeType?.startsWith("image/") ? (
+        <TouchableOpacity
+          onPress={() => handleOpenAttachment(attachedFile)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Preview attachment"
+          style={styles.fileOnlyBtn}
+        >
+          <Feather name="eye" size={18} color={textMuted} />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          onPress={() => handleOpenAttachment(attachedFile)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Open in another app"
+          style={styles.fileOnlyBtn}
+        >
+          <Feather name="external-link" size={18} color={textMuted} />
+        </TouchableOpacity>
+      )}
+      <TouchableOpacity
+        onPress={handleRemoveAttachedFile}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Remove attachment"
+        style={styles.fileOnlyBtn}
+      >
+        <Feather name="x" size={18} color={textMuted} />
+      </TouchableOpacity>
+    </View>
+  ) : null;
 
   return (
     <>
@@ -956,19 +1321,19 @@ export default function UnifiedCapture({
       {/* ── Smart Companion Header ── */}
       <View style={styles.sheetHeaderContainer}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={{ fontSize: 16 }}>⚡</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Text style={[styles.sheetHeaderTitle, { color: textPrimary }]}>Quick Capture</Text>
+            <View style={[styles.aiBadge, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}>
+              <Feather name="zap" size={9} color={theme.primary} />
+              <Text style={[styles.aiBadgeText, { color: textMuted }]}>AI</Text>
+            </View>
           </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <Feather name="star" size={16} color={textMuted} style={{ opacity: 0.5 }} />
-            <TouchableOpacity
-              onPress={() => sheetRef.current?.dismiss()}
-              style={[styles.closeIconBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}
-            >
-              <Feather name="x" size={18} color={textMuted} />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            onPress={() => sheetRef.current?.dismiss()}
+            style={[styles.closeIconBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}
+          >
+            <Feather name="x" size={18} color={textMuted} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -978,7 +1343,8 @@ export default function UnifiedCapture({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Input Layer ── */}
+        {/* ── Input Layer (hidden when a file is attached so only the file shows) ── */}
+        <View style={attachedFile ? styles.hidden : undefined}>
         <LiveCaptureInput
           ref={inputRef}
           onEmptyChange={handleEmptyChange}
@@ -1010,45 +1376,37 @@ export default function UnifiedCapture({
           </Animated.View>
         )}
 
-        {/* ── Companion Progress Bar (Parsing working animation) ── */}
-        {isParsing && (
-          <Animated.View entering={FadeInUp.duration(150)} style={styles.companionLoadingRow}>
-            <Text style={[styles.companionLoadingText, { color: theme.primary }]}>
-              ✨ Understanding your thought...
-            </Text>
-            <View style={[styles.progressBarContainer, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}>
-              <Animated.View style={[styles.progressBarFill, { backgroundColor: theme.primary }, animatedProgressStyle]} />
+        {/* ── Parsing indicator (AI working in the background) ── */}
+        {parsePhase !== "idle" && (
+          <Animated.View entering={FadeInUp.duration(150)} exiting={FadeOut.duration(150)} style={styles.companionLoadingRow}>
+            <View style={[styles.parsingPill, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}>
+              <Feather name={parsePhase === "understood" ? "check" : "zap"} size={11} color={theme.primary} />
+              <Text style={[styles.parsingPillText, { color: parsePhase === "understood" ? theme.primary : textMuted }]}>
+                {parsePhase === "understood" ? "Understood" : "Interpreting…"}
+              </Text>
             </View>
+            {parsePhase === "interpreting" && (
+              <View style={[styles.progressBarContainer, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}>
+                <Animated.View style={[styles.progressBarFill, { backgroundColor: theme.primary }, animatedProgressStyle]} />
+              </View>
+            )}
           </Animated.View>
         )}
 
         {/* ── Clipboard URL Suggestion ── */}
         {clipboardUrl && !hasInput && (
           <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOut.duration(150)}>
-            <PressableScale
+            <Pressable
               onPress={handleClipboardPaste}
-              style={[
-                styles.clipboardPrompt,
-                {
-                  backgroundColor: isDark ? "rgba(245, 158, 11, 0.04)" : "rgba(217, 119, 6, 0.03)",
-                  borderColor: isDark ? "rgba(245, 158, 11, 0.15)" : "rgba(217, 119, 6, 0.15)",
-                },
-              ]}
+              accessibilityRole="button"
+              style={[styles.clipboardPrompt, { backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }]}
             >
-              <Feather name="clipboard" size={14} color={isDark ? "#F59E0B" : "#D97706"} />
-              <Text style={[styles.clipboardText, { color: isDark ? "#F59E0B" : "#D97706" }]} numberOfLines={1}>
-                📋 Paste{" "}
-                {(() => {
-                  try {
-                    const domain = clipboardUrl.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-                    return domain;
-                  } catch {
-                    return "link";
-                  }
-                })()}
-                ?
+              <Feather name="link" size={13} color={textMuted} />
+              <Text style={[styles.clipboardText, { color: textMuted }]} numberOfLines={1}>
+                {getDomainFromUrl(clipboardUrl)}
               </Text>
-            </PressableScale>
+              <Text style={[styles.clipboardAction, { color: theme.primary }]}>Paste</Text>
+            </Pressable>
           </Animated.View>
         )}
 
@@ -1056,38 +1414,31 @@ export default function UnifiedCapture({
         {parsedItem?.type === "checklist" && parsedItem.checklistConfidence === "medium" && (
           <Animated.View
             entering={FadeInDown.duration(200)}
-            style={[
-              styles.checklistSuggestion,
-              {
-                backgroundColor: isDark ? "rgba(59, 130, 246, 0.04)" : "rgba(37, 99, 235, 0.03)",
-                borderColor: isDark ? "rgba(59, 130, 246, 0.15)" : "rgba(37, 99, 235, 0.15)",
-              },
-            ]}
+            style={[styles.checklistSuggestion, { backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }]}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
-              <Feather name="list" size={16} color={TYPE_META.checklist.color} />
-              <Text style={{ fontSize: 13, fontWeight: "600", color: textPrimary }}>
-                Looks like a checklist ✓
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+              <Feather name="list" size={15} color={textMuted} />
+              <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: "500", color: textPrimary }}>
+                Create this as a list?
               </Text>
             </View>
-            <PressableScale
+            <Pressable
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                 if (parsedItem) {
                   setParsedItem({ ...parsedItem, checklistConfidence: "high", confidence: 0.85 });
                 }
               }}
-              style={[styles.checklistConfirmBtn, { backgroundColor: `${TYPE_META.checklist.color}20` }]}
+              accessibilityRole="button"
+              style={[styles.checklistConfirmBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}
             >
-              <Text style={{ fontSize: 12, fontWeight: "700", color: TYPE_META.checklist.color }}>
-                Create as List
-              </Text>
-            </PressableScale>
+              <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>As list</Text>
+            </Pressable>
           </Animated.View>
         )}
 
         {/* ── Capture Companion Card ── */}
-        {parsedItem && parsedItem.title.trim().length > 0 && !isParsing && (
+        {parsedItem && parsedItem.title.trim().length > 0 && parsePhase !== "interpreting" && (
           <CaptureSummaryCard
             parsedItem={parsedItem}
             duplicateResult={duplicateResult}
@@ -1100,15 +1451,12 @@ export default function UnifiedCapture({
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
             onActivePickerChange={handleActivePickerChange}
-            attachedFile={attachedFile}
-            onRemoveAttachedFile={handleRemoveAttachedFile}
             onDismiss={handleDismiss}
             onSave={handleSave}
             onSaveAnyway={handleSaveAnyway}
             onUseExisting={handleUseExisting}
             onMergeChecklist={handleMergeChecklist}
             isSaving={isSaving}
-            saveButtonLabel={saveButtonLabel}
           />
         )}
 
@@ -1119,42 +1467,58 @@ export default function UnifiedCapture({
             isDark={isDark}
             textPrimary={textPrimary}
             textMuted={textMuted}
-            themePrimary={theme.primary}
             onSuggestionTap={handleSuggestionTap}
           />
         )}
+        </View>
+
+        {/* ── File-only view: just the picked file, nothing else around it ── */}
+        {attachedFile && fileOnlyCard}
 
         {/* ── Contextual Action Bar ── */}
         <View style={[styles.contextBar, { borderTopColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }]}>
-          <TouchableOpacity
-            onPress={() => handleActivePickerChange("workspace")}
-            style={[styles.contextBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
-          >
-            <Text style={{ fontSize: 13, color: textPrimary, fontWeight: "600" }}>
-              {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.emoji || "▣"} {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.name || "Inbox"}
-            </Text>
-            <Feather name="chevron-down" size={14} color={textMuted} />
-          </TouchableOpacity>
-
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <PressableScale
-              onPress={() => handleSave(false)}
-              disabled={isSaving || (duplicateResult?.isPotentialDuplicate === true)}
-              scaleTo={isSaving ? 1 : 0.95}
-              style={[
-                styles.bottomSaveBtn,
-                { backgroundColor: (isSaving || (duplicateResult?.isPotentialDuplicate === true)) ? textMuted : theme.primary },
-              ]}
+          <View style={styles.contextLeft}>
+            <TouchableOpacity
+              onPress={() => handleActivePickerChange("workspace")}
+              accessibilityRole="button"
+              style={[styles.contextBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
             >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.bottomSaveBtnText}>
-                  {saveButtonLabel}
+              <Text numberOfLines={1} style={[styles.contextBtnText, { color: textPrimary }]}>
+                {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.emoji || "▣"} {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.name || "Inbox"}
+              </Text>
+              <Feather name="chevron-down" size={13} color={textMuted} />
+            </TouchableOpacity>
+
+            {topSuggestion && suggestedWorkspace && topSuggestion.workspaceId !== (selectedWorkspaceId || INBOX_WORKSPACE_ID) && (
+              <Pressable
+                onPress={handleAcceptWorkspaceSuggestion}
+                accessibilityRole="button"
+                accessibilityLabel={`Use suggested workspace ${suggestedWorkspace.name}`}
+                style={[styles.suggestionAccept, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
+              >
+                <Feather name="arrow-right" size={11} color={theme.primary} />
+                <Text numberOfLines={1} style={[styles.suggestionAcceptText, { color: theme.primary }]}>
+                  {suggestedWorkspace.name}
                 </Text>
-              )}
-            </PressableScale>
+              </Pressable>
+            )}
           </View>
+
+          <Pressable
+            onPress={() => handleSave(false)}
+            accessibilityRole="button"
+            disabled={isSaving || blocksSave}
+            style={[
+              styles.bottomSaveBtn,
+              { backgroundColor: (isSaving || blocksSave) ? textMuted : theme.primary },
+            ]}
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.bottomSaveBtnText}>Add</Text>
+            )}
+          </Pressable>
         </View>
       </BottomSheetScrollView>
     </BottomSheetModal>
@@ -1168,7 +1532,32 @@ export default function UnifiedCapture({
         onSelect={pickerConfig.onSelect}
         onClose={() => setActivePicker(null)}
         isDark={isDark}
+        closeOnSelect={pickerConfig.closeOnSelect}
+        calendarDate={pickerConfig.calendarDate}
+        onCalendarSelect={pickerConfig.onCalendarSelect}
+        timeValue={pickerConfig.timeValue}
+        onTimeSelect={pickerConfig.onTimeSelect}
       />
+    )}
+
+    {/* Full-screen in-app preview for image attachments (tapped via the eye button) */}
+    {imagePreviewUri && (
+      <Modal
+        visible
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setImagePreviewUri(null)}
+      >
+        <Pressable
+          style={styles.imagePreviewBackdrop}
+          onPress={() => setImagePreviewUri(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Close image preview"
+        >
+          <Image source={{ uri: imagePreviewUri }} style={styles.imagePreviewFull} resizeMode="contain" />
+        </Pressable>
+      </Modal>
     )}
     </>
   );
@@ -1188,15 +1577,12 @@ interface CaptureSummaryCardProps {
   workspaces: { id: string; name: string; emoji?: string }[];
   selectedWorkspaceId?: string;
   onActivePickerChange: (picker: string | null, extraOptions?: ChipPickerOption[]) => void;
-  attachedFile: { name: string; size: number; uri: string } | null;
-  onRemoveAttachedFile: () => void;
   onDismiss: () => void;
   onSave: () => void;
   onSaveAnyway: () => void;
   onUseExisting: () => void;
   onMergeChecklist: () => void;
   isSaving: boolean;
-  saveButtonLabel: string;
 }
 
 const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
@@ -1211,15 +1597,12 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   workspaces,
   selectedWorkspaceId,
   onActivePickerChange,
-  attachedFile,
-  onRemoveAttachedFile,
   onDismiss,
   onSave,
   onSaveAnyway,
   onUseExisting,
   onMergeChecklist,
   isSaving,
-  saveButtonLabel,
 }: CaptureSummaryCardProps) {
   const isSameWorkspaceExactDuplicate =
     duplicateResult &&
@@ -1233,9 +1616,17 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
     duplicateResult.relationship === "exact_duplicate" &&
     duplicateResult.matchedEntity?.workspaceId !== (selectedWorkspaceId || INBOX_WORKSPACE_ID);
 
-  const isNearDuplicate =
+  const isSameWorkspaceNearDuplicate =
     duplicateResult &&
-    duplicateResult.relationship === "near_duplicate";
+    duplicateResult.isPotentialDuplicate &&
+    duplicateResult.relationship === "near_duplicate" &&
+    duplicateResult.matchedEntity?.workspaceId === (selectedWorkspaceId || INBOX_WORKSPACE_ID);
+
+  const isCrossWorkspaceNearDuplicate =
+    duplicateResult &&
+    duplicateResult.isPotentialDuplicate &&
+    duplicateResult.relationship === "near_duplicate" &&
+    duplicateResult.matchedEntity?.workspaceId !== (selectedWorkspaceId || INBOX_WORKSPACE_ID);
 
   const isMergeCandidate =
     duplicateResult &&
@@ -1243,69 +1634,82 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
 
   const currentWorkspace = workspaces.find((w) => w.id === selectedWorkspaceId);
 
-  // ─── Metadata Chips Generation ───
+  // ─── Metadata Chips Generation (contextual — only detected/edited values, never defaults) ───
   type ChipData = {
     id: string;
     icon: React.ComponentProps<typeof Feather>["name"] | null;
     label: string;
     color: string;
     bgColor: string;
-    emoji?: string;
     isPriority?: boolean;
   };
 
+  const chipBg = isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)";
   const chipsMap = new Map<string, ChipData>();
 
-  if (parsedItem.type === "task") {
+  // Date/time — only when actually detected (never a default).
+  if (parsedItem.type === "task" && (parsedItem.date || parsedItem.time)) {
     chipsMap.set("date", {
       id: "date",
-      icon: "calendar",
-      label: parsedItem.date ? getFriendlyDateLabel(parsedItem.date) : "No date",
+      icon: parsedItem.date ? "calendar" : "clock",
+      label: formatDateTimeLabel(parsedItem.date, parsedItem.time),
       color: textPrimary,
-      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+      bgColor: chipBg,
     });
   }
 
-  if (parsedItem.type === "habit" || parsedItem.recurrence) {
-    chipsMap.set("recurrence", {
-      id: "recurrence",
-      icon: "refresh-cw",
-      label: getRecurrenceLabel(parsedItem) || "Daily",
-      color: textPrimary,
-      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
-    });
-  }
-
-  if (parsedItem.type === "task" || parsedItem.type === "habit") {
+  // Priority — only when explicitly expressed or edited, never the parser default.
+  if (parsedItem.priorityDetected && parsedItem.priority) {
     chipsMap.set("priority", {
       id: "priority",
       icon: null,
       isPriority: true,
-      label: PRIORITY_META[parsedItem.priority || "medium"].label,
+      label: PRIORITY_META[parsedItem.priority].label,
       color: textPrimary,
-      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+      bgColor: chipBg,
     });
   }
 
-  if ((parsedItem.type === "task" || parsedItem.type === "habit") && parsedItem.category) {
-    chipsMap.set("category", {
-      id: "category",
-      icon: CATEGORY_META[parsedItem.category].icon,
-      label: CATEGORY_META[parsedItem.category].label,
+  if (parsedItem.recurrence) {
+    chipsMap.set("recurrence", {
+      id: "recurrence",
+      icon: "refresh-cw",
+      label: getRecurrenceLabel(parsedItem) || "Repeat",
       color: textPrimary,
-      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+      bgColor: chipBg,
     });
   }
 
-  const taskOrder = ["date", "priority", "category"];
-  const habitOrder = ["recurrence", "priority", "category"];
-  const checklistOrder = ["category"];
+  const reminderShort = getReminderShortLabel(parsedItem.reminderOffsetMinutes);
+  if (reminderShort) {
+    chipsMap.set("reminder", {
+      id: "reminder",
+      icon: "bell",
+      label: `${reminderShort} reminder`,
+      color: textPrimary,
+      bgColor: chipBg,
+    });
+  }
+
+  if (parsedItem.type === "checklist" && parsedItem.items && parsedItem.items.length > 0) {
+    chipsMap.set("checklistItems", {
+      id: "checklistItems",
+      icon: "list",
+      label: `${parsedItem.items.length} ${parsedItem.items.length === 1 ? "item" : "items"}`,
+      color: textPrimary,
+      bgColor: chipBg,
+    });
+  }
+
+  const taskOrder = ["date", "priority", "reminder", "recurrence"];
+  const habitOrder = ["recurrence", "reminder", "priority"];
+  const checklistOrder = ["checklistItems"];
 
   let currentOrder: string[] = [];
   if (parsedItem.type === "task") currentOrder = taskOrder;
   else if (parsedItem.type === "habit") currentOrder = habitOrder;
   else if (parsedItem.type === "checklist") currentOrder = checklistOrder;
-  else currentOrder = ["workspace"];
+  else currentOrder = [];
 
   const orderedChips: ChipData[] = [];
   for (const id of currentOrder) {
@@ -1314,186 +1718,199 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
     }
   }
 
-  const MAX_CHIPS = 3;
+  // Max 2 contextual chips (Type + attachment + 2 + "+" fit on narrow screens).
+  const MAX_CHIPS = 2;
   const visibleChipsData = orderedChips.slice(0, MAX_CHIPS);
-  const extraChipsData = orderedChips.slice(MAX_CHIPS);
-  const extraChipsCount = extraChipsData.length;
 
   const handleMorePress = () => {
-    const options: ChipPickerOption[] = extraChipsData.map((c) => ({
-      id: c.id,
-      label: c.label,
-      icon: c.icon as any,
-      color: c.isPriority ? PRIORITY_META[parsedItem.priority || "medium"].color : c.color,
-      isSelected: false,
-    }));
+    const options: ChipPickerOption[] = [];
+    const pushField = (
+      id: string,
+      name: string,
+      value: string | null,
+      icon: React.ComponentProps<typeof Feather>["name"],
+      color?: string,
+    ) => {
+      options.push({ id, label: name, subtitle: value || "None", icon, color, isSelected: false });
+    };
+
+    const ws = workspaces.find((w) => w.id === selectedWorkspaceId);
+    pushField("workspace", "Workspace", ws ? `${ws.emoji ?? ""} ${ws.name}`.trim() || "Inbox" : "Inbox", "grid");
+
+    const isTaskLike = parsedItem.type === "task" || parsedItem.type === "habit";
+    const isList = parsedItem.type === "checklist";
+
+    if (isTaskLike || isList) {
+      const categoryKey = parsedItem.category;
+      const catMeta = categoryKey ? CATEGORY_META[categoryKey] : undefined;
+      pushField(
+        "category",
+        "Category",
+        categoryKey ? catMeta?.label ?? categoryKey : "None",
+        catMeta?.icon ?? "tag",
+        catMeta?.color,
+      );
+      pushField(
+        "priority",
+        "Priority",
+        parsedItem.priority ? PRIORITY_META[parsedItem.priority].label : "None",
+        "flag",
+        parsedItem.priority ? PRIORITY_META[parsedItem.priority].color : undefined,
+      );
+    }
+
+    if (isTaskLike) {
+      pushField("date", "Due date", parsedItem.date ? getFriendlyDateLabel(parsedItem.date) : "None", "calendar");
+      pushField("time", "Time", parsedItem.time ? getFriendlyTimeLabel(parsedItem.time) : "None", "clock");
+      pushField("reminder", "Reminder", getReminderLabel(parsedItem.reminderOffsetMinutes) || "None", "bell");
+      pushField("recurrence", "Repeat", getRecurrenceLabel(parsedItem) || "None", "refresh-cw");
+    }
+
     onActivePickerChange("more", options);
   };
 
-  const visibleChips = visibleChipsData.map((chip) => (
-    <PressableScale
-      key={chip.id}
-      onPress={() => onActivePickerChange(chip.id)}
-      style={[
-        styles.chip,
-        {
-          backgroundColor: chip.bgColor,
-        },
-      ]}
-    >
-      {chip.icon ? (
-        <Feather name={chip.icon} size={12} color={chip.color} />
-      ) : chip.isPriority ? (
-        <View
-          style={[
-            styles.priorityDot,
-            { backgroundColor: PRIORITY_META[parsedItem.priority || "medium"].color },
-          ]}
-        />
-      ) : (
-        <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 13 }}>
-          {chip.emoji}
-        </Text>
-      )}
-      <Text
-        numberOfLines={1}
-        ellipsizeMode="tail"
-        style={[
-          styles.chipText,
-          { color: chip.color, fontWeight: "600" },
-        ]}
-      >
-        {chip.label}
-      </Text>
-    </PressableScale>
-  ));
-
-  return (
-    <Animated.View
-      entering={FadeInDown.duration(200)}
-      style={[
-        styles.summaryCard,
-        {
-          padding: 0,
-          borderWidth: 0,
-          backgroundColor: "transparent",
-          shadowOpacity: 0,
-          elevation: 0,
-        },
-      ]}
-    >
-      {/* ── Intent Card ── */}
-      <View style={{ gap: 10, marginTop: 12 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 4 }}>
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: textMuted, marginRight: 8, opacity: 0.5 }} />
-          <Text style={{ fontSize: 13, color: textMuted, fontWeight: "500" }}>
-            Pebble understands this as
+  const visibleChips = visibleChipsData.map((chip) => {
+    // The checklist item count is informational, not an interactive picker.
+    if (chip.id === "checklistItems") {
+      return (
+        <View key={chip.id} style={[styles.chip, { backgroundColor: chip.bgColor }]}>
+          <Feather name={chip.icon!} size={12} color={chip.color} />
+          <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.chipText, { color: chip.color, fontWeight: "600" }]}>
+            {chip.label}
           </Text>
         </View>
-
-        <PressableScale
-          onPress={() => onActivePickerChange("type")}
+      );
+    }
+    return (
+      <Pressable
+        key={chip.id}
+        onPress={() => onActivePickerChange(chip.id)}
+        accessibilityRole="button"
+        style={[styles.chip, { backgroundColor: chip.bgColor }]}
+      >
+        {chip.icon ? (
+          <Feather name={chip.icon} size={12} color={chip.color} />
+        ) : chip.isPriority ? (
+          <View
+            style={[
+              styles.priorityDot,
+              { backgroundColor: PRIORITY_META[parsedItem.priority || "medium"].color },
+            ]}
+          />
+        ) : null}
+        <Text
+          numberOfLines={1}
+          ellipsizeMode="tail"
           style={[
-            styles.intentCard,
-            {
-              backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)",
-              borderColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
-            }
+            styles.chipText,
+            { color: chip.color, fontWeight: "600" },
           ]}
         >
-          <View style={[styles.intentIconCircle, { backgroundColor: TYPE_META[parsedItem.type].color }]}>
-            <Feather name="check" size={16} color="#FFF" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: textPrimary }}>
-              {TYPE_META[parsedItem.type].label}
-            </Text>
-            <Text style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
-              {parsedItem.type === "task" ? "To-do item" : parsedItem.type === "habit" ? "Recurring routine" : parsedItem.type === "checklist" ? "List" : "Note"}
-            </Text>
-          </View>
-        </PressableScale>
+          {chip.label}
+        </Text>
+      </Pressable>
+    );
+  });
+
+  return (
+    <Animated.View entering={FadeInDown.duration(200)} style={styles.summaryCard}>
+      {/* ── Compact editable metadata row ── */}
+      <View style={styles.chipsRow}>
+        <Pressable
+          onPress={() => onActivePickerChange("type")}
+          accessibilityRole="button"
+          accessibilityLabel="Change type"
+          style={[styles.chip, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)" }]}
+        >
+          <Feather name="check" size={12} color={TYPE_META[parsedItem.type].color} />
+          <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.chipText, { color: textPrimary, fontWeight: "600" }]}>
+            {TYPE_META[parsedItem.type].label}
+          </Text>
+        </Pressable>
+
+        {visibleChips}
+
+        <Pressable
+          onPress={handleMorePress}
+          accessibilityRole="button"
+          accessibilityLabel="Show more metadata"
+          style={[styles.chip, styles.moreChip, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)" }]}
+        >
+          <Feather name="plus" size={14} color={textMuted} />
+        </Pressable>
       </View>
 
-      {/* ── Metadata Section ── */}
-      <View style={{ gap: 12, marginTop: 24 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4 }}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: textMuted, marginRight: 8, opacity: 0.5 }} />
-            <Text style={{ fontSize: 13, color: textMuted, fontWeight: "500" }}>Detected details</Text>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={{ fontSize: 12, color: textMuted, fontWeight: "500" }}>AI Confidence:</Text>
-            <Text style={{ fontSize: 12, color: parsedItem.confidence > 0.8 ? "#10B981" : parsedItem.confidence > 0.6 ? "#F59E0B" : textPrimary, fontWeight: "600" }}>
-              {parsedItem.confidence > 0.8 ? "High" : parsedItem.confidence > 0.6 ? "Medium" : "Low"}
-            </Text>
-          </View>
-        </View>
+      {/* ── What the parser understood, at a glance ── */}
+      <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.summaryLine, { color: textMuted }]}>
+        {getParsedSummary(parsedItem)}
+      </Text>
 
-        <View style={styles.chipsContainer}>
-          {visibleChips}
-          {extraChipsCount > 0 && (
-            <PressableScale
-              onPress={handleMorePress}
-              style={[styles.chip, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)" }]}
-            >
-              <Text numberOfLines={1} style={[styles.chipText, { color: textPrimary, fontWeight: "600" }]}>
-                ••• More
+      {/* ── Checklist preview: let the user verify the parsed items at a glance ── */}
+      {parsedItem.type === "checklist" && parsedItem.items && parsedItem.items.length > 0 && (
+        <View style={styles.checklistPreview}>
+          {parsedItem.items.slice(0, 3).map((item, i) => (
+            <View key={i} style={styles.checklistPreviewRow}>
+              <Feather name="circle" size={8} color={textMuted} />
+              <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.checklistPreviewText, { color: textMuted }]}>
+                {item}
               </Text>
-            </PressableScale>
+            </View>
+          ))}
+          {parsedItem.items.length > 3 && (
+            <Text style={[styles.checklistPreviewText, { color: textMuted }]}>
+              {`+${parsedItem.items.length - 3} more`}
+            </Text>
           )}
         </View>
-      </View>
+      )}
 
       {/* ── Duplicate Notices ── */}
-      {isSameWorkspaceExactDuplicate && (
+      {(isSameWorkspaceExactDuplicate || isSameWorkspaceNearDuplicate) && (
         <Animated.View
           entering={FadeInDown.duration(180)}
-          style={[
-            styles.intentCard,
-            {
-              marginTop: 24,
-              backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)",
-              borderColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
-            }
-          ]}
+          style={[styles.noticeRow, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)" }]}
         >
-          <View style={[styles.intentIconCircle, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
-            <Feather name="clipboard" size={16} color={isDark ? "#FBBF24" : "#D97706"} />
-          </View>
-          <View style={{ flex: 1 }}>
+          <Feather name="clipboard" size={15} color={textMuted} />
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={{ fontSize: 14, fontWeight: "600", color: textPrimary }}>
               Similar item found
             </Text>
-            <Text style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
+            <Text numberOfLines={1} style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
               {duplicateResult?.matchedEntity?.title}
             </Text>
           </View>
-          <Feather name="chevron-right" size={18} color={textMuted} />
+        </Animated.View>
+      )}
+
+      {(isCrossWorkspaceExactDuplicate || isCrossWorkspaceNearDuplicate) && (
+        <Animated.View
+          entering={FadeInDown.duration(180)}
+          style={[styles.noticeRow, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)" }]}
+        >
+          <Feather name="info" size={15} color={textMuted} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: textPrimary }}>
+              Already in another workspace
+            </Text>
+            <Text numberOfLines={1} style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
+              {duplicateResult?.matchedEntity?.title}
+            </Text>
+          </View>
         </Animated.View>
       )}
 
       {isMergeCandidate && (
         <Animated.View
           entering={FadeInDown.duration(180)}
-          style={[
-            styles.intentCard,
-            {
-              marginTop: 24,
-              backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)",
-              borderColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
-            }
-          ]}
+          style={[styles.noticeRow, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)" }]}
         >
-          <View style={[styles.intentIconCircle, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
-            <Feather name="layers" size={16} color={isDark ? "#10B981" : "#059669"} />
-          </View>
-          <View style={{ flex: 1 }}>
+          <Feather name="layers" size={15} color={textMuted} />
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={{ fontSize: 14, fontWeight: "600", color: textPrimary }}>
               Update existing list?
             </Text>
             {duplicateResult?.newItems && (
-              <Text style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
+              <Text numberOfLines={1} style={{ fontSize: 13, color: textMuted, marginTop: 2 }}>
                 Add {duplicateResult.newItems.join(", ")}
               </Text>
             )}
@@ -1501,8 +1918,8 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
         </Animated.View>
       )}
       {/* ── Action Buttons (Only for Duplicates) ── */}
-      {(isMergeCandidate || isSameWorkspaceExactDuplicate) && (
-        <View style={{ gap: 8, marginTop: 24, flexDirection: "row", justifyContent: "flex-end" }}>
+      {(isMergeCandidate || isSameWorkspaceExactDuplicate || isSameWorkspaceNearDuplicate) && (
+        <View style={{ gap: 12, marginTop: 16, flexDirection: "row", justifyContent: "flex-end" }}>
           {isMergeCandidate && (
             <>
               <TouchableOpacity onPress={onSaveAnyway} style={[styles.secondaryActionBtn, { paddingHorizontal: 16 }]}>
@@ -1523,7 +1940,7 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
             </>
           )}
 
-          {isSameWorkspaceExactDuplicate && (
+          {(isSameWorkspaceExactDuplicate || isSameWorkspaceNearDuplicate) && (
             <>
               <TouchableOpacity onPress={onSaveAnyway} style={[styles.secondaryActionBtn, { paddingHorizontal: 16 }]}>
                 <Text style={[styles.secondaryActionBtnText, { color: textPrimary }]}>Create anyway</Text>
@@ -1549,7 +1966,6 @@ interface CaptureSuggestionsProps {
   isDark: boolean;
   textPrimary: string;
   textMuted: string;
-  themePrimary: string;
   onSuggestionTap: (text: string) => void;
 }
 
@@ -1558,30 +1974,24 @@ const CaptureSuggestions = React.memo(function CaptureSuggestions({
   isDark,
   textPrimary,
   textMuted,
-  themePrimary,
   onSuggestionTap,
 }: CaptureSuggestionsProps) {
   return (
     <Animated.View entering={FadeInUp.duration(200)} exiting={FadeOut.duration(150)} style={styles.suggestionsContainer}>
-      <Text style={[styles.suggestionsLabel, { color: textMuted }]}>Suggested for you</Text>
+      {/* 2×2 grid — no horizontal scroll, so it never fights the sheet's vertical gesture on Android */}
       <View style={styles.suggestionsRow}>
         {suggestions.slice(0, 4).map((text, i) => (
-          <PressableScale
+          <Pressable
             key={i}
             onPress={() => onSuggestionTap(text)}
-            style={[
-              styles.suggestionChip,
-              {
-                backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.02)",
-                borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
-              },
-            ]}
+            accessibilityRole="button"
+            style={[styles.suggestionChip, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.02)" }]}
           >
-            <Feather name="zap" size={12} color={themePrimary} />
-            <Text style={[styles.suggestionChipText, { color: textPrimary }]}>
+            <Feather name="zap" size={11} color={textMuted} />
+            <Text numberOfLines={1} style={[styles.suggestionChipText, { color: textPrimary }]}>
               {text.length > 24 ? `${text.slice(0, 24)}…` : text}
             </Text>
-          </PressableScale>
+          </Pressable>
         ))}
       </View>
     </Animated.View>
@@ -1613,9 +2023,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.5,
   },
-  sheetHeaderDesc: {
-    fontSize: 13,
-    fontWeight: "500",
+  aiBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  aiBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
   },
   closeIconBtn: {
     width: 32,
@@ -1629,18 +2049,27 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 48,
   },
-  // Companion progress bar
+  // Parsing progress
   companionLoadingRow: {
-    marginBottom: 16,
-    gap: 6,
+    marginBottom: 12,
+    gap: 8,
   },
-  companionLoadingText: {
+  parsingPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  parsingPillText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   progressBarContainer: {
-    height: 4,
-    borderRadius: 2,
+    height: 2,
+    borderRadius: 1,
     overflow: "hidden",
     width: "100%",
   },
@@ -1648,16 +2077,9 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 2,
   },
-  // Suggestions
+  // Suggestions (2×2 grid)
   suggestionsContainer: {
-    marginTop: 8,
-    gap: 10,
-  },
-  suggestionsLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    marginTop: 4,
   },
   suggestionsRow: {
     flexDirection: "row",
@@ -1667,66 +2089,64 @@ const styles = StyleSheet.create({
   suggestionChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
+    gap: 5,
+    flexGrow: 1,
+    flexBasis: "46%",
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1.2,
+    borderRadius: 14,
   },
   suggestionChipText: {
     fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: -0.15,
+    fontWeight: "500",
+    letterSpacing: -0.1,
   },
   // Clipboard
   clipboardPrompt: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1.2,
-    borderStyle: "dashed",
-    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 12,
   },
   clipboardText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
     flex: 1,
-    letterSpacing: -0.1,
+    minWidth: 0,
+  },
+  clipboardAction: {
+    fontSize: 13,
+    fontWeight: "600",
   },
   // Checklist suggestion
   checklistSuggestion: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1.2,
-    borderStyle: "dashed",
-    marginBottom: 16,
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 12,
   },
   checklistConfirmBtn: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 10,
   },
   // Summary card
   summaryCard: {
-    borderWidth: 1.2,
-    borderRadius: 18,
-    padding: 14,
-    gap: 10,
     marginTop: 4,
   },
-  chipsContainer: {
+  chipsRow: {
     flexDirection: "row",
     flexWrap: "nowrap",
     alignItems: "center",
     gap: 8,
-    marginTop: 4,
+    marginTop: 16,
     overflow: "hidden",
   },
   chip: {
@@ -1739,6 +2159,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     maxWidth: 160,
   },
+  moreChip: {
+    justifyContent: "center",
+    minWidth: 34,
+  },
   chipText: {
     fontSize: 13,
     letterSpacing: -0.1,
@@ -1749,178 +2173,97 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  summaryHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  typeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 7,
-  },
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  confidenceBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  // Title
-  summaryTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    letterSpacing: -0.3,
-    lineHeight: 22,
-  },
-  urlSubtitle: {
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: -4,
-    textDecorationLine: "underline",
-  },
-  // Attached File card
-  fileCard: {
+  noticeRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    padding: 10,
+    padding: 12,
     borderRadius: 12,
-    borderWidth: 1.2,
-    backgroundColor: "rgba(100,116,139,0.03)",
+    marginTop: 16,
   },
-  fileName: {
-    fontSize: 13,
-    fontWeight: "700",
+  summaryLine: {
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: -0.1,
+    marginTop: 8,
   },
-  // Checklist preview
   checklistPreview: {
-    gap: 6,
-    backgroundColor: "rgba(100, 116, 139, 0.03)",
-    padding: 10,
-    borderRadius: 12,
+    gap: 4,
+    marginTop: 10,
+    paddingLeft: 2,
   },
-  checklistRow: {
+  checklistPreviewRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  checklistBox: {
-    width: 16,
-    height: 16,
-    borderRadius: 4,
-    borderWidth: 1.5,
-  },
-  checklistItemText: {
+  checklistPreviewText: {
     fontSize: 13,
-    fontWeight: "600",
-    flex: 1,
-    letterSpacing: -0.15,
-  },
-  // Core value row
-  coreValueRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  // Dismiss and Save Buttons
-  dismissBtn: {
-    paddingVertical: 13,
-    paddingHorizontal: 18,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dismissBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  saveButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 13,
-    borderRadius: 14,
-  },
-  saveButtonText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontWeight: "500",
     letterSpacing: -0.1,
+    flexShrink: 1,
   },
-  // Duplicate warning & action styles
-  duplicateWarningBox: {
-    padding: 10,
-    borderRadius: 12,
-    borderWidth: 1.2,
-    marginTop: 2,
-    marginBottom: 2,
+  hidden: {
+    display: "none",
   },
-  duplicateInfoBox: {
-    padding: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    marginTop: 2,
-    marginBottom: 2,
-  },
-  useExistingBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1.2,
-  },
-  useExistingBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  saveAnywayBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 13,
-    borderRadius: 14,
-  },
-  saveAnywayBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -0.1,
-  },
-  // New Styles for Redesign
-  intentCard: {
+  fileOnlyCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    padding: 12,
     borderRadius: 16,
-    borderWidth: 1.2,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    marginBottom: 16,
   },
-  intentIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  fileOnlyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
+  fileOnlyThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+  },
+  fileOnlyNameInput: {
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: -0.2,
+    padding: 0,
+    margin: 0,
+  },
+  fileOnlyMeta: {
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: -0.1,
+    marginTop: 3,
+  },
+  fileOnlyBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imagePreviewBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imagePreviewFull: {
+    width: "100%",
+    height: "82%",
+  },
+  // Duplicate action buttons
   primaryActionBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 16,
-    borderRadius: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   primaryActionBtnText: {
     fontSize: 16,
@@ -1931,7 +2274,7 @@ const styles = StyleSheet.create({
   secondaryActionBtn: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
   secondaryActionBtnText: {
     fontSize: 14,
@@ -1941,28 +2284,52 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     paddingTop: 16,
     marginTop: 16,
     borderTopWidth: 1,
+  },
+  contextLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
   },
   contextBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    minHeight: 40,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 12,
+    flexShrink: 1,
   },
-  iconActionBtn: {
-    width: 36,
-    height: 36,
+  contextBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    flexShrink: 1,
+    maxWidth: 140,
+  },
+  suggestionAccept: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  suggestionAcceptText: {
+    fontSize: 12,
+    fontWeight: "600",
+    flexShrink: 1,
   },
   bottomSaveBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    minWidth: 76,
+    minHeight: 44,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: "auto",

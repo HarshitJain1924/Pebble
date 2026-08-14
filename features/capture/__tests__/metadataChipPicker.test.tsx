@@ -150,4 +150,29 @@ describe("UnifiedCapture metadata chip integration invariants", () => {
     expect(source).toContain("if (userOverridesRef.current.category)");
     expect(source).toContain("if (userOverridesRef.current.recurrence !== undefined)");
   });
+
+  it("19. type picker exposes only user-facing capture intents (no Link/File)", () => {
+    const typeSection = source.slice(
+      source.indexOf('if (activePicker === "type")'),
+      source.indexOf('if (activePicker === "priority")'),
+    );
+    expect(typeSection).toContain('"task"');
+    expect(typeSection).toContain('"habit"');
+    expect(typeSection).toContain('"checklist"');
+    expect(typeSection).toContain('"note"');
+    expect(typeSection).toContain('"idea"');
+    expect(typeSection).not.toContain('"link"');
+    expect(typeSection).not.toContain('"file"');
+  });
+
+  it("20. chips are contextual — parser defaults are never surfaced", () => {
+    expect(source).toContain("parsedItem.priorityDetected && parsedItem.priority");
+    expect(source).toContain("parsedItem.type === \"task\" && (parsedItem.date || parsedItem.time)");
+    expect(source).toContain("getReminderShortLabel(parsedItem.reminderOffsetMinutes)");
+  });
+
+  it("21. workspace suggestion never silently overrides the user's selection", () => {
+    expect(source).toContain("handleAcceptWorkspaceSuggestion");
+    expect(source).not.toContain("setSelectedWorkspaceId(top.workspaceId)");
+  });
 });
