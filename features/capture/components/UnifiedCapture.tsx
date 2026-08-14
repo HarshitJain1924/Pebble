@@ -18,6 +18,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -286,6 +287,10 @@ export default function UnifiedCapture({
 
   // Workspace suggestion from parser
   const [topSuggestion, setTopSuggestion] = useState<WorkspaceSuggestionResult | null>(null);
+
+  // Picker state
+  const [activePicker, setActivePicker] = useState<string | null>(null);
+  const [morePickerOptions, setMorePickerOptions] = useState<ChipPickerOption[]>([]);
 
   // Voice capture
   const {
@@ -767,6 +772,142 @@ export default function UnifiedCapture({
     }
   }, [parsedItem, selectedWorkspaceId, workspaces]);
 
+  // ─── Picker Config ────────────────────────────────────────────────────────
+
+  const handleActivePickerChange = useCallback((picker: string | null, extraOptions?: ChipPickerOption[]) => {
+    setActivePicker(picker);
+    if (extraOptions) setMorePickerOptions(extraOptions);
+  }, []);
+
+  const pickerConfig = useMemo(() => {
+    if (!activePicker) return null;
+
+    if (activePicker === "more") {
+      return {
+        title: "More Metadata",
+        options: morePickerOptions,
+        onSelect: (id: string) => setActivePicker(id),
+      };
+    }
+
+    if (activePicker === "type") {
+      return {
+        title: "Change Type",
+        options: (Object.keys(TYPE_META) as ParsedProductivityItem["type"][]).map((t) => ({
+          id: t,
+          label: TYPE_META[t].label,
+          icon: TYPE_META[t].icon,
+          color: TYPE_META[t].color,
+          isSelected: parsedItem?.type === t,
+        })),
+        onSelect: (id: string) => handleTypeChange(id as ParsedProductivityItem["type"]),
+      };
+    }
+
+    if (activePicker === "priority") {
+      return {
+        title: "Set Priority",
+        options: (["high", "medium", "low", "none"] as const).map((p) => ({
+          id: p,
+          label: PRIORITY_META[p].label,
+          color: PRIORITY_META[p].color,
+          isSelected: (parsedItem?.priority || "medium") === p,
+        })),
+        onSelect: (id: string) => handlePriorityChange(id as ParsedProductivityItem["priority"]),
+      };
+    }
+
+    if (activePicker === "date") {
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+
+      const weekend = new Date(today);
+      const dayOfWeek = today.getDay();
+      const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7;
+      weekend.setDate(today.getDate() + daysUntilSaturday);
+
+      const nextMonday = new Date(today);
+      const daysUntilNextMon = (1 - dayOfWeek + 7) % 7 || 7;
+      nextMonday.setDate(today.getDate() + daysUntilNextMon);
+
+      return {
+        title: "Set Due Date",
+        options: [
+          { id: getDateKey(today), label: "Today", subtitle: getFriendlyDateLabel(getDateKey(today)), icon: "sun" as const, isSelected: parsedItem?.date === getDateKey(today) },
+          { id: getDateKey(tomorrow), label: "Tomorrow", subtitle: getFriendlyDateLabel(getDateKey(tomorrow)), icon: "arrow-right" as const, isSelected: parsedItem?.date === getDateKey(tomorrow) },
+          { id: getDateKey(weekend), label: "This Weekend", subtitle: getFriendlyDateLabel(getDateKey(weekend)), icon: "coffee" as const, isSelected: parsedItem?.date === getDateKey(weekend) },
+          { id: getDateKey(nextMonday), label: "Next Week", subtitle: getFriendlyDateLabel(getDateKey(nextMonday)), icon: "calendar" as const, isSelected: parsedItem?.date === getDateKey(nextMonday) },
+          { id: "none", label: "No Due Date (Inbox)", subtitle: "Save without due date", icon: "inbox" as const, isSelected: !parsedItem?.date },
+        ],
+        onSelect: (id: string) => handleDateChange(id === "none" ? undefined : id),
+      };
+    }
+
+    if (activePicker === "category") {
+      const categories: (keyof typeof CATEGORY_META)[] = [
+        "work",
+        "personal",
+        "health",
+        "learning",
+        "creative",
+        "focus",
+      ];
+      return {
+        title: "Set Category",
+        options: [
+          ...categories.map((c) => ({
+            id: c,
+            label: CATEGORY_META[c].label,
+            color: CATEGORY_META[c].color,
+            icon: CATEGORY_META[c].icon,
+            isSelected: parsedItem?.category === c,
+          })),
+          {
+            id: "none",
+            label: "No Category",
+            icon: "x" as const,
+            isSelected: !parsedItem?.category,
+          },
+        ],
+        onSelect: (id: string) => handleCategoryChange(id === "none" ? undefined : (id as ParsedProductivityItem["category"])),
+      };
+    }
+
+    if (activePicker === "recurrence") {
+      return {
+        title: "Set Recurrence",
+        options: [
+          { id: "daily", label: "Daily", icon: "repeat" as const, isSelected: parsedItem?.recurrence?.type === "daily" },
+          { id: "weekdays", label: "Weekdays (Mon-Fri)", icon: "calendar" as const, isSelected: parsedItem?.recurrence?.type === "weekdays" },
+          { id: "weekly", label: "Weekly", icon: "refresh-cw" as const, isSelected: parsedItem?.recurrence?.type === "weekly" },
+          { id: "monthly", label: "Monthly", icon: "calendar" as const, isSelected: parsedItem?.recurrence?.type === "monthly" },
+          { id: "none", label: "Don't Repeat (Once)", icon: "x" as const, isSelected: !parsedItem?.recurrence },
+        ],
+        onSelect: (id: string) =>
+          handleRecurrenceChange(
+            id === "none"
+              ? undefined
+              : { type: id as any, interval: 1 },
+          ),
+      };
+    }
+
+    if (activePicker === "workspace") {
+      return {
+        title: "Select Workspace",
+        options: workspaces.map((w) => ({
+          id: w.id,
+          label: `${w.emoji || "📂"} ${w.name}`,
+          isSelected: (selectedWorkspaceId || INBOX_WORKSPACE_ID) === w.id,
+        })),
+        onSelect: (id: string) => handleWorkspaceChange(id),
+      };
+    }
+
+    return null;
+  }, [activePicker, parsedItem, selectedWorkspaceId, workspaces, morePickerOptions, handleTypeChange, handlePriorityChange, handleDateChange, handleCategoryChange, handleRecurrenceChange, handleWorkspaceChange]);
+
   // ─── Render ─────────────────────────────────────────────────────────────
 
   const renderBackdrop = useCallback(
@@ -791,9 +932,10 @@ export default function UnifiedCapture({
   );
 
   return (
-    <BottomSheetModal
-      ref={sheetRef}
-      index={0}
+    <>
+      <BottomSheetModal
+        ref={sheetRef}
+        index={0}
       snapPoints={SNAP_POINTS}
       onChange={handleSheetChange}
       backdropComponent={renderBackdrop}
@@ -956,12 +1098,7 @@ export default function UnifiedCapture({
             themeSecondary={theme.secondary}
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
-            onTypeChange={handleTypeChange}
-            onPriorityChange={handlePriorityChange}
-            onDateChange={handleDateChange}
-            onCategoryChange={handleCategoryChange}
-            onRecurrenceChange={handleRecurrenceChange}
-            onWorkspaceChange={handleWorkspaceChange}
+            onActivePickerChange={handleActivePickerChange}
             attachedFile={attachedFile}
             onRemoveAttachedFile={handleRemoveAttachedFile}
             onDismiss={handleDismiss}
@@ -987,6 +1124,19 @@ export default function UnifiedCapture({
         )}
       </BottomSheetScrollView>
     </BottomSheetModal>
+
+    {/* Contextual Modal Picker Overlay */}
+    {pickerConfig && (
+      <MetadataChipPicker
+        visible={!!activePicker}
+        title={pickerConfig.title}
+        options={pickerConfig.options}
+        onSelect={pickerConfig.onSelect}
+        onClose={() => setActivePicker(null)}
+        isDark={isDark}
+      />
+    )}
+    </>
   );
 }
 
@@ -1003,12 +1153,7 @@ interface CaptureSummaryCardProps {
   themeSecondary: string;
   workspaces: { id: string; name: string; emoji?: string }[];
   selectedWorkspaceId?: string;
-  onTypeChange: (type: ParsedProductivityItem["type"]) => void;
-  onPriorityChange: (priority: ParsedProductivityItem["priority"]) => void;
-  onDateChange: (date: string | undefined) => void;
-  onCategoryChange: (category: ParsedProductivityItem["category"]) => void;
-  onRecurrenceChange: (recurrence: ParsedProductivityItem["recurrence"]) => void;
-  onWorkspaceChange: (workspaceId: string) => void;
+  onActivePickerChange: (picker: string | null, extraOptions?: ChipPickerOption[]) => void;
   attachedFile: { name: string; size: number; uri: string } | null;
   onRemoveAttachedFile: () => void;
   onDismiss: () => void;
@@ -1031,12 +1176,7 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   themeSecondary,
   workspaces,
   selectedWorkspaceId,
-  onTypeChange,
-  onPriorityChange,
-  onDateChange,
-  onCategoryChange,
-  onRecurrenceChange,
-  onWorkspaceChange,
+  onActivePickerChange,
   attachedFile,
   onRemoveAttachedFile,
   onDismiss,
@@ -1047,8 +1187,6 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   isSaving,
   saveButtonLabel,
 }: CaptureSummaryCardProps) {
-  const [activePicker, setActivePicker] = useState<"type" | "priority" | "date" | "category" | "recurrence" | "workspace" | null>(null);
-
   const isSameWorkspaceExactDuplicate =
     duplicateResult &&
     duplicateResult.isPotentialDuplicate &&
@@ -1069,129 +1207,141 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
     duplicateResult &&
     duplicateResult.relationship === "merge_candidate";
 
-  // Compute options for active picker
-  const pickerConfig = useMemo(() => {
-    if (!activePicker) return null;
-
-    if (activePicker === "type") {
-      return {
-        title: "Change Type",
-        options: (Object.keys(TYPE_META) as ParsedProductivityItem["type"][]).map((t) => ({
-          id: t,
-          label: TYPE_META[t].label,
-          icon: TYPE_META[t].icon,
-          color: TYPE_META[t].color,
-          isSelected: parsedItem.type === t,
-        })),
-        onSelect: (id: string) => onTypeChange(id as ParsedProductivityItem["type"]),
-      };
-    }
-
-    if (activePicker === "priority") {
-      return {
-        title: "Set Priority",
-        options: (["high", "medium", "low", "none"] as const).map((p) => ({
-          id: p,
-          label: PRIORITY_META[p].label,
-          color: PRIORITY_META[p].color,
-          isSelected: (parsedItem.priority || "medium") === p,
-        })),
-        onSelect: (id: string) => onPriorityChange(id as ParsedProductivityItem["priority"]),
-      };
-    }
-
-    if (activePicker === "date") {
-      const today = new Date();
-      const tomorrow = new Date(today);
-      tomorrow.setDate(today.getDate() + 1);
-
-      const weekend = new Date(today);
-      const dayOfWeek = today.getDay();
-      const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7;
-      weekend.setDate(today.getDate() + daysUntilSaturday);
-
-      const nextMonday = new Date(today);
-      const daysUntilNextMon = (1 - dayOfWeek + 7) % 7 || 7;
-      nextMonday.setDate(today.getDate() + daysUntilNextMon);
-
-      return {
-        title: "Set Due Date",
-        options: [
-          { id: getDateKey(today), label: "Today", subtitle: getFriendlyDateLabel(getDateKey(today)), icon: "sun" as const, isSelected: parsedItem.date === getDateKey(today) },
-          { id: getDateKey(tomorrow), label: "Tomorrow", subtitle: getFriendlyDateLabel(getDateKey(tomorrow)), icon: "arrow-right" as const, isSelected: parsedItem.date === getDateKey(tomorrow) },
-          { id: getDateKey(weekend), label: "This Weekend", subtitle: getFriendlyDateLabel(getDateKey(weekend)), icon: "coffee" as const, isSelected: parsedItem.date === getDateKey(weekend) },
-          { id: getDateKey(nextMonday), label: "Next Week", subtitle: getFriendlyDateLabel(getDateKey(nextMonday)), icon: "calendar" as const, isSelected: parsedItem.date === getDateKey(nextMonday) },
-          { id: "none", label: "No Due Date (Inbox)", subtitle: "Save without due date", icon: "inbox" as const, isSelected: !parsedItem.date },
-        ],
-        onSelect: (id: string) => onDateChange(id === "none" ? undefined : id),
-      };
-    }
-
-    if (activePicker === "category") {
-      const categories: (keyof typeof CATEGORY_META)[] = [
-        "work",
-        "personal",
-        "health",
-        "learning",
-        "creative",
-        "focus",
-      ];
-      return {
-        title: "Set Category",
-        options: [
-          ...categories.map((c) => ({
-            id: c,
-            label: CATEGORY_META[c].label,
-            color: CATEGORY_META[c].color,
-            icon: CATEGORY_META[c].icon,
-            isSelected: parsedItem.category === c,
-          })),
-          {
-            id: "none",
-            label: "No Category",
-            icon: "x" as const,
-            isSelected: !parsedItem.category,
-          },
-        ],
-        onSelect: (id: string) => onCategoryChange(id === "none" ? undefined : (id as ParsedProductivityItem["category"])),
-      };
-    }
-
-    if (activePicker === "recurrence") {
-      return {
-        title: "Set Recurrence",
-        options: [
-          { id: "daily", label: "Daily", icon: "repeat" as const, isSelected: parsedItem.recurrence?.type === "daily" },
-          { id: "weekdays", label: "Weekdays (Mon-Fri)", icon: "calendar" as const, isSelected: parsedItem.recurrence?.type === "weekdays" },
-          { id: "weekly", label: "Weekly", icon: "refresh-cw" as const, isSelected: parsedItem.recurrence?.type === "weekly" },
-          { id: "monthly", label: "Monthly", icon: "calendar" as const, isSelected: parsedItem.recurrence?.type === "monthly" },
-          { id: "none", label: "Don't Repeat (Once)", icon: "x" as const, isSelected: !parsedItem.recurrence },
-        ],
-        onSelect: (id: string) =>
-          onRecurrenceChange(
-            id === "none"
-              ? undefined
-              : { type: id as any, interval: 1 },
-          ),
-      };
-    }
-
-    if (activePicker === "workspace") {
-      return {
-        title: "Select Workspace",
-        options: workspaces.map((w) => ({
-          id: w.id,
-          label: `${w.emoji || "📂"} ${w.name}`,
-          isSelected: (selectedWorkspaceId || INBOX_WORKSPACE_ID) === w.id,
-        })),
-        onSelect: (id: string) => onWorkspaceChange(id),
-      };
-    }
-
-    return null;
-  }, [activePicker, parsedItem, selectedWorkspaceId, workspaces, onTypeChange, onPriorityChange, onDateChange, onCategoryChange, onRecurrenceChange, onWorkspaceChange]);
-
   const currentWorkspace = workspaces.find((w) => w.id === selectedWorkspaceId);
+
+  // ─── Metadata Chips Generation ───
+  type ChipData = {
+    id: string;
+    icon: React.ComponentProps<typeof Feather>["name"] | null;
+    label: string;
+    color: string;
+    bgColor: string;
+    emoji?: string;
+    isPriority?: boolean;
+  };
+
+  const chipsMap = new Map<string, ChipData>();
+
+  if (parsedItem.type === "task") {
+    chipsMap.set("date", {
+      id: "date",
+      icon: "calendar",
+      label: parsedItem.date ? getFriendlyDateLabel(parsedItem.date) : "No date",
+      color: textPrimary,
+      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+    });
+  }
+
+  if (parsedItem.type === "habit" || parsedItem.recurrence) {
+    chipsMap.set("recurrence", {
+      id: "recurrence",
+      icon: "refresh-cw",
+      label: getRecurrenceLabel(parsedItem) || "Daily",
+      color: textPrimary,
+      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+    });
+  }
+
+  if (parsedItem.type === "task" || parsedItem.type === "habit") {
+    chipsMap.set("priority", {
+      id: "priority",
+      icon: null,
+      isPriority: true,
+      label: PRIORITY_META[parsedItem.priority || "medium"].label,
+      color: textPrimary,
+      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+    });
+  }
+
+  if ((parsedItem.type === "task" || parsedItem.type === "habit") && parsedItem.category) {
+    chipsMap.set("category", {
+      id: "category",
+      icon: CATEGORY_META[parsedItem.category].icon,
+      label: CATEGORY_META[parsedItem.category].label,
+      color: textPrimary,
+      bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+    });
+  }
+
+  chipsMap.set("workspace", {
+    id: "workspace",
+    icon: null,
+    emoji: currentWorkspace?.emoji || "📂",
+    label: currentWorkspace?.name || "My Pebbles",
+    color: textPrimary,
+    bgColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+  });
+
+  const taskOrder = ["date", "priority", "workspace", "category"];
+  const habitOrder = ["recurrence", "priority", "workspace", "category"];
+  const checklistOrder = ["workspace", "category"];
+
+  let currentOrder: string[] = [];
+  if (parsedItem.type === "task") currentOrder = taskOrder;
+  else if (parsedItem.type === "habit") currentOrder = habitOrder;
+  else if (parsedItem.type === "checklist") currentOrder = checklistOrder;
+  else currentOrder = ["workspace"];
+
+  const orderedChips: ChipData[] = [];
+  for (const id of currentOrder) {
+    if (chipsMap.has(id)) {
+      orderedChips.push(chipsMap.get(id)!);
+    }
+  }
+
+  const MAX_CHIPS = 3;
+  const visibleChipsData = orderedChips.slice(0, MAX_CHIPS);
+  const extraChipsData = orderedChips.slice(MAX_CHIPS);
+  const extraChipsCount = extraChipsData.length;
+
+  const handleMorePress = () => {
+    const options: ChipPickerOption[] = extraChipsData.map((c) => ({
+      id: c.id,
+      label: c.label,
+      icon: c.icon as any,
+      color: c.isPriority ? PRIORITY_META[parsedItem.priority || "medium"].color : c.color,
+      isSelected: false,
+    }));
+    onActivePickerChange("more", options);
+  };
+
+  const visibleChips = visibleChipsData.map((chip) => (
+    <PressableScale
+      key={chip.id}
+      onPress={() => onActivePickerChange(chip.id)}
+      style={[
+        styles.chip,
+        {
+          backgroundColor: chip.bgColor,
+        },
+      ]}
+    >
+      {chip.icon ? (
+        <Feather name={chip.icon} size={12} color={chip.color} />
+      ) : chip.isPriority ? (
+        <View
+          style={[
+            styles.priorityDot,
+            { backgroundColor: PRIORITY_META[parsedItem.priority || "medium"].color },
+          ]}
+        />
+      ) : (
+        <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 13 }}>
+          {chip.emoji}
+        </Text>
+      )}
+      <Text
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        style={[
+          styles.chipText,
+          { color: chip.color, fontWeight: "600" },
+        ]}
+      >
+        {chip.label}
+      </Text>
+    </PressableScale>
+  ));
 
   return (
     <Animated.View
@@ -1212,7 +1362,7 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
       {/* Header: Interactive Type Badge + Confidence */}
       <View style={styles.summaryHeader}>
         <PressableScale
-          onPress={() => setActivePicker("type")}
+          onPress={() => onActivePickerChange("type")}
           style={[
             styles.typeBadge,
             {
@@ -1302,159 +1452,20 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
 
       {/* ── Metadata Chips Row ── */}
       <View style={styles.chipsContainer}>
-        {/* Date Chip (Tasks only) */}
-        {parsedItem.type === "task" && (
+        {visibleChips}
+        {extraChipsCount > 0 && (
           <PressableScale
-            onPress={() => setActivePicker("date")}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: parsedItem.date
-                  ? isDark ? "rgba(99, 102, 241, 0.12)" : "rgba(99, 102, 241, 0.08)"
-                  : isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)",
-                borderColor: parsedItem.date
-                  ? isDark ? "rgba(99, 102, 241, 0.3)" : "rgba(99, 102, 241, 0.2)"
-                  : borderColor,
-              },
-            ]}
+            onPress={handleMorePress}
+            accessibilityRole="button"
+            accessibilityLabel="Show more metadata"
+            style={[styles.chip, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)" }]}
           >
-            <Feather
-              name="calendar"
-              size={11}
-              color={parsedItem.date ? themePrimary : textMuted}
-            />
-            <Text
-              style={[
-                styles.chipText,
-                {
-                  color: parsedItem.date ? textPrimary : textMuted,
-                  fontWeight: parsedItem.date ? "600" : "500",
-                },
-              ]}
-            >
-              {parsedItem.date ? getFriendlyDateLabel(parsedItem.date) : "No date"}
+            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.chipText, { color: textMuted, fontWeight: "600", fontSize: 14, letterSpacing: 1, paddingHorizontal: 2 }]}>
+              •••
             </Text>
-            <Feather name="chevron-down" size={9} color={textMuted} />
           </PressableScale>
         )}
-
-        {/* Recurrence Chip (Habits or Tasks with recurrence) */}
-        {(parsedItem.type === "habit" || parsedItem.recurrence) && (
-          <PressableScale
-            onPress={() => setActivePicker("recurrence")}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: isDark ? "rgba(16, 185, 129, 0.12)" : "rgba(16, 185, 129, 0.08)",
-                borderColor: isDark ? "rgba(16, 185, 129, 0.3)" : "rgba(16, 185, 129, 0.2)",
-              },
-            ]}
-          >
-            <Feather name="refresh-cw" size={11} color={isDark ? "#34D399" : "#059669"} />
-            <Text
-              style={[
-                styles.chipText,
-                {
-                  color: isDark ? "#34D399" : "#059669",
-                  fontWeight: "600",
-                },
-              ]}
-            >
-              {getRecurrenceLabel(parsedItem) || "Daily"}
-            </Text>
-            <Feather name="chevron-down" size={9} color={isDark ? "#34D399" : "#059669"} />
-          </PressableScale>
-        )}
-
-        {/* Priority Chip (Tasks & Habits) */}
-        {(parsedItem.type === "task" || parsedItem.type === "habit") && (
-          <PressableScale
-            onPress={() => setActivePicker("priority")}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)",
-                borderColor,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.priorityDot,
-                { backgroundColor: PRIORITY_META[parsedItem.priority || "medium"].color },
-              ]}
-            />
-            <Text style={[styles.chipText, { color: textPrimary, fontWeight: "500" }]}>
-              {PRIORITY_META[parsedItem.priority || "medium"].label}
-            </Text>
-            <Feather name="chevron-down" size={9} color={textMuted} />
-          </PressableScale>
-        )}
-
-        {/* Category Chip (Tasks & Habits - only if parsed or set) */}
-        {(parsedItem.type === "task" || parsedItem.type === "habit") && parsedItem.category && (
-          <PressableScale
-            onPress={() => setActivePicker("category")}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: `${CATEGORY_META[parsedItem.category].color}12`,
-                borderColor: `${CATEGORY_META[parsedItem.category].color}30`,
-              },
-            ]}
-          >
-            <Feather
-              name={CATEGORY_META[parsedItem.category].icon}
-              size={11}
-              color={CATEGORY_META[parsedItem.category].color}
-            />
-            <Text
-              style={[
-                styles.chipText,
-                {
-                  color: CATEGORY_META[parsedItem.category].color,
-                  fontWeight: "600",
-                },
-              ]}
-            >
-              {CATEGORY_META[parsedItem.category].label}
-            </Text>
-            <Feather name="chevron-down" size={9} color={textMuted} />
-          </PressableScale>
-        )}
-
-        {/* Workspace Chip (All Types) */}
-        <PressableScale
-          onPress={() => setActivePicker("workspace")}
-          style={[
-            styles.chip,
-            {
-              backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)",
-              borderColor,
-            },
-          ]}
-        >
-          <Text style={{ fontSize: 11 }}>
-            {currentWorkspace?.emoji || "📂"}
-          </Text>
-          <Text style={[styles.chipText, { color: textPrimary, fontWeight: "500" }]} numberOfLines={1}>
-            {currentWorkspace?.name || "My Pebbles"}
-          </Text>
-          <Feather name="chevron-down" size={9} color={textMuted} />
-        </PressableScale>
       </View>
-
-      {/* Contextual Modal Picker */}
-      {pickerConfig && (
-        <MetadataChipPicker
-          visible={!!activePicker}
-          title={pickerConfig.title}
-          options={pickerConfig.options}
-          onSelect={pickerConfig.onSelect}
-          onClose={() => setActivePicker(null)}
-          isDark={isDark}
-        />
-      )}
 
       {/* ── Duplicate Notices / Warnings ── */}
       {isSameWorkspaceExactDuplicate && (
@@ -1850,27 +1861,31 @@ const styles = StyleSheet.create({
   },
   chipsContainer: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 2,
+    flexWrap: "nowrap",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+    overflow: "hidden",
   },
   chip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    gap: 6,
+    height: 32,
+    paddingHorizontal: 10,
     borderRadius: 8,
-    borderWidth: 1,
+    flexShrink: 1,
+    maxWidth: 160,
   },
   chipText: {
-    fontSize: 12,
+    fontSize: 13,
     letterSpacing: -0.1,
+    flexShrink: 1,
   },
   priorityDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   summaryHeader: {
     flexDirection: "row",

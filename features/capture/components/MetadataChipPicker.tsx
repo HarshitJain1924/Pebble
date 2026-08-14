@@ -16,7 +16,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -29,7 +29,7 @@ export interface ChipPickerOption {
   isSelected?: boolean;
 }
 
-interface MetadataChipPickerProps {
+export interface MetadataChipPickerProps {
   visible: boolean;
   title: string;
   options: ChipPickerOption[];
@@ -75,8 +75,6 @@ export function MetadataChipPicker({
         >
           <TouchableWithoutFeedback>
             <Animated.View
-              entering={ZoomIn.duration(150)}
-              exiting={ZoomOut.duration(100)}
               style={[
                 styles.modalCard,
                 {
@@ -98,6 +96,7 @@ export function MetadataChipPicker({
                 style={styles.scrollList}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
               >
                 {options.map((opt) => {
                   const activeColor = opt.color || (isDark ? "#818CF8" : "#4F46E5");
@@ -105,18 +104,17 @@ export function MetadataChipPicker({
                     <PressableScale
                       key={opt.id}
                       onPress={() => handleSelect(opt.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={opt.label}
+                      accessibilityState={{ selected: opt.isSelected }}
                       scaleTo={0.97}
                       style={[
                         styles.optionRow,
                         {
-                          backgroundColor: opt.isSelected
-                            ? isDark
-                              ? "rgba(129, 140, 248, 0.12)"
-                              : "rgba(79, 70, 229, 0.08)"
-                            : isDark
-                            ? "rgba(255, 255, 255, 0.03)"
-                            : "rgba(0, 0, 0, 0.02)",
-                          borderColor: opt.isSelected ? activeColor : isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)",
+                          backgroundColor: isDark
+                            ? "rgba(255, 255, 255, 0.02)"
+                            : "rgba(0, 0, 0, 0.01)",
+                          borderColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)",
                         },
                       ]}
                     >
@@ -134,12 +132,12 @@ export function MetadataChipPicker({
                           </View>
                         )}
                         <View style={{ flex: 1 }}>
-                          <Text
+                          <Text numberOfLines={1} ellipsizeMode="tail"
                             style={[
                               styles.optionLabel,
                               {
-                                color: opt.isSelected ? (opt.color || activeColor) : textPrimary,
-                                fontWeight: opt.isSelected ? "700" : "600",
+                                color: textPrimary,
+                                fontWeight: opt.isSelected ? "700" : "500",
                               },
                             ]}
                           >
@@ -154,7 +152,7 @@ export function MetadataChipPicker({
                       </View>
 
                       {opt.isSelected && (
-                        <Feather name="check" size={15} color={opt.color || activeColor} />
+                        <Feather name="check" size={16} color={textPrimary} />
                       )}
                     </PressableScale>
                   );
@@ -178,8 +176,8 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: "100%",
-    maxWidth: 320,
-    maxHeight: 360,
+    maxWidth: 340,
+    maxHeight: 400,
     borderRadius: 20,
     borderWidth: 1.2,
     padding: 16,
@@ -214,9 +212,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     borderWidth: 1,
   },
   optionLeft: {
@@ -233,7 +231,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optionLabel: {
-    fontSize: 13,
+    maxWidth: 240,
+    fontSize: 14,
   },
   optionSubtitle: {
     fontSize: 10,
