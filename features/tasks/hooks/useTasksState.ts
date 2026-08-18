@@ -1,7 +1,5 @@
 import {
-  ChecklistRepository,
   HabitRepository,
-  ResourceRepository,
   TaskRepository,
   UiStateRepository,
 } from "@/repositories";
@@ -19,9 +17,7 @@ import {
 } from "react-native";
 
 import {
-  Checklist,
   Habit,
-  Resource,
   Task,
   Workspace,
   INBOX_WORKSPACE_ID,
@@ -52,6 +48,7 @@ import {
   TASK_CATEGORY_META,
   type TaskCategory,
 } from "@/features/tasks/services/task-categories";
+import { loadWorkspaceData } from "@/features/tasks/services/workspace-data-loader";
 import {
   formatAlarm,
   getDateKey,
@@ -70,7 +67,7 @@ import {
 import { useReminderState } from "@/services/scheduling/hooks/useReminderState";
 import { getNotificationLogs } from "@/services/scheduling/notifications-log";
 import {
-  cancelReminderIds,
+  rearmWebReminders,
   rescheduleHabitReminders,
   rescheduleTodoReminders,
   scheduleReminderBatch,
@@ -377,59 +374,11 @@ export function useTasksState() {
       const currentLists = await loadWorkspaces();
 
       // Query current repositories for ALL folders to preserve counts in WorkspaceGrid
-      const allTodosMap: Record<string, Task[]> = {};
-      const allHabits: Habit[] = [];
-      const allChecklistsMap: Record<string, Checklist[]> = {};
-      const allResourcesMap: Record<string, Resource[]> = {};
-
-      for (const folder of currentLists) {
-        const folderId = folder.id;
-
-        // Load tasks
-        const folderTasksMap = await TaskRepository.getTasks(folderId);
-        allTodosMap[folderId] = Object.values(folderTasksMap);
-
-        // Load habits
-        const folderHabitsMap = await HabitRepository.getHabits(folderId);
-        allHabits.push(...Object.values(folderHabitsMap));
-
-        // Load checklists
-        const checklistsMap = await ChecklistRepository.getChecklists(folderId);
-        allChecklistsMap[folderId] = Object.values(checklistsMap);
-
-        // Load flat resources directly from ResourceRepository
-        const resourcesMap = await ResourceRepository.getResources(folderId);
-        allResourcesMap[folderId] = Object.values(resourcesMap).map(
-          (r: any) => ({
-            id: r.id,
-            workspaceId: r.workspaceId || folderId,
-            type: (r.resourceType || r.type || "note") as any,
-            kind:
-              r.kind ||
-              (r.resourceType === "idea" || r.type === "idea"
-                ? "idea"
-                : undefined),
-            title: r.title,
-            content:
-              r.content !== undefined
-                ? r.content
-                : r.payload?.content || r.body?.content,
-            url: r.url !== undefined ? r.url : r.payload?.url || r.body?.url,
-            mediaUri: r.mediaUri,
-            previewImageUrl: r.previewImageUrl,
-            archived: r.archived || false,
-            pinned: r.pinned || false,
-            linkedItemIds: r.linkedItemIds || [],
-            tags: r.tags || [],
-            createdAt: r.createdAt || Date.now(),
-            updatedAt: r.updatedAt || Date.now(),
-            fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
-            fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
-            mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,
-            localUri: r.localUri || r.payload?.localUri || r.body?.localUri,
-          }),
-        );
-      }
+      const {
+        todosMap: allTodosMap,
+        habits: allHabits,
+        checklistsMap: allChecklistsMap,
+      } = await loadWorkspaceData(currentLists);
 
       // Generation counter check — skip commit if a newer load request was initiated
       if (requestId !== loadRequestIdRef.current) {
@@ -459,35 +408,32 @@ export function useTasksState() {
       if (requestId !== loadRequestIdRef.current) return;
 
       if (Platform?.OS === "web") {
-        Object.values(allTodosMap).forEach((listTodos) => {
-          listTodos.forEach((t: any) => {
-            // Use canonical reminder.triggerAt instead of legacy alarmTime
-            const triggerAt = t.reminder?.triggerAt;
-            if (triggerAt && triggerAt > Date.now() && t.reminder?.enabled !== false) {
-              const delay = triggerAt - Date.now();
-              const timeoutId = setTimeout(() => {
-                try {
-                  new Notification("Task reminder", { body: t.title });
-                } catch {
-                  Alert.alert("Reminder", t.title);
-                }
-              }, delay);
-              // Store timeout reference in a web-specific field (not legacy alarmId)
-              setTodos((current) => {
-                const updatedLists = { ...current };
-                for (const lid in updatedLists) {
-                  updatedLists[lid] = updatedLists[lid].map((tt) =>
-                    tt.id === t.id
-                      ? { ...tt, _webTimeoutId: `web-${String(timeoutId)}` }
-                      : tt,
-                  );
-                }
-                persistState(currentLists, selectedWorkspaceId, updatedLists);
-                return updatedLists;
-              });
+        // Re-arm web reminders after reload through the canonical scheduler.
+        // All returned ids are cancellable and the service's cancel-first
+        // semantics keep exactly one active schedule per reminder across
+        // repeated loadState() runs (focus, events, reloads).
+        const rearmedTodos = await rearmWebReminders(
+          Object.values(allTodosMap).flat(),
+        );
+        if (requestId !== loadRequestIdRef.current) return;
+
+        const rearmedById = new Map(rearmedTodos.map((t) => [t.id, t]));
+        let todosChanged = false;
+        const updatedMap: Record<string, Task[]> = {};
+        for (const [listId, listTodos] of Object.entries(allTodosMap)) {
+          updatedMap[listId] = listTodos.map((t) => {
+            const updated = rearmedById.get(t.id);
+            if (updated && updated !== t) {
+              todosChanged = true;
+              return updated;
             }
+            return t;
           });
-        });
+        }
+        if (todosChanged) {
+          setTodos(updatedMap);
+          void persistState(currentLists, selectedWorkspaceId, updatedMap);
+        }
       }
       setIsTasksHydrated(true);
     } catch (e) {
@@ -912,42 +858,58 @@ export function useTasksState() {
     const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
 
     if (taskIds.length > 0) {
-      const nextTodos = { ...todos };
-      for (const listId in nextTodos) {
-        nextTodos[listId] = nextTodos[listId].map((t) => {
+      const itemsToComplete: { taskId: string; workspaceId: string }[] = [];
+      for (const [listId, listTodos] of Object.entries(todos)) {
+        for (const t of listTodos) {
           if (selectedItemIds.has(t.id)) {
-            return { ...t, completed: true, lastUpdated: getDateKey() };
+            itemsToComplete.push({
+              taskId: t.id,
+              workspaceId: t.workspaceId || listId,
+            });
           }
-          return t;
+        }
+      }
+
+      // Route through ECS so bulk completion has the same lifecycle side effects
+      // as single completion (pebble rewards, reminder cancellation, plugin
+      // events, widget sync, analytics) and writes the canonical status field.
+      const updatedTasks = await EntityCommandService.completeTasks(
+        itemsToComplete,
+        { source: "tasks_screen" },
+      );
+
+      if (updatedTasks.length > 0) {
+        const updatedById = new Map(updatedTasks.map((t) => [t.id, t]));
+        setTodos((prev) => {
+          const next: Record<string, Task[]> = {};
+          for (const [listId, listTodos] of Object.entries(prev)) {
+            next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
+          }
+          return next;
         });
       }
-      setTodos(nextTodos);
-      await persistState(workspaces, selectedWorkspaceId, nextTodos);
-      emitStateChange("tasks_changed", "tasks_screen");
     }
 
     if (habitIds.length > 0) {
-      const today = getDateKey();
-      const nextHabits = habits.map((h) => {
+      const itemsToComplete: { habitId: string; workspaceId: string }[] = [];
+      for (const h of habits) {
         if (selectedItemIds.has(h.id)) {
-          const hasToday = h.completionHistory.some((c) => c.date === today);
-          const nextHistory = hasToday
-            ? h.completionHistory
-            : [
-                ...h.completionHistory,
-                { date: today, completedAt: Date.now() },
-              ];
-          return {
-            ...h,
-            completionHistory: nextHistory,
-            updatedAt: Date.now(),
-          };
+          itemsToComplete.push({
+            habitId: h.id,
+            workspaceId: h.workspaceId || INBOX_WORKSPACE_ID,
+          });
         }
-        return h;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-      emitStateChange("habits_changed", "tasks_screen");
+      }
+
+      const updatedHabits = await EntityCommandService.completeHabits(
+        itemsToComplete,
+        { source: "tasks_screen" },
+      );
+
+      if (updatedHabits.length > 0) {
+        const updatedById = new Map(updatedHabits.map((h) => [h.id, h]));
+        setHabits((prev) => prev.map((h) => updatedById.get(h.id) || h));
+      }
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
@@ -963,44 +925,57 @@ export function useTasksState() {
     const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
 
     if (taskIds.length > 0) {
-      const nextTodos = { ...todos };
-      for (const listId in nextTodos) {
-        nextTodos[listId] = nextTodos[listId].map((t) => {
+      const itemsToArchive: { taskId: string; workspaceId: string }[] = [];
+      for (const [listId, listTodos] of Object.entries(todos)) {
+        for (const t of listTodos) {
           if (selectedItemIds.has(t.id)) {
-            if (t.reminder?.notificationIds) {
-              void cancelReminderIds(t.reminder.notificationIds);
-            }
-            return {
-              ...t,
-              archivedAt: Date.now(),
-              updatedAt: Date.now(),
-            };
+            itemsToArchive.push({
+              taskId: t.id,
+              workspaceId: t.workspaceId || listId,
+            });
           }
-          return t;
+        }
+      }
+
+      // Route through ECS so bulk archiving cancels native reminders and clears
+      // notification IDs exactly like the single-item archive path.
+      const updatedTasks = await EntityCommandService.archiveTasks(
+        itemsToArchive,
+        { source: "tasks_screen" },
+      );
+
+      if (updatedTasks.length > 0) {
+        const updatedById = new Map(updatedTasks.map((t) => [t.id, t]));
+        setTodos((prev) => {
+          const next: Record<string, Task[]> = {};
+          for (const [listId, listTodos] of Object.entries(prev)) {
+            next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
+          }
+          return next;
         });
       }
-      setTodos(nextTodos);
-      await persistState(workspaces, selectedWorkspaceId, nextTodos);
-      emitStateChange("tasks_changed", "tasks_screen");
     }
 
     if (habitIds.length > 0) {
-      const nextHabits = habits.map((h) => {
+      const itemsToArchive: { habitId: string; workspaceId: string }[] = [];
+      for (const h of habits) {
         if (selectedItemIds.has(h.id)) {
-          if (h.reminder?.notificationIds) {
-            void cancelReminderIds(h.reminder.notificationIds);
-          }
-          return {
-            ...h,
-            archivedAt: Date.now(),
-            updatedAt: Date.now(),
-          };
+          itemsToArchive.push({
+            habitId: h.id,
+            workspaceId: h.workspaceId || INBOX_WORKSPACE_ID,
+          });
         }
-        return h;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-      emitStateChange("habits_changed", "tasks_screen");
+      }
+
+      const updatedHabits = await EntityCommandService.archiveHabits(
+        itemsToArchive,
+        { source: "tasks_screen" },
+      );
+
+      if (updatedHabits.length > 0) {
+        const updatedById = new Map(updatedHabits.map((h) => [h.id, h]));
+        setHabits((prev) => prev.map((h) => updatedById.get(h.id) || h));
+      }
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
@@ -1185,21 +1160,70 @@ export function useTasksState() {
       emitStateChange("tasks_changed", "tasks_screen");
     }
 
+    let habitMoveFailed = false;
     if (habitIds.length > 0) {
-      const nextHabits = habits.map((h) => {
-        if (selectedItemIds.has(h.id)) {
-          return { ...h, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+      // Persist every selected habit through the canonical single-habit move
+      // command (save to target workspace, then delete from source) — the same
+      // semantics the task branch above uses with moveTask. Events/analytics are
+      // consolidated into a single emission below.
+      const movesToExecute: { id: string; sourceWorkspaceId: string }[] = [];
+      for (const habit of habits) {
+        if (selectedItemIds.has(habit.id)) {
+          movesToExecute.push({
+            id: habit.id,
+            sourceWorkspaceId: habit.workspaceId || INBOX_WORKSPACE_ID,
+          });
         }
-        return h;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-      emitStateChange("habits_changed", "tasks_screen");
+      }
+
+      // allSettled (not all): every move must settle before we reconcile UI
+      // state, so on partial failure the reload observes the final persisted
+      // state instead of an in-flight move.
+      const results = await Promise.allSettled(
+        movesToExecute.map((move) =>
+          EntityCommandService.moveHabit(
+            move.id,
+            move.sourceWorkspaceId,
+            targetWorkspaceId,
+            {
+              skipEvents: true,
+              skipAnalytics: true,
+            },
+          )
+        ),
+      );
+      const failures = results.filter(
+        (r): r is PromiseRejectedResult => r.status === "rejected",
+      );
+
+      if (failures.length > 0) {
+        // Partial success is possible (each move is independent). Reload from
+        // the repository so the UI reflects exactly what was persisted instead
+        // of claiming every habit moved.
+        habitMoveFailed = true;
+        console.warn(
+          `Failed to move ${failures.length} of ${results.length} selected habit(s)`,
+          failures.map((f) => f.reason),
+        );
+        await loadHabits();
+        emitStateChange("habits_changed", "tasks_screen");
+      } else {
+        // Persistence succeeded — reflect the move in local UI state.
+        const nextHabits = habits.map((h) =>
+          selectedItemIds.has(h.id)
+            ? { ...h, workspaceId: targetWorkspaceId, updatedAt: Date.now() }
+            : h,
+        );
+        setHabits(nextHabits);
+        emitStateChange("habits_changed", "tasks_screen");
+      }
     }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {},
-    );
+    Haptics.notificationAsync(
+      habitMoveFailed
+        ? Haptics.NotificationFeedbackType.Warning
+        : Haptics.NotificationFeedbackType.Success,
+    ).catch(() => {});
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
   };

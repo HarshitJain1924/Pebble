@@ -1,5 +1,6 @@
 import * as chrono from "chrono-node";
 import { type Attachment } from "@/shared/types/domain.types";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 
 export type ParsedProductivityItem = {
   type: "task" | "habit" | "checklist" | "note" | "link" | "idea" | "file";
@@ -127,14 +128,6 @@ const weekdayMap: Record<string, number> = {
   thursday: 4, thu: 4,
   friday: 5, fri: 5,
   saturday: 6, sat: 6
-};
-
-// Helper to format date as YYYY-MM-DD
-const formatDate = (date: Date): string => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 };
 
 // Helper to format time as HH:MM
@@ -407,7 +400,7 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
     if (chronoResults.length > 0) {
       for (const result of chronoResults) {
         const parsedDate = result.start.date();
-        dateStr = formatDate(parsedDate);
+        dateStr = dateKeyFromDate(parsedDate);
 
         if (result.start.isCertain("hour")) {
           timeStr = formatTime(parsedDate);
@@ -443,12 +436,12 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
       const todayRegex = /\btoday\b/i;
       const tomorrowRegex = /\btomorrow\b/i;
       if (todayRegex.test(temporalTextWorking)) {
-        dateStr = formatDate(new Date());
+        dateStr = dateKeyFromDate(new Date());
         matchedTemporalPhrases.push("today");
       } else if (tomorrowRegex.test(temporalTextWorking)) {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        dateStr = formatDate(tomorrow);
+        dateStr = dateKeyFromDate(tomorrow);
         matchedTemporalPhrases.push("tomorrow");
       }
     }

@@ -109,6 +109,35 @@ export class HabitRepository {
     return `pebble:v1:habits:${workspaceId}`;
   }
 
+  /**
+   * Parse a stored workspace payload defensively. Malformed JSON (e.g. from a
+   * partial write or corrupted storage) must never crash the consuming screen;
+   * following the repository's tolerant recovery convention, the payload is
+   * logged and treated as empty so callers see a missing/empty collection.
+   */
+  private static parseRecords(
+    raw: string,
+    key: string,
+    method: string,
+  ): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>;
+      }
+      console.warn(
+        `[HabitRepository] Stored value for "${key}" is not a JSON object (${method}); treating as empty.`,
+      );
+      return {};
+    } catch (e) {
+      console.warn(
+        `[HabitRepository] Failed to parse stored value for "${key}" (${method}); treating as empty.`,
+        e,
+      );
+      return {};
+    }
+  }
+
   static async getHabit(
     id: string,
     workspaceId: string,
@@ -116,7 +145,7 @@ export class HabitRepository {
     const key = this.getHabitsKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
-    const records: Record<string, any> = JSON.parse(raw);
+    const records: Record<string, any> = this.parseRecords(raw, key, "getHabit");
     const rawHabit = records[id] || null;
     if (rawHabit) {
       return normalizeHabit(rawHabit, workspaceId);
@@ -128,7 +157,7 @@ export class HabitRepository {
     const key = this.getHabitsKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
-    const parsed = JSON.parse(raw);
+    const parsed = this.parseRecords(raw, key, "getHabits");
     const records: Record<string, Habit> = {};
     Object.entries(parsed).forEach(([id, rawHabit]: [string, any]) => {
       records[id] = normalizeHabit(rawHabit, workspaceId);

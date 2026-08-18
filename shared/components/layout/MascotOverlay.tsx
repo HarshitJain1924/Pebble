@@ -36,6 +36,7 @@ import {
   View,
 } from "react-native";
 import { generateId } from "@/shared/utils/id";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -141,7 +142,7 @@ const checkIfDailyClear = async (): Promise<boolean> => {
     const activeWorkspace = uiState.activeWorkspaceId || "default";
     const tasksMap = await TaskRepository.getTasks(activeWorkspace);
     const habitsMap = await HabitRepository.getHabits(activeWorkspace);
-    const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+    const todayStr = getTodayDateKey();
 
     let pendingCount = 0;
     let completedCount = 0;
@@ -386,7 +387,7 @@ export function MascotOverlay() {
 
       log.forEach((entry: any) => {
         const d = new Date(entry.timestamp);
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const dateStr = dateKeyFromDate(d);
         if (dateStr === todayStr) {
           todayCount++;
         } else if (dateStr === yesterdayStr) {
@@ -416,13 +417,12 @@ export function MascotOverlay() {
     }
   };
 
+  // Kept local: adds the offset (canonical getOffsetDateKey subtracts).
+  // Only the YYYY-MM-DD formatting delegates to the canonical helper.
   const getOffsetDateStr = (daysOffset: number) => {
     const d = new Date();
     d.setDate(d.getDate() + daysOffset);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return dateKeyFromDate(d);
   };
 
   useEffect(() => {
@@ -1128,7 +1128,7 @@ export function MascotOverlay() {
         }, 1500);
 
         const activeWorkspace = (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
-        const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+        const todayStr = getTodayDateKey();
 
         await EntityCommandService.createTask(
           {

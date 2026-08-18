@@ -11,6 +11,7 @@ import { appendGratitudeHistoryEntry } from "@/services/storage/storage.service"
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { Task, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { generateId } from "@/shared/utils/id";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 import * as Haptics from "expo-haptics";
 import { useNavigation } from "expo-router";
 import { useCallback } from "react";
@@ -282,7 +283,7 @@ export function useTodayActions({
       if (intentionText.trim()) {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+        const tomorrowStr = dateKeyFromDate(tomorrow);
 
         const newTask: Task = {
           id: generateId("task-"),

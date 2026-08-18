@@ -1,5 +1,14 @@
 import type { Task, Habit, Checklist, RecurrenceRule } from "@/shared/types/domain.types";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import {
+  dateKeyFromDate,
+  getOffsetDateKey,
+  getTodayDateKey,
+} from "@/shared/utils/date-key";
+
+// Canonical date-key helpers live in @/shared/utils/date-key; re-export for
+// backward compatibility with existing importers of this module.
+export { getOffsetDateKey, getTodayDateKey };
 
 /**
  * Task Derived Selectors
@@ -164,11 +173,7 @@ function getOccurrenceScanBound(recurrence: RecurrenceRule): number {
 }
 
 function getDateKeyFromEpoch(epochMs: number): string {
-  const d = new Date(epochMs);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return dateKeyFromDate(new Date(epochMs));
 }
 
 export function isTaskScheduled(task: Task): boolean {
@@ -298,27 +303,3 @@ export function getChecklistStats(checklist: Checklist) {
   };
 }
 
-/**
- * Helper Date Formatting Functions
- */
-export function getTodayDateKey(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-export function getOffsetDateKey(offsetDays: number, fromDateKey?: string): string {
-  const d = fromDateKey ? parseDateKey(fromDateKey) : new Date();
-  d.setDate(d.getDate() - offsetDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function parseDateKey(dateKey: string): Date {
-  const [y, m, d] = dateKey.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-}

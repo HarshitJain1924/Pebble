@@ -23,6 +23,11 @@ import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 import { getProfile, type UserProfile } from "@/features/settings/services/settings.service";
 import { WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
 import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
+import {
+  isHabitCompletedToday,
+  isTaskCompleted,
+} from "@/shared/utils/domain-selectors";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -70,20 +75,19 @@ export default function AchievementsScreen() {
       for (const fId of folderIds) {
         const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t: any) => {
-          if (t.completed) totalCompletedTodos++;
+          if (isTaskCompleted(t)) totalCompletedTodos++;
         });
       }
 
       // Load completed habits via repository
-      const today = new Date();
-      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const todayKey = getTodayDateKey();
       let totalCompletedHabitsToday = 0;
       let activeStreak = 0;
 
       for (const fId of folderIds) {
         const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h: any) => {
-          if (h.completedDates?.includes(todayKey)) totalCompletedHabitsToday++;
+          if (isHabitCompletedToday(h, todayKey)) totalCompletedHabitsToday++;
           activeStreak = Math.max(activeStreak, h.streak || 0, h.bestStreak || 0);
         });
       }

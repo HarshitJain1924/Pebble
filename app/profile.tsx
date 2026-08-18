@@ -10,6 +10,7 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { normalizeHabitsForToday } from "@/features/habits/services/habit.service";
 import { isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
 import {
@@ -55,13 +56,6 @@ const enteringAnim = (delay = 0, duration = 450) => {
 
 const triggerMediumHaptic = () => {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-};
-
-const getDateKey = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
 };
 
 export default function ProfileScreen() {
@@ -116,7 +110,7 @@ export default function ProfileScreen() {
           ...folders.map((folder) => folder.id),
         ]),
       );
-      const todayKey = getDateKey();
+      const todayKey = getTodayDateKey();
       let totalCompletedTodos = 0;
       let totalTasks = 0;
       let totalCompletedHabits = 0;
@@ -137,7 +131,7 @@ export default function ProfileScreen() {
           (task) =>
             task.status === "completed" &&
             task.completedAt &&
-            getDateKey(new Date(task.completedAt)) === todayKey,
+            dateKeyFromDate(new Date(task.completedAt)) === todayKey,
         ).length;
 
         const habits = normalizeHabitsForToday(

@@ -97,6 +97,12 @@ export class BackupService {
       throw new Error("Invalid backup format: missing version or core data.");
     }
 
+    if (parsed.version !== 1) {
+      throw new Error(
+        `Unsupported backup version: ${parsed.version}. Only version 1 backups are supported.`,
+      );
+    }
+
     // 1. Clear existing domain data to avoid merging orphaned items
     await clearRepositoryStorage();
 

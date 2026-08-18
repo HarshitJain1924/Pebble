@@ -16,13 +16,7 @@ import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
-
-const getFormattedDateKey = (date: Date) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 
 const addDays = (date: Date, days: number) => {
   const result = new Date(date);
@@ -161,8 +155,8 @@ export function TodoItem({
         color: colors.warning,
       });
     } else if (scheduledDate && scheduledDate !== "inbox") {
-      const today = getFormattedDateKey(new Date());
-      const tomorrow = getFormattedDateKey(addDays(new Date(), 1));
+      const today = getTodayDateKey();
+      const tomorrow = dateKeyFromDate(addDays(new Date(), 1));
       const isToday = scheduledDate === today;
       const isTomorrow = scheduledDate === tomorrow;
       const dateLabel = isToday

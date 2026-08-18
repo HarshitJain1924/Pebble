@@ -143,11 +143,40 @@ export class TaskRepository {
     return `pebble:v1:tasks:${workspaceId}`;
   }
 
+  /**
+   * Parse a stored workspace payload defensively. Malformed JSON (e.g. from a
+   * partial write or corrupted storage) must never crash the consuming screen;
+   * following the repository's tolerant recovery convention, the payload is
+   * logged and treated as empty so callers see a missing/empty collection.
+   */
+  private static parseRecords(
+    raw: string,
+    key: string,
+    method: string,
+  ): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>;
+      }
+      console.warn(
+        `[TaskRepository] Stored value for "${key}" is not a JSON object (${method}); treating as empty.`,
+      );
+      return {};
+    } catch (e) {
+      console.warn(
+        `[TaskRepository] Failed to parse stored value for "${key}" (${method}); treating as empty.`,
+        e,
+      );
+      return {};
+    }
+  }
+
   static async getTask(id: string, workspaceId: string): Promise<Task | null> {
     const key = this.getTasksKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
-    const records: Record<string, any> = JSON.parse(raw);
+    const records: Record<string, any> = this.parseRecords(raw, key, "getTask");
     const rawTask = records[id] || null;
     if (rawTask) {
       const result = normalizeTask(rawTask, workspaceId);
@@ -160,7 +189,7 @@ export class TaskRepository {
     const key = this.getTasksKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
-    const parsed = JSON.parse(raw);
+    const parsed = this.parseRecords(raw, key, "getTasks");
     const records: Record<string, Task> = {};
     Object.entries(parsed).forEach(([id, rawTask]: [string, any]) => {
       records[id] = normalizeTask(rawTask, workspaceId);

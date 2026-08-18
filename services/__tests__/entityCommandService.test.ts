@@ -287,7 +287,9 @@ describe("EntityCommandService unit tests", () => {
     let cancelReminderIdsSpy: jest.SpyInstance;
     let emitStateChangeSpy: jest.SpyInstance;
     let saveRecycleBinItemsSpy: jest.SpyInstance;
-    const { getRecycleBinItems } = require("@/repositories/RecycleBinRepository").RecycleBinRepository;
+    // Call through the class reference: destructuring the static method off the
+    // class loses the `this` binding, so it would read the wrong storage key.
+    const RecycleBinRepo = require("@/repositories/RecycleBinRepository").RecycleBinRepository;
 
     beforeEach(async () => {
       jest.clearAllMocks();
@@ -329,7 +331,7 @@ describe("EntityCommandService unit tests", () => {
       expect(sourceTask2).toBeNull();
 
       // 7. RecycleBin contains all snapshots
-      const bin = await getRecycleBinItems();
+      const bin = await RecycleBinRepo.getRecycleBinItems();
       expect(bin.length).toBe(2);
       
       // 8. notification IDs cancelled once
@@ -354,7 +356,7 @@ describe("EntityCommandService unit tests", () => {
       expect(await TaskRepository.getTask(task1.id, "ws-1")).toBeNull();
       expect(await TaskRepository.getTask(task2.id, "ws-2")).toBeNull();
       
-      const bin = await getRecycleBinItems();
+      const bin = await RecycleBinRepo.getRecycleBinItems();
       expect(bin.length).toBe(2);
       
       expect(saveRecycleBinItemsSpy).toHaveBeenCalledTimes(1);
@@ -372,7 +374,7 @@ describe("EntityCommandService unit tests", () => {
       expect(result.recycledCount).toBe(1);
       expect(await TaskRepository.getTask(task1.id, "ws-1")).toBeNull();
       
-      const bin = await getRecycleBinItems();
+      const bin = await RecycleBinRepo.getRecycleBinItems();
       expect(bin.length).toBe(1);
     });
 

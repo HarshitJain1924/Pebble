@@ -8,6 +8,7 @@ import {
 } from "@/repositories";
 import { HISTORY_STORAGE_KEY, type GratitudeHistoryEntry, getGratitudeHistory, appendGratitudeHistoryEntry } from "@/services/storage/storage.service";
 import { isTaskCompleted, isHabitCompletedToday, getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 
 export type DailyHistory = {
   date: string;
@@ -22,13 +23,6 @@ export type DailyHistory = {
 
 export type { GratitudeHistoryEntry };
 export { getGratitudeHistory, appendGratitudeHistoryEntry };
-
-function getDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function toCompletionScore(completed: number, total: number) {
   if (total === 0) {
@@ -81,7 +75,7 @@ export async function getAllHistory(): Promise<DailyHistory[]> {
 }
 
 export async function recordDailyHistorySnapshot() {
-  const today = getDateKey();
+  const today = getTodayDateKey();
   const uiState = await UiStateRepository.getUiState();
   const wsId = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
 

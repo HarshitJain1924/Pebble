@@ -1,4 +1,5 @@
 import type { Task, Habit } from "@/shared/types/domain.types";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 
 export interface StructuredSchedule {
   startDate?: string; // YYYY-MM-DD
@@ -30,7 +31,7 @@ export function getStructuredSchedule(
     startHour = d.getHours();
     startMinute = d.getMinutes();
     if (!startDate) {
-      startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      startDate = dateKeyFromDate(d);
     }
   }
 

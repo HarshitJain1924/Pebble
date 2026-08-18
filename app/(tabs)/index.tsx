@@ -36,13 +36,7 @@ import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import type { Checklist } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
-
-const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 
 const getTodoDateKey = (todo: any) => {
   // Canonical schedule.date (repository normalizes scheduledDate → schedule.date)
@@ -51,18 +45,18 @@ const getTodoDateKey = (todo: any) => {
   }
   // Derive from canonical reminder.triggerAt
   if (todo.reminder?.triggerAt) {
-    return getDateKey(new Date(todo.reminder.triggerAt));
+    return dateKeyFromDate(new Date(todo.reminder.triggerAt));
   }
   const idNum = Number(todo.id);
   if (!isNaN(idNum) && idNum > 100000000000) {
-    return getDateKey(new Date(idNum));
+    return dateKeyFromDate(new Date(idNum));
   }
-  return getDateKey();
+  return getTodayDateKey();
 };
 
 const getOverdueLabel = (dateStr: string) => {
   if (!dateStr) return "Overdue";
-  const todayStr = getDateKey();
+  const todayStr = getTodayDateKey();
   if (dateStr === todayStr) return "Today";
   const [ty, tm, td] = todayStr.split("-").map(Number);
   const [dy, dm, dd] = dateStr.split("-").map(Number);

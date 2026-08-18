@@ -1,13 +1,11 @@
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
 import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 import { DAY_MS } from "@/services/storage/storage.service";
 
-export const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+// Public API preserved for the many callers of this module; implementation
+// delegates to the canonical date-key helper (local YYYY-MM-DD).
+export const getDateKey = (date = new Date()) => dateKeyFromDate(date);
 
 export const getListColors = (name: string, isSelected: boolean) => {
   const lowercase = name.toLowerCase();

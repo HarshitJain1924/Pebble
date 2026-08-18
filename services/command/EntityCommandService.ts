@@ -41,6 +41,7 @@ import {
   type Checklist,
   type Resource,
   type Workspace,
+  type RecycleBinItem,
   INBOX_WORKSPACE_ID,
   MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
@@ -155,6 +156,46 @@ async function scheduleHabitNotifications(
   item: ParsedProductivityItem,
 ): Promise<string[]> {
   return scheduleCreationNotifications("habit", habitId, item);
+}
+
+/**
+ * Restore a snapshot-only (non-task, non-habit) entity from the Recycle Bin.
+ *
+ * Shared by restoreChecklist / restoreResource, which both follow the
+ * identical sequence: resolve the bin item by ID, validate its entity type,
+ * parse the snapshot, persist the entity, remove the bin entry, then emit the
+ * entity's change event.
+ *
+ * Tasks and Habits are deliberately NOT routed through here: restoring them
+ * additionally requires reminder rescheduling and fresh notification IDs, so
+ * they keep their own restore commands (restoreTask / restoreHabit).
+ * Workspaces are also excluded: their bin snapshot is a `{ list, todos,
+ * habits }` package that must be unwrapped (see restoreWorkspace).
+ */
+async function restoreEntityFromBin<T>(
+  recycleBinItemId: string,
+  entityType: RecycleBinItem["entityType"],
+  eventName: "checklists_changed" | "resources_changed" | "workspace_mode_changed",
+  options: CreateEntityOptions | undefined,
+  persist: (entity: T) => Promise<void>,
+): Promise<T> {
+  const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
+  const { emitStateChange } = await import("@/services/events/state-events");
+
+  const binItems = await getRecycleBinItems();
+  const item = binItems.find((i) => i.id === recycleBinItemId);
+  if (!item || item.entityType !== entityType) {
+    throw new Error(`RecycleBin item not found or not ${entityType}`);
+  }
+
+  const parsedData = JSON.parse(item.snapshot) as T;
+  await persist(parsedData);
+
+  const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
+  await saveRecycleBinItems(remainingBinItems);
+
+  if (!options?.skipEvents) emitStateChange(eventName, options?.source);
+  return parsedData;
 }
 
 /**
@@ -843,6 +884,128 @@ export class EntityCommandService {
     return updatedHabit;
   }
 
+  // ─── BATCH: BULK COMPLETE / ARCHIVE ──────────────────────────────────────────
+  // Bulk variants of the single-item commands so the Tasks screen bulk-select
+  // actions produce the same lifecycle side effects (pebble rewards, reminder
+  // cancellation, plugin events, analytics, widget sync) as their single-item
+  // counterparts. Events/analytics are consolidated into a single emission per
+  // batch; per-item side effects (rewards, plugins, reminders) stay per-item.
+
+  /**
+   * Bulk-complete Tasks with the same side effects as completeTask.
+   */
+  static async completeTasks(
+    items: { taskId: string; workspaceId: string }[],
+    options?: CreateEntityOptions,
+  ): Promise<Task[]> {
+    const updated: Task[] = [];
+    for (const item of items) {
+      const result = await this.completeTask(item.taskId, item.workspaceId, {
+        source: options?.source,
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+      if (result) updated.push(result.updated);
+    }
+    if (updated.length > 0) {
+      if (!options?.skipAnalytics) {
+        void recordDailyHistorySnapshot().catch(() => {});
+      }
+      // Widget sync already fires per item inside completeTask.
+      if (!options?.skipEvents) {
+        emitStateChange("tasks_changed", options?.source);
+      }
+    }
+    return updated;
+  }
+
+  /**
+   * Bulk-complete Habits for today with the same side effects as completeHabit.
+   */
+  static async completeHabits(
+    items: { habitId: string; workspaceId: string }[],
+    options?: CreateEntityOptions,
+  ): Promise<Habit[]> {
+    const updated: Habit[] = [];
+    for (const item of items) {
+      const result = await this.completeHabit(item.habitId, item.workspaceId, {
+        source: options?.source,
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+      if (result) updated.push(result.updated);
+    }
+    if (updated.length > 0) {
+      if (!options?.skipAnalytics) {
+        void recordDailyHistorySnapshot().catch(() => {});
+      }
+      // Widget sync already fires per item inside completeHabit.
+      if (!options?.skipEvents) {
+        emitStateChange("habits_changed", options?.source);
+      }
+    }
+    return updated;
+  }
+
+  /**
+   * Bulk-archive Tasks with the same side effects as updateTask({ archivedAt }) —
+   * reminder cancellation + notification-ID clearing, events and analytics.
+   */
+  static async archiveTasks(
+    items: { taskId: string; workspaceId: string }[],
+    options?: CreateEntityOptions,
+  ): Promise<Task[]> {
+    const updated: Task[] = [];
+    for (const item of items) {
+      const task = await this.updateTask(
+        item.taskId,
+        item.workspaceId,
+        { archivedAt: Date.now(), updatedAt: Date.now() },
+        { source: options?.source, skipEvents: true, skipAnalytics: true },
+      );
+      updated.push(task);
+    }
+    if (updated.length > 0) {
+      if (!options?.skipAnalytics) {
+        void recordDailyHistorySnapshot().catch(() => {});
+      }
+      // Widget sync already fires per item inside updateTask.
+      if (!options?.skipEvents) {
+        emitStateChange("tasks_changed", options?.source);
+      }
+    }
+    return updated;
+  }
+
+  /**
+   * Bulk-archive Habits with the same side effects as updateHabit({ archivedAt }) —
+   * reminder cancellation + notification-ID clearing, events and analytics.
+   */
+  static async archiveHabits(
+    items: { habitId: string; workspaceId: string }[],
+    options?: CreateEntityOptions,
+  ): Promise<Habit[]> {
+    const updated: Habit[] = [];
+    for (const item of items) {
+      const habit = await this.updateHabit(
+        item.habitId,
+        item.workspaceId,
+        { archivedAt: Date.now(), updatedAt: Date.now() },
+        { source: options?.source, skipEvents: true, skipAnalytics: true },
+      );
+      updated.push(habit);
+    }
+    if (updated.length > 0) {
+      if (!options?.skipAnalytics) {
+        void recordDailyHistorySnapshot().catch(() => {});
+      }
+      if (!options?.skipEvents) {
+        emitStateChange("habits_changed", options?.source);
+      }
+    }
+    return updated;
+  }
+
   /**
    * Move a Task from one workspace to another.
    * Modifies only the workspaceId and updatedAt.
@@ -1179,7 +1342,9 @@ export class EntityCommandService {
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     
     const items = await RecycleBinRepository.getRecycleBinItems();
-    const item = items.find(i => i.id === recycleBinItemId);
+    // Resolve by either the RecycleBin item ID ("rb-{entityId}") or the raw entity
+    // ID so callers (e.g. bulk-delete Undo in useTasksState) can pass what they have.
+    const item = items.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
     if (!item || item.entityType !== "habit") throw new Error("Invalid habit recycle bin item");
 
     const habit: Habit = JSON.parse(item.snapshot);
@@ -1187,7 +1352,7 @@ export class EntityCommandService {
     
     const restored = await this.createHabit(habit, habit.workspaceId || INBOX_WORKSPACE_ID, options);
     
-    const remaining = items.filter(i => i.id !== recycleBinItemId);
+    const remaining = items.filter(i => i.id !== item.id);
     await RecycleBinRepository.saveRecycleBinItems(remaining, { throwOnError: true });
     
     return restored;
@@ -1306,7 +1471,10 @@ export class EntityCommandService {
       source?: string;
     }
   ): Promise<{ recycledCount: number }> {
-    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/repositories/RecycleBinRepository").then(m => m.RecycleBinRepository);
+    // Call through the class reference: destructuring the static methods off the
+    // class would lose the `this` binding, silently writing to the wrong storage
+    // key ("undefined") because the methods read this.RECYCLE_BIN_KEY.
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
 
@@ -1340,7 +1508,7 @@ export class EntityCommandService {
     }
 
     // 2. Atomic RecycleBin snapshot
-    const existingRecycleBinItems = await getRecycleBinItems();
+    const existingRecycleBinItems = await RecycleBinRepository.getRecycleBinItems();
     const newSnapshots = validTasksToRecycle.map(task => {
       const entityId = task.id;
       return {
@@ -1357,7 +1525,7 @@ export class EntityCommandService {
       item => !validEntityIds.has(item.entityId) && !validEntityIds.has(item.id)
     );
 
-    await saveRecycleBinItems([...newSnapshots, ...filteredExisting], { throwOnError: true });
+    await RecycleBinRepository.saveRecycleBinItems([...newSnapshots, ...filteredExisting], { throwOnError: true });
 
     // 3. Batch cancel reminders
     const allNotificationIds: string[] = [];
@@ -1555,9 +1723,13 @@ export class EntityCommandService {
     const { rescheduleTodoReminders } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
 
-    // 1. Load recycle-bin item
+    // 1. Load recycle-bin item. Resolve by either the RecycleBin item ID
+    // ("rb-{entityId}") or the raw task entity ID so callers (e.g. the
+    // delete-Undo in useTaskCrud, which passes the task ID) both work.
     const binItems = await getRecycleBinItems();
-    const item = binItems.find((i) => i.id === recycleBinItemId);
+    const item = binItems.find(
+      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId,
+    );
     if (!item) {
       throw new Error(`[EntityCommandService] RecycleBin item ${recycleBinItemId} not found.`);
     }
@@ -1601,7 +1773,7 @@ export class EntityCommandService {
 
     // 9. Safely remove from Recycle Bin ONLY AFTER successful active persistence
     try {
-      const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
+      const remainingBinItems = binItems.filter((i) => i.id !== item.id);
       await saveRecycleBinItems(remainingBinItems);
     } catch (e) {
       console.warn(`[EntityCommandService] Task ${parsedTask.id} was successfully restored, but failed to remove item ${recycleBinItemId} from Recycle Bin. Duplicate state may exist.`, e);
@@ -1652,8 +1824,32 @@ export class EntityCommandService {
     const successfulItemIds: string[] = [];
     const failedItemIds: string[] = [];
 
+    // 0. Resolve raw entity/bin IDs to RecycleBin items. Callers may pass either
+    //    full RecycleBinItem objects (Recycle Bin screen) or plain task entity IDs
+    //    (bulk-delete Undo in useTasksState.handleBulkDelete).
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    const binItems = await RecycleBinRepository.getRecycleBinItems();
+    const resolvedItems: any[] = [];
+    for (const entry of itemsToRestore) {
+      if (typeof entry === "string") {
+        const match = binItems.find(
+          (i) => i.id === entry || i.entityId === entry,
+        );
+        if (match && match.entityType === "task") {
+          resolvedItems.push(match);
+        } else {
+          console.warn(
+            `[EntityCommandService] No RecycleBin task entry found for "${entry}"; skipping restore.`
+          );
+          failedItemIds.push(entry);
+        }
+      } else {
+        resolvedItems.push(entry);
+      }
+    }
+
     // 1. Parse and group valid tasks
-    for (const item of itemsToRestore) {
+    for (const item of resolvedItems) {
       if (item.entityType !== "task") continue;
 
       let parsedTask: Task;
@@ -1709,7 +1905,23 @@ export class EntityCommandService {
       }
     }
 
-    // 3. Side effects
+    // 3. Remove successfully restored entries from the Recycle Bin (best-effort,
+    //    never fail the restore because bin cleanup failed).
+    if (successfulItemIds.length > 0) {
+      try {
+        const remainingBinItems = binItems.filter(
+          (i) => !successfulItemIds.includes(i.id),
+        );
+        await RecycleBinRepository.saveRecycleBinItems(remainingBinItems, { throwOnError: true });
+      } catch (e) {
+        console.warn(
+          `[EntityCommandService] Tasks restored, but failed to remove their Recycle Bin entries. Duplicate state may exist.`,
+          e,
+        );
+      }
+    }
+
+    // 4. Side effects
     if (restoredCount > 0 && !options?.skipEvents) {
       emitStateChange("tasks_changed", options?.source);
     }
@@ -1725,58 +1937,111 @@ export class EntityCommandService {
   }
 
   static async restoreChecklist(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Checklist> {
-    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
-    const { emitStateChange } = await import("@/services/events/state-events");
-
-    const binItems = await getRecycleBinItems();
-    const item = binItems.find((i) => i.id === recycleBinItemId);
-    if (!item || item.entityType !== "checklist") throw new Error(`RecycleBin item not found or not checklist`);
-
-    const parsedData = JSON.parse(item.snapshot);
-    await ChecklistRepository.saveChecklist(parsedData);
-
-    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
-    await saveRecycleBinItems(remainingBinItems);
-
-    if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
-    return parsedData;
+    return restoreEntityFromBin<Checklist>(
+      recycleBinItemId,
+      "checklist",
+      "checklists_changed",
+      options,
+      (checklist) => ChecklistRepository.saveChecklist(checklist),
+    );
   }
 
   static async restoreResource(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Resource> {
-    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
-    const { emitStateChange } = await import("@/services/events/state-events");
-
-    const binItems = await getRecycleBinItems();
-    const item = binItems.find((i) => i.id === recycleBinItemId);
-    if (!item || item.entityType !== "resource") throw new Error(`RecycleBin item not found or not resource`);
-
-    const parsedData = JSON.parse(item.snapshot);
-    await ResourceRepository.saveResource(parsedData);
-
-    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
-    await saveRecycleBinItems(remainingBinItems);
-
-    if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
-    return parsedData;
+    return restoreEntityFromBin<Resource>(
+      recycleBinItemId,
+      "resource",
+      "resources_changed",
+      options,
+      (resource) => ResourceRepository.saveResource(resource),
+    );
   }
 
-  static async restoreWorkspace(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Workspace> {
+  /**
+   * Restore a Workspace from the Recycle Bin.
+   *
+   * Workspaces are snapshotted as a package `{ list: Workspace, todos: Task[],
+   * habits: Habit[] }` (see WorkspaceModal's delete flow) — NOT as a bare
+   * Workspace. Restoring the raw package through saveWorkspace would persist a
+   * corrupt entity (`id: undefined`, `name: "Untitled Workspace"`), so this
+   * restore unwraps `snapshot.list` and persists the real workspace through the
+   * canonical WorkspaceRepository.
+   *
+   * The contained tasks/habits are re-persisted best-effort into their
+   * partitioned storage keys (they normally already live there — the workspace
+   * delete flow does not purge them — so this is idempotent and purely
+   * defensive). The bin entry is removed only after the workspace persist
+   * succeeds; saveWorkspace swallows errors, so the persisted workspace is
+   * read back to verify the restore actually happened.
+   */
+  static async restoreWorkspace(
+    recycleBinItemId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Workspace> {
     const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
     const { emitStateChange } = await import("@/services/events/state-events");
-    const { WorkspaceRepository } = await import("@/repositories");
 
+    // 1. Resolve the bin item by its RecycleBin item id ("rb-<workspaceId>") or
+    // the raw workspace id so callers that pass either work.
     const binItems = await getRecycleBinItems();
-    const item = binItems.find((i) => i.id === recycleBinItemId);
-    if (!item || item.entityType !== "workspace") throw new Error(`RecycleBin item not found or not workspace`);
+    const item = binItems.find(
+      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId,
+    );
+    if (!item || item.entityType !== "workspace") {
+      throw new Error(`RecycleBin item not found or not workspace`);
+    }
 
-    const parsedData = JSON.parse(item.snapshot);
-    await WorkspaceRepository.saveWorkspace(parsedData);
+    // 2. Parse the snapshot package and unwrap the actual Workspace. Tolerate a
+    // bare Workspace snapshot (backward compatibility).
+    let parsed: any;
+    try {
+      parsed = JSON.parse(item.snapshot);
+    } catch (e) {
+      throw new Error(`[EntityCommandService] Failed to parse workspace snapshot for ${recycleBinItemId}`);
+    }
+    const workspace: Workspace = parsed?.list ?? parsed;
+    if (!workspace || !workspace.id) {
+      throw new Error(`[EntityCommandService] Invalid workspace snapshot for ${recycleBinItemId}`);
+    }
 
-    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
+    // 3. Persist the workspace through the canonical repository.
+    await WorkspaceRepository.saveWorkspace(workspace);
+
+    // 4. saveWorkspace swallows storage errors, so verify the workspace actually
+    // persisted. If it did not, abort WITHOUT removing the bin item.
+    const persistedWorkspaces = await WorkspaceRepository.getWorkspaces();
+    if (!persistedWorkspaces.some((w) => w.id === workspace.id)) {
+      throw new Error(`[EntityCommandService] Workspace ${workspace.id} failed to persist during restore`);
+    }
+
+    // 5. Best-effort restore of the contained tasks/habits into their canonical
+    // partitioned keys (idempotent — they normally already exist in storage).
+    if (Array.isArray(parsed?.todos) && parsed.todos.length > 0) {
+      try {
+        await TaskRepository.saveTasks(parsed.todos, workspace.id);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to restore tasks for workspace ${workspace.id}`, e);
+      }
+    }
+    if (Array.isArray(parsed?.habits) && parsed.habits.length > 0) {
+      try {
+        for (const habit of parsed.habits) {
+          await HabitRepository.saveHabit({ ...habit, workspaceId: workspace.id });
+        }
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to restore habits for workspace ${workspace.id}`, e);
+      }
+    }
+
+    // 6. Remove the bin entry only after active persistence succeeded.
+    const remainingBinItems = binItems.filter((i) => i.id !== item.id);
     await saveRecycleBinItems(remainingBinItems);
 
-    if (!options?.skipEvents) emitStateChange("workspace_mode_changed", options?.source);
-    return parsedData;
+    // 7. Emit the workspace state event.
+    if (!options?.skipEvents) {
+      emitStateChange("workspace_mode_changed", options?.source);
+    }
+
+    return workspace;
   }
 
   // ============================================================================

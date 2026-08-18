@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskRepository, WorkspaceRepository } from "@/repositories";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { dateKeyFromDate, getOffsetDateKey } from "@/shared/utils/date-key";
 import { withLock } from "@/shared/utils/mutex";
 
 export type PebbleType = "task" | "habit" | "focus" | "checklist";
@@ -27,10 +28,7 @@ export async function earnPebble(type: PebbleType, rewardId?: string): Promise<b
     const todayStr = getOffsetDateKey(0);
     const todayPebbles = log.filter((entry) => {
       const d = new Date(entry.timestamp);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}` === todayStr;
+      return dateKeyFromDate(d) === todayStr;
     });
 
     if (todayPebbles.length >= 15) {
@@ -70,13 +68,12 @@ export async function reversePebbleReward(rewardId: string) {
 
     const removedEntry = log[idx];
     const removedDate = new Date(removedEntry.timestamp);
-    const removedDateKey = `${removedDate.getFullYear()}-${String(removedDate.getMonth() + 1).padStart(2, "0")}-${String(removedDate.getDate()).padStart(2, "0")}`;
+    const removedDateKey = dateKeyFromDate(removedDate);
 
     // Check if this was the ONLY pebble that day (it triggered a bonus gem)
     const pebblesOnSameDay = log.filter((entry) => {
       const d = new Date(entry.timestamp);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      return key === removedDateKey;
+      return dateKeyFromDate(d) === removedDateKey;
     });
     const wasOnlyPebbleToday = pebblesOnSameDay.length === 1;
 
@@ -140,10 +137,7 @@ export async function getPebbleCounts() {
       }
 
       const d = entryDate;
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      if (`${y}-${m}-${day}` === todayKey) {
+      if (dateKeyFromDate(d) === todayKey) {
         today++;
         todayTypes[entry.type]++;
       }
@@ -184,10 +178,7 @@ function calculateBestStreak(log: PebbleLogEntry[], recoveredDates: Set<string> 
   const completedDates = new Set<string>(recoveredDates);
   log.forEach((entry) => {
     const d = new Date(entry.timestamp);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    completedDates.add(`${y}-${m}-${day}`);
+    completedDates.add(dateKeyFromDate(d));
   });
 
   const dateStrings = Array.from(completedDates);
@@ -278,25 +269,13 @@ export async function ensurePebbleLogInitialized() {
   }
 }
 
-function getOffsetDateKey(offsetDays: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - offsetDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function calculateStreak(log: PebbleLogEntry[], recoveredDates: Set<string> = new Set()) {
   if (log.length === 0) return 0;
   
   const completedDates = new Set<string>(recoveredDates);
   log.forEach((entry) => {
     const d = new Date(entry.timestamp);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    completedDates.add(`${y}-${m}-${day}`);
+    completedDates.add(dateKeyFromDate(d));
   });
 
   let streak = 0;
@@ -338,10 +317,7 @@ function getWeeklyStatus(log: PebbleLogEntry[]) {
   const completedDates = new Set<string>();
   log.forEach((entry) => {
     const d = new Date(entry.timestamp);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    completedDates.add(`${y}-${m}-${day}`);
+    completedDates.add(dateKeyFromDate(d));
   });
 
   const today = new Date();
@@ -354,10 +330,7 @@ function getWeeklyStatus(log: PebbleLogEntry[]) {
   return WEEK_DAYS.map((label, index) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + index);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const dateKey = `${y}-${m}-${day}`;
+    const dateKey = dateKeyFromDate(d);
     return {
       label,
       completed: completedDates.has(dateKey),
@@ -454,10 +427,7 @@ export async function getMainStreakRecoveryInfo(): Promise<StreakRecoveryInfo> {
     const completedDates = new Set<string>();
     log.forEach((entry) => {
       const d = new Date(entry.timestamp);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      completedDates.add(`${y}-${m}-${day}`);
+      completedDates.add(dateKeyFromDate(d));
     });
 
     // Include recovered dates

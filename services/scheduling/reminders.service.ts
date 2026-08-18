@@ -43,6 +43,21 @@ export type ScheduledReminderBatch = {
 
 const DEFAULT_ESCALATION_MINUTES = [120, 240];
 
+// ─── Web reminder loop registry ──────────────────────────────────────────────
+// Recurring web reminders (interval/daily/weekly) are implemented as an initial
+// setTimeout that creates a repeating setInterval on first fire. Because the
+// interval only exists after the timeout fires, its raw id cannot be returned
+// from scheduleReminderBatch() synchronously. To keep every handle cancellable
+// we register the loop under a stable key and return `web-interval-<key>`
+// immediately; cancelReminderIds() resolves the key through this registry and
+// clears both the pending initial timeout and (once created) the interval.
+type WebReminderLoop = {
+  timeoutId: ReturnType<typeof setTimeout>;
+  intervalId: ReturnType<typeof setInterval> | null;
+};
+const webReminderLoops = new Map<string, WebReminderLoop>();
+let webReminderLoopSeq = 0;
+
 async function loadNotifications() {
   return import("expo-notifications");
 }
@@ -156,6 +171,35 @@ function notifyFallback(title: string, body: string) {
   Alert.alert(title, body);
 }
 
+// Schedules a repeating web reminder loop. The returned loopId is stable and
+// synchronously available to the caller (unlike the interval handle, which is
+// only created after the initial timeout fires), so cancelReminderIds() can
+// always cancel both the pending initial timeout and the eventual interval.
+function scheduleWebReminderLoop(
+  title: string,
+  body: string,
+  initialDelay: number,
+  repeatMs: number,
+): { loopId: string; timeoutId: ReturnType<typeof setTimeout> } {
+  const loopKey = `loop-${++webReminderLoopSeq}`;
+  const timeoutId = setTimeout(() => {
+    notifyFallback(title, body);
+    const intervalId = setInterval(() => {
+      notifyFallback(title, body);
+    }, repeatMs);
+    const loop = webReminderLoops.get(loopKey);
+    if (loop) {
+      loop.intervalId = intervalId;
+    } else {
+      // Cancelled between scheduling and the initial fire — stop the interval
+      // we just created so no orphan loop keeps notifying.
+      clearInterval(intervalId);
+    }
+  }, initialDelay);
+  webReminderLoops.set(loopKey, { timeoutId, intervalId: null });
+  return { loopId: `web-interval-${loopKey}`, timeoutId };
+}
+
 export async function cancelReminderIds(
   ids?: string[],
   options?: { throwOnError?: boolean }
@@ -173,7 +217,17 @@ export async function cancelReminderIds(
         }
 
         if (id.startsWith("web-interval-")) {
-          clearInterval(Number(id.replace("web-interval-", "")));
+          const loopKey = id.replace("web-interval-", "");
+          const loop = webReminderLoops.get(loopKey);
+          if (loop) {
+            clearTimeout(loop.timeoutId);
+            if (loop.intervalId) clearInterval(loop.intervalId);
+            webReminderLoops.delete(loopKey);
+            return;
+          }
+          // Legacy numeric handle (pre-registry format) or a dead handle left
+          // over from a previous page session after a reload.
+          if (/^\d+$/.test(loopKey)) clearInterval(Number(loopKey));
           return;
         }
 
@@ -379,13 +433,13 @@ export async function scheduleReminderBatch(
           : (options.recurrence.interval || 1) * 86400;
 
         if (isWeb) {
-          const timeoutId = setTimeout(() => {
-            notifyFallback("Interval reminder", body);
-            const intervalId = setInterval(() => {
-              notifyFallback("Interval reminder", body);
-            }, seconds * 1000);
-            ids.push(`web-interval-${String(intervalId)}`);
-          }, seconds * 1000);
+          const { loopId, timeoutId } = scheduleWebReminderLoop(
+            "Interval reminder",
+            body,
+            seconds * 1000,
+            seconds * 1000,
+          );
+          ids.push(loopId);
           ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
@@ -440,13 +494,13 @@ export async function scheduleReminderBatch(
         if (isWeb) {
           const nextTrigger = getNextOccurrenceDate(adjusted.hour, adjusted.minute);
           const initialDelay = nextTrigger.getTime() - Date.now();
-          const timeoutId = setTimeout(() => {
-            notifyFallback("Daily reminder", body);
-            const intervalId = setInterval(() => {
-              notifyFallback("Daily reminder", body);
-            }, DAY_MS);
-            ids.push(`web-interval-${String(intervalId)}`);
-          }, initialDelay);
+          const { loopId, timeoutId } = scheduleWebReminderLoop(
+            "Daily reminder",
+            body,
+            initialDelay,
+            DAY_MS,
+          );
+          ids.push(loopId);
           ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
@@ -491,13 +545,13 @@ export async function scheduleReminderBatch(
           if (isWeb) {
             const nextTrigger = getNextOccurrenceForWeekday(weekday, adjusted.hour, adjusted.minute);
             const initialDelay = nextTrigger.getTime() - Date.now();
-            const timeoutId = setTimeout(() => {
-              notifyFallback("Weekly reminder", body);
-              const intervalId = setInterval(() => {
-                notifyFallback("Weekly reminder", body);
-              }, 7 * DAY_MS);
-              ids.push(`web-interval-${String(intervalId)}`);
-            }, initialDelay);
+            const { loopId, timeoutId } = scheduleWebReminderLoop(
+              "Weekly reminder",
+              body,
+              initialDelay,
+              7 * DAY_MS,
+            );
+            ids.push(loopId);
             ids.push(`web-timeout-${String(timeoutId)}`);
             continue;
           }
@@ -605,14 +659,14 @@ export async function scheduleReminderBatch(
           );
           const initialDelay = nextTrigger.getTime() - Date.now();
 
-          const timeoutId = setTimeout(() => {
-            notifyFallback("Daily reminder", body);
-            const intervalId = setInterval(() => {
-              notifyFallback("Daily reminder", body);
-            }, 7 * DAY_MS);
-            ids.push(`web-interval-${String(intervalId)}`);
-          }, initialDelay);
+          const { loopId, timeoutId } = scheduleWebReminderLoop(
+            "Daily reminder",
+            body,
+            initialDelay,
+            7 * DAY_MS,
+          );
 
+          ids.push(loopId);
           ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
@@ -660,14 +714,14 @@ export async function scheduleReminderBatch(
       const nextTrigger = getNextOccurrenceDate(adjusted.hour, adjusted.minute);
       const initialDelay = nextTrigger.getTime() - Date.now();
 
-      const timeoutId = setTimeout(() => {
-        notifyFallback("Daily reminder", body);
-        const intervalId = setInterval(() => {
-          notifyFallback("Daily reminder", body);
-        }, DAY_MS);
-        ids.push(`web-interval-${String(intervalId)}`);
-      }, initialDelay);
+      const { loopId, timeoutId } = scheduleWebReminderLoop(
+        "Daily reminder",
+        body,
+        initialDelay,
+        DAY_MS,
+      );
 
+      ids.push(loopId);
       ids.push(`web-timeout-${String(timeoutId)}`);
       continue;
     }
@@ -721,6 +775,13 @@ import { type Task, type Habit } from "@/shared/types/domain.types";
 export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
   try {
     if (todo.reminder && todo.reminder.enabled && todo.reminder.triggerAt > Date.now()) {
+      // Cancel any previously scheduled notifications first so re-scheduling
+      // never accumulates duplicate timers (exactly one active schedule per
+      // reminder instance, even across reloads).
+      if (todo.reminder.notificationIds?.length) {
+        await cancelReminderIds(todo.reminder.notificationIds);
+      }
+
       const triggerDate = new Date(todo.reminder.triggerAt);
       const hour = triggerDate.getHours();
       const minute = triggerDate.getMinutes();
@@ -777,6 +838,13 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
 export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
   try {
     if (habit.reminder && habit.reminder.enabled && habit.reminder.triggerAt > Date.now()) {
+      // Cancel any previously scheduled notifications first so re-scheduling
+      // never accumulates duplicate timers (exactly one active schedule per
+      // reminder instance, even across reloads).
+      if (habit.reminder.notificationIds?.length) {
+        await cancelReminderIds(habit.reminder.notificationIds);
+      }
+
       const triggerDate = new Date(habit.reminder.triggerAt);
       const hour = triggerDate.getHours();
       const minute = triggerDate.getMinutes();
@@ -829,5 +897,31 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
     console.warn("Failed to reschedule habit reminders", e);
     return habit;
   }
+}
+
+/**
+ * Web-only: re-arm reminder timers after a page reload. Native notifications
+ * survive reloads inside the OS, but JS timers do not, so web reminders must
+ * be re-scheduled through the canonical scheduler. The cancel-first semantics
+ * of rescheduleTodoReminders() guarantee exactly one active schedule per
+ * reminder even when this runs repeatedly (screen focus, state events, reloads).
+ */
+export async function rearmWebReminders(todos: Task[]): Promise<Task[]> {
+  if (Platform.OS !== "web") {
+    return todos;
+  }
+  const rearmed: Task[] = [];
+  for (const todo of todos) {
+    if (
+      todo.reminder?.enabled &&
+      todo.reminder.triggerAt &&
+      todo.reminder.triggerAt > Date.now()
+    ) {
+      rearmed.push(await rescheduleTodoReminders(todo));
+    } else {
+      rearmed.push(todo);
+    }
+  }
+  return rearmed;
 }
 

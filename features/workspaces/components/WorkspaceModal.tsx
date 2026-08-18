@@ -21,6 +21,7 @@ import {
 } from "@/shared/components/ui/AppText";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { styles } from "@/shared/constants/taskStyles";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
@@ -321,9 +322,7 @@ export function WorkspaceModal({
                     currentHabits.push({
                       ...h,
                       completedToday:
-                        h.completedDates?.includes(
-                          `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
-                        ) || false,
+                        h.completedDates?.includes(getTodayDateKey()) || false,
                     });
                   });
                 }

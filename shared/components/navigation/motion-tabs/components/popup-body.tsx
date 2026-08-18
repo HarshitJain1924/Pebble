@@ -26,14 +26,7 @@ import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.s
 import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-
-// Helper functions for Date keys
-const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 
 const getTodoDateKey = (todo: any) => {
   // Canonical schedule.date
@@ -41,10 +34,10 @@ const getTodoDateKey = (todo: any) => {
   // Legacy fallback for migration
   if (todo.scheduledDate) return todo.scheduledDate;
   // Derive from canonical reminder.triggerAt
-  if (todo.reminder?.triggerAt) return getDateKey(new Date(todo.reminder.triggerAt));
+  if (todo.reminder?.triggerAt) return dateKeyFromDate(new Date(todo.reminder.triggerAt));
   const idNum = Number(todo.id);
-  if (!isNaN(idNum) && idNum > 100000000000) return getDateKey(new Date(idNum));
-  return getDateKey();
+  if (!isNaN(idNum) && idNum > 100000000000) return dateKeyFromDate(new Date(idNum));
+  return getTodayDateKey();
 };
 
 const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext> = ({
@@ -73,7 +66,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   // Data Loading Logic
   const loadData = useCallback(async () => {
     try {
-      const todayStr = getDateKey();
+      const todayStr = getTodayDateKey();
 
       // 1. Fetch workspaces lists
       const listFolders = await WorkspaceRepository.getWorkspaces();
@@ -92,7 +85,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         let pendingCount = 0;
         Object.values(tasksMap).forEach((todo: any) => {
           if (todo.archivedAt) return;
-          const todoDate = todo.schedule?.date || getDateKey();
+          const todoDate = todo.schedule?.date || getTodayDateKey();
           const isTodayOrOverdue = todoDate <= todayStr || todo.schedule?.date === "inbox";
           if (isTodayOrOverdue) {
             if (todo.completed) {
@@ -218,7 +211,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       const h = await HabitRepository.getHabit(habitId, activeWorkspace);
       if (!h) return;
 
-      const today = getDateKey();
+      const today = getTodayDateKey();
       const isCompletedToday = h.completionHistory.some((c) => c.date === today);
 
       const { EntityCommandService } = require("@/services/command/EntityCommandService");
@@ -271,7 +264,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + offsetDays);
-    const dateStr = getDateKey(targetDate);
+    const dateStr = dateKeyFromDate(targetDate);
 
     await AsyncStorage.setItem("todoapp:calendar:selectedDate", dateStr);
     emitStateChange("tasks_changed");

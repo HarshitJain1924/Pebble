@@ -116,7 +116,34 @@ export class ResourceRepository {
     return `pebble:v1:resources:${workspaceId}`;
   }
 
-
+  /**
+   * Parse a stored workspace payload defensively. Malformed JSON (e.g. from a
+   * partial write or corrupted storage) must never crash the consuming screen;
+   * following the repository's tolerant recovery convention, the payload is
+   * logged and treated as empty so callers see a missing/empty collection.
+   */
+  private static parseRecords(
+    raw: string,
+    key: string,
+    method: string,
+  ): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>;
+      }
+      console.warn(
+        `[ResourceRepository] Stored value for "${key}" is not a JSON object (${method}); treating as empty.`,
+      );
+      return {};
+    } catch (e) {
+      console.warn(
+        `[ResourceRepository] Failed to parse stored value for "${key}" (${method}); treating as empty.`,
+        e,
+      );
+      return {};
+    }
+  }
 
   static async getResource(
     id: string,
@@ -125,7 +152,7 @@ export class ResourceRepository {
     const key = this.getResourcesKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
-    const records: Record<string, any> = JSON.parse(raw);
+    const records: Record<string, any> = this.parseRecords(raw, key, "getResource");
     const rawResource = records[id] || null;
     if (rawResource) {
       return normalizeResource(rawResource, workspaceId);
@@ -139,7 +166,7 @@ export class ResourceRepository {
     const key = this.getResourcesKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
-    const parsed = JSON.parse(raw);
+    const parsed = this.parseRecords(raw, key, "getResources");
     const records: Record<string, Resource> = {};
     Object.entries(parsed).forEach(([id, rawResource]: [string, any]) => {
       records[id] = normalizeResource(rawResource, workspaceId);

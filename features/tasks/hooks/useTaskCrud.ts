@@ -313,19 +313,28 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
   );
 
   const clearCompleted = useCallback(async () => {
-    const listTodos = todos[selectedWorkspaceId] ?? [];
-    
-    // Update local UI state
-    const updated = {
-      ...todos,
-      [selectedWorkspaceId]: listTodos.filter((todo) => !isTaskCompleted(todo)),
-    };
-    setTodos(updated);
-    
-    // Delegate to ECS
-    await EntityCommandService.clearCompletedTasks(selectedWorkspaceId, { source: "tasks_screen" });
-    
-    finalizeMutation();
+    // Delegate to ECS FIRST. clearCompletedTasks snapshots every completed task
+    // into the Recycle Bin before removing it from active storage, so the
+    // operation is atomic: on failure nothing is deleted. Local UI state is
+    // only updated after persistence succeeds so the UI never claims a
+    // deletion that did not happen.
+    try {
+      await EntityCommandService.clearCompletedTasks(selectedWorkspaceId, { source: "tasks_screen" });
+
+      // Persistence succeeded — reflect the removal in local UI state.
+      const listTodos = todos[selectedWorkspaceId] ?? [];
+      const updated = {
+        ...todos,
+        [selectedWorkspaceId]: listTodos.filter((todo) => !isTaskCompleted(todo)),
+      };
+      setTodos(updated);
+
+      finalizeMutation();
+    } catch (e) {
+      // Snapshot/delete failed: the active tasks remain in the repository and
+      // the local UI is left untouched (no deletion claimed).
+      console.warn("Failed to clear completed tasks", e);
+    }
   }, [todos, selectedWorkspaceId, setTodos, finalizeMutation]);
 
   const convertCollectionItemToTask = useCallback(

@@ -1,15 +1,17 @@
 import type { RecurrenceRule, Task, Habit } from "@/shared/types/domain.types";
+import {
+  dateKeyFromDate,
+  parseDateKey as parseDateKeyCanonical,
+} from "@/shared/utils/date-key";
 
+// Public API preserved for the many callers of this module; implementations
+// delegate to the canonical date-key helpers (local-time YYYY-MM-DD).
 export function getDateKey(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return dateKeyFromDate(date);
 }
 
 export function parseDateKey(value: string): Date {
-  const [y, m, d] = value.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
+  return parseDateKeyCanonical(value);
 }
 
 export function dayDiff(fromDateKey: string, toDateKey: string): number {

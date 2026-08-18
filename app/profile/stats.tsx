@@ -24,6 +24,15 @@ import { WorkspaceRepository, TaskRepository, HabitRepository } from "@/reposito
 import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 import { CategoryChip } from "@/shared/components/design-system";
+import {
+  isHabitCompletedToday,
+  isTaskCompleted,
+} from "@/shared/utils/domain-selectors";
+import {
+  dateKeyFromDate,
+  getTodayDateKey,
+  parseDateKey,
+} from "@/shared/utils/date-key";
 
 // Import existing modular components
 import { ProductivityDashboard } from "@/features/profile/components/ProductivityDashboard";
@@ -32,13 +41,6 @@ import { FocusRhythmPeaks } from "@/features/profile/components/FocusRhythmPeaks
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-const getDateKey = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
 
 type CategoryStat = {
   name: string;
@@ -100,11 +102,11 @@ export default function StatsScreen() {
         const tasksMap = await TaskRepository.getTasks(fId);
         const tasks = Object.values(tasksMap);
         totalTasks += tasks.length;
-        tasks.forEach((todo: any) => {
-          if (todo.completed) {
+        tasks.forEach((todo) => {
+          if (isTaskCompleted(todo)) {
             totalCompletedTodos++;
-            if (todo.category) {
-              const cat = todo.category.toLowerCase();
+            if (todo.categoryId) {
+              const cat = todo.categoryId.toLowerCase();
               categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
             }
             workspaceCounts[fId] = (workspaceCounts[fId] ?? 0) + 1;
@@ -123,7 +125,7 @@ export default function StatsScreen() {
       mostProductiveWorkspace = folderNameMap[bestFolderId] || "Inbox";
 
       // Load Habits via repository
-      const todayStr = getDateKey();
+      const todayStr = getTodayDateKey();
       let totalCompletedHabits = 0;
       let streak = 0;
       let bestStreak = 0;
@@ -132,8 +134,8 @@ export default function StatsScreen() {
 
       for (const fId of folderIds) {
         const habitsMap = await HabitRepository.getHabits(fId);
-        Object.values(habitsMap).forEach((h: any) => {
-          if (h.completedDates?.includes(todayStr)) totalCompletedHabits++;
+        Object.values(habitsMap).forEach((h) => {
+          if (isHabitCompletedToday(h, todayStr)) totalCompletedHabits++;
           streak = Math.max(streak, h.streak || 0);
           bestStreak = Math.max(bestStreak, h.bestStreak || 0);
           const hStreak = Math.max(h.streak || 0, h.bestStreak || 0);
@@ -149,7 +151,7 @@ export default function StatsScreen() {
       let historyList: any[] = [];
       let pastTodosCompleted = 0;
       let pastHabitsCompleted = 0;
-      const todayKey = getDateKey();
+      const todayKey = getTodayDateKey();
       if (rawHistory) {
         try {
           historyList = JSON.parse(rawHistory);
@@ -180,10 +182,6 @@ export default function StatsScreen() {
       }
 
       // Load Average Productivity Score (last 3 months / 90 days)
-      const parseDateKey = (val: string) => {
-        const [y, m, d] = val.split("-").map(Number);
-        return new Date(y, m - 1, d);
-      };
       const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
       const last3MonthsHistory = historyList.filter((h: any) => parseDateKey(h.date) >= ninetyDaysAgo);
       const scores = last3MonthsHistory.map((h: any) => h.score);
@@ -236,7 +234,7 @@ export default function StatsScreen() {
       for (let i = 6; i >= 0; i--) {
         const d = new Date(now);
         d.setDate(now.getDate() - i);
-        const key = getDateKey(d);
+        const key = dateKeyFromDate(d);
         const entry = historyList.find((h: any) => h.date === key);
         const score = entry ? entry.score : 0;
         trends.push({

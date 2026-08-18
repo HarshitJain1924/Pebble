@@ -23,6 +23,11 @@ import {
 } from "@/services/events/state-events";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import {
+  isHabitCompletedToday,
+  isTaskCompleted,
+} from "@/shared/utils/domain-selectors";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
+import {
   cancelReminderIds,
   rescheduleHabitReminders,
   rescheduleTodoReminders,
@@ -34,12 +39,9 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
-export const getDateKey = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
+// Public API preserved for callers of this module; delegates to the canonical
+// date-key helper (local YYYY-MM-DD).
+export const getDateKey = (date = new Date()) => dateKeyFromDate(date);
 
 export const getMonthKey = (date = new Date()) => ({
   year: date.getFullYear(),
@@ -310,7 +312,7 @@ export function useCalendarState() {
           title: todo.title,
           timeLabel,
           rawHours: sched.startTime ? sched.sortKey / 60 : 24,
-          completed: todo.completed,
+          completed: isTaskCompleted(todo),
           type: "task",
           streak: undefined,
           category: todo.category,
@@ -321,21 +323,15 @@ export function useCalendarState() {
         };
       });
 
-    const isTodaySelected = selectedDate === getDateKey(new Date());
-
     const habits = allHabits
       .filter((habit) => {
         return isRecurringOccurrenceForDate(habit, selectedDate);
       })
       .map((habit) => {
-        let completed = false;
-        if (isTodaySelected) {
-          completed = habit.completedToday;
-        } else if (selectedHistory) {
-          completed =
-            selectedHistory.completedHabitTitles?.includes(habit.title) ??
-            false;
-        }
+        // Canonical per-date completion: read the habit's completionHistory for
+        // the selected date instead of the legacy completedToday field or the
+        // history-title heuristic.
+        const completed = isHabitCompletedToday(habit, selectedDate);
 
         const sched = getStructuredSchedule(habit, 30);
         const timeLabel = sched.startTime
@@ -464,7 +460,7 @@ export function useCalendarState() {
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateKey = `${month.year}-${String(month.month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const dateKey = dateKeyFromDate(new Date(month.year, month.month, d));
       cells.push({
         type: "day" as const,
         dateString: dateKey,

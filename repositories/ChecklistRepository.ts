@@ -77,7 +77,34 @@ export class ChecklistRepository {
     return `pebble:v1:checklists:${workspaceId}`;
   }
 
-
+  /**
+   * Parse a stored workspace payload defensively. Malformed JSON (e.g. from a
+   * partial write or corrupted storage) must never crash the consuming screen;
+   * following the repository's tolerant recovery convention, the payload is
+   * logged and treated as empty so callers see a missing/empty collection.
+   */
+  private static parseRecords(
+    raw: string,
+    key: string,
+    method: string,
+  ): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>;
+      }
+      console.warn(
+        `[ChecklistRepository] Stored value for "${key}" is not a JSON object (${method}); treating as empty.`,
+      );
+      return {};
+    } catch (e) {
+      console.warn(
+        `[ChecklistRepository] Failed to parse stored value for "${key}" (${method}); treating as empty.`,
+        e,
+      );
+      return {};
+    }
+  }
 
   static async getChecklist(
     id: string,
@@ -86,7 +113,7 @@ export class ChecklistRepository {
     const key = this.getChecklistsKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
-    const records: Record<string, any> = JSON.parse(raw);
+    const records: Record<string, any> = this.parseRecords(raw, key, "getChecklist");
     const rawChecklist = records[id] || null;
     if (rawChecklist) {
       return normalizeChecklist(rawChecklist, workspaceId);
@@ -100,7 +127,7 @@ export class ChecklistRepository {
     const key = this.getChecklistsKey(workspaceId);
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
-    const parsed = JSON.parse(raw);
+    const parsed = this.parseRecords(raw, key, "getChecklists");
     const records: Record<string, Checklist> = {};
     Object.entries(parsed).forEach(([id, rawChecklist]: [string, any]) => {
       records[id] = normalizeChecklist(rawChecklist, workspaceId);

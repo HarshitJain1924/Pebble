@@ -1,4 +1,5 @@
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { getTodayDateKey, parseDateKey } from "@/shared/utils/date-key";
 import {
   addStateListener,
   emitStateChange,
@@ -860,13 +861,8 @@ export function useFocusState() {
     }
 
     if (isHabit && habitObj) {
-      const today = new Date();
-      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const todayKey = getTodayDateKey();
 
-      const parseDateKey = (val: string) => {
-        const [y, m, d] = val.split("-").map(Number);
-        return new Date(y, (m || 1) - 1, d || 1);
-      };
       const dayDiff = (from: string, to: string) => {
         return Math.floor(
           (parseDateKey(to).getTime() - parseDateKey(from).getTime()) /

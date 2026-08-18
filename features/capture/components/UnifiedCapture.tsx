@@ -68,6 +68,7 @@ import {
   type WorkspaceSuggestionResult,
 } from "@/features/workspaces/services/workspace-suggestions.service";
 import { INBOX_WORKSPACE_ID, type Attachment } from "@/shared/types/domain.types";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 import { saveParsedItem, mergeParsedChecklist, type SavedEntity } from "@/features/capture/services/CaptureService";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import PressableScale from "@/shared/components/ui/PressableScale";
@@ -118,13 +119,6 @@ const PRIORITY_META: Record<string, { label: string; color: string }> = {
   medium: { label: "Medium", color: "#F59E0B" },
   low: { label: "Low", color: "#3B82F6" },
   none: { label: "None", color: "#9CA3AF" },
-};
-
-const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 };
 
 function getDomainFromUrl(url: string): string {
@@ -187,11 +181,11 @@ function formatFileSize(bytes?: number): string {
 
 function getFriendlyDateLabel(dateStr?: string): string {
   if (!dateStr) return "No date";
-  const today = getDateKey();
+  const today = getTodayDateKey();
   if (dateStr === today) return "Today";
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  if (dateStr === getDateKey(tomorrow)) return "Tomorrow";
+  if (dateStr === dateKeyFromDate(tomorrow)) return "Tomorrow";
   // Format as "Jul 17"
   const [, m, d] = dateStr.split("-").map(Number);
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -1094,7 +1088,7 @@ export default function UnifiedCapture({
       return {
         title: "Due Date",
         // Real calendar + real time dial; the "No due date" row is a clear action.
-        calendarDate: parsedItem?.date || getDateKey(today),
+        calendarDate: parsedItem?.date || dateKeyFromDate(today),
         onCalendarSelect: (dateStr: string) => handleDateChange(dateStr),
         timeValue: parsedItem?.time,
         onTimeSelect: (timeStr: string) => handleTimeChange(timeStr),

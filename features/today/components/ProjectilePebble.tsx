@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -25,13 +25,34 @@ export const ProjectilePebble: React.FC<ProjectilePebbleProps> = ({
 }) => {
   const progress = useSharedValue(0);
 
+  // The animation lifecycle must be independent of callback identity. Parent
+  // re-renders (dashboard reloads after a completion, another projectile being
+  // added/removed) recreate the inline onComplete prop, so the effect cannot
+  // depend on it — otherwise every re-render restarts the animation and can
+  // fire the completion callback multiple times. Keep the latest handler in a
+  // ref so the animation always finishes with the CURRENT handler.
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  const callOnComplete = useCallback(() => {
+    onCompleteRef.current();
+  }, []);
+
+  // Animate exactly once per mount: `progress` (a shared value) and
+  // `callOnComplete` (stable useCallback) never change identity, so parent
+  // re-renders cannot restart or duplicate the animation. The `disposed` guard
+  // prevents the completion callback from firing after unmount.
   useEffect(() => {
+    let disposed = false;
     progress.value = withTiming(1, { duration: 650 }, (finished) => {
-      if (finished) {
-        runOnJS(onComplete)();
+      if (finished && !disposed) {
+        runOnJS(callOnComplete)();
       }
     });
-  }, [progress, onComplete]);
+    return () => {
+      disposed = true;
+    };
+  }, [progress, callOnComplete]);
 
   const animatedStyle = useAnimatedStyle(() => {
     const t = progress.value;
