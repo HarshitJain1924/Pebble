@@ -1,4 +1,4 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BackupService, type AppBackup } from "@/services/storage/backup.service";
 import { clearRepositoryStorage } from "@/services/storage/storage-utils";
 import type { Workspace, Task } from "@/shared/types/domain.types";
@@ -39,25 +39,45 @@ describe("Phase 0 structured restore", () => {
     expect(await storage.getItem("pebble:v1:tasks:ws-old")).not.toBeNull();
   });
 
-  test.failing("preserves onboarding on successful content restore", async () => {
+  test("preserves onboarding on successful content restore", async () => {
     await BackupService.restoreStructuredBackup(JSON.stringify(backup()));
     expect(await storage.getItem("todoapp:onboarding_completed")).toBe("true");
   });
 
-  test.failing.each(["workspace", "task", "habit", "checklist", "resource", "recycle", "focus", "relationship", "system-event"])("preserves the previous dataset if restore fails at %s write", async (boundary) => {
-    const map = (storage as any).__INTERNAL_MOCK_STORAGE__ as Record<string, string>;
-    const setSpy = jest.spyOn(storage, "setItem").mockImplementation(async (key, value) => {
-      const hit = boundary === "workspace" ? key === "pebble:v1:workspaces" : boundary === "task" ? key.includes(":tasks:") : boundary === "habit" ? key.includes(":habits:") : boundary === "checklist" ? key.includes(":checklists:") : boundary === "resource" ? key.includes(":resources:") : boundary === "recycle" ? key === "pebble:v1:recycle_bin" : boundary === "focus" ? key === "pebble:v1:focus_sessions" : boundary === "relationship" ? key === "pebble:v1:relationships" : key === "pebble:v1:system_event_log";
-      if (hit) throw new Error(`injected ${boundary}`);
-      map[key] = value;
+  test.each(["workspace", "task", "habit", "checklist", "resource", "recycle", "focus", "relationship", "system-event"])("preserves the previous dataset if restore fails at %s write", async (boundary) => {
+    let hasThrown = false;
+    const originalMultiSetImpl = (storage.multiSet as jest.Mock).getMockImplementation();
+    
+    const multiSetSpy = jest.spyOn(storage, "multiSet").mockImplementation(async (keyValuePairs) => {
+      const boundaryHits = keyValuePairs.some(([key]) => 
+        boundary === "workspace" ? key === "pebble:v1:workspaces" : 
+        boundary === "task" ? key.includes(":tasks:") : 
+        boundary === "habit" ? key.includes(":habits:") : 
+        boundary === "checklist" ? key.includes(":checklists:") : 
+        boundary === "resource" ? key.includes(":resources:") : 
+        boundary === "recycle" ? key === "pebble:v1:recycle_bin" : 
+        boundary === "focus" ? key === "pebble:v1:focus_sessions" : 
+        boundary === "relationship" ? key === "pebble:v1:relationships" : 
+        key === "pebble:v1:system_event_log"
+      );
+      
+      if (boundaryHits && !hasThrown) {
+        hasThrown = true;
+        throw new Error(`injected ${boundary}`);
+      }
+      
+      if (originalMultiSetImpl) {
+        return originalMultiSetImpl(keyValuePairs);
+      }
     });
+    
     await expect(BackupService.restoreStructuredBackup(JSON.stringify(backup()))).rejects.toThrow(`injected ${boundary}`);
-    expect(setSpy).toHaveBeenCalled();
+    expect(multiSetSpy).toHaveBeenCalled();
     expect(await storage.getItem("pebble:v1:tasks:ws-old")).not.toBeNull();
   });
 });
 
-test.failing("clearRepositoryStorage preserves onboarding state during content restore", async () => {
+test("clearRepositoryStorage preserves onboarding state during content restore", async () => {
   await clearRepositoryStorage();
   expect(await storage.getItem("todoapp:onboarding_completed")).toBe("true");
 });

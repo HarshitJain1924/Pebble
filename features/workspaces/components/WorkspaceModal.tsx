@@ -183,7 +183,7 @@ export function WorkspaceModal({
       return;
     }
 
-    if (workspaces.filter((l) => !(l as any).archived).length <= 1) {
+    if (workspaces.filter((l) => !l.archivedAt).length <= 1) {
       Alert.alert(
         "Cannot Delete",
         "You must keep at least one active workspace.",
@@ -203,34 +203,6 @@ export function WorkspaceModal({
             const workspace = workspaces.find((l) => l.id === editingWorkspaceId);
             if (!workspace) return;
 
-            const workspaceTodos = todos[editingWorkspaceId] || [];
-            const workspaceHabits = habits.filter(
-              (h) => h.workspaceId === editingWorkspaceId,
-            );
-
-            // 1. Cancel notifications
-            for (const todo of workspaceTodos) {
-              if (todo.reminder?.notificationIds) {
-                await cancelReminderIds(todo.reminder.notificationIds);
-              }
-            }
-
-            for (const habit of workspaceHabits) {
-              if (habit.reminder?.notificationIds) {
-                await cancelReminderIds(habit.reminder.notificationIds);
-              }
-            }
-
-            // 2. Add to Recycle Bin & Purge current Partitioned Storage Files
-            await addToRecycleBin(
-              "workspace",
-              {
-                list: workspace,
-                todos: workspaceTodos,
-                habits: workspaceHabits,
-              },
-              "Workspaces",
-            );
             try {
               const { EntityCommandService } = require("@/services/command/EntityCommandService");
               await EntityCommandService.deleteWorkspace(editingWorkspaceId);
@@ -274,79 +246,12 @@ export function WorkspaceModal({
             showUndo({
               message: `Deleted "${workspace.name}"`,
               onUndo: async () => {
-                // Remove from Recycle Bin
-                const binItems = await getRecycleBinItems();
-                await saveRecycleBinItems(
-                  binItems.filter((item) => item.id !== editingWorkspaceId),
-                );
-
-                // Reschedule reminders
-                const rescheduledTodos = await Promise.all(
-                  workspaceTodos.map((t) => rescheduleTodoReminders(t)),
-                );
-                const rescheduledHabits = await Promise.all(
-                  workspaceHabits.map((h) => rescheduleHabitReminders(h)),
-                );
-
-                // Restore state and persist
-                const currentLists = await WorkspaceRepository.getWorkspaces();
-
-                const currentTodos: Record<string, Task[]> = {};
-                for (const folder of currentLists) {
-                  const wsId = folder.id;
-                  const tasksMap = await TaskRepository.getTasks(wsId);
-                  currentTodos[wsId] = Object.values(tasksMap).map(
-                    (t: any) => ({
-                      ...t,
-                      schedule: t.schedule || (t.dueDate ? { date: t.dueDate } : undefined),
-                    }),
-                  ) as Task[];
+                try {
+                  const { EntityCommandService } = require("@/services/command/EntityCommandService");
+                  await EntityCommandService.restoreWorkspace(`rb-${editingWorkspaceId}`);
+                } catch (e) {
+                  console.warn("Failed to undo workspace delete", e);
                 }
-
-                const restoredLists = currentLists.some(
-                  (l: any) => l.id === editingWorkspaceId,
-                )
-                  ? currentLists
-                  : [...currentLists, workspace];
-
-                const restoredTodos = {
-                  ...currentTodos,
-                  [editingWorkspaceId]: rescheduledTodos,
-                };
-
-                const currentHabits: Habit[] = [];
-                for (const folder of currentLists) {
-                  const wsId = folder.id;
-                  const habitsMap = await HabitRepository.getHabits(wsId);
-                  Object.values(habitsMap).forEach((h: any) => {
-                    currentHabits.push({
-                      ...h,
-                      completedToday:
-                        h.completedDates?.includes(getTodayDateKey()) || false,
-                    });
-                  });
-                }
-
-                const restoredHabits = [
-                  ...currentHabits.filter(
-                    (h) => h.workspaceId !== editingWorkspaceId,
-                  ),
-                  ...rescheduledHabits,
-                ];
-
-                await persistState(
-                  restoredLists,
-                  editingWorkspaceId,
-                  restoredTodos,
-                );
-                await persistHabits(restoredHabits);
-
-                setWorkspaces(restoredLists);
-                setTodos(restoredTodos);
-                setHabits(restoredHabits);
-
-                emitStateChange("tasks_changed");
-                emitStateChange("habits_changed");
               },
             });
           },

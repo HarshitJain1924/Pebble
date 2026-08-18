@@ -54,6 +54,7 @@ import {
   getCategoryMeta,
   getPriorityMeta,
 } from "@/features/details/options";
+import { ResourceAttachmentPicker } from "@/features/details/resources/ResourceAttachmentPicker";
 import { HabitDetailForm } from "@/features/details/habit/components/HabitDetailForm";
 import {
   computeTriggerEpoch,
@@ -105,7 +106,7 @@ export function HabitDetailContent({
   const [resourcesSheetVisible, setResourcesSheetVisible] = useState(false);
   const [resourcesList, setResourcesList] = useState<Resource[]>([]);
 
-  const { form, update, reset, toggleDay } = useHabitDetailForm();
+  const { form, update, reset, toggleDay, toggleResource } = useHabitDetailForm();
   const {
     completionRate,
     timesCompleted,
@@ -1187,15 +1188,14 @@ export function HabitDetailContent({
         </View>
       </Modal>
 
-      {/* Resources Bottom Sheet — pre-existing stub (see Known Issues) */}
-      <Modal
+      {/* Resources Attachment Picker */}
+      <ResourceAttachmentPicker
         visible={resourcesSheetVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setResourcesSheetVisible(false)}
-      >
-        {/* Intentionally empty: pre-existing stub from app/task-details.tsx */}
-      </Modal>
+        resources={resourcesList}
+        selectedResourceIds={form.linkedCollectionIds}
+        onToggle={toggleResource}
+        onClose={() => setResourcesSheetVisible(false)}
+      />
     </>
   );
 }

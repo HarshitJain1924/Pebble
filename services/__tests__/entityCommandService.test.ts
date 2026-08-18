@@ -1084,4 +1084,74 @@ describe("EntityCommandService unit tests", () => {
       expect(checklistPebbles.length).toBe(1);
     });
   });
+  describe("Checklist Archive Lifecycle (Batch P1 Correctness Fix)", () => {
+    it("1. Archive properly sets archivedAt, preserves all fields, and avoids Recycle Bin", async () => {
+      // Setup
+      const checklist = await EntityCommandService.createChecklist(
+        { title: "Archive Test", type: "checklist", items: ["i1", "i2"], confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true }
+      );
+      checklist.resourceIds = ["res-1"];
+      checklist.items[0].completed = true;
+      await ChecklistRepository.saveChecklist(checklist);
+
+      // Archive
+      const archived = await EntityCommandService.updateChecklist(checklist.id, "ws-1", {
+        archivedAt: 123456789,
+      }, { skipAnalytics: true });
+
+      expect(archived.archivedAt).toBe(123456789);
+      expect(archived.title).toBe("Archive Test");
+      expect(archived.items.length).toBe(2);
+      expect(archived.items[0].completed).toBe(true);
+      expect(archived.resourceIds).toEqual(["res-1"]);
+
+      // Verify no Recycle Bin entry was created
+      const rawRecycleBin = await AsyncStorage.getItem("pebble:v1:recycle_bin");
+      const recycleBin = rawRecycleBin ? JSON.parse(rawRecycleBin) : {};
+      const recycleItems = Object.values(recycleBin).filter((i: any) => i.entityId === checklist.id);
+      expect(recycleItems.length).toBe(0);
+    });
+
+    it("2. Restore clears archivedAt and preserves Checklist identity", async () => {
+      const checklist = await EntityCommandService.createChecklist(
+        { title: "Restore Test", type: "checklist", items: ["i1"], confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true }
+      );
+      await EntityCommandService.updateChecklist(checklist.id, "ws-1", { archivedAt: Date.now() }, { skipAnalytics: true });
+
+      // Restore
+      const restored = await EntityCommandService.updateChecklist(checklist.id, "ws-1", {
+        archivedAt: undefined,
+      }, { skipAnalytics: true });
+
+      expect(restored.archivedAt).toBeUndefined();
+      expect(restored.id).toBe(checklist.id);
+      expect(restored.workspaceId).toBe("ws-1");
+      expect(restored.title).toBe("Restore Test");
+    });
+
+    it("3. Delete still moves to Recycle Bin (ensuring distinct semantics)", async () => {
+      const checklist = await EntityCommandService.createChecklist(
+        { title: "Delete Semantic Test", type: "checklist", items: [], confidence: 1 },
+        "ws-1",
+        { skipAnalytics: true }
+      );
+
+      // Delete
+      await EntityCommandService.recycleChecklist(checklist.id, "ws-1");
+
+      // Verify active Checklist is gone
+      const map = await ChecklistRepository.getChecklists("ws-1");
+      expect(map[checklist.id]).toBeUndefined();
+
+      // Verify Recycle Bin entry is created
+      const rawRecycleBin = await AsyncStorage.getItem("pebble:v1:recycle_bin");
+      const recycleBin = rawRecycleBin ? JSON.parse(rawRecycleBin) : {};
+      const recycleItems = Object.values(recycleBin).filter((i: any) => i.entityId === checklist.id);
+      expect(recycleItems.length).toBe(1);
+    });
+  });
 });

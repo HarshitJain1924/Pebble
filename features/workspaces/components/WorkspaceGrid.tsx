@@ -92,7 +92,7 @@ export function WorkspaceGrid({
     );
   }
 
-  const activeWorkspaces = workspaces.filter((w) => !(w as any).archived);
+  const activeWorkspaces = workspaces.filter((w) => !w.archivedAt);
   const filteredWorkspaces =
     searchQuery.trim() === ""
       ? activeWorkspaces

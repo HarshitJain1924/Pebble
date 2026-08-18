@@ -45,6 +45,7 @@ import {
   DetailSection,
   DetailShell,
 } from "@/features/details";
+import { ResourceAttachmentPicker } from "@/features/details/resources/ResourceAttachmentPicker";
 import { TaskDetailForm } from "@/features/details/task/components/TaskDetailForm";
 import {
   computeTriggerEpoch,
@@ -99,7 +100,7 @@ export function TaskDetailContent({
   const [resourcesSheetVisible, setResourcesSheetVisible] = useState(false);
   const [resourcesList, setResourcesList] = useState<Resource[]>([]);
 
-  const { form, update, reset, toggleDay } = useTaskDetailForm();
+  const { form, update, reset, toggleDay, toggleResource } = useTaskDetailForm();
 
   const linkedResources = useMemo(
     () =>
@@ -1133,15 +1134,14 @@ export function TaskDetailContent({
         </View>
       </Modal>
 
-      {/* Resources Bottom Sheet — pre-existing stub (see Known Issues) */}
-      <Modal
+      {/* Resources Attachment Picker */}
+      <ResourceAttachmentPicker
         visible={resourcesSheetVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setResourcesSheetVisible(false)}
-      >
-        {/* Intentionally empty: pre-existing stub from app/task-details.tsx */}
-      </Modal>
+        resources={resourcesList}
+        selectedResourceIds={form.linkedCollectionIds}
+        onToggle={toggleResource}
+        onClose={() => setResourcesSheetVisible(false)}
+      />
     </>
   );
 }

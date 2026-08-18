@@ -9,7 +9,9 @@ import { GraphRepository } from "@/repositories/GraphRepository";
 export async function clearRepositoryStorage(): Promise<void> {
   try {
     const allKeys = await AsyncStorage.getAllKeys();
-    const keysToRemove = allKeys.filter((key) => key.startsWith("pebble:") || key.startsWith("todoapp:"));
+    const keysToRemove = allKeys.filter((key) => {
+      return key.startsWith("pebble:");
+    });
     let extraKeys: string[] = [];
 
     await AsyncStorage.multiRemove([...keysToRemove, ...extraKeys]);

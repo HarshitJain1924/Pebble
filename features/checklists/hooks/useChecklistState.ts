@@ -134,6 +134,26 @@ export function useChecklistState(selectedWorkspaceId: string) {
     }
   }, [selectedWorkspaceId, loadChecklistsState]);
 
+  const toggleArchiveChecklist = useCallback(async (id: string, workspaceId?: string) => {
+    try {
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      const map = await ChecklistRepository.getChecklists(activeList);
+      const checklist = map[id];
+      if (!checklist) return;
+
+      const isArchived = !!checklist.archivedAt;
+
+      await EntityCommandService.updateChecklist(id, activeList, {
+        archivedAt: isArchived ? undefined : Date.now(),
+      }, { skipEvents: true, skipAnalytics: true });
+
+      await loadChecklistsState();
+      emitStateChange("checklists_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to toggle archive checklist current", e);
+    }
+  }, [selectedWorkspaceId, loadChecklistsState]);
+
   return {
     checklists,
     setChecklists,
@@ -141,6 +161,7 @@ export function useChecklistState(selectedWorkspaceId: string) {
     addChecklist,
     updateChecklist,
     deleteChecklist,
+    toggleArchiveChecklist,
     toggleChecklistItem,
     addChecklistItem,
     deleteChecklistItem,

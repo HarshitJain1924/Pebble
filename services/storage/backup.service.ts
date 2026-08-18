@@ -91,9 +91,14 @@ export class BackupService {
    * Restores application state from a structured JSON backup.
    */
   static async restoreStructuredBackup(jsonString: string): Promise<void> {
-    const parsed = JSON.parse(jsonString) as Partial<AppBackup>;
+    let parsed: Partial<AppBackup>;
+    try {
+      parsed = JSON.parse(jsonString) as Partial<AppBackup>;
+    } catch (e) {
+      throw new Error("Invalid backup format: Not valid JSON.");
+    }
 
-    if (!parsed.version || !parsed.workspaces) {
+    if (!parsed.version || !parsed.workspaces || !Array.isArray(parsed.workspaces)) {
       throw new Error("Invalid backup format: missing version or core data.");
     }
 
@@ -103,59 +108,94 @@ export class BackupService {
       );
     }
 
-    // 1. Clear existing domain data to avoid merging orphaned items
-    await clearRepositoryStorage();
+    const workspaceIds = new Set([INBOX_WORKSPACE_ID, ...parsed.workspaces.map((w: Workspace) => w.id)]);
+    const kvPairsToSet: [string, string][] = [];
 
-    // 2. Restore Workspaces
-    await WorkspaceRepository.saveWorkspaces(parsed.workspaces || []);
+    // Stage Workspaces
+    kvPairsToSet.push(["pebble:v1:workspaces", JSON.stringify(parsed.workspaces)]);
 
-    // 3. Restore Workspace-Scoped Entities
-    const workspaceIds = Array.from(new Set([INBOX_WORKSPACE_ID, ...(parsed.workspaces || []).map((w) => w.id)]));
-    
+    // Stage Workspace-Scoped Entities
     const tasksByWs = this.groupByWorkspace(parsed.tasks || []);
     const habitsByWs = this.groupByWorkspace(parsed.habits || []);
     const checklistsByWs = this.groupByWorkspace(parsed.checklists || []);
     const resourcesByWs = this.groupByWorkspace(parsed.resources || []);
 
-    for (const wsId of workspaceIds) {
-      await TaskRepository.saveTasks(tasksByWs[wsId] || [], wsId);
-      
+    for (const wsId of Array.from(workspaceIds)) {
+      const tsMap: Record<string, Task> = {};
+      (tasksByWs[wsId] || []).forEach((t: Task) => tsMap[t.id] = t);
+      kvPairsToSet.push([`pebble:v1:tasks:${wsId}`, JSON.stringify(tsMap)]);
+
       const hsMap: Record<string, Habit> = {};
       (habitsByWs[wsId] || []).forEach((h: Habit) => hsMap[h.id] = h);
-      await AsyncStorage.setItem(`pebble:v1:habits:${wsId}`, JSON.stringify(hsMap));
+      kvPairsToSet.push([`pebble:v1:habits:${wsId}`, JSON.stringify(hsMap)]);
 
       const csMap: Record<string, Checklist> = {};
       (checklistsByWs[wsId] || []).forEach((c: Checklist) => csMap[c.id] = c);
-      await AsyncStorage.setItem(`pebble:v1:checklists:${wsId}`, JSON.stringify(csMap));
+      kvPairsToSet.push([`pebble:v1:checklists:${wsId}`, JSON.stringify(csMap)]);
 
       const rsMap: Record<string, Resource> = {};
       (resourcesByWs[wsId] || []).forEach((r: Resource) => rsMap[r.id] = r);
-      await AsyncStorage.setItem(`pebble:v1:resources:${wsId}`, JSON.stringify(rsMap));
+      kvPairsToSet.push([`pebble:v1:resources:${wsId}`, JSON.stringify(rsMap)]);
     }
 
-    // 4. Restore Global Entities
+    // Stage Global Entities
     if (parsed.recycleBin && parsed.recycleBin.length > 0) {
-      await RecycleBinRepository.saveRecycleBinItems(parsed.recycleBin, { throwOnError: false });
+      kvPairsToSet.push(["pebble:v1:recycle_bin", JSON.stringify(parsed.recycleBin)]);
+    } else {
+      kvPairsToSet.push(["pebble:v1:recycle_bin", "[]"]);
     }
 
     if (parsed.focusSessions && parsed.focusSessions.length > 0) {
-      await AsyncStorage.setItem("pebble:v1:focus_sessions", JSON.stringify(parsed.focusSessions));
+      kvPairsToSet.push(["pebble:v1:focus_sessions", JSON.stringify(parsed.focusSessions)]);
+    } else {
+      kvPairsToSet.push(["pebble:v1:focus_sessions", "[]"]);
     }
 
     if (parsed.systemEvents && parsed.systemEvents.length > 0) {
-      await AsyncStorage.setItem("pebble:v1:system_event_log", JSON.stringify(parsed.systemEvents));
+      kvPairsToSet.push(["pebble:v1:system_event_log", JSON.stringify(parsed.systemEvents)]);
+    } else {
+      kvPairsToSet.push(["pebble:v1:system_event_log", "[]"]);
     }
 
     if (parsed.relationships && parsed.relationships.length > 0) {
       const relMap: Record<string, Relationship> = {};
-      parsed.relationships.forEach(r => relMap[r.id] = r);
-      await AsyncStorage.setItem("pebble:v1:relationships", JSON.stringify(relMap));
+      parsed.relationships.forEach((r: Relationship) => relMap[r.id] = r);
+      kvPairsToSet.push(["pebble:v1:relationships", JSON.stringify(relMap)]);
+    } else {
+      kvPairsToSet.push(["pebble:v1:relationships", "{}"]);
     }
-    GraphRepository.resetCache();
 
-    // 5. Restore Settings & Profile
-    if (parsed.settings) await saveSettings(parsed.settings);
-    if (parsed.profile) await saveProfile(parsed.profile);
+    // Stage Settings & Profile
+    if (parsed.settings) kvPairsToSet.push(["pebble:settings", JSON.stringify(parsed.settings)]);
+    if (parsed.profile) kvPairsToSet.push(["pebble:profile", JSON.stringify(parsed.profile)]);
+
+    // Snapshot Current State
+    const allKeys = await AsyncStorage.getAllKeys();
+    const keysToRemove = allKeys.filter((key) => {
+      return key.startsWith("pebble:");
+    });
+
+    // Read current values to allow rollback
+    const currentDataRaw = await AsyncStorage.multiGet(keysToRemove);
+    const validRollbackData = currentDataRaw.filter(pair => pair[1] !== null) as [string, string][];
+
+    try {
+      // Execute Atomic Write
+      await AsyncStorage.multiRemove(keysToRemove);
+      await AsyncStorage.multiSet(kvPairsToSet);
+      GraphRepository.resetCache();
+    } catch (e) {
+      // Rollback on Failure
+      console.warn("[BackupService] Restore failed during write. Attempting rollback...", e);
+      try {
+        const newlySetKeys = kvPairsToSet.map(k => k[0]);
+        await AsyncStorage.multiRemove(newlySetKeys);
+        await AsyncStorage.multiSet(validRollbackData);
+      } catch (rollbackError) {
+        console.error("[BackupService] CRITICAL: Rollback failed!", rollbackError);
+      }
+      throw e;
+    }
   }
 
   private static groupByWorkspace<T extends { workspaceId?: string }>(items: T[]): Record<string, T[]> {

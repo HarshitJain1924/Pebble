@@ -716,7 +716,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
               showsVerticalScrollIndicator={false}
             >
               {workspaces
-                .filter((ws) => !(ws as any).archived)
+                .filter((ws) => !ws.archivedAt)
                 .map((ws) => (
                   <TouchableOpacity
                     key={ws.id}

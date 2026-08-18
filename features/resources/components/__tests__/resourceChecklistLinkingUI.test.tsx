@@ -78,10 +78,19 @@ describe("Resource -> Checklist Linking UI & Persistence Suite", () => {
       );
     });
 
-    // Open detail menu for resource by clicking AppCard
+    // Open detail menu for resource by clicking moreButton
     const appCard = renderer.root.findByType(require("@/shared/components/ui/AppCard").AppCard);
+    const touchablesCard1 = appCard.findAllByType(TouchableOpacity);
+    const moreBtn1 = touchablesCard1.find((t: any) => {
+      try {
+        const icon = t.findByType(require("@expo/vector-icons").Feather);
+        return icon.props.name === "more-vertical";
+      } catch {
+        return false;
+      }
+    });
     await act(async () => {
-      appCard.props.onPress();
+      moreBtn1.props.onPress();
     });
 
     await act(async () => {
@@ -143,8 +152,17 @@ describe("Resource -> Checklist Linking UI & Persistence Suite", () => {
 
     // Open detail modal then link modal
     const appCard = renderer.root.findByType(require("@/shared/components/ui/AppCard").AppCard);
+    const touchablesCard2 = appCard.findAllByType(TouchableOpacity);
+    const moreBtn2 = touchablesCard2.find((t: any) => {
+      try {
+        const icon = t.findByType(require("@expo/vector-icons").Feather);
+        return icon.props.name === "more-vertical";
+      } catch {
+        return false;
+      }
+    });
     await act(async () => {
-      appCard.props.onPress();
+      moreBtn2.props.onPress();
     });
     await act(async () => {
       await Promise.resolve();

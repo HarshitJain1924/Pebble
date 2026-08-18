@@ -105,5 +105,14 @@ export function useHabitDetailForm() {
     }));
   }, []);
 
-  return { form, update, reset, toggleDay };
+  const toggleResource = useCallback((id: string) => {
+    setForm((current) => ({
+      ...current,
+      linkedCollectionIds: current.linkedCollectionIds.includes(id)
+        ? current.linkedCollectionIds.filter((resId) => resId !== id)
+        : [...current.linkedCollectionIds, id],
+    }));
+  }, []);
+
+  return { form, update, reset, toggleDay, toggleResource };
 }

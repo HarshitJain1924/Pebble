@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import * as DocumentPicker from "expo-document-picker";
+import { useRouter } from "expo-router";
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Alert,
@@ -60,8 +61,9 @@ export function ResourceSection({
   onToggleLinkResource,
   focusResourceId,
 }: ResourceSectionProps) {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme ?? "dark"];
+  const router = useRouter();
+  const themeName = useColorScheme() ?? "dark";
+  const theme = Colors[themeName];
 
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [isAddingResource, setIsAddingResource] = useState(false);
@@ -303,7 +305,7 @@ export function ResourceSection({
               <PressableScale
                 key={res.id}
                 style={[styles.quickAccessCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setSelectedResource(res)}
+                onPress={() => router.push(`/resource-details?id=${res.id}&workspaceId=${activeFolderId}`)}
               >
                 <View style={styles.quickCardHeader}>
                   <View style={[styles.typeBadge, { backgroundColor: getColorForType(res.type) + "20" }]}>
@@ -338,7 +340,7 @@ export function ResourceSection({
               <AppCard
                 key={res.id}
                 style={[styles.resourceCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setSelectedResource(res)}
+                onPress={() => router.push(`/resource-details?id=${res.id}&workspaceId=${activeFolderId}`)}
               >
                 <View style={styles.cardMainRow}>
                   <View style={[styles.iconContainer, { backgroundColor: iconColor + "18" }]}>

@@ -114,21 +114,16 @@ export function useResourceState(
   const toggleArchiveResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
       const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
-      const existing = await ResourceRepository.getResource(resourceId, wsId);
-      if (!existing) return;
-
-      const isArchived = !!existing.archivedAt;
-      const updatedResource: Resource = {
-        ...existing,
-        archivedAt: isArchived ? undefined : Date.now(),
-        updatedAt: Date.now(),
-      };
-      await EntityCommandService.updateResource(updatedResource.id, wsId, updatedResource, { skipEvents: true, skipAnalytics: true });
+      
+      const { isArchived } = await EntityCommandService.toggleArchiveResource(resourceId, wsId, { 
+        skipEvents: true, 
+        skipAnalytics: true 
+      });
 
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      showToast(isArchived ? "✓ Resource unarchived" : "✓ Resource archived");
+      showToast(isArchived ? "✓ Resource archived" : "✓ Resource unarchived");
     } catch (e) {
       console.warn("Failed to toggle archive resource", e);
     }

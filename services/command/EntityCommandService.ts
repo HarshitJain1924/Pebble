@@ -242,12 +242,131 @@ export class EntityCommandService {
       if (workspaceId === INBOX_WORKSPACE_ID || workspaceId === MY_PEBBLES_WORKSPACE_ID) {
         throw new Error("Cannot delete protected workspace.");
       }
+
+      // 1. Fetch complete workspace snapshot
+      const workspaces = await WorkspaceRepository.getWorkspaces();
+      const workspace = workspaces.find((w) => w.id === workspaceId);
+      if (!workspace) throw new Error("Workspace not found");
+
+      const { TaskRepository } = await import("@/repositories/TaskRepository");
+      const { HabitRepository } = await import("@/repositories/HabitRepository");
+      const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+      const { ResourceRepository } = await import("@/repositories/ResourceRepository");
+      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+      const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+
+      const todosMap = await TaskRepository.getTasks(workspaceId);
+      const habitsMap = await HabitRepository.getHabits(workspaceId);
+      const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+      const resourcesMap = await ResourceRepository.getResources(workspaceId);
+
+      const todos = Object.values(todosMap);
+      const habits = Object.values(habitsMap);
+      const checklists = Object.values(checklistsMap);
+      const resources = Object.values(resourcesMap);
+
+      // 2. Cancel notifications
+      const notificationIdsToCancel: string[] = [];
+      for (const todo of todos) {
+        if (todo.reminder?.notificationIds) {
+          notificationIdsToCancel.push(...todo.reminder.notificationIds);
+        }
+      }
+      for (const habit of habits) {
+        if (habit.reminder?.notificationIds) {
+          notificationIdsToCancel.push(...habit.reminder.notificationIds);
+        }
+      }
+      if (notificationIdsToCancel.length > 0) {
+        await cancelReminderIds(notificationIdsToCancel);
+      }
+
+      // 3. Add to Recycle Bin
+      await RecycleBinRepository.addToRecycleBin(
+        "workspace",
+        {
+          list: workspace,
+          todos,
+          habits,
+          checklists,
+          resources,
+        },
+        "Workspaces",
+        { throwOnError: true }
+      );
+
+      // 4. Remove active partitions to prevent ghost data
+      const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+      await AsyncStorage.multiRemove([
+        `pebble:v1:tasks:${workspaceId}`,
+        `pebble:v1:habits:${workspaceId}`,
+        `pebble:v1:checklists:${workspaceId}`,
+        `pebble:v1:resources:${workspaceId}`,
+      ]);
+
+      // 5. Delete Workspace record
       await WorkspaceRepository.deleteWorkspace(workspaceId);
+
       emitStateChange("workspace_changed", "tasks_screen");
+      void recordDailyHistorySnapshot().catch(() => {});
     } catch (e) {
       console.warn("Failed to delete workspace", e);
       throw e;
     }
+  }
+
+  /**
+   * Archive a Workspace entity.
+   * This is a foundation command. It marks the workspace as archived
+   * but does not cascade to children. Contextual filtering of children
+   * is handled by selectors.
+   */
+  static async archiveWorkspace(workspaceId: string): Promise<void> {
+    if (workspaceId === INBOX_WORKSPACE_ID || workspaceId === MY_PEBBLES_WORKSPACE_ID) {
+      throw new Error("Cannot archive protected workspace.");
+    }
+
+    const workspaces = await WorkspaceRepository.getWorkspaces();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+
+    if (workspace.archivedAt) {
+      // Already archived, idempotent
+      return;
+    }
+
+    const updated = {
+      ...workspace,
+      archivedAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await WorkspaceRepository.saveWorkspace(updated);
+    emitStateChange("workspace_changed");
+  }
+
+  /**
+   * Restore an archived Workspace entity.
+   * Restores the workspace to active state without touching children.
+   */
+  static async restoreWorkspaceArchive(workspaceId: string): Promise<void> {
+    const workspaces = await WorkspaceRepository.getWorkspaces();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+
+    if (!workspace.archivedAt) {
+      // Already active, idempotent
+      return;
+    }
+
+    const updated = {
+      ...workspace,
+      archivedAt: undefined,
+      updatedAt: Date.now(),
+    };
+
+    await WorkspaceRepository.saveWorkspace(updated);
+    emitStateChange("workspace_changed");
   }
 
   /**
@@ -2031,6 +2150,26 @@ export class EntityCommandService {
         console.warn(`[EntityCommandService] Failed to restore habits for workspace ${workspace.id}`, e);
       }
     }
+    if (Array.isArray(parsed?.checklists) && parsed.checklists.length > 0) {
+      try {
+        const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+        for (const checklist of parsed.checklists) {
+          await ChecklistRepository.saveChecklist({ ...checklist, workspaceId: workspace.id });
+        }
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to restore checklists for workspace ${workspace.id}`, e);
+      }
+    }
+    if (Array.isArray(parsed?.resources) && parsed.resources.length > 0) {
+      try {
+        const { ResourceRepository } = await import("@/repositories/ResourceRepository");
+        for (const resource of parsed.resources) {
+          await ResourceRepository.saveResource({ ...resource, workspaceId: workspace.id });
+        }
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to restore resources for workspace ${workspace.id}`, e);
+      }
+    }
 
     // 6. Remove the bin entry only after active persistence succeeded.
     const remainingBinItems = binItems.filter((i) => i.id !== item.id);
@@ -2078,6 +2217,26 @@ export class EntityCommandService {
     if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     return updated;
+  }
+
+  static async toggleArchiveResource(
+    resourceId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<{ resource: Resource, isArchived: boolean }> {
+    const map = await ResourceRepository.getResources(workspaceId);
+    const existing = map[resourceId];
+    if (!existing) throw new Error(`Resource ${resourceId} not found`);
+    
+    const isArchived = !!existing.archivedAt;
+    const updated = await this.updateResource(
+      resourceId,
+      workspaceId,
+      { archivedAt: isArchived ? undefined : Date.now() },
+      options
+    );
+
+    return { resource: updated, isArchived: !isArchived };
   }
 
   static async moveHabit(
