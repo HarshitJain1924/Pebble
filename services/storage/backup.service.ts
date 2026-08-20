@@ -8,9 +8,12 @@ import {
   GraphRepository,
 } from "@/repositories";
 import { RecycleBinRepository } from "@/repositories/RecycleBinRepository";
-import { getSettings, getProfile, saveSettings, saveProfile } from "@/features/settings/services/settings.service";
+import { getSettings, getProfile } from "@/features/settings/services/settings.service";
 import { INBOX_WORKSPACE_ID, type Workspace, type Task, type Habit, type Checklist, type Resource, type FocusSession, type Relationship, type SystemEventLog } from "@/shared/types/domain.types";
 import { clearRepositoryStorage } from "./storage-utils";
+import { deduplicateEntities } from "@/shared/utils/deduplication";
+import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import * as Notifications from "expo-notifications";
 
 export interface AppBackup {
   version: number;
@@ -33,6 +36,8 @@ export class BackupService {
    * Generates a structured JSON backup of the entire application state.
    */
   static async generateStructuredBackup(): Promise<string> {
+    await MoveReconcilerService.reconcileAll();
+
     const workspaces = await WorkspaceRepository.getWorkspaces();
     const workspaceIds = Array.from(new Set([INBOX_WORKSPACE_ID, ...workspaces.map((w) => w.id)]));
 
@@ -68,15 +73,36 @@ export class BackupService {
     const settings = await getSettings();
     const profile = await getProfile();
 
+    const stripNotificationIds = <T extends { reminder?: { notificationIds?: string[] } }>(entity: T): T => {
+      if (entity.reminder && entity.reminder.notificationIds) {
+        return {
+          ...entity,
+          reminder: {
+            ...entity.reminder,
+            notificationIds: undefined,
+          },
+        };
+      }
+      return entity;
+    };
+
     const backup: AppBackup = {
       version: 1,
       timestamp: Date.now(),
       workspaces,
-      tasks,
-      habits,
-      checklists,
-      resources,
-      recycleBin,
+      tasks: deduplicateEntities(tasks.map(stripNotificationIds)),
+      habits: deduplicateEntities(habits.map(stripNotificationIds)),
+      checklists: deduplicateEntities(checklists),
+      resources: deduplicateEntities(resources),
+      recycleBin: recycleBin.map(binItem => {
+        if (binItem.entityType === 'task' || binItem.entityType === 'habit') {
+           try {
+             const parsed = JSON.parse(binItem.snapshot);
+             return { ...binItem, snapshot: JSON.stringify(stripNotificationIds(parsed)) };
+           } catch { return binItem; }
+        }
+        return binItem;
+      }),
       focusSessions,
       relationships,
       systemEvents,
@@ -180,9 +206,12 @@ export class BackupService {
     const validRollbackData = currentDataRaw.filter(pair => pair[1] !== null) as [string, string][];
 
     try {
-      // Execute Atomic Write
+      // Execute Atomic Write (Domain Commit Point)
       await AsyncStorage.multiRemove(keysToRemove);
       await AsyncStorage.multiSet(kvPairsToSet);
+      
+      // Explicitly reconcile any pending moves that might have been backed up.
+      await MoveReconcilerService.reconcileAll();
       GraphRepository.resetCache();
     } catch (e) {
       // Rollback on Failure
@@ -195,6 +224,18 @@ export class BackupService {
         console.error("[BackupService] CRITICAL: Rollback failed!", rollbackError);
       }
       throw e;
+    }
+
+    // Attempt OS Notification flush AFTER successful domain commit.
+    // Pre-restore notifications MUST NOT survive, as they may share item IDs
+    // but have entirely different schedules in the incoming backup.
+    // If this fails, the reconciler will eventually repair it, but we MUST NOT roll back domain state.
+    try {
+      if (typeof Notifications.cancelAllScheduledNotificationsAsync === "function") {
+        await Notifications.cancelAllScheduledNotificationsAsync();
+      }
+    } catch (e) {
+      console.warn("[BackupService] Failed to flush OS notifications after successful restore.", e);
     }
   }
 

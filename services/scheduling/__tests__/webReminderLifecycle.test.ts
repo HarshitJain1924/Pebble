@@ -217,18 +217,12 @@ describe("web reminder lifecycle", () => {
       reminder: { enabled: true, triggerAt: now + 60_000, notificationIds: first.ids },
     });
 
-    const second = await scheduleReminderBatch({
-      kind: "todo",
-      itemId: "task-edit",
-      title: "Edit me",
-      oneTimeAt: new Date(now + 300_000),
-      escalationMinutes: [],
-    });
     await EntityCommandService.updateTask("task-edit", "ws-1", {
-      reminder: { enabled: true, triggerAt: now + 300_000, notificationIds: second.ids },
+      reminder: { enabled: true, triggerAt: now + 300_000 },
     });
 
     // Old schedule must not fire at 60s; the new one fires exactly once at 300s.
+    for (let i = 0; i < 10; i++) await Promise.resolve(); // Drain nested microtasks (Promise.all in cancelReminderIds)
     jest.advanceTimersByTime(61_000);
     expect(alertSpy).not.toHaveBeenCalled();
     jest.advanceTimersByTime(240_000);
@@ -263,6 +257,7 @@ describe("web reminder lifecycle", () => {
     ).toBe(true);
 
     // Exactly one schedule fires at the trigger time — no duplicate old timers.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
     jest.advanceTimersByTime(61_000);
     expect(alertSpy).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(10 * 60_000);
@@ -289,6 +284,7 @@ describe("web reminder lifecycle", () => {
     // instead of stacking a second one.
     await rearmWebReminders(first);
 
+    for (let i = 0; i < 10; i++) await Promise.resolve();
     jest.advanceTimersByTime(61_000);
     expect(alertSpy).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(10 * 60_000);

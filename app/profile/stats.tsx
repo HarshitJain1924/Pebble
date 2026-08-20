@@ -20,8 +20,13 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 import { getProfile } from "@/features/settings/services/settings.service";
 import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
-import { WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
+import {
+  WorkspaceRepository,
+  TaskRepository,
+  HabitRepository,
+} from "@/repositories";
 import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 import { CategoryChip } from "@/shared/components/design-system";
 import {
@@ -98,21 +103,33 @@ export default function StatsScreen() {
       const workspaceCounts: Record<string, number> = {};
       let mostProductiveWorkspace = "Inbox";
 
+      const allTasksRaw: any[] = [];
+      const allHabitsRaw: any[] = [];
+
       for (const fId of folderIds) {
-        const tasksMap = await TaskRepository.getTasks(fId);
-        const tasks = Object.values(tasksMap);
-        totalTasks += tasks.length;
-        tasks.forEach((todo) => {
-          if (isTaskCompleted(todo)) {
-            totalCompletedTodos++;
-            if (todo.categoryId) {
-              const cat = todo.categoryId.toLowerCase();
-              categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
-            }
-            workspaceCounts[fId] = (workspaceCounts[fId] ?? 0) + 1;
-          }
-        });
+        const [tasksMap, habitsMap] = await Promise.all([
+          TaskRepository.getTasks(fId),
+          HabitRepository.getHabits(fId),
+        ]);
+        allTasksRaw.push(...Object.values(tasksMap));
+        allHabitsRaw.push(...Object.values(habitsMap));
       }
+
+      const tasks = deduplicateEntities(allTasksRaw);
+      const habits = deduplicateEntities(allHabitsRaw);
+
+      totalTasks = tasks.length;
+      tasks.forEach((todo) => {
+        if (isTaskCompleted(todo)) {
+          totalCompletedTodos++;
+          if (todo.categoryId) {
+            const cat = todo.categoryId.toLowerCase();
+            categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+          }
+          const fId = todo.workspaceId || INBOX_WORKSPACE_ID;
+          workspaceCounts[fId] = (workspaceCounts[fId] ?? 0) + 1;
+        }
+      });
 
       let maxCount = 0;
       let bestFolderId = INBOX_WORKSPACE_ID;
@@ -132,19 +149,16 @@ export default function StatsScreen() {
       let strongestHabitName = "None yet";
       let strongestHabitStreak = 0;
 
-      for (const fId of folderIds) {
-        const habitsMap = await HabitRepository.getHabits(fId);
-        Object.values(habitsMap).forEach((h) => {
-          if (isHabitCompletedToday(h, todayStr)) totalCompletedHabits++;
-          streak = Math.max(streak, h.streak || 0);
-          bestStreak = Math.max(bestStreak, h.bestStreak || 0);
-          const hStreak = Math.max(h.streak || 0, h.bestStreak || 0);
-          if (hStreak > strongestHabitStreak) {
-            strongestHabitStreak = hStreak;
-            strongestHabitName = h.title;
-          }
-        });
-      }
+      habits.forEach((h) => {
+        if (isHabitCompletedToday(h, todayStr)) totalCompletedHabits++;
+        streak = Math.max(streak, h.streak || 0);
+        bestStreak = Math.max(bestStreak, h.bestStreak || 0);
+        const hStreak = Math.max(h.streak || 0, h.bestStreak || 0);
+        if (hStreak > strongestHabitStreak) {
+          strongestHabitStreak = hStreak;
+          strongestHabitName = h.title;
+        }
+      });
 
       // Query Lifetime History
       const rawHistory = await AsyncStorage.getItem("pebble:history");

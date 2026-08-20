@@ -11,6 +11,7 @@ import type {
   Task,
   Workspace,
 } from "@/shared/types/domain.types";
+import { deduplicateEntities, deduplicateEntityMap } from "@/shared/utils/deduplication";
 
 export interface WorkspaceData {
   todosMap: Record<string, Task[]>;
@@ -91,5 +92,10 @@ export async function loadWorkspaceData(
     );
   }
 
-  return { todosMap, habits, checklistsMap, resourcesMap };
+  return {
+    todosMap: deduplicateEntityMap(todosMap),
+    habits: deduplicateEntities(habits),
+    checklistsMap: deduplicateEntityMap(checklistsMap),
+    resourcesMap: deduplicateEntityMap(resourcesMap),
+  };
 }

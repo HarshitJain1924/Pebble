@@ -239,3 +239,16 @@ export interface SystemEventLog {
   timestamp: number;
   metadata?: Record<string, any>;
 }
+
+/**
+ * 14. MoveJournalEntry Entity
+ */
+export interface MoveJournalEntry {
+  operationId: string;
+  operationType?: "move" | "recycle" | "restore";
+  entityId: string;
+  entityType: "task" | "habit" | "checklist" | "resource" | "workspace";
+  sourceWorkspaceId: string;
+  targetWorkspaceId: string;
+  timestamp: number;
+}

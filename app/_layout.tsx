@@ -23,7 +23,8 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import NotificationListener from "@/shared/components/ui/NotificationListener";
 
 import { cleanupRecycleBin } from "@/services/storage/storage.service";
-
+import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -58,7 +59,17 @@ export default function RootLayout() {
     const checkOnboarding = async () => {
       try {
 
+        await MoveReconcilerService.reconcileAll();
+        await MoveReconcilerService.reconcileHistoricalGhosts();
         await cleanupRecycleBin();
+        
+        // Notification reconciliation must finish before the UI mounts
+        // to prevent races with user mutations, but failure must not crash startup.
+        try {
+          await NotificationReconcilerService.reconcileAll();
+        } catch (e) {
+          console.warn("[RootLayout] Failed to run NotificationReconcilerService", e);
+        }
 
         const completed = await AsyncStorage.getItem(
           "todoapp:onboarding_completed",

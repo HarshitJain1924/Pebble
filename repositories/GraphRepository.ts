@@ -89,6 +89,31 @@ export class GraphRepository {
     });
   }
 
+  static async deleteRelationshipsForEntities(entityIds: string[]): Promise<void> {
+    if (!entityIds.length) return;
+    return withLock(this.RELATIONSHIPS_KEY, async () => {
+      await this.ensureLoaded();
+      const idsSet = new Set(entityIds);
+      let changed = false;
+      
+      for (const id of Object.keys(this.relationships)) {
+        const rel = this.relationships[id];
+        if (idsSet.has(rel.source.id) || idsSet.has(rel.target.id)) {
+          delete this.relationships[id];
+          changed = true;
+        }
+      }
+      
+      if (changed) {
+        this.rebuildIndex();
+        await AsyncStorage.setItem(
+          this.RELATIONSHIPS_KEY,
+          JSON.stringify(this.relationships),
+        );
+      }
+    });
+  }
+
   static async getBacklinks(itemId: string): Promise<Relationship[]> {
     return withLock(this.RELATIONSHIPS_KEY, async () => {
       await this.ensureLoaded();

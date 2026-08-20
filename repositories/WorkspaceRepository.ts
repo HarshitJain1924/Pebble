@@ -39,7 +39,7 @@ export class WorkspaceRepository {
     }
   }
 
-  static async saveWorkspace(workspace: Workspace): Promise<void> {
+  static async saveWorkspace(workspace: Workspace, options?: { throwOnError?: boolean }): Promise<void> {
     try {
       await withLock(WORKSPACES_KEY, async () => {
         const workspaces = await this.getWorkspaces();
@@ -55,22 +55,24 @@ export class WorkspaceRepository {
         await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
       });
     } catch (e) {
+      if (options?.throwOnError) throw e;
       console.warn("Failed to save workspace", e);
     }
   }
 
-  static async saveWorkspaces(workspaces: Workspace[]): Promise<void> {
+  static async saveWorkspaces(workspaces: Workspace[], options?: { throwOnError?: boolean }): Promise<void> {
     try {
       await withLock(WORKSPACES_KEY, async () => {
         const normalized = workspaces.map(normalizeWorkspace);
         await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(normalized));
       });
     } catch (e) {
+      if (options?.throwOnError) throw e;
       console.warn("Failed to save workspaces batch", e);
     }
   }
 
-  static async deleteWorkspace(id: string): Promise<void> {
+  static async deleteWorkspace(id: string, options?: { throwOnError?: boolean }): Promise<void> {
     if (id === INBOX_WORKSPACE_ID || id === MY_PEBBLES_WORKSPACE_ID) {
       console.warn(`Cannot delete protected workspace: ${id}`);
       return;
@@ -82,6 +84,7 @@ export class WorkspaceRepository {
         await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
       });
     } catch (e) {
+      if (options?.throwOnError) throw e;
       console.warn("Failed to delete workspace", e);
     }
   }

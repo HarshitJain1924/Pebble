@@ -30,6 +30,7 @@ export type ReminderScheduleOptions = {
   context?: ReminderContext;
   /** Only accepts the scheduler's internal recurrence format. */
   recurrence?: SchedulerRecurrence;
+  logicalSignature?: string;
 };
 
 export type ScheduledReminderBatch = {
@@ -137,11 +138,13 @@ function buildNotificationData(
   kind: ReminderKind,
   itemId: string,
   escalationLevel: number,
+  logicalSignature?: string,
 ) {
   return {
     type: kind,
     itemId,
     escalationLevel,
+    logicalSignature,
   };
 }
 
@@ -366,7 +369,12 @@ export async function scheduleReminderBatch(
       options.context ?? { title: options.title },
       index,
     );
-    const data = buildNotificationData(options.kind, options.itemId, index);
+    const data = buildNotificationData(
+      options.kind,
+      options.itemId,
+      index,
+      options.logicalSignature,
+    );
 
     if (options.oneTimeAt) {
       const triggerDate = new Date(
@@ -800,6 +808,7 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
           recurrence: recurrenceRuleToScheduler(todo.recurrence),
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+          logicalSignature: todo.reminder.triggerAt.toString(),
         });
         return {
           ...todo,
@@ -819,6 +828,7 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
         category: todo.categoryId,
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+        logicalSignature: todo.reminder.triggerAt.toString(),
       });
       return {
         ...todo,
@@ -864,6 +874,7 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
           recurrence: recurrenceRuleToScheduler(habit.recurrence),
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+          logicalSignature: habit.reminder.triggerAt.toString(),
         });
         return {
           ...habit,
@@ -883,6 +894,7 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
         category: habit.categoryId,
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+        logicalSignature: habit.reminder.triggerAt.toString(),
       });
       return {
         ...habit,

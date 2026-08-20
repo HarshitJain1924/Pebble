@@ -23,6 +23,7 @@ import {
   INBOX_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
+import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { TaskRepository } from "@/repositories/TaskRepository";
 import { HabitRepository } from "@/repositories/HabitRepository";
 import { ChecklistRepository } from "@/repositories/ChecklistRepository";
@@ -428,7 +429,7 @@ export async function analyzeDuplicate(
       }
     }
 
-    const allEntities: AnyEntity[] = [];
+    const allEntities: any[] = [];
 
     for (const wsId of workspacesToScan) {
       const [tasksMap, habitsMap, checklistsMap, resourcesMap] = await Promise.all([
@@ -444,7 +445,8 @@ export async function analyzeDuplicate(
       allEntities.push(...Object.values(resourcesMap));
     }
 
-    return analyzeDuplicateAgainstEntities(candidate, targetWorkspaceId, allEntities);
+    const dedupedEntities = deduplicateEntities(allEntities);
+    return analyzeDuplicateAgainstEntities(candidate, targetWorkspaceId, dedupedEntities);
   } catch (error) {
     console.warn("DuplicateDetectionService.analyzeDuplicate error:", error);
     return { isPotentialDuplicate: false, confidence: 0 };

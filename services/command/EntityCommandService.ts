@@ -26,6 +26,8 @@ import { syncWidgetData } from "@/services/analytics/widget-data.service";
 
 import { earnPebble, reversePebbleReward } from "@/features/profile/services/pebble.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
+import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
+import { generateId } from "@/shared/utils/id";
 import { pluginManager } from "@/plugin";
 import {
   getTodayDateKey,
@@ -42,6 +44,7 @@ import {
   type Resource,
   type Workspace,
   type RecycleBinItem,
+  type MoveJournalEntry,
   INBOX_WORKSPACE_ID,
   MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
@@ -178,6 +181,7 @@ async function restoreEntityFromBin<T>(
   eventName: "checklists_changed" | "resources_changed" | "workspace_mode_changed",
   options: CreateEntityOptions | undefined,
   persist: (entity: T) => Promise<void>,
+  rollback: (entity: T) => Promise<void>,
 ): Promise<T> {
   const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
   const { emitStateChange } = await import("@/services/events/state-events");
@@ -188,11 +192,32 @@ async function restoreEntityFromBin<T>(
     throw new Error(`RecycleBin item not found or not ${entityType}`);
   }
 
-  const parsedData = JSON.parse(item.snapshot) as T;
+  const parsedData = JSON.parse(item.snapshot) as T & { workspaceId?: string };
+  const targetWorkspaceId = parsedData.workspaceId || "inbox";
+  const { generateId } = await import("@/shared/utils/id");
+  const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+  const operationId = `restore-${generateId()}`;
+  
+  await MoveJournalRepository.addOperation({
+    operationId,
+    operationType: "restore",
+    entityId: item.entityId,
+    entityType,
+    sourceWorkspaceId: targetWorkspaceId,
+    targetWorkspaceId,
+    timestamp: Date.now(),
+  });
+
   await persist(parsedData);
 
-  const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
-  await saveRecycleBinItems(remainingBinItems);
+  try {
+    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
+    await saveRecycleBinItems(remainingBinItems, { throwOnError: true });
+  } catch (e) {
+    console.warn(`[EntityCommandService] Failed to remove entity from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+  }
+
+  await MoveJournalRepository.removeOperation(operationId);
 
   if (!options?.skipEvents) emitStateChange(eventName, options?.source);
   return parsedData;
@@ -243,8 +268,10 @@ export class EntityCommandService {
         throw new Error("Cannot delete protected workspace.");
       }
 
-      // 1. Fetch complete workspace snapshot
-      const workspaces = await WorkspaceRepository.getWorkspaces();
+      const { withLock } = await import("@/shared/utils/mutex");
+      await withLock(`ws_lifecycle_${workspaceId}`, async () => {
+        // 1. Fetch complete workspace snapshot
+        const workspaces = await WorkspaceRepository.getWorkspaces();
       const workspace = workspaces.find((w) => w.id === workspaceId);
       if (!workspace) throw new Error("Workspace not found");
 
@@ -265,23 +292,7 @@ export class EntityCommandService {
       const checklists = Object.values(checklistsMap);
       const resources = Object.values(resourcesMap);
 
-      // 2. Cancel notifications
-      const notificationIdsToCancel: string[] = [];
-      for (const todo of todos) {
-        if (todo.reminder?.notificationIds) {
-          notificationIdsToCancel.push(...todo.reminder.notificationIds);
-        }
-      }
-      for (const habit of habits) {
-        if (habit.reminder?.notificationIds) {
-          notificationIdsToCancel.push(...habit.reminder.notificationIds);
-        }
-      }
-      if (notificationIdsToCancel.length > 0) {
-        await cancelReminderIds(notificationIdsToCancel);
-      }
-
-      // 3. Add to Recycle Bin
+      // 3. Add to Recycle Bin (Safe operation first)
       await RecycleBinRepository.addToRecycleBin(
         "workspace",
         {
@@ -295,20 +306,59 @@ export class EntityCommandService {
         { throwOnError: true }
       );
 
-      // 4. Remove active partitions to prevent ghost data
-      const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
-      await AsyncStorage.multiRemove([
-        `pebble:v1:tasks:${workspaceId}`,
-        `pebble:v1:habits:${workspaceId}`,
-        `pebble:v1:checklists:${workspaceId}`,
-        `pebble:v1:resources:${workspaceId}`,
-      ]);
+      // 4. Delete Workspace record (Commit Point)
+      await WorkspaceRepository.deleteWorkspace(workspaceId, { throwOnError: true });
 
-      // 5. Delete Workspace record
-      await WorkspaceRepository.deleteWorkspace(workspaceId);
+      // 5. Async Cleanup (Fire and forget)
+      const cleanup = async () => {
+        try {
+          // 5a. Delete graph relationships
+          const allEntityIds = [
+            ...todos.map(t => t.id),
+            ...habits.map(h => h.id),
+            ...checklists.map(c => c.id),
+            ...resources.map(r => r.id),
+          ];
+          if (allEntityIds.length > 0) {
+            await GraphRepository.deleteRelationshipsForEntities(allEntityIds);
+          }
 
+          // 5b. Remove active partitions
+          const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+          await AsyncStorage.multiRemove([
+            `pebble:v1:tasks:${workspaceId}`,
+            `pebble:v1:habits:${workspaceId}`,
+            `pebble:v1:checklists:${workspaceId}`,
+            `pebble:v1:resources:${workspaceId}`,
+          ]);
+
+          // 5c. Cancel notifications
+          const notificationIdsToCancel: string[] = [];
+          for (const todo of todos) {
+            if (todo.reminder?.notificationIds) {
+              notificationIdsToCancel.push(...todo.reminder.notificationIds);
+            }
+          }
+          for (const habit of habits) {
+            if (habit.reminder?.notificationIds) {
+              notificationIdsToCancel.push(...habit.reminder.notificationIds);
+            }
+          }
+          if (notificationIdsToCancel.length > 0) {
+            await cancelReminderIds(notificationIdsToCancel, { throwOnError: false });
+          }
+        } catch (e) {
+          console.warn(`[EntityCommandService] Async cleanup failed after deleting Workspace ${workspaceId}`, e);
+          throw new Error("Workspace deleted, but some related data could not be fully cleaned up.");
+        }
+      };
+
+      await cleanup();
+
+      // 6. Emit event
       emitStateChange("workspace_changed", "tasks_screen");
       void recordDailyHistorySnapshot().catch(() => {});
+      });
     } catch (e) {
       console.warn("Failed to delete workspace", e);
       throw e;
@@ -378,13 +428,13 @@ export class EntityCommandService {
     options?: CreateEntityOptions,
   ): Promise<Task> {
     let task: Task;
+    let needsScheduling = false;
+    let parsedInput: ParsedProductivityItem | undefined;
 
     if (isParsedProductivityItem(input)) {
       task = buildTask(input, workspaceId);
-      const notificationIds = await scheduleTaskNotifications(task.id, input);
-      if (notificationIds.length > 0 && task.reminder) {
-        task.reminder.notificationIds = notificationIds;
-      }
+      needsScheduling = true;
+      parsedInput = input;
     } else {
       const targetWorkspace = input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
       task = {
@@ -396,22 +446,33 @@ export class EntityCommandService {
         priority: input.priority || "none",
       };
 
+      if (task.reminder && task.reminder.notificationIds) {
+        task.reminder.notificationIds = undefined; // Strip so reconciler uses fresh IDs
+      }
       if (task.reminder?.enabled && task.reminder?.triggerAt) {
-        try {
-          task = await rescheduleTodoReminders(task);
-        } catch (e) {
-          console.warn("[EntityCommandService] Failed to reschedule task reminder:", e);
-        }
+        needsScheduling = true;
       }
     }
 
-    try {
-      await TaskRepository.saveTask(task);
-    } catch (e) {
-      if (task.reminder?.notificationIds?.length) {
-        await cancelReminderIds(task.reminder.notificationIds, { throwOnError: false });
+    // 1. Domain persistence FIRST
+    await TaskRepository.saveTask(task);
+
+    // 2. OS Notification Scheduling SECOND (isolated)
+    if (needsScheduling) {
+      try {
+        if (parsedInput) {
+          const notificationIds = await scheduleTaskNotifications(task.id, parsedInput);
+          if (notificationIds.length > 0 && task.reminder) {
+            task.reminder.notificationIds = notificationIds;
+            await TaskRepository.saveTask(task);
+          }
+        } else {
+          task = await rescheduleTodoReminders(task);
+          await TaskRepository.saveTask(task);
+        }
+      } catch (e) {
+        console.warn("[EntityCommandService] Failed to schedule task reminder after persistence:", e);
       }
-      throw e;
     }
 
     if (!options?.skipEvents) {
@@ -434,13 +495,13 @@ export class EntityCommandService {
     options?: CreateEntityOptions,
   ): Promise<Habit> {
     let habit: Habit;
+    let needsScheduling = false;
+    let parsedInput: ParsedProductivityItem | undefined;
 
     if (isParsedProductivityItem(input)) {
       habit = buildHabit(input, workspaceId);
-      const notificationIds = await scheduleHabitNotifications(habit.id, input);
-      if (notificationIds.length > 0 && habit.reminder) {
-        habit.reminder.notificationIds = notificationIds;
-      }
+      needsScheduling = true;
+      parsedInput = input;
     } else {
       const targetWorkspace = input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
       habit = {
@@ -448,25 +509,37 @@ export class EntityCommandService {
         workspaceId: targetWorkspace,
         createdAt: input.createdAt || Date.now(),
         updatedAt: Date.now(),
-        completionHistory: input.completionHistory || [],
+        completionHistory: [],
       };
-
-      if (habit.reminder?.enabled) {
-        try {
-          habit = await rescheduleHabitReminders(habit);
-        } catch (e) {
-          console.warn("[EntityCommandService] Failed to reschedule habit reminder:", e);
-        }
+      
+      if (habit.reminder && habit.reminder.notificationIds) {
+        habit.reminder.notificationIds = undefined;
+      }
+      if (habit.reminder?.enabled && habit.reminder?.triggerAt) {
+        needsScheduling = true;
       }
     }
 
-    try {
-      await HabitRepository.saveHabit(habit);
-    } catch (e) {
-      if (habit.reminder?.notificationIds?.length) {
-        await cancelReminderIds(habit.reminder.notificationIds, { throwOnError: false });
+    // 1. Domain persistence FIRST
+    await HabitRepository.saveHabit(habit);
+
+    // 2. OS Notification Scheduling SECOND (isolated)
+    if (needsScheduling) {
+      try {
+        if (parsedInput) {
+          const notificationIds = await scheduleHabitNotifications(habit.id, parsedInput);
+          if (notificationIds.length > 0 && habit.reminder) {
+            habit.reminder.notificationIds = notificationIds;
+            await HabitRepository.saveHabit(habit);
+          }
+        } else {
+          // Assuming rescheduleHabitReminders behaves like rescheduleTodoReminders
+          habit = await rescheduleHabitReminders(habit);
+          await HabitRepository.saveHabit(habit);
+        }
+      } catch (e) {
+        console.warn("[EntityCommandService] Failed to schedule habit reminder after persistence:", e);
       }
-      throw e;
     }
 
     if (!options?.skipEvents) {
@@ -530,13 +603,11 @@ export class EntityCommandService {
       skipAnalytics: true,
     });
 
-    // 4. Cancel Old Reminders
+    // 4. Cancel Old Reminders (Fire and forget)
     if (task.reminder && task.reminder.notificationIds) {
-      try {
-        await cancelReminderIds(task.reminder.notificationIds);
-      } catch (e) {
+      cancelReminderIds(task.reminder.notificationIds, { throwOnError: false }).catch(e => {
         console.warn(`[EntityCommandService] Failed to cancel old reminders during Task->Habit conversion for ${taskId}`, e);
-      }
+      });
     }
 
     // 5. Delete Task
@@ -603,13 +674,11 @@ export class EntityCommandService {
       skipAnalytics: true,
     });
 
-    // 4. Cancel Old Reminders
+    // 4. Cancel Old Reminders (Fire and forget)
     if (habit.reminder && habit.reminder.notificationIds) {
-      try {
-        await cancelReminderIds(habit.reminder.notificationIds);
-      } catch (e) {
+      cancelReminderIds(habit.reminder.notificationIds, { throwOnError: false }).catch(e => {
         console.warn(`[EntityCommandService] Failed to cancel old reminders during Habit->Task conversion for ${habitId}`, e);
-      }
+      });
     }
 
     // 5. Delete Habit
@@ -766,7 +835,9 @@ export class EntityCommandService {
 
 
     if (task.reminder?.notificationIds) {
-      await cancelReminderIds(task.reminder.notificationIds);
+      cancelReminderIds(task.reminder.notificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[EntityCommandService] Failed to cancel reminders for completed task ${taskId}`, e);
+      });
     }
 
     const updatedTask: Task = {
@@ -812,20 +883,31 @@ export class EntityCommandService {
 
     await reversePebbleReward(`task:${task.id}`);
 
-    const updatedTask: Task = {
+    let updatedTask: Task = {
       ...task,
       status: "todo",
       completedAt: undefined,
       updatedAt: Date.now(),
     };
+    if (updatedTask.reminder && updatedTask.reminder.notificationIds) {
+      updatedTask.reminder.notificationIds = undefined; // Strip so reconciler uses fresh IDs
+    }
 
-    // If the task has an enabled reminder in the future, it must be re-scheduled
-    // because completeTask previously cancelled it.
-    const finalTask = await rescheduleTodoReminders(updatedTask);
+    // 1. Domain persistence FIRST
+    await TaskRepository.saveTask(updatedTask);
 
-    await TaskRepository.saveTask(finalTask);
+    // 2. OS Notification Scheduling SECOND (isolated)
+    try {
+      // If the task has an enabled reminder in the future, it must be re-scheduled
+      // because completeTask previously cancelled it.
+      const finalTask = await rescheduleTodoReminders(updatedTask);
+      await TaskRepository.saveTask(finalTask);
+      updatedTask = finalTask;
+    } catch (e) {
+      console.warn("[EntityCommandService] Failed to reschedule reminders after uncomplete", e);
+    }
 
-    pluginManager.dispatchTaskUncompleted(finalTask);
+    pluginManager.dispatchTaskUncompleted(updatedTask);
 
     if (!options?.skipAnalytics) {
       void recordDailyHistorySnapshot().catch(() => {});
@@ -880,38 +962,35 @@ export class EntityCommandService {
 
     const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || statusChanged || scheduleChanged || archivedChanged;
 
+    if (needsReminderUpdate && updatedTask.reminder && updatedTask.reminder.notificationIds) {
+      updatedTask.reminder = { ...updatedTask.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
+    }
+
+    // 1. Domain persistence FIRST
+    await TaskRepository.saveTask(updatedTask);
+
+    // 2. OS Notification Scheduling SECOND (isolated)
     if (needsReminderUpdate) {
-      // 1. Cancel existing
+      // Fire and forget cancel existing
       if (existing.reminder?.notificationIds?.length) {
-        await cancelReminderIds(existing.reminder.notificationIds);
+        cancelReminderIds(existing.reminder.notificationIds, { throwOnError: false }).catch(e => {
+          console.warn("[EntityCommandService] Failed to cancel old reminder IDs during update", e);
+        });
       }
       
-      // 2. Reschedule if still applicable
+      // Reschedule if still applicable
       const isArchived = !!updatedTask.archivedAt;
       const isCompleted = updatedTask.status === "completed";
 
       if (!isArchived && !isCompleted) {
         try {
-          const rescheduled = await rescheduleTodoReminders(updatedTask);
-          updatedTask = {
-            ...updatedTask,
-            reminder: rescheduled.reminder,
-          };
+          updatedTask = await rescheduleTodoReminders(updatedTask);
+          await TaskRepository.saveTask(updatedTask);
         } catch (e) {
           console.warn("[EntityCommandService] Failed to reschedule task reminder during update:", e);
         }
-      } else if (isArchived) {
-        // Clear reminder IDs explicitly if archived
-        if (updatedTask.reminder) {
-          updatedTask = {
-            ...updatedTask,
-            reminder: { ...updatedTask.reminder, notificationIds: undefined },
-          };
-        }
       }
     }
-
-    await TaskRepository.saveTask(updatedTask);
 
     if (!options?.skipEvents) {
       emitStateChange("tasks_changed", options?.source);
@@ -960,37 +1039,34 @@ export class EntityCommandService {
 
     const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || archivedChanged;
 
+    if (needsReminderUpdate && updatedHabit.reminder && updatedHabit.reminder.notificationIds) {
+      updatedHabit.reminder = { ...updatedHabit.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
+    }
+
+    // 1. Domain persistence FIRST
+    await HabitRepository.saveHabit(updatedHabit);
+
+    // 2. OS Notification Scheduling SECOND (isolated)
     if (needsReminderUpdate) {
-      // 1. Cancel existing
+      // Fire and forget cancel existing
       if (existing.reminder?.notificationIds?.length) {
-        await cancelReminderIds(existing.reminder.notificationIds);
+        cancelReminderIds(existing.reminder.notificationIds, { throwOnError: false }).catch(e => {
+          console.warn("[EntityCommandService] Failed to cancel old reminder IDs during habit update", e);
+        });
       }
       
-      // 2. Reschedule if still applicable
+      // Reschedule if still applicable
       const isArchived = !!updatedHabit.archivedAt;
 
       if (!isArchived) {
         try {
-          const rescheduled = await rescheduleHabitReminders(updatedHabit);
-          updatedHabit = {
-            ...updatedHabit,
-            reminder: rescheduled.reminder,
-          };
+          updatedHabit = await rescheduleHabitReminders(updatedHabit);
+          await HabitRepository.saveHabit(updatedHabit);
         } catch (e) {
           console.warn("[EntityCommandService] Failed to reschedule habit reminder during update:", e);
         }
-      } else if (isArchived) {
-        // Clear reminder IDs explicitly if archived
-        if (updatedHabit.reminder) {
-          updatedHabit = {
-            ...updatedHabit,
-            reminder: { ...updatedHabit.reminder, notificationIds: undefined },
-          };
-        }
       }
     }
-
-    await HabitRepository.saveHabit(updatedHabit);
 
     if (!options?.skipEvents) {
       emitStateChange("habits_changed", options?.source);
@@ -1157,10 +1233,27 @@ export class EntityCommandService {
       updatedAt: Date.now(),
     };
 
+    const operationId = `move-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      entityId: taskId,
+      entityType: "task",
+      sourceWorkspaceId,
+      targetWorkspaceId,
+      timestamp: Date.now(),
+    });
+
     // Save in new workspace first to avoid data loss
     await TaskRepository.saveTask(movedTask);
     // Then delete from old workspace
-    await TaskRepository.deleteTask(taskId, sourceWorkspaceId);
+    try {
+      await TaskRepository.deleteTask(taskId, sourceWorkspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete source task ${taskId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+      throw e;
+    }
+
+    await MoveJournalRepository.removeOperation(operationId);
 
     if (!options?.skipEvents) {
       emitStateChange("tasks_changed", options?.source);
@@ -1441,13 +1534,35 @@ export class EntityCommandService {
     const habit = habitMap[habitId];
     if (!habit) return;
 
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operationId = `recycle-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      operationType: "recycle",
+      entityId: habitId,
+      entityType: "habit",
+      sourceWorkspaceId: workspaceId,
+      targetWorkspaceId: workspaceId,
+      timestamp: Date.now(),
+    });
+
     await RecycleBinRepository.addToRecycleBin("habit", habit, workspaceId, { throwOnError: true });
 
-    if (habit.reminder?.notificationIds?.length) {
-      await cancelReminderIds(habit.reminder.notificationIds, { throwOnError: true });
+    try {
+      await HabitRepository.deleteHabit(habitId, workspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete active habit ${habitId} during recycle. Recycle bin contains a ghost.`, e);
+      throw e;
     }
 
-    await HabitRepository.deleteHabit(habitId, workspaceId);
+    await MoveJournalRepository.removeOperation(operationId);
+
+    if (habit.reminder?.notificationIds?.length) {
+      cancelReminderIds(habit.reminder.notificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[EntityCommandService] Failed to cancel reminders for recycled habit ${habitId}`, e);
+      });
+    }
 
     if (!options?.skipEvents) {
       emitStateChange("habits_changed", options?.source);
@@ -1469,10 +1584,31 @@ export class EntityCommandService {
     const habit: Habit = JSON.parse(item.snapshot);
     habit.reminder = habit.reminder ? { ...habit.reminder, notificationIds: undefined } : undefined;
     
-    const restored = await this.createHabit(habit, habit.workspaceId || INBOX_WORKSPACE_ID, options);
+    const targetWorkspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operationId = `restore-${generateId()}`;
     
-    const remaining = items.filter(i => i.id !== item.id);
-    await RecycleBinRepository.saveRecycleBinItems(remaining, { throwOnError: true });
+    await MoveJournalRepository.addOperation({
+      operationId,
+      operationType: "restore",
+      entityId: item.entityId,
+      entityType: "habit",
+      sourceWorkspaceId: targetWorkspaceId,
+      targetWorkspaceId,
+      timestamp: Date.now(),
+    });
+
+    const restored = await this.createHabit(habit, targetWorkspaceId, options);
+    
+    try {
+      const remaining = items.filter(i => i.id !== item.id);
+      await RecycleBinRepository.saveRecycleBinItems(remaining, { throwOnError: true });
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to remove habit from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+    }
+    
+    await MoveJournalRepository.removeOperation(operationId);
     
     return restored;
   }
@@ -1489,8 +1625,28 @@ export class EntityCommandService {
     const checklist = checklists[checklistId];
     if (!checklist) return;
 
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operationId = `recycle-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      operationType: "recycle",
+      entityId: checklistId,
+      entityType: "checklist",
+      sourceWorkspaceId: workspaceId,
+      targetWorkspaceId: workspaceId,
+      timestamp: Date.now(),
+    });
+
     await RecycleBinRepository.addToRecycleBin("checklist", checklist, workspaceId, { throwOnError: true });
-    await ChecklistRepository.deleteChecklist(checklistId, workspaceId);
+    try {
+      await ChecklistRepository.deleteChecklist(checklistId, workspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete active checklist ${checklistId} during recycle. Recycle bin contains a ghost.`, e);
+      throw e;
+    }
+    
+    await MoveJournalRepository.removeOperation(operationId);
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -1509,8 +1665,28 @@ export class EntityCommandService {
     const resource = resources[resourceId];
     if (!resource) return;
 
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operationId = `recycle-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      operationType: "recycle",
+      entityId: resourceId,
+      entityType: "resource",
+      sourceWorkspaceId: workspaceId,
+      targetWorkspaceId: workspaceId,
+      timestamp: Date.now(),
+    });
+
     await RecycleBinRepository.addToRecycleBin("resource", resource, workspaceId, { throwOnError: true });
-    await ResourceRepository.deleteResource(resourceId, workspaceId);
+    try {
+      await ResourceRepository.deleteResource(resourceId, workspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete active resource ${resourceId} during recycle. Recycle bin contains a ghost.`, e);
+      throw e;
+    }
+
+    await MoveJournalRepository.removeOperation(operationId);
 
     if (!options?.skipEvents) {
       emitStateChange("resources_changed", options?.source);
@@ -1552,16 +1728,39 @@ export class EntityCommandService {
       );
     }
 
-    // 2. Snapshot task into Recycle Bin (Safe operation first)
+    // 2. Add intent to MoveJournal
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operationId = `recycle-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      operationType: "recycle",
+      entityId: taskId,
+      entityType: "task",
+      sourceWorkspaceId: workspaceId,
+      targetWorkspaceId: workspaceId,
+      timestamp: Date.now(),
+    });
+
+    // 3. Snapshot task into Recycle Bin (Safe operation first)
     await addToRecycleBin("task", task, originalWorkspaceName, { throwOnError: true });
 
-    // 3. Cancel native reminders
-    if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
-      await cancelReminderIds(task.reminder.notificationIds, { throwOnError: true });
+    try {
+      // 4. Remove from active storage (Commit Point)
+      await TaskRepository.deleteTask(taskId, workspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete active task ${taskId} during recycle. Recycle bin contains a ghost.`, e);
+      throw e;
     }
 
-    // 4. Remove from active storage
-    await TaskRepository.deleteTask(taskId, workspaceId);
+    await MoveJournalRepository.removeOperation(operationId);
+
+    // 4. Cancel native reminders (Fire and forget)
+    if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
+      cancelReminderIds(task.reminder.notificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[EntityCommandService] Failed to cancel reminders for recycled task ${taskId}`, e);
+      });
+    }
 
     // 5. Emit events
     if (!options?.skipEvents) {
@@ -1644,9 +1843,38 @@ export class EntityCommandService {
       item => !validEntityIds.has(item.entityId) && !validEntityIds.has(item.id)
     );
 
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operations = validTasksToRecycle.map(task => ({
+      operationId: `recycle-${generateId()}`,
+      operationType: "recycle" as const,
+      entityId: task.id,
+      entityType: "task" as const,
+      sourceWorkspaceId: task.workspaceId,
+      targetWorkspaceId: task.workspaceId,
+      timestamp: Date.now(),
+    }));
+    await MoveJournalRepository.addOperations(operations);
+
     await RecycleBinRepository.saveRecycleBinItems([...newSnapshots, ...filteredExisting], { throwOnError: true });
 
-    // 3. Batch cancel reminders
+    try {
+      // 3. Remove from active storage and save per workspace
+      for (const [workspaceId, activeTasks] of workspaceTasksMap.entries()) {
+        const targetIds = Array.from(itemsByWorkspace.get(workspaceId) || []);
+        const idsToDelete = targetIds.filter(id => activeTasks[id]);
+        if (idsToDelete.length > 0) {
+          await TaskRepository.deleteTasks(idsToDelete, workspaceId);
+        }
+      }
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete active tasks during batch recycle. Recycle bin contains ghosts.`, e);
+      throw e;
+    }
+
+    await MoveJournalRepository.removeOperations(operations.map(op => op.operationId));
+
+    // 4. Batch cancel reminders (Fire and forget)
     const allNotificationIds: string[] = [];
     for (const task of validTasksToRecycle) {
       if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
@@ -1655,16 +1883,9 @@ export class EntityCommandService {
     }
 
     if (allNotificationIds.length > 0) {
-      await cancelReminderIds(allNotificationIds, { throwOnError: true });
-    }
-
-    // 4. Remove from active storage and save per workspace
-    for (const [workspaceId, activeTasks] of workspaceTasksMap.entries()) {
-      const targetIds = Array.from(itemsByWorkspace.get(workspaceId) || []);
-      const idsToDelete = targetIds.filter(id => activeTasks[id]);
-      if (idsToDelete.length > 0) {
-        await TaskRepository.deleteTasks(idsToDelete, workspaceId);
-      }
+      cancelReminderIds(allNotificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[EntityCommandService] Failed to cancel reminders during batch recycle`, e);
+      });
     }
 
     // 5. Emit events
@@ -1732,13 +1953,15 @@ export class EntityCommandService {
       );
     }
 
-    // 2. Cancel native reminders
-    if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
-      await cancelReminderIds(task.reminder.notificationIds);
-    }
-
-    // 3. Remove from active storage
+    // 2. Remove from active storage FIRST (Commit Point)
     await TaskRepository.deleteTask(taskId, workspaceId);
+
+    // 3. Cancel native reminders (Fire and forget)
+    if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
+      cancelReminderIds(task.reminder.notificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[EntityCommandService] Failed to cancel reminders for permanently deleted task ${taskId}`, e);
+      });
+    }
 
     // 4. Emit events
     if (!options?.skipEvents) {
@@ -1767,11 +1990,15 @@ export class EntityCommandService {
     const habit = habitsMap[habitId];
     if (!habit) throw new Error(`Habit ${habitId} not found`);
 
-    if (habit.reminder?.notificationIds?.length) {
-      await cancelReminderIds(habit.reminder.notificationIds);
-    }
-
+    // 1. Remove from active storage FIRST
     await HabitRepository.deleteHabit(habitId, workspaceId);
+
+    // 2. Cancel native reminders (Fire and forget)
+    if (habit.reminder?.notificationIds?.length) {
+      cancelReminderIds(habit.reminder.notificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[EntityCommandService] Failed to cancel reminders for permanently deleted habit ${habitId}`, e);
+      });
+    }
 
     if (!options?.skipEvents) emitStateChange("habits_changed", options?.source);
     if (!options?.skipAnalytics) {
@@ -1876,26 +2103,41 @@ export class EntityCommandService {
       parsedTask.reminder = { ...parsedTask.reminder, notificationIds: undefined };
     }
 
-    // 7. Reschedule reminders (Tolerance: do not fail restoration on reminder error)
-    let taskToSave = parsedTask;
-    if (parsedTask.reminder && parsedTask.reminder.enabled && parsedTask.reminder.triggerAt) {
-      try {
-        taskToSave = await rescheduleTodoReminders(parsedTask);
-      } catch (e) {
-        console.warn(`[EntityCommandService] Failed to reschedule reminders during restore of Task ${parsedTask.id}. Task will be restored without active native notifications.`, e);
-        // Leave taskToSave as parsedTask (with notificationIds already stripped)
-      }
-    }
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operationId = `restore-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      operationType: "restore",
+      entityId: parsedTask.id,
+      entityType: "task",
+      sourceWorkspaceId: parsedTask.workspaceId,
+      targetWorkspaceId: parsedTask.workspaceId,
+      timestamp: Date.now(),
+    });
 
-    // 8. Persist to active storage (Throws on failure, bin untouched)
-    await TaskRepository.saveTask(taskToSave);
+    // 7. Persist to active storage (Throws on failure, bin untouched)
+    const activeTaskToSave = { ...parsedTask };
+    await TaskRepository.saveTask(activeTaskToSave);
 
-    // 9. Safely remove from Recycle Bin ONLY AFTER successful active persistence
+    // 8. Safely remove from Recycle Bin ONLY AFTER successful active persistence
     try {
       const remainingBinItems = binItems.filter((i) => i.id !== item.id);
-      await saveRecycleBinItems(remainingBinItems);
+      await saveRecycleBinItems(remainingBinItems, { throwOnError: true });
     } catch (e) {
-      console.warn(`[EntityCommandService] Task ${parsedTask.id} was successfully restored, but failed to remove item ${recycleBinItemId} from Recycle Bin. Duplicate state may exist.`, e);
+      console.warn(`[EntityCommandService] Failed to remove task from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+    }
+    
+    await MoveJournalRepository.removeOperation(operationId);
+
+    // 9. Reschedule reminders (Tolerance: do not fail restoration on reminder error)
+    if (parsedTask.reminder && parsedTask.reminder.enabled && parsedTask.reminder.triggerAt) {
+      try {
+        const taskWithReminders = await rescheduleTodoReminders(parsedTask);
+        await TaskRepository.saveTask(taskWithReminders);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to reschedule reminders during restore of Task ${parsedTask.id}. Task will be restored without active native notifications.`, e);
+      }
     }
 
     // 10. Emit events
@@ -1911,7 +2153,7 @@ export class EntityCommandService {
     }
     void syncWidgetData().catch(() => {});
 
-    return taskToSave;
+    return activeTaskToSave;
   }
 
   /**
@@ -1996,13 +2238,6 @@ export class EntityCommandService {
       }
 
       let taskToSave = parsedTask;
-      if (parsedTask.reminder && parsedTask.reminder.enabled && parsedTask.reminder.triggerAt) {
-        try {
-          taskToSave = await rescheduleTodoReminders(parsedTask);
-        } catch (e) {
-          console.warn(`[EntityCommandService] Failed to reschedule reminders for Task ${parsedTask.id}`, e);
-        }
-      }
 
       if (!tasksByWorkspace.has(workspaceId)) {
         tasksByWorkspace.set(workspaceId, []);
@@ -2010,17 +2245,48 @@ export class EntityCommandService {
       tasksByWorkspace.get(workspaceId)!.push({ task: taskToSave, itemId: item.id });
     }
 
-    // 2. Batch save per workspace
+    // 2. Batch save per workspace (DOMAIN PERSISTENCE FIRST)
     let restoredCount = 0;
+    const tasksToReschedule: Task[] = [];
+    
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const operations: MoveJournalEntry[] = [];
+    for (const [workspaceId, wrappedTasks] of tasksByWorkspace.entries()) {
+      for (const w of wrappedTasks) {
+        operations.push({
+          operationId: `restore-${generateId()}`,
+          operationType: "restore",
+          entityId: w.task.id,
+          entityType: "task",
+          sourceWorkspaceId: workspaceId,
+          targetWorkspaceId: workspaceId,
+          timestamp: Date.now(),
+        });
+      }
+    }
+    await MoveJournalRepository.addOperations(operations);
+
     for (const [workspaceId, wrappedTasks] of tasksByWorkspace.entries()) {
       try {
         const tasks = wrappedTasks.map((w) => w.task);
         await TaskRepository.saveTasks(tasks, workspaceId);
         restoredCount += tasks.length;
         successfulItemIds.push(...wrappedTasks.map((w) => w.itemId));
+        tasksToReschedule.push(...tasks.filter(t => t.reminder?.enabled && t.reminder?.triggerAt));
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to batch save tasks in workspace ${workspaceId}`, e);
         failedItemIds.push(...wrappedTasks.map((w) => w.itemId));
+      }
+    }
+
+    // 2.5 Reschedule reminders (Isolated)
+    for (const task of tasksToReschedule) {
+      try {
+        const rescheduled = await rescheduleTodoReminders(task);
+        await TaskRepository.saveTask(rescheduled);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to reschedule reminders for Task ${task.id}`, e);
       }
     }
 
@@ -2039,6 +2305,8 @@ export class EntityCommandService {
         );
       }
     }
+
+    await MoveJournalRepository.removeOperations(operations.map(op => op.operationId));
 
     // 4. Side effects
     if (restoredCount > 0 && !options?.skipEvents) {
@@ -2062,6 +2330,7 @@ export class EntityCommandService {
       "checklists_changed",
       options,
       (checklist) => ChecklistRepository.saveChecklist(checklist),
+      (checklist) => ChecklistRepository.deleteChecklist(checklist.id, checklist.workspaceId || INBOX_WORKSPACE_ID),
     );
   }
 
@@ -2072,6 +2341,7 @@ export class EntityCommandService {
       "resources_changed",
       options,
       (resource) => ResourceRepository.saveResource(resource),
+      (resource) => ResourceRepository.deleteResource(resource.id, resource.workspaceId || INBOX_WORKSPACE_ID),
     );
   }
 
@@ -2122,8 +2392,10 @@ export class EntityCommandService {
       throw new Error(`[EntityCommandService] Invalid workspace snapshot for ${recycleBinItemId}`);
     }
 
-    // 3. Persist the workspace through the canonical repository.
-    await WorkspaceRepository.saveWorkspace(workspace);
+    const { withLock } = await import("@/shared/utils/mutex");
+    return withLock(`ws_lifecycle_${workspace.id}`, async () => {
+      // 3. Persist the workspace through the canonical repository.
+      await WorkspaceRepository.saveWorkspace(workspace);
 
     // 4. saveWorkspace swallows storage errors, so verify the workspace actually
     // persisted. If it did not, abort WITHOUT removing the bin item.
@@ -2134,11 +2406,14 @@ export class EntityCommandService {
 
     // 5. Best-effort restore of the contained tasks/habits into their canonical
     // partitioned keys (idempotent — they normally already exist in storage).
+    let childRestoreSuccess = true;
+
     if (Array.isArray(parsed?.todos) && parsed.todos.length > 0) {
       try {
         await TaskRepository.saveTasks(parsed.todos, workspace.id);
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore tasks for workspace ${workspace.id}`, e);
+        childRestoreSuccess = false;
       }
     }
     if (Array.isArray(parsed?.habits) && parsed.habits.length > 0) {
@@ -2148,6 +2423,7 @@ export class EntityCommandService {
         }
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore habits for workspace ${workspace.id}`, e);
+        childRestoreSuccess = false;
       }
     }
     if (Array.isArray(parsed?.checklists) && parsed.checklists.length > 0) {
@@ -2158,6 +2434,7 @@ export class EntityCommandService {
         }
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore checklists for workspace ${workspace.id}`, e);
+        childRestoreSuccess = false;
       }
     }
     if (Array.isArray(parsed?.resources) && parsed.resources.length > 0) {
@@ -2168,12 +2445,21 @@ export class EntityCommandService {
         }
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore resources for workspace ${workspace.id}`, e);
+        childRestoreSuccess = false;
       }
     }
 
+    if (!childRestoreSuccess) {
+      throw new Error(`[EntityCommandService] Workspace ${workspace.id} restored partially. Recovery snapshot retained.`);
+    }
+
     // 6. Remove the bin entry only after active persistence succeeded.
-    const remainingBinItems = binItems.filter((i) => i.id !== item.id);
-    await saveRecycleBinItems(remainingBinItems);
+    try {
+      const remainingBinItems = binItems.filter((i) => i.id !== item.id);
+      await saveRecycleBinItems(remainingBinItems, { throwOnError: true });
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to remove workspace from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+    }
 
     // 7. Emit the workspace state event.
     if (!options?.skipEvents) {
@@ -2181,6 +2467,7 @@ export class EntityCommandService {
     }
 
     return workspace;
+    });
   }
 
   // ============================================================================
@@ -2254,8 +2541,26 @@ export class EntityCommandService {
     const existing = map[habitId];
     if (!existing) throw new Error(`Habit ${habitId} not found`);
     const moved: Habit = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+
+    const operationId = `move-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      entityId: habitId,
+      entityType: "habit",
+      sourceWorkspaceId,
+      targetWorkspaceId,
+      timestamp: Date.now(),
+    });
+
     await HabitRepository.saveHabit(moved);
-    await HabitRepository.deleteHabit(habitId, sourceWorkspaceId);
+    try {
+      await HabitRepository.deleteHabit(habitId, sourceWorkspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete source habit ${habitId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+      throw e;
+    }
+
+    await MoveJournalRepository.removeOperation(operationId);
     if (!options?.skipEvents) emitStateChange("habits_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     void syncWidgetData().catch(() => {});
@@ -2277,8 +2582,26 @@ export class EntityCommandService {
     const existing = map[checklistId];
     if (!existing) throw new Error(`Checklist ${checklistId} not found`);
     const moved: Checklist = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+
+    const operationId = `move-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      entityId: checklistId,
+      entityType: "checklist",
+      sourceWorkspaceId,
+      targetWorkspaceId,
+      timestamp: Date.now(),
+    });
+
     await ChecklistRepository.saveChecklist(moved);
-    await ChecklistRepository.deleteChecklist(checklistId, sourceWorkspaceId);
+    try {
+      await ChecklistRepository.deleteChecklist(checklistId, sourceWorkspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete source checklist ${checklistId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+      throw e;
+    }
+
+    await MoveJournalRepository.removeOperation(operationId);
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     return moved;
@@ -2299,8 +2622,26 @@ export class EntityCommandService {
     const existing = map[resourceId];
     if (!existing) throw new Error(`Resource ${resourceId} not found`);
     const moved: Resource = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+
+    const operationId = `move-${generateId()}`;
+    await MoveJournalRepository.addOperation({
+      operationId,
+      entityId: resourceId,
+      entityType: "resource",
+      sourceWorkspaceId,
+      targetWorkspaceId,
+      timestamp: Date.now(),
+    });
+
     await ResourceRepository.saveResource(moved);
-    await ResourceRepository.deleteResource(resourceId, sourceWorkspaceId);
+    try {
+      await ResourceRepository.deleteResource(resourceId, sourceWorkspaceId);
+    } catch (e) {
+      console.warn(`[EntityCommandService] Failed to delete source resource ${resourceId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+      throw e;
+    }
+
+    await MoveJournalRepository.removeOperation(operationId);
     if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     return moved;

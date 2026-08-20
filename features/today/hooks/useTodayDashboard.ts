@@ -3,6 +3,10 @@ import {
   StreakRecoveryInfo,
 } from "@/features/profile/services/pebble.service";
 import {
+  deduplicateEntities,
+  deduplicateEntityMap,
+} from "@/shared/utils/deduplication";
+import {
   ChecklistRepository,
   HabitRepository,
   ResourceRepository,
@@ -144,6 +148,12 @@ export function useTodayDashboard(): TodayDashboardStats {
         );
       }
 
+      // Deduplicate to resolve any ghosts
+      const dedupTasks = deduplicateEntities(allTasks);
+      const dedupHabits = deduplicateEntities(allHabitsList);
+      const dedupChecklists = deduplicateEntityMap(checklistsMap);
+      const dedupResources = deduplicateEntityMap(resourcesMap);
+
       // Stale load request check — do not commit if superseded by a newer request
       if (requestId !== loadRequestIdRef.current) {
         console.log(`[useTodayDashboard] loadDashboard() request #${requestId} superseded by #${loadRequestIdRef.current} — skipping commit`);
@@ -151,17 +161,17 @@ export function useTodayDashboard(): TodayDashboardStats {
       }
 
       setFolders(allFolders);
-      setAllChecklists(checklistsMap);
-      setAllResources(resourcesMap);
+      setAllChecklists(dedupChecklists);
+      setAllResources(dedupResources);
 
       // Tasks processing
-      const overdueTasks = allTasks.filter(
+      const overdueTasks = dedupTasks.filter(
         (t) => !isTaskCompleted(t) && isTaskOverdue(t, todayStr),
       );
-      const pendingTasks = allTasks.filter(
+      const pendingTasks = dedupTasks.filter(
         (t) => !isTaskCompleted(t) && !isTaskOverdue(t, todayStr),
       );
-      const completedTasks = allTasks.filter((t) => isTaskCompleted(t));
+      const completedTasks = dedupTasks.filter((t) => isTaskCompleted(t));
 
       pendingTasks.sort((a, b) => {
         const orderA = a.priority === "high" ? 0 : a.priority === "low" ? 2 : 1;
@@ -178,7 +188,7 @@ export function useTodayDashboard(): TodayDashboardStats {
       const nextCategoryCounts: Record<string, number> = {};
       let closestReminder: number | null = null;
 
-      allTasks.forEach((t) => {
+      dedupTasks.forEach((t) => {
         if (!isTaskCompleted(t)) {
           const cat = t.categoryId || "general";
           nextCategoryCounts[cat] = (nextCategoryCounts[cat] ?? 0) + 1;
@@ -196,13 +206,13 @@ export function useTodayDashboard(): TodayDashboardStats {
         overdue: overdueTasks,
         completedTasks,
         completed: completedTasks.length,
-        total: allTasks.length,
+        total: dedupTasks.length,
       });
       setCategoryCounts(nextCategoryCounts);
       setClosestReminderTime(closestReminder);
 
       // Habits processing
-      const todayHabits = allHabitsList.filter((h) => {
+      const todayHabits = dedupHabits.filter((h) => {
         if (h.recurrence) {
           return isRecurringOccurrenceForDate(h, todayStr);
         }

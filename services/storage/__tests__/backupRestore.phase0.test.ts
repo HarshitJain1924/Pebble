@@ -5,6 +5,10 @@ import type { Workspace, Task } from "@/shared/types/domain.types";
 
 jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
 
+jest.mock("expo-notifications", () => ({
+  cancelAllScheduledNotificationsAsync: jest.fn(),
+}));
+
 const storage = AsyncStorage as typeof AsyncStorage;
 const workspace: Workspace = { id: "ws-a", name: "A", createdAt: 1, updatedAt: 1 };
 const task: Task = { id: "task-a", workspaceId: "ws-a", title: "A", status: "todo", priority: "none", createdAt: 1, updatedAt: 1 };
@@ -76,6 +80,35 @@ describe("Phase 0 structured restore", () => {
     expect(await storage.getItem("pebble:v1:tasks:ws-old")).not.toBeNull();
   });
 });
+
+  // --- BATCH 4 FIX TESTS ---
+  
+  test("domain restore succeeds and notification failure is isolated", async () => {
+    // Import Notifications mock
+    const Notifications = require("expo-notifications");
+    // Force the cancellation to throw an error
+    Notifications.cancelAllScheduledNotificationsAsync.mockRejectedValueOnce(new Error("Simulated OS Error"));
+    
+    // Attempt the restore
+    await expect(BackupService.restoreStructuredBackup(JSON.stringify(backup()))).resolves.not.toThrow();
+    
+    // The backup should have successfully written the new workspaces
+    const workspaces = await storage.getItem("pebble:v1:workspaces");
+    expect(workspaces).toContain('"ws-a"');
+    
+    // The old data should have been successfully overwritten
+    const oldData = await storage.getItem("pebble:v1:tasks:ws-old");
+    expect(oldData).toBeNull(); // It was removed during restore
+  });
+
+  test("successful restore clears OS notifications", async () => {
+    const Notifications = require("expo-notifications");
+    Notifications.cancelAllScheduledNotificationsAsync.mockResolvedValueOnce(undefined);
+    
+    await expect(BackupService.restoreStructuredBackup(JSON.stringify(backup()))).resolves.not.toThrow();
+    
+    expect(Notifications.cancelAllScheduledNotificationsAsync).toHaveBeenCalled();
+  });
 
 test("clearRepositoryStorage preserves onboarding state during content restore", async () => {
   await clearRepositoryStorage();

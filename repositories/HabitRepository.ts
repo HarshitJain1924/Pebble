@@ -79,6 +79,7 @@ export function normalizeHabit(
     categoryId: rawHabit.categoryId || rawHabit.category || undefined,
     tags: rawHabit.tags || undefined,
     recurrence,
+    recurrenceExceptions: rawHabit.recurrenceExceptions || undefined,
     completionHistory,
     reminder: reminder || undefined,
     resourceIds: resourceIds.length > 0 ? resourceIds : undefined,

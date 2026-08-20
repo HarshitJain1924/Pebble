@@ -310,4 +310,36 @@ describe("workspace restore integrity", () => {
     expect((await ChecklistRepository.getChecklists("ws-owned"))["c-owned"].workspaceId).toBe("ws-owned");
     expect((await ResourceRepository.getResources("ws-owned"))["r-owned"].workspaceId).toBe("ws-owned");
   });
+
+  it("Task restoration failure preserves the snapshot", async () => {
+    const ws = fullWorkspace("ws-task-fail", "Task Fail");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await TaskRepository.saveTask(task("t-f", "ws-task-fail"));
+    await deleteWorkspaceLikeModal(ws);
+
+    jest.spyOn(TaskRepository, "saveTasks").mockRejectedValueOnce(new Error("Disk Full"));
+
+    await expect(
+      EntityCommandService.restoreWorkspace("rb-ws-task-fail", { skipEvents: true, skipAnalytics: true })
+    ).rejects.toThrow("Workspace ws-task-fail restored partially. Recovery snapshot retained.");
+
+    const bin = await getRecycleBinItems();
+    expect(bin.some((b) => b.entityId === "ws-task-fail")).toBe(true);
+  });
+
+  it("Habit restoration failure preserves the snapshot", async () => {
+    const ws = fullWorkspace("ws-habit-fail", "Habit Fail");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await HabitRepository.saveHabit(habit("h-f", "ws-habit-fail"));
+    await deleteWorkspaceLikeModal(ws);
+
+    jest.spyOn(HabitRepository, "saveHabit").mockRejectedValueOnce(new Error("Disk Full"));
+
+    await expect(
+      EntityCommandService.restoreWorkspace("rb-ws-habit-fail", { skipEvents: true, skipAnalytics: true })
+    ).rejects.toThrow("Workspace ws-habit-fail restored partially. Recovery snapshot retained.");
+
+    const bin = await getRecycleBinItems();
+    expect(bin.some((b) => b.entityId === "ws-habit-fail")).toBe(true);
+  });
 });

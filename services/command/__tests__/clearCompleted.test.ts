@@ -127,7 +127,7 @@ describe("clearCompletedTasks data integrity", () => {
     await EntityCommandService.clearCompletedTasks("ws-1");
 
     expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["n1", "n2"], {
-      throwOnError: true,
+      throwOnError: false,
     });
   });
 

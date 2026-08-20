@@ -108,7 +108,7 @@ describe("bulk vs single lifecycle side-effect parity", () => {
     // Single-item baseline
     await EntityCommandService.completeTask("task-a", "ws-1");
     expect(earnPebbleSpy).toHaveBeenCalledWith("task", "task:task-a");
-    expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["native-task-a"]);
+    expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["native-task-a"], { throwOnError: false });
     expect(dispatchTaskCompletedSpy).toHaveBeenCalledTimes(1);
     expect(emitStateChangeSpy).toHaveBeenCalledWith("tasks_changed", undefined);
     expect(recordDailyHistorySnapshotSpy).toHaveBeenCalledTimes(1);
@@ -233,7 +233,7 @@ describe("bulk vs single lifecycle side-effect parity", () => {
       { archivedAt: Date.now(), updatedAt: Date.now() },
       { skipEvents: true, skipAnalytics: true },
     );
-    expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["native-task-a"]);
+    expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["native-task-a"], { throwOnError: false });
 
     const updated = await EntityCommandService.archiveTasks(
       [
@@ -273,7 +273,7 @@ describe("bulk vs single lifecycle side-effect parity", () => {
       { archivedAt: Date.now(), updatedAt: Date.now() },
       { skipEvents: true, skipAnalytics: true },
     );
-    expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["native-habit-a"]);
+    expect(cancelReminderIdsSpy).toHaveBeenCalledWith(["native-habit-a"], { throwOnError: false });
 
     const updated = await EntityCommandService.archiveHabits(
       [

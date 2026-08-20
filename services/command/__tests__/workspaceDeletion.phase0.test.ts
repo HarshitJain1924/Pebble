@@ -41,7 +41,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
 
     // Execute
     await EntityCommandService.deleteWorkspace(wsId);
-
+    
     // Verify Active Storage is empty
     expect((await WorkspaceRepository.getWorkspaces()).length).toBe(0);
     expect(Object.keys(await TaskRepository.getTasks(wsId)).length).toBe(0);
@@ -61,6 +61,27 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
     expect(snapshot.habits.length).toBe(1);
     expect(snapshot.checklists.length).toBe(1);
     expect(snapshot.resources.length).toBe(1);
+  });
+
+  it("Workspace Deletion - Cleanup failure does not silently destroy the restore snapshot", async () => {
+    const wsId = "ws-cleanup-fail";
+    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+
+    // Mock AsyncStorage to fail multiRemove
+    const multiRemoveSpy = jest.spyOn(AsyncStorage, "multiRemove").mockRejectedValueOnce(new Error("Disk error"));
+
+    await expect(EntityCommandService.deleteWorkspace(wsId)).rejects.toThrow(
+      "Workspace deleted, but some related data could not be fully cleaned up."
+    );
+
+    // Workspace is deleted
+    expect((await WorkspaceRepository.getWorkspaces()).length).toBe(0);
+
+    // Recycle bin has the snapshot
+    const binItems = await RecycleBinRepository.getRecycleBinItems();
+    expect(binItems.length).toBe(1);
+    
+    multiRemoveSpy.mockRestore();
   });
 
   it("Restore Workspace - recreates all entities safely", async () => {

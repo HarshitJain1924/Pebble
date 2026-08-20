@@ -27,6 +27,7 @@ import {
     WorkspaceRepository,
 } from "@/repositories";
 import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
@@ -118,42 +119,47 @@ export default function ProfileScreen() {
       let bestStreak = 0;
       let todayPebblesCount = 0;
 
+      const allTasksRaw: any[] = [];
+      const allHabitsRaw: any[] = [];
+
       for (const folderId of folderIds) {
         const [tasksMap, habitsMap] = await Promise.all([
           TaskRepository.getTasks(folderId),
           HabitRepository.getHabits(folderId),
         ]);
-
-        const tasks = Object.values(tasksMap);
-        totalTasks += tasks.length;
-        totalCompletedTodos += tasks.filter((task) => task.status === "completed").length;
-        todayPebblesCount += tasks.filter(
-          (task) =>
-            task.status === "completed" &&
-            task.completedAt &&
-            dateKeyFromDate(new Date(task.completedAt)) === todayKey,
-        ).length;
-
-        const habits = normalizeHabitsForToday(
-          Object.values(habitsMap),
-        );
-        totalCompletedHabits += habits.filter(
-          (habit) => isHabitCompletedToday(habit),
-        ).length;
-        streak = Math.max(
-          streak,
-          ...habits.map((habit) => getHabitCurrentStreak(habit)),
-          streak,
-        );
-        bestStreak = Math.max(
-          bestStreak,
-          ...habits.map((habit) => getHabitBestStreak(habit)),
-          bestStreak,
-        );
-        todayPebblesCount += habits.filter(
-          (habit) => isHabitCompletedToday(habit),
-        ).length;
+        allTasksRaw.push(...Object.values(tasksMap));
+        allHabitsRaw.push(...Object.values(habitsMap));
       }
+
+      const tasks = deduplicateEntities(allTasksRaw);
+      const rawHabits = deduplicateEntities(allHabitsRaw);
+
+      totalTasks += tasks.length;
+      totalCompletedTodos += tasks.filter((task) => task.status === "completed").length;
+      todayPebblesCount += tasks.filter(
+        (task) =>
+          task.status === "completed" &&
+          task.completedAt &&
+          dateKeyFromDate(new Date(task.completedAt)) === todayKey,
+      ).length;
+
+      const habits = normalizeHabitsForToday(rawHabits);
+      totalCompletedHabits += habits.filter(
+        (habit) => isHabitCompletedToday(habit),
+      ).length;
+      streak = Math.max(
+        streak,
+        ...habits.map((habit) => getHabitCurrentStreak(habit)),
+        streak,
+      );
+      bestStreak = Math.max(
+        bestStreak,
+        ...habits.map((habit) => getHabitBestStreak(habit)),
+        bestStreak,
+      );
+      todayPebblesCount += habits.filter(
+        (habit) => isHabitCompletedToday(habit),
+      ).length;
 
       // 4. Calculate Average Productivity Score (last 3 months)
       const now = new Date();

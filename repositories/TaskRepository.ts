@@ -116,6 +116,7 @@ export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
     schedule: schedule || undefined,
     reminder: reminder || undefined,
     recurrence: recurrence || undefined,
+    recurrenceExceptions: rawTask.recurrenceExceptions || undefined,
     resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
     createdAt: rawTask.createdAt || Date.now(),
     updatedAt: rawTask.updatedAt || Date.now(),
