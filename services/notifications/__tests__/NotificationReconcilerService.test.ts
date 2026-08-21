@@ -33,6 +33,7 @@ describe("NotificationReconcilerService", () => {
     (rescheduleTodoReminders as jest.Mock).mockImplementation(async (task) => ({ ...task }));
     (rescheduleHabitReminders as jest.Mock).mockImplementation(async (habit) => ({ ...habit }));
     (TaskRepository.saveTask as jest.Mock).mockResolvedValue(undefined);
+    (TaskRepository.updateNotificationIds as jest.Mock).mockResolvedValue(undefined);
   });
 
   const createMockTask = (id: string, triggerAt: number, notificationIds: string[] = []): Task => ({
@@ -70,7 +71,7 @@ describe("NotificationReconcilerService", () => {
     await NotificationReconcilerService.reconcileAll();
     
     expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
-    expect(TaskRepository.saveTask).toHaveBeenCalled();
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalled();
   });
 
   it("2. Existing matching notification preserved", async () => {
@@ -159,13 +160,7 @@ describe("NotificationReconcilerService", () => {
     // Should NOT reschedule
     expect(rescheduleTodoReminders).not.toHaveBeenCalled();
     // Should REPAIR domain
-    expect(TaskRepository.saveTask).toHaveBeenCalledWith({
-      ...task,
-      reminder: {
-        ...task.reminder,
-        notificationIds: ["os-valid"],
-      }
-    });
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(task.id, task.workspaceId, ["os-valid"]);
   });
 
   it("9. notificationIds stale but OS notification valid repairs domain", async () => {
@@ -180,13 +175,7 @@ describe("NotificationReconcilerService", () => {
     // Should NOT reschedule
     expect(rescheduleTodoReminders).not.toHaveBeenCalled();
     // Should REPAIR domain
-    expect(TaskRepository.saveTask).toHaveBeenCalledWith({
-      ...task,
-      reminder: {
-        ...task.reminder,
-        notificationIds: ["os-actual"],
-      }
-    });
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(task.id, task.workspaceId, ["os-actual"]);
   });
 
   it("10. Schedule failure does not crash reconciliation", async () => {

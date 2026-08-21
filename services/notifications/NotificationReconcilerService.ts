@@ -130,7 +130,7 @@ export class NotificationReconcilerService {
           // Completely missing from OS, MUST RESCHEDULE
           try {
             const updatedTask = await rescheduleTodoReminders(task);
-            await TaskRepository.saveTask(updatedTask);
+            await TaskRepository.updateNotificationIds(updatedTask.id, updatedTask.workspaceId, updatedTask.reminder?.notificationIds);
           } catch (e) {
             console.warn(`[NotificationReconcilerService] Failed to reschedule missing task reminder for ${task.id}`, e);
           }
@@ -147,14 +147,7 @@ export class NotificationReconcilerService {
             // Repair domain state to match the truth of the OS!
             // Do NOT call rescheduleTodoReminders which would create duplicates.
             try {
-              const updatedTask = {
-                ...task,
-                reminder: {
-                  ...task.reminder,
-                  notificationIds: retainedOsIds,
-                }
-              };
-              await TaskRepository.saveTask(updatedTask);
+              await TaskRepository.updateNotificationIds(task.id, task.workspaceId, retainedOsIds);
             } catch (e) {
               console.warn(`[NotificationReconcilerService] Failed to repair domain notificationIds for ${task.id}`, e);
             }
@@ -174,7 +167,7 @@ export class NotificationReconcilerService {
         if (retainedOsIds.length === 0) {
           try {
             const updatedHabit = await rescheduleHabitReminders(habit);
-            await HabitRepository.saveHabit(updatedHabit);
+            await HabitRepository.updateNotificationIds(updatedHabit.id, updatedHabit.workspaceId, updatedHabit.reminder?.notificationIds);
           } catch (e) {
             console.warn(`[NotificationReconcilerService] Failed to reschedule missing habit reminder for ${habit.id}`, e);
           }
@@ -185,14 +178,7 @@ export class NotificationReconcilerService {
           
           if (isDomainMismatched) {
             try {
-              const updatedHabit = {
-                ...habit,
-                reminder: {
-                  ...habit.reminder,
-                  notificationIds: retainedOsIds,
-                }
-              };
-              await HabitRepository.saveHabit(updatedHabit);
+              await HabitRepository.updateNotificationIds(habit.id, habit.workspaceId, retainedOsIds);
             } catch (e) {
               console.warn(`[NotificationReconcilerService] Failed to repair domain notificationIds for ${habit.id}`, e);
             }

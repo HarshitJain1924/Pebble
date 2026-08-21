@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
-import { withLock } from "@/shared/utils/mutex";
+import { withLock, withLocks } from "@/shared/utils/mutex";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import type { MoveJournalEntry, Task, Habit, Checklist, Resource } from "@/shared/types/domain.types";
 
@@ -268,23 +268,6 @@ export class MoveReconcilerService {
     });
   }
 
-  private static async withLocks(keys: string[], task: () => Promise<void>): Promise<void> {
-    const uniqueKeys = Array.from(new Set(keys));
-    if (uniqueKeys.length === 0) return task();
-    
-    // We already sort before calling, but let's be absolutely safe
-    const sortedUniqueKeys = uniqueKeys.sort();
-    
-    const acquireLocks = (index: number): Promise<void> => {
-      if (index >= sortedUniqueKeys.length) return task();
-      return withLock(sortedUniqueKeys[index], () => acquireLocks(index + 1));
-    };
-
-    return acquireLocks(0);
-  }
-
-
-
   /**
    * One-off scan to resolve ghosts created prior to Batch 2B.
    */
@@ -326,7 +309,7 @@ export class MoveReconcilerService {
         for (const [entityId, keys] of duplicateGroups) {
           const sortedKeys = Array.from(new Set(keys)).sort();
           
-          await this.withLocks(sortedKeys, async () => {
+          await withLocks(sortedKeys, async () => {
             // Re-read under lock to ensure consistency
             const lockedPartitions = await AsyncStorage.multiGet(sortedKeys);
             

@@ -3,7 +3,7 @@ import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import type { MoveJournalEntry, Task } from "@/shared/types/domain.types";
 import { generateId } from "@/shared/utils/id";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { withLock } from "@/shared/utils/mutex";
+import { withLock, withLocks } from "@/shared/utils/mutex";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
   setItem: jest.fn(),
@@ -26,6 +26,7 @@ jest.mock("@/shared/utils/mutex", () => {
   const original = jest.requireActual("@/shared/utils/mutex");
   return {
     withLock: original.withLock,
+    withLocks: original.withLocks,
   };
 });
 
@@ -226,9 +227,8 @@ describe("MoveReconcilerService", () => {
   test("Duplicate lock keys: withLocks deduplicates and prevents deadlock", async () => {
     // 2. Directly exercise withLocks with duplicate keys
     const task = jest.fn().mockResolvedValue(undefined);
-    
-    // We cast to any to test the private withLocks method directly
-    const promise = (MoveReconcilerService as any).withLocks(
+    // We use the exported withLocks now
+    const promise = withLocks(
       ["pebble:v1:tasks:inbox", "pebble:v1:tasks:inbox"],
       task
     );

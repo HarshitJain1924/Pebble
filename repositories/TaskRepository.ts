@@ -247,6 +247,37 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Safely targets notification IDs for modification without disturbing user edits
+   * or touching the updatedAt timestamp.
+   * Handles workspace moves gracefully by returning not_found if the entity is missing.
+   */
+  static async updateNotificationIds(id: string, workspaceId: string, notificationIds?: string[]): Promise<'updated' | 'not_found'> {
+    this.validateId(id, "updateNotificationIds");
+    const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getTasksKey(targetWorkspaceId);
+    
+    return await withLock(key, async () => {
+      const records = await this.getTasks(targetWorkspaceId);
+      const existing = records[id];
+      if (!existing) {
+        return 'not_found';
+      }
+      
+      // Preserve ALL fields exactly, only modify notificationIds
+      if (existing.reminder) {
+        existing.reminder.notificationIds = notificationIds;
+      } else if (notificationIds && notificationIds.length > 0) {
+        // Safe default if reminder object was missing but we have IDs
+        existing.reminder = { enabled: true, triggerAt: 0, notificationIds };
+      }
+
+      records[id] = existing;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+      return 'updated';
+    });
+  }
+
   static async deleteTask(id: string, workspaceId: string): Promise<void> {
     const key = this.getTasksKey(workspaceId);
     await withLock(key, async () => {

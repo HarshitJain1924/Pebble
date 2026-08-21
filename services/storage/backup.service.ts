@@ -13,6 +13,7 @@ import { INBOX_WORKSPACE_ID, type Workspace, type Task, type Habit, type Checkli
 import { clearRepositoryStorage } from "./storage-utils";
 import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import { withLocks } from "@/shared/utils/mutex";
 import * as Notifications from "expo-notifications";
 
 export interface AppBackup {
@@ -201,28 +202,42 @@ export class BackupService {
       return key.startsWith("pebble:");
     });
 
-    // Read current values to allow rollback
-    const currentDataRaw = await AsyncStorage.multiGet(keysToRemove);
-    const validRollbackData = currentDataRaw.filter(pair => pair[1] !== null) as [string, string][];
+    // Determine all keys that will be involved (either read, removed, or set)
+    const newlySetKeys = kvPairsToSet.map(k => k[0]);
+    const lockKeys = Array.from(new Set([...keysToRemove, ...newlySetKeys]));
 
     try {
-      // Execute Atomic Write (Domain Commit Point)
-      await AsyncStorage.multiRemove(keysToRemove);
-      await AsyncStorage.multiSet(kvPairsToSet);
+      await withLocks(lockKeys, async () => {
+        // Refresh keysToRemove inside the lock in case new keys were created while waiting
+        const lockedKeys = await AsyncStorage.getAllKeys();
+        const finalKeysToRemove = lockedKeys.filter((key) => key.startsWith("pebble:"));
+        
+        // Read current values to allow rollback
+        const currentDataRaw = await AsyncStorage.multiGet(finalKeysToRemove);
+        const validRollbackData = currentDataRaw.filter(pair => pair[1] !== null) as [string, string][];
+
+        try {
+          // Execute Atomic Write (Domain Commit Point)
+          await AsyncStorage.multiRemove(finalKeysToRemove);
+          await AsyncStorage.multiSet(kvPairsToSet);
+          
+          // Explicitly reset cache immediately after domain commit, while still under lock
+          GraphRepository.resetCache();
+        } catch (writeError) {
+          console.warn("[BackupService] Restore failed during write. Attempting rollback...", writeError);
+          try {
+            await AsyncStorage.multiRemove(newlySetKeys);
+            await AsyncStorage.multiSet(validRollbackData);
+          } catch (rollbackError) {
+            console.error("[BackupService] CRITICAL: Rollback failed!", rollbackError);
+          }
+          throw writeError;
+        }
+      });
       
-      // Explicitly reconcile any pending moves that might have been backed up.
+      // Reconcile pending moves AFTER releasing locks, to avoid deadlocking with Reconciler's own locks
       await MoveReconcilerService.reconcileAll();
-      GraphRepository.resetCache();
     } catch (e) {
-      // Rollback on Failure
-      console.warn("[BackupService] Restore failed during write. Attempting rollback...", e);
-      try {
-        const newlySetKeys = kvPairsToSet.map(k => k[0]);
-        await AsyncStorage.multiRemove(newlySetKeys);
-        await AsyncStorage.multiSet(validRollbackData);
-      } catch (rollbackError) {
-        console.error("[BackupService] CRITICAL: Rollback failed!", rollbackError);
-      }
       throw e;
     }
 
