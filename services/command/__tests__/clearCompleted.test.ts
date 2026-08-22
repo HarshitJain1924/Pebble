@@ -80,8 +80,8 @@ describe("clearCompletedTasks data integrity", () => {
   it("persists the Recycle Bin snapshot before deleting active tasks", async () => {
     await TaskRepository.saveTask(completedTask("done-1"));
 
-    const saveSpy = jest.spyOn(RecycleBinRepository, "saveRecycleBinItems");
-    const deleteSpy = jest.spyOn(TaskRepository, "deleteTasks");
+    const saveSpy = jest.spyOn(RecycleBinRepository, "addMultipleToRecycleBin");
+    const deleteSpy = jest.spyOn(TaskRepository, "deleteTasksUnlocked");
 
     await EntityCommandService.clearCompletedTasks("ws-1");
 
@@ -97,7 +97,7 @@ describe("clearCompletedTasks data integrity", () => {
     await TaskRepository.saveTask(completedTask("done-1"));
 
     const saveSpy = jest
-      .spyOn(RecycleBinRepository, "saveRecycleBinItems")
+      .spyOn(RecycleBinRepository, "addMultipleToRecycleBin")
       .mockRejectedValueOnce(new Error("injected snapshot failure"));
 
     await expect(

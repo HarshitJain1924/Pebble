@@ -317,7 +317,7 @@ describe("workspace restore integrity", () => {
     await TaskRepository.saveTask(task("t-f", "ws-task-fail"));
     await deleteWorkspaceLikeModal(ws);
 
-    jest.spyOn(TaskRepository, "saveTasks").mockRejectedValueOnce(new Error("Disk Full"));
+    jest.spyOn(TaskRepository, "saveTasksUnlocked").mockRejectedValueOnce(new Error("Disk Full"));
 
     await expect(
       EntityCommandService.restoreWorkspace("rb-ws-task-fail", { skipEvents: true, skipAnalytics: true })
@@ -333,7 +333,7 @@ describe("workspace restore integrity", () => {
     await HabitRepository.saveHabit(habit("h-f", "ws-habit-fail"));
     await deleteWorkspaceLikeModal(ws);
 
-    jest.spyOn(HabitRepository, "saveHabit").mockRejectedValueOnce(new Error("Disk Full"));
+    jest.spyOn(HabitRepository, "saveHabitsUnlocked").mockRejectedValueOnce(new Error("Disk Full"));
 
     await expect(
       EntityCommandService.restoreWorkspace("rb-ws-habit-fail", { skipEvents: true, skipAnalytics: true })

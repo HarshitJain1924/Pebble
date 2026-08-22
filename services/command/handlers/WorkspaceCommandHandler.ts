@@ -111,8 +111,15 @@ static async reorderWorkspaces(
       throw new Error(`[EntityCommandService] Invalid workspace snapshot for ${recycleBinItemId}`);
     }
 
-    const { withLock } = await import("@/shared/utils/mutex");
-    return withLock(`ws_lifecycle_${workspace.id}`, async () => {
+    const { withLocks } = await import("@/shared/utils/mutex");
+    const locks = [
+      `pebble:v1:tasks:${workspace.id}`,
+      `pebble:v1:habits:${workspace.id}`,
+      `pebble:v1:checklists:${workspace.id}`,
+      `pebble:v1:resources:${workspace.id}`,
+      `ws_lifecycle_${workspace.id}`
+    ];
+    return withLocks(locks, async () => {
       // 3. Persist the workspace through the canonical repository.
       await WorkspaceRepository.saveWorkspace(workspace);
 
@@ -129,7 +136,7 @@ static async reorderWorkspaces(
 
     if (Array.isArray(parsed?.todos) && parsed.todos.length > 0) {
       try {
-        await TaskRepository.saveTasks(parsed.todos, workspace.id);
+        await TaskRepository.saveTasksUnlocked(parsed.todos, workspace.id);
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore tasks for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -137,9 +144,7 @@ static async reorderWorkspaces(
     }
     if (Array.isArray(parsed?.habits) && parsed.habits.length > 0) {
       try {
-        for (const habit of parsed.habits) {
-          await HabitRepository.saveHabit({ ...habit, workspaceId: workspace.id });
-        }
+        await HabitRepository.saveHabitsUnlocked(parsed.habits, workspace.id);
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore habits for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -148,9 +153,7 @@ static async reorderWorkspaces(
     if (Array.isArray(parsed?.checklists) && parsed.checklists.length > 0) {
       try {
         const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
-        for (const checklist of parsed.checklists) {
-          await ChecklistRepository.saveChecklist({ ...checklist, workspaceId: workspace.id });
-        }
+        await ChecklistRepository.saveChecklistsUnlocked(parsed.checklists, workspace.id);
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore checklists for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -159,9 +162,7 @@ static async reorderWorkspaces(
     if (Array.isArray(parsed?.resources) && parsed.resources.length > 0) {
       try {
         const { ResourceRepository } = await import("@/repositories/ResourceRepository");
-        for (const resource of parsed.resources) {
-          await ResourceRepository.saveResource({ ...resource, workspaceId: workspace.id });
-        }
+        await ResourceRepository.saveResourcesUnlocked(parsed.resources, workspace.id);
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore resources for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -253,12 +254,22 @@ static async reorderWorkspaces(
         throw new Error("Cannot delete protected workspace.");
       }
 
-      const { withLock } = await import("@/shared/utils/mutex");
-      await withLock(`ws_lifecycle_${workspaceId}`, async () => {
+      const { withLocks } = await import("@/shared/utils/mutex");
+      const locks = [
+        `pebble:v1:tasks:${workspaceId}`,
+        `pebble:v1:habits:${workspaceId}`,
+        `pebble:v1:checklists:${workspaceId}`,
+        `pebble:v1:resources:${workspaceId}`,
+        `ws_lifecycle_${workspaceId}`
+      ];
+      await withLocks(locks, async () => {
         // 1. Fetch complete workspace snapshot
         const workspaces = await WorkspaceRepository.getWorkspaces();
       const workspace = workspaces.find((w) => w.id === workspaceId);
-      if (!workspace) throw new Error("Workspace not found");
+      if (!workspace) {
+        console.error("Workspace not found! Available workspaces:", workspaces, "Looking for:", workspaceId);
+        throw new Error("Workspace not found");
+      }
 
       const { TaskRepository } = await import("@/repositories/TaskRepository");
       const { HabitRepository } = await import("@/repositories/HabitRepository");
@@ -308,14 +319,11 @@ static async reorderWorkspaces(
             await GraphRepository.deleteRelationshipsForEntities(allEntityIds);
           }
 
-          // 5b. Remove active partitions
-          const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
-          await AsyncStorage.multiRemove([
-            `pebble:v1:tasks:${workspaceId}`,
-            `pebble:v1:habits:${workspaceId}`,
-            `pebble:v1:checklists:${workspaceId}`,
-            `pebble:v1:resources:${workspaceId}`,
-          ]);
+          // 5b. Remove active partitions securely inside the lock boundary
+          await TaskRepository.deletePartitionUnlocked(workspaceId);
+          await HabitRepository.deletePartitionUnlocked(workspaceId);
+          await ChecklistRepository.deletePartitionUnlocked(workspaceId);
+          await ResourceRepository.deletePartitionUnlocked(workspaceId);
 
           // 5c. Cancel notifications
           const notificationIdsToCancel: string[] = [];

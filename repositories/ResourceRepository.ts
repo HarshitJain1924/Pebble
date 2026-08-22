@@ -190,6 +190,22 @@ export class ResourceRepository {
     });
   }
 
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler
+   * to restore resources into a partition while the canonical lock is held dynamically.
+   */
+  static async saveResourcesUnlocked(resources: any[], workspaceId: string): Promise<void> {
+    const key = this.getResourcesKey(workspaceId);
+    const records = await this.getResources(workspaceId);
+    for (const resource of resources) {
+      this.validateId(resource?.id, "saveResourcesUnlocked");
+      const cleanResource: Resource = normalizeResource(resource, workspaceId);
+      cleanResource.updatedAt = Date.now();
+      records[resource.id] = cleanResource;
+    }
+    await AsyncStorage.setItem(key, JSON.stringify(records));
+  }
+
   static async deleteResource(id: string, workspaceId: string): Promise<void> {
     const key = this.getResourcesKey(workspaceId);
     await withLock(key, async () => {
@@ -199,5 +215,14 @@ export class ResourceRepository {
         await AsyncStorage.setItem(key, JSON.stringify(records));
       }
     });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler.deleteWorkspace
+   * to physically wipe the active partition safely under dynamically held locks.
+   */
+  static async deletePartitionUnlocked(workspaceId: string): Promise<void> {
+    const key = this.getResourcesKey(workspaceId);
+    await AsyncStorage.removeItem(key);
   }
 }

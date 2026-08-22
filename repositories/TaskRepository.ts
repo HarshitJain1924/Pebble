@@ -227,6 +227,34 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Unlocked persistence primitive required specifically for TaskCommandHandler.updateTask
+   * to perform a safe workspace-partition read-modify-write without nested deadlocking.
+   */
+  static async saveTaskUnlocked(task: any): Promise<void> {
+    this.validateId(task?.id, "saveTaskUnlocked");
+    const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getTasksKey(workspaceId);
+    
+    const records = await this.getTasks(workspaceId);
+
+    const cleanTask: Task = normalizeTask(task, workspaceId);
+    cleanTask.updatedAt = Date.now();
+
+    const validTrigger =
+      Number.isFinite(cleanTask.reminder?.triggerAt) &&
+      (cleanTask.reminder?.triggerAt ?? 0) > 0;
+    if (cleanTask.reminder?.enabled && !validTrigger) {
+      console.warn(
+        "[Reminder] Invalid triggerAt on task " + cleanTask.id + " before persistence",
+        cleanTask.reminder
+      );
+    }
+
+    records[task.id] = cleanTask;
+    await AsyncStorage.setItem(key, JSON.stringify(records));
+  }
+
   static async saveTasks(tasks: any[], workspaceId: string): Promise<void> {
     for (const task of tasks) {
       this.validateId(task?.id, "saveTasks");
@@ -245,6 +273,28 @@ export class TaskRepository {
       }
       await AsyncStorage.setItem(key, JSON.stringify(records));
     });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler
+   * to restore tasks into a partition while the canonical lock is held dynamically.
+   */
+  static async saveTasksUnlocked(tasks: any[], workspaceId: string): Promise<void> {
+    for (const task of tasks) {
+      this.validateId(task?.id, "saveTasksUnlocked");
+    }
+    const key = this.getTasksKey(workspaceId);
+    
+    const records = await this.getTasks(workspaceId);
+
+    for (const task of tasks) {
+      const targetWorkspaceId =
+        workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
+      const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
+      cleanTask.updatedAt = Date.now();
+      records[task.id] = cleanTask;
+    }
+    await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
   /**
@@ -289,6 +339,19 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Unlocked persistence primitive required specifically for TaskCommandHandler.moveTask
+   * to perform a safe cross-workspace read-modify-write-delete without nested deadlocking.
+   */
+  static async deleteTaskUnlocked(id: string, workspaceId: string): Promise<void> {
+    const key = this.getTasksKey(workspaceId);
+    const records = await this.getTasks(workspaceId);
+    if (records[id]) {
+      delete records[id];
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    }
+  }
+
   static async deleteTasks(ids: string[], workspaceId: string): Promise<void> {
     if (ids.length === 0) return;
     const key = this.getTasksKey(workspaceId);
@@ -305,5 +368,34 @@ export class TaskRepository {
         await AsyncStorage.setItem(key, JSON.stringify(records));
       }
     });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for TaskCommandHandler.recycleTasks
+   * to perform safe bulk deletions under dynamically held partition locks.
+   */
+  static async deleteTasksUnlocked(ids: string[], workspaceId: string): Promise<void> {
+    if (ids.length === 0) return;
+    const key = this.getTasksKey(workspaceId);
+    const records = await this.getTasks(workspaceId);
+    let modified = false;
+    for (const id of ids) {
+      if (records[id]) {
+        delete records[id];
+        modified = true;
+      }
+    }
+    if (modified) {
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    }
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler.deleteWorkspace
+   * to physically wipe the active partition safely under dynamically held locks.
+   */
+  static async deletePartitionUnlocked(workspaceId: string): Promise<void> {
+    const key = this.getTasksKey(workspaceId);
+    await AsyncStorage.removeItem(key);
   }
 }

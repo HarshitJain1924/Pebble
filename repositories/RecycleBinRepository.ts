@@ -100,6 +100,46 @@ export class RecycleBinRepository {
     }
   }
 
+  static async addMultipleToRecycleBin(
+    itemsToAdd: { entityType: RecycleBinItem["entityType"]; item: any }[],
+    options?: { throwOnError?: boolean }
+  ): Promise<void> {
+    if (itemsToAdd.length === 0) return;
+    try {
+      await withLock(this.RECYCLE_BIN_KEY, async () => {
+        const items = await this.getRecycleBinItems();
+        
+        const newSnapshots = itemsToAdd.map(({ entityType, item }) => {
+          const entityId = item.id || item.list?.id || String(Date.now());
+          return {
+            id: `rb-${entityId}`,
+            entityType,
+            entityId,
+            snapshot: JSON.stringify(item),
+            deletedAt: Date.now(),
+          } as RecycleBinItem;
+        });
+
+        const validEntityIds = new Set(newSnapshots.map(s => s.entityId));
+        
+        // Remove any existing entry for the same entity IDs to prevent duplicates
+        const filtered = items.filter(
+          (existing) =>
+            !validEntityIds.has(existing.entityId) && !validEntityIds.has(existing.id)
+        );
+
+        await this.saveRecycleBinItems([...newSnapshots, ...filtered], options);
+      });
+    } catch (e) {
+      if (options?.throwOnError) {
+        console.warn("Failed to add items to recycle bin (strict mode)", e);
+        throw e;
+      } else {
+        console.warn("Failed to add items to recycle bin (tolerant mode)", e);
+      }
+    }
+  }
+
   static async cleanupRecycleBin(): Promise<void> {
     try {
       await withLock(this.RECYCLE_BIN_KEY, async () => {
@@ -144,6 +184,32 @@ export class RecycleBinRepository {
       });
     } catch (e) {
       console.warn("Recycle bin cleanup failed", e);
+    }
+  }
+
+  static async removeRecycleBinItems(
+    idsToRemove: string[],
+    options?: { throwOnError?: boolean }
+  ): Promise<void> {
+    if (idsToRemove.length === 0) return;
+    try {
+      await withLock(this.RECYCLE_BIN_KEY, async () => {
+        const items = await this.getRecycleBinItems();
+        const idSet = new Set(idsToRemove);
+        const remaining = items.filter(
+          (item) => !idSet.has(item.id) && !idSet.has(item.entityId)
+        );
+        if (remaining.length !== items.length) {
+          await this.saveRecycleBinItems(remaining, options);
+        }
+      });
+    } catch (e) {
+      if (options?.throwOnError) {
+        console.warn("Failed to remove items from recycle bin (strict mode)", e);
+        throw e;
+      } else {
+        console.warn("Failed to remove items from recycle bin (tolerant mode)", e);
+      }
     }
   }
 }

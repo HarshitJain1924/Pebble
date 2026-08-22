@@ -54,7 +54,7 @@ describe("MoveReconcilerService", () => {
     status: "todo",
     priority: "medium",
     categoryId: "work",
-    createdAt: Date.now(),
+    createdAt: updatedAt,
     updatedAt,
     schedule: {},
   });
@@ -85,9 +85,10 @@ describe("MoveReconcilerService", () => {
     
     (MoveJournalRepository.getOperations as jest.Mock).mockResolvedValue([entry]);
     
-    // Both exist
-    const sourceMap = { "task-2": mockTask("task-2", "ws-1") };
-    const targetMap = { "task-2": mockTask("task-2", "ws-2") };
+    const now = Date.now();
+    // Both exist with identical timestamps to prevent artificial divergence
+    const sourceMap = { "task-2": mockTask("task-2", "ws-1", now) };
+    const targetMap = { "task-2": mockTask("task-2", "ws-2", now) };
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
       [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
       [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],

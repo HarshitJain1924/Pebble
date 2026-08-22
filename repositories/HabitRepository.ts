@@ -172,27 +172,36 @@ export class HabitRepository {
     const key = this.getHabitsKey(workspaceId);
     
     await withLock(key, async () => {
-      const records = await this.getHabits(workspaceId);
-
-      const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
-      cleanHabit.updatedAt = Date.now();
-
-      // Pre-persistence guard: catch any code path that produces an enabled
-      // reminder with an invalid triggerAt (e.g. Date.now() instead of the
-      // user-selected time). This would have been silently persisted before.
-      const validTrigger =
-        Number.isFinite(cleanHabit.reminder?.triggerAt) &&
-        (cleanHabit.reminder?.triggerAt ?? 0) > 0;
-      if (cleanHabit.reminder?.enabled && !validTrigger) {
-        console.warn(
-          "[Reminder] Invalid triggerAt on habit " + cleanHabit.id + " before persistence",
-          cleanHabit.reminder
-        );
-      }
-
-      records[habit.id] = cleanHabit;
-      await AsyncStorage.setItem(key, JSON.stringify(records));
+      await this.saveHabitUnlocked(habit);
     });
+  }
+
+  /**
+   * Unlocked primitive required by Command layer for multi-key concurrency
+   * operations (like updateHabit, moveHabit) where the canonical lock is already held.
+   */
+  static async saveHabitUnlocked(habit: any): Promise<void> {
+    this.validateId(habit?.id, "saveHabitUnlocked");
+    const workspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getHabitsKey(workspaceId);
+    
+    const records = await this.getHabits(workspaceId);
+
+    const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
+    cleanHabit.updatedAt = Date.now();
+
+    const validTrigger =
+      Number.isFinite(cleanHabit.reminder?.triggerAt) &&
+      (cleanHabit.reminder?.triggerAt ?? 0) > 0;
+    if (cleanHabit.reminder?.enabled && !validTrigger) {
+      console.warn(
+        "[Reminder] Invalid triggerAt on habit " + cleanHabit.id + " before persistence",
+        cleanHabit.reminder
+      );
+    }
+
+    records[habit.id] = cleanHabit;
+    await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
   static async saveHabits(habits: any[], workspaceId: string): Promise<void> {
@@ -207,6 +216,22 @@ export class HabitRepository {
       }
       await AsyncStorage.setItem(key, JSON.stringify(records));
     });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler
+   * to restore habits into a partition while the canonical lock is held dynamically.
+   */
+  static async saveHabitsUnlocked(habits: any[], workspaceId: string): Promise<void> {
+    const key = this.getHabitsKey(workspaceId);
+    const records = await this.getHabits(workspaceId);
+    for (const habit of habits) {
+      this.validateId(habit?.id, "saveHabitsUnlocked");
+      const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
+      cleanHabit.updatedAt = Date.now();
+      records[habit.id] = cleanHabit;
+    }
+    await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
   /**
@@ -249,5 +274,14 @@ export class HabitRepository {
         await AsyncStorage.setItem(key, JSON.stringify(records));
       }
     });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler.deleteWorkspace
+   * to physically wipe the active partition safely under dynamically held locks.
+   */
+  static async deletePartitionUnlocked(workspaceId: string): Promise<void> {
+    const key = this.getHabitsKey(workspaceId);
+    await AsyncStorage.removeItem(key);
   }
 }

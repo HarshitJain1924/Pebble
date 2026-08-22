@@ -154,6 +154,22 @@ export class ChecklistRepository {
     });
   }
 
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler
+   * to restore checklists into a partition while the canonical lock is held dynamically.
+   */
+  static async saveChecklistsUnlocked(checklists: any[], workspaceId: string): Promise<void> {
+    const key = this.getChecklistsKey(workspaceId);
+    const records = await this.getChecklists(workspaceId);
+    for (const checklist of checklists) {
+      this.validateId(checklist?.id, "saveChecklistsUnlocked");
+      const cleanChecklist: Checklist = normalizeChecklist(checklist, workspaceId);
+      cleanChecklist.updatedAt = Date.now();
+      records[checklist.id] = cleanChecklist;
+    }
+    await AsyncStorage.setItem(key, JSON.stringify(records));
+  }
+
   static async deleteChecklist(id: string, workspaceId: string): Promise<void> {
     const key = this.getChecklistsKey(workspaceId);
     await withLock(key, async () => {
@@ -163,5 +179,14 @@ export class ChecklistRepository {
         await AsyncStorage.setItem(key, JSON.stringify(records));
       }
     });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler.deleteWorkspace
+   * to physically wipe the active partition safely under dynamically held locks.
+   */
+  static async deletePartitionUnlocked(workspaceId: string): Promise<void> {
+    const key = this.getChecklistsKey(workspaceId);
+    await AsyncStorage.removeItem(key);
   }
 }

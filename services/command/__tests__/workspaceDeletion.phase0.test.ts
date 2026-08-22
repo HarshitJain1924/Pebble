@@ -67,9 +67,10 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
     const wsId = "ws-cleanup-fail";
     await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
 
-    // Mock AsyncStorage to fail multiRemove
-    const multiRemoveSpy = jest.spyOn(AsyncStorage, "multiRemove").mockRejectedValueOnce(new Error("Disk error"));
+    const originalMultiRemove = AsyncStorage.multiRemove;
+    AsyncStorage.multiRemove = jest.fn().mockRejectedValueOnce(new Error("Disk error")).mockImplementation((...args) => (originalMultiRemove as any)(...args));
 
+    // Call deleteWorkspace - it should capture all partitions, snapshot them, and then fail during cleanup
     await expect(EntityCommandService.deleteWorkspace(wsId)).rejects.toThrow(
       "Workspace deleted, but some related data could not be fully cleaned up."
     );
@@ -77,11 +78,11 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
     // Workspace is deleted
     expect((await WorkspaceRepository.getWorkspaces()).length).toBe(0);
 
-    // Recycle bin has the snapshot
+    // Ensure the snapshot was NOT destroyed even though cleanup failed
     const binItems = await RecycleBinRepository.getRecycleBinItems();
     expect(binItems.length).toBe(1);
-    
-    multiRemoveSpy.mockRestore();
+
+    AsyncStorage.multiRemove = originalMultiRemove;
   });
 
   it("Restore Workspace - recreates all entities safely", async () => {
@@ -126,5 +127,157 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
     // Ensure only 1 snapshot was created
     const binItems = await RecycleBinRepository.getRecycleBinItems();
     expect(binItems.length).toBe(1);
+  });
+
+  describe("Workspace Deletion Concurrency Determinism", () => {
+    let unblockOpA: () => void;
+    let opAPaused: Promise<void>;
+    const getTasksOriginal = TaskRepository.getTasks.bind(TaskRepository);
+
+    beforeEach(() => {
+      opAPaused = new Promise((resolve) => {
+        unblockOpA = resolve;
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("Test A: deletion vs task update - update is completely blocked", async () => {
+      const wsId = "ws-concurrent-1";
+      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 1", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+      await TaskRepository.saveTasks([{ id: "t-1", title: "Original", workspaceId: wsId }], wsId);
+
+      let opAHasRead = false;
+      const getTasksSpy = jest.spyOn(TaskRepository, "getTasks").mockImplementation(async (wId) => {
+        const res = await getTasksOriginal(wId);
+        if (wId === wsId && !opAHasRead) {
+          opAHasRead = true;
+          await opAPaused; // Op A (deletion) pauses while holding the task partition lock!
+        }
+        return res;
+      });
+
+      // Start Op A (deletion)
+      const opA = EntityCommandService.deleteWorkspace(wsId);
+      
+      // Wait for Op A to pause inside the lock
+      await new Promise(r => setTimeout(r, 50));
+      expect(opAHasRead).toBe(true);
+
+      // Start Op B (updateTask)
+      let opBFinished = false;
+      const opB = EntityCommandService.updateTask("t-1", wsId, { title: "Updated!" }, { skipAnalytics: true, skipEvents: true }).then(() => {
+        opBFinished = true;
+      });
+
+      // Op B must be completely blocked waiting for the task partition lock
+      await new Promise(r => setTimeout(r, 50));
+      expect(opBFinished).toBe(false);
+
+      // Unblock Op A to finish deletion
+      unblockOpA();
+      await opA;
+
+      // Op B resumes and fails because the task was deleted
+      try {
+        await opB;
+        console.error("opB DID NOT THROW! The task was:", await TaskRepository.getTasks(wsId));
+      } catch (e) {
+        // Expected
+      }
+      await expect(opB).rejects.toThrow();
+
+      // Ensure the snapshot has "Original", proving Op B never sneaked a write
+      const binItems = await RecycleBinRepository.getRecycleBinItems();
+      expect(binItems.length).toBe(1);
+      const snapshot = JSON.parse(binItems[0].snapshot);
+      expect(snapshot.todos[0].title).toBe("Original");
+    });
+
+    it("Test B: deletion vs task creation - creation is completely blocked", async () => {
+      const wsId = "ws-concurrent-2";
+      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 2", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+
+      let opAHasRead = false;
+      jest.spyOn(TaskRepository, "getTasks").mockImplementation(async (wId) => {
+        const res = await getTasksOriginal(wId);
+        if (wId === wsId && !opAHasRead) {
+          opAHasRead = true;
+          await opAPaused;
+        }
+        return res;
+      });
+
+      const opA = EntityCommandService.deleteWorkspace(wsId);
+      
+      await new Promise(r => setTimeout(r, 50));
+      expect(opAHasRead).toBe(true);
+
+      let opBFinished = false;
+      const opB = EntityCommandService.createTask({ type: "task", title: "New Task", confidence: 1, category: "work" }, wsId, { skipAnalytics: true }).then(() => {
+        opBFinished = true;
+      });
+
+      await new Promise(r => setTimeout(r, 50));
+      expect(opBFinished).toBe(false); // creation is blocked by the partition lock
+
+      unblockOpA();
+      await opA;
+
+      await opB; // creation finishes after workspace is physically deleted
+
+      // The new task goes into the abyss because the workspace is gone, or it persists orphaned (expected without parent validation). 
+      // But importantly, it is NOT in the snapshot.
+      const binItems = await RecycleBinRepository.getRecycleBinItems();
+      const snapshot = JSON.parse(binItems[0].snapshot);
+      expect(snapshot.todos.length).toBe(0); // Proves the task was not included in the snapshot!
+    });
+
+    it("Test C: opposite lifecycle operations - delete vs restore serialize safely", async () => {
+      const wsId = "ws-concurrent-3";
+      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 3", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+      await TaskRepository.saveTasks([{ id: "t-3", title: "T3", workspaceId: wsId }], wsId);
+
+      // We simulate a race where someone deletes a workspace, and then immediately tries to restore it
+      // To test deadlock avoidance, they must acquire all locks in the exact same order.
+      
+      let deleteHasRead = false;
+      jest.spyOn(TaskRepository, "getTasks").mockImplementation(async (wId) => {
+        const res = await getTasksOriginal(wId);
+        if (wId === wsId && !deleteHasRead) {
+          deleteHasRead = true;
+          await opAPaused;
+        }
+        return res;
+      });
+
+      const opA = EntityCommandService.deleteWorkspace(wsId);
+      
+      await new Promise(r => setTimeout(r, 50));
+      expect(deleteHasRead).toBe(true);
+
+      // Now we hack a fake bin item in memory to trigger a restore
+      await RecycleBinRepository.addToRecycleBin("workspace", { list: { id: wsId, name: "WS 3" }, todos: [], habits: [], checklists: [], resources: [] }, "Workspaces", { throwOnError: true });
+      const binItems = await RecycleBinRepository.getRecycleBinItems();
+      const binId = binItems[0].id;
+
+      let opBFinished = false;
+      const opB = EntityCommandService.restoreWorkspace(binId).then(() => { opBFinished = true; });
+
+      await new Promise(r => setTimeout(r, 50));
+      expect(opBFinished).toBe(false); // Restore is blocked by the lock hierarchy
+
+      unblockOpA();
+      await opA;
+      await opB; // Restore finishes successfully after delete completes
+
+      // Verifies they serialized correctly without deadlock!
+      const finalWorkspaces = await WorkspaceRepository.getWorkspaces();
+      expect(finalWorkspaces.length).toBe(1);
+    });
+
+
   });
 });

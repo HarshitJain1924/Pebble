@@ -417,7 +417,7 @@ describe("EntityCommandService unit tests", () => {
     
     it("12. should preserve recycle bin snapshot if one workspace save fails", async () => {
        const task1 = await EntityCommandService.createTask({ title: "T1", type: "task", confidence: 0.9, category: "work" }, "ws-1", { skipAnalytics: true });
-       const deleteTasksSpy = jest.spyOn(TaskRepository, "deleteTasks").mockRejectedValueOnce(new Error("Save error"));
+       const deleteTasksSpy = jest.spyOn(TaskRepository, "deleteTasksUnlocked").mockRejectedValueOnce(new Error("Save error"));
 
        await expect(
         EntityCommandService.recycleTasks([{ taskId: task1.id, workspaceId: "ws-1" }], { skipAnalytics: true, skipEvents: true })
@@ -607,8 +607,8 @@ describe("EntityCommandService unit tests", () => {
         return { ...t, reminder: { ...t.reminder, notificationIds: ["new-id"] } };
       });
       
-      const storageService = require("@/services/storage/storage.service");
-      saveRecycleBinItemsSpy = jest.spyOn(storageService, "saveRecycleBinItems");
+      const { RecycleBinRepository } = require("@/repositories/RecycleBinRepository");
+      saveRecycleBinItemsSpy = jest.spyOn(RecycleBinRepository, "removeRecycleBinItems");
     });
 
     afterEach(() => {

@@ -424,41 +424,50 @@ static async recycleHabit(
     updates: Partial<Habit>,
     options?: CreateEntityOptions,
   ): Promise<Habit> {
-    const habitsMap = await HabitRepository.getHabits(workspaceId);
-    const existing = habitsMap[habitId];
-    if (!existing) {
-      throw new Error(`Habit ${habitId} not found in workspace ${workspaceId}`);
-    }
+    const { withLock } = await import("@/shared/utils/mutex");
+    const key = `pebble:v1:habits:${workspaceId}`;
 
-    if (updates.workspaceId && updates.workspaceId !== workspaceId) {
-      throw new Error("Workspace movement is not supported in updateHabit.");
-    }
+    let needsReminderUpdate = false;
+    let existing: Habit | undefined;
+    
+    let updatedHabit = await withLock(key, async () => {
+      const habitsMap = await HabitRepository.getHabits(workspaceId);
+      existing = habitsMap[habitId];
+      if (!existing) {
+        throw new Error(`Habit ${habitId} not found in workspace ${workspaceId}`);
+      }
 
-    let updatedHabit: Habit = {
-      ...existing,
-      ...updates,
-      updatedAt: Date.now(),
-    };
+      if (updates.workspaceId && updates.workspaceId !== workspaceId) {
+        throw new Error("Workspace movement is not supported in updateHabit.");
+      }
 
-    const titleChanged = updates.title !== undefined && updates.title !== existing.title;
-    const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
-    const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
-    const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
-    const archivedChanged = ("archivedAt" in updates) && updates.archivedAt !== existing.archivedAt;
+      let mergedHabit: Habit = {
+        ...existing,
+        ...updates,
+        updatedAt: Date.now(),
+      };
 
-    const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || archivedChanged;
+      const titleChanged = updates.title !== undefined && updates.title !== existing.title;
+      const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
+      const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
+      const archivedChanged = ("archivedAt" in updates) && updates.archivedAt !== existing.archivedAt;
 
-    if (needsReminderUpdate && updatedHabit.reminder && updatedHabit.reminder.notificationIds) {
-      updatedHabit.reminder = { ...updatedHabit.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
-    }
+      needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || archivedChanged;
 
-    // 1. Domain persistence FIRST
-    await HabitRepository.saveHabit(updatedHabit);
+      if (needsReminderUpdate && mergedHabit.reminder && mergedHabit.reminder.notificationIds) {
+        mergedHabit.reminder = { ...mergedHabit.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
+      }
+
+      // 1. Domain persistence FIRST
+      await HabitRepository.saveHabitUnlocked(mergedHabit);
+      return mergedHabit;
+    });
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (needsReminderUpdate) {
       // Fire and forget cancel existing
-      if (existing.reminder?.notificationIds?.length) {
+      if (existing?.reminder?.notificationIds?.length) {
         cancelReminderIds(existing.reminder.notificationIds, { throwOnError: false }).catch(e => {
           console.warn("[EntityCommandService] Failed to cancel old reminder IDs during habit update", e);
         });

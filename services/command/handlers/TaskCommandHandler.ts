@@ -203,10 +203,7 @@ static async reorderTasks(
     //    never fail the restore because bin cleanup failed).
     if (successfulItemIds.length > 0) {
       try {
-        const remainingBinItems = binItems.filter(
-          (i) => !successfulItemIds.includes(i.id),
-        );
-        await RecycleBinRepository.saveRecycleBinItems(remainingBinItems, { throwOnError: true });
+        await RecycleBinRepository.removeRecycleBinItems(successfulItemIds, { throwOnError: true });
       } catch (e) {
         console.warn(
           `[EntityCommandService] Tasks restored, but failed to remove their Recycle Bin entries. Duplicate state may exist.`,
@@ -307,8 +304,8 @@ static async reorderTasks(
 
     // 8. Safely remove from Recycle Bin ONLY AFTER successful active persistence
     try {
-      const remainingBinItems = binItems.filter((i) => i.id !== item.id);
-      await saveRecycleBinItems(remainingBinItems, { throwOnError: true });
+      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+      await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
     } catch (e) {
       console.warn(`[EntityCommandService] Failed to remove task from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
     }
@@ -436,86 +433,85 @@ static async reorderTasks(
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
+    const { withLocks } = await import("@/shared/utils/mutex");
 
     // Group items by workspaceId
     const itemsByWorkspace = new Map<string, Set<string>>();
+    const workspaceIds = new Set<string>();
     for (const item of items) {
       if (!itemsByWorkspace.has(item.workspaceId)) {
         itemsByWorkspace.set(item.workspaceId, new Set<string>());
       }
       itemsByWorkspace.get(item.workspaceId)!.add(item.taskId);
+      workspaceIds.add(item.workspaceId);
     }
 
-    const validTasksToRecycle: Task[] = [];
-    const workspaceTasksMap = new Map<string, Record<string, Task>>();
+    const lockKeys = Array.from(workspaceIds).map(id => `pebble:v1:tasks:${id}`);
 
-    // 1. Load active tasks and validate existence
-    for (const [workspaceId, taskIds] of itemsByWorkspace.entries()) {
-      const activeTasks = await TaskRepository.getTasks(workspaceId);
-      workspaceTasksMap.set(workspaceId, activeTasks);
+    const { recycledCount, validTasksToRecycle } = await withLocks(lockKeys, async () => {
+      const validTasks: Task[] = [];
+      const workspaceTasksMap = new Map<string, Record<string, Task>>();
 
-      for (const taskId of taskIds) {
-        const task = activeTasks[taskId];
-        if (task) {
-          validTasksToRecycle.push(task);
+      // 1. Load active tasks under locks
+      for (const [workspaceId, taskIds] of itemsByWorkspace.entries()) {
+        const activeTasks = await TaskRepository.getTasks(workspaceId);
+        workspaceTasksMap.set(workspaceId, activeTasks);
+
+        for (const taskId of taskIds) {
+          const task = activeTasks[taskId];
+          if (task) {
+            validTasks.push(task);
+          }
         }
       }
-    }
 
-    if (validTasksToRecycle.length === 0) {
-      return { recycledCount: 0 };
-    }
+      if (validTasks.length === 0) {
+        return { recycledCount: 0, validTasksToRecycle: [] };
+      }
 
-    // 2. Atomic RecycleBin snapshot
-    const existingRecycleBinItems = await RecycleBinRepository.getRecycleBinItems();
-    const newSnapshots = validTasksToRecycle.map(task => {
-      const entityId = task.id;
-      return {
-        id: `rb-${entityId}`,
+      // 2. Atomic RecycleBin snapshot
+      const itemsToAdd = validTasks.map(task => ({
         entityType: "task" as const,
-        entityId,
-        snapshot: JSON.stringify(task),
-        deletedAt: Date.now(),
-      };
+        item: task,
+      }));
+
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operations = validTasks.map(task => ({
+        operationId: `recycle-${generateId()}`,
+        operationType: "recycle" as const,
+        entityId: task.id,
+        entityType: "task" as const,
+        sourceWorkspaceId: task.workspaceId,
+        targetWorkspaceId: task.workspaceId,
+        timestamp: Date.now(),
+      }));
+      await MoveJournalRepository.addOperations(operations);
+
+      await RecycleBinRepository.addMultipleToRecycleBin(itemsToAdd, { throwOnError: true });
+
+      try {
+        // 3. Remove from active storage using Unlocked primitive
+        for (const [workspaceId, activeTasks] of workspaceTasksMap.entries()) {
+          const targetIds = Array.from(itemsByWorkspace.get(workspaceId) || []);
+          const idsToDelete = targetIds.filter(id => activeTasks[id]);
+          if (idsToDelete.length > 0) {
+            await TaskRepository.deleteTasksUnlocked(idsToDelete, workspaceId);
+          }
+        }
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete active tasks during batch recycle. Recycle bin contains ghosts.`, e);
+        throw e;
+      }
+
+      await MoveJournalRepository.removeOperations(operations.map(op => op.operationId));
+
+      return { recycledCount: validTasks.length, validTasksToRecycle: validTasks };
     });
 
-    const validEntityIds = new Set(validTasksToRecycle.map(t => t.id));
-    const filteredExisting = existingRecycleBinItems.filter(
-      item => !validEntityIds.has(item.entityId) && !validEntityIds.has(item.id)
-    );
+    if (recycledCount === 0) return { recycledCount: 0 };
 
-    const { generateId } = await import("@/shared/utils/id");
-    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
-    const operations = validTasksToRecycle.map(task => ({
-      operationId: `recycle-${generateId()}`,
-      operationType: "recycle" as const,
-      entityId: task.id,
-      entityType: "task" as const,
-      sourceWorkspaceId: task.workspaceId,
-      targetWorkspaceId: task.workspaceId,
-      timestamp: Date.now(),
-    }));
-    await MoveJournalRepository.addOperations(operations);
-
-    await RecycleBinRepository.saveRecycleBinItems([...newSnapshots, ...filteredExisting], { throwOnError: true });
-
-    try {
-      // 3. Remove from active storage and save per workspace
-      for (const [workspaceId, activeTasks] of workspaceTasksMap.entries()) {
-        const targetIds = Array.from(itemsByWorkspace.get(workspaceId) || []);
-        const idsToDelete = targetIds.filter(id => activeTasks[id]);
-        if (idsToDelete.length > 0) {
-          await TaskRepository.deleteTasks(idsToDelete, workspaceId);
-        }
-      }
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete active tasks during batch recycle. Recycle bin contains ghosts.`, e);
-      throw e;
-    }
-
-    await MoveJournalRepository.removeOperations(operations.map(op => op.operationId));
-
-    // 4. Batch cancel reminders (Fire and forget)
+    // 4. Batch cancel reminders (Fire and forget outside locks)
     const allNotificationIds: string[] = [];
     for (const task of validTasksToRecycle) {
       if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
@@ -566,41 +562,49 @@ static async reorderTasks(
     const { addToRecycleBin } = await import("@/services/storage/storage.service");
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
+    const { withLock } = await import("@/shared/utils/mutex");
 
-    // 1. Verify existence
-    const tasksMap = await TaskRepository.getTasks(workspaceId);
-    const task = tasksMap[taskId];
-    if (!task) {
-      throw new Error(
-        `[EntityCommandService] Task ${taskId} not found in workspace ${workspaceId}`
-      );
-    }
+    const key = `pebble:v1:tasks:${workspaceId}`;
 
-    // 2. Add intent to MoveJournal
-    const { generateId } = await import("@/shared/utils/id");
-    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
-    const operationId = `recycle-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      operationType: "recycle",
-      entityId: taskId,
-      entityType: "task",
-      sourceWorkspaceId: workspaceId,
-      targetWorkspaceId: workspaceId,
-      timestamp: Date.now(),
+    const { task, operationId } = await withLock(key, async () => {
+      // 1. Verify existence
+      const tasksMap = await TaskRepository.getTasks(workspaceId);
+      const task = tasksMap[taskId];
+      if (!task) {
+        throw new Error(
+          `[EntityCommandService] Task ${taskId} not found in workspace ${workspaceId}`
+        );
+      }
+
+      // 2. Add intent to MoveJournal
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operationId = `recycle-${generateId()}`;
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "recycle",
+        entityId: taskId,
+        entityType: "task",
+        sourceWorkspaceId: workspaceId,
+        targetWorkspaceId: workspaceId,
+        timestamp: Date.now(),
+      });
+
+      // 3. Snapshot task into Recycle Bin (Safe operation first)
+      await addToRecycleBin("task", task, originalWorkspaceName, { throwOnError: true });
+
+      try {
+        // 4. Remove from active storage (Commit Point)
+        await TaskRepository.deleteTaskUnlocked(taskId, workspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete active task ${taskId} during recycle. Recycle bin contains a ghost.`, e);
+        throw e;
+      }
+
+      return { task, operationId };
     });
 
-    // 3. Snapshot task into Recycle Bin (Safe operation first)
-    await addToRecycleBin("task", task, originalWorkspaceName, { throwOnError: true });
-
-    try {
-      // 4. Remove from active storage (Commit Point)
-      await TaskRepository.deleteTask(taskId, workspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete active task ${taskId} during recycle. Recycle bin contains a ghost.`, e);
-      throw e;
-    }
-
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
     await MoveJournalRepository.removeOperation(operationId);
 
     // 4. Cancel native reminders (Fire and forget)
@@ -642,51 +646,67 @@ static async reorderTasks(
       return existing; // Nothing to do
     }
 
-    const tasksMap = await TaskRepository.getTasks(sourceWorkspaceId);
-    const existing = tasksMap[taskId];
-    if (!existing) {
-      throw new Error(`Task ${taskId} not found in workspace ${sourceWorkspaceId}`);
-    }
+    const { withLocks } = await import("@/shared/utils/mutex");
+    const sourceLock = `pebble:v1:tasks:${sourceWorkspaceId}`;
+    const targetLock = `pebble:v1:tasks:${targetWorkspaceId}`;
 
-    const movedTask: Task = {
-      ...existing,
-      workspaceId: targetWorkspaceId,
-      updatedAt: Date.now(),
-    };
+    return await withLocks([sourceLock, targetLock], async () => {
+      const tasksMap = await TaskRepository.getTasks(sourceWorkspaceId);
+      const existing = tasksMap[taskId];
+      if (!existing) {
+        throw new Error(`Task ${taskId} not found in workspace ${sourceWorkspaceId}`);
+      }
 
-    const operationId = `move-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      entityId: taskId,
-      entityType: "task",
-      sourceWorkspaceId,
-      targetWorkspaceId,
-      timestamp: Date.now(),
+      const movedTask: Task = {
+        ...existing,
+        workspaceId: targetWorkspaceId,
+        updatedAt: Date.now(),
+      };
+
+      const { generateId } = await import("@/shared/utils/id");
+      const { emitStateChange } = await import("@/services/events/state-events");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      const { syncWidgetData } = await import("@/services/analytics/widget-data.service");
+
+      const operationId = `move-${generateId()}`;
+      await MoveJournalRepository.addOperation({
+        operationId,
+        entityId: taskId,
+        entityType: "task",
+        sourceWorkspaceId,
+        targetWorkspaceId,
+        timestamp: Date.now(),
+      });
+
+      // Save in new workspace first to avoid data loss, using unlocked primitives
+      // to avoid deadlocking with our outer withLocks.
+      await TaskRepository.saveTaskUnlocked(movedTask);
+      
+      // Then delete from old workspace, again using unlocked primitives.
+      try {
+        await TaskRepository.deleteTaskUnlocked(taskId, sourceWorkspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete source task ${taskId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+        throw e;
+      }
+
+      await MoveJournalRepository.removeOperation(operationId);
+
+      // Side effects can run inside the lock because they are mostly fire-and-forget
+      // or fast, but we keep the structure exactly as before.
+      if (!options?.skipEvents) {
+        emitStateChange("tasks_changed", options?.source);
+      }
+
+      if (!options?.skipAnalytics) {
+        void recordDailyHistorySnapshot().catch(() => {});
+      }
+
+      void syncWidgetData().catch(() => {});
+
+      return movedTask;
     });
-
-    // Save in new workspace first to avoid data loss
-    await TaskRepository.saveTask(movedTask);
-    // Then delete from old workspace
-    try {
-      await TaskRepository.deleteTask(taskId, sourceWorkspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete source task ${taskId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
-      throw e;
-    }
-
-    await MoveJournalRepository.removeOperation(operationId);
-
-    if (!options?.skipEvents) {
-      emitStateChange("tasks_changed", options?.source);
-    }
-
-    if (!options?.skipAnalytics) {
-      void recordDailyHistorySnapshot().catch(() => {});
-    }
-
-    void syncWidgetData().catch(() => {});
-
-    return movedTask;
   }
 
 /**
@@ -757,42 +777,51 @@ static async reorderTasks(
     updates: Partial<Task>,
     options?: CreateEntityOptions,
   ): Promise<Task> {
-    const tasksMap = await TaskRepository.getTasks(workspaceId);
-    const existing = tasksMap[taskId];
-    if (!existing) {
-      throw new Error(`Task ${taskId} not found in workspace ${workspaceId}`);
-    }
+    const { withLock } = await import("@/shared/utils/mutex");
+    const key = `pebble:v1:tasks:${workspaceId}`;
 
-    if (updates.workspaceId && updates.workspaceId !== workspaceId) {
-      throw new Error("Workspace movement is not supported in updateTask.");
-    }
+    const { updatedTask, existing, needsReminderUpdate } = await withLock(key, async () => {
+      const tasksMap = await TaskRepository.getTasks(workspaceId);
+      const existing = tasksMap[taskId];
+      if (!existing) {
+        throw new Error(`Task ${taskId} not found in workspace ${workspaceId}`);
+      }
 
-    let updatedTask: Task = {
-      ...existing,
-      ...updates,
-      id: existing.id,
-      createdAt: existing.createdAt,
-      workspaceId: existing.workspaceId,
-      updatedAt: Date.now(),
-    };
+      if (updates.workspaceId && updates.workspaceId !== workspaceId) {
+        throw new Error("Workspace movement is not supported in updateTask.");
+      }
 
-    // Reminder evaluation
-    const titleChanged = updates.title !== undefined && updates.title !== existing.title;
-    const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
-    const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
-    const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
-    const statusChanged = updates.status !== undefined && updates.status !== existing.status;
-    const scheduleChanged = updates.schedule !== undefined && JSON.stringify(updates.schedule) !== JSON.stringify(existing.schedule);
-    const archivedChanged = ("archivedAt" in updates) && updates.archivedAt !== existing.archivedAt;
+      let updatedTask: Task = {
+        ...existing,
+        ...updates,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        workspaceId: existing.workspaceId,
+        updatedAt: Date.now(),
+      };
 
-    const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || statusChanged || scheduleChanged || archivedChanged;
+      // Reminder evaluation
+      const titleChanged = updates.title !== undefined && updates.title !== existing.title;
+      const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
+      const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
+      const statusChanged = updates.status !== undefined && updates.status !== existing.status;
+      const scheduleChanged = updates.schedule !== undefined && JSON.stringify(updates.schedule) !== JSON.stringify(existing.schedule);
+      const archivedChanged = ("archivedAt" in updates) && updates.archivedAt !== existing.archivedAt;
 
-    if (needsReminderUpdate && updatedTask.reminder && updatedTask.reminder.notificationIds) {
-      updatedTask.reminder = { ...updatedTask.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
-    }
+      const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || statusChanged || scheduleChanged || archivedChanged;
 
-    // 1. Domain persistence FIRST
-    await TaskRepository.saveTask(updatedTask);
+      if (needsReminderUpdate && updatedTask.reminder && updatedTask.reminder.notificationIds) {
+        updatedTask.reminder = { ...updatedTask.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
+      }
+
+      // 1. Domain persistence FIRST
+      await TaskRepository.saveTaskUnlocked(updatedTask);
+
+      return { updatedTask, existing, needsReminderUpdate };
+    });
+
+    let finalTask = updatedTask;
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (needsReminderUpdate) {
@@ -804,13 +833,13 @@ static async reorderTasks(
       }
       
       // Reschedule if still applicable
-      const isArchived = !!updatedTask.archivedAt;
-      const isCompleted = updatedTask.status === "completed";
+      const isArchived = !!finalTask.archivedAt;
+      const isCompleted = finalTask.status === "completed";
 
       if (!isArchived && !isCompleted) {
         try {
-          updatedTask = await rescheduleTodoReminders(updatedTask);
-          await TaskRepository.updateNotificationIds(updatedTask.id, updatedTask.workspaceId, updatedTask.reminder?.notificationIds);
+          finalTask = await rescheduleTodoReminders(finalTask);
+          await TaskRepository.updateNotificationIds(finalTask.id, finalTask.workspaceId, finalTask.reminder?.notificationIds);
         } catch (e) {
           console.warn("[EntityCommandService] Failed to reschedule task reminder during update:", e);
         }
@@ -827,7 +856,7 @@ static async reorderTasks(
 
     void syncWidgetData().catch(() => {});
 
-    return updatedTask;
+    return finalTask;
   }
 
 /**
@@ -838,28 +867,41 @@ static async reorderTasks(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Task; updated: Task } | null> {
-    const tasksMap = await TaskRepository.getTasks(workspaceId);
-    const task = tasksMap[taskId];
-    if (!task) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const key = `pebble:v1:tasks:${workspaceId}`;
 
-    if (task.status !== "completed") {
-      return { previous: task, updated: task }; // Already uncompleted
-    }
+    const result = await withLock(key, async () => {
+      const tasksMap = await TaskRepository.getTasks(workspaceId);
+      const task = tasksMap[taskId];
+      if (!task) return null;
 
-    await reversePebbleReward(`task:${task.id}`);
+      if (task.status !== "completed") {
+        return { previous: task, updated: task, skipped: true }; // Already uncompleted
+      }
 
-    let updatedTask: Task = {
-      ...task,
-      status: "todo",
-      completedAt: undefined,
-      updatedAt: Date.now(),
-    };
-    if (updatedTask.reminder && updatedTask.reminder.notificationIds) {
-      updatedTask.reminder.notificationIds = undefined; // Strip so reconciler uses fresh IDs
-    }
+      let updatedTask: Task = {
+        ...task,
+        status: "todo",
+        completedAt: undefined,
+        updatedAt: Date.now(),
+      };
+      if (updatedTask.reminder && updatedTask.reminder.notificationIds) {
+        updatedTask.reminder.notificationIds = undefined; // Strip so reconciler uses fresh IDs
+      }
 
-    // 1. Domain persistence FIRST
-    await TaskRepository.saveTask(updatedTask);
+      // 1. Domain persistence FIRST
+      await TaskRepository.saveTaskUnlocked(updatedTask);
+
+      return { previous: task, updated: updatedTask, skipped: false };
+    });
+
+    if (!result) return null;
+    if (result.skipped) return { previous: result.previous, updated: result.updated };
+
+    const { previous } = result;
+    let updatedTask = result.updated;
+
+    await reversePebbleReward(`task:${previous.id}`);
 
     // 2. OS Notification Scheduling SECOND (isolated)
     try {
@@ -884,7 +926,7 @@ static async reorderTasks(
       emitStateChange("tasks_changed", options?.source);
     }
 
-    return { previous: task, updated: updatedTask };
+    return { previous, updated: updatedTask };
   }
 
 /**
@@ -896,31 +938,42 @@ static async reorderTasks(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Task; updated: Task } | null> {
-    const tasksMap = await TaskRepository.getTasks(workspaceId);
-    const task = tasksMap[taskId];
-    if (!task) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const key = `pebble:v1:tasks:${workspaceId}`;
 
-    if (task.status === "completed") {
-      return { previous: task, updated: task }; // Already completed
-    }
+    const result = await withLock(key, async () => {
+      const tasksMap = await TaskRepository.getTasks(workspaceId);
+      const task = tasksMap[taskId];
+      if (!task) return null;
 
+      if (task.status === "completed") {
+        return { previous: task, updated: task, skipped: true }; // Already completed
+      }
 
-    if (task.reminder?.notificationIds) {
-      cancelReminderIds(task.reminder.notificationIds, { throwOnError: false }).catch(e => {
+      const updatedTask: Task = {
+        ...task,
+        status: "completed",
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      await TaskRepository.saveTaskUnlocked(updatedTask);
+
+      return { previous: task, updated: updatedTask, skipped: false };
+    });
+
+    if (!result) return null;
+    if (result.skipped) return { previous: result.previous, updated: result.updated };
+
+    const { previous, updated: updatedTask } = result;
+
+    if (previous.reminder?.notificationIds) {
+      cancelReminderIds(previous.reminder.notificationIds, { throwOnError: false }).catch(e => {
         console.warn(`[EntityCommandService] Failed to cancel reminders for completed task ${taskId}`, e);
       });
     }
 
-    const updatedTask: Task = {
-      ...task,
-      status: "completed",
-      completedAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    await TaskRepository.saveTask(updatedTask);
-
-    await earnPebble("task", `task:${task.id}`);
+    await earnPebble("task", `task:${updatedTask.id}`);
     pluginManager.dispatchTaskCompleted(updatedTask);
 
     if (!options?.skipAnalytics) {
@@ -933,7 +986,7 @@ static async reorderTasks(
       emitStateChange("tasks_changed", options?.source);
     }
 
-    return { previous: task, updated: updatedTask };
+    return { previous, updated: updatedTask };
   }
 
 /**

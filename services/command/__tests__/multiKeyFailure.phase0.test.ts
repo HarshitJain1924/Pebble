@@ -26,7 +26,7 @@ beforeEach(async () => {
 describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
   test("tolerates a ghost in the target workspace when source deletion is interrupted during a move", async () => {
     await TaskRepository.saveTask(task("ws-source"));
-    jest.spyOn(TaskRepository, "deleteTask").mockRejectedValueOnce(new Error("source delete failed"));
+    jest.spyOn(TaskRepository, "deleteTaskUnlocked").mockRejectedValueOnce(new Error("source delete failed"));
     
     await expect(EntityCommandService.moveTask("task-1", "ws-source", "ws-target", { skipEvents: true, skipAnalytics: true }))
       .rejects.toThrow("source delete failed");
@@ -45,7 +45,7 @@ describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
     await GraphRepository.saveRelationship(relationship);
     
     // Create a mock to wait for the async cleanup to run
-    const multiRemoveSpy = jest.spyOn(AsyncStorage, "multiRemove");
+    const removeItemSpy = jest.spyOn(AsyncStorage, "removeItem");
     
     await EntityCommandService.deleteWorkspace("ws-delete");
     
@@ -55,17 +55,15 @@ describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
     // Wait for the async cleanup fire-and-forget promise to resolve in the event loop
     await new Promise(process.nextTick);
     
-    expect(multiRemoveSpy).toHaveBeenCalledWith([
-      "pebble:v1:tasks:ws-delete",
-      "pebble:v1:habits:ws-delete",
-      "pebble:v1:checklists:ws-delete",
-      "pebble:v1:resources:ws-delete",
-    ]);
+    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:tasks:ws-delete");
+    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:habits:ws-delete");
+    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:checklists:ws-delete");
+    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:resources:ws-delete");
   });
 
   test("tolerates an active ghost when recycle active delete fails", async () => {
     await TaskRepository.saveTask(task("ws-source"));
-    jest.spyOn(TaskRepository, "deleteTask").mockRejectedValue(new Error("active delete failed"));
+    jest.spyOn(TaskRepository, "deleteTaskUnlocked").mockRejectedValue(new Error("active delete failed"));
     
     await expect(EntityCommandService.recycleTask("task-1", "ws-source", "Source", { skipEvents: true, skipAnalytics: true }))
       .rejects.toThrow("active delete failed");
