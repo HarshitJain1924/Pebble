@@ -88,7 +88,7 @@ export class ConversionCommandHandler {
       });
 
       // B. Create Destination (Task)
-      await TaskRepository.saveTaskUnlocked(newTask);
+      createdTask = await TaskRepository.saveTaskUnlocked(newTask);
 
       // C. Update Journal to DESTINATION_WRITTEN
       await ConversionJournalRepository.updateOperationUnlocked(operationId, { phase: "DESTINATION_WRITTEN" });
@@ -98,8 +98,6 @@ export class ConversionCommandHandler {
 
       // E. Clear Journal
       await ConversionJournalRepository.removeOperationUnlocked(operationId);
-
-      createdTask = newTask;
     });
 
     if (!createdTask) {
@@ -116,9 +114,21 @@ export class ConversionCommandHandler {
        try {
            const newNotificationIds = await scheduleTaskNotifications(createdTask.id, createdTask as any);
            if (newNotificationIds && newNotificationIds.length > 0) {
-               await TaskRepository.updateNotificationIds(createdTask.id, createdTask.workspaceId, newNotificationIds);
-               const verify = await TaskRepository.getTask(createdTask.id, createdTask.workspaceId);
-               if (!verify || verify.status === "completed" || verify.archivedAt) {
+               const updateResult = await TaskRepository.updateNotificationIds(
+                   createdTask.id, 
+                   createdTask.workspaceId, 
+                   newNotificationIds,
+                   {
+                       reminder: createdTask.reminder,
+                       status: createdTask.status,
+                       archivedAt: createdTask.archivedAt,
+                       updatedAt: createdTask.updatedAt,
+                       revision: createdTask.revision
+                   }
+               );
+               
+               if (updateResult === 'state_changed' || updateResult === 'not_found') {
+                   // A concurrent mutation occurred; cancel our stale native OS notifications.
                    cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
                }
            }
@@ -209,7 +219,7 @@ export class ConversionCommandHandler {
       });
 
       // B. Create Destination (Habit)
-      await HabitRepository.saveHabitUnlocked(habit);
+      createdHabit = await HabitRepository.saveHabitUnlocked(habit);
 
       // C. Update Journal to DESTINATION_WRITTEN
       await ConversionJournalRepository.updateOperationUnlocked(operationId, { phase: "DESTINATION_WRITTEN" });
@@ -219,8 +229,6 @@ export class ConversionCommandHandler {
 
       // E. Clear Journal
       await ConversionJournalRepository.removeOperationUnlocked(operationId);
-
-      createdHabit = habit;
     });
 
     if (!createdHabit) {
@@ -237,9 +245,20 @@ export class ConversionCommandHandler {
        try {
            const newNotificationIds = await scheduleHabitNotifications(createdHabit.id, createdHabit as any);
            if (newNotificationIds && newNotificationIds.length > 0) {
-               await HabitRepository.updateNotificationIds(createdHabit.id, createdHabit.workspaceId, newNotificationIds);
-               const verify = await HabitRepository.getHabit(createdHabit.id, createdHabit.workspaceId);
-               if (!verify || verify.archivedAt) {
+               const updateResult = await HabitRepository.updateNotificationIds(
+                   createdHabit.id, 
+                   createdHabit.workspaceId, 
+                   newNotificationIds,
+                   {
+                       reminder: createdHabit.reminder,
+                       archivedAt: createdHabit.archivedAt,
+                       updatedAt: createdHabit.updatedAt,
+                       revision: createdHabit.revision
+                   }
+               );
+
+               if (updateResult === 'state_changed' || updateResult === 'not_found') {
+                   // A concurrent mutation occurred; cancel our stale native OS notifications.
                    cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
                }
            }

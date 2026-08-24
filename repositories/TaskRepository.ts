@@ -124,6 +124,7 @@ export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
       rawTask.completedAt || (status === "completed" ? Date.now() : undefined),
     archivedAt:
       rawTask.archivedAt || (rawTask.archived ? Date.now() : undefined),
+    revision: rawTask.revision ?? 1,
   };
   return result;
 }
@@ -197,16 +198,17 @@ export class TaskRepository {
     return records;
   }
 
-  static async saveTask(task: any): Promise<void> {
+  static async saveTask(task: any): Promise<Task> {
     this.validateId(task?.id, "saveTask");
     const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(workspaceId);
     
-    await withLock(key, async () => {
+    return await withLock(key, async () => {
       const records = await this.getTasks(workspaceId);
 
       const cleanTask: Task = normalizeTask(task, workspaceId);
       cleanTask.updatedAt = Date.now();
+      cleanTask.revision = (records[task.id]?.revision || 0) + 1;
 
       // Pre-persistence guard: catch any code path that produces an enabled
       // reminder with an invalid triggerAt (e.g. Date.now() instead of the
@@ -223,6 +225,7 @@ export class TaskRepository {
 
       records[task.id] = cleanTask;
       await AsyncStorage.setItem(key, JSON.stringify(records));
+      return cleanTask;
     });
   }
 
@@ -230,7 +233,7 @@ export class TaskRepository {
    * Unlocked persistence primitive required specifically for TaskCommandHandler.updateTask
    * to perform a safe workspace-partition read-modify-write without nested deadlocking.
    */
-  static async saveTaskUnlocked(task: any): Promise<void> {
+  static async saveTaskUnlocked(task: any): Promise<Task> {
     this.validateId(task?.id, "saveTaskUnlocked");
     const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(workspaceId);
@@ -239,6 +242,7 @@ export class TaskRepository {
 
     const cleanTask: Task = normalizeTask(task, workspaceId);
     cleanTask.updatedAt = Date.now();
+    cleanTask.revision = (records[task.id]?.revision || 0) + 1;
 
     const validTrigger =
       Number.isFinite(cleanTask.reminder?.triggerAt) &&
@@ -252,6 +256,7 @@ export class TaskRepository {
 
     records[task.id] = cleanTask;
     await AsyncStorage.setItem(key, JSON.stringify(records));
+    return cleanTask;
   }
 
   static async saveTasks(tasks: any[], workspaceId: string): Promise<void> {
@@ -268,6 +273,9 @@ export class TaskRepository {
           workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
         const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
         cleanTask.updatedAt = Date.now();
+        // Monotonic revision: always advance from the persisted value,
+        // never trust the caller-provided revision in the payload.
+        cleanTask.revision = (records[task.id]?.revision || 0) + 1;
         records[task.id] = cleanTask;
       }
       await AsyncStorage.setItem(key, JSON.stringify(records));
@@ -291,6 +299,8 @@ export class TaskRepository {
         workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
       const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
       cleanTask.updatedAt = Date.now();
+      // Monotonic revision: advance from the persisted value, ignoring caller payload.
+      cleanTask.revision = (records[task.id]?.revision || 0) + 1;
       records[task.id] = cleanTask;
     }
     await AsyncStorage.setItem(key, JSON.stringify(records));
@@ -301,7 +311,18 @@ export class TaskRepository {
    * or touching the updatedAt timestamp.
    * Handles workspace moves gracefully by returning not_found if the entity is missing.
    */
-  static async updateNotificationIds(id: string, workspaceId: string, notificationIds?: string[]): Promise<'updated' | 'not_found'> {
+  static async updateNotificationIds(
+    id: string, 
+    workspaceId: string, 
+    notificationIds?: string[],
+    expectedSnapshot?: {
+      reminder?: { enabled: boolean; triggerAt?: number };
+      status?: string;
+      archivedAt?: number | null;
+      updatedAt?: number;
+      revision?: number;
+    }
+  ): Promise<'updated' | 'not_found' | 'state_changed'> {
     this.validateId(id, "updateNotificationIds");
     const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(targetWorkspaceId);
@@ -311,6 +332,21 @@ export class TaskRepository {
       const existing = records[id];
       if (!existing) {
         return 'not_found';
+      }
+      
+      if (expectedSnapshot) {
+        const reminderMatches = 
+          existing.reminder?.enabled === expectedSnapshot.reminder?.enabled &&
+          existing.reminder?.triggerAt === expectedSnapshot.reminder?.triggerAt;
+        
+        const statusMatches = expectedSnapshot.status === undefined || existing.status === expectedSnapshot.status;
+        const archiveMatches = existing.archivedAt === expectedSnapshot.archivedAt;
+        const updatedAtMatches = expectedSnapshot.updatedAt === undefined || existing.updatedAt === expectedSnapshot.updatedAt;
+        const revisionMatches = expectedSnapshot.revision === undefined || existing.revision === expectedSnapshot.revision;
+
+        if (!reminderMatches || !statusMatches || !archiveMatches || !updatedAtMatches || !revisionMatches) {
+          return 'state_changed';
+        }
       }
       
       // Preserve ALL fields exactly, only modify notificationIds

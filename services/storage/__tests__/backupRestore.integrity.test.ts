@@ -100,6 +100,58 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
     expect(journalAfter[0].operationId).toBe("op-sneaky");
   });
 
+  it("TEST 6 - ConversionJournal lock survives empty journal (Concurrent Conversion Race)", async () => {
+    // Setup: Ensure ConversionJournal storage key does NOT exist
+    delete mockStorage["pebble:v1:conversion_journal"];
+
+    // We hook getAllKeys so that we can insert a concurrent conversion EXACTLY after 
+    // BackupService has determined its lock set but BEFORE it acquires locks.
+    const originalGetAllKeys = AsyncStorage.getAllKeys as jest.Mock;
+    let didInjectConversion = false;
+    
+    originalGetAllKeys.mockImplementation(async () => {
+      // Capture keys BEFORE injecting the conversion. 
+      // conversion_journal is NOT in this array.
+      const keys = Object.keys(mockStorage);
+      
+      if (!didInjectConversion) {
+        didInjectConversion = true;
+        
+        // Await the concurrent conversion so it is physically in storage 
+        // before BackupService proceeds to compute lockKeys.
+        const { ConversionJournalRepository } = require("@/repositories");
+        await ConversionJournalRepository.addOperationUnlocked({
+          operationId: "conv-sneaky",
+          phase: "PREPARED",
+          operationType: "habit_to_task",
+          sourceId: "habit-sneaky",
+          sourceWorkspaceId: "inbox",
+          targetId: "task-sneaky",
+          targetWorkspaceId: "inbox",
+          timestamp: Date.now()
+        });
+      }
+      
+      // Return the stale keys array to simulate the exact race 
+      return keys;
+    });
+
+    const backupJson = JSON.stringify(generateValidBackup());
+    
+    // BackupService manually requires the lock now, so it will discover it inside the lock block.
+    await expect(BackupService.restoreStructuredBackup(backupJson))
+      .rejects.toThrow("Concurrent conversion detected");
+
+    // The journal entry MUST survive the backup attempt
+    const { ConversionJournalRepository } = require("@/repositories");
+    const journalAfter = await ConversionJournalRepository.getOperations();
+    expect(journalAfter.length).toBe(1);
+    expect(journalAfter[0].operationId).toBe("conv-sneaky");
+
+    // Cleanup mock
+    (AsyncStorage.getAllKeys as jest.Mock).mockImplementation(async () => Object.keys(mockStorage));
+  });
+
   it("TEST 2 - Reconciler vs Backup deadlock does not occur on disjoint partitions", async () => {
     // We intentionally delay the MoveJournal lock acquisition inside BackupService
     // to force Reconciler and Backup to overlap.

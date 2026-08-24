@@ -190,8 +190,8 @@ describe("Habit bulk move persistence (via EntityCommandService.moveHabit)", () 
 
     const moved = (await HabitRepository.getHabits("ws-2"))["habit-a"];
     expect(moved.id).toBe("habit-a");
-    const { workspaceId: _ws, updatedAt: _ua, ...restOfMoved } = moved as any;
-    const { workspaceId: _ws2, updatedAt: _ua2, ...restOfOriginal } = original as any;
+    const { workspaceId: _ws, updatedAt: _ua, revision: _rev, ...restOfMoved } = moved as any;
+    const { workspaceId: _ws2, updatedAt: _ua2, revision: _rev2, ...restOfOriginal } = original as any;
     expect(restOfMoved).toEqual(restOfOriginal);
   });
 

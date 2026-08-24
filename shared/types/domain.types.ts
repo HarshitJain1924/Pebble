@@ -58,6 +58,7 @@ export interface Task {
   description?: string;
   categoryId?: string;
   tags?: string[];
+  revision?: number;
   status: TaskStatus;
   priority: TaskPriority;
   schedule?: TaskSchedule;
@@ -85,6 +86,7 @@ export interface Habit {
   title: string;
   description?: string;
   categoryId?: string;
+  revision?: number;
   tags?: string[];
   recurrence: RecurrenceRule;
   recurrenceExceptions?: string[];

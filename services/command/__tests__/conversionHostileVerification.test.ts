@@ -4,6 +4,8 @@ import { TaskRepository, HabitRepository, WorkspaceRepository, ConversionJournal
 import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import type { Task, Habit, Workspace } from "@/shared/types/domain.types";
 import { withLocks } from "@/shared/utils/mutex";
+import * as Notifications from "@/services/command/shared/command-notifications";
+import * as RemindersService from "@/services/scheduling/reminders.service";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
@@ -318,6 +320,207 @@ describe("Hostile Conversion Verification (Journal Sequence)", () => {
 
         const tasks = await TaskRepository.getTasks("ws-convert");
         expect(Object.keys(tasks).length).toBe(1);
+    });
+  });
+
+  describe("4. Notification Race", () => {
+    it("Test A: Habit -> Task conversion vs concurrent Task reminder update", async () => {
+      await WorkspaceRepository.saveWorkspaces([ws("ws-convert")]);
+      
+      const h = habit("habit-1", "ws-convert");
+      h.reminder = { enabled: true, triggerAt: 1000, notificationIds: ["old-id-1"] };
+      await HabitRepository.saveHabit(h);
+
+      let pauseConversion: () => void;
+      const conversionPaused = new Promise<void>(resolve => { pauseConversion = resolve; });
+      let resumeConversion: () => void;
+      const conversionResume = new Promise<void>(resolve => { resumeConversion = resolve; });
+
+      jest.spyOn(Notifications, "scheduleTaskNotifications").mockImplementation(async () => {
+        pauseConversion(); // Signal that we are inside OS scheduling phase
+        await conversionResume; // Wait for concurrent mutation to finish
+        return ["stale-id-1", "stale-id-2"]; // Return stale generated IDs
+      });
+
+      const cancelSpy = jest.spyOn(RemindersService, "cancelReminderIds").mockResolvedValue();
+
+      // Start the conversion
+      const conversionPromise = EntityCommandService.convertHabitToTask("habit-1", "ws-convert", { skipEvents: true, skipAnalytics: true });
+
+      // Wait for the conversion to enter OS scheduling phase
+      await conversionPaused;
+
+      // Now run the concurrent mutation (user edits the reminder time on the newly converted task)
+      // Note: The task ID is generated, so we need to get it from the repository
+      const tasks = await TaskRepository.getTasks("ws-convert");
+      const taskKeys = Object.keys(tasks);
+      expect(taskKeys.length).toBe(1);
+      const newTaskId = taskKeys[0];
+      const task = tasks[newTaskId];
+
+      // Mutate the task reminder and update notification IDs
+      task.reminder = { enabled: true, triggerAt: 2000, notificationIds: ["new-id-1", "new-id-2"] };
+      await TaskRepository.saveTask(task); // Simulating the concurrent save
+
+      // Resume conversion
+      resumeConversion!();
+      
+      await conversionPromise;
+
+      // Verify that the concurrent mutation survived
+      const updatedTasks = await TaskRepository.getTasks("ws-convert");
+      const updatedTask = updatedTasks[newTaskId];
+      
+      expect(updatedTask.reminder?.triggerAt).toBe(2000);
+      expect(updatedTask.reminder?.notificationIds).toEqual(["new-id-1", "new-id-2"]);
+
+      // Verify that the stale IDs were cancelled!
+      expect(cancelSpy).toHaveBeenCalledWith(["stale-id-1", "stale-id-2"], expect.anything());
+    });
+
+    it("Test B: Task -> Habit conversion vs concurrent Habit reminder update", async () => {
+      await WorkspaceRepository.saveWorkspaces([ws("ws-convert")]);
+      
+      const t = task("task-1", "ws-convert");
+      t.reminder = { enabled: true, triggerAt: 1000, notificationIds: ["old-id-1"] };
+      await TaskRepository.saveTask(t);
+
+      let pauseConversion: () => void;
+      const conversionPaused = new Promise<void>(resolve => { pauseConversion = resolve; });
+      let resumeConversion: () => void;
+      const conversionResume = new Promise<void>(resolve => { resumeConversion = resolve; });
+
+      jest.spyOn(Notifications, "scheduleHabitNotifications").mockImplementation(async () => {
+        pauseConversion(); 
+        await conversionResume; 
+        return ["stale-id-1", "stale-id-2"]; 
+      });
+
+      const cancelSpy = jest.spyOn(RemindersService, "cancelReminderIds").mockResolvedValue();
+
+      const conversionPromise = EntityCommandService.convertTaskToHabit("task-1", "ws-convert", { skipEvents: true, skipAnalytics: true });
+
+      await conversionPaused;
+
+      const habits = await HabitRepository.getHabits("ws-convert");
+      const habitKeys = Object.keys(habits);
+      expect(habitKeys.length).toBe(1);
+      const newHabitId = habitKeys[0];
+      const h = habits[newHabitId];
+
+      h.reminder = { enabled: true, triggerAt: 2000, notificationIds: ["new-id-1", "new-id-2"] };
+      await HabitRepository.saveHabit(h); 
+
+      resumeConversion!();
+      
+      await conversionPromise;
+
+      const updatedHabits = await HabitRepository.getHabits("ws-convert");
+      const updatedHabit = updatedHabits[newHabitId];
+      
+      expect(updatedHabit.reminder?.triggerAt).toBe(2000);
+      expect(updatedHabit.reminder?.notificationIds).toEqual(["new-id-1", "new-id-2"]);
+
+      expect(cancelSpy).toHaveBeenCalledWith(["stale-id-1", "stale-id-2"], expect.anything());
+    });
+
+    it("Test C: Edge case - B changes notificationIds ONLY but keeps other reminder fields identical to A's snapshot", async () => {
+      await WorkspaceRepository.saveWorkspaces([ws("ws-convert")]);
+      
+      const h = habit("habit-1", "ws-convert");
+      h.reminder = { enabled: true, triggerAt: 1000, notificationIds: ["old-id-1"] };
+      await HabitRepository.saveHabit(h);
+
+      let pauseConversion: () => void;
+      const conversionPaused = new Promise<void>(resolve => { pauseConversion = resolve; });
+      let resumeConversion: () => void;
+      const conversionResume = new Promise<void>(resolve => { resumeConversion = resolve; });
+
+      jest.spyOn(Notifications, "scheduleTaskNotifications").mockImplementation(async () => {
+        pauseConversion(); 
+        await conversionResume; 
+        return ["stale-id-1", "stale-id-2"]; 
+      });
+
+      const cancelSpy = jest.spyOn(RemindersService, "cancelReminderIds").mockResolvedValue();
+
+      const conversionPromise = EntityCommandService.convertHabitToTask("habit-1", "ws-convert", { skipEvents: true, skipAnalytics: true });
+
+      await conversionPaused;
+
+      const tasks = await TaskRepository.getTasks("ws-convert");
+      const taskKeys = Object.keys(tasks);
+      const newTaskId = taskKeys[0];
+      const task = tasks[newTaskId];
+
+      // Mutate ONLY notificationIds, leaving triggerAt and enabled the same
+      // Add a small delay to ensure Date.now() advances for the CAS updatedAt check
+      await new Promise(r => setTimeout(r, 5));
+      task.reminder = { enabled: true, triggerAt: 1000, notificationIds: ["new-id-1", "new-id-2"] };
+      await TaskRepository.saveTask(task); // This will update the updatedAt field!
+
+      resumeConversion!();
+      
+      await conversionPromise;
+
+      const updatedTasks = await TaskRepository.getTasks("ws-convert");
+      const updatedTask = updatedTasks[newTaskId];
+      
+      // EXPECTATION: The CAS should still detect the mutation and reject the conversion's old IDs,
+      // preserving B's new notification IDs.
+      expect(updatedTask.reminder?.notificationIds).toEqual(["new-id-1", "new-id-2"]);
+      expect(cancelSpy).toHaveBeenCalledWith(["stale-id-1", "stale-id-2"], expect.anything());
+    });
+
+    it("Test D: Same-millisecond mutation edge case", async () => {
+      await WorkspaceRepository.saveWorkspaces([ws("ws-convert")]);
+      
+      const fixedTime = 1787590000000;
+      const dateNowSpy = jest.spyOn(Date, "now").mockReturnValue(fixedTime);
+
+      const h = habit("habit-1", "ws-convert");
+      h.reminder = { enabled: true, triggerAt: 1000, notificationIds: ["old-id-1"] };
+      await HabitRepository.saveHabit(h);
+
+      let pauseConversion: () => void;
+      const conversionPaused = new Promise<void>(resolve => { pauseConversion = resolve; });
+      let resumeConversion: () => void;
+      const conversionResume = new Promise<void>(resolve => { resumeConversion = resolve; });
+
+      jest.spyOn(Notifications, "scheduleTaskNotifications").mockImplementation(async () => {
+        pauseConversion(); 
+        await conversionResume; 
+        return ["stale-id-1", "stale-id-2"]; 
+      });
+
+      const cancelSpy = jest.spyOn(RemindersService, "cancelReminderIds").mockResolvedValue();
+
+      const conversionPromise = EntityCommandService.convertHabitToTask("habit-1", "ws-convert", { skipEvents: true, skipAnalytics: true });
+
+      await conversionPaused;
+
+      const tasks = await TaskRepository.getTasks("ws-convert");
+      const taskKeys = Object.keys(tasks);
+      const newTaskId = taskKeys[0];
+      const task = tasks[newTaskId];
+
+      // Mutate ONLY notificationIds, leaving triggerAt and enabled the same
+      // Because Date.now is mocked to fixedTime, updatedAt will be identical
+      task.reminder = { enabled: true, triggerAt: 1000, notificationIds: ["new-id-1", "new-id-2"] };
+      await TaskRepository.saveTask(task);
+
+      resumeConversion!();
+      
+      await conversionPromise;
+
+      const updatedTasks = await TaskRepository.getTasks("ws-convert");
+      const updatedTask = updatedTasks[newTaskId];
+      
+      // Clean up the spy before assertions in case it affects expect
+      dateNowSpy.mockRestore();
+
+      expect(updatedTask.reminder?.notificationIds).toEqual(["new-id-1", "new-id-2"]);
+      expect(cancelSpy).toHaveBeenCalledWith(["stale-id-1", "stale-id-2"], expect.anything());
     });
   });
 });

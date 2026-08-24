@@ -91,6 +91,7 @@ export function normalizeHabit(
     bestStreak:
       typeof rawHabit.bestStreak === "number" ? rawHabit.bestStreak : undefined,
     lastCompletedDate: rawHabit.lastCompletedDate || undefined,
+    revision: rawHabit.revision ?? 1,
   };
 }
 
@@ -165,13 +166,13 @@ export class HabitRepository {
     return records;
   }
 
-  static async saveHabit(habit: any): Promise<void> {
+  static async saveHabit(habit: any): Promise<Habit> {
     this.validateId(habit?.id, "saveHabit");
     const workspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getHabitsKey(workspaceId);
     
-    await withLock(key, async () => {
-      await this.saveHabitUnlocked(habit);
+    return await withLock(key, async () => {
+      return await this.saveHabitUnlocked(habit);
     });
   }
 
@@ -179,7 +180,7 @@ export class HabitRepository {
    * Unlocked primitive required by Command layer for multi-key concurrency
    * operations (like updateHabit, moveHabit) where the canonical lock is already held.
    */
-  static async saveHabitUnlocked(habit: any): Promise<void> {
+  static async saveHabitUnlocked(habit: any): Promise<Habit> {
     this.validateId(habit?.id, "saveHabitUnlocked");
     const workspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getHabitsKey(workspaceId);
@@ -188,6 +189,7 @@ export class HabitRepository {
 
     const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
     cleanHabit.updatedAt = Date.now();
+    cleanHabit.revision = (records[habit.id]?.revision || 0) + 1;
 
     const validTrigger =
       Number.isFinite(cleanHabit.reminder?.triggerAt) &&
@@ -201,6 +203,7 @@ export class HabitRepository {
 
     records[habit.id] = cleanHabit;
     await AsyncStorage.setItem(key, JSON.stringify(records));
+    return cleanHabit;
   }
 
   static async saveHabits(habits: any[], workspaceId: string): Promise<void> {
@@ -211,6 +214,9 @@ export class HabitRepository {
         this.validateId(habit?.id, "saveHabits");
         const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
         cleanHabit.updatedAt = Date.now();
+        // Monotonic revision: always advance from the persisted value,
+        // never trust the caller-provided revision in the payload.
+        cleanHabit.revision = (records[habit.id]?.revision || 0) + 1;
         records[habit.id] = cleanHabit;
       }
       await AsyncStorage.setItem(key, JSON.stringify(records));
@@ -228,6 +234,8 @@ export class HabitRepository {
       this.validateId(habit?.id, "saveHabitsUnlocked");
       const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
       cleanHabit.updatedAt = Date.now();
+      // Monotonic revision: advance from the persisted value, ignoring caller payload.
+      cleanHabit.revision = (records[habit.id]?.revision || 0) + 1;
       records[habit.id] = cleanHabit;
     }
     await AsyncStorage.setItem(key, JSON.stringify(records));
@@ -238,7 +246,17 @@ export class HabitRepository {
    * or touching the updatedAt timestamp.
    * Handles workspace moves gracefully by returning not_found if the entity is missing.
    */
-  static async updateNotificationIds(id: string, workspaceId: string, notificationIds?: string[]): Promise<'updated' | 'not_found'> {
+  static async updateNotificationIds(
+    id: string, 
+    workspaceId: string, 
+    notificationIds?: string[],
+    expectedSnapshot?: {
+      reminder?: { enabled: boolean; triggerAt?: number };
+      archivedAt?: number | null;
+      updatedAt?: number;
+      revision?: number;
+    }
+  ): Promise<'updated' | 'not_found' | 'state_changed'> {
     this.validateId(id, "updateNotificationIds");
     const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getHabitsKey(targetWorkspaceId);
@@ -250,6 +268,20 @@ export class HabitRepository {
         return 'not_found';
       }
       
+      if (expectedSnapshot) {
+        const reminderMatches = 
+          existing.reminder?.enabled === expectedSnapshot.reminder?.enabled &&
+          existing.reminder?.triggerAt === expectedSnapshot.reminder?.triggerAt;
+        
+        const archiveMatches = existing.archivedAt === expectedSnapshot.archivedAt;
+        const updatedAtMatches = expectedSnapshot.updatedAt === undefined || existing.updatedAt === expectedSnapshot.updatedAt;
+        const revisionMatches = expectedSnapshot.revision === undefined || existing.revision === expectedSnapshot.revision;
+
+        if (!reminderMatches || !archiveMatches || !updatedAtMatches || !revisionMatches) {
+          return 'state_changed';
+        }
+      }
+
       // Preserve ALL fields exactly, only modify notificationIds
       if (existing.reminder) {
         existing.reminder.notificationIds = notificationIds;

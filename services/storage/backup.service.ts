@@ -1,21 +1,34 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  WorkspaceRepository,
-  TaskRepository,
-  HabitRepository,
+  getProfile,
+  getSettings,
+} from "@/features/settings/services/settings.service";
+import {
   ChecklistRepository,
-  ResourceRepository,
   GraphRepository,
+  HabitRepository,
+  ResourceRepository,
+  TaskRepository,
+  WorkspaceRepository,
 } from "@/repositories";
-import { RecycleBinRepository } from "@/repositories/RecycleBinRepository";
-import { getSettings, getProfile } from "@/features/settings/services/settings.service";
-import { INBOX_WORKSPACE_ID, type Workspace, type Task, type Habit, type Checklist, type Resource, type FocusSession, type Relationship, type SystemEventLog } from "@/shared/types/domain.types";
-import { clearRepositoryStorage } from "./storage-utils";
-import { deduplicateEntities } from "@/shared/utils/deduplication";
-import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
-import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
-import { withLock, withLocks } from "@/shared/utils/mutex";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
+import { RecycleBinRepository } from "@/repositories/RecycleBinRepository";
+import { ConversionJournalRepository } from "@/repositories/ConversionJournalRepository";
+import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
+import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import {
+  INBOX_WORKSPACE_ID,
+  type Checklist,
+  type FocusSession,
+  type Habit,
+  type Relationship,
+  type Resource,
+  type SystemEventLog,
+  type Task,
+  type Workspace,
+} from "@/shared/types/domain.types";
+import { deduplicateEntities } from "@/shared/utils/deduplication";
+import { withLock } from "@/shared/utils/mutex";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 
 export interface AppBackup {
@@ -43,7 +56,9 @@ export class BackupService {
     await ConversionReconcilerService.reconcileAll();
 
     const workspaces = await WorkspaceRepository.getWorkspaces();
-    const workspaceIds = Array.from(new Set([INBOX_WORKSPACE_ID, ...workspaces.map((w) => w.id)]));
+    const workspaceIds = Array.from(
+      new Set([INBOX_WORKSPACE_ID, ...workspaces.map((w) => w.id)]),
+    );
 
     const tasks: Task[] = [];
     const habits: Habit[] = [];
@@ -67,8 +82,8 @@ export class BackupService {
     const recycleBin = await RecycleBinRepository.getRecycleBinItems();
     const focusSessions = await GraphRepository.getFocusSessions();
     const systemEvents = await GraphRepository.getSystemEvents();
-    
-    // For relationships, we must read the internal state or get all. 
+
+    // For relationships, we must read the internal state or get all.
     // Since getRelated is per item, we might need to read raw for relationships.
     const relsRaw = await AsyncStorage.getItem("pebble:v1:relationships");
     const relationshipsMap = relsRaw ? JSON.parse(relsRaw) : {};
@@ -77,7 +92,11 @@ export class BackupService {
     const settings = await getSettings();
     const profile = await getProfile();
 
-    const stripNotificationIds = <T extends { reminder?: { notificationIds?: string[] } }>(entity: T): T => {
+    const stripNotificationIds = <
+      T extends { reminder?: { notificationIds?: string[] } },
+    >(
+      entity: T,
+    ): T => {
       if (entity.reminder && entity.reminder.notificationIds) {
         return {
           ...entity,
@@ -98,12 +117,17 @@ export class BackupService {
       habits: deduplicateEntities(habits.map(stripNotificationIds)),
       checklists: deduplicateEntities(checklists),
       resources: deduplicateEntities(resources),
-      recycleBin: recycleBin.map(binItem => {
-        if (binItem.entityType === 'task' || binItem.entityType === 'habit') {
-           try {
-             const parsed = JSON.parse(binItem.snapshot);
-             return { ...binItem, snapshot: JSON.stringify(stripNotificationIds(parsed)) };
-           } catch { return binItem; }
+      recycleBin: recycleBin.map((binItem) => {
+        if (binItem.entityType === "task" || binItem.entityType === "habit") {
+          try {
+            const parsed = JSON.parse(binItem.snapshot);
+            return {
+              ...binItem,
+              snapshot: JSON.stringify(stripNotificationIds(parsed)),
+            };
+          } catch {
+            return binItem;
+          }
         }
         return binItem;
       }),
@@ -132,7 +156,11 @@ export class BackupService {
       throw new Error("Invalid backup format: Not valid JSON.");
     }
 
-    if (!parsed.version || !parsed.workspaces || !Array.isArray(parsed.workspaces)) {
+    if (
+      !parsed.version ||
+      !parsed.workspaces ||
+      !Array.isArray(parsed.workspaces)
+    ) {
       throw new Error("Invalid backup format: missing version or core data.");
     }
 
@@ -142,11 +170,17 @@ export class BackupService {
       );
     }
 
-    const workspaceIds = new Set([INBOX_WORKSPACE_ID, ...parsed.workspaces.map((w: Workspace) => w.id)]);
+    const workspaceIds = new Set([
+      INBOX_WORKSPACE_ID,
+      ...parsed.workspaces.map((w: Workspace) => w.id),
+    ]);
     const kvPairsToSet: [string, string][] = [];
 
     // Stage Workspaces
-    kvPairsToSet.push(["pebble:v1:workspaces", JSON.stringify(parsed.workspaces)]);
+    kvPairsToSet.push([
+      "pebble:v1:workspaces",
+      JSON.stringify(parsed.workspaces),
+    ]);
 
     // Stage Workspace-Scoped Entities
     const tasksByWs = this.groupByWorkspace(parsed.tasks || []);
@@ -156,52 +190,66 @@ export class BackupService {
 
     for (const wsId of Array.from(workspaceIds)) {
       const tsMap: Record<string, Task> = {};
-      (tasksByWs[wsId] || []).forEach((t: Task) => tsMap[t.id] = t);
+      (tasksByWs[wsId] || []).forEach((t: Task) => (tsMap[t.id] = t));
       kvPairsToSet.push([`pebble:v1:tasks:${wsId}`, JSON.stringify(tsMap)]);
 
       const hsMap: Record<string, Habit> = {};
-      (habitsByWs[wsId] || []).forEach((h: Habit) => hsMap[h.id] = h);
+      (habitsByWs[wsId] || []).forEach((h: Habit) => (hsMap[h.id] = h));
       kvPairsToSet.push([`pebble:v1:habits:${wsId}`, JSON.stringify(hsMap)]);
 
       const csMap: Record<string, Checklist> = {};
-      (checklistsByWs[wsId] || []).forEach((c: Checklist) => csMap[c.id] = c);
-      kvPairsToSet.push([`pebble:v1:checklists:${wsId}`, JSON.stringify(csMap)]);
+      (checklistsByWs[wsId] || []).forEach((c: Checklist) => (csMap[c.id] = c));
+      kvPairsToSet.push([
+        `pebble:v1:checklists:${wsId}`,
+        JSON.stringify(csMap),
+      ]);
 
       const rsMap: Record<string, Resource> = {};
-      (resourcesByWs[wsId] || []).forEach((r: Resource) => rsMap[r.id] = r);
+      (resourcesByWs[wsId] || []).forEach((r: Resource) => (rsMap[r.id] = r));
       kvPairsToSet.push([`pebble:v1:resources:${wsId}`, JSON.stringify(rsMap)]);
     }
 
     // Stage Global Entities
     if (parsed.recycleBin && parsed.recycleBin.length > 0) {
-      kvPairsToSet.push(["pebble:v1:recycle_bin", JSON.stringify(parsed.recycleBin)]);
+      kvPairsToSet.push([
+        "pebble:v1:recycle_bin",
+        JSON.stringify(parsed.recycleBin),
+      ]);
     } else {
       kvPairsToSet.push(["pebble:v1:recycle_bin", "[]"]);
     }
 
     if (parsed.focusSessions && parsed.focusSessions.length > 0) {
-      kvPairsToSet.push(["pebble:v1:focus_sessions", JSON.stringify(parsed.focusSessions)]);
+      kvPairsToSet.push([
+        "pebble:v1:focus_sessions",
+        JSON.stringify(parsed.focusSessions),
+      ]);
     } else {
       kvPairsToSet.push(["pebble:v1:focus_sessions", "[]"]);
     }
 
     if (parsed.systemEvents && parsed.systemEvents.length > 0) {
-      kvPairsToSet.push(["pebble:v1:system_event_log", JSON.stringify(parsed.systemEvents)]);
+      kvPairsToSet.push([
+        "pebble:v1:system_event_log",
+        JSON.stringify(parsed.systemEvents),
+      ]);
     } else {
       kvPairsToSet.push(["pebble:v1:system_event_log", "[]"]);
     }
 
     if (parsed.relationships && parsed.relationships.length > 0) {
       const relMap: Record<string, Relationship> = {};
-      parsed.relationships.forEach((r: Relationship) => relMap[r.id] = r);
+      parsed.relationships.forEach((r: Relationship) => (relMap[r.id] = r));
       kvPairsToSet.push(["pebble:v1:relationships", JSON.stringify(relMap)]);
     } else {
       kvPairsToSet.push(["pebble:v1:relationships", "{}"]);
     }
 
     // Stage Settings & Profile
-    if (parsed.settings) kvPairsToSet.push(["pebble:settings", JSON.stringify(parsed.settings)]);
-    if (parsed.profile) kvPairsToSet.push(["pebble:profile", JSON.stringify(parsed.profile)]);
+    if (parsed.settings)
+      kvPairsToSet.push(["pebble:settings", JSON.stringify(parsed.settings)]);
+    if (parsed.profile)
+      kvPairsToSet.push(["pebble:profile", JSON.stringify(parsed.profile)]);
 
     // Snapshot Current State
     const allKeys = await AsyncStorage.getAllKeys();
@@ -210,21 +258,31 @@ export class BackupService {
     });
 
     // Determine all keys that will be involved (either read, removed, or set)
-    const newlySetKeys = kvPairsToSet.map(k => k[0]);
+    const newlySetKeys = kvPairsToSet.map((k) => k[0]);
     // Force inclusion of logical locks that must be respected during restore,
     // regardless of whether they physically exist in AsyncStorage right now.
     const requiredLocks = [
+      "pebble:v1:conversion_journal",
       "pebble:v1:move_journal",
-      "pebble:v1:recycle_bin"
+      "pebble:v1:recycle_bin",
     ];
-    const rawLockKeys = Array.from(new Set([...keysToRemove, ...newlySetKeys, ...requiredLocks]));
+    const rawLockKeys = Array.from(
+      new Set([...keysToRemove, ...newlySetKeys, ...requiredLocks]),
+    );
 
     // We MUST sort locks according to the established lock hierarchy to avoid deadlocks.
     // Alphabetical sort is NOT safe for the global hierarchy.
     const getLockPriority = (key: string): number => {
+      if (key === "pebble:v1:conversion_journal") return 1;
       if (key === "pebble:v1:move_journal") return 2;
       if (key === "pebble:v1:recycle_bin") return 3;
-      if (key.startsWith("pebble:v1:") && !key.includes("move_journal") && !key.includes("recycle_bin")) return 1;
+      if (
+        key.startsWith("pebble:v1:") &&
+        !key.includes("move_journal") &&
+        !key.includes("recycle_bin") &&
+        !key.includes("conversion_journal")
+      )
+        return 1;
       return 4;
     };
 
@@ -239,32 +297,53 @@ export class BackupService {
       if (index >= lockKeys.length) {
         // Refresh keysToRemove inside the lock in case new keys were created while waiting
         const lockedKeys = await AsyncStorage.getAllKeys();
-        const finalKeysToRemove = lockedKeys.filter((key) => key.startsWith("pebble:"));
-        
+        const finalKeysToRemove = lockedKeys.filter((key) =>
+          key.startsWith("pebble:"),
+        );
+
         // Final concurrency check to prevent silent MoveJournal destruction
         const pendingMoves = await MoveJournalRepository.getOperations();
         if (pendingMoves.length > 0) {
-          throw new Error("Concurrent move detected. Cannot safely restore backup while moves are pending.");
+          throw new Error(
+            "Concurrent move detected. Cannot safely restore backup while moves are pending.",
+          );
         }
-        
+
+        // Final concurrency check to prevent silent ConversionJournal destruction
+        const pendingConversions =
+          await ConversionJournalRepository.getOperations();
+        if (pendingConversions.length > 0) {
+          throw new Error(
+            "Concurrent conversion detected. Cannot safely restore backup while conversions are pending.",
+          );
+        }
+
         // Read current values to allow rollback
         const currentDataRaw = await AsyncStorage.multiGet(finalKeysToRemove);
-        const validRollbackData = currentDataRaw.filter(pair => pair[1] !== null) as [string, string][];
+        const validRollbackData = currentDataRaw.filter(
+          (pair) => pair[1] !== null,
+        ) as [string, string][];
 
         try {
           // Execute Atomic Write (Domain Commit Point)
           await AsyncStorage.multiRemove(finalKeysToRemove);
           await AsyncStorage.multiSet(kvPairsToSet);
-          
+
           // Explicitly reset cache immediately after domain commit, while still under lock
           GraphRepository.resetCache();
         } catch (writeError) {
-          console.warn("[BackupService] Restore failed during write. Attempting rollback...", writeError);
+          console.warn(
+            "[BackupService] Restore failed during write. Attempting rollback...",
+            writeError,
+          );
           try {
             await AsyncStorage.multiRemove(newlySetKeys);
             await AsyncStorage.multiSet(validRollbackData);
           } catch (rollbackError) {
-            console.error("[BackupService] CRITICAL: Rollback failed!", rollbackError);
+            console.error(
+              "[BackupService] CRITICAL: Rollback failed!",
+              rollbackError,
+            );
           }
           throw writeError;
         }
@@ -284,15 +363,22 @@ export class BackupService {
     // but have entirely different schedules in the incoming backup.
     // If this fails, the reconciler will eventually repair it, but we MUST NOT roll back domain state.
     try {
-      if (typeof Notifications.cancelAllScheduledNotificationsAsync === "function") {
+      if (
+        typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
+      ) {
         await Notifications.cancelAllScheduledNotificationsAsync();
       }
     } catch (e) {
-      console.warn("[BackupService] Failed to flush OS notifications after successful restore.", e);
+      console.warn(
+        "[BackupService] Failed to flush OS notifications after successful restore.",
+        e,
+      );
     }
   }
 
-  private static groupByWorkspace<T extends { workspaceId?: string }>(items: T[]): Record<string, T[]> {
+  private static groupByWorkspace<T extends { workspaceId?: string }>(
+    items: T[],
+  ): Record<string, T[]> {
     const map: Record<string, T[]> = {};
     for (const item of items) {
       const ws = item.workspaceId || INBOX_WORKSPACE_ID;
