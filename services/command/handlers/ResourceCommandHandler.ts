@@ -58,44 +58,52 @@ import { scheduleCreationNotifications, scheduleTaskNotifications, scheduleHabit
 import { restoreEntityFromBin } from "../shared/command-recovery";
 
 export class ResourceCommandHandler {
-static async moveResource(
+  static async moveResource(
     resourceId: string,
     sourceWorkspaceId: string,
     targetWorkspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<Resource> {
+    const { withLocks } = await import("@/shared/utils/mutex");
+
     if (sourceWorkspaceId === targetWorkspaceId) {
       const map = await ResourceRepository.getResources(sourceWorkspaceId);
       if (!map[resourceId]) throw new Error(`Resource ${resourceId} not found`);
       return map[resourceId];
     }
-    const map = await ResourceRepository.getResources(sourceWorkspaceId);
-    const existing = map[resourceId];
-    if (!existing) throw new Error(`Resource ${resourceId} not found`);
-    const moved: Resource = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
 
-    const operationId = `move-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      entityId: resourceId,
-      entityType: "resource",
-      sourceWorkspaceId,
-      targetWorkspaceId,
-      timestamp: Date.now(),
+    const sourceKey = `pebble:v1:resources:${sourceWorkspaceId}`;
+    const targetKey = `pebble:v1:resources:${targetWorkspaceId}`;
+
+    return await withLocks([sourceKey, targetKey], async () => {
+      const map = await ResourceRepository.getResources(sourceWorkspaceId);
+      const existing = map[resourceId];
+      if (!existing) throw new Error(`Resource ${resourceId} not found`);
+      const moved: Resource = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+
+      const operationId = `move-${generateId()}`;
+      await MoveJournalRepository.addOperation({
+        operationId,
+        entityId: resourceId,
+        entityType: "resource",
+        sourceWorkspaceId,
+        targetWorkspaceId,
+        timestamp: Date.now(),
+      });
+
+      await ResourceRepository.saveResourceUnlocked(moved);
+      try {
+        await ResourceRepository.deleteResourceUnlocked(resourceId, sourceWorkspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete source resource ${resourceId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+        throw e;
+      }
+
+      await MoveJournalRepository.removeOperation(operationId);
+      if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
+      if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+      return moved;
     });
-
-    await ResourceRepository.saveResource(moved);
-    try {
-      await ResourceRepository.deleteResource(resourceId, sourceWorkspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete source resource ${resourceId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
-      throw e;
-    }
-
-    await MoveJournalRepository.removeOperation(operationId);
-    if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
-    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
-    return moved;
   }
 
 static async toggleArchiveResource(
@@ -118,31 +126,84 @@ static async toggleArchiveResource(
     return { resource: updated, isArchived: !isArchived };
   }
 
-static async updateResource(
+  static async updateResource(
     resourceId: string,
     workspaceId: string,
     updates: Partial<Omit<Resource, "id" | "workspaceId">>,
     options?: CreateEntityOptions,
   ): Promise<Resource> {
-    const map = await ResourceRepository.getResources(workspaceId);
-    const existing = map[resourceId];
-    if (!existing) throw new Error(`Resource ${resourceId} not found`);
-    const updated = { ...existing, ...updates, updatedAt: Date.now() };
-    await ResourceRepository.saveResource(updated);
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:resources:${workspaceId}`;
+
+    const updated = await withLock(lockKey, async () => {
+      const map = await ResourceRepository.getResources(workspaceId);
+      const existing = map[resourceId];
+      if (!existing) throw new Error(`Resource ${resourceId} not found`);
+      const merged = { ...existing, ...updates, updatedAt: Date.now() };
+      await ResourceRepository.saveResourceUnlocked(merged);
+      return merged;
+    });
+
     if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     return updated;
   }
 
-static async restoreResource(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Resource> {
-    return restoreEntityFromBin<Resource>(
-      recycleBinItemId,
-      "resource",
-      "resources_changed",
-      options,
-      (resource) => ResourceRepository.saveResource(resource),
-      (resource) => ResourceRepository.deleteResource(resource.id, resource.workspaceId || INBOX_WORKSPACE_ID),
-    );
+  static async restoreResource(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Resource> {
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { getRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    
+    // Unlocked read to determine the target workspace before locking
+    const initialBinItems = await getRecycleBinItems();
+    const initialItem = initialBinItems.find((i) => i.id === recycleBinItemId);
+    if (!initialItem || initialItem.entityType !== "resource") {
+      throw new Error(`RecycleBin item not found or not resource`);
+    }
+    
+    const parsedData = JSON.parse(initialItem.snapshot) as Resource & { workspaceId?: string };
+    const targetWorkspaceId = parsedData.workspaceId || "inbox";
+    const lockKey = `pebble:v1:resources:${targetWorkspaceId}`;
+    
+    return await withLock(lockKey, async () => {
+      // Re-read inside the lock to ensure it wasn't already restored
+      const binItems = await getRecycleBinItems();
+      const item = binItems.find((i) => i.id === recycleBinItemId);
+      if (!item || item.entityType !== "resource") {
+        throw new Error(`RecycleBin item not found or not resource`);
+      }
+
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operationId = `restore-${generateId()}`;
+      
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "restore",
+        entityId: item.entityId,
+        entityType: "resource",
+        sourceWorkspaceId: targetWorkspaceId,
+        targetWorkspaceId,
+        timestamp: Date.now(),
+      });
+
+      const { ResourceRepository } = await import("@/repositories/ResourceRepository");
+      await ResourceRepository.saveResourceUnlocked(parsedData);
+
+      try {
+        await RecycleBinRepository.removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
+      } catch (e) {
+        console.warn(`[CommandRecovery] Failed to remove entity from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+      }
+
+      await MoveJournalRepository.removeOperation(operationId);
+
+      if (!options?.skipEvents) {
+        const { emitStateChange } = await import("@/services/events/state-events");
+        emitStateChange("resources_changed", options?.source);
+      }
+      return parsedData;
+    });
   }
 
 static async permanentlyDeleteResource(
@@ -164,40 +225,44 @@ static async permanentlyDeleteResource(
     }
   }
 
-static async recycleResource(
+  static async recycleResource(
     resourceId: string,
     workspaceId: string,
     options?: { skipEvents?: boolean; source?: string }
   ): Promise<void> {
+    const { withLock } = await import("@/shared/utils/mutex");
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { ResourceRepository } = await import("@/repositories/ResourceRepository");
     
-    const resources = await ResourceRepository.getResources(workspaceId);
-    const resource = resources[resourceId];
-    if (!resource) return;
+    const lockKey = `pebble:v1:resources:${workspaceId}`;
+    await withLock(lockKey, async () => {
+      const resources = await ResourceRepository.getResources(workspaceId);
+      const resource = resources[resourceId];
+      if (!resource) return;
 
-    const { generateId } = await import("@/shared/utils/id");
-    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
-    const operationId = `recycle-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      operationType: "recycle",
-      entityId: resourceId,
-      entityType: "resource",
-      sourceWorkspaceId: workspaceId,
-      targetWorkspaceId: workspaceId,
-      timestamp: Date.now(),
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operationId = `recycle-${generateId()}`;
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "recycle",
+        entityId: resourceId,
+        entityType: "resource",
+        sourceWorkspaceId: workspaceId,
+        targetWorkspaceId: workspaceId,
+        timestamp: Date.now(),
+      });
+
+      await RecycleBinRepository.addToRecycleBin("resource", resource, workspaceId, { throwOnError: true });
+      try {
+        await ResourceRepository.deleteResourceUnlocked(resourceId, workspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete active resource ${resourceId} during recycle. Recycle bin contains a ghost.`, e);
+        throw e;
+      }
+
+      await MoveJournalRepository.removeOperation(operationId);
     });
-
-    await RecycleBinRepository.addToRecycleBin("resource", resource, workspaceId, { throwOnError: true });
-    try {
-      await ResourceRepository.deleteResource(resourceId, workspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete active resource ${resourceId} during recycle. Recycle bin contains a ghost.`, e);
-      throw e;
-    }
-
-    await MoveJournalRepository.removeOperation(operationId);
 
     if (!options?.skipEvents) {
       emitStateChange("resources_changed", options?.source);

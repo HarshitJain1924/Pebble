@@ -47,7 +47,7 @@ Features a unified segmented switcher to toggle between **Tasks** and **Habits**
 An immersive deep-work console designed to optimize cognitive flow:
 - **Preset Focus Sessions**: Presets for 15, 25, 45, or 60-minute Pomodoros.
 - **Liquid Timers**: Features visual gradient rings that breathe and animate using `react-native-reanimated`.
-- **Gamification**: Awards +10 XP (represented as pebbles added to your progress) for task completion and +15 XP for habit runs.
+- **Gamification**: Awards pebbles for task completions and habit runs.
 
 ### 4. Pebble Capture Modal
 - **Access:** Tap the `⚡ Pebble Capture` pill or FAB to trigger a Bottom Sheet (`@gorhom/bottom-sheet`).

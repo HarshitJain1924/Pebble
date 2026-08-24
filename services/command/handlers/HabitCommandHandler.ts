@@ -56,7 +56,7 @@ import { scheduleCreationNotifications, scheduleTaskNotifications, scheduleHabit
 import { restoreEntityFromBin } from "../shared/command-recovery";
 
 export class HabitCommandHandler {
-static async moveHabit(
+  static async moveHabit(
     habitId: string,
     sourceWorkspaceId: string,
     targetWorkspaceId: string,
@@ -67,54 +67,82 @@ static async moveHabit(
       if (!map[habitId]) throw new Error(`Habit ${habitId} not found`);
       return map[habitId];
     }
-    const map = await HabitRepository.getHabits(sourceWorkspaceId);
-    const existing = map[habitId];
-    if (!existing) throw new Error(`Habit ${habitId} not found`);
-    const moved: Habit = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+    
+    const { withLocks } = await import("@/shared/utils/mutex");
+    const sourceKey = `pebble:v1:habits:${sourceWorkspaceId}`;
+    const targetKey = `pebble:v1:habits:${targetWorkspaceId}`;
 
-    const operationId = `move-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      entityId: habitId,
-      entityType: "habit",
-      sourceWorkspaceId,
-      targetWorkspaceId,
-      timestamp: Date.now(),
+    const { moved, operationId } = await withLocks([sourceKey, targetKey], async () => {
+      const map = await HabitRepository.getHabits(sourceWorkspaceId);
+      const existing = map[habitId];
+      if (!existing) throw new Error(`Habit ${habitId} not found`);
+      const moved: Habit = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+
+      const { generateId } = await import("@/shared/utils/id");
+      const operationId = `move-${generateId()}`;
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+
+      await MoveJournalRepository.addOperation({
+        operationId,
+        entityId: habitId,
+        entityType: "habit",
+        sourceWorkspaceId,
+        targetWorkspaceId,
+        timestamp: Date.now(),
+      });
+
+      await HabitRepository.saveHabitUnlocked(moved);
+      try {
+        await HabitRepository.deleteHabitUnlocked(habitId, sourceWorkspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete source habit ${habitId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+        throw e;
+      }
+
+      return { moved, operationId };
     });
 
-    await HabitRepository.saveHabit(moved);
-    try {
-      await HabitRepository.deleteHabit(habitId, sourceWorkspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete source habit ${habitId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
-      throw e;
-    }
-
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
     await MoveJournalRepository.removeOperation(operationId);
-    if (!options?.skipEvents) emitStateChange("habits_changed", options?.source);
-    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    
+    if (!options?.skipEvents) {
+      const { emitStateChange } = await import("@/services/events/state-events");
+      emitStateChange("habits_changed", options?.source);
+    }
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+    const { syncWidgetData } = await import("@/services/analytics/widget-data.service");
     void syncWidgetData().catch(() => {});
+    
     return moved;
   }
 
-static async permanentlyDeleteHabit(
+  static async permanentlyDeleteHabit(
     habitId: string,
     workspaceId: string,
     options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
   ): Promise<void> {
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:habits:${workspaceId}`;
 
-    const habitsMap = await HabitRepository.getHabits(workspaceId);
-    const habit = habitsMap[habitId];
-    if (!habit) throw new Error(`Habit ${habitId} not found`);
+    const deletedHabit = await withLock(lockKey, async () => {
+      const habitsMap = await HabitRepository.getHabits(workspaceId);
+      const habit = habitsMap[habitId];
+      if (!habit) throw new Error(`Habit ${habitId} not found`);
 
-    // 1. Remove from active storage FIRST
-    await HabitRepository.deleteHabit(habitId, workspaceId);
+      // 1. Remove from active storage FIRST
+      await HabitRepository.deleteHabitUnlocked(habitId, workspaceId);
+      
+      return habit;
+    });
 
-    // 2. Cancel native reminders (Fire and forget)
-    if (habit.reminder?.notificationIds?.length) {
-      cancelReminderIds(habit.reminder.notificationIds, { throwOnError: false }).catch(e => {
+    // 2. Cancel native reminders (Fire and forget) using the EXACT snapshot we just deleted
+    if (deletedHabit.reminder?.notificationIds?.length) {
+      cancelReminderIds(deletedHabit.reminder.notificationIds, { throwOnError: false }).catch(e => {
         console.warn(`[EntityCommandService] Failed to cancel reminders for permanently deleted habit ${habitId}`, e);
       });
     }
@@ -132,42 +160,87 @@ static async restoreHabit(
   ): Promise<Habit> {
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     
+    // 1. Initial lookup (unlocked)
     const items = await RecycleBinRepository.getRecycleBinItems();
     // Resolve by either the RecycleBin item ID ("rb-{entityId}") or the raw entity
     // ID so callers (e.g. bulk-delete Undo in useTasksState) can pass what they have.
-    const item = items.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
-    if (!item || item.entityType !== "habit") throw new Error("Invalid habit recycle bin item");
+    const initialItem = items.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
+    if (!initialItem || initialItem.entityType !== "habit") throw new Error("Invalid habit recycle bin item");
 
-    const habit: Habit = JSON.parse(item.snapshot);
-    habit.reminder = habit.reminder ? { ...habit.reminder, notificationIds: undefined } : undefined;
+    const parsedSnapshot = JSON.parse(initialItem.snapshot);
+    const targetWorkspaceId = parsedSnapshot.workspaceId || INBOX_WORKSPACE_ID;
     
-    const targetWorkspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
     const { generateId } = await import("@/shared/utils/id");
     const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
     const operationId = `restore-${generateId()}`;
     
-    await MoveJournalRepository.addOperation({
-      operationId,
-      operationType: "restore",
-      entityId: item.entityId,
-      entityType: "habit",
-      sourceWorkspaceId: targetWorkspaceId,
-      targetWorkspaceId,
-      timestamp: Date.now(),
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:habits:${targetWorkspaceId}`;
+
+    const restoredHabit = await withLock(lockKey, async () => {
+      // 2. Fresh read inside critical section
+      const freshItems = await RecycleBinRepository.getRecycleBinItems();
+      const item = freshItems.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
+      if (!item || item.entityType !== "habit") throw new Error("Habit already restored or permanently deleted");
+
+      const habit: Habit = JSON.parse(item.snapshot);
+      habit.workspaceId = targetWorkspaceId;
+      habit.updatedAt = Date.now();
+      
+      habit.reminder = habit.reminder ? { ...habit.reminder, notificationIds: undefined } : undefined;
+      
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "restore",
+        entityId: item.entityId,
+        entityType: "habit",
+        sourceWorkspaceId: targetWorkspaceId,
+        targetWorkspaceId,
+        timestamp: Date.now(),
+      });
+
+      // 3. Persist to active partition
+      await HabitRepository.saveHabitUnlocked(habit);
+      
+      // 4. Atomic removal from Recycle Bin
+      try {
+        await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to remove habit from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+      }
+      
+      await MoveJournalRepository.removeOperation(operationId);
+      
+      return habit;
     });
 
-    const restored = await this.createHabit(habit, targetWorkspaceId, options);
-    
-    try {
-      const remaining = items.filter(i => i.id !== item.id);
-      await RecycleBinRepository.saveRecycleBinItems(remaining, { throwOnError: true });
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to remove habit from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+    // 5. Non-domain side effects
+    const needsScheduling = restoredHabit.reminder?.enabled && restoredHabit.reminder?.triggerAt;
+    if (needsScheduling) {
+      try {
+        const { rescheduleHabitReminders } = await import("@/services/scheduling/reminders.service");
+        const scheduledHabit = await rescheduleHabitReminders(restoredHabit);
+        await HabitRepository.updateNotificationIds(
+          scheduledHabit.id,
+          scheduledHabit.workspaceId,
+          scheduledHabit.reminder?.notificationIds
+        );
+      } catch (e) {
+        console.warn("[EntityCommandService] Failed to schedule habit reminder after restore:", e);
+      }
+    }
+
+    if (!options?.skipEvents) {
+      const { emitStateChange } = await import("@/services/events/state-events");
+      emitStateChange("habits_changed", options?.source);
     }
     
-    await MoveJournalRepository.removeOperation(operationId);
-    
-    return restored;
+    if (!options?.skipAnalytics) {
+      const { recordDailyHistorySnapshot } = await import("@/services/analytics/productivity-history.service");
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    return restoredHabit;
   }
 
 static async recycleHabit(
@@ -178,33 +251,43 @@ static async recycleHabit(
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     
-    const habitMap = await HabitRepository.getHabits(workspaceId);
-    const habit = habitMap[habitId];
-    if (!habit) return;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:habits:${workspaceId}`;
 
-    const { generateId } = await import("@/shared/utils/id");
-    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
-    const operationId = `recycle-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      operationType: "recycle",
-      entityId: habitId,
-      entityType: "habit",
-      sourceWorkspaceId: workspaceId,
-      targetWorkspaceId: workspaceId,
-      timestamp: Date.now(),
+    const habit = await withLock(lockKey, async () => {
+      const habitMap = await HabitRepository.getHabits(workspaceId);
+      const existing = habitMap[habitId];
+      if (!existing) return null;
+
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operationId = `recycle-${generateId()}`;
+      
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "recycle",
+        entityId: habitId,
+        entityType: "habit",
+        sourceWorkspaceId: workspaceId,
+        targetWorkspaceId: workspaceId,
+        timestamp: Date.now(),
+      });
+
+      await RecycleBinRepository.addToRecycleBin("habit", existing, workspaceId, { throwOnError: true });
+
+      try {
+        await HabitRepository.deleteHabitUnlocked(habitId, workspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete active habit ${habitId} during recycle. Recycle bin contains a ghost.`, e);
+        throw e;
+      }
+
+      await MoveJournalRepository.removeOperation(operationId);
+      
+      return existing;
     });
 
-    await RecycleBinRepository.addToRecycleBin("habit", habit, workspaceId, { throwOnError: true });
-
-    try {
-      await HabitRepository.deleteHabit(habitId, workspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete active habit ${habitId} during recycle. Recycle bin contains a ghost.`, e);
-      throw e;
-    }
-
-    await MoveJournalRepository.removeOperation(operationId);
+    if (!habit) return;
 
     if (habit.reminder?.notificationIds?.length) {
       cancelReminderIds(habit.reminder.notificationIds, { throwOnError: false }).catch(e => {
@@ -225,33 +308,42 @@ static async recycleHabit(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Habit; updated: Habit } | null> {
-    const habitsMap = await HabitRepository.getHabits(workspaceId);
-    const habit = habitsMap[habitId];
-    if (!habit) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const key = `pebble:v1:habits:${workspaceId}`;
 
-    const today = new Date();
-    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+    const result = await withLock(key, async () => {
+      const habitsMap = await HabitRepository.getHabits(workspaceId);
+      const habit = habitsMap[habitId];
+      if (!habit) return null;
 
-    const updatedHistory = [
-      ...(habit.completionHistory || []),
-      { date: yesterdayKey, completedAt: Date.now() },
-    ];
+      const today = new Date();
+      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+      const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
 
-    const updatedHabit: Habit = {
-      ...habit,
-      completionHistory: updatedHistory,
-      updatedAt: Date.now(),
-    };
+      const updatedHistory = [
+        ...(habit.completionHistory || []),
+        { date: yesterdayKey, completedAt: Date.now() },
+      ];
 
-    await HabitRepository.saveHabit(updatedHabit);
+      const updatedHabit: Habit = {
+        ...habit,
+        completionHistory: updatedHistory,
+        updatedAt: Date.now(),
+      };
+
+      await HabitRepository.saveHabitUnlocked(updatedHabit);
+
+      return { previous: habit, updated: updatedHabit };
+    });
+
+    if (!result) return null;
 
     if (!options?.skipEvents) {
       emitStateChange("habits_changed", options?.source);
       emitStateChange("pebbles_changed", options?.source);
     }
 
-    return { previous: habit, updated: updatedHabit };
+    return result;
   }
 
 /**
@@ -262,34 +354,46 @@ static async recycleHabit(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Habit; updated: Habit } | null> {
-    const habitsMap = await HabitRepository.getHabits(workspaceId);
-    const habit = habitsMap[habitId];
-    if (!habit) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const key = `pebble:v1:habits:${workspaceId}`;
 
-    const today = getTodayDateKey();
-    if (!isHabitCompletedToday(habit, today)) {
-      return { previous: habit, updated: habit };
-    }
+    const result = await withLock(key, async () => {
+      const habitsMap = await HabitRepository.getHabits(workspaceId);
+      const habit = habitsMap[habitId];
+      if (!habit) return null;
 
-    const completionHistory = (habit.completionHistory || []).filter(
-      (c) => c.date !== today
-    );
+      const today = getTodayDateKey();
+      if (!isHabitCompletedToday(habit, today)) {
+        return { previous: habit, updated: habit, skipped: true };
+      }
 
-    const tempHabit: Habit = { ...habit, completionHistory };
-    const streak = getHabitCurrentStreak(tempHabit, today);
-    const lastCompletedDate = getHabitLastCompletedDate(tempHabit);
+      const completionHistory = (habit.completionHistory || []).filter(
+        (c) => c.date !== today
+      );
 
-    const updatedHabit: Habit = {
-      ...habit,
-      completionHistory,
-      streak,
-      lastCompletedDate,
-      updatedAt: Date.now(),
-    };
+      const tempHabit: Habit = { ...habit, completionHistory };
+      const streak = getHabitCurrentStreak(tempHabit, today);
+      const lastCompletedDate = getHabitLastCompletedDate(tempHabit);
 
-    await HabitRepository.saveHabit(updatedHabit);
+      const updatedHabit: Habit = {
+        ...habit,
+        completionHistory,
+        streak,
+        lastCompletedDate,
+        updatedAt: Date.now(),
+      };
 
-    await reversePebbleReward(`habit:${habit.id}:${today}`);
+      await HabitRepository.saveHabitUnlocked(updatedHabit);
+
+      return { previous: habit, updated: updatedHabit, skipped: false, today };
+    });
+
+    if (!result) return null;
+    if (result.skipped) return { previous: result.previous, updated: result.updated };
+
+    const { previous, updated: updatedHabit, today } = result;
+
+    await reversePebbleReward(`habit:${updatedHabit.id}:${today}`);
 
     if (!options?.skipAnalytics) {
       void recordDailyHistorySnapshot().catch(() => {});
@@ -301,7 +405,7 @@ static async recycleHabit(
       emitStateChange("habits_changed", options?.source);
     }
 
-    return { previous: habit, updated: updatedHabit };
+    return { previous, updated: updatedHabit };
   }
 
 /**
@@ -312,36 +416,48 @@ static async recycleHabit(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Habit; updated: Habit } | null> {
-    const habitsMap = await HabitRepository.getHabits(workspaceId);
-    const habit = habitsMap[habitId];
-    if (!habit) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const key = `pebble:v1:habits:${workspaceId}`;
 
-    const today = getTodayDateKey();
-    if (isHabitCompletedToday(habit, today)) {
-      return { previous: habit, updated: habit };
-    }
+    const result = await withLock(key, async () => {
+      const habitsMap = await HabitRepository.getHabits(workspaceId);
+      const habit = habitsMap[habitId];
+      if (!habit) return null;
 
-    const completionHistory = [...(habit.completionHistory || [])];
-    if (!completionHistory.some((e: any) => e.date === today)) {
-      completionHistory.push({ date: today, completedAt: Date.now() });
-    }
+      const today = getTodayDateKey();
+      if (isHabitCompletedToday(habit, today)) {
+        return { previous: habit, updated: habit, skipped: true };
+      }
 
-    const tempHabit: Habit = { ...habit, completionHistory };
-    const streak = getHabitCurrentStreak(tempHabit, today);
-    const bestStreak = Math.max(habit.bestStreak || 0, getHabitBestStreak(tempHabit));
+      const completionHistory = [...(habit.completionHistory || [])];
+      if (!completionHistory.some((e: any) => e.date === today)) {
+        completionHistory.push({ date: today, completedAt: Date.now() });
+      }
 
-    const updatedHabit: Habit = {
-      ...habit,
-      completionHistory,
-      streak,
-      bestStreak,
-      lastCompletedDate: today,
-      updatedAt: Date.now(),
-    };
+      const tempHabit: Habit = { ...habit, completionHistory };
+      const streak = getHabitCurrentStreak(tempHabit, today);
+      const bestStreak = Math.max(habit.bestStreak || 0, getHabitBestStreak(tempHabit));
 
-    await HabitRepository.saveHabit(updatedHabit);
+      const updatedHabit: Habit = {
+        ...habit,
+        completionHistory,
+        streak,
+        bestStreak,
+        lastCompletedDate: today,
+        updatedAt: Date.now(),
+      };
 
-    await earnPebble("habit", `habit:${habit.id}:${today}`);
+      await HabitRepository.saveHabitUnlocked(updatedHabit);
+
+      return { previous: habit, updated: updatedHabit, skipped: false, today };
+    });
+
+    if (!result) return null;
+    if (result.skipped) return { previous: result.previous, updated: result.updated };
+
+    const { previous, updated: updatedHabit, today } = result;
+
+    await earnPebble("habit", `habit:${updatedHabit.id}:${today}`);
     pluginManager.dispatchHabitCompleted(updatedHabit);
 
     if (!options?.skipAnalytics) {
@@ -354,7 +470,7 @@ static async recycleHabit(
       emitStateChange("habits_changed", options?.source);
     }
 
-    return { previous: habit, updated: updatedHabit };
+    return { previous, updated: updatedHabit };
   }
 
 /**

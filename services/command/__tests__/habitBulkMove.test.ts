@@ -250,8 +250,8 @@ describe("Habit bulk move persistence (via EntityCommandService.moveHabit)", () 
     await HabitRepository.saveHabit(habit("habit-ok", "ws-1"));
     await HabitRepository.saveHabit(habit("habit-fail", "ws-1"));
 
-    const realSave = HabitRepository.saveHabit.bind(HabitRepository);
-    jest.spyOn(HabitRepository, "saveHabit").mockImplementation(async (h: any) => {
+    const realSave = HabitRepository.saveHabitUnlocked.bind(HabitRepository);
+    jest.spyOn(HabitRepository, "saveHabitUnlocked").mockImplementation(async (h: any) => {
       if (h.id === "habit-fail") throw new Error("persist failed");
       return realSave(h);
     });

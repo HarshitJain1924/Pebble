@@ -21,11 +21,12 @@ Pebble should feel like:
 To maintain cognitive consistency, always use these exact terms and mappings:
 
 *   **Today (Execution)**: The focused, workspace-free day checklist.
-*   **Workspace (Organization)**: The container layer for managing collections, documents, folders, and resources.
-*   **Folder (Container)**: A logical sub-grouping of tasks and checklists inside a Workspace.
-*   **Checklist (Checkable List)**: A group of sub-tasks or checkable items within a folder/workspace.
-*   **Collection (Knowledge Base/Vault)**: Structured notes, items, or vaults that hold long-term resources rather than execution items.
-*   **Pebble Jar (Progress)**: The central micro-achievement tracker that visually collects completed actions.
+*   **Workspace (Organization)**: The container layer for managing tasks, habits, checklists, and resources.
+*   **Task (Execution)**: A one-off actionable item.
+*   **Habit (Consistency)**: A recurring item tracked via completion history and streaks.
+*   **Checklist (Checkable List)**: A group of sub-tasks or checkable items.
+*   **Resource (Knowledge Base)**: Passive reference items (links, notes, images) saved inside a workspace.
+*   **Gamification (Progress)**: The central micro-achievement tracker that visually collects Pebbles and Gems.
 *   **Mascot Crow (Emotion)**: The dynamic indicator representing streaks, recovery, and encouragement.
 
 ---

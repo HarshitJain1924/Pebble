@@ -1,3 +1,6 @@
+> [!WARNING]
+> HISTORICAL AUDIT — NOT CURRENT ARCHITECTURE SOURCE OF TRUTH
+
 # Architectural Report
 
 ## Modular Structure

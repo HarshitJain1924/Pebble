@@ -63,33 +63,43 @@ static async moveChecklist(
     targetWorkspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<Checklist> {
+    const { withLocks } = await import("@/shared/utils/mutex");
+
     if (sourceWorkspaceId === targetWorkspaceId) {
       const map = await ChecklistRepository.getChecklists(sourceWorkspaceId);
       if (!map[checklistId]) throw new Error(`Checklist ${checklistId} not found`);
       return map[checklistId];
     }
-    const map = await ChecklistRepository.getChecklists(sourceWorkspaceId);
-    const existing = map[checklistId];
-    if (!existing) throw new Error(`Checklist ${checklistId} not found`);
-    const moved: Checklist = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+    
+    const sourceKey = `pebble:v1:checklists:${sourceWorkspaceId}`;
+    const targetKey = `pebble:v1:checklists:${targetWorkspaceId}`;
 
-    const operationId = `move-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      entityId: checklistId,
-      entityType: "checklist",
-      sourceWorkspaceId,
-      targetWorkspaceId,
-      timestamp: Date.now(),
+    const { moved, operationId } = await withLocks([sourceKey, targetKey], async () => {
+      const map = await ChecklistRepository.getChecklists(sourceWorkspaceId);
+      const existing = map[checklistId];
+      if (!existing) throw new Error(`Checklist ${checklistId} not found`);
+      const movedEntity: Checklist = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+
+      const opId = `move-${generateId()}`;
+      await MoveJournalRepository.addOperation({
+        operationId: opId,
+        entityId: checklistId,
+        entityType: "checklist",
+        sourceWorkspaceId,
+        targetWorkspaceId,
+        timestamp: Date.now(),
+      });
+
+      await ChecklistRepository.saveChecklistUnlocked(movedEntity);
+      try {
+        await ChecklistRepository.deleteChecklistUnlocked(checklistId, sourceWorkspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete source checklist ${checklistId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
+        throw e;
+      }
+
+      return { moved: movedEntity, operationId: opId };
     });
-
-    await ChecklistRepository.saveChecklist(moved);
-    try {
-      await ChecklistRepository.deleteChecklist(checklistId, sourceWorkspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete source checklist ${checklistId} during move. Target workspace ${targetWorkspaceId} contains a ghost.`, e);
-      throw e;
-    }
 
     await MoveJournalRepository.removeOperation(operationId);
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
@@ -97,31 +107,84 @@ static async moveChecklist(
     return moved;
   }
 
-static async updateChecklist(
+  static async updateChecklist(
     checklistId: string,
     workspaceId: string,
     updates: Partial<Omit<Checklist, "id" | "workspaceId">>,
     options?: CreateEntityOptions,
   ): Promise<Checklist> {
-    const map = await ChecklistRepository.getChecklists(workspaceId);
-    const existing = map[checklistId];
-    if (!existing) throw new Error(`Checklist ${checklistId} not found`);
-    const updated = { ...existing, ...updates, updatedAt: Date.now() };
-    await ChecklistRepository.saveChecklist(updated);
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:checklists:${workspaceId}`;
+
+    const updated = await withLock(lockKey, async () => {
+      const map = await ChecklistRepository.getChecklists(workspaceId);
+      const existing = map[checklistId];
+      if (!existing) throw new Error(`Checklist ${checklistId} not found`);
+      const merged = { ...existing, ...updates, updatedAt: Date.now() };
+      await ChecklistRepository.saveChecklistUnlocked(merged);
+      return merged;
+    });
+
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     return updated;
   }
 
-static async restoreChecklist(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Checklist> {
-    return restoreEntityFromBin<Checklist>(
-      recycleBinItemId,
-      "checklist",
-      "checklists_changed",
-      options,
-      (checklist) => ChecklistRepository.saveChecklist(checklist),
-      (checklist) => ChecklistRepository.deleteChecklist(checklist.id, checklist.workspaceId || INBOX_WORKSPACE_ID),
-    );
+  static async restoreChecklist(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Checklist> {
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { getRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    
+    // Unlocked read to determine the target workspace before locking
+    const initialBinItems = await getRecycleBinItems();
+    const initialItem = initialBinItems.find((i) => i.id === recycleBinItemId);
+    if (!initialItem || initialItem.entityType !== "checklist") {
+      throw new Error(`RecycleBin item not found or not checklist`);
+    }
+    
+    const parsedData = JSON.parse(initialItem.snapshot) as Checklist & { workspaceId?: string };
+    const targetWorkspaceId = parsedData.workspaceId || "inbox";
+    const lockKey = `pebble:v1:checklists:${targetWorkspaceId}`;
+    
+    return await withLock(lockKey, async () => {
+      // Re-read inside the lock to ensure it wasn't already restored
+      const binItems = await getRecycleBinItems();
+      const item = binItems.find((i) => i.id === recycleBinItemId);
+      if (!item || item.entityType !== "checklist") {
+        throw new Error(`RecycleBin item not found or not checklist`);
+      }
+
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operationId = `restore-${generateId()}`;
+      
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "restore",
+        entityId: item.entityId,
+        entityType: "checklist",
+        sourceWorkspaceId: targetWorkspaceId,
+        targetWorkspaceId,
+        timestamp: Date.now(),
+      });
+
+      const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+      await ChecklistRepository.saveChecklistUnlocked(parsedData);
+
+      try {
+        await RecycleBinRepository.removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
+      } catch (e) {
+        console.warn(`[CommandRecovery] Failed to remove entity from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+      }
+
+      await MoveJournalRepository.removeOperation(operationId);
+
+      if (!options?.skipEvents) {
+        const { emitStateChange } = await import("@/services/events/state-events");
+        emitStateChange("checklists_changed", options?.source);
+      }
+      return parsedData;
+    });
   }
 
 static async permanentlyDeleteChecklist(
@@ -150,33 +213,38 @@ static async recycleChecklist(
   ): Promise<void> {
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
-    
-    const checklists = await ChecklistRepository.getChecklists(workspaceId);
-    const checklist = checklists[checklistId];
-    if (!checklist) return;
+    const { withLock } = await import("@/shared/utils/mutex");
 
-    const { generateId } = await import("@/shared/utils/id");
-    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
-    const operationId = `recycle-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      operationType: "recycle",
-      entityId: checklistId,
-      entityType: "checklist",
-      sourceWorkspaceId: workspaceId,
-      targetWorkspaceId: workspaceId,
-      timestamp: Date.now(),
+    const lockKey = `pebble:v1:checklists:${workspaceId}`;
+
+    await withLock(lockKey, async () => {
+      const checklists = await ChecklistRepository.getChecklists(workspaceId);
+      const checklist = checklists[checklistId];
+      if (!checklist) return;
+
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operationId = `recycle-${generateId()}`;
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "recycle",
+        entityId: checklistId,
+        entityType: "checklist",
+        sourceWorkspaceId: workspaceId,
+        targetWorkspaceId: workspaceId,
+        timestamp: Date.now(),
+      });
+
+      await RecycleBinRepository.addToRecycleBin("checklist", checklist, workspaceId, { throwOnError: true });
+      try {
+        await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to delete active checklist ${checklistId} during recycle. Recycle bin contains a ghost.`, e);
+        throw e;
+      }
+      
+      await MoveJournalRepository.removeOperation(operationId);
     });
-
-    await RecycleBinRepository.addToRecycleBin("checklist", checklist, workspaceId, { throwOnError: true });
-    try {
-      await ChecklistRepository.deleteChecklist(checklistId, workspaceId);
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to delete active checklist ${checklistId} during recycle. Recycle bin contains a ghost.`, e);
-      throw e;
-    }
-    
-    await MoveJournalRepository.removeOperation(operationId);
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -192,17 +260,26 @@ static async recycleChecklist(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Checklist; updated: Checklist } | null> {
-    const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
-    const checklist = checklistsMap[checklistId];
-    if (!checklist) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:checklists:${workspaceId}`;
 
-    const updatedChecklist: Checklist = {
-      ...checklist,
-      items: (checklist.items || []).filter((i) => i.id !== itemId),
-      updatedAt: Date.now(),
-    };
+    const result = await withLock(lockKey, async () => {
+      const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+      const checklist = checklistsMap[checklistId];
+      if (!checklist) return null;
 
-    await ChecklistRepository.saveChecklist(updatedChecklist);
+      const updatedChecklist: Checklist = {
+        ...checklist,
+        items: (checklist.items || []).filter((i) => i.id !== itemId),
+        updatedAt: Date.now(),
+      };
+
+      await ChecklistRepository.saveChecklistUnlocked(updatedChecklist);
+
+      return { previous: checklist, updated: updatedChecklist };
+    });
+
+    if (!result) return null;
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -212,7 +289,7 @@ static async recycleChecklist(
       void recordDailyHistorySnapshot().catch(() => {});
     }
 
-    return { previous: checklist, updated: updatedChecklist };
+    return result;
   }
 
 /**
@@ -224,23 +301,32 @@ static async recycleChecklist(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Checklist; updated: Checklist } | null> {
-    const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
-    const checklist = checklistsMap[checklistId];
-    if (!checklist) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:checklists:${workspaceId}`;
 
-    const newItem = {
-      id: `checklist-item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      title: itemTitle,
-      completed: false,
-    };
+    const result = await withLock(lockKey, async () => {
+      const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+      const checklist = checklistsMap[checklistId];
+      if (!checklist) return null;
 
-    const updatedChecklist: Checklist = {
-      ...checklist,
-      items: [...(checklist.items || []), newItem],
-      updatedAt: Date.now(),
-    };
+      const newItem = {
+        id: `checklist-item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        title: itemTitle,
+        completed: false,
+      };
 
-    await ChecklistRepository.saveChecklist(updatedChecklist);
+      const updatedChecklist: Checklist = {
+        ...checklist,
+        items: [...(checklist.items || []), newItem],
+        updatedAt: Date.now(),
+      };
+
+      await ChecklistRepository.saveChecklistUnlocked(updatedChecklist);
+      
+      return { previous: checklist, updated: updatedChecklist };
+    });
+    
+    if (!result) return null;
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -250,7 +336,7 @@ static async recycleChecklist(
       void recordDailyHistorySnapshot().catch(() => {});
     }
 
-    return { previous: checklist, updated: updatedChecklist };
+    return result;
   }
 
 /**
@@ -262,29 +348,38 @@ static async recycleChecklist(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Checklist; updated: Checklist } | null> {
-    const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
-    const checklist = checklistsMap[checklistId];
-    if (!checklist) return null;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:checklists:${workspaceId}`;
 
-    const nextItems = (checklist.items || []).map((i) =>
-      i.id === itemId ? { ...i, completed: !i.completed } : i
-    );
+    const result = await withLock(lockKey, async () => {
+      const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+      const checklist = checklistsMap[checklistId];
+      if (!checklist) return null;
 
-    const wasComplete = checklist.items && checklist.items.length > 0 && checklist.items.every(i => i.completed);
-    const isNowComplete = nextItems.length > 0 && nextItems.every(i => i.completed);
+      const nextItems = (checklist.items || []).map((i) =>
+        i.id === itemId ? { ...i, completed: !i.completed } : i
+      );
 
-    const updatedChecklist: Checklist = {
-      ...checklist,
-      items: nextItems,
-      updatedAt: Date.now(),
-    };
+      const wasComplete = checklist.items && checklist.items.length > 0 && checklist.items.every(i => i.completed);
+      const isNowComplete = nextItems.length > 0 && nextItems.every(i => i.completed);
 
-    if (isNowComplete && !wasComplete && !checklist.pebbleAwarded) {
-      updatedChecklist.pebbleAwarded = true;
-      await earnPebble("checklist", `checklist:${checklist.id}`);
-    }
+      const updatedChecklist: Checklist = {
+        ...checklist,
+        items: nextItems,
+        updatedAt: Date.now(),
+      };
 
-    await ChecklistRepository.saveChecklist(updatedChecklist);
+      if (isNowComplete && !wasComplete && !checklist.pebbleAwarded) {
+        updatedChecklist.pebbleAwarded = true;
+        await earnPebble("checklist", `checklist:${checklist.id}`);
+      }
+
+      await ChecklistRepository.saveChecklistUnlocked(updatedChecklist);
+
+      return { previous: checklist, updated: updatedChecklist };
+    });
+
+    if (!result) return null;
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -294,7 +389,7 @@ static async recycleChecklist(
       void recordDailyHistorySnapshot().catch(() => {});
     }
 
-    return { previous: checklist, updated: updatedChecklist };
+    return result;
   }
 
 /**
@@ -306,36 +401,47 @@ static async recycleChecklist(
     newItemsText: string[],
     options?: CreateEntityOptions,
   ): Promise<Checklist> {
-    const map = await ChecklistRepository.getChecklists(workspaceId);
-    const existing = map[checklistId];
-    if (!existing) throw new Error(`Checklist ${checklistId} not found`);
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:checklists:${workspaceId}`;
 
-    const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
-    const existingNorms = new Set(existing.items.map(i => normalize(i.title)));
+    const { updated, skipped } = await withLock(lockKey, async () => {
+      const map = await ChecklistRepository.getChecklists(workspaceId);
+      const existing = map[checklistId];
+      if (!existing) throw new Error(`Checklist ${checklistId} not found`);
 
-    const itemsToAdd = newItemsText
-      .filter(text => {
-        const norm = normalize(text);
-        return norm.length > 0 && !existingNorms.has(norm);
-      })
-      .map(text => ({
-        id: "item-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 8),
-        title: text,
-        completed: false,
-      }));
+      const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+      const existingNorms = new Set(existing.items.map(i => normalize(i.title)));
 
-    if (itemsToAdd.length === 0) return existing;
+      const itemsToAdd = newItemsText
+        .filter(text => {
+          const norm = normalize(text);
+          return norm.length > 0 && !existingNorms.has(norm);
+        })
+        .map(text => ({
+          id: "item-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 8),
+          title: text,
+          completed: false,
+        }));
 
-    const updated = {
-      ...existing,
-      items: [...existing.items, ...itemsToAdd],
-      updatedAt: Date.now(),
-    };
+      if (itemsToAdd.length === 0) {
+        return { updated: existing, skipped: true };
+      }
 
-    await ChecklistRepository.saveChecklist(updated);
+      const updatedChecklist = {
+        ...existing,
+        items: [...existing.items, ...itemsToAdd],
+        updatedAt: Date.now(),
+      };
 
-    if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
-    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+      await ChecklistRepository.saveChecklistUnlocked(updatedChecklist);
+
+      return { updated: updatedChecklist, skipped: false };
+    });
+
+    if (!skipped) {
+      if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
+      if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    }
 
     return updated;
   }

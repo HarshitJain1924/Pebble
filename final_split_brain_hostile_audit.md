@@ -1,3 +1,6 @@
+> [!WARNING]
+> HISTORICAL AUDIT — NOT CURRENT ARCHITECTURE SOURCE OF TRUTH
+
 # Final Split-Brain Hostile Audit
 
 ## Domain-Level Conflict Policy
@@ -91,3 +94,4 @@ Tests were not run, as the fundamental domain semantics and implementation logic
 
 ## Final Verdict
 REQUIRES FIXES
+

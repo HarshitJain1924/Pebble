@@ -1,3 +1,6 @@
+> [!WARNING]
+> HISTORICAL AUDIT — NOT CURRENT ARCHITECTURE SOURCE OF TRUTH
+
 # Final Micro Gate
 
 ## Source/Target Conflict
@@ -52,3 +55,4 @@ None
 
 ## Final Verdict
 REQUIRES FIXES
+

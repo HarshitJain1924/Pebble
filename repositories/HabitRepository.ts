@@ -268,12 +268,17 @@ export class HabitRepository {
   static async deleteHabit(id: string, workspaceId: string): Promise<void> {
     const key = this.getHabitsKey(workspaceId);
     await withLock(key, async () => {
-      const records = await this.getHabits(workspaceId);
-      if (records[id]) {
-        delete records[id];
-        await AsyncStorage.setItem(key, JSON.stringify(records));
-      }
+      await this.deleteHabitUnlocked(id, workspaceId);
     });
+  }
+
+  static async deleteHabitUnlocked(id: string, workspaceId: string): Promise<void> {
+    const key = this.getHabitsKey(workspaceId);
+    const records = await this.getHabits(workspaceId);
+    if (records[id]) {
+      delete records[id];
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    }
   }
 
   /**

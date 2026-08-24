@@ -174,19 +174,25 @@ export class ResourceRepository {
     return records;
   }
 
-  static async saveResource(resource: any): Promise<void> {
-    this.validateId(resource?.id, "saveResource");
+  static async saveResourceUnlocked(resource: any): Promise<void> {
+    this.validateId(resource?.id, "saveResourceUnlocked");
     const workspaceId = resource.workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getResourcesKey(workspaceId);
+    const records = await this.getResources(workspaceId);
+
+    const cleanResource: Resource = normalizeResource(resource, workspaceId);
+    cleanResource.updatedAt = Date.now();
+
+    records[resource.id] = cleanResource;
+    await AsyncStorage.setItem(key, JSON.stringify(records));
+  }
+
+  static async saveResource(resource: any): Promise<void> {
+    const workspaceId = resource?.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getResourcesKey(workspaceId);
     
     await withLock(key, async () => {
-      const records = await this.getResources(workspaceId);
-
-      const cleanResource: Resource = normalizeResource(resource, workspaceId);
-      cleanResource.updatedAt = Date.now();
-
-      records[resource.id] = cleanResource;
-      await AsyncStorage.setItem(key, JSON.stringify(records));
+      await this.saveResourceUnlocked(resource);
     });
   }
 
@@ -206,14 +212,19 @@ export class ResourceRepository {
     await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
+  static async deleteResourceUnlocked(id: string, workspaceId: string): Promise<void> {
+    const key = this.getResourcesKey(workspaceId);
+    const records = await this.getResources(workspaceId);
+    if (records[id]) {
+      delete records[id];
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    }
+  }
+
   static async deleteResource(id: string, workspaceId: string): Promise<void> {
     const key = this.getResourcesKey(workspaceId);
     await withLock(key, async () => {
-      const records = await this.getResources(workspaceId);
-      if (records[id]) {
-        delete records[id];
-        await AsyncStorage.setItem(key, JSON.stringify(records));
-      }
+      await this.deleteResourceUnlocked(id, workspaceId);
     });
   }
 

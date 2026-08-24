@@ -385,9 +385,9 @@ describe("useTasksState.handleBulkMove — habit persistence (P1 regression)", (
     await HabitRepository.saveHabit(habit("habit-fail", "ws-1"));
 
     // Simulate the storage layer failing for one habit's target write.
-    const realSave = HabitRepository.saveHabit.bind(HabitRepository);
+    const realSave = HabitRepository.saveHabitUnlocked.bind(HabitRepository);
     jest
-      .spyOn(HabitRepository, "saveHabit")
+      .spyOn(HabitRepository, "saveHabitUnlocked")
       .mockImplementation(async (h: any) => {
         if (h.id === "habit-fail") throw new Error("persist failed");
         return realSave(h);

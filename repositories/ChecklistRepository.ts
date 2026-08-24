@@ -136,22 +136,29 @@ export class ChecklistRepository {
   }
 
   static async saveChecklist(checklist: any): Promise<void> {
-    this.validateId(checklist?.id, "saveChecklist");
-    const workspaceId = checklist.workspaceId || INBOX_WORKSPACE_ID;
+    const workspaceId = checklist?.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getChecklistsKey(workspaceId);
     
     await withLock(key, async () => {
-      const records = await this.getChecklists(workspaceId);
-
-      const cleanChecklist: Checklist = normalizeChecklist(
-        checklist,
-        workspaceId,
-      );
-      cleanChecklist.updatedAt = Date.now();
-
-      records[checklist.id] = cleanChecklist;
-      await AsyncStorage.setItem(key, JSON.stringify(records));
+      await this.saveChecklistUnlocked(checklist);
     });
+  }
+
+  static async saveChecklistUnlocked(checklist: any): Promise<void> {
+    this.validateId(checklist?.id, "saveChecklistUnlocked");
+    const workspaceId = checklist.workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getChecklistsKey(workspaceId);
+
+    const records = await this.getChecklists(workspaceId);
+
+    const cleanChecklist: Checklist = normalizeChecklist(
+      checklist,
+      workspaceId,
+    );
+    cleanChecklist.updatedAt = Date.now();
+
+    records[checklist.id] = cleanChecklist;
+    await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
   /**
@@ -170,14 +177,19 @@ export class ChecklistRepository {
     await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
+  static async deleteChecklistUnlocked(id: string, workspaceId: string): Promise<void> {
+    const key = this.getChecklistsKey(workspaceId);
+    const records = await this.getChecklists(workspaceId);
+    if (records[id]) {
+      delete records[id];
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    }
+  }
+
   static async deleteChecklist(id: string, workspaceId: string): Promise<void> {
     const key = this.getChecklistsKey(workspaceId);
     await withLock(key, async () => {
-      const records = await this.getChecklists(workspaceId);
-      if (records[id]) {
-        delete records[id];
-        await AsyncStorage.setItem(key, JSON.stringify(records));
-      }
+      await this.deleteChecklistUnlocked(id, workspaceId);
     });
   }
 

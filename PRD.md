@@ -53,12 +53,12 @@ graph TD
 ### 4.2 Behavior Suggestion Engine
 - **Local Analytics:** Frequency tracking based on task creations.
 - **Auto-Suggestions:** If a task is created multiple times, prompts to convert to a recurring habit.
-- **Action Loops:** Accept (automatically creates habit, schedules it, and awards XP) or Dismiss.
+- **Action Loops:** Accept (automatically creates habit, schedules it, and awards pebbles) or Dismiss.
 
 ### 4.3 Today Dashboard & Workspaces
 - **Universal Metrics:** Progress meters for active tasks and completed habits.
 - **Workspaces:** Segmented folder grids with due-today task indicators.
-- **Focus Timer:** Immersive Pomodoro timer with `react-native-reanimated` breathing rings, gamification (+10 XP task, +15 XP habit).
+- **Focus Timer:** Immersive Pomodoro timer with `react-native-reanimated` breathing rings, gamification (awards pebbles).
 - **Calendar Integration:** Leverages `react-native-calendars` for rich streak and schedule viewing.
 
 ---

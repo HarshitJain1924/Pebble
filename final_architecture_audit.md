@@ -1,3 +1,6 @@
+> [!WARNING]
+> HISTORICAL AUDIT — NOT CURRENT ARCHITECTURE SOURCE OF TRUTH
+
 # Final Architecture Audit
 
 ## Overall Status
@@ -73,3 +76,4 @@ PASS
 
 ## Final Verdict
 REQUIRES FIXES
+

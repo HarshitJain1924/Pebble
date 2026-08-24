@@ -1,3 +1,6 @@
+> [!WARNING]
+> HISTORICAL AUDIT — NOT CURRENT ARCHITECTURE SOURCE OF TRUTH
+
 # Corrective Transaction Verification
 
 ## Move Conflict Handling
@@ -43,3 +46,4 @@ STRONG
 
 ## Final Verdict
 APPROVED
+

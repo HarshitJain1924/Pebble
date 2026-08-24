@@ -1,3 +1,6 @@
+> [!WARNING]
+> HISTORICAL AUDIT — NOT CURRENT ARCHITECTURE SOURCE OF TRUTH
+
 # Final Split-Brain Fix Report
 
 ## Conflict Resolution
@@ -75,3 +78,4 @@ None related to transaction move ghosts.
 
 ## Final Verdict
 APPROVED
+
