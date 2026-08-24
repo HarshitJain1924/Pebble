@@ -11,6 +11,9 @@ describe("TaskCommandHandler Concurrency", () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
     jest.restoreAllMocks();
+    const { WorkspaceRepository } = require("@/repositories/WorkspaceRepository");
+    jest.spyOn(WorkspaceRepository, "getWorkspaces")
+      .mockResolvedValue([{ id: "source-ws", name: "src" }, { id: "target-ws", name: "tgt" }, { id: "workspace-A", name: "wa" }, { id: "workspace-B", name: "wb" }]);
   });
 
   afterEach(() => {

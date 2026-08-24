@@ -63,7 +63,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
     expect(snapshot.resources.length).toBe(1);
   });
 
-  it("Workspace Deletion - Cleanup failure does not silently destroy the restore snapshot", async () => {
+  it("Workspace Deletion - Cleanup failure aborts the deletion safely to prevent orphans", async () => {
     const wsId = "ws-cleanup-fail";
     await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
 
@@ -72,11 +72,11 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
 
     // Call deleteWorkspace - it should capture all partitions, snapshot them, and then fail during cleanup
     await expect(EntityCommandService.deleteWorkspace(wsId)).rejects.toThrow(
-      "Workspace deleted, but some related data could not be fully cleaned up."
+      "Workspace deletion aborted to prevent orphaned data on disk."
     );
 
-    // Workspace is deleted
-    expect((await WorkspaceRepository.getWorkspaces()).length).toBe(0);
+    // Workspace is NOT deleted (fails closed safely)
+    expect((await WorkspaceRepository.getWorkspaces()).length).toBe(1);
 
     // Ensure the snapshot was NOT destroyed even though cleanup failed
     const binItems = await RecycleBinRepository.getRecycleBinItems();

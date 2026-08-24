@@ -78,6 +78,14 @@ static async moveChecklist(
       const map = await ChecklistRepository.getChecklists(sourceWorkspaceId);
       const existing = map[checklistId];
       if (!existing) throw new Error(`Checklist ${checklistId} not found`);
+
+      const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
+      const workspaces = await WorkspaceRepository.getWorkspaces();
+      const { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
+      if (!workspaces.some(w => w.id === targetWorkspaceId) && targetWorkspaceId !== INBOX_WORKSPACE_ID && targetWorkspaceId !== MY_PEBBLES_WORKSPACE_ID) {
+        throw new Error(`Target workspace ${targetWorkspaceId} no longer exists.`);
+      }
+
       const movedEntity: Checklist = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
 
       const opId = `move-${generateId()}`;

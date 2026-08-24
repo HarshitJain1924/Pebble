@@ -43,7 +43,8 @@ export class GraphRepository {
       this.rebuildIndex();
       this.loaded = true;
     } catch (e) {
-      console.warn("Failed to load relationships", e);
+      console.error("Failed to load relationships", e);
+      throw e;
     }
   }
 

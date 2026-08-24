@@ -93,16 +93,15 @@ export class ChecklistRepository {
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         return parsed as Record<string, any>;
       }
-      console.warn(
-        `[ChecklistRepository] Stored value for "${key}" is not a JSON object (${method}); treating as empty.`,
+      throw new Error(
+        `[ChecklistRepository] Stored value for "${key}" is not a JSON object (${method})`
       );
-      return {};
     } catch (e) {
-      console.warn(
-        `[ChecklistRepository] Failed to parse stored value for "${key}" (${method}); treating as empty.`,
+      console.error(
+        `[ChecklistRepository] Failed to parse stored value for "${key}" (${method})`,
         e,
       );
-      return {};
+      throw e;
     }
   }
 

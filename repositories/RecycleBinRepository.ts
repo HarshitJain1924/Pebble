@@ -43,8 +43,8 @@ export class RecycleBinRepository {
       const parsed = JSON.parse(raw);
       return parsed.map(normalizeRecycleBinItem);
     } catch (e) {
-      console.warn("Failed to get recycle bin items", e);
-      return [];
+      console.error("Failed to get recycle bin items", e);
+      throw e;
     }
   }
 

@@ -65,6 +65,9 @@ beforeEach(async () => {
       "recordDailyHistorySnapshot",
     )
     .mockResolvedValue(undefined);
+  
+  jest.spyOn(require("@/repositories/WorkspaceRepository").WorkspaceRepository, "getWorkspaces")
+    .mockResolvedValue([{ id: "ws-1", name: "1" }, { id: "ws-2", name: "2" }]);
 });
 
 describe("Habit bulk move persistence (via EntityCommandService.moveHabit)", () => {

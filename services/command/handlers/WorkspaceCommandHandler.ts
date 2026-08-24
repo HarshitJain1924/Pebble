@@ -175,8 +175,8 @@ static async reorderWorkspaces(
 
     // 6. Remove the bin entry only after active persistence succeeded.
     try {
-      const remainingBinItems = binItems.filter((i) => i.id !== item.id);
-      await saveRecycleBinItems(remainingBinItems, { throwOnError: true });
+      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+      await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
     } catch (e) {
       console.warn(`[EntityCommandService] Failed to remove workspace from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
     }
@@ -302,13 +302,28 @@ static async reorderWorkspaces(
         { throwOnError: true }
       );
 
-      // 4. Delete Workspace record (Commit Point)
+      // 4. Remove active partitions securely inside the lock boundary BEFORE deleting the workspace record.
+      // We use a transactional multiRemove to ensure no partial orphans remain on disk.
+      const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+      try {
+        await AsyncStorage.multiRemove([
+          `pebble:v1:tasks:${workspaceId}`,
+          `pebble:v1:habits:${workspaceId}`,
+          `pebble:v1:checklists:${workspaceId}`,
+          `pebble:v1:resources:${workspaceId}`
+        ]);
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to clean up partitions for workspace ${workspaceId}`, e);
+        throw new Error("Workspace deletion aborted to prevent orphaned data on disk.");
+      }
+
+      // 5. Delete Workspace record (Commit Point)
       await WorkspaceRepository.deleteWorkspace(workspaceId, { throwOnError: true });
 
-      // 5. Async Cleanup (Fire and forget)
+      // 6. Async Cleanup (Fire and forget)
       const cleanup = async () => {
         try {
-          // 5a. Delete graph relationships
+          // 6a. Delete graph relationships
           const allEntityIds = [
             ...todos.map(t => t.id),
             ...habits.map(h => h.id),
@@ -319,13 +334,7 @@ static async reorderWorkspaces(
             await GraphRepository.deleteRelationshipsForEntities(allEntityIds);
           }
 
-          // 5b. Remove active partitions securely inside the lock boundary
-          await TaskRepository.deletePartitionUnlocked(workspaceId);
-          await HabitRepository.deletePartitionUnlocked(workspaceId);
-          await ChecklistRepository.deletePartitionUnlocked(workspaceId);
-          await ResourceRepository.deletePartitionUnlocked(workspaceId);
-
-          // 5c. Cancel notifications
+          // 6b. Cancel notifications
           const notificationIdsToCancel: string[] = [];
           for (const todo of todos) {
             if (todo.reminder?.notificationIds) {

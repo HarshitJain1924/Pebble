@@ -252,3 +252,17 @@ export interface MoveJournalEntry {
   targetWorkspaceId: string;
   timestamp: number;
 }
+
+/**
+ * 15. ConversionJournalEntry Entity
+ */
+export interface ConversionJournalEntry {
+  operationId: string;
+  operationType: "habit_to_task" | "task_to_habit";
+  sourceId: string;
+  sourceWorkspaceId: string;
+  targetId: string;
+  targetWorkspaceId: string;
+  phase: "PREPARED" | "DESTINATION_WRITTEN";
+  timestamp: number;
+}

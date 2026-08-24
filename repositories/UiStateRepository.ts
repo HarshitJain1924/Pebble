@@ -31,7 +31,8 @@ export class UiStateRepository {
           };
         }
       } catch (e) {
-        console.warn("Failed to read UiState", e);
+        console.error("Failed to read UiState", e);
+        throw e;
       }
       return {
         activeWorkspaceId: null,
@@ -78,7 +79,8 @@ export class UiStateRepository {
         await AsyncStorage.setItem(this.UI_STATE_KEY, JSON.stringify(updated));
       });
     } catch (e) {
-      console.warn("Failed to save UiState", e);
+      console.error("Failed to save UiState", e);
+      throw e;
     }
   }
 }

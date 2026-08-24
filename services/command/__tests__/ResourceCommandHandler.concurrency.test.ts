@@ -19,6 +19,9 @@ describe("ResourceCommandHandler Concurrency", () => {
   beforeEach(async () => {
     jest.restoreAllMocks();
     await AsyncStorage.clear();
+    const { WorkspaceRepository } = require("@/repositories/WorkspaceRepository");
+    jest.spyOn(WorkspaceRepository, "getWorkspaces")
+      .mockResolvedValue([{ id: "ws-A", name: "A" }, { id: "ws-B", name: "B" }, { id: "ws-deadlock-A", name: "dA" }, { id: "ws-deadlock-B", name: "dB" }]);
   });
 
   it("Test 1: should serialize updateResource vs updateResource via workspace partition lock", async () => {

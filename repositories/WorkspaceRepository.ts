@@ -34,8 +34,8 @@ export class WorkspaceRepository {
       const parsed: any[] = JSON.parse(raw);
       return parsed.map(normalizeWorkspace);
     } catch (e) {
-      console.warn("Failed to get workspaces", e);
-      return [];
+      console.error("Failed to get workspaces", e);
+      throw e;
     }
   }
 

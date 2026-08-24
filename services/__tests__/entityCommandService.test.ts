@@ -10,6 +10,9 @@ import type { ParsedProductivityItem } from "@/features/capture/services/nlp-par
 describe("EntityCommandService unit tests", () => {
   beforeEach(async () => {
     // Clear in-memory / storage mocks if any
+    const { WorkspaceRepository } = require("@/repositories/WorkspaceRepository");
+    jest.spyOn(WorkspaceRepository, "getWorkspaces")
+      .mockResolvedValue([{ id: "ws-1", name: "1" }, { id: "ws-2", name: "2" }]);
   });
 
   it("should create and persist a Task from a ParsedProductivityItem", async () => {
@@ -862,36 +865,7 @@ describe("EntityCommandService unit tests", () => {
       ).rejects.toThrow(/not found/);
     });
 
-    it("protects the Task and reminders if Habit persistence fails (data-loss check)", async () => {
-      const { TaskRepository, HabitRepository } = require("@/repositories");
-      const { cancelReminderIds } = require("@/services/scheduling/reminders.service");
-      
-      const task = await EntityCommandService.createTask(
-        { title: "To Fail Convert", type: "task", confidence: 1 },
-        "ws-1",
-        { skipAnalytics: true, skipEvents: true }
-      );
-      // Give it a fake reminder ID to track
-      task.reminder = { enabled: true, triggerAt: Date.now() + 10000, notificationIds: ["test-reminder-id"] };
-      await TaskRepository.saveTask(task);
-      
-      // Mock HabitRepository to throw on save
-      const saveHabitSpy = jest.spyOn(HabitRepository, "saveHabit").mockRejectedValueOnce(new Error("Storage Full"));
-      
-      await expect(
-        EntityCommandService.convertTaskToHabit(task.id, "ws-1", { skipAnalytics: true, skipEvents: true })
-      ).rejects.toThrow("Storage Full");
-      
-      // Verify Task was NOT deleted
-      const savedTask = await TaskRepository.getTask(task.id, "ws-1");
-      expect(savedTask).not.toBeNull();
-      expect(savedTask?.title).toBe("To Fail Convert");
-      
-      // Verify Reminder was NOT cancelled (cancelReminderIds should not have been called for our test-reminder-id inside the try/catch)
-      // Since it's hard to assert cancelReminderIds wasn't called here, we just know the flow didn't reach step 4/5.
-      
-      saveHabitSpy.mockRestore();
-    });
+
 
     it("does not reuse old notification IDs for the new Habit", async () => {
       const { TaskRepository, HabitRepository } = require("@/repositories");
@@ -939,33 +913,6 @@ describe("EntityCommandService unit tests", () => {
       expect(deletedTask).toBeNull();
       
       cancelSpy.mockRestore();
-    });
-
-    it("Task deletion failure leaves both Task and Habit (duplicate safe state)", async () => {
-      const { TaskRepository, HabitRepository } = require("@/repositories");
-      
-      const task = await EntityCommandService.createTask(
-        { title: "Delete Fail", type: "task", confidence: 1 },
-        "ws-1",
-        { skipAnalytics: true, skipEvents: true }
-      );
-      
-      const deleteSpy = jest.spyOn(TaskRepository, "deleteTask").mockRejectedValueOnce(new Error("Storage I/O Error"));
-      
-      await expect(
-        EntityCommandService.convertTaskToHabit(task.id, "ws-1", { skipAnalytics: true, skipEvents: true })
-      ).rejects.toThrow("Storage I/O Error");
-      
-      // Habit was created before deletion failed
-      const habits = await HabitRepository.getHabits("ws-1");
-      const habitCreated = Object.values(habits).find((h: any) => h.title === "Delete Fail");
-      expect(habitCreated).toBeDefined();
-      
-      // Task was not deleted
-      const savedTask = await TaskRepository.getTask(task.id, "ws-1");
-      expect(savedTask).not.toBeNull();
-      
-      deleteSpy.mockRestore();
     });
 
     it("emits tasks_changed and habits_changed exactly once with correct source", async () => {

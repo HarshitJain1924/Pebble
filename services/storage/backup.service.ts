@@ -13,6 +13,7 @@ import { INBOX_WORKSPACE_ID, type Workspace, type Task, type Habit, type Checkli
 import { clearRepositoryStorage } from "./storage-utils";
 import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import { withLock, withLocks } from "@/shared/utils/mutex";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import * as Notifications from "expo-notifications";
@@ -39,6 +40,7 @@ export class BackupService {
    */
   static async generateStructuredBackup(): Promise<string> {
     await MoveReconcilerService.reconcileAll();
+    await ConversionReconcilerService.reconcileAll();
 
     const workspaces = await WorkspaceRepository.getWorkspaces();
     const workspaceIds = Array.from(new Set([INBOX_WORKSPACE_ID, ...workspaces.map((w) => w.id)]));
@@ -121,6 +123,7 @@ export class BackupService {
   static async restoreStructuredBackup(jsonString: string): Promise<void> {
     // Reconcile pending moves BEFORE taking a snapshot or locks, to ensure active storage is clean.
     await MoveReconcilerService.reconcileAll();
+    await ConversionReconcilerService.reconcileAll();
 
     let parsed: Partial<AppBackup>;
     try {

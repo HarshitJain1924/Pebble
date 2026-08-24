@@ -24,6 +24,7 @@ import NotificationListener from "@/shared/components/ui/NotificationListener";
 
 import { cleanupRecycleBin } from "@/services/storage/storage.service";
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
 
 SplashScreen.preventAutoHideAsync();
@@ -60,6 +61,7 @@ export default function RootLayout() {
       try {
 
         await MoveReconcilerService.reconcileAll();
+        await ConversionReconcilerService.reconcileAll();
         await MoveReconcilerService.reconcileHistoricalGhosts();
         await cleanupRecycleBin();
         

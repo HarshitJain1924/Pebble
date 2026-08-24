@@ -126,16 +126,15 @@ export class HabitRepository {
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         return parsed as Record<string, any>;
       }
-      console.warn(
-        `[HabitRepository] Stored value for "${key}" is not a JSON object (${method}); treating as empty.`,
+      throw new Error(
+        `[HabitRepository] Stored value for "${key}" is not a JSON object (${method})`
       );
-      return {};
     } catch (e) {
-      console.warn(
-        `[HabitRepository] Failed to parse stored value for "${key}" (${method}); treating as empty.`,
+      console.error(
+        `[HabitRepository] Failed to parse stored value for "${key}" (${method})`,
         e,
       );
-      return {};
+      throw e;
     }
   }
 

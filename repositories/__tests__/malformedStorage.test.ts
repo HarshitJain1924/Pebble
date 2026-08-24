@@ -61,71 +61,35 @@ beforeEach(async () => {
   GraphRepository.resetCache();
 });
 
-describe("Malformed stored JSON does not crash repositories", () => {
-  test("TaskRepository.getTasks returns an empty map for malformed JSON and logs a warning", async () => {
+describe("Malformed stored JSON crashes repositories (Fail-Closed protection)", () => {
+  test("TaskRepository.getTasks throws on malformed JSON", async () => {
     await storage.setItem("pebble:v1:tasks:ws-1", "{not valid json");
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    const tasks = await TaskRepository.getTasks("ws-1");
-
-    expect(tasks).toEqual({});
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    await expect(TaskRepository.getTasks("ws-1")).rejects.toThrow();
   });
 
-  test("TaskRepository.getTask returns null for malformed JSON", async () => {
+  test("TaskRepository.getTask throws on malformed JSON", async () => {
     await storage.setItem("pebble:v1:tasks:ws-1", "{not valid json");
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    const found = await TaskRepository.getTask("task-1", "ws-1");
-
-    expect(found).toBeNull();
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    await expect(TaskRepository.getTask("task-1", "ws-1")).rejects.toThrow();
   });
 
-  test("TaskRepository treats a non-object stored value as an empty map", async () => {
+  test("TaskRepository throws if a non-object is stored", async () => {
     await storage.setItem("pebble:v1:tasks:ws-1", JSON.stringify([1, 2, 3]));
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    const tasks = await TaskRepository.getTasks("ws-1");
-
-    expect(tasks).toEqual({});
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    await expect(TaskRepository.getTasks("ws-1")).rejects.toThrow("not a JSON object");
   });
 
-  test("HabitRepository.getHabits returns an empty map for malformed JSON", async () => {
+  test("HabitRepository.getHabits throws on malformed JSON", async () => {
     await storage.setItem("pebble:v1:habits:ws-1", "{not valid json");
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    const habits = await HabitRepository.getHabits("ws-1");
-
-    expect(habits).toEqual({});
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    await expect(HabitRepository.getHabits("ws-1")).rejects.toThrow();
   });
 
-  test("ChecklistRepository.getChecklists returns an empty map for malformed JSON", async () => {
+  test("ChecklistRepository.getChecklists throws on malformed JSON", async () => {
     await storage.setItem("pebble:v1:checklists:ws-1", "{not valid json");
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    const checklists = await ChecklistRepository.getChecklists("ws-1");
-
-    expect(checklists).toEqual({});
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    await expect(ChecklistRepository.getChecklists("ws-1")).rejects.toThrow();
   });
 
-  test("ResourceRepository.getResources returns an empty map for malformed JSON", async () => {
+  test("ResourceRepository.getResources throws on malformed JSON", async () => {
     await storage.setItem("pebble:v1:resources:ws-1", "{not valid json");
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-
-    const resources = await ResourceRepository.getResources("ws-1");
-
-    expect(resources).toEqual({});
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    await expect(ResourceRepository.getResources("ws-1")).rejects.toThrow();
   });
 
   test("valid stored JSON behaves exactly as before", async () => {
@@ -145,14 +109,12 @@ describe("Malformed stored JSON does not crash repositories", () => {
     expect(resources["resource-1"].title).toBe("Resource resource-1");
   });
 
-  test("a malformed map does not break subsequent valid writes (tolerant recovery)", async () => {
+  test("a malformed map now explicitly rejects subsequent valid writes to prevent overwriting", async () => {
     await storage.setItem("pebble:v1:tasks:ws-1", "{not valid json");
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
-    await TaskRepository.saveTask(task("task-1"));
-    const tasks = await TaskRepository.getTasks("ws-1");
-
-    expect(tasks["task-1"]).toBeDefined();
+    await expect(TaskRepository.saveTask(task("task-1"))).rejects.toThrow();
+    
     warnSpy.mockRestore();
   });
 });

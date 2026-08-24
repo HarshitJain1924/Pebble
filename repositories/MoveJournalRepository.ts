@@ -17,7 +17,7 @@ export class MoveJournalRepository {
       return parsed.sort((a, b) => a.timestamp - b.timestamp);
     } catch (e) {
       console.error("[MoveJournalRepository] Failed to read journal", e);
-      return [];
+      throw e;
     }
   }
 

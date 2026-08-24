@@ -79,6 +79,14 @@ export class ResourceCommandHandler {
       const map = await ResourceRepository.getResources(sourceWorkspaceId);
       const existing = map[resourceId];
       if (!existing) throw new Error(`Resource ${resourceId} not found`);
+
+      const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
+      const workspaces = await WorkspaceRepository.getWorkspaces();
+      const { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
+      if (!workspaces.some(w => w.id === targetWorkspaceId) && targetWorkspaceId !== INBOX_WORKSPACE_ID && targetWorkspaceId !== MY_PEBBLES_WORKSPACE_ID) {
+        throw new Error(`Target workspace ${targetWorkspaceId} no longer exists.`);
+      }
+
       const moved: Resource = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
 
       const operationId = `move-${generateId()}`;

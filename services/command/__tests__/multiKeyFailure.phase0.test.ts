@@ -21,6 +21,7 @@ beforeEach(async () => {
   await storage.clear();
   jest.restoreAllMocks();
   GraphRepository.resetCache();
+  await WorkspaceRepository.saveWorkspaces([{ id: "ws-source", name: "src", createdAt: 1, updatedAt: 1 }, { id: "ws-target", name: "tgt", createdAt: 1, updatedAt: 1 }]);
 });
 
 describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
@@ -39,26 +40,25 @@ describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
     expect(source["task-1"]).toBeDefined();
   });
 
-  test("does not leave workspace entities dangling, cleanup runs asynchronously", async () => {
+  test("does not leave workspace entities dangling, cleanup uses multiRemove atomically", async () => {
     await WorkspaceRepository.saveWorkspace(workspace);
     await TaskRepository.saveTask(task("ws-delete"));
     await GraphRepository.saveRelationship(relationship);
     
     // Create a mock to wait for the async cleanup to run
-    const removeItemSpy = jest.spyOn(AsyncStorage, "removeItem");
+    const multiRemoveSpy = jest.spyOn(AsyncStorage, "multiRemove").mockResolvedValue();
     
     await EntityCommandService.deleteWorkspace("ws-delete");
     
     // Workspace is immediately removed from repo
     expect((await WorkspaceRepository.getWorkspaces()).some((w) => w.id === "ws-delete")).toBe(false);
     
-    // Wait for the async cleanup fire-and-forget promise to resolve in the event loop
-    await new Promise(process.nextTick);
-    
-    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:tasks:ws-delete");
-    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:habits:ws-delete");
-    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:checklists:ws-delete");
-    expect(removeItemSpy).toHaveBeenCalledWith("pebble:v1:resources:ws-delete");
+    expect(multiRemoveSpy).toHaveBeenCalledWith([
+      "pebble:v1:tasks:ws-delete",
+      "pebble:v1:habits:ws-delete",
+      "pebble:v1:checklists:ws-delete",
+      "pebble:v1:resources:ws-delete"
+    ]);
   });
 
   test("tolerates an active ghost when recycle active delete fails", async () => {
