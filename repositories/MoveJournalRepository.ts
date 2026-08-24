@@ -71,17 +71,26 @@ export class MoveJournalRepository {
   static async removeOperations(operationIds: string[]): Promise<void> {
     if (operationIds.length === 0) return;
     await withLock(this.JOURNAL_KEY, async () => {
-      const current = await this.getOperations();
-      const idsSet = new Set(operationIds);
-      const filtered = current.filter((op) => !idsSet.has(op.operationId));
-      
-      if (filtered.length !== current.length) {
-        if (filtered.length === 0) {
-          await AsyncStorage.removeItem(this.JOURNAL_KEY);
-        } else {
-          await AsyncStorage.setItem(this.JOURNAL_KEY, JSON.stringify(filtered));
-        }
-      }
+      await this.removeOperationsUnlocked(operationIds);
     });
+  }
+
+  /**
+   * Remove multiple completed move operations from the journal without acquiring the mutex lock.
+   * This is used when the MoveJournal lock is already held by a broader transaction.
+   */
+  static async removeOperationsUnlocked(operationIds: string[]): Promise<void> {
+    if (operationIds.length === 0) return;
+    const current = await this.getOperations();
+    const idsSet = new Set(operationIds);
+    const filtered = current.filter((op) => !idsSet.has(op.operationId));
+    
+    if (filtered.length !== current.length) {
+      if (filtered.length === 0) {
+        await AsyncStorage.removeItem(this.JOURNAL_KEY);
+      } else {
+        await AsyncStorage.setItem(this.JOURNAL_KEY, JSON.stringify(filtered));
+      }
+    }
   }
 }

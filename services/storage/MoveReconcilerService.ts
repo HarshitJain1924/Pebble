@@ -72,99 +72,102 @@ export class MoveReconcilerService {
 
     // Alphabetical sort to prevent deadlocks between opposite moves
     const sortedKeys = [sourceKey, targetKey].sort();
+    const moveJournalKey = "pebble:v1:move_journal";
 
     await withLock(sortedKeys[0], async () => {
       await withLock(sortedKeys[1], async () => {
-        const [sourceRaw, targetRaw] = await AsyncStorage.multiGet([sourceKey, targetKey]);
-        
-        let sourceMap: Record<string, any> = sourceRaw[1] ? JSON.parse(sourceRaw[1]) : {};
-        let targetMap: Record<string, any> = targetRaw[1] ? JSON.parse(targetRaw[1]) : {};
+        await withLock(moveJournalKey, async () => {
+          const [sourceRaw, targetRaw] = await AsyncStorage.multiGet([sourceKey, targetKey]);
+          
+          let sourceMap: Record<string, any> = sourceRaw[1] ? JSON.parse(sourceRaw[1]) : {};
+          let targetMap: Record<string, any> = targetRaw[1] ? JSON.parse(targetRaw[1]) : {};
 
-        // In multiGet, the results are [ [key1, val1], [key2, val2] ] but their order matches the input array
-        // So sourceRaw corresponds to sourceKey and targetRaw corresponds to targetKey.
-        // Wait, multiGet returns array of arrays in the order of requested keys.
-        const results = await AsyncStorage.multiGet([sourceKey, targetKey]);
-        sourceMap = results[0][1] ? JSON.parse(results[0][1]) : {};
-        targetMap = results[1][1] ? JSON.parse(results[1][1]) : {};
+          // In multiGet, the results are [ [key1, val1], [key2, val2] ] but their order matches the input array
+          // So sourceRaw corresponds to sourceKey and targetRaw corresponds to targetKey.
+          // Wait, multiGet returns array of arrays in the order of requested keys.
+          const results = await AsyncStorage.multiGet([sourceKey, targetKey]);
+          sourceMap = results[0][1] ? JSON.parse(results[0][1]) : {};
+          targetMap = results[1][1] ? JSON.parse(results[1][1]) : {};
 
-        const targetData = targetMap[op.entityId];
-        const sourceData = sourceMap[op.entityId];
+          const targetData = targetMap[op.entityId];
+          const sourceData = sourceMap[op.entityId];
 
-        if (!sourceData && !targetData) {
-          // Both missing, nothing to do
-        } else if (sourceData && !targetData) {
-          // Case A variant: Target write failed entirely, or was deleted. Source is only copy.
-          sourceData.workspaceId = op.targetWorkspaceId;
-          sourceData.updatedAt = Date.now();
-          targetMap[op.entityId] = sourceData;
-        } else if (!sourceData && targetData) {
-          // Case A variant: Source already deleted successfully. Target is fine.
-        } else if (sourceData && targetData) {
-          const sourceEdited = (sourceData.updatedAt || 0) > op.timestamp;
-          const targetEdited = (targetData.updatedAt || 0) > op.timestamp;
-
-          if (!sourceEdited && !targetEdited) {
-            // Case A: Neither edited post-intent. Target is authoritative.
-            targetData.workspaceId = op.targetWorkspaceId;
-          } else if (sourceEdited && !targetEdited) {
-            // Case B: Source edited, Target unchanged. Source wins.
-            console.warn(`[MoveReconciler] Case B: Source ${op.entityId} edited after move intent. Forwarding edits to target.`);
+          if (!sourceData && !targetData) {
+            // Both missing, nothing to do
+          } else if (sourceData && !targetData) {
+            // Case A variant: Target write failed entirely, or was deleted. Source is only copy.
             sourceData.workspaceId = op.targetWorkspaceId;
             sourceData.updatedAt = Date.now();
             targetMap[op.entityId] = sourceData;
-          } else if (!sourceEdited && targetEdited) {
-            // Case C: Target edited, Source unchanged. Target wins.
-            console.warn(`[MoveReconciler] Case C: Target ${op.entityId} edited after move intent. Preserving target.`);
-            targetData.workspaceId = op.targetWorkspaceId;
-          } else {
-            // Case D: BOTH edited. Split-brain!
-            console.warn(`[MoveReconciler] Case D: Split-brain conflict detected for ${op.entityId}. Forking source.`);
-            
-            // 1. Target retains original identity.
-            targetData.workspaceId = op.targetWorkspaceId;
+          } else if (!sourceData && targetData) {
+            // Case A variant: Source already deleted successfully. Target is fine.
+          } else if (sourceData && targetData) {
+            const sourceEdited = (sourceData.updatedAt || 0) > op.timestamp;
+            const targetEdited = (targetData.updatedAt || 0) > op.timestamp;
 
-            // 2. Source is transformed into a deterministic conflict fork.
-            const forkId = `fork-${op.operationId}-${op.entityId}`;
-            const fork = { ...sourceData };
-            fork.id = forkId;
-            fork.workspaceId = op.targetWorkspaceId;
-            fork.title = `[Conflict] ${sourceData.title}`;
+            if (!sourceEdited && !targetEdited) {
+              // Case A: Neither edited post-intent. Target is authoritative.
+              targetData.workspaceId = op.targetWorkspaceId;
+            } else if (sourceEdited && !targetEdited) {
+              // Case B: Source edited, Target unchanged. Source wins.
+              console.warn(`[MoveReconciler] Case B: Source ${op.entityId} edited after move intent. Forwarding edits to target.`);
+              sourceData.workspaceId = op.targetWorkspaceId;
+              sourceData.updatedAt = Date.now();
+              targetMap[op.entityId] = sourceData;
+            } else if (!sourceEdited && targetEdited) {
+              // Case C: Target edited, Source unchanged. Target wins.
+              console.warn(`[MoveReconciler] Case C: Target ${op.entityId} edited after move intent. Preserving target.`);
+              targetData.workspaceId = op.targetWorkspaceId;
+            } else {
+              // Case D: BOTH edited. Split-brain!
+              console.warn(`[MoveReconciler] Case D: Split-brain conflict detected for ${op.entityId}. Forking source.`);
+              
+              // 1. Target retains original identity.
+              targetData.workspaceId = op.targetWorkspaceId;
 
-            // 3. Cancel and strip stale OS notifications from the source fork
-            if (fork.reminder?.notificationIds?.length) {
-              try {
-                // Must cancel native OS notifications to prevent zombies.
-                // We use throwOnError: false because the Native layer could be unavailable, 
-                // but if it completely crashes, the Promise will reject, reverting the entire multiSet.
-                await cancelReminderIds(fork.reminder.notificationIds, { throwOnError: false });
-              } catch (e) {
-                console.warn(`[MoveReconciler] Failed to cancel notifications for fork ${forkId}`, e);
-                // We intentionally rethrow to abort the transaction if cancellation hard-crashes.
-                // This ensures the move journal entry is preserved for safe retry.
-                throw e;
+              // 2. Source is transformed into a deterministic conflict fork.
+              const forkId = `fork-${op.operationId}-${op.entityId}`;
+              const fork = { ...sourceData };
+              fork.id = forkId;
+              fork.workspaceId = op.targetWorkspaceId;
+              fork.title = `[Conflict] ${sourceData.title}`;
+
+              // 3. Cancel and strip stale OS notifications from the source fork
+              if (fork.reminder?.notificationIds?.length) {
+                try {
+                  // Must cancel native OS notifications to prevent zombies.
+                  // We use throwOnError: false because the Native layer could be unavailable, 
+                  // but if it completely crashes, the Promise will reject, reverting the entire multiSet.
+                  await cancelReminderIds(fork.reminder.notificationIds, { throwOnError: false });
+                } catch (e) {
+                  console.warn(`[MoveReconciler] Failed to cancel notifications for fork ${forkId}`, e);
+                  // We intentionally rethrow to abort the transaction if cancellation hard-crashes.
+                  // This ensures the move journal entry is preserved for safe retry.
+                  throw e;
+                }
+                // Strip IDs so NotificationReconciler generates fresh ones for the fork.
+                delete fork.reminder.notificationIds;
               }
-              // Strip IDs so NotificationReconciler generates fresh ones for the fork.
-              delete fork.reminder.notificationIds;
+
+              targetMap[forkId] = fork;
             }
-
-            targetMap[forkId] = fork;
           }
-        }
 
-        // Step 2: Delete from Source
-        if (sourceMap[op.entityId]) {
-          delete sourceMap[op.entityId];
-        }
+          // Step 2: Delete from Source
+          if (sourceMap[op.entityId]) {
+            delete sourceMap[op.entityId];
+          }
 
-        // Step 3: Write back to storage atomically
-        await AsyncStorage.multiSet([
-          [sourceKey, JSON.stringify(sourceMap)],
-          [targetKey, JSON.stringify(targetMap)],
-        ]);
+          // Step 3: Write back to storage atomically
+          await AsyncStorage.multiSet([
+            [sourceKey, JSON.stringify(sourceMap)],
+            [targetKey, JSON.stringify(targetMap)],
+          ]);
 
-        // Step 4: Remove the completed operation from the journal
-        await MoveJournalRepository.removeOperation(op.operationId);
-        console.log(`[MoveReconciler] Successfully reconciled operation ${op.operationId}`);
+          // Step 4: Remove the completed operation from the journal using the unlocked primitive
+          await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+          console.log(`[MoveReconciler] Successfully reconciled operation ${op.operationId}`);
+        });
       });
     });
   }
@@ -172,52 +175,55 @@ export class MoveReconcilerService {
   private static async reconcileRecycle(op: MoveJournalEntry): Promise<void> {
     const sourceKey = this.getPartitionKey(op.entityType, op.sourceWorkspaceId);
     const recycleBinKey = "pebble:v1:recycle_bin";
+    const moveJournalKey = "pebble:v1:move_journal";
 
-    // Enforce strict lock hierarchy: Partition Lock -> Recycle Bin Lock
+    // Enforce strict lock hierarchy: Partition Lock -> MoveJournal Lock -> Recycle Bin Lock
     // Do NOT sort alphabetically, as it inverts the hierarchy and causes deadlocks.
     const orderedKeys = [sourceKey, recycleBinKey];
 
     await withLock(orderedKeys[0], async () => {
-      await withLock(orderedKeys[1], async () => {
-        const results = await AsyncStorage.multiGet([sourceKey, recycleBinKey]);
-        const sourceRaw = results.find(r => r[0] === sourceKey)?.[1];
-        const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];
+      await withLock(moveJournalKey, async () => {
+        await withLock(orderedKeys[1], async () => {
+          const results = await AsyncStorage.multiGet([sourceKey, recycleBinKey]);
+          const sourceRaw = results.find(r => r[0] === sourceKey)?.[1];
+          const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];
 
-        let sourceMap: Record<string, any> = sourceRaw ? JSON.parse(sourceRaw) : {};
-        let binArray: any[] = binRaw ? JSON.parse(binRaw) : [];
+          let sourceMap: Record<string, any> = sourceRaw ? JSON.parse(sourceRaw) : {};
+          let binArray: any[] = binRaw ? JSON.parse(binRaw) : [];
 
-        const sourceData = sourceMap[op.entityId];
-        const binItemIndex = binArray.findIndex(i => i.entityId === op.entityId || i.id === `rb-${op.entityId}`);
-        const isInBin = binItemIndex !== -1;
+          const sourceData = sourceMap[op.entityId];
+          const binItemIndex = binArray.findIndex(i => i.entityId === op.entityId || i.id === `rb-${op.entityId}`);
+          const isInBin = binItemIndex !== -1;
 
-        if (sourceData && !isInBin) {
-          // Add to recycle bin, remove from active
-          const newItem = {
-            id: `rb-${op.entityId}`,
-            entityType: op.entityType,
-            entityId: op.entityId,
-            snapshot: JSON.stringify(sourceData),
-            deletedAt: op.timestamp || Date.now(),
-          };
-          binArray.unshift(newItem);
-          delete sourceMap[op.entityId];
+          if (sourceData && !isInBin) {
+            // Add to recycle bin, remove from active
+            const newItem = {
+              id: `rb-${op.entityId}`,
+              entityType: op.entityType,
+              entityId: op.entityId,
+              snapshot: JSON.stringify(sourceData),
+              deletedAt: op.timestamp || Date.now(),
+            };
+            binArray.unshift(newItem);
+            delete sourceMap[op.entityId];
 
-          await AsyncStorage.multiSet([
-            [sourceKey, JSON.stringify(sourceMap)],
-            [recycleBinKey, JSON.stringify(binArray)]
-          ]);
-        } else if (sourceData && isInBin) {
-          // Ghost duplicate! Remove from active
-          delete sourceMap[op.entityId];
-          await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
-        } else if (!sourceData && !isInBin) {
-          // In neither. Nothing to do.
-        } else if (!sourceData && isInBin) {
-          // Already successful.
-        }
+            await AsyncStorage.multiSet([
+              [sourceKey, JSON.stringify(sourceMap)],
+              [recycleBinKey, JSON.stringify(binArray)]
+            ]);
+          } else if (sourceData && isInBin) {
+            // Ghost duplicate! Remove from active
+            delete sourceMap[op.entityId];
+            await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+          } else if (!sourceData && !isInBin) {
+            // In neither. Nothing to do.
+          } else if (!sourceData && isInBin) {
+            // Already successful.
+          }
 
-        await MoveJournalRepository.removeOperation(op.operationId);
-        console.log(`[MoveReconciler] Successfully reconciled recycle operation ${op.operationId}`);
+          await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+          console.log(`[MoveReconciler] Successfully reconciled recycle operation ${op.operationId}`);
+        });
       });
     });
   }
@@ -225,49 +231,52 @@ export class MoveReconcilerService {
   private static async reconcileRestore(op: MoveJournalEntry): Promise<void> {
     const targetKey = this.getPartitionKey(op.entityType, op.targetWorkspaceId);
     const recycleBinKey = "pebble:v1:recycle_bin";
+    const moveJournalKey = "pebble:v1:move_journal";
 
-    // Enforce strict lock hierarchy: Partition Lock -> Recycle Bin Lock
-    // Do NOT sort alphabetically, as it inverts the hierarchy and causes deadlocks.
+    // Enforce strict lock hierarchy: Partition Lock -> MoveJournal Lock -> Recycle Bin Lock
     const orderedKeys = [targetKey, recycleBinKey];
 
     await withLock(orderedKeys[0], async () => {
-      await withLock(orderedKeys[1], async () => {
-        const results = await AsyncStorage.multiGet([targetKey, recycleBinKey]);
-        const targetRaw = results.find(r => r[0] === targetKey)?.[1];
-        const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];
+      await withLock(moveJournalKey, async () => {
+        await withLock(orderedKeys[1], async () => {
+          const results = await AsyncStorage.multiGet([targetKey, recycleBinKey]);
+          const targetRaw = results.find(r => r[0] === targetKey)?.[1];
+          const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];
 
-        let targetMap: Record<string, any> = targetRaw ? JSON.parse(targetRaw) : {};
-        let binArray: any[] = binRaw ? JSON.parse(binRaw) : [];
+          let targetMap: Record<string, any> = targetRaw ? JSON.parse(targetRaw) : {};
+          let binArray: any[] = binRaw ? JSON.parse(binRaw) : [];
 
-        const targetData = targetMap[op.entityId];
-        const binItemIndex = binArray.findIndex(i => i.entityId === op.entityId || i.id === `rb-${op.entityId}`);
-        const isInBin = binItemIndex !== -1;
+          const binItemIndex = binArray.findIndex(i => i.entityId === op.entityId || i.id === `rb-${op.entityId}`);
+          const targetData = targetMap[op.entityId];
 
-        if (!targetData && isInBin) {
-          // Add to active, remove from recycle bin
-          const binItem = binArray[binItemIndex];
-          const restoredEntity = JSON.parse(binItem.snapshot);
-          if (restoredEntity.workspaceId) restoredEntity.workspaceId = op.targetWorkspaceId;
-          
-          targetMap[op.entityId] = restoredEntity;
-          binArray.splice(binItemIndex, 1);
+          if (binItemIndex !== -1 && !targetData) {
+            // Restore it
+            const binItem = binArray[binItemIndex];
+            const restoredItem = {
+              ...JSON.parse(binItem.snapshot),
+              workspaceId: op.targetWorkspaceId,
+            };
 
-          await AsyncStorage.multiSet([
-            [targetKey, JSON.stringify(targetMap)],
-            [recycleBinKey, JSON.stringify(binArray)]
-          ]);
-        } else if (targetData && isInBin) {
-          // Ghost duplicate! Remove from recycle bin
-          binArray.splice(binItemIndex, 1);
-          await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
-        } else if (!targetData && !isInBin) {
-          // In neither.
-        } else if (targetData && !isInBin) {
-          // Already successful.
-        }
+            targetMap[op.entityId] = restoredItem;
+            binArray.splice(binItemIndex, 1);
 
-        await MoveJournalRepository.removeOperation(op.operationId);
-        console.log(`[MoveReconciler] Successfully reconciled restore operation ${op.operationId}`);
+            await AsyncStorage.multiSet([
+              [targetKey, JSON.stringify(targetMap)],
+              [recycleBinKey, JSON.stringify(binArray)]
+            ]);
+          } else if (binItemIndex !== -1 && targetData) {
+            // Ghost duplicate! Remove from bin
+            binArray.splice(binItemIndex, 1);
+            await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+          } else if (binItemIndex === -1 && !targetData) {
+            // In neither. Nothing to do.
+          } else if (binItemIndex === -1 && targetData) {
+            // Already successful.
+          }
+
+          await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+          console.log(`[MoveReconciler] Successfully reconciled restore operation ${op.operationId}`);
+        });
       });
     });
   }

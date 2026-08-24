@@ -13,7 +13,8 @@ import { INBOX_WORKSPACE_ID, type Workspace, type Task, type Habit, type Checkli
 import { clearRepositoryStorage } from "./storage-utils";
 import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
-import { withLocks } from "@/shared/utils/mutex";
+import { withLock, withLocks } from "@/shared/utils/mutex";
+import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import * as Notifications from "expo-notifications";
 
 export interface AppBackup {
@@ -118,6 +119,9 @@ export class BackupService {
    * Restores application state from a structured JSON backup.
    */
   static async restoreStructuredBackup(jsonString: string): Promise<void> {
+    // Reconcile pending moves BEFORE taking a snapshot or locks, to ensure active storage is clean.
+    await MoveReconcilerService.reconcileAll();
+
     let parsed: Partial<AppBackup>;
     try {
       parsed = JSON.parse(jsonString) as Partial<AppBackup>;
@@ -204,13 +208,41 @@ export class BackupService {
 
     // Determine all keys that will be involved (either read, removed, or set)
     const newlySetKeys = kvPairsToSet.map(k => k[0]);
-    const lockKeys = Array.from(new Set([...keysToRemove, ...newlySetKeys]));
+    // Force inclusion of logical locks that must be respected during restore,
+    // regardless of whether they physically exist in AsyncStorage right now.
+    const requiredLocks = [
+      "pebble:v1:move_journal",
+      "pebble:v1:recycle_bin"
+    ];
+    const rawLockKeys = Array.from(new Set([...keysToRemove, ...newlySetKeys, ...requiredLocks]));
 
-    try {
-      await withLocks(lockKeys, async () => {
+    // We MUST sort locks according to the established lock hierarchy to avoid deadlocks.
+    // Alphabetical sort is NOT safe for the global hierarchy.
+    const getLockPriority = (key: string): number => {
+      if (key === "pebble:v1:move_journal") return 2;
+      if (key === "pebble:v1:recycle_bin") return 3;
+      if (key.startsWith("pebble:v1:") && !key.includes("move_journal") && !key.includes("recycle_bin")) return 1;
+      return 4;
+    };
+
+    const lockKeys = rawLockKeys.sort((a, b) => {
+      const pA = getLockPriority(a);
+      const pB = getLockPriority(b);
+      if (pA !== pB) return pA - pB;
+      return a.localeCompare(b);
+    });
+
+    const acquireLocksInOrder = async (index: number): Promise<void> => {
+      if (index >= lockKeys.length) {
         // Refresh keysToRemove inside the lock in case new keys were created while waiting
         const lockedKeys = await AsyncStorage.getAllKeys();
         const finalKeysToRemove = lockedKeys.filter((key) => key.startsWith("pebble:"));
+        
+        // Final concurrency check to prevent silent MoveJournal destruction
+        const pendingMoves = await MoveJournalRepository.getOperations();
+        if (pendingMoves.length > 0) {
+          throw new Error("Concurrent move detected. Cannot safely restore backup while moves are pending.");
+        }
         
         // Read current values to allow rollback
         const currentDataRaw = await AsyncStorage.multiGet(finalKeysToRemove);
@@ -233,10 +265,13 @@ export class BackupService {
           }
           throw writeError;
         }
-      });
-      
-      // Reconcile pending moves AFTER releasing locks, to avoid deadlocking with Reconciler's own locks
-      await MoveReconcilerService.reconcileAll();
+        return;
+      }
+      return withLock(lockKeys[index], () => acquireLocksInOrder(index + 1));
+    };
+
+    try {
+      await acquireLocksInOrder(0);
     } catch (e) {
       throw e;
     }

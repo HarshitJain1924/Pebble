@@ -77,7 +77,7 @@ describe("MoveReconcilerService", () => {
       [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
       [`pebble:v1:tasks:ws-2`, expect.stringContaining(`"workspaceId":"ws-2"`)],
     ]);
-    expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith(entry.operationId);
+    expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
   });
 
   test("reconciles successfully when Source Delete failed (Target exists, Source exists Ghost)", async () => {
@@ -101,7 +101,7 @@ describe("MoveReconcilerService", () => {
       [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
       [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
     ]);
-    expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith(entry.operationId);
+    expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
   });
 
   test("reconcileHistoricalGhosts cleans up duplicates based on updatedAt under proper locks", async () => {
@@ -515,6 +515,6 @@ describe("MoveReconcilerService", () => {
     ]);
     
     // And remove the journal!
-    expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith(entry.operationId);
+    expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
   });
 });

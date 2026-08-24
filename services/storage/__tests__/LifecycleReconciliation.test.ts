@@ -87,7 +87,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         `pebble:v1:tasks:ws-1`,
         JSON.stringify({})
       );
-      expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith(entry.operationId);
+      expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
 
     test("reconciles successfully when bin insert failed (exists in active, missing in bin)", async () => {
@@ -109,7 +109,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
         [`pebble:v1:recycle_bin`, expect.stringContaining(`"entityId":"task-2"`)],
       ]);
-      expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith(entry.operationId);
+      expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
   });
 
@@ -139,7 +139,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         [`pebble:v1:tasks:ws-2`, expect.stringContaining(`"id":"task-3"`)],
         [`pebble:v1:recycle_bin`, JSON.stringify([])],
       ]);
-      expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith(entry.operationId);
+      expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
 
     test("reconciles successfully when bin delete failed (exists in both bin and active)", async () => {
@@ -168,7 +168,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         `pebble:v1:recycle_bin`,
         JSON.stringify([])
       );
-      expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith(entry.operationId);
+      expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
   });
 });

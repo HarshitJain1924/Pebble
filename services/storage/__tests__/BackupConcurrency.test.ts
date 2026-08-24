@@ -116,6 +116,7 @@ describe("BackupService - Hostile Concurrency & Locking", () => {
 
     const backupJson = JSON.stringify(generateValidBackup());
     const restorePromise = BackupService.restoreStructuredBackup(backupJson);
+    // Simulate a move operation getting injected while restore is initializing
     const movePromise = MoveJournalRepository.addOperation({
       operationId: "op-1",
       entityId: "task-move",
@@ -125,9 +126,10 @@ describe("BackupService - Hostile Concurrency & Locking", () => {
       timestamp: Date.now()
     });
 
-    await Promise.all([restorePromise, movePromise]);
-    await MoveReconcilerService.reconcileAll();
-    expect(true).toBe(true);
+    await Promise.all([
+      expect(restorePromise).rejects.toThrow("Concurrent move detected"),
+      movePromise
+    ]);
   });
   
   it("rolls back safely on write failure without deadlocking", async () => {
