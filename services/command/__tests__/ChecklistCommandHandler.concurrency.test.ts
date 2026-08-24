@@ -828,4 +828,91 @@ describe("ChecklistCommandHandler Concurrency", () => {
     
     jest.spyOn(RecycleBinRepository, "getRecycleBinItems").mockRestore();
   });
+
+  it("Test 12: should serialize permanentlyDeleteChecklist and moveChecklist to prevent stale-read side effects", async () => {
+    // 1. Seed Checklist in Workspace 1
+    const workspace1 = "ws-perm-del-test-1";
+    const workspace2 = "ws-perm-del-test-2";
+    const checklistId = "chk-perm-del-1";
+
+    await WorkspaceRepository.saveWorkspace({
+      id: workspace1,
+      name: "WS 1",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    await WorkspaceRepository.saveWorkspace({
+      id: workspace2,
+      name: "WS 2",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    await ChecklistRepository.saveChecklistUnlocked({
+      id: checklistId,
+      workspaceId: workspace1,
+      title: "Checklist to delete",
+    });
+
+    const originalGetChecklists = ChecklistRepository.getChecklists.bind(ChecklistRepository);
+    
+    let resolveDeleteRead: () => void;
+    const deleteReadStarted = new Promise<void>((r) => { resolveDeleteRead = r; });
+    
+    let resolveResumeDelete: () => void;
+    const resumeDelete = new Promise<void>((r) => { resolveResumeDelete = r; });
+
+    let getChecklistsCallCount = 0;
+    jest
+      .spyOn(ChecklistRepository, "getChecklists")
+      .mockImplementation(async (wsId) => {
+        if (wsId === workspace1) {
+          getChecklistsCallCount++;
+          // Pause on the FIRST read of workspace1
+          if (getChecklistsCallCount === 1) {
+            resolveDeleteRead();
+            await resumeDelete;
+          }
+        }
+        return originalGetChecklists(wsId);
+      });
+
+    // 2. Start permanentlyDeleteChecklist(C)
+    const deletePromise = ChecklistCommandHandler.permanentlyDeleteChecklist(checklistId, workspace1, { skipEvents: true });
+
+    // 3. Pause delete operation
+    await deleteReadStarted;
+
+    // 4. Concurrently start move C to Workspace 2 (this should block)
+    let moveStartedRead = false;
+    jest.spyOn(ChecklistRepository, "getChecklists").mockImplementationOnce(async (wsId) => {
+      if (wsId === workspace1) moveStartedRead = true;
+      return originalGetChecklists(wsId);
+    });
+
+    const movePromise = ChecklistCommandHandler.moveChecklist(checklistId, workspace2, workspace1, { skipEvents: true });
+
+    // Prove moveChecklist cannot enter its read phase
+    await new Promise((r) => setTimeout(r, 50));
+    expect(moveStartedRead).toBe(false);
+
+    // 5. Resume delete
+    resolveResumeDelete!();
+    
+    // deleteChecklist succeeds and deletes the checklist
+    await deletePromise;
+
+    // moveChecklist then acquires the lock and fails because the checklist is gone
+    await expect(movePromise).rejects.toThrow(/not found/i);
+
+    // 6. Verify that C is completely GONE (permanently deleted)
+    const ws2Checklists = await ChecklistRepository.getChecklists(workspace2);
+    expect(ws2Checklists[checklistId]).toBeUndefined();
+    
+    const ws1Checklists = await ChecklistRepository.getChecklists(workspace1);
+    expect(ws1Checklists[checklistId]).toBeUndefined();
+    
+    jest.spyOn(ChecklistRepository, "getChecklists").mockRestore();
+  });
 });

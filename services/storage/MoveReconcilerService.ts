@@ -173,10 +173,12 @@ export class MoveReconcilerService {
     const sourceKey = this.getPartitionKey(op.entityType, op.sourceWorkspaceId);
     const recycleBinKey = "pebble:v1:recycle_bin";
 
-    const sortedKeys = [sourceKey, recycleBinKey].sort();
+    // Enforce strict lock hierarchy: Partition Lock -> Recycle Bin Lock
+    // Do NOT sort alphabetically, as it inverts the hierarchy and causes deadlocks.
+    const orderedKeys = [sourceKey, recycleBinKey];
 
-    await withLock(sortedKeys[0], async () => {
-      await withLock(sortedKeys[1], async () => {
+    await withLock(orderedKeys[0], async () => {
+      await withLock(orderedKeys[1], async () => {
         const results = await AsyncStorage.multiGet([sourceKey, recycleBinKey]);
         const sourceRaw = results.find(r => r[0] === sourceKey)?.[1];
         const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];
@@ -224,10 +226,12 @@ export class MoveReconcilerService {
     const targetKey = this.getPartitionKey(op.entityType, op.targetWorkspaceId);
     const recycleBinKey = "pebble:v1:recycle_bin";
 
-    const sortedKeys = [targetKey, recycleBinKey].sort();
+    // Enforce strict lock hierarchy: Partition Lock -> Recycle Bin Lock
+    // Do NOT sort alphabetically, as it inverts the hierarchy and causes deadlocks.
+    const orderedKeys = [targetKey, recycleBinKey];
 
-    await withLock(sortedKeys[0], async () => {
-      await withLock(sortedKeys[1], async () => {
+    await withLock(orderedKeys[0], async () => {
+      await withLock(orderedKeys[1], async () => {
         const results = await AsyncStorage.multiGet([targetKey, recycleBinKey]);
         const targetRaw = results.find(r => r[0] === targetKey)?.[1];
         const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];

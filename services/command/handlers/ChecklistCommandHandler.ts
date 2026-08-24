@@ -187,17 +187,21 @@ static async moveChecklist(
     });
   }
 
-static async permanentlyDeleteChecklist(
+  static async permanentlyDeleteChecklist(
     checklistId: string,
     workspaceId: string,
     options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
   ): Promise<void> {
     const { emitStateChange } = await import("@/services/events/state-events");
+    const { withLock } = await import("@/shared/utils/mutex");
 
-    const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
-    if (!checklistsMap[checklistId]) throw new Error(`Checklist ${checklistId} not found`);
+    const lockKey = `pebble:v1:checklists:${workspaceId}`;
+    await withLock(lockKey, async () => {
+      const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+      if (!checklistsMap[checklistId]) throw new Error(`Checklist ${checklistId} not found`);
 
-    await ChecklistRepository.deleteChecklist(checklistId, workspaceId);
+      await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
+    });
 
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
     if (!options?.skipAnalytics) {

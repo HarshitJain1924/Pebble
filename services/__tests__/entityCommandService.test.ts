@@ -638,15 +638,15 @@ describe("EntityCommandService unit tests", () => {
       const bin = await getRecycleBinItems();
       const item = bin.find((i: any) => i.entityId === task.id);
       
-      // Spy on saveTask
+      // Spy on saveTaskUnlocked
       const { TaskRepository } = require("@/repositories");
-      const saveTaskSpy = jest.spyOn(TaskRepository, "saveTask");
+      const saveTaskSpy = jest.spyOn(TaskRepository, "saveTaskUnlocked");
       
       await EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true });
       
       expect(saveTaskSpy).toHaveBeenCalled();
       expect(saveRecycleBinItemsSpy).toHaveBeenCalled();
-      // Assert saveTask was called before saveRecycleBinItems
+      // Assert saveTaskUnlocked was called before saveRecycleBinItems
       expect(saveTaskSpy.mock.invocationCallOrder[0]).toBeLessThan(saveRecycleBinItemsSpy.mock.invocationCallOrder[0]);
     });
 
@@ -659,7 +659,7 @@ describe("EntityCommandService unit tests", () => {
       const item = bin.find((i: any) => i.entityId === task.id);
       
       const { TaskRepository } = require("@/repositories");
-      jest.spyOn(TaskRepository, "saveTask").mockRejectedValueOnce(new Error("Storage Error"));
+      jest.spyOn(TaskRepository, "saveTaskUnlocked").mockRejectedValueOnce(new Error("Storage Error"));
       
       await expect(EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true })).rejects.toThrow("Storage Error");
       
@@ -806,8 +806,8 @@ describe("EntityCommandService unit tests", () => {
       const items = bin.filter((i: any) => i.entityId === task1.id || i.entityId === task2.id);
       
       const { TaskRepository } = require("@/repositories");
-      const originalSaveTasks = TaskRepository.saveTasks;
-      jest.spyOn(TaskRepository, "saveTasks").mockImplementation(async (tasks: any, wsId: any) => {
+      const originalSaveTasks = TaskRepository.saveTasksUnlocked;
+      jest.spyOn(TaskRepository, "saveTasksUnlocked").mockImplementation(async (tasks: any, wsId: any) => {
         if (wsId === "ws-2") throw new Error("Batch Save Error");
         return originalSaveTasks.call(TaskRepository, tasks, wsId);
       });

@@ -83,138 +83,173 @@ static async reorderTasks(
     itemsToRestore: any[],
     options?: CreateEntityOptions
   ): Promise<{ restoredCount: number; successfulItemIds: string[]; failedItemIds: string[] }> {
-    const { rescheduleTodoReminders } = await import("@/services/scheduling/reminders.service");
+    const { rescheduleTodoReminders, cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
     const { WorkspaceRepository } = await import("@/repositories");
+    const { withLocks } = await import("@/shared/utils/mutex");
+    const { generateId } = await import("@/shared/utils/id");
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
 
     const workspaces = await WorkspaceRepository.getWorkspaces();
     const validWorkspaceIds = new Set(workspaces.map((w) => w.id));
 
-    const tasksByWorkspace = new Map<string, { task: Task; itemId: string }[]>();
+    // Phase 1: Unlocked pre-flight to determine which workspaces we need to lock
+    const initialBinItems = await RecycleBinRepository.getRecycleBinItems();
+    
+    const preflightWorkspaces = new Set<string>();
+    for (const entry of itemsToRestore) {
+      let snapshotStr = "";
+      if (typeof entry === "string") {
+        const item = initialBinItems.find(i => i.id === entry || i.entityId === entry);
+        if (item && item.entityType === "task") snapshotStr = item.snapshot;
+      } else if (entry && entry.entityType === "task") {
+        snapshotStr = entry.snapshot;
+      }
+
+      if (snapshotStr) {
+        try {
+          const parsedTask = JSON.parse(snapshotStr);
+          if (parsedTask && parsedTask.id) {
+            let wsId = parsedTask.workspaceId || "inbox";
+            if (!validWorkspaceIds.has(wsId)) wsId = "inbox";
+            preflightWorkspaces.add(wsId);
+          }
+        } catch {}
+      }
+    }
+
+    const locksToAcquire = Array.from(preflightWorkspaces).map(ws => `pebble:v1:tasks:${ws}`);
+    const tasksToReschedule: Task[] = [];
+    let restoredCount = 0;
     const successfulItemIds: string[] = [];
     const failedItemIds: string[] = [];
-
-    // 0. Resolve raw entity/bin IDs to RecycleBin items. Callers may pass either
-    //    full RecycleBinItem objects (Recycle Bin screen) or plain task entity IDs
-    //    (bulk-delete Undo in useTasksState.handleBulkDelete).
-    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-    const binItems = await RecycleBinRepository.getRecycleBinItems();
-    const resolvedItems: any[] = [];
-    for (const entry of itemsToRestore) {
-      if (typeof entry === "string") {
-        const match = binItems.find(
-          (i) => i.id === entry || i.entityId === entry,
-        );
-        if (match && match.entityType === "task") {
-          resolvedItems.push(match);
-        } else {
-          console.warn(
-            `[EntityCommandService] No RecycleBin task entry found for "${entry}"; skipping restore.`
-          );
-          failedItemIds.push(entry);
-        }
-      } else {
-        resolvedItems.push(entry);
-      }
-    }
-
-    // 1. Parse and group valid tasks
-    for (const item of resolvedItems) {
-      if (item.entityType !== "task") continue;
-
-      let parsedTask: Task;
-      try {
-        parsedTask = JSON.parse(item.snapshot);
-      } catch (e) {
-        console.warn(`[EntityCommandService] Failed to parse snapshot for item ${item.id}`);
-        failedItemIds.push(item.id);
-        continue;
-      }
-
-      if (!parsedTask || !parsedTask.id) {
-        failedItemIds.push(item.id);
-        continue;
-      }
-
-      let workspaceId = parsedTask.workspaceId || "inbox";
-      if (!validWorkspaceIds.has(workspaceId)) {
-        workspaceId = "inbox";
-        parsedTask.workspaceId = "inbox";
-      }
-
-      if (parsedTask.reminder && parsedTask.reminder.notificationIds) {
-        parsedTask.reminder = { ...parsedTask.reminder, notificationIds: undefined };
-      }
-
-      let taskToSave = parsedTask;
-
-      if (!tasksByWorkspace.has(workspaceId)) {
-        tasksByWorkspace.set(workspaceId, []);
-      }
-      tasksByWorkspace.get(workspaceId)!.push({ task: taskToSave, itemId: item.id });
-    }
-
-    // 2. Batch save per workspace (DOMAIN PERSISTENCE FIRST)
-    let restoredCount = 0;
-    const tasksToReschedule: Task[] = [];
+    const operationIdsToRemove: string[] = [];
     
-    const { generateId } = await import("@/shared/utils/id");
-    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
-    const operations: MoveJournalEntry[] = [];
-    for (const [workspaceId, wrappedTasks] of tasksByWorkspace.entries()) {
-      for (const w of wrappedTasks) {
-        operations.push({
-          operationId: `restore-${generateId()}`,
-          operationType: "restore",
-          entityId: w.task.id,
-          entityType: "task",
-          sourceWorkspaceId: workspaceId,
-          targetWorkspaceId: workspaceId,
-          timestamp: Date.now(),
-        });
-      }
-    }
-    await MoveJournalRepository.addOperations(operations);
+    // Phase 2: Domain Persistence under partition locks
+    await withLocks(locksToAcquire, async () => {
+      const currentBinItems = await RecycleBinRepository.getRecycleBinItems();
+      const tasksByWorkspace = new Map<string, { task: Task; itemId: string }[]>();
 
-    for (const [workspaceId, wrappedTasks] of tasksByWorkspace.entries()) {
-      try {
-        const tasks = wrappedTasks.map((w) => w.task);
-        await TaskRepository.saveTasks(tasks, workspaceId);
-        restoredCount += tasks.length;
-        successfulItemIds.push(...wrappedTasks.map((w) => w.itemId));
-        tasksToReschedule.push(...tasks.filter(t => t.reminder?.enabled && t.reminder?.triggerAt));
-      } catch (e) {
-        console.warn(`[EntityCommandService] Failed to batch save tasks in workspace ${workspaceId}`, e);
-        failedItemIds.push(...wrappedTasks.map((w) => w.itemId));
+      for (const entry of itemsToRestore) {
+        // Must resolve against CURRENT bin items to avoid ghost resurrection
+        const match = typeof entry === "string" 
+          ? currentBinItems.find(i => i.id === entry || i.entityId === entry)
+          : currentBinItems.find(i => i.id === entry.id || i.entityId === entry.entityId);
+          
+        if (match && match.entityType === "task") {
+          let parsedTask: Task;
+          try {
+            parsedTask = JSON.parse(match.snapshot);
+          } catch (e) {
+            failedItemIds.push(match.id);
+            continue;
+          }
+
+          if (!parsedTask || !parsedTask.id) {
+            failedItemIds.push(match.id);
+            continue;
+          }
+
+          let workspaceId = parsedTask.workspaceId || "inbox";
+          if (!validWorkspaceIds.has(workspaceId)) {
+            workspaceId = "inbox";
+            parsedTask.workspaceId = "inbox";
+          }
+
+          if (parsedTask.reminder && parsedTask.reminder.notificationIds) {
+            parsedTask.reminder = { ...parsedTask.reminder, notificationIds: undefined };
+          }
+
+          if (!tasksByWorkspace.has(workspaceId)) {
+            tasksByWorkspace.set(workspaceId, []);
+          }
+          tasksByWorkspace.get(workspaceId)!.push({ task: parsedTask, itemId: match.id });
+        } else {
+          // It's gone from the bin (concurrently restored or deleted)
+          failedItemIds.push(typeof entry === "string" ? entry : entry.id);
+        }
       }
+
+      // Add MoveJournal entries inside lock
+      const operations: MoveJournalEntry[] = [];
+      for (const [workspaceId, wrappedTasks] of tasksByWorkspace.entries()) {
+        for (const w of wrappedTasks) {
+          const opId = `restore-${generateId()}`;
+          operationIdsToRemove.push(opId);
+          operations.push({
+            operationId: opId,
+            operationType: "restore",
+            entityId: w.task.id,
+            entityType: "task",
+            sourceWorkspaceId: workspaceId,
+            targetWorkspaceId: workspaceId,
+            timestamp: Date.now(),
+          });
+        }
+      }
+      
+      if (operations.length > 0) {
+        await MoveJournalRepository.addOperations(operations);
+      }
+
+      // Persist active tasks
+      for (const [workspaceId, wrappedTasks] of tasksByWorkspace.entries()) {
+        try {
+          const tasks = wrappedTasks.map((w) => w.task);
+          await TaskRepository.saveTasksUnlocked(tasks, workspaceId);
+          restoredCount += tasks.length;
+          successfulItemIds.push(...wrappedTasks.map((w) => w.itemId));
+          tasksToReschedule.push(...tasks.filter(t => t.reminder?.enabled && t.reminder?.triggerAt));
+        } catch (e) {
+          console.warn(`[EntityCommandService] Failed to batch save tasks in workspace ${workspaceId}`, e);
+          failedItemIds.push(...wrappedTasks.map((w) => w.itemId));
+        }
+      }
+
+      // Remove successfully restored entries from RecycleBin safely inside the lock
+      if (successfulItemIds.length > 0) {
+        try {
+          await RecycleBinRepository.removeRecycleBinItems(successfulItemIds, { throwOnError: true });
+        } catch (e) {
+          console.warn(
+            `[EntityCommandService] Tasks restored, but failed to remove their Recycle Bin entries. Duplicate state may exist.`,
+            e,
+          );
+        }
+      }
+    });
+    
+    // Cleanup move journal operations OUTSIDE the lock
+    if (operationIdsToRemove.length > 0) {
+      await MoveJournalRepository.removeOperations(operationIdsToRemove);
     }
 
-    // 2.5 Reschedule reminders (Isolated)
+    // Phase 3: OS Side effects outside the lock
     for (const task of tasksToReschedule) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
         const rescheduled = await rescheduleTodoReminders(task);
-        await TaskRepository.updateNotificationIds(rescheduled.id, rescheduled.workspaceId, rescheduled.reminder?.notificationIds);
+        generatedNotificationIds = rescheduled.reminder?.notificationIds;
+        
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await TaskRepository.updateNotificationIds(rescheduled.id, rescheduled.workspaceId, generatedNotificationIds);
+          
+          // Domain verification to prevent zombie notifications
+          const verify = await TaskRepository.getTask(rescheduled.id, rescheduled.workspaceId);
+          if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+          }
+        }
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to reschedule reminders for Task ${task.id}`, e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
       }
     }
 
-    // 3. Remove successfully restored entries from the Recycle Bin (best-effort,
-    //    never fail the restore because bin cleanup failed).
-    if (successfulItemIds.length > 0) {
-      try {
-        await RecycleBinRepository.removeRecycleBinItems(successfulItemIds, { throwOnError: true });
-      } catch (e) {
-        console.warn(
-          `[EntityCommandService] Tasks restored, but failed to remove their Recycle Bin entries. Duplicate state may exist.`,
-          e,
-        );
-      }
-    }
-
-    await MoveJournalRepository.removeOperations(operations.map(op => op.operationId));
-
-    // 4. Side effects
+    // Phase 4: App State effects
     if (restoredCount > 0 && !options?.skipEvents) {
       emitStateChange("tasks_changed", options?.source);
     }
@@ -247,14 +282,14 @@ static async reorderTasks(
     recycleBinItemId: string,
     options?: CreateEntityOptions
   ): Promise<Task> {
-    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { rescheduleTodoReminders } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
 
     // 1. Load recycle-bin item. Resolve by either the RecycleBin item ID
     // ("rb-{entityId}") or the raw task entity ID so callers (e.g. the
     // delete-Undo in useTaskCrud, which passes the task ID) both work.
-    const binItems = await getRecycleBinItems();
+    const binItems = await RecycleBinRepository.getRecycleBinItems();
     const item = binItems.find(
       (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId,
     );
@@ -275,50 +310,87 @@ static async reorderTasks(
       throw new Error(`[EntityCommandService] Failed to parse RecycleBin snapshot for item ${recycleBinItemId}`);
     }
 
-    // 5. Basic validation
-    if (!parsedTask || !parsedTask.id || !parsedTask.workspaceId) {
-      throw new Error(`[EntityCommandService] Parsed Task is missing required fields (id or workspaceId).`);
-    }
-
-    // 6. Notification Safety (Remove stale IDs)
-    if (parsedTask.reminder && parsedTask.reminder.notificationIds) {
-      parsedTask.reminder = { ...parsedTask.reminder, notificationIds: undefined };
-    }
-
-    const { generateId } = await import("@/shared/utils/id");
-    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
-    const operationId = `restore-${generateId()}`;
-    await MoveJournalRepository.addOperation({
-      operationId,
-      operationType: "restore",
-      entityId: parsedTask.id,
-      entityType: "task",
-      sourceWorkspaceId: parsedTask.workspaceId,
-      targetWorkspaceId: parsedTask.workspaceId,
-      timestamp: Date.now(),
-    });
-
-    // 7. Persist to active storage (Throws on failure, bin untouched)
-    const activeTaskToSave = { ...parsedTask };
-    await TaskRepository.saveTask(activeTaskToSave);
-
-    // 8. Safely remove from Recycle Bin ONLY AFTER successful active persistence
-    try {
-      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-      await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
-    } catch (e) {
-      console.warn(`[EntityCommandService] Failed to remove task from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
-    }
+    const targetWorkspaceId = parsedTask.workspaceId;
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:tasks:${targetWorkspaceId}`;
     
-    await MoveJournalRepository.removeOperation(operationId);
+    const restoredData = await withLock(lockKey, async () => {
+      // 5. Fresh read inside critical section
+      const freshItems = await RecycleBinRepository.getRecycleBinItems();
+      const itemInside = freshItems.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
+      if (!itemInside || itemInside.entityType !== "task") {
+        throw new Error("Task already restored or permanently deleted");
+      }
+
+      let parsedTaskInside: Task;
+      try {
+        parsedTaskInside = JSON.parse(itemInside.snapshot);
+      } catch (e) {
+        throw new Error(`[EntityCommandService] Failed to parse RecycleBin snapshot for item ${recycleBinItemId}`);
+      }
+
+      if (!parsedTaskInside || !parsedTaskInside.id || !parsedTaskInside.workspaceId) {
+        throw new Error(`[EntityCommandService] Parsed Task is missing required fields (id or workspaceId).`);
+      }
+
+      if (parsedTaskInside.reminder && parsedTaskInside.reminder.notificationIds) {
+        parsedTaskInside.reminder = { ...parsedTaskInside.reminder, notificationIds: undefined };
+      }
+
+      const { generateId } = await import("@/shared/utils/id");
+      const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+      const operationId = `restore-${generateId()}`;
+      await MoveJournalRepository.addOperation({
+        operationId,
+        operationType: "restore",
+        entityId: parsedTaskInside.id,
+        entityType: "task",
+        sourceWorkspaceId: parsedTaskInside.workspaceId,
+        targetWorkspaceId: parsedTaskInside.workspaceId,
+        timestamp: Date.now(),
+      });
+
+      // 7. Persist to active storage
+      const activeTaskToSave = { ...parsedTaskInside };
+      await TaskRepository.saveTaskUnlocked(activeTaskToSave);
+
+      // 8. Safely remove from Recycle Bin inside the lock
+      try {
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+        await RecycleBinRepository.removeRecycleBinItems([itemInside.id], { throwOnError: true });
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to remove task from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
+      }
+
+      return { activeTaskToSave, itemInside, operationId };
+    });
+    
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    await MoveJournalRepository.removeOperation(restoredData.operationId);
+
+    const restoredTask = restoredData.activeTaskToSave;
 
     // 9. Reschedule reminders (Tolerance: do not fail restoration on reminder error)
-    if (parsedTask.reminder && parsedTask.reminder.enabled && parsedTask.reminder.triggerAt) {
+    if (restoredTask.reminder && restoredTask.reminder.enabled && restoredTask.reminder.triggerAt) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
-        const taskWithReminders = await rescheduleTodoReminders(parsedTask);
-        await TaskRepository.updateNotificationIds(taskWithReminders.id, taskWithReminders.workspaceId, taskWithReminders.reminder?.notificationIds);
+        const taskWithReminders = await rescheduleTodoReminders(restoredTask);
+        generatedNotificationIds = taskWithReminders.reminder?.notificationIds;
+        
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await TaskRepository.updateNotificationIds(taskWithReminders.id, taskWithReminders.workspaceId, generatedNotificationIds);
+          
+          // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
+          const verify = await TaskRepository.getTask(taskWithReminders.id, taskWithReminders.workspaceId);
+          if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+          }
+        }
       } catch (e) {
-        console.warn(`[EntityCommandService] Failed to reschedule reminders during restore of Task ${parsedTask.id}. Task will be restored without active native notifications.`, e);
+        console.warn(`[EntityCommandService] Failed to reschedule reminders during restore of Task ${restoredTask.id}. Task will be restored without active native notifications.`, e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
       }
     }
 
@@ -335,7 +407,7 @@ static async reorderTasks(
     }
     void syncWidgetData().catch(() => {});
 
-    return activeTaskToSave;
+    return restoredTask;
   }
 
 /**
@@ -839,9 +911,22 @@ static async reorderTasks(
       if (!isArchived && !isCompleted) {
         try {
           finalTask = await rescheduleTodoReminders(finalTask);
-          await TaskRepository.updateNotificationIds(finalTask.id, finalTask.workspaceId, finalTask.reminder?.notificationIds);
+          if (finalTask.reminder?.notificationIds?.length) {
+            const status = await TaskRepository.updateNotificationIds(finalTask.id, finalTask.workspaceId, finalTask.reminder.notificationIds);
+            
+            // Re-verify domain state to prevent Zombie notifications.
+            // If the task was completed, archived, deleted, or moved by a concurrent operation
+            // while we were talking to the OS, we MUST cancel the newly scheduled notifications.
+            const verify = await TaskRepository.getTask(finalTask.id, finalTask.workspaceId);
+            if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
+              cancelReminderIds(finalTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+            }
+          }
         } catch (e) {
           console.warn("[EntityCommandService] Failed to reschedule task reminder during update:", e);
+          if (finalTask.reminder?.notificationIds?.length) {
+            cancelReminderIds(finalTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+          }
         }
       }
     }
@@ -908,10 +993,21 @@ static async reorderTasks(
       // If the task has an enabled reminder in the future, it must be re-scheduled
       // because completeTask previously cancelled it.
       const finalTask = await rescheduleTodoReminders(updatedTask);
-      await TaskRepository.updateNotificationIds(finalTask.id, finalTask.workspaceId, finalTask.reminder?.notificationIds);
+      if (finalTask.reminder?.notificationIds?.length) {
+        const status = await TaskRepository.updateNotificationIds(finalTask.id, finalTask.workspaceId, finalTask.reminder.notificationIds);
+        
+        // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
+        const verify = await TaskRepository.getTask(finalTask.id, finalTask.workspaceId);
+        if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
+          cancelReminderIds(finalTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+        }
+      }
       updatedTask = finalTask;
     } catch (e) {
       console.warn("[EntityCommandService] Failed to reschedule reminders after uncomplete", e);
+      if (updatedTask.reminder?.notificationIds?.length) {
+        cancelReminderIds(updatedTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+      }
     }
 
     pluginManager.dispatchTaskUncompleted(updatedTask);
@@ -1029,19 +1125,38 @@ static async reorderTasks(
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (needsScheduling) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
         if (parsedInput) {
-          const notificationIds = await scheduleTaskNotifications(task.id, parsedInput);
-          if (notificationIds.length > 0 && task.reminder) {
-            task.reminder.notificationIds = notificationIds;
-            await TaskRepository.updateNotificationIds(task.id, task.workspaceId, notificationIds);
+          generatedNotificationIds = await scheduleTaskNotifications(task.id, parsedInput);
+          if (generatedNotificationIds.length > 0 && task.reminder) {
+            task.reminder.notificationIds = generatedNotificationIds;
+            const status = await TaskRepository.updateNotificationIds(task.id, task.workspaceId, generatedNotificationIds);
+            
+            // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
+            const verify = await TaskRepository.getTask(task.id, task.workspaceId);
+            if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
+              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            }
           }
         } else {
           task = await rescheduleTodoReminders(task);
-          await TaskRepository.updateNotificationIds(task.id, task.workspaceId, task.reminder?.notificationIds);
+          generatedNotificationIds = task.reminder?.notificationIds;
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            const status = await TaskRepository.updateNotificationIds(task.id, task.workspaceId, generatedNotificationIds);
+            
+            // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
+            const verify = await TaskRepository.getTask(task.id, task.workspaceId);
+            if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
+              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            }
+          }
         }
       } catch (e) {
         console.warn("[EntityCommandService] Failed to schedule task reminder after persistence:", e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
       }
     }
 
