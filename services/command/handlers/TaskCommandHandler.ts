@@ -129,7 +129,7 @@ static async reorderTasks(
     // Phase 2: Domain Persistence under partition locks
     await withLocks(locksToAcquire, async () => {
       const currentBinItems = await RecycleBinRepository.getRecycleBinItems();
-      const tasksByWorkspace = new Map<string, { task: Task; itemId: string }[]>();
+      const tasksByWorkspace = new Map<string, { task: Task; itemId: string; operationId?: string }[]>();
 
       for (const entry of itemsToRestore) {
         // Must resolve against CURRENT bin items to avoid ghost resurrection
@@ -176,7 +176,7 @@ static async reorderTasks(
       for (const [workspaceId, wrappedTasks] of tasksByWorkspace.entries()) {
         for (const w of wrappedTasks) {
           const opId = `restore-${generateId()}`;
-          operationIdsToRemove.push(opId);
+          w.operationId = opId;
           operations.push({
             operationId: opId,
             operationType: "restore",
@@ -200,6 +200,7 @@ static async reorderTasks(
           await TaskRepository.saveTasksUnlocked(tasks, workspaceId);
           restoredCount += tasks.length;
           successfulItemIds.push(...wrappedTasks.map((w) => w.itemId));
+          operationIdsToRemove.push(...wrappedTasks.map((w) => w.operationId!));
           tasksToReschedule.push(...tasks.filter(t => t.reminder?.enabled && t.reminder?.triggerAt));
         } catch (e) {
           console.warn(`[EntityCommandService] Failed to batch save tasks in workspace ${workspaceId}`, e);

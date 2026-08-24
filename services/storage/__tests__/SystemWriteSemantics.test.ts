@@ -21,6 +21,16 @@ jest.mock("expo-notifications", () => ({
   cancelScheduledNotificationAsync: jest.fn(),
 }));
 
+jest.mock("@/repositories/WorkspaceRepository", () => ({
+  WorkspaceRepository: {
+    getWorkspaces: jest.fn().mockResolvedValue([
+      { id: "ws-1", name: "Workspace 1", type: "list" },
+      { id: "ws-source", name: "Source", type: "list" },
+      { id: "ws-target", name: "Target", type: "list" }
+    ])
+  }
+}));
+
 // Mock scheduling so we don't try to invoke native OS modules
 jest.mock("@/services/scheduling/reminders.service", () => ({
   scheduleTaskNotifications: jest.fn().mockResolvedValue(["mock-os-id-1"]),

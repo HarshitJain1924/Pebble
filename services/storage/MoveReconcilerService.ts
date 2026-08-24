@@ -92,6 +92,27 @@ export class MoveReconcilerService {
           const targetData = targetMap[op.entityId];
           const sourceData = sourceMap[op.entityId];
 
+          // ----------------------------------------------------------------------
+          // BUG FIX: Validate target workspace existence before continuing.
+          // If the target workspace was deleted after the intent was created, 
+          // we MUST NOT write into an orphaned partition. We abort the move and leave 
+          // it in the source workspace. 
+          // ----------------------------------------------------------------------
+          const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
+          const workspaces = await WorkspaceRepository.getWorkspaces();
+          const { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
+          
+          const targetExists = op.targetWorkspaceId === INBOX_WORKSPACE_ID || 
+                               op.targetWorkspaceId === MY_PEBBLES_WORKSPACE_ID || 
+                               workspaces.some(w => w.id === op.targetWorkspaceId);
+
+          if (!targetExists) {
+            console.warn(`[MoveReconciler] Target workspace ${op.targetWorkspaceId} no longer exists. Aborting move for ${op.entityId}.`);
+            // We just remove the operation and do not execute the move. The entity remains in its source workspace.
+            await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+            return;
+          }
+
           if (!sourceData && !targetData) {
             // Both missing, nothing to do
           } else if (sourceData && !targetData) {

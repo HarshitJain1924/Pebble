@@ -82,6 +82,13 @@ export async function cleanupRecycleBin(): Promise<void> {
   }
 }
 
+export async function removeRecycleBinItems(
+  idsToRemove: string[],
+  options?: { throwOnError?: boolean }
+): Promise<void> {
+  await RecycleBinRepository.removeRecycleBinItems(idsToRemove, options);
+}
+
 export interface RecycledIds {
   workspaceIds: Set<string>;
   taskIds: Set<string>;

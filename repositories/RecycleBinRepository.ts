@@ -48,7 +48,7 @@ export class RecycleBinRepository {
     }
   }
 
-  static async saveRecycleBinItems(
+  static async saveRecycleBinItemsUnlocked(
     items: RecycleBinItem[],
     options?: { throwOnError?: boolean }
   ): Promise<void> {
@@ -62,6 +62,15 @@ export class RecycleBinRepository {
         console.warn("Failed to save recycle bin items (tolerant mode)", e);
       }
     }
+  }
+
+  static async saveRecycleBinItems(
+    items: RecycleBinItem[],
+    options?: { throwOnError?: boolean }
+  ): Promise<void> {
+    await withLock(this.RECYCLE_BIN_KEY, async () => {
+      await this.saveRecycleBinItemsUnlocked(items, options);
+    });
   }
 
   static async addToRecycleBin(
@@ -88,7 +97,7 @@ export class RecycleBinRepository {
           snapshot: JSON.stringify(item),
           deletedAt: Date.now(),
         };
-        await this.saveRecycleBinItems([newItem, ...filtered], options);
+        await this.saveRecycleBinItemsUnlocked([newItem, ...filtered], options);
       });
     } catch (e) {
       if (options?.throwOnError) {
@@ -128,7 +137,7 @@ export class RecycleBinRepository {
             !validEntityIds.has(existing.entityId) && !validEntityIds.has(existing.id)
         );
 
-        await this.saveRecycleBinItems([...newSnapshots, ...filtered], options);
+        await this.saveRecycleBinItemsUnlocked([...newSnapshots, ...filtered], options);
       });
     } catch (e) {
       if (options?.throwOnError) {
@@ -179,7 +188,7 @@ export class RecycleBinRepository {
         }
 
         if (remaining.length !== items.length) {
-          await this.saveRecycleBinItems(remaining);
+          await this.saveRecycleBinItemsUnlocked(remaining);
         }
       });
     } catch (e) {
@@ -200,7 +209,7 @@ export class RecycleBinRepository {
           (item) => !idSet.has(item.id) && !idSet.has(item.entityId)
         );
         if (remaining.length !== items.length) {
-          await this.saveRecycleBinItems(remaining, options);
+          await this.saveRecycleBinItemsUnlocked(remaining, options);
         }
       });
     } catch (e) {

@@ -81,7 +81,7 @@ describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
     await RecycleBinRepository.saveRecycleBinItems([item]);
     
     // Mock failure during bin removal
-    jest.spyOn(RecycleBinRepository, "saveRecycleBinItems").mockRejectedValueOnce(new Error("bin removal failed"));
+    jest.spyOn(RecycleBinRepository, "saveRecycleBinItemsUnlocked").mockRejectedValueOnce(new Error("bin removal failed"));
     
     // Decoupling: Does NOT throw. Tolerates the ghost.
     await EntityCommandService.restoreTask("bin-1", { skipEvents: true, skipAnalytics: true });

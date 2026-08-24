@@ -305,7 +305,7 @@ describe("EntityCommandService unit tests", () => {
       emitStateChangeSpy = jest.spyOn(events, "emitStateChange");
       
       const recycleBinRepo = require("@/repositories/RecycleBinRepository").RecycleBinRepository;
-      saveRecycleBinItemsSpy = jest.spyOn(recycleBinRepo, "saveRecycleBinItems");
+      saveRecycleBinItemsSpy = jest.spyOn(recycleBinRepo, "saveRecycleBinItemsUnlocked");
     });
 
     afterEach(() => {

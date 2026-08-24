@@ -85,7 +85,7 @@ static async reorderWorkspaces(
     recycleBinItemId: string,
     options?: CreateEntityOptions,
   ): Promise<Workspace> {
-    const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { getRecycleBinItems } = await import("@/services/storage/storage.service");
     const { emitStateChange } = await import("@/services/events/state-events");
 
     // 1. Resolve the bin item by its RecycleBin item id ("rb-<workspaceId>") or
@@ -302,8 +302,15 @@ static async reorderWorkspaces(
         { throwOnError: true }
       );
 
-      // 4. Remove active partitions securely inside the lock boundary BEFORE deleting the workspace record.
-      // We use a transactional multiRemove to ensure no partial orphans remain on disk.
+      // 4. Delete Workspace record FIRST (Commit Point)
+      // This MUST happen before partition cleanup. If partition cleanup happens first 
+      // and metadata deletion fails, a subsequent retry will overwrite the safe Recycle Bin backup 
+      // with empty partitions, causing permanent data loss.
+      await WorkspaceRepository.deleteWorkspace(workspaceId, { throwOnError: true });
+
+      // 5. Remove active partitions securely inside the lock boundary.
+      // We use a transactional multiRemove. If it fails, the partitions are orphaned on disk,
+      // which is benign because they are inaccessible and will be safely overwritten if resurrected.
       const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
       try {
         await AsyncStorage.multiRemove([
@@ -314,11 +321,9 @@ static async reorderWorkspaces(
         ]);
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to clean up partitions for workspace ${workspaceId}`, e);
-        throw new Error("Workspace deletion aborted to prevent orphaned data on disk.");
+        // We DO NOT throw here. The workspace metadata is already deleted. Throwing would abort the cleanup
+        // of related entities (graph, notifications) and leave the system in a worse state.
       }
-
-      // 5. Delete Workspace record (Commit Point)
-      await WorkspaceRepository.deleteWorkspace(workspaceId, { throwOnError: true });
 
       // 6. Async Cleanup (Fire and forget)
       const cleanup = async () => {

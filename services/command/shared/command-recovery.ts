@@ -23,7 +23,7 @@ export async function restoreEntityFromBin<T>(
   persist: (entity: T) => Promise<void>,
   rollback: (entity: T) => Promise<void>,
 ): Promise<T> {
-  const { getRecycleBinItems, saveRecycleBinItems } = await import("@/services/storage/storage.service");
+  const { getRecycleBinItems, removeRecycleBinItems } = await import("@/services/storage/storage.service");
   const { emitStateChange } = await import("@/services/events/state-events");
 
   const binItems = await getRecycleBinItems();
@@ -51,8 +51,7 @@ export async function restoreEntityFromBin<T>(
   await persist(parsedData);
 
   try {
-    const remainingBinItems = binItems.filter((i) => i.id !== recycleBinItemId);
-    await saveRecycleBinItems(remainingBinItems, { throwOnError: true });
+    await removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
   } catch (e) {
     console.warn(`[CommandRecovery] Failed to remove entity from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
   }

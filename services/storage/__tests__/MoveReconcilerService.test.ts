@@ -18,6 +18,16 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
 
 jest.mock("@/repositories/MoveJournalRepository");
 
+jest.mock("@/repositories/WorkspaceRepository", () => ({
+  WorkspaceRepository: {
+    getWorkspaces: jest.fn().mockResolvedValue([
+      { id: "ws-1", name: "Workspace 1", type: "list" },
+      { id: "ws-2", name: "Workspace 2", type: "list" },
+      { id: "ws-3", name: "Workspace 3", type: "list" }
+    ])
+  }
+}));
+
 jest.mock("@/services/scheduling/reminders.service", () => ({
   cancelReminderIds: jest.fn().mockResolvedValue(undefined),
 }));
