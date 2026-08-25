@@ -142,9 +142,81 @@ export class BackupService {
   }
 
   /**
+   * Helper to consistently acquire the global lock hierarchy for restores.
+   */
+  private static async _acquireRestoreLocks(
+    rawLockKeys: string[],
+    execute: () => Promise<void>,
+  ): Promise<void> {
+    const getLockPriority = (key: string): number => {
+      if (key === "pebble:v1:conversion_journal") return 1;
+      if (key === "pebble:v1:move_journal") return 2;
+      if (key === "pebble:v1:recycle_bin") return 3;
+      if (
+        key.startsWith("pebble:v1:") &&
+        !key.includes("move_journal") &&
+        !key.includes("recycle_bin") &&
+        !key.includes("conversion_journal")
+      )
+        return 1;
+      return 4;
+    };
+
+    const lockKeys = rawLockKeys.sort((a, b) => {
+      const pA = getLockPriority(a);
+      const pB = getLockPriority(b);
+      if (pA !== pB) return pA - pB;
+      return a.localeCompare(b);
+    });
+
+    const acquireLocksInOrder = async (index: number): Promise<void> => {
+      if (index >= lockKeys.length) return execute();
+      return withLock(lockKeys[index], async () => acquireLocksInOrder(index + 1));
+    };
+
+    await acquireLocksInOrder(0);
+  }
+
+  /**
+   * Recovers from an interrupted restore process.
+   */
+  static async recoverInterruptedRestore(): Promise<void> {
+    const intentRaw = await AsyncStorage.getItem("pebble:v1:backup_restore_intent");
+    if (!intentRaw) return;
+
+    console.warn("[BackupService] Interrupted restore detected. Recovering...");
+    try {
+      const intent = JSON.parse(intentRaw);
+      if (intent.keysToRemove && intent.kvPairsToSet) {
+        const newlySetKeys = intent.kvPairsToSet.map((k: [string, string]) => k[0]);
+        const requiredLocks = [
+          "pebble:v1:conversion_journal",
+          "pebble:v1:move_journal",
+          "pebble:v1:recycle_bin",
+        ];
+        const rawLockKeys = Array.from(
+          new Set([...intent.keysToRemove, ...newlySetKeys, ...requiredLocks]),
+        );
+
+        await this._acquireRestoreLocks(rawLockKeys, async () => {
+          await AsyncStorage.multiRemove(intent.keysToRemove);
+          await AsyncStorage.multiSet(intent.kvPairsToSet);
+          GraphRepository.resetCache();
+        });
+      }
+      await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
+    } catch (e) {
+      console.error("[BackupService] CRITICAL: Failed to recover interrupted restore", e);
+      throw e;
+    }
+  }
+
+  /**
    * Restores application state from a structured JSON backup.
    */
   static async restoreStructuredBackup(jsonString: string): Promise<void> {
+    await this.recoverInterruptedRestore();
+
     // Reconcile pending moves BEFORE taking a snapshot or locks, to ensure active storage is clean.
     await MoveReconcilerService.reconcileAll();
     await ConversionReconcilerService.reconcileAll();
@@ -254,7 +326,7 @@ export class BackupService {
     // Snapshot Current State
     const allKeys = await AsyncStorage.getAllKeys();
     const keysToRemove = allKeys.filter((key) => {
-      return key.startsWith("pebble:");
+      return key.startsWith("pebble:") && key !== "pebble:v1:backup_restore_intent";
     });
 
     // Determine all keys that will be involved (either read, removed, or set)
@@ -270,35 +342,11 @@ export class BackupService {
       new Set([...keysToRemove, ...newlySetKeys, ...requiredLocks]),
     );
 
-    // We MUST sort locks according to the established lock hierarchy to avoid deadlocks.
-    // Alphabetical sort is NOT safe for the global hierarchy.
-    const getLockPriority = (key: string): number => {
-      if (key === "pebble:v1:conversion_journal") return 1;
-      if (key === "pebble:v1:move_journal") return 2;
-      if (key === "pebble:v1:recycle_bin") return 3;
-      if (
-        key.startsWith("pebble:v1:") &&
-        !key.includes("move_journal") &&
-        !key.includes("recycle_bin") &&
-        !key.includes("conversion_journal")
-      )
-        return 1;
-      return 4;
-    };
-
-    const lockKeys = rawLockKeys.sort((a, b) => {
-      const pA = getLockPriority(a);
-      const pB = getLockPriority(b);
-      if (pA !== pB) return pA - pB;
-      return a.localeCompare(b);
-    });
-
-    const acquireLocksInOrder = async (index: number): Promise<void> => {
-      if (index >= lockKeys.length) {
+    await this._acquireRestoreLocks(rawLockKeys, async () => {
         // Refresh keysToRemove inside the lock in case new keys were created while waiting
         const lockedKeys = await AsyncStorage.getAllKeys();
         const finalKeysToRemove = lockedKeys.filter((key) =>
-          key.startsWith("pebble:"),
+          key.startsWith("pebble:") && key !== "pebble:v1:backup_restore_intent",
         );
 
         // Final concurrency check to prevent silent MoveJournal destruction
@@ -325,9 +373,18 @@ export class BackupService {
         ) as [string, string][];
 
         try {
+          // Write durable intent BEFORE modifying anything
+          await AsyncStorage.setItem("pebble:v1:backup_restore_intent", JSON.stringify({
+            keysToRemove: finalKeysToRemove,
+            kvPairsToSet: kvPairsToSet
+          }));
+
           // Execute Atomic Write (Domain Commit Point)
           await AsyncStorage.multiRemove(finalKeysToRemove);
           await AsyncStorage.multiSet(kvPairsToSet);
+
+          // Remove intent
+          await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
 
           // Explicitly reset cache immediately after domain commit, while still under lock
           GraphRepository.resetCache();
@@ -339,6 +396,7 @@ export class BackupService {
           try {
             await AsyncStorage.multiRemove(newlySetKeys);
             await AsyncStorage.multiSet(validRollbackData);
+            await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
           } catch (rollbackError) {
             console.error(
               "[BackupService] CRITICAL: Rollback failed!",
@@ -347,16 +405,7 @@ export class BackupService {
           }
           throw writeError;
         }
-        return;
-      }
-      return withLock(lockKeys[index], () => acquireLocksInOrder(index + 1));
-    };
-
-    try {
-      await acquireLocksInOrder(0);
-    } catch (e) {
-      throw e;
-    }
+    });
 
     // Attempt OS Notification flush AFTER successful domain commit.
     // Pre-restore notifications MUST NOT survive, as they may share item IDs
