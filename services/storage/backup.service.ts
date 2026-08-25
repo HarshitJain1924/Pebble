@@ -199,12 +199,24 @@ export class BackupService {
         );
 
         await this._acquireRestoreLocks(rawLockKeys, async () => {
+          // RE-VALIDATE INTENT AFTER ACQUIRING LOCKS to prevent stale intent race
+          const currentIntentRaw = await AsyncStorage.getItem("pebble:v1:backup_restore_intent");
+          if (currentIntentRaw !== intentRaw) {
+            console.warn("[BackupService] Interrupted restore intent changed or was removed while waiting for locks. Aborting stale recovery.");
+            return;
+          }
+
           await AsyncStorage.multiRemove(intent.keysToRemove);
           await AsyncStorage.multiSet(intent.kvPairsToSet);
           GraphRepository.resetCache();
+          
+          // Remove intent safely inside the lock
+          await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
         });
+      } else {
+        // If it was malformed, remove it
+        await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
       }
-      await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
     } catch (e) {
       console.error("[BackupService] CRITICAL: Failed to recover interrupted restore", e);
       throw e;
