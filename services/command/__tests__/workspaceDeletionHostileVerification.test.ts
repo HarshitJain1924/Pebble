@@ -15,8 +15,10 @@ describe("Workspace Deletion Hostile Verification", () => {
     jest.clearAllMocks();
 
     // Setup initial state
-    await WorkspaceRepository.saveWorkspace({ id: INBOX_WORKSPACE_ID, name: "Inbox", createdAt: 1, updatedAt: 1, type: "list" });
-    await WorkspaceRepository.saveWorkspace({ id: MY_PEBBLES_WORKSPACE_ID, name: "My Pebbles", createdAt: 1, updatedAt: 1, type: "list" });
+    await WorkspaceRepository.saveWorkspaces([
+      { id: INBOX_WORKSPACE_ID, name: "Inbox", createdAt: 1, updatedAt: 1 },
+      { id: MY_PEBBLES_WORKSPACE_ID, name: "My Pebbles", createdAt: 1, updatedAt: 1 },
+    ]);
   });
 
   afterEach(async () => {
@@ -32,7 +34,6 @@ describe("Workspace Deletion Hostile Verification", () => {
         name: "Target",
         createdAt: 1,
         updatedAt: 1,
-        type: "list",
       });
       await TaskRepository.saveTasksUnlocked([
         { id: "task-1", title: "Crucial Data", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-target", kind: "todo", revision: 1 }

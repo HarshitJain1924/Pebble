@@ -181,6 +181,13 @@ static async toggleArchiveResource(
         throw new Error(`RecycleBin item not found or not resource`);
       }
 
+      const currentParsedData = JSON.parse(item.snapshot) as Resource & { workspaceId?: string };
+      const currentWorkspaceId = currentParsedData.workspaceId || "inbox";
+      
+      if (currentWorkspaceId !== targetWorkspaceId) {
+        throw new Error(`Concurrent modification: Target workspace changed from ${targetWorkspaceId} to ${currentWorkspaceId}`);
+      }
+
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
       const operationId = `restore-${generateId()}`;
@@ -196,7 +203,7 @@ static async toggleArchiveResource(
       });
 
       const { ResourceRepository } = await import("@/repositories/ResourceRepository");
-      await ResourceRepository.saveResourceUnlocked(parsedData);
+      await ResourceRepository.saveResourceUnlocked(currentParsedData);
 
       try {
         await RecycleBinRepository.removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
@@ -210,7 +217,7 @@ static async toggleArchiveResource(
         const { emitStateChange } = await import("@/services/events/state-events");
         emitStateChange("resources_changed", options?.source);
       }
-      return parsedData;
+      return currentParsedData;
     });
   }
 

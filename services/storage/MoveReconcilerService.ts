@@ -4,6 +4,8 @@ import { withLock, withLocks } from "@/shared/utils/mutex";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import type { MoveJournalEntry, Task, Habit, Checklist, Resource } from "@/shared/types/domain.types";
 
+export type ReconciliationStatus = "RESOLVED" | "OBSOLETE" | "PRESERVED";
+
 export class MoveReconcilerService {
   private static readonly RECONCILER_LOCK = "pebble:v1:reconciler_running";
 
@@ -29,24 +31,31 @@ export class MoveReconcilerService {
       for (const [entityId, opList] of opsByEntity.entries()) {
         opList.sort((a, b) => a.timestamp - b.timestamp);
         
-        // Remove older superseded operations safely
         const superseded = opList.slice(0, opList.length - 1);
-        for (const oldOp of superseded) {
-          try {
-            await MoveJournalRepository.removeOperation(oldOp.operationId);
-            console.log(`[MoveReconciler] Removed superseded operation ${oldOp.operationId} for entity ${entityId}`);
-          } catch (e) {
-            console.warn(`[MoveReconciler] Failed to remove superseded op ${oldOp.operationId}`, e);
-          }
-        }
-
         const latestOp = opList[opList.length - 1];
+        
+        let status: ReconciliationStatus;
         try {
-          await this.reconcileOperation(latestOp);
+          status = await this.reconcileOperation(latestOp);
         } catch (e) {
           console.error(`[MoveReconciler] Failed to reconcile operation ${latestOp.operationId}`, e);
           // We throw so that if called during Backup, the backup crashes rather than serializing duplicates.
           throw e;
+        }
+
+        // Only remove older superseded operations safely AFTER the latest operation 
+        // reaches a proven terminal state.
+        if (status === "RESOLVED" || status === "OBSOLETE") {
+          if (superseded.length > 0) {
+            const supersededIds = superseded.map(op => op.operationId);
+            try {
+              // Since we are outside the move_journal lock here, we use the locked bulk remove primitive.
+              await MoveJournalRepository.removeOperations(supersededIds);
+              console.log(`[MoveReconciler] Removed ${superseded.length} superseded operations for entity ${entityId}`);
+            } catch (e) {
+              console.warn(`[MoveReconciler] Failed to remove superseded operations for entity ${entityId}`, e);
+            }
+          }
         }
       }
     });
@@ -56,7 +65,7 @@ export class MoveReconcilerService {
     return `pebble:v1:${entityType}s:${workspaceId}`;
   }
 
-  private static async reconcileOperation(op: MoveJournalEntry): Promise<void> {
+  private static async reconcileOperation(op: MoveJournalEntry): Promise<ReconciliationStatus> {
     if (op.operationType === "recycle") {
       return this.reconcileRecycle(op);
     } else if (op.operationType === "restore") {
@@ -66,7 +75,7 @@ export class MoveReconcilerService {
     }
   }
 
-  private static async reconcileMove(op: MoveJournalEntry): Promise<void> {
+  private static async reconcileMove(op: MoveJournalEntry): Promise<ReconciliationStatus> {
     const sourceKey = this.getPartitionKey(op.entityType, op.sourceWorkspaceId);
     const targetKey = this.getPartitionKey(op.entityType, op.targetWorkspaceId);
 
@@ -74,20 +83,12 @@ export class MoveReconcilerService {
     const sortedKeys = [sourceKey, targetKey].sort();
     const moveJournalKey = "pebble:v1:move_journal";
 
-    await withLock(sortedKeys[0], async () => {
-      await withLock(sortedKeys[1], async () => {
-        await withLock(moveJournalKey, async () => {
-          const [sourceRaw, targetRaw] = await AsyncStorage.multiGet([sourceKey, targetKey]);
-          
-          let sourceMap: Record<string, any> = sourceRaw[1] ? JSON.parse(sourceRaw[1]) : {};
-          let targetMap: Record<string, any> = targetRaw[1] ? JSON.parse(targetRaw[1]) : {};
-
-          // In multiGet, the results are [ [key1, val1], [key2, val2] ] but their order matches the input array
-          // So sourceRaw corresponds to sourceKey and targetRaw corresponds to targetKey.
-          // Wait, multiGet returns array of arrays in the order of requested keys.
+    return await withLock(sortedKeys[0], async () => {
+      return await withLock(sortedKeys[1], async () => {
+        return await withLock(moveJournalKey, async () => {
           const results = await AsyncStorage.multiGet([sourceKey, targetKey]);
-          sourceMap = results[0][1] ? JSON.parse(results[0][1]) : {};
-          targetMap = results[1][1] ? JSON.parse(results[1][1]) : {};
+          let sourceMap: Record<string, any> = results[0][1] ? JSON.parse(results[0][1]) : {};
+          let targetMap: Record<string, any> = results[1][1] ? JSON.parse(results[1][1]) : {};
 
           const targetData = targetMap[op.entityId];
           const sourceData = sourceMap[op.entityId];
@@ -110,11 +111,12 @@ export class MoveReconcilerService {
             console.warn(`[MoveReconciler] Target workspace ${op.targetWorkspaceId} no longer exists. Aborting move for ${op.entityId}.`);
             // We just remove the operation and do not execute the move. The entity remains in its source workspace.
             await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
-            return;
+            return "OBSOLETE";
           }
 
           if (!sourceData && !targetData) {
-            // Both missing, nothing to do
+            console.warn(`[MoveReconciler] UNCERTAIN STATE: Entity ${op.entityId} (${op.entityType}) missing from both source (${op.sourceWorkspaceId}) and target (${op.targetWorkspaceId}) for operation ${op.operationId}. Preserving journal.`);
+            return "PRESERVED";
           } else if (sourceData && !targetData) {
             // Case A variant: Target write failed entirely, or was deleted. Source is only copy.
             sourceData.workspaceId = op.targetWorkspaceId;
@@ -174,26 +176,39 @@ export class MoveReconcilerService {
             }
           }
 
-          // Step 2: Delete from Source
+          // Step 2: Write Target (Add entity)
+          // We MUST write target FIRST to prevent data loss on crash.
+          await AsyncStorage.setItem(targetKey, JSON.stringify(targetMap));
+          
+          // Step 3: Verify Target Write (Durable Post-Condition)
+          const vTargetRaw = await AsyncStorage.getItem(targetKey);
+          if (vTargetRaw !== JSON.stringify(targetMap)) {
+            console.error(`DEBUG: vTargetRaw: ${vTargetRaw}, targetMap: ${JSON.stringify(targetMap)}`);
+            throw new Error(`[MoveReconciler] Durable write verification failed for target partition ${targetKey}`);
+          }
+
+          // Step 4: Write Source (Delete entity)
           if (sourceMap[op.entityId]) {
             delete sourceMap[op.entityId];
           }
-
-          // Step 3: Write back to storage atomically
-          await AsyncStorage.multiSet([
-            [sourceKey, JSON.stringify(sourceMap)],
-            [targetKey, JSON.stringify(targetMap)],
-          ]);
+          await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+          
+          // Step 5: Verify Source Write (Durable Post-Condition)
+          const vSourceRaw = await AsyncStorage.getItem(sourceKey);
+          if (vSourceRaw !== JSON.stringify(sourceMap)) {
+             throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
+          }
 
           // Step 4: Remove the completed operation from the journal using the unlocked primitive
           await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
           console.log(`[MoveReconciler] Successfully reconciled operation ${op.operationId}`);
+          return "RESOLVED";
         });
       });
     });
   }
 
-  private static async reconcileRecycle(op: MoveJournalEntry): Promise<void> {
+  private static async reconcileRecycle(op: MoveJournalEntry): Promise<ReconciliationStatus> {
     const sourceKey = this.getPartitionKey(op.entityType, op.sourceWorkspaceId);
     const recycleBinKey = "pebble:v1:recycle_bin";
     const moveJournalKey = "pebble:v1:move_journal";
@@ -202,9 +217,9 @@ export class MoveReconcilerService {
     // Do NOT sort alphabetically, as it inverts the hierarchy and causes deadlocks.
     const orderedKeys = [sourceKey, recycleBinKey];
 
-    await withLock(orderedKeys[0], async () => {
-      await withLock(moveJournalKey, async () => {
-        await withLock(orderedKeys[1], async () => {
+    return await withLock(orderedKeys[0], async () => {
+      return await withLock(moveJournalKey, async () => {
+        return await withLock(orderedKeys[1], async () => {
           const results = await AsyncStorage.multiGet([sourceKey, recycleBinKey]);
           const sourceRaw = results.find(r => r[0] === sourceKey)?.[1];
           const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];
@@ -226,30 +241,47 @@ export class MoveReconcilerService {
               deletedAt: op.timestamp || Date.now(),
             };
             binArray.unshift(newItem);
-            delete sourceMap[op.entityId];
+            // We MUST write RecycleBin FIRST to prevent data loss on crash.
+            await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+            
+            const vBinRaw = await AsyncStorage.getItem(recycleBinKey);
+            if (vBinRaw !== JSON.stringify(binArray)) {
+              throw new Error(`[MoveReconciler] Durable write verification failed for Recycle Bin`);
+            }
 
-            await AsyncStorage.multiSet([
-              [sourceKey, JSON.stringify(sourceMap)],
-              [recycleBinKey, JSON.stringify(binArray)]
-            ]);
+            delete sourceMap[op.entityId];
+            await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+            
+            const vSourceRaw = await AsyncStorage.getItem(sourceKey);
+            if (vSourceRaw !== JSON.stringify(sourceMap)) {
+               throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
+            }
           } else if (sourceData && isInBin) {
             // Ghost duplicate! Remove from active
             delete sourceMap[op.entityId];
             await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+            
+            // Verify Source Write (Durable Post-Condition)
+            const vSourceRaw = await AsyncStorage.getItem(sourceKey);
+            if (vSourceRaw !== JSON.stringify(sourceMap)) {
+               throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
+            }
           } else if (!sourceData && !isInBin) {
-            // In neither. Nothing to do.
+            console.warn(`[MoveReconciler] UNCERTAIN STATE: Entity ${op.entityId} (${op.entityType}) missing from both active (${op.sourceWorkspaceId}) and recycle bin for operation ${op.operationId}. Preserving journal.`);
+            return "PRESERVED";
           } else if (!sourceData && isInBin) {
             // Already successful.
           }
 
           await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
           console.log(`[MoveReconciler] Successfully reconciled recycle operation ${op.operationId}`);
+          return "RESOLVED";
         });
       });
     });
   }
 
-  private static async reconcileRestore(op: MoveJournalEntry): Promise<void> {
+  private static async reconcileRestore(op: MoveJournalEntry): Promise<ReconciliationStatus> {
     const targetKey = this.getPartitionKey(op.entityType, op.targetWorkspaceId);
     const recycleBinKey = "pebble:v1:recycle_bin";
     const moveJournalKey = "pebble:v1:move_journal";
@@ -257,9 +289,9 @@ export class MoveReconcilerService {
     // Enforce strict lock hierarchy: Partition Lock -> MoveJournal Lock -> Recycle Bin Lock
     const orderedKeys = [targetKey, recycleBinKey];
 
-    await withLock(orderedKeys[0], async () => {
-      await withLock(moveJournalKey, async () => {
-        await withLock(orderedKeys[1], async () => {
+    return await withLock(orderedKeys[0], async () => {
+      return await withLock(moveJournalKey, async () => {
+        return await withLock(orderedKeys[1], async () => {
           const results = await AsyncStorage.multiGet([targetKey, recycleBinKey]);
           const targetRaw = results.find(r => r[0] === targetKey)?.[1];
           const binRaw = results.find(r => r[0] === recycleBinKey)?.[1];
@@ -281,22 +313,43 @@ export class MoveReconcilerService {
             targetMap[op.entityId] = restoredItem;
             binArray.splice(binItemIndex, 1);
 
-            await AsyncStorage.multiSet([
-              [targetKey, JSON.stringify(targetMap)],
-              [recycleBinKey, JSON.stringify(binArray)]
-            ]);
+            // We MUST write target FIRST to prevent data loss on crash.
+            await AsyncStorage.setItem(targetKey, JSON.stringify(targetMap));
+            
+            // Verify Target Write (Durable Post-Condition)
+            const vTargetRaw = await AsyncStorage.getItem(targetKey);
+            if (vTargetRaw !== JSON.stringify(targetMap)) {
+              throw new Error(`[MoveReconciler] Durable write verification failed for target partition ${targetKey}`);
+            }
+
+            // Write RecycleBin
+            await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+            
+            // Verify RecycleBin Write (Durable Post-Condition)
+            const vBinRaw = await AsyncStorage.getItem(recycleBinKey);
+            if (vBinRaw !== JSON.stringify(binArray)) {
+               throw new Error(`[MoveReconciler] Durable write verification failed for Recycle Bin`);
+            }
           } else if (binItemIndex !== -1 && targetData) {
             // Ghost duplicate! Remove from bin
             binArray.splice(binItemIndex, 1);
             await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+            
+            // Verify RecycleBin Write (Durable Post-Condition)
+            const vBinRaw = await AsyncStorage.getItem(recycleBinKey);
+            if (vBinRaw !== JSON.stringify(binArray)) {
+               throw new Error(`[MoveReconciler] Durable write verification failed for Recycle Bin`);
+            }
           } else if (binItemIndex === -1 && !targetData) {
-            // In neither. Nothing to do.
+            console.warn(`[MoveReconciler] UNCERTAIN STATE: Entity ${op.entityId} (${op.entityType}) missing from both recycle bin and target (${op.targetWorkspaceId}) for operation ${op.operationId}. Preserving journal.`);
+            return "PRESERVED";
           } else if (binItemIndex === -1 && targetData) {
             // Already successful.
           }
 
           await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
           console.log(`[MoveReconciler] Successfully reconciled restore operation ${op.operationId}`);
+          return "RESOLVED";
         });
       });
     });
@@ -396,7 +449,14 @@ export class MoveReconcilerService {
             }
 
             if (writes.length > 0) {
-              await AsyncStorage.multiSet(writes);
+              for (const [writeKey, writeValue] of writes) {
+                await AsyncStorage.setItem(writeKey, writeValue);
+                
+                const verifyRaw = await AsyncStorage.getItem(writeKey);
+                if (verifyRaw !== writeValue) {
+                  throw new Error(`[MoveReconciler] Durable write verification failed for historical ghost cleanup at ${writeKey}`);
+                }
+              }
             }
           });
         }

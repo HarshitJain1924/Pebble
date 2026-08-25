@@ -8,6 +8,7 @@ import { emitStateChange } from "@/services/events/state-events";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 import { scheduleTaskNotifications, scheduleHabitNotifications } from "../shared/command-notifications";
+import { generateEntityFingerprint } from "@/shared/utils/fingerprint";
 import { withLocks } from "@/shared/utils/mutex";
 import {
   type Task,
@@ -84,7 +85,10 @@ export class ConversionCommandHandler {
         targetId: newTaskId,
         targetWorkspaceId: targetWorkspaceId,
         phase: "PREPARED",
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        sourceRevision: habit.revision,
+        targetCreatedAt: newTask.createdAt,
+        targetFingerprint: generateEntityFingerprint(newTask),
       });
 
       // B. Create Destination (Task)
@@ -215,7 +219,10 @@ export class ConversionCommandHandler {
         targetId: habitId,
         targetWorkspaceId: targetWorkspaceId,
         phase: "PREPARED",
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        sourceRevision: task.revision,
+        targetCreatedAt: habit.createdAt,
+        targetFingerprint: generateEntityFingerprint(habit),
       });
 
       // B. Create Destination (Habit)

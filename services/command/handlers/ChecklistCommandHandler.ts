@@ -162,6 +162,13 @@ static async moveChecklist(
         throw new Error(`RecycleBin item not found or not checklist`);
       }
 
+      const currentParsedData = JSON.parse(item.snapshot) as Checklist & { workspaceId?: string };
+      const currentWorkspaceId = currentParsedData.workspaceId || "inbox";
+      
+      if (currentWorkspaceId !== targetWorkspaceId) {
+        throw new Error(`Concurrent modification: Target workspace changed from ${targetWorkspaceId} to ${currentWorkspaceId}`);
+      }
+
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
       const operationId = `restore-${generateId()}`;
@@ -177,7 +184,7 @@ static async moveChecklist(
       });
 
       const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
-      await ChecklistRepository.saveChecklistUnlocked(parsedData);
+      await ChecklistRepository.saveChecklistUnlocked(currentParsedData);
 
       try {
         await RecycleBinRepository.removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
@@ -191,7 +198,7 @@ static async moveChecklist(
         const { emitStateChange } = await import("@/services/events/state-events");
         emitStateChange("checklists_changed", options?.source);
       }
-      return parsedData;
+      return currentParsedData;
     });
   }
 

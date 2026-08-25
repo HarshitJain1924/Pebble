@@ -19,6 +19,7 @@ The current canonical terminology established by the codebase:
 - **Recycle Bin**: A soft-delete safety net for entities and workspaces.
 - **Gamification**: Users earn **Pebbles** (Task = 1, Habit = 1, Focus = 1) which convert to **Gems** (45 Pebbles = 1 Gem).
 - **Move Journal**: Logs pending cross-workspace moves to recover from crashes.
+- **Conversion Journal**: Logs pending task<->habit conversions to recover from crashes.
 - **Unified Capture**: The natural language capture engine.
 
 *(Note: Legacy terminology such as XP, Vault, Collections, Todo, TodoList, and TaskList are obsolete and must not be used).*
@@ -26,6 +27,10 @@ The current canonical terminology established by the codebase:
 ---
 
 ## 3. Current Architecture Snapshot
+
+> **IMPORTANT**: The architecture described here is a summary. For the definitive, authoritative state of the data integrity, locking, and persistence model, ALWAYS read:
+> 1. `docs/current_state.md`
+> 2. `docs/integrity_status.md`
 
 ### 3.1 Repository & Storage Model
 - **Storage**: 100% local-first client database via `@react-native-async-storage/async-storage`.
@@ -70,6 +75,6 @@ The current canonical terminology established by the codebase:
 
 ## 6. Important Architectural Constraints
 1. **Source Code is Truth**: If existing documentation conflicts with active code, trust the code.
-2. **Lock Order**: When acquiring multiple locks (e.g., cross-workspace moves), lock keys must ALWAYS be sorted alphabetically to prevent circular deadlocks.
+2. **Lock Order**: When acquiring multiple locks (e.g., cross-workspace moves), lock keys must generally be sorted alphabetically via `withLocks`. However, specific hierarchical paths (e.g. Partition -> MoveJournal -> Recycle Bin) must explicitly bypass alphabetical sorting to prevent global hierarchy deadlocks.
 3. **Unlocked Primitives**: Command handlers using `withLock` must call `*Unlocked` repository methods (e.g., `saveTasksUnlocked`) to prevent re-entrant deadlocks, since the mutex is non-reentrant.
 4. **Worklet Thread Boundary**: UI animations run on the native UI thread. React state updates or Ref mutations within worklets must be routed to the JS thread via Reanimated's `runOnJS()`.

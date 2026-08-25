@@ -67,6 +67,14 @@ The Pebble system incorporates smooth transitions powered by **React Native Gest
 
 ---
 
+## Architecture Documentation
+
+For the authoritative source of truth on Pebble's crash recovery, persistence, and integrity mechanisms, refer to:
+- [Current State Architecture](docs/current_state.md)
+- [Integrity Status](docs/integrity_status.md)
+
+---
+
 ## 🛠️ Technical Stack
 - **React Native 0.81** (New Architecture & React Compiler enabled)
 - **Expo SDK 54** (Expo Router, expo-notifications, expo-blur, expo-haptics)

@@ -5,15 +5,23 @@ import { generateId } from "@/shared/utils/id";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { withLock } from "@/shared/utils/mutex";
 
+const mockStore = new Map<string, string>();
+
 jest.mock("@react-native-async-storage/async-storage", () => ({
-  setItem: jest.fn(),
-  getItem: jest.fn(),
+  setItem: jest.fn().mockImplementation(async (key: string, value: string) => {
+    mockStore.set(key, value);
+  }),
+  getItem: jest.fn().mockImplementation(async (key: string) => {
+    return mockStore.get(key) || null;
+  }),
   multiGet: jest.fn(),
   multiSet: jest.fn(),
   removeItem: jest.fn(),
   multiRemove: jest.fn(),
   getAllKeys: jest.fn(),
-  clear: jest.fn(),
+  clear: jest.fn().mockImplementation(async () => {
+    mockStore.clear();
+  }),
 }));
 
 jest.mock("@/repositories/MoveJournalRepository");
@@ -32,6 +40,7 @@ jest.mock("@/shared/utils/mutex", () => {
 describe("LifecycleReconciliation (Recycle/Restore)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockStore.clear();
   });
 
   const mockJournalEntry = (
@@ -75,18 +84,23 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         deletedAt: Date.now()
       }];
 
+      const sourceJson = JSON.stringify(sourceMap);
+      const binJson = JSON.stringify(binArray);
+      
+      mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+      mockStore.set(`pebble:v1:recycle_bin`, binJson);
+
       (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-        [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-        [`pebble:v1:recycle_bin`, JSON.stringify(binArray)],
+        [`pebble:v1:tasks:ws-1`, sourceJson],
+        [`pebble:v1:recycle_bin`, binJson],
       ]);
 
       await MoveReconcilerService.reconcileAll();
 
       // Should delete from active and keep in bin
-      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-        `pebble:v1:tasks:ws-1`,
-        JSON.stringify({})
-      );
+      expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+      // Bin is unchanged, but we should verify it wasn't destroyed
+      expect(mockStore.get(`pebble:v1:recycle_bin`)).toEqual(binJson);
       expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
 
@@ -97,18 +111,20 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
       
       const sourceMap = { "task-2": mockTask("task-2", "ws-1") };
       
+      const sourceJson = JSON.stringify(sourceMap);
+      mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+      mockStore.delete(`pebble:v1:recycle_bin`);
+
       (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-        [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
+        [`pebble:v1:tasks:ws-1`, sourceJson],
         [`pebble:v1:recycle_bin`, null],
       ]);
 
       await MoveReconcilerService.reconcileAll();
 
       // Should add to bin, remove from active
-      expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-        [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-        [`pebble:v1:recycle_bin`, expect.stringContaining(`"entityId":"task-2"`)],
-      ]);
+      expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+      expect(mockStore.get(`pebble:v1:recycle_bin`)).toContain(`"entityId":"task-2"`);
       expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
   });
@@ -127,18 +143,20 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         deletedAt: Date.now()
       }];
 
+      const binJson = JSON.stringify(binArray);
+      mockStore.delete(`pebble:v1:tasks:ws-2`);
+      mockStore.set(`pebble:v1:recycle_bin`, binJson);
+
       (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
         [`pebble:v1:tasks:ws-2`, null], // missing in active
-        [`pebble:v1:recycle_bin`, JSON.stringify(binArray)],
+        [`pebble:v1:recycle_bin`, binJson],
       ]);
 
       await MoveReconcilerService.reconcileAll();
 
       // Should add to active, remove from bin
-      expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-        [`pebble:v1:tasks:ws-2`, expect.stringContaining(`"id":"task-3"`)],
-        [`pebble:v1:recycle_bin`, JSON.stringify([])],
-      ]);
+      expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toContain(`"id":"task-3"`);
+      expect(mockStore.get(`pebble:v1:recycle_bin`)).toEqual(JSON.stringify([]));
       expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
 
@@ -156,18 +174,20 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         deletedAt: Date.now()
       }];
 
+      const targetJson = JSON.stringify(targetMap);
+      const binJson = JSON.stringify(binArray);
+      mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+      mockStore.set(`pebble:v1:recycle_bin`, binJson);
+
       (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-        [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
-        [`pebble:v1:recycle_bin`, JSON.stringify(binArray)],
+        [`pebble:v1:tasks:ws-2`, targetJson],
+        [`pebble:v1:recycle_bin`, binJson],
       ]);
 
       await MoveReconcilerService.reconcileAll();
 
       // Should delete from bin
-      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-        `pebble:v1:recycle_bin`,
-        JSON.stringify([])
-      );
+      expect(mockStore.get(`pebble:v1:recycle_bin`)).toEqual(JSON.stringify([]));
       expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
     });
   });

@@ -98,3 +98,4 @@ None.
 **Implement Strategy A (Conflict Forking).**
 It is the only strategy that absolutely guarantees no legitimate user edits are silently destroyed, requires no schema migrations, and avoids the mathematical impossibility of merging arrays without a base snapshot. It also simplifies notification management by treating the conflict as a distinct entity.
 
+

@@ -22,8 +22,8 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test A — Target deleted, source still exists", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-a", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-a", name: "Dest", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-a", name: "Source", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-a", name: "Dest", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-a", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-a", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-a");
@@ -43,8 +43,8 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test B — Target deleted AND source workspace deleted", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-b", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-b", name: "Dest", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-b", name: "Source", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-b", name: "Dest", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-b", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-b", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-b");
@@ -73,8 +73,8 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test C — Target deleted, source entity missing", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-c", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-c", name: "Dest", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-c", name: "Source", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-c", name: "Dest", createdAt: 1, updatedAt: 1 },
     ]);
     
     // Create journal but NO entity in source and NO entity in dest
@@ -91,8 +91,8 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test D — Target partition exists but metadata is gone", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-d", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-d", name: "Dest", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-d", name: "Source", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-d", name: "Dest", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-d", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-d", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-d");
@@ -115,8 +115,8 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test E — Destination entity already exists", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-e", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-e", name: "Dest", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-e", name: "Source", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-e", name: "Dest", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-e", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-e", kind: "todo", revision: 1 };
     
@@ -147,8 +147,8 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test F — Source workspace deleted after journal creation", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-f", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-f", name: "Dest", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-f", name: "Source", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-f", name: "Dest", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-f", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-f", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-f");
@@ -172,7 +172,7 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test G — Crash during the new validation path", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-g", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-g", name: "Source", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-g", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-g", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-g");
@@ -193,7 +193,7 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test H — Crash immediately after journal removal", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-h", name: "Source", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-h", name: "Source", createdAt: 1, updatedAt: 1 }
     ]);
     const task = { id: "task-h", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-h", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-h");

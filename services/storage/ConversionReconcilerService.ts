@@ -1,4 +1,5 @@
 import { ConversionJournalRepository } from "@/repositories/ConversionJournalRepository";
+import { generateEntityFingerprint } from "@/shared/utils/fingerprint";
 import { HabitRepository, TaskRepository } from "@/repositories";
 import { withLocks } from "@/shared/utils/mutex";
 import type { ConversionJournalEntry } from "@/shared/types/domain.types";
@@ -57,24 +58,56 @@ export class ConversionReconcilerService {
     const tasksMap = await TaskRepository.getTasks(op.targetWorkspaceId);
     const taskExists = !!tasksMap[op.targetId];
 
-    if (op.phase === "PREPARED") {
-      // The journal says we intended to convert, but we don't know if the destination wrote.
-      if (taskExists) {
-        // Destination WAS written before crash. Roll forward.
-        console.warn(`[ConversionReconciler] Found PREPARED but destination Task ${op.targetId} exists. Rolling forward.`);
-        await HabitRepository.deleteHabitUnlocked(op.sourceId, op.sourceWorkspaceId);
-        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
-      } else {
-        // Destination was NOT written. Roll back safely.
-        console.warn(`[ConversionReconciler] Found PREPARED and destination Task ${op.targetId} is missing. Rolling back.`);
-        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
-      }
-    } else if (op.phase === "DESTINATION_WRITTEN") {
-      // The journal says the destination was definitively written.
-      // We must roll forward.
-      console.log(`[ConversionReconciler] Found DESTINATION_WRITTEN. Finalizing source deletion.`);
-      await HabitRepository.deleteHabitUnlocked(op.sourceId, op.sourceWorkspaceId);
+    const habitsMap = await HabitRepository.getHabits(op.sourceWorkspaceId);
+    const habitExists = !!habitsMap[op.sourceId];
+
+    if (!taskExists && habitExists) {
+      console.warn(`[ConversionReconciler] Destination Task ${op.targetId} missing but source Habit exists. Rolling back.`);
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
+    if (taskExists && habitExists) {
+      const task = tasksMap[op.targetId];
+      const habit = habitsMap[op.sourceId];
+
+      const targetMatches = op.targetCreatedAt ? task.createdAt === op.targetCreatedAt : true;
+      const fingerprintMatches = op.targetFingerprint ? generateEntityFingerprint(task) === op.targetFingerprint : true;
+      const sourceMatches = op.sourceRevision ? habit.revision === op.sourceRevision : true;
+
+      if (!targetMatches || !fingerprintMatches) {
+        console.warn(`[ConversionReconciler] Destination Task ${op.targetId} identity/fingerprint mismatch. Preserving source.`);
+        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+        return;
+      }
+
+      if (!sourceMatches) {
+        console.warn(`[ConversionReconciler] Source Habit ${op.sourceId} mutated (revision: ${habit.revision} vs expected: ${op.sourceRevision}). Preserving source.`);
+        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+        return;
+      }
+
+      console.warn(`[ConversionReconciler] Both entities exist and match identity. Rolling forward by deleting source Habit ${op.sourceId}.`);
+      await HabitRepository.deleteHabitUnlocked(op.sourceId, op.sourceWorkspaceId);
+      
+      const verifyHabitsMap = await HabitRepository.getHabits(op.sourceWorkspaceId);
+      if (verifyHabitsMap[op.sourceId]) {
+        throw new Error(`[ConversionReconciler] Durable write verification failed: Source Habit ${op.sourceId} still exists.`);
+      }
+
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
+    if (taskExists && !habitExists) {
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
+    if (!taskExists && !habitExists) {
+      console.warn(`[ConversionReconciler] Both entities missing for operation ${op.operationId}. Removing journal.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
     }
   }
 
@@ -83,21 +116,56 @@ export class ConversionReconcilerService {
     const habitsMap = await HabitRepository.getHabits(op.targetWorkspaceId);
     const habitExists = !!habitsMap[op.targetId];
 
-    if (op.phase === "PREPARED") {
-      if (habitExists) {
-        // Destination WAS written. Roll forward.
-        console.warn(`[ConversionReconciler] Found PREPARED but destination Habit ${op.targetId} exists. Rolling forward.`);
-        await TaskRepository.deleteTaskUnlocked(op.sourceId, op.sourceWorkspaceId);
-        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
-      } else {
-        // Destination was NOT written. Roll back.
-        console.warn(`[ConversionReconciler] Found PREPARED and destination Habit ${op.targetId} is missing. Rolling back.`);
-        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
-      }
-    } else if (op.phase === "DESTINATION_WRITTEN") {
-      console.log(`[ConversionReconciler] Found DESTINATION_WRITTEN. Finalizing source deletion.`);
-      await TaskRepository.deleteTaskUnlocked(op.sourceId, op.sourceWorkspaceId);
+    const tasksMap = await TaskRepository.getTasks(op.sourceWorkspaceId);
+    const taskExists = !!tasksMap[op.sourceId];
+
+    if (!habitExists && taskExists) {
+      console.warn(`[ConversionReconciler] Destination Habit ${op.targetId} missing but source Task exists. Rolling back.`);
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
+    if (habitExists && taskExists) {
+      const habit = habitsMap[op.targetId];
+      const task = tasksMap[op.sourceId];
+
+      const targetMatches = op.targetCreatedAt ? habit.createdAt === op.targetCreatedAt : true;
+      const fingerprintMatches = op.targetFingerprint ? generateEntityFingerprint(habit) === op.targetFingerprint : true;
+      const sourceMatches = op.sourceRevision ? task.revision === op.sourceRevision : true;
+
+      if (!targetMatches || !fingerprintMatches) {
+        console.warn(`[ConversionReconciler] Destination Habit ${op.targetId} identity/fingerprint mismatch. Preserving source.`);
+        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+        return;
+      }
+
+      if (!sourceMatches) {
+        console.warn(`[ConversionReconciler] Source Task ${op.sourceId} mutated (revision mismatch). Preserving source.`);
+        await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+        return;
+      }
+
+      console.warn(`[ConversionReconciler] Both entities exist and match identity. Rolling forward by deleting source Task ${op.sourceId}.`);
+      await TaskRepository.deleteTaskUnlocked(op.sourceId, op.sourceWorkspaceId);
+      
+      const verifyTasksMap = await TaskRepository.getTasks(op.sourceWorkspaceId);
+      if (verifyTasksMap[op.sourceId]) {
+        throw new Error(`[ConversionReconciler] Durable write verification failed: Source Task ${op.sourceId} still exists.`);
+      }
+
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
+    if (habitExists && !taskExists) {
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
+    if (!habitExists && !taskExists) {
+      console.warn(`[ConversionReconciler] Both entities missing for operation ${op.operationId}. Removing journal.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
     }
   }
 }

@@ -267,4 +267,7 @@ export interface ConversionJournalEntry {
   targetWorkspaceId: string;
   phase: "PREPARED" | "DESTINATION_WRITTEN";
   timestamp: number;
+  sourceRevision?: number;
+  targetCreatedAt?: number;
+  targetFingerprint?: string;
 }

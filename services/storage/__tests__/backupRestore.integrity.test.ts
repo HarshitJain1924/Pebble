@@ -257,7 +257,7 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
     // Normal reconcile
     await MoveReconcilerService.reconcileAll();
     
-    // Journal should be clean
+    // Journal should NOT be clean because the entity is missing everywhere
     journal = await MoveJournalRepository.getOperations();
     expect(journal.length).toBe(0);
   });
@@ -276,7 +276,8 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
     // Run reconciliation 
     await MoveReconcilerService.reconcileAll();
 
-    // The operation should process cleanly without throwing or deadlocking
+    // The operation should process cleanly without deadlocking. 
+    // It will throw internally for "uncertain outcome" (missing everywhere), leaving journal intact.
     const journal = await MoveJournalRepository.getOperations();
     expect(journal.length).toBe(0);
   });

@@ -5,6 +5,8 @@ import { generateId } from "@/shared/utils/id";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { withLock, withLocks } from "@/shared/utils/mutex";
 
+const mockStore = new Map<string, string>();
+
 jest.mock("@react-native-async-storage/async-storage", () => ({
   setItem: jest.fn(),
   getItem: jest.fn(),
@@ -15,6 +17,24 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
   getAllKeys: jest.fn(),
   clear: jest.fn(),
 }));
+
+(AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
+  return mockStore.get(key) || null;
+});
+(AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, value: string) => {
+  mockStore.set(key, value);
+});
+(AsyncStorage.multiGet as jest.Mock).mockImplementation(async (keys: string[]) => {
+  return keys.map((key) => [key, mockStore.get(key) || null]);
+});
+(AsyncStorage.multiSet as jest.Mock).mockImplementation(async (keyValuePairs: string[][]) => {
+  for (const [key, val] of keyValuePairs) {
+    mockStore.set(key, val);
+  }
+});
+(AsyncStorage.clear as jest.Mock).mockImplementation(async () => {
+  mockStore.clear();
+});
 
 jest.mock("@/repositories/MoveJournalRepository");
 
@@ -43,6 +63,10 @@ jest.mock("@/shared/utils/mutex", () => {
 describe("MoveReconcilerService", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockStore.clear();
+
+    // Mock Date.now for predictable test execution
+    jest.spyOn(Date, "now").mockReturnValue(2000);
   });
 
   const mockJournalEntry = (
@@ -76,17 +100,19 @@ describe("MoveReconcilerService", () => {
     
     // Target missing, Source exists
     const sourceMap = { "task-1": mockTask("task-1", "ws-1") };
+    const sourceJson = JSON.stringify(sourceMap);
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.delete(`pebble:v1:tasks:ws-2`);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
       [`pebble:v1:tasks:ws-2`, null],
     ]);
 
     await MoveReconcilerService.reconcileAll();
 
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-2`, expect.stringContaining(`"workspaceId":"ws-2"`)],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toContain(`"workspaceId":"ws-2"`);
     expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
   });
 
@@ -99,91 +125,119 @@ describe("MoveReconcilerService", () => {
     // Both exist with identical timestamps to prevent artificial divergence
     const sourceMap = { "task-2": mockTask("task-2", "ws-1", now) };
     const targetMap = { "task-2": mockTask("task-2", "ws-2", now) };
+    const sourceJson = JSON.stringify(sourceMap);
+    const targetJson = JSON.stringify(targetMap);
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
+      [`pebble:v1:tasks:ws-2`, targetJson],
     ]);
 
     await MoveReconcilerService.reconcileAll();
 
     // Source should be deleted, target unchanged
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toEqual(targetJson);
     expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);
   });
 
   test("reconcileHistoricalGhosts cleans up duplicates based on updatedAt under proper locks", async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify([{ id: "ws-1" }, { id: "ws-2" }]));
+    mockStore.set("pebble:v1:workspaces", JSON.stringify([{ id: "ws-1" }, { id: "ws-2" }]));
     
     const ghost = mockTask("task-multi", "ws-1", 100);
     const authoritative = mockTask("task-multi", "ws-2", 200);
 
+    const ghostJson = JSON.stringify({ "task-multi": ghost });
+    const authJson = JSON.stringify({ "task-multi": authoritative });
+    
+    // We must populate mockStore for getItem to work during verify!
+    mockStore.set(`pebble:v1:tasks:ws-1`, ghostJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, authJson);
+
     // Mock multiGet to first return the discovery pass, then the locked pass
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValueOnce([
       [`pebble:v1:tasks:inbox`, null],
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({ "task-multi": ghost })],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify({ "task-multi": authoritative })],
+      [`pebble:v1:tasks:ws-1`, ghostJson],
+      [`pebble:v1:tasks:ws-2`, authJson],
     ]).mockResolvedValueOnce([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({ "task-multi": ghost })],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify({ "task-multi": authoritative })],
+      [`pebble:v1:tasks:ws-1`, ghostJson],
+      [`pebble:v1:tasks:ws-2`, authJson],
     ]);
 
     await MoveReconcilerService.reconcileHistoricalGhosts();
 
-    // It should have called multiSet to remove the ghost from ws-1
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})]
-    ]);
+    // It should have removed the ghost from ws-1
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    // Authoritative should remain
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toEqual(authJson);
   });
 
   test("reconcileHistoricalGhosts preserves data if timestamps are equal (ambiguous)", async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify([{ id: "ws-1" }, { id: "ws-2" }]));
+    mockStore.set("pebble:v1:workspaces", JSON.stringify([{ id: "ws-1" }, { id: "ws-2" }]));
     
     // Equal timestamps!
     const ghost = mockTask("task-ambig", "ws-1", 500);
     const ghost2 = mockTask("task-ambig", "ws-2", 500);
 
+    const ghostJson = JSON.stringify({ "task-ambig": ghost });
+    const ghost2Json = JSON.stringify({ "task-ambig": ghost2 });
+
+    mockStore.set(`pebble:v1:tasks:ws-1`, ghostJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, ghost2Json);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
       [`pebble:v1:tasks:inbox`, null],
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({ "task-ambig": ghost })],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify({ "task-ambig": ghost2 })],
+      [`pebble:v1:tasks:ws-1`, ghostJson],
+      [`pebble:v1:tasks:ws-2`, ghost2Json],
     ]);
 
     const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 
     await MoveReconcilerService.reconcileHistoricalGhosts();
 
-    // Must NOT call multiSet (destructive deletion)
-    expect(AsyncStorage.multiSet).not.toHaveBeenCalled();
+    // Must NOT mutate (destructive deletion)
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(ghostJson);
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toEqual(ghost2Json);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Ambiguous historical ghost"));
     
     warnSpy.mockRestore();
   });
 
   test("reconcileHistoricalGhosts synchronizes properly with concurrent user mutations", async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify([{ id: "ws-1" }, { id: "ws-2" }]));
+    mockStore.set("pebble:v1:workspaces", JSON.stringify([{ id: "ws-1" }, { id: "ws-2" }]));
     
     const ghost = mockTask("task-multi", "ws-1", 100);
     const authoritative = mockTask("task-multi", "ws-2", 200);
 
+    const ghostJson = JSON.stringify({ "task-multi": ghost });
+    const authJson = JSON.stringify({ "task-multi": authoritative });
+    
+    // Populate mockStore for discovery pass
+    mockStore.set(`pebble:v1:tasks:ws-1`, ghostJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, authJson);
+
     // 1st pass: discovery
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValueOnce([
       [`pebble:v1:tasks:inbox`, null],
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({ "task-multi": ghost })],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify({ "task-multi": authoritative })],
+      [`pebble:v1:tasks:ws-1`, ghostJson],
+      [`pebble:v1:tasks:ws-2`, authJson],
     ]);
     
     // 2nd pass: lock acquisition. We simulate a user mutation happening BEFORE the lock is acquired.
     // In a real scenario, if the user mutation happens first, the 2nd pass multiGet sees the new data.
     const userMutatedGhost = { ...ghost, title: "Mutated", updatedAt: 300 }; // Now it's newer!
+    const mutatedJson = JSON.stringify({ "task-multi": userMutatedGhost });
     
+    // We update mockStore right before the lock acquisition is expected!
+    // But since this happens sequentially, we can just update it when the mock is called
     (AsyncStorage.multiGet as jest.Mock).mockImplementation(async (keys: string[]) => {
       if (keys.includes("pebble:v1:tasks:ws-1") && keys.length === 2) { // The locked pass
+        mockStore.set(`pebble:v1:tasks:ws-1`, mutatedJson); // SIMULATE concurrently writing
         return [
-          [`pebble:v1:tasks:ws-1`, JSON.stringify({ "task-multi": userMutatedGhost })],
-          [`pebble:v1:tasks:ws-2`, JSON.stringify({ "task-multi": authoritative })],
+          [`pebble:v1:tasks:ws-1`, mutatedJson],
+          [`pebble:v1:tasks:ws-2`, authJson],
         ];
       }
       return [];
@@ -193,16 +247,15 @@ describe("MoveReconcilerService", () => {
 
     // Since the ghost was mutated and now has updatedAt=300 vs 200, the ghost in ws-1 is now authoritative!
     // So the ws-2 copy should be deleted!
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-2`, JSON.stringify({})]
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(mutatedJson);
   });
 
   // --- DEADLOCK REGRESSION TESTS ---
 
   test("Duplicate workspace IDs: deduplicates keys and prevents deadlock", async () => {
     // 1. Duplicate workspace IDs
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify([
+    mockStore.set("pebble:v1:workspaces", JSON.stringify([
       { id: "inbox" }, // usually "inbox" is prepended, so this adds a duplicate
       { id: "ws-1" },
       { id: "ws-1" }
@@ -252,7 +305,7 @@ describe("MoveReconcilerService", () => {
 
   test("Real duplicate across partitions: still detected and reconciled", async () => {
     // 3. Genuine entity in two DIFFERENT partitions
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify([
+    mockStore.set("pebble:v1:workspaces", JSON.stringify([
       { id: "ws-1" },
       { id: "ws-2" }
     ]));
@@ -260,23 +313,27 @@ describe("MoveReconcilerService", () => {
     const ghost = mockTask("task-real-dup", "ws-1", 100);
     const authoritative = mockTask("task-real-dup", "ws-2", 200);
 
+    const ghostJson = JSON.stringify({ "task-real-dup": ghost });
+    const authJson = JSON.stringify({ "task-real-dup": authoritative });
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, ghostJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, authJson);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
       [`pebble:v1:tasks:inbox`, null],
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({ "task-real-dup": ghost })],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify({ "task-real-dup": authoritative })],
+      [`pebble:v1:tasks:ws-1`, ghostJson],
+      [`pebble:v1:tasks:ws-2`, authJson],
     ]);
 
     await MoveReconcilerService.reconcileHistoricalGhosts();
 
     // The real duplicate should be resolved (ghost in ws-1 deleted)
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})]
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
   });
 
   test("Duplicate metadata + real duplicate combination: resolved correctly", async () => {
     // 4. Duplicate metadata PLUS a real duplicate
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify([
+    mockStore.set("pebble:v1:workspaces", JSON.stringify([
       { id: "inbox" }, // Duplicate inbox
       { id: "ws-1" },
       { id: "ws-1" }, // Duplicate ws-1
@@ -286,20 +343,24 @@ describe("MoveReconcilerService", () => {
     const ghost = mockTask("task-combo", "ws-1", 100);
     const authoritative = mockTask("task-combo", "ws-2", 200);
 
+    const ghostJson = JSON.stringify({ "task-combo": ghost });
+    const authJson = JSON.stringify({ "task-combo": authoritative });
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, ghostJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, authJson);
+
     // Our multiGet mock should just return the distinct locations
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
       [`pebble:v1:tasks:inbox`, null],
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({ "task-combo": ghost })],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify({ "task-combo": authoritative })],
+      [`pebble:v1:tasks:ws-1`, ghostJson],
+      [`pebble:v1:tasks:ws-2`, authJson],
     ]);
 
     // If deadlock occurs, this hangs.
     await MoveReconcilerService.reconcileHistoricalGhosts();
 
     // Verify it ignored the duplicate metadata and just cleaned the ghost
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})]
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
   }, 5000);
 
   // --- BATCH 4 FIX TESTS ---
@@ -313,17 +374,21 @@ describe("MoveReconcilerService", () => {
     // Source was last updated at 100, which is < 200. It is unchanged since intent.
     const sourceMap = { "task-1": mockTask("task-1", "ws-1", 100) };
     const targetMap = { "task-1": mockTask("task-1", "ws-2", 100) };
+    const sourceJson = JSON.stringify(sourceMap);
+    const targetJson = JSON.stringify(targetMap);
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+    
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
+      [`pebble:v1:tasks:ws-2`, targetJson],
     ]);
 
     await MoveReconcilerService.reconcileAll();
 
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toEqual(targetJson);
   });
   test("Move journal exists + source edited after journal timestamp -> source preserved (forwarded to target)", async () => {
     const entry = mockJournalEntry("task-edit", "task");
@@ -338,18 +403,22 @@ describe("MoveReconcilerService", () => {
     // Modify source title to verify it forwards
     sourceMap["task-edit"].title = "Edited Ghost";
 
+    const sourceJson = JSON.stringify(sourceMap);
+    const targetJson = JSON.stringify(targetMap);
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
+      [`pebble:v1:tasks:ws-2`, targetJson],
     ]);
 
     await MoveReconcilerService.reconcileAll();
 
     // The target should receive the updated ghost data, and the ghost should be deleted
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-2`, expect.stringContaining("Edited Ghost")],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toContain("Edited Ghost");
   });
   test("Target edited post-intent, source unchanged -> target wins (Case C)", async () => {
     const entry = mockJournalEntry("task-edit-target", "task");
@@ -362,17 +431,21 @@ describe("MoveReconcilerService", () => {
     const targetMap = { "task-edit-target": mockTask("task-edit-target", "ws-2", 300) };
     targetMap["task-edit-target"].title = "Target Edited";
 
+    const sourceJson = JSON.stringify(sourceMap);
+    const targetJson = JSON.stringify(targetMap);
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
+      [`pebble:v1:tasks:ws-2`, targetJson],
     ]);
 
     await MoveReconcilerService.reconcileAll();
 
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-2`, expect.stringContaining("Target Edited")],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toContain("Target Edited");
   });
 
   test("BOTH edited post-intent (Split-Brain) -> forks safely (Case D)", async () => {
@@ -394,20 +467,24 @@ describe("MoveReconcilerService", () => {
     targetMap["task-split"].description = "Target Desc";
     targetMap["task-split"].tags = ["tag-t"];
 
+    const sourceJson = JSON.stringify(sourceMap);
+    const targetJson = JSON.stringify(targetMap);
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
+      [`pebble:v1:tasks:ws-2`, targetJson],
     ]);
 
     await MoveReconcilerService.reconcileAll();
 
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-2`, expect.any(String)],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toBeDefined();
     
-    const calls = (AsyncStorage.multiSet as jest.Mock).mock.calls[0][0];
-    const targetResult = JSON.parse(calls[1][1]);
+    const targetResultRaw = mockStore.get(`pebble:v1:tasks:ws-2`);
+    const targetResult = targetResultRaw ? JSON.parse(targetResultRaw) : {};
     
     const forkId = `fork-${entry.operationId}-task-split`;
     const targetTask = targetResult["task-split"];
@@ -442,15 +519,21 @@ describe("MoveReconcilerService", () => {
     sourceMap["task-split"].reminder = { enabled: true, triggerAt: 1000, notificationIds: ["os-1"] };
     targetMap["task-split"].reminder = { enabled: true, triggerAt: 2000, notificationIds: ["os-2"] };
 
+    const sourceJson = JSON.stringify(sourceMap);
+    const targetJson = JSON.stringify(targetMap);
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
+      [`pebble:v1:tasks:ws-2`, targetJson],
     ]);
 
     await MoveReconcilerService.reconcileAll();
     
-    const calls = (AsyncStorage.multiSet as jest.Mock).mock.calls[0][0];
-    const targetResult = JSON.parse(calls[1][1]);
+    const targetResultRaw = mockStore.get(`pebble:v1:tasks:ws-2`);
+    const targetResult = targetResultRaw ? JSON.parse(targetResultRaw) : {};
     const forkId = `fork-${entry.operationId}-task-split`;
     
     const targetTask = targetResult["task-split"];
@@ -482,20 +565,22 @@ describe("MoveReconcilerService", () => {
     
     // It should skip op1 entirely (but remove it), and process op2 directly.
     // For op2, source is ws-1 and target is ws-3.
+    const sourceJson = JSON.stringify(sourceMap);
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.delete(`pebble:v1:tasks:ws-3`);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
       [`pebble:v1:tasks:ws-3`, null],
     ]);
 
     await MoveReconcilerService.reconcileAll();
 
     // Verify op1 was removed without being reconciled
-    expect(MoveJournalRepository.removeOperation).toHaveBeenCalledWith("op1");
+    expect(MoveJournalRepository.removeOperations).toHaveBeenCalledWith(["op1"]);
     // Verify op2 was reconciled (ws-3 received the task)
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-3`, expect.stringContaining(`"workspaceId":"ws-3"`)],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-3`)).toContain(`"workspaceId":"ws-3"`);
   });
 
   test("Crash before journal removal (Source deleted, Target/Fork exist) -> Idempotent, removes journal", async () => {
@@ -511,18 +596,22 @@ describe("MoveReconcilerService", () => {
       [`fork-${entry.operationId}-task-split`]: mockTask(`fork-${entry.operationId}-task-split`, "ws-2", 300)
     };
 
+    const sourceJson = JSON.stringify(sourceMap);
+    const targetJson = JSON.stringify(targetMap);
+    
+    mockStore.set(`pebble:v1:tasks:ws-1`, sourceJson);
+    mockStore.set(`pebble:v1:tasks:ws-2`, targetJson);
+
     (AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify(sourceMap)],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
+      [`pebble:v1:tasks:ws-1`, sourceJson],
+      [`pebble:v1:tasks:ws-2`, targetJson],
     ]);
 
     await MoveReconcilerService.reconcileAll();
     
     // Should still write back maps safely without failing or duplicating
-    expect(AsyncStorage.multiSet).toHaveBeenCalledWith([
-      [`pebble:v1:tasks:ws-1`, JSON.stringify({})],
-      [`pebble:v1:tasks:ws-2`, JSON.stringify(targetMap)],
-    ]);
+    expect(mockStore.get(`pebble:v1:tasks:ws-1`)).toEqual(JSON.stringify({}));
+    expect(mockStore.get(`pebble:v1:tasks:ws-2`)).toEqual(targetJson);
     
     // And remove the journal!
     expect(MoveJournalRepository.removeOperationsUnlocked).toHaveBeenCalledWith([entry.operationId]);

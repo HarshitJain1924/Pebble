@@ -24,8 +24,8 @@ describe("MoveReconciler & Workspace Deletion Race", () => {
   it("Test A — delete destination while recovery is pending (The Race)", async () => {
     // 1. Setup Source and Destination Workspaces
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source", name: "Source WS", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest", name: "Dest WS", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source", name: "Source WS", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest", name: "Dest WS", createdAt: 1, updatedAt: 1 },
     ]);
 
     // 2. Setup a Task in Source
@@ -62,8 +62,8 @@ describe("MoveReconciler & Workspace Deletion Race", () => {
 
   it("Test C — reconciler wins first", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-c", name: "Source WS", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-c", name: "Dest WS", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-c", name: "Source WS", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-c", name: "Dest WS", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-c", title: "Crucial Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-c", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-c");
@@ -89,8 +89,8 @@ describe("MoveReconciler & Workspace Deletion Race", () => {
 
   it("Test D — workspace metadata disappears during recovery", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-d", name: "Source WS", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-d", name: "Dest WS", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-d", name: "Source WS", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-d", name: "Dest WS", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-d", title: "Crucial Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-d", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-d");
@@ -120,8 +120,8 @@ describe("MoveReconciler & Workspace Deletion Race", () => {
 
   it("Test E — native write succeeds then JS throws (idempotency)", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-e", name: "Source WS", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-e", name: "Dest WS", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-e", name: "Source WS", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-e", name: "Dest WS", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-e", title: "Crucial Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-e", kind: "todo", revision: 1 };
     
@@ -148,8 +148,8 @@ describe("MoveReconciler & Workspace Deletion Race", () => {
 
   it("Test F — repeated reconciliation", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-f", name: "Source WS", createdAt: 1, updatedAt: 1, type: "list" },
-      { id: "ws-dest-f", name: "Dest WS", createdAt: 1, updatedAt: 1, type: "list" },
+      { id: "ws-source-f", name: "Source WS", createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-f", name: "Dest WS", createdAt: 1, updatedAt: 1 },
     ]);
     const task = { id: "task-f", title: "Crucial Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-f", kind: "todo", revision: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-f");
