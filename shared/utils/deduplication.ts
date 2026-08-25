@@ -53,15 +53,23 @@ export function deduplicateEntityMap<T extends { id: string; updatedAt?: number 
   }
 
   for (const item of deduplicated) {
-    // If the item has a workspaceId and it exists in the keys, put it there
     const wsId = (item as any).workspaceId;
-    if (wsId && result[wsId] !== undefined) {
+    if (wsId !== undefined && wsId !== null && result[wsId] !== undefined) {
+      // workspaceId is present and matches a known bucket — place it there.
       result[wsId].push(item);
     } else {
-      // Fallback: put it in the first available key if we can't determine
-      const firstKey = Object.keys(result)[0];
-      if (firstKey) {
-        result[firstKey].push(item);
+      // workspaceId is absent or refers to a workspace that is not in the
+      // current map (e.g. a stale/deleted workspace).
+      // INVARIANT: we must NOT insert this entity into any other bucket.
+      // Drop it silently. Emit a diagnostic in __DEV__ so the issue is
+      // visible during development without spamming production logs.
+      if (__DEV__) {
+        const entityId = (item as any).id ?? "(unknown)";
+        console.warn(
+          `[deduplicateEntityMap] Dropping entity "${entityId}" — ` +
+            `workspaceId "${wsId}" not found in current map. ` +
+            `Known buckets: [${Object.keys(result).join(", ")}]`,
+        );
       }
     }
   }
