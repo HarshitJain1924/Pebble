@@ -114,24 +114,32 @@ export class ResourceCommandHandler {
     });
   }
 
-static async toggleArchiveResource(
+  static async toggleArchiveResource(
     resourceId: string,
     workspaceId: string,
     options?: CreateEntityOptions,
-  ): Promise<{ resource: Resource, isArchived: boolean }> {
-    const map = await ResourceRepository.getResources(workspaceId);
-    const existing = map[resourceId];
-    if (!existing) throw new Error(`Resource ${resourceId} not found`);
-    
-    const isArchived = !!existing.archivedAt;
-    const updated = await this.updateResource(
-      resourceId,
-      workspaceId,
-      { archivedAt: isArchived ? undefined : Date.now() },
-      options
-    );
+  ): Promise<{ resource: Resource; isArchived: boolean }> {
+    const { withLock } = await import("@/shared/utils/mutex");
+    const lockKey = `pebble:v1:resources:${workspaceId}`;
 
-    return { resource: updated, isArchived: !isArchived };
+    const { updated, isArchived } = await withLock(lockKey, async () => {
+      const map = await ResourceRepository.getResources(workspaceId);
+      const existing = map[resourceId];
+      if (!existing) throw new Error(`Resource ${resourceId} not found`);
+
+      const willBeArchived = !existing.archivedAt;
+      const merged: Resource = {
+        ...existing,
+        archivedAt: willBeArchived ? Date.now() : undefined,
+        updatedAt: Date.now(),
+      };
+      await ResourceRepository.saveResourceUnlocked(merged);
+      return { updated: merged, isArchived: willBeArchived };
+    });
+
+    if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
+    if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
+    return { resource: updated, isArchived };
   }
 
   static async updateResource(
@@ -221,17 +229,21 @@ static async toggleArchiveResource(
     });
   }
 
-static async permanentlyDeleteResource(
+  static async permanentlyDeleteResource(
     resourceId: string,
     workspaceId: string,
     options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
   ): Promise<void> {
     const { emitStateChange } = await import("@/services/events/state-events");
+    const { withLock } = await import("@/shared/utils/mutex");
 
-    const resourcesMap = await ResourceRepository.getResources(workspaceId);
-    if (!resourcesMap[resourceId]) throw new Error(`Resource ${resourceId} not found`);
+    const lockKey = `pebble:v1:resources:${workspaceId}`;
+    await withLock(lockKey, async () => {
+      const resourcesMap = await ResourceRepository.getResources(workspaceId);
+      if (!resourcesMap[resourceId]) throw new Error(`Resource ${resourceId} not found`);
 
-    await ResourceRepository.deleteResource(resourceId, workspaceId);
+      await ResourceRepository.deleteResourceUnlocked(resourceId, workspaceId);
+    });
 
     if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
     if (!options?.skipAnalytics) {

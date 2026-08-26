@@ -782,7 +782,11 @@ import { type Task, type Habit } from "@/shared/types/domain.types";
 
 export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
   try {
-    if (todo.reminder && todo.reminder.enabled && todo.reminder.triggerAt > Date.now()) {
+    if (
+      todo.reminder &&
+      todo.reminder.enabled &&
+      (todo.reminder.triggerAt > Date.now() || todo.recurrence)
+    ) {
       // Cancel any previously scheduled notifications first so re-scheduling
       // never accumulates duplicate timers (exactly one active schedule per
       // reminder instance, even across reloads).
@@ -847,7 +851,11 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
 
 export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
   try {
-    if (habit.reminder && habit.reminder.enabled && habit.reminder.triggerAt > Date.now()) {
+    if (
+      habit.reminder &&
+      habit.reminder.enabled &&
+      (habit.reminder.triggerAt > Date.now() || habit.recurrence)
+    ) {
       // Cancel any previously scheduled notifications first so re-scheduling
       // never accumulates duplicate timers (exactly one active schedule per
       // reminder instance, even across reloads).
@@ -927,7 +935,7 @@ export async function rearmWebReminders(todos: Task[]): Promise<Task[]> {
     if (
       todo.reminder?.enabled &&
       todo.reminder.triggerAt &&
-      todo.reminder.triggerAt > Date.now()
+      (todo.reminder.triggerAt > Date.now() || todo.recurrence)
     ) {
       rearmed.push(await rescheduleTodoReminders(todo));
     } else {

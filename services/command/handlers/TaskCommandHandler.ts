@@ -977,10 +977,15 @@ static async reorderTasks(
         status: "todo",
         completedAt: undefined,
         updatedAt: Date.now(),
+        ...(task.reminder
+          ? {
+              reminder: {
+                ...task.reminder,
+                notificationIds: undefined,
+              },
+            }
+          : {}),
       };
-      if (updatedTask.reminder && updatedTask.reminder.notificationIds) {
-        updatedTask.reminder.notificationIds = undefined; // Strip so reconciler uses fresh IDs
-      }
 
       // 1. Domain persistence FIRST
       await TaskRepository.saveTaskUnlocked(updatedTask);
@@ -998,7 +1003,7 @@ static async reorderTasks(
 
     // 2. OS Notification Scheduling SECOND (isolated)
     try {
-      // If the task has an enabled reminder in the future, it must be re-scheduled
+      // If the task has an enabled reminder in the future or recurrence, it must be re-scheduled
       // because completeTask previously cancelled it.
       const finalTask = await rescheduleTodoReminders(updatedTask);
       if (finalTask.reminder?.notificationIds?.length) {
