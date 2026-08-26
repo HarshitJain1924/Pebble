@@ -25,6 +25,7 @@ import NotificationListener from "@/shared/components/ui/NotificationListener";
 import { cleanupRecycleBin } from "@/services/storage/storage.service";
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
 import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
+import { BackupService } from "@/services/storage/backup.service";
 import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
 
 SplashScreen.preventAutoHideAsync();
@@ -60,6 +61,7 @@ export default function RootLayout() {
     const checkOnboarding = async () => {
       try {
 
+        await BackupService.recoverInterruptedRestore();
         await MoveReconcilerService.reconcileAll();
         await ConversionReconcilerService.reconcileAll();
         await MoveReconcilerService.reconcileHistoricalGhosts();

@@ -55,90 +55,137 @@ export class BackupService {
     await MoveReconcilerService.reconcileAll();
     await ConversionReconcilerService.reconcileAll();
 
-    const workspaces = await WorkspaceRepository.getWorkspaces();
-    const workspaceIds = Array.from(
-      new Set([INBOX_WORKSPACE_ID, ...workspaces.map((w) => w.id)]),
-    );
+    while (true) {
+      // 1. Initial read of workspaces to determine the lock keys.
+      const initialWorkspaces = await WorkspaceRepository.getWorkspaces();
+      const initialWorkspaceIds = Array.from(
+        new Set([INBOX_WORKSPACE_ID, ...initialWorkspaces.map((w) => w.id)]),
+      );
 
-    const tasks: Task[] = [];
-    const habits: Habit[] = [];
-    const checklists: Checklist[] = [];
-    const resources: Resource[] = [];
-
-    for (const wsId of workspaceIds) {
-      const tsMap = await TaskRepository.getTasks(wsId);
-      tasks.push(...Object.values(tsMap));
-
-      const hsMap = await HabitRepository.getHabits(wsId);
-      habits.push(...Object.values(hsMap));
-
-      const csMap = await ChecklistRepository.getChecklists(wsId);
-      checklists.push(...Object.values(csMap));
-
-      const rsMap = await ResourceRepository.getResources(wsId);
-      resources.push(...Object.values(rsMap));
-    }
-
-    const recycleBin = await RecycleBinRepository.getRecycleBinItems();
-    const focusSessions = await GraphRepository.getFocusSessions();
-    const systemEvents = await GraphRepository.getSystemEvents();
-
-    // For relationships, we must read the internal state or get all.
-    // Since getRelated is per item, we might need to read raw for relationships.
-    const relsRaw = await AsyncStorage.getItem("pebble:v1:relationships");
-    const relationshipsMap = relsRaw ? JSON.parse(relsRaw) : {};
-    const relationships = Object.values(relationshipsMap) as Relationship[];
-
-    const settings = await getSettings();
-    const profile = await getProfile();
-
-    const stripNotificationIds = <
-      T extends { reminder?: { notificationIds?: string[] } },
-    >(
-      entity: T,
-    ): T => {
-      if (entity.reminder && entity.reminder.notificationIds) {
-        return {
-          ...entity,
-          reminder: {
-            ...entity.reminder,
-            notificationIds: undefined,
-          },
-        };
+      const rawLockKeys = [
+        "pebble:v1:conversion_journal",
+        "pebble:v1:move_journal",
+        "pebble:v1:recycle_bin",
+        "pebble:v1:workspaces",
+      ];
+      for (const wsId of initialWorkspaceIds) {
+        rawLockKeys.push(`pebble:v1:tasks:${wsId}`);
+        rawLockKeys.push(`pebble:v1:habits:${wsId}`);
+        rawLockKeys.push(`pebble:v1:checklists:${wsId}`);
+        rawLockKeys.push(`pebble:v1:resources:${wsId}`);
       }
-      return entity;
-    };
 
-    const backup: AppBackup = {
-      version: 1,
-      timestamp: Date.now(),
-      workspaces,
-      tasks: deduplicateEntities(tasks.map(stripNotificationIds)),
-      habits: deduplicateEntities(habits.map(stripNotificationIds)),
-      checklists: deduplicateEntities(checklists),
-      resources: deduplicateEntities(resources),
-      recycleBin: recycleBin.map((binItem) => {
-        if (binItem.entityType === "task" || binItem.entityType === "habit") {
-          try {
-            const parsed = JSON.parse(binItem.snapshot);
-            return {
-              ...binItem,
-              snapshot: JSON.stringify(stripNotificationIds(parsed)),
-            };
-          } catch {
-            return binItem;
-          }
+      let retry = false;
+      let backupJson = "";
+
+      // 2. Acquire global locks in sorted order to prevent all cross-partition and
+      //    lifecycle mutations, guaranteeing a consistent snapshot.
+      await this._acquireRestoreLocks(rawLockKeys, async () => {
+        // Re-read workspaces inside the lock to verify the lock set is completely up to date.
+        // Because we hold pebble:v1:workspaces, no workspace can be created, deleted,
+        // or updated while we are inside this callback.
+        const currentWorkspaces = await WorkspaceRepository.getWorkspaces();
+        const currentWorkspaceIds = Array.from(
+          new Set([INBOX_WORKSPACE_ID, ...currentWorkspaces.map((w) => w.id)]),
+        );
+
+        // If workspaces changed between discovery (outside the lock) and lock acquisition,
+        // our acquired partition locks are stale. Release locks and retry.
+        const initialSet = new Set(initialWorkspaceIds);
+        const currentSet = new Set(currentWorkspaceIds);
+        const isStale =
+          initialWorkspaceIds.length !== currentWorkspaceIds.length ||
+          !currentWorkspaceIds.every((id) => initialSet.has(id)) ||
+          !initialWorkspaceIds.every((id) => currentSet.has(id));
+
+        if (isStale) {
+          retry = true;
+          return;
         }
-        return binItem;
-      }),
-      focusSessions,
-      relationships,
-      systemEvents,
-      settings,
-      profile,
-    };
 
-    return JSON.stringify(backup, null, 2);
+        const tasks: Task[] = [];
+        const habits: Habit[] = [];
+        const checklists: Checklist[] = [];
+        const resources: Resource[] = [];
+
+        for (const wsId of currentWorkspaceIds) {
+          const tsMap = await TaskRepository.getTasks(wsId);
+          tasks.push(...Object.values(tsMap));
+
+          const hsMap = await HabitRepository.getHabits(wsId);
+          habits.push(...Object.values(hsMap));
+
+          const csMap = await ChecklistRepository.getChecklists(wsId);
+          checklists.push(...Object.values(csMap));
+
+          const rsMap = await ResourceRepository.getResources(wsId);
+          resources.push(...Object.values(rsMap));
+        }
+
+        const recycleBin = await RecycleBinRepository.getRecycleBinItems();
+        const focusSessions = await GraphRepository.getFocusSessions();
+        const systemEvents = await GraphRepository.getSystemEvents();
+
+        const relsRaw = await AsyncStorage.getItem("pebble:v1:relationships");
+        const relationshipsMap = relsRaw ? JSON.parse(relsRaw) : {};
+        const relationships = Object.values(relationshipsMap) as Relationship[];
+
+        const settings = await getSettings();
+        const profile = await getProfile();
+
+        const stripNotificationIds = <
+          T extends { reminder?: { notificationIds?: string[] } },
+        >(
+          entity: T,
+        ): T => {
+          if (entity.reminder && entity.reminder.notificationIds) {
+            return {
+              ...entity,
+              reminder: {
+                ...entity.reminder,
+                notificationIds: undefined,
+              },
+            };
+          }
+          return entity;
+        };
+
+        const backup: AppBackup = {
+          version: 1,
+          timestamp: Date.now(),
+          workspaces: currentWorkspaces,
+          tasks: deduplicateEntities(tasks.map(stripNotificationIds)),
+          habits: deduplicateEntities(habits.map(stripNotificationIds)),
+          checklists: deduplicateEntities(checklists),
+          resources: deduplicateEntities(resources),
+          recycleBin: recycleBin.map((binItem) => {
+            if (binItem.entityType === "task" || binItem.entityType === "habit") {
+              try {
+                const parsed = JSON.parse(binItem.snapshot);
+                return {
+                  ...binItem,
+                  snapshot: JSON.stringify(stripNotificationIds(parsed)),
+                };
+              } catch {
+                return binItem;
+              }
+            }
+            return binItem;
+          }),
+          focusSessions,
+          relationships,
+          systemEvents,
+          settings,
+          profile,
+        };
+
+        backupJson = JSON.stringify(backup, null, 2);
+      });
+
+      if (!retry) {
+        return backupJson;
+      }
+    }
   }
 
   /**
@@ -335,31 +382,45 @@ export class BackupService {
     if (parsed.profile)
       kvPairsToSet.push(["pebble:profile", JSON.stringify(parsed.profile)]);
 
-    // Snapshot Current State
-    const allKeys = await AsyncStorage.getAllKeys();
-    const keysToRemove = allKeys.filter((key) => {
-      return key.startsWith("pebble:") && key !== "pebble:v1:backup_restore_intent";
-    });
+    while (true) {
+      // Snapshot Current State
+      const allKeys = await AsyncStorage.getAllKeys();
+      const keysToRemove = allKeys.filter((key) => {
+        return key.startsWith("pebble:") && key !== "pebble:v1:backup_restore_intent";
+      });
 
-    // Determine all keys that will be involved (either read, removed, or set)
-    const newlySetKeys = kvPairsToSet.map((k) => k[0]);
-    // Force inclusion of logical locks that must be respected during restore,
-    // regardless of whether they physically exist in AsyncStorage right now.
-    const requiredLocks = [
-      "pebble:v1:conversion_journal",
-      "pebble:v1:move_journal",
-      "pebble:v1:recycle_bin",
-    ];
-    const rawLockKeys = Array.from(
-      new Set([...keysToRemove, ...newlySetKeys, ...requiredLocks]),
-    );
+      // Determine all keys that will be involved (either read, removed, or set)
+      const newlySetKeys = kvPairsToSet.map((k) => k[0]);
+      // Force inclusion of logical locks that must be respected during restore,
+      // regardless of whether they physically exist in AsyncStorage right now.
+      const requiredLocks = [
+        "pebble:v1:conversion_journal",
+        "pebble:v1:move_journal",
+        "pebble:v1:recycle_bin",
+      ];
+      const rawLockKeys = Array.from(
+        new Set([...keysToRemove, ...newlySetKeys, ...requiredLocks]),
+      );
 
-    await this._acquireRestoreLocks(rawLockKeys, async () => {
+      let retry = false;
+
+      await this._acquireRestoreLocks(rawLockKeys, async () => {
         // Refresh keysToRemove inside the lock in case new keys were created while waiting
         const lockedKeys = await AsyncStorage.getAllKeys();
         const finalKeysToRemove = lockedKeys.filter((key) =>
           key.startsWith("pebble:") && key !== "pebble:v1:backup_restore_intent",
         );
+
+        // Verify that every key in finalKeysToRemove was actually locked in rawLockKeys.
+        // If a new key was created between pre-lock discovery and lock acquisition,
+        // we do not hold its lock, so we must release locks and retry.
+        const rawLockSet = new Set(rawLockKeys);
+        const hasUnlockedKeys = finalKeysToRemove.some((k) => !rawLockSet.has(k));
+
+        if (hasUnlockedKeys) {
+          retry = true;
+          return;
+        }
 
         // Final concurrency check to prevent silent MoveJournal destruction
         const pendingMoves = await MoveJournalRepository.getOperations();
@@ -417,7 +478,12 @@ export class BackupService {
           }
           throw writeError;
         }
-    });
+      });
+
+      if (!retry) {
+        break;
+      }
+    }
 
     // Attempt OS Notification flush AFTER successful domain commit.
     // Pre-restore notifications MUST NOT survive, as they may share item IDs
