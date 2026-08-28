@@ -87,7 +87,7 @@ export const IdeaResourceView: React.FC<IdeaResourceViewProps> = ({ resource, on
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
+    gap: 16,
   },
   ideaContainer: {
     flexDirection: "column",

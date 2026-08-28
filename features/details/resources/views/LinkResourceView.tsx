@@ -7,6 +7,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Spacing } from "@/shared/constants/spacing";
+import { openAttachmentFile } from "@/features/resources/utils/fileOpener";
 
 export interface LinkResourceViewProps {
   resource: Resource;
@@ -26,17 +27,8 @@ export const LinkResourceView: React.FC<LinkResourceViewProps> = ({ resource, on
   const url = resource.attachments?.[0]?.uri || resource.title;
 
   const handleOpen = async () => {
-    try {
-      const targetUrl = url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
-      const supported = await Linking.canOpenURL(targetUrl);
-      if (supported) {
-        await Linking.openURL(targetUrl);
-      } else {
-        Alert.alert("Error", `Cannot open URL: ${url}`);
-      }
-    } catch {
-      Alert.alert("Error", "Could not open link.");
-    }
+    const targetUrl = url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
+    await openAttachmentFile(targetUrl, { name: resource.title });
   };
 
   const handleSave = async () => {
@@ -125,7 +117,7 @@ export const LinkResourceView: React.FC<LinkResourceViewProps> = ({ resource, on
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
+    gap: 16,
   },
   heroPreview: {
     alignItems: "center",

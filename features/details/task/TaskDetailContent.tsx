@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Modal,
@@ -45,7 +45,10 @@ import {
   DetailSection,
   DetailShell,
 } from "@/features/details";
-import { ResourceAttachmentPicker } from "@/features/details/resources/ResourceAttachmentPicker";
+import {
+  ResourceAttachmentPicker,
+  ConnectedResourcesView,
+} from "@/features/details/resources";
 import { TaskDetailForm } from "@/features/details/task/components/TaskDetailForm";
 import {
   computeTriggerEpoch,
@@ -111,6 +114,26 @@ export function TaskDetailContent({
   const resourcePreviewText = useMemo(
     () => linkedResources.map((res) => res.title).join(", "),
     [linkedResources],
+  );
+
+  const handleToggleResource = useCallback(
+    async (resId: string) => {
+      toggleResource(resId);
+      if (!isEditing && item) {
+        const nextIds = form.linkedCollectionIds.includes(resId)
+          ? form.linkedCollectionIds.filter((id) => id !== resId)
+          : [...form.linkedCollectionIds, resId];
+        try {
+          await EntityCommandService.updateTask(item.id, item.workspaceId, {
+            resourceIds: nextIds,
+          });
+          emitStateChange("tasks_changed", "task_detail");
+        } catch (e) {
+          console.warn("Failed to persist resource link", e);
+        }
+      }
+    },
+    [toggleResource, isEditing, item, form.linkedCollectionIds],
   );
 
   const hasChanges = useMemo(() => {
@@ -911,54 +934,16 @@ export function TaskDetailContent({
               )}
             </DetailSection>
 
-            {/* Resources Card (Tappable) */}
-            <TouchableOpacity
-              style={[
-                styles.resourcesCard,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                  () => {},
-                );
+            {/* Attached Resources Preview (Interactive Carousel) */}
+            <ConnectedResourcesView
+              resources={linkedResources}
+              onAttachPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                 setResourcesSheetVisible(true);
               }}
-              accessibilityRole="button"
-              accessibilityLabel="Resources"
-            >
-              <View style={styles.resourcesLeft}>
-                <View
-                  style={[
-                    styles.resourcesIcon,
-                    { backgroundColor: `${colors.primary}15` },
-                  ]}
-                >
-                  <Feather name="folder" size={20} color={colors.primary} />
-                </View>
-                <View style={styles.resourcesText}>
-                  <Text style={[styles.resourcesCount, { color: colors.text }]}>
-                    {form.linkedCollectionIds.length}{" "}
-                    {form.linkedCollectionIds.length === 1
-                      ? "Resource"
-                      : "Resources"}
-                  </Text>
-                  <Text
-                    style={[styles.resourcesPreview, { color: colors.textMuted }]}
-                    numberOfLines={1}
-                  >
-                    {resourcePreviewText || "No resources attached"}
-                  </Text>
-                </View>
-              </View>
-              <Feather
-                name="chevron-right"
-                size={18}
-                color={colors.textMuted}
-              />
-            </TouchableOpacity>
+              onUnlink={handleToggleResource}
+              workspaceId={item?.workspaceId || workspaceIdHint}
+            />
 
             {/* Quick action buttons row */}
             <View style={{ gap: Spacing.sm, marginTop: Spacing.md }}>
@@ -1139,7 +1124,7 @@ export function TaskDetailContent({
         visible={resourcesSheetVisible}
         resources={resourcesList}
         selectedResourceIds={form.linkedCollectionIds}
-        onToggle={toggleResource}
+        onToggle={handleToggleResource}
         onClose={() => setResourcesSheetVisible(false)}
       />
     </>

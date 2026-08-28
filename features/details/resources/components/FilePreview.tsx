@@ -1,5 +1,6 @@
 import React, { useCallback } from "react";
-import { View, StyleSheet, TouchableOpacity, Linking, Alert, Image } from "react-native";
+import { View, StyleSheet, TouchableOpacity } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 
 import type { Attachment } from "@/shared/types/domain.types";
@@ -7,6 +8,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Spacing } from "@/shared/constants/spacing";
+import { openAttachmentFile } from "@/features/resources/utils/fileOpener";
 
 export interface FilePreviewProps {
   attachments: Attachment[];
@@ -16,18 +18,11 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ attachments }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
 
-  const handleOpen = useCallback(async (uri: string) => {
-    try {
-      const supported = await Linking.canOpenURL(uri);
-      if (supported) {
-        await Linking.openURL(uri);
-      } else {
-        // Fallback for local uris that might not be directly openable via Linking
-        Alert.alert("Open File", `Cannot automatically open this file type. URI: ${uri}`);
-      }
-    } catch {
-      Alert.alert("Error", "Could not open the file.");
-    }
+  const handleOpen = useCallback(async (att: Attachment) => {
+    await openAttachmentFile(att.uri, {
+      mimeType: att.mimeType,
+      name: att.name,
+    });
   }, []);
 
   const formatSize = (bytes?: number) => {
@@ -50,17 +45,25 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ attachments }) => {
   return (
     <View style={styles.container}>
       {attachments.map((att) => {
-        const isImage = att.mimeType.startsWith("image/");
+        const isImage = att.mimeType?.startsWith("image/") || false;
         
         if (isImage) {
           return (
-            <TouchableOpacity key={att.id} onPress={() => handleOpen(att.uri)} activeOpacity={0.9}>
-              <View style={[styles.imageWrapper, { borderColor: colors.border }]}>
-                <Image source={{ uri: att.uri }} style={styles.imagePreview} resizeMode="cover" />
-                <View style={[styles.imageOverlay, { backgroundColor: `${colors.background}80` }]}>
-                  <Text style={styles.imageName} numberOfLines={1}>{att.name}</Text>
-                  <Text style={[styles.imageMeta, { color: colors.textMuted }]}>{formatSize(att.size)}</Text>
-                </View>
+            <TouchableOpacity
+              key={att.id}
+              onPress={() => handleOpen(att)}
+              activeOpacity={0.85}
+              style={[styles.imageWrapper, { borderColor: colors.border }]}
+            >
+              <ExpoImage
+                source={{ uri: att.uri }}
+                style={styles.imagePreview}
+                contentFit="cover"
+                transition={200}
+              />
+              <View style={styles.imageBadge}>
+                <Text style={styles.imageName} numberOfLines={1}>{att.name}</Text>
+                <Text style={styles.imageMeta}>{formatSize(att.size)}</Text>
               </View>
             </TouchableOpacity>
           );
@@ -74,24 +77,26 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ attachments }) => {
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <View style={[styles.docIconContainer, { backgroundColor: `${colors.primary}10` }]}>
-              <Feather name={getIconForMime(att.mimeType)} size={40} color={colors.primary} />
+            <View style={[styles.docIconContainer, { backgroundColor: `${colors.primary}12` }]}>
+              <Feather name={getIconForMime(att.mimeType || "")} size={36} color={colors.primary} />
             </View>
             
             <View style={styles.docInfoContainer}>
-              <Text style={[styles.docName, { textAlign: "center" }]} numberOfLines={2}>
+              <Text style={[styles.docName, { color: colors.text }]} numberOfLines={2}>
                 {att.name}
               </Text>
               <Text style={[styles.docMeta, { color: colors.textMuted }]}>
-                {att.mimeType.split("/")[1]?.toUpperCase() || "FILE"} · {formatSize(att.size)}
+                {att.mimeType?.split("/")[1]?.toUpperCase() || "FILE"} · {formatSize(att.size)}
               </Text>
             </View>
 
             <TouchableOpacity
               style={[styles.docOpenBtn, { backgroundColor: colors.primary }]}
-              onPress={() => handleOpen(att.uri)}
+              onPress={() => handleOpen(att)}
+              activeOpacity={0.85}
             >
-              <Text style={styles.docOpenBtnText}>Open</Text>
+              <Feather name="external-link" size={14} color="#FFF" style={{ marginRight: 6 }} />
+              <Text style={styles.docOpenBtnText}>Open File</Text>
             </TouchableOpacity>
           </View>
         );
@@ -102,67 +107,83 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ attachments }) => {
 
 const styles = StyleSheet.create({
   container: {
-    gap: Spacing.lg,
+    marginVertical: 16,
+    gap: 16,
   },
   imageWrapper: {
-    width: "100%",
-    height: 240,
     borderRadius: 16,
     overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
+    position: "relative",
+    height: 200,
+    width: "100%",
   },
   imagePreview: {
     width: "100%",
-    height: "100%",
+    height: 200,
   },
-  imageOverlay: {
+  imageBadge: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     padding: 12,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   imageName: {
-    fontSize: 14,
+    color: "#FFF",
+    fontSize: 13,
     fontWeight: "600",
+    flex: 1,
+    marginRight: 8,
   },
   imageMeta: {
-    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 11,
+    fontWeight: "500",
   },
   docCard: {
-    alignItems: "center",
-    padding: Spacing.xl,
     borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
+    padding: 16,
+    alignItems: "center",
+    gap: 12,
   },
   docIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    justifyContent: "center",
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     alignItems: "center",
-    marginBottom: Spacing.md,
+    justifyContent: "center",
   },
   docInfoContainer: {
     alignItems: "center",
-    marginBottom: Spacing.lg,
+    gap: 4,
   },
   docName: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  docMeta: {
-    fontSize: 13,
-  },
-  docOpenBtn: {
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 100, // pill
-  },
-  docOpenBtnText: {
     fontSize: 15,
     fontWeight: "700",
+    textAlign: "center",
+  },
+  docMeta: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  docOpenBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  docOpenBtnText: {
     color: "#FFF",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

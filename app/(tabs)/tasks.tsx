@@ -71,7 +71,6 @@ export function WorkspacesScreen() {
   const [isSearchActive, setIsSearchActive] = React.useState(false);
   const [workspaceMenuVisible, setWorkspaceMenuVisible] = React.useState(false);
   const [inboxProtectionVisible, setInboxProtectionVisible] = React.useState(false);
-  const [inlineTodoTitle, setInlineTodoTitle] = React.useState("");
 
   const folderHabits = React.useMemo(() => {
     const raw = state.habits.filter((h) => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId);
@@ -378,74 +377,6 @@ export function WorkspacesScreen() {
                     <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
                       Tasks
                     </Text>
-                    
-                    {/* Add task inline */}
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        borderBottomWidth: 1,
-                        borderBottomColor: colors.border,
-                        paddingVertical: 8,
-                        paddingHorizontal: 6,
-                        marginHorizontal: 4,
-                        marginVertical: 4,
-                      }}
-                    >
-                      <TextInput
-                        value={inlineTodoTitle}
-                        onChangeText={setInlineTodoTitle}
-                        placeholder="Add a task..."
-                        placeholderTextColor={colors.textMuted}
-                        onSubmitEditing={() => {
-                          if (inlineTodoTitle.trim()) {
-                            const newTodo: Task = {
-                              id: generateId("task-"),
-                              workspaceId: state.activeWorkspaceId || INBOX_WORKSPACE_ID,
-                              title: inlineTodoTitle.trim(),
-                              status: "todo",
-                              categoryId: DEFAULT_TASK_CATEGORY,
-                              priority: "medium",
-                              schedule: { date: getDateKey() },
-                              createdAt: Date.now(),
-                              updatedAt: Date.now(),
-                            };
-                            state.onSaveNewTask(newTodo);
-                            setInlineTodoTitle("");
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                          }
-                        }}
-                        style={{
-                          flex: 1,
-                          color: colors.text,
-                          fontSize: 14,
-                          padding: 0,
-                        }}
-                      />
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (inlineTodoTitle.trim()) {
-                            const newTodo: Task = {
-                              id: generateId("task-"),
-                              workspaceId: state.activeWorkspaceId || INBOX_WORKSPACE_ID,
-                              title: inlineTodoTitle.trim(),
-                              status: "todo",
-                              categoryId: DEFAULT_TASK_CATEGORY,
-                              priority: "medium",
-                              schedule: { date: getDateKey() },
-                              createdAt: Date.now(),
-                              updatedAt: Date.now(),
-                            };
-                            state.onSaveNewTask(newTodo);
-                            setInlineTodoTitle("");
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                          }
-                        }}
-                        style={{ padding: 4 }}
-                      >
-                        <Feather name="plus" size={18} color={colors.primary} />
-                      </TouchableOpacity>
-                    </View>
 
                     {/* Tasks List */}
                     <TaskSections
@@ -489,24 +420,6 @@ export function WorkspacesScreen() {
                     <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
                       Habits
                     </Text>
-
-                    {/* Add habit bar */}
-                    <Pressable
-                      onPress={() => {
-                        state.setIsAddingHabit(true);
-                      }}
-                    >
-                      <AppCard style={styles.addTaskCard}>
-                        <View style={[styles.addTaskInput, { justifyContent: "center" }]}>
-                          <Text style={{ color: colors.textMuted }}>
-                            Start a new habit...
-                          </Text>
-                        </View>
-                        <View style={[styles.addBtn, { backgroundColor: colors.primary }]}>
-                          <Feather name="plus" size={20} color="#ffffff" />
-                        </View>
-                      </AppCard>
-                    </Pressable>
 
                     {/* Habits List */}
                     <HabitSection
@@ -553,24 +466,6 @@ export function WorkspacesScreen() {
                   
                   return (
                     <View style={{ gap: 12, paddingBottom: 24 }}>
-                      <Pressable
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                          setIsAddingChecklist(true);
-                        }}
-                      >
-                        <AppCard style={styles.addTaskCard}>
-                          <View style={[styles.addTaskInput, { justifyContent: "center" }]}>
-                            <Text style={{ color: colors.textMuted }}>
-                              Start a new checklist...
-                            </Text>
-                          </View>
-                          <View style={[styles.addBtn, { backgroundColor: colors.primary }]}>
-                            <Feather name="plus" size={20} color="#ffffff" />
-                          </View>
-                        </AppCard>
-                      </Pressable>
-
                       {filteredChecklists.length === 0 ? (
                         <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 40 }}>
                           <Feather name="list" size={24} color={colors.textMuted} style={{ marginBottom: 8 }} />

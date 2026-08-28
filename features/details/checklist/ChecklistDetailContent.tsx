@@ -42,6 +42,10 @@ import {
   DetailSection,
   DetailShell,
 } from "@/features/details";
+import {
+  ResourceAttachmentPicker,
+  ConnectedResourcesView,
+} from "@/features/details/resources";
 import { useChecklistDetailForm } from "@/features/details/checklist/hooks/useChecklistDetailForm";
 import { ChecklistDetailForm } from "@/features/details/checklist/components/ChecklistDetailForm";
 
@@ -88,6 +92,26 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       form.linkedCollectionIds.includes(res.id),
     );
   }, [resourcesList, form.linkedCollectionIds]);
+
+  const handleToggleResource = useCallback(
+    async (resId: string) => {
+      toggleResource(resId);
+      if (!isEditing && item) {
+        const nextIds = form.linkedCollectionIds.includes(resId)
+          ? form.linkedCollectionIds.filter((id) => id !== resId)
+          : [...form.linkedCollectionIds, resId];
+        try {
+          await EntityCommandService.updateChecklist(item.id, item.workspaceId, {
+            resourceIds: nextIds,
+          });
+          emitStateChange("checklists_changed", "checklist_detail");
+        } catch (e) {
+          console.warn("Failed to persist resource link", e);
+        }
+      }
+    },
+    [toggleResource, isEditing, item, form.linkedCollectionIds],
+  );
 
   const completedCount = useMemo(() => {
     return form.items.filter((it) => it.completed).length;
@@ -527,102 +551,16 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
               )}
             </DetailSection>
 
-            {/* Linked Resources (stub: never loaded) */}
-            <DetailSection title="Linked Resources">
-              {linkedResources.length === 0 ? (
-                <Text
-                  style={{
-                    color: colors.textMuted,
-                    fontSize: 13,
-                    fontStyle: "italic",
-                    textAlign: "center",
-                    paddingVertical: 8,
-                  }}
-                >
-                  No resources linked.
-                </Text>
-              ) : (
-                linkedResources.map((res, idx) => (
-                  <View key={res.id}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (res.type === "link") {
-                          handleOpenUrl(res.attachments?.[0]?.uri || "");
-                        } else if (res.type === "note") {
-                          Alert.alert(
-                            res.title,
-                            res.body || "No details available.",
-                          );
-                        } else {
-                          Alert.alert(res.title, "Image attachment");
-                        }
-                      }}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        paddingVertical: 8,
-                        gap: 12,
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={res.title}
-                    >
-                      <View
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 6,
-                          backgroundColor: isLight ? "#F1F5F9" : "#27272A",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Feather
-                          name={
-                            res.type === "link"
-                              ? "globe"
-                              : (res.type as string) === "image"
-                                ? "image"
-                                : "file-text"
-                          }
-                          size={13}
-                          color={colors.primary}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            fontSize: 13,
-                            fontWeight: "600",
-                            color: colors.text,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {res.title}
-                        </Text>
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: colors.textMuted,
-                            marginTop: 1,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {(res as any).collectionName || "Resource"}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                    {idx < linkedResources.length - 1 && (
-                      <View
-                        style={{
-                          height: 1,
-                          backgroundColor: colors.border + "40",
-                        }}
-                      />
-                    )}
-                  </View>
-                ))
-              )}
-            </DetailSection>
+            {/* Attached Resources Preview (Interactive Carousel) */}
+            <ConnectedResourcesView
+              resources={linkedResources}
+              onAttachPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setLinkPickerVisible(true);
+              }}
+              onUnlink={handleToggleResource}
+              workspaceId={form.workspaceId}
+            />
 
             {/* Actions */}
             <View style={{ gap: Spacing.sm, marginTop: Spacing.md }}>
@@ -774,108 +712,13 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       </Modal>
 
       {/* LINK RESOURCES PICKER MODAL */}
-      <Modal visible={linkPickerVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <AppCard
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                maxHeight: "80%",
-              },
-            ]}
-          >
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
-              Link Resources
-            </Text>
-            <Text
-              style={{ fontSize: 11, color: colors.textMuted, marginTop: -4 }}
-            >
-              Select items to link to this checklist:
-            </Text>
-
-            <ScrollView
-              contentContainerStyle={{ gap: 14, paddingVertical: 8 }}
-              showsVerticalScrollIndicator={false}
-            >
-              {resourcesList.length === 0 ? (
-                <Text
-                  style={{
-                    color: colors.textMuted,
-                    fontSize: 13,
-                    fontStyle: "italic",
-                    textAlign: "center",
-                    paddingVertical: 30,
-                  }}
-                >
-                  No resources available.
-                </Text>
-              ) : (
-                resourcesList
-                  .filter((i) => !i.archivedAt)
-                  .map((res) => {
-                    const isChecked = form.linkedCollectionIds.includes(res.id);
-                    return (
-                      <TouchableOpacity
-                        key={res.id}
-                        onPress={() => toggleResource(res.id)}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: 12,
-                          borderRadius: 12,
-                          backgroundColor: isChecked
-                            ? `${colors.primary}15`
-                            : colors.cardLight,
-                          borderWidth: 1,
-                          borderColor: isChecked
-                            ? colors.primary
-                            : colors.border,
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Link ${res.title}`}
-                      >
-                        <Text
-                          style={{
-                            color: colors.text,
-                            fontWeight: "600",
-                            fontSize: 14,
-                          }}
-                        >
-                          {res.title}
-                        </Text>
-                        <Feather
-                          name={isChecked ? "check-square" : "square"}
-                          size={18}
-                          color={
-                            isChecked ? colors.primary : colors.textMuted
-                          }
-                        />
-                      </TouchableOpacity>
-                    );
-                  })
-              )}
-            </ScrollView>
-
-            <TouchableOpacity
-              onPress={() => setLinkPickerVisible(false)}
-              style={{
-                backgroundColor: colors.primary,
-                borderRadius: 12,
-                paddingVertical: 12,
-                alignItems: "center",
-                marginTop: 6,
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Done linking resources"
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Done</Text>
-            </TouchableOpacity>
-          </AppCard>
-        </View>
-      </Modal>
+      <ResourceAttachmentPicker
+        visible={linkPickerVisible}
+        resources={resourcesList}
+        selectedResourceIds={form.linkedCollectionIds}
+        onToggle={handleToggleResource}
+        onClose={() => setLinkPickerVisible(false)}
+      />
     </>
   );
 };
