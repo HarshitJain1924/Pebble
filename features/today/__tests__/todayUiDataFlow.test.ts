@@ -101,6 +101,8 @@ describe("Today & Pebble UI Data-Flow Tests", () => {
       status: "todo",
       priority: "high",
       schedule: { date: yesterday },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -123,6 +125,8 @@ describe("Today & Pebble UI Data-Flow Tests", () => {
       title: "Test Task",
       status: "todo",
       priority: "high",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -151,6 +155,8 @@ describe("Today & Pebble UI Data-Flow Tests", () => {
       workspaceId: "work",
       title: "Test Habit",
       recurrence: { frequency: "daily", interval: 1 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       completionHistory: [],
@@ -181,6 +187,8 @@ describe("Today & Pebble UI Data-Flow Tests", () => {
       title: "Pending Task",
       status: "todo",
       priority: "high",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -190,6 +198,8 @@ describe("Today & Pebble UI Data-Flow Tests", () => {
       title: "Completed Task",
       status: "completed",
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

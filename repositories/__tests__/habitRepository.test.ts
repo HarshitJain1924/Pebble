@@ -20,6 +20,8 @@ describe("HabitRepository Field Preservation", () => {
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [],
       recurrenceExceptions: ["2026-08-19", "2026-08-20"],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

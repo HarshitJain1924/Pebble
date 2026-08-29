@@ -22,13 +22,13 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test A — Target deleted, source still exists", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-a", name: "Source", createdAt: 1, updatedAt: 1 },
-      { id: "ws-dest-a", name: "Dest", createdAt: 1, updatedAt: 1 },
+      { id: "ws-source-a", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-a", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
-    const task = { id: "task-a", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-a", kind: "todo", revision: 1 };
+    const task = { id: "task-a", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-a", kind: "todo", revision: 1, lifecycleGeneration: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-a");
     await MoveJournalRepository.addOperation({
-      operationId: "op-a", operationType: "move", entityType: "task", entityId: "task-a", sourceWorkspaceId: "ws-source-a", targetWorkspaceId: "ws-dest-a", timestamp: Date.now(),
+      operationId: "op-a", operationType: "move", entityType: "task", entityId: "task-a", sourceWorkspaceId: "ws-source-a", targetWorkspaceId: "ws-dest-a", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
     });
 
     await EntityCommandService.deleteWorkspace("ws-dest-a");
@@ -43,13 +43,13 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test B — Target deleted AND source workspace deleted", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-b", name: "Source", createdAt: 1, updatedAt: 1 },
-      { id: "ws-dest-b", name: "Dest", createdAt: 1, updatedAt: 1 },
+      { id: "ws-source-b", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-b", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
-    const task = { id: "task-b", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-b", kind: "todo", revision: 1 };
+    const task = { id: "task-b", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-b", kind: "todo", revision: 1, lifecycleGeneration: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-b");
     await MoveJournalRepository.addOperation({
-      operationId: "op-b", operationType: "move", entityType: "task", entityId: "task-b", sourceWorkspaceId: "ws-source-b", targetWorkspaceId: "ws-dest-b", timestamp: Date.now(),
+      operationId: "op-b", operationType: "move", entityType: "task", entityId: "task-b", sourceWorkspaceId: "ws-source-b", targetWorkspaceId: "ws-dest-b", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
     });
 
     // Delete both workspaces!
@@ -73,13 +73,13 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test C — Target deleted, source entity missing", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-c", name: "Source", createdAt: 1, updatedAt: 1 },
-      { id: "ws-dest-c", name: "Dest", createdAt: 1, updatedAt: 1 },
+      { id: "ws-source-c", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-c", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
     
     // Create journal but NO entity in source and NO entity in dest
     await MoveJournalRepository.addOperation({
-      operationId: "op-c", operationType: "move", entityType: "task", entityId: "task-c", sourceWorkspaceId: "ws-source-c", targetWorkspaceId: "ws-dest-c", timestamp: Date.now(),
+      operationId: "op-c", operationType: "move", entityType: "task", entityId: "task-c", sourceWorkspaceId: "ws-source-c", targetWorkspaceId: "ws-dest-c", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
     });
 
     await EntityCommandService.deleteWorkspace("ws-dest-c");
@@ -91,13 +91,13 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test D — Target partition exists but metadata is gone", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-d", name: "Source", createdAt: 1, updatedAt: 1 },
-      { id: "ws-dest-d", name: "Dest", createdAt: 1, updatedAt: 1 },
+      { id: "ws-source-d", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-d", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
-    const task = { id: "task-d", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-d", kind: "todo", revision: 1 };
+    const task = { id: "task-d", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-d", kind: "todo", revision: 1, lifecycleGeneration: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-d");
     await MoveJournalRepository.addOperation({
-      operationId: "op-d", operationType: "move", entityType: "task", entityId: "task-d", sourceWorkspaceId: "ws-source-d", targetWorkspaceId: "ws-dest-d", timestamp: Date.now(),
+      operationId: "op-d", operationType: "move", entityType: "task", entityId: "task-d", sourceWorkspaceId: "ws-source-d", targetWorkspaceId: "ws-dest-d", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
     });
 
     // Manually delete metadata without partition cleanup
@@ -115,17 +115,17 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test E — Destination entity already exists", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-e", name: "Source", createdAt: 1, updatedAt: 1 },
-      { id: "ws-dest-e", name: "Dest", createdAt: 1, updatedAt: 1 },
+      { id: "ws-source-e", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-e", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
-    const task = { id: "task-e", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-e", kind: "todo", revision: 1 };
+    const task = { id: "task-e", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-e", kind: "todo", revision: 1, lifecycleGeneration: 1 };
     
     // Write to both to simulate a native write success but JS crash
     await TaskRepository.saveTasksUnlocked([task], "ws-source-e");
     await TaskRepository.saveTasksUnlocked([{...task, workspaceId: "ws-dest-e"}], "ws-dest-e");
     
     await MoveJournalRepository.addOperation({
-      operationId: "op-e", operationType: "move", entityType: "task", entityId: "task-e", sourceWorkspaceId: "ws-source-e", targetWorkspaceId: "ws-dest-e", timestamp: Date.now(),
+      operationId: "op-e", operationType: "move", entityType: "task", entityId: "task-e", sourceWorkspaceId: "ws-source-e", targetWorkspaceId: "ws-dest-e", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
     });
 
     // Delete target workspace
@@ -147,13 +147,13 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test F — Source workspace deleted after journal creation", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-f", name: "Source", createdAt: 1, updatedAt: 1 },
-      { id: "ws-dest-f", name: "Dest", createdAt: 1, updatedAt: 1 },
+      { id: "ws-source-f", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-f", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
-    const task = { id: "task-f", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-f", kind: "todo", revision: 1 };
+    const task = { id: "task-f", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-f", kind: "todo", revision: 1, lifecycleGeneration: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-f");
     await MoveJournalRepository.addOperation({
-      operationId: "op-f", operationType: "move", entityType: "task", entityId: "task-f", sourceWorkspaceId: "ws-source-f", targetWorkspaceId: "ws-dest-f", timestamp: Date.now(),
+      operationId: "op-f", operationType: "move", entityType: "task", entityId: "task-f", sourceWorkspaceId: "ws-source-f", targetWorkspaceId: "ws-dest-f", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
     });
 
     await EntityCommandService.deleteWorkspace("ws-source-f");
@@ -172,12 +172,12 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test G — Crash during the new validation path", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-g", name: "Source", createdAt: 1, updatedAt: 1 },
+      { id: "ws-source-g", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
-    const task = { id: "task-g", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-g", kind: "todo", revision: 1 };
+    const task = { id: "task-g", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-g", kind: "todo", revision: 1, lifecycleGeneration: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-g");
     await MoveJournalRepository.addOperation({
-      operationId: "op-g", operationType: "move", entityType: "task", entityId: "task-g", sourceWorkspaceId: "ws-source-g", targetWorkspaceId: "ws-dest-g", timestamp: Date.now(),
+      operationId: "op-g", operationType: "move", entityType: "task", entityId: "task-g", sourceWorkspaceId: "ws-source-g", targetWorkspaceId: "ws-dest-g", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
     });
 
     // We do not mock a throw, we just manually verify idempotency by running reconciler twice.
@@ -193,9 +193,9 @@ describe("MoveReconciler & Deleted Workspace Hostile Recovery", () => {
 
   it("Test H — Crash immediately after journal removal", async () => {
     await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-source-h", name: "Source", createdAt: 1, updatedAt: 1 }
+      { id: "ws-source-h", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 }
     ]);
-    const task = { id: "task-h", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-h", kind: "todo", revision: 1 };
+    const task = { id: "task-h", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-h", kind: "todo", revision: 1, lifecycleGeneration: 1 };
     await TaskRepository.saveTasksUnlocked([task], "ws-source-h");
     
     // Simulate crash after journal removal: The journal is gone!

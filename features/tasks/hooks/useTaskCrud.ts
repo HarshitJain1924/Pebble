@@ -350,6 +350,8 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           priority: "medium",
           schedule: { date: new Date().toISOString().split("T")[0] },
           workspaceId: destinationWorkspaceId,
+          revision: 1,
+          lifecycleGeneration: 1,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };

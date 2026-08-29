@@ -84,7 +84,13 @@ export class HabitCommandHandler {
         throw new Error(`Target workspace ${targetWorkspaceId} no longer exists.`);
       }
 
-      const moved: Habit = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+      const moved: Habit = {
+        ...existing,
+        workspaceId: targetWorkspaceId,
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
+        updatedAt: Date.now(),
+      };
 
       const { generateId } = await import("@/shared/utils/id");
       const operationId = `move-${generateId()}`;
@@ -97,6 +103,8 @@ export class HabitCommandHandler {
         sourceWorkspaceId,
         targetWorkspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
+        expectedRevision: existing.revision ?? 1,
       });
 
       await HabitRepository.saveHabitUnlocked(moved);
@@ -135,15 +143,46 @@ export class HabitCommandHandler {
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
     const { withLock } = await import("@/shared/utils/mutex");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
     const lockKey = `pebble:v1:habits:${workspaceId}`;
 
     const deletedHabit = await withLock(lockKey, async () => {
       const habitsMap = await HabitRepository.getHabits(workspaceId);
-      const habit = habitsMap[habitId];
+      let habit = habitsMap[habitId];
+      let fromRecycleBin = false;
+
+      if (!habit) {
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+        const binItems = await RecycleBinRepository.getRecycleBinItems();
+        const rbItem = binItems.find(
+          (i) => (i.entityId === habitId || i.id === habitId) && i.entityType === "habit"
+        );
+        if (rbItem) {
+          try {
+            habit = JSON.parse(rbItem.snapshot);
+            fromRecycleBin = true;
+          } catch {}
+        }
+      }
+
       if (!habit) throw new Error(`Habit ${habitId} not found`);
 
-      // 1. Remove from active storage FIRST
-      await HabitRepository.deleteHabitUnlocked(habitId, workspaceId);
+      // 1. Add durable tombstone
+      await TombstoneRepository.addTombstone({
+        id: `ts-habit-${habit.id}-g${habit.lifecycleGeneration ?? 1}`,
+        entityType: "habit",
+        entityId: habit.id,
+        lifecycleGeneration: habit.lifecycleGeneration ?? 1,
+        deletionRevision: habit.revision ?? 1,
+        deletedAt: Date.now(),
+      });
+
+      // 2. Remove from active storage and recycle bin
+      if (!fromRecycleBin) {
+        await HabitRepository.deleteHabitUnlocked(habitId, workspaceId);
+      }
+      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+      await RecycleBinRepository.removeRecycleBinItems([habitId]);
       
       return habit;
     });
@@ -172,7 +211,10 @@ static async restoreHabit(
     const items = await RecycleBinRepository.getRecycleBinItems();
     // Resolve by either the RecycleBin item ID ("rb-{entityId}") or the raw entity
     // ID so callers (e.g. bulk-delete Undo in useTasksState) can pass what they have.
-    const initialItem = items.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
+    const cleanId = recycleBinItemId.startsWith("rb-") ? recycleBinItemId.slice(3) : recycleBinItemId;
+    const initialItem = items.find(
+      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`)
+    );
     if (!initialItem || initialItem.entityType !== "habit") throw new Error("Invalid habit recycle bin item");
 
     const parsedSnapshot = JSON.parse(initialItem.snapshot);
@@ -198,7 +240,9 @@ static async restoreHabit(
     const restoredHabit = await withLock(lockKey, async () => {
       // 2. Fresh read inside critical section
       const freshItems = await RecycleBinRepository.getRecycleBinItems();
-      const item = freshItems.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
+      const item = freshItems.find(
+        (i) => i.id === initialItem.id || i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`)
+      );
       if (!item || item.entityType !== "habit") throw new Error("Habit already restored or permanently deleted");
 
       const habit: Habit = JSON.parse(item.snapshot);
@@ -207,6 +251,19 @@ static async restoreHabit(
       
       habit.reminder = habit.reminder ? { ...habit.reminder, notificationIds: undefined } : undefined;
       
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration("habit", habit.id);
+      const isDead = (habit.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned("habit", habit.id, habit.lifecycleGeneration);
+      if (isDead) {
+        try {
+          await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
+        } catch {}
+        throw new Error(`[EntityCommandService] Habit ${habit.id} was permanently deleted.`);
+      }
+
+      habit.revision = (habit.revision ?? 1) + 1;
+      habit.lifecycleGeneration = habit.lifecycleGeneration ?? 1;
+
       await MoveJournalRepository.addOperation({
         operationId,
         operationType: "restore",
@@ -215,16 +272,19 @@ static async restoreHabit(
         sourceWorkspaceId: targetWorkspaceId,
         targetWorkspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: habit.lifecycleGeneration,
+        expectedRevision: habit.revision,
       });
 
       const existingActiveHabits = await HabitRepository.getHabits(targetWorkspaceId);
-      if (existingActiveHabits[habit.id]) {
+      const existingActive = existingActiveHabits[habit.id];
+      if (existingActive) {
         // If an active habit already exists with this ID, do NOT overwrite it and do NOT create a duplicate!
         try {
           await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
         } catch {}
         await MoveJournalRepository.removeOperation(operationId);
-        return existingActiveHabits[habit.id];
+        return existingActive;
       }
 
       // 3. Persist to active partition
@@ -299,6 +359,8 @@ static async recycleHabit(
         sourceWorkspaceId: workspaceId,
         targetWorkspaceId: workspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
+        expectedRevision: existing.revision ?? 1,
       });
 
       await RecycleBinRepository.addToRecycleBin("habit", existing, workspaceId, { throwOnError: true });
@@ -408,6 +470,8 @@ static async recycleHabit(
         completionHistory,
         streak,
         lastCompletedDate,
+        revision: (habit.revision ?? 1) + 1,
+        lifecycleGeneration: habit.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -472,6 +536,8 @@ static async recycleHabit(
         streak,
         bestStreak,
         lastCompletedDate: today,
+        revision: (habit.revision ?? 1) + 1,
+        lifecycleGeneration: habit.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -588,6 +654,8 @@ static async recycleHabit(
       let mergedHabit: Habit = {
         ...existing,
         ...updates,
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -653,30 +721,52 @@ static async recycleHabit(
     let needsScheduling = false;
     let parsedInput: ParsedProductivityItem | undefined;
 
-    if (isParsedProductivityItem(input)) {
-      habit = buildHabit(input, workspaceId);
-      needsScheduling = true;
-      parsedInput = input;
-    } else {
-      const targetWorkspace = input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
-      habit = {
-        ...input,
-        workspaceId: targetWorkspace,
-        createdAt: input.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        completionHistory: [],
-      };
-      
-      if (habit.reminder && habit.reminder.notificationIds) {
-        habit.reminder.notificationIds = undefined;
-      }
-      if (habit.reminder?.enabled && habit.reminder?.triggerAt) {
-        needsScheduling = true;
-      }
-    }
+    const targetWorkspace = isParsedProductivityItem(input)
+      ? workspaceId || INBOX_WORKSPACE_ID
+      : input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
 
-    // 1. Domain persistence FIRST
-    await HabitRepository.saveHabit(habit);
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    const lockKey = `pebble:v1:habits:${targetWorkspace}`;
+
+    habit = await withLock(lockKey, async () => {
+      let candidate: Habit;
+      if (isParsedProductivityItem(input)) {
+        candidate = buildHabit(input, targetWorkspace);
+        needsScheduling = true;
+        parsedInput = input;
+      } else {
+        candidate = {
+          ...input,
+          workspaceId: targetWorkspace,
+          revision: input.revision ?? 1,
+          lifecycleGeneration: input.lifecycleGeneration ?? 1,
+          createdAt: input.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          completionHistory: input.completionHistory || [],
+        };
+
+        if (candidate.reminder && candidate.reminder.notificationIds) {
+          candidate.reminder.notificationIds = undefined;
+        }
+        if (candidate.reminder?.enabled && candidate.reminder?.triggerAt) {
+          needsScheduling = true;
+        }
+      }
+
+      // Authoritative generation allocation inside the partition lock:
+      const highestTombstone = candidate.id
+        ? await TombstoneRepository.getHighestTombstonedGeneration("habit", candidate.id)
+        : 0;
+      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+
+      candidate.lifecycleGeneration = allocatedGen;
+      candidate.revision = candidate.revision || 1;
+
+      // 1. Domain persistence FIRST
+      await HabitRepository.saveHabitUnlocked(candidate);
+      return candidate;
+    });
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (needsScheduling) {

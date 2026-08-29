@@ -12,7 +12,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 
 const storage = AsyncStorage as typeof AsyncStorage;
 
-const workspace: Workspace = { id: "ws-1", name: "WS", createdAt: 1, updatedAt: 1 };
+const workspace: Workspace = { id: "ws-1", name: "WS", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 const makeTask = (id: string, overrides: Partial<Task> = {}): Task => ({
   id,
@@ -20,6 +20,8 @@ const makeTask = (id: string, overrides: Partial<Task> = {}): Task => ({
   title: `Task ${id}`,
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
   ...overrides,
@@ -185,6 +187,7 @@ describe("clearCompletedTasks data integrity", () => {
         entityId: "done-2",
         snapshot: JSON.stringify(completedTask("done-2")),
         deletedAt: 1,
+        lifecycleGeneration: 1,
       },
     ]);
 

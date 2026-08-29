@@ -23,6 +23,8 @@ describe("Workspace Archive Foundation", () => {
   const mockWorkspace: Workspace = {
     id: "ws-1",
     name: "Test Workspace",
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: 1000,
     updatedAt: 1000,
   };

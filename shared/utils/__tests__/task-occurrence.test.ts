@@ -15,6 +15,8 @@ const makeTask = (overrides: Partial<Task> = {}): Task => ({
   title: "Test task",
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: Date.now(),
   updatedAt: Date.now(),
   ...overrides,

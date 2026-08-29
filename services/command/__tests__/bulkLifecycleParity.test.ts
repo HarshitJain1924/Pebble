@@ -17,6 +17,8 @@ const storage = AsyncStorage as typeof AsyncStorage;
 const workspace: Workspace = {
   id: "ws-1",
   name: "Workspace 1",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 };
@@ -27,6 +29,8 @@ const task = (id: string, withReminder = true): Task => ({
   title: `Task ${id}`,
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
   ...(withReminder
@@ -46,6 +50,8 @@ const habit = (id: string, withReminder = true): Habit => ({
   title: `Habit ${id}`,
   recurrence: { frequency: "daily", interval: 1 },
   completionHistory: [],
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
   ...(withReminder

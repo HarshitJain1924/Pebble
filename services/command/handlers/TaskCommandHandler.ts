@@ -101,7 +101,10 @@ static async reorderTasks(
     for (const entry of itemsToRestore) {
       let snapshotStr = "";
       if (typeof entry === "string") {
-        const item = initialBinItems.find(i => i.id === entry || i.entityId === entry);
+        const cleanEntry = entry.startsWith("rb-") ? entry.slice(3) : entry;
+        const item = initialBinItems.find(
+          (i) => i.id === entry || i.entityId === entry || i.entityId === cleanEntry || i.id === `rb-${cleanEntry}` || i.id.startsWith(`rb-${cleanEntry}-g`)
+        );
         if (item && item.entityType === "task") snapshotStr = item.snapshot;
       } else if (entry && entry.entityType === "task") {
         snapshotStr = entry.snapshot;
@@ -132,10 +135,11 @@ static async reorderTasks(
       const tasksByWorkspace = new Map<string, { task: Task; itemId: string; operationId?: string }[]>();
 
       for (const entry of itemsToRestore) {
+        const cleanEntry = typeof entry === "string" && entry.startsWith("rb-") ? entry.slice(3) : (typeof entry === "string" ? entry : "");
         // Must resolve against CURRENT bin items to avoid ghost resurrection
         const match = typeof entry === "string" 
-          ? currentBinItems.find(i => i.id === entry || i.entityId === entry)
-          : currentBinItems.find(i => i.id === entry.id || i.entityId === entry.entityId);
+          ? currentBinItems.find((i) => i.id === entry || i.entityId === entry || i.entityId === cleanEntry || i.id === `rb-${cleanEntry}` || i.id.startsWith(`rb-${cleanEntry}-g`))
+          : currentBinItems.find((i) => i.id === entry.id || i.entityId === entry.entityId || i.id.startsWith(`rb-${entry.entityId}-g`));
           
         if (match && match.entityType === "task") {
           let parsedTask: Task;
@@ -151,20 +155,39 @@ static async reorderTasks(
             continue;
           }
 
-          let workspaceId = parsedTask.workspaceId || "inbox";
-          if (!validWorkspaceIds.has(workspaceId)) {
-            workspaceId = "inbox";
-            parsedTask.workspaceId = "inbox";
+          const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+          const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration("task", parsedTask.id);
+          const isDead = (parsedTask.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned("task", parsedTask.id, parsedTask.lifecycleGeneration || 1);
+          if (isDead) {
+            failedItemIds.push(match.id);
+            try {
+              await RecycleBinRepository.removeRecycleBinItems([match.id], { throwOnError: false });
+            } catch {}
+            continue;
           }
 
+          let wsId = parsedTask.workspaceId || "inbox";
+          if (!validWorkspaceIds.has(wsId)) wsId = "inbox";
+          parsedTask.workspaceId = wsId;
+
+          // Strip stale notification IDs
           if (parsedTask.reminder && parsedTask.reminder.notificationIds) {
             parsedTask.reminder = { ...parsedTask.reminder, notificationIds: undefined };
           }
 
-          if (!tasksByWorkspace.has(workspaceId)) {
-            tasksByWorkspace.set(workspaceId, []);
+          parsedTask.revision = (parsedTask.revision ?? 1) + 1;
+          parsedTask.lifecycleGeneration = parsedTask.lifecycleGeneration ?? 1;
+
+          // Check if active task in target workspace is from a newer generation
+          const activeTasksMap = await TaskRepository.getTasks(wsId);
+          const activeTask = activeTasksMap[parsedTask.id];
+          if (activeTask && (activeTask.lifecycleGeneration || 1) >= parsedTask.lifecycleGeneration) {
+            successfulItemIds.push(match.id);
+            continue;
           }
-          tasksByWorkspace.get(workspaceId)!.push({ task: parsedTask, itemId: match.id });
+
+          if (!tasksByWorkspace.has(wsId)) tasksByWorkspace.set(wsId, []);
+          tasksByWorkspace.get(wsId)!.push({ task: parsedTask, itemId: match.id });
         } else {
           // It's gone from the bin (concurrently restored or deleted)
           failedItemIds.push(typeof entry === "string" ? entry : entry.id);
@@ -185,6 +208,8 @@ static async reorderTasks(
             sourceWorkspaceId: workspaceId,
             targetWorkspaceId: workspaceId,
             timestamp: Date.now(),
+            lifecycleGeneration: w.task.lifecycleGeneration,
+            expectedRevision: w.task.revision,
           });
         }
       }
@@ -291,8 +316,9 @@ static async reorderTasks(
     // ("rb-{entityId}") or the raw task entity ID so callers (e.g. the
     // delete-Undo in useTaskCrud, which passes the task ID) both work.
     const binItems = await RecycleBinRepository.getRecycleBinItems();
+    const cleanId = recycleBinItemId.startsWith("rb-") ? recycleBinItemId.slice(3) : recycleBinItemId;
     const item = binItems.find(
-      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId,
+      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`),
     );
     if (!item) {
       throw new Error(`[EntityCommandService] RecycleBin item ${recycleBinItemId} not found.`);
@@ -329,7 +355,9 @@ static async reorderTasks(
     const restoredData = await withLock(lockKey, async () => {
       // 5. Fresh read inside critical section
       const freshItems = await RecycleBinRepository.getRecycleBinItems();
-      const itemInside = freshItems.find(i => i.id === recycleBinItemId || i.entityId === recycleBinItemId);
+      const itemInside = freshItems.find(
+        (i) => i.id === item.id || i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`)
+      );
       if (!itemInside || itemInside.entityType !== "task") {
         throw new Error("Task already restored or permanently deleted");
       }
@@ -350,6 +378,18 @@ static async reorderTasks(
         parsedTaskInside.reminder = { ...parsedTaskInside.reminder, notificationIds: undefined };
       }
 
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration("task", parsedTaskInside.id);
+      const isDead = (parsedTaskInside.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned("task", parsedTaskInside.id, parsedTaskInside.lifecycleGeneration);
+      if (isDead) {
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+        await RecycleBinRepository.removeRecycleBinItems([itemInside.id], { throwOnError: true });
+        throw new Error(`[EntityCommandService] Task ${parsedTaskInside.id} was permanently deleted.`);
+      }
+
+      parsedTaskInside.revision = (parsedTaskInside.revision ?? 1) + 1;
+      parsedTaskInside.lifecycleGeneration = parsedTaskInside.lifecycleGeneration ?? 1;
+
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
       const operationId = `restore-${generateId()}`;
@@ -361,6 +401,8 @@ static async reorderTasks(
         sourceWorkspaceId: parsedTaskInside.workspaceId,
         targetWorkspaceId: parsedTaskInside.workspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: parsedTaskInside.lifecycleGeneration,
+        expectedRevision: parsedTaskInside.revision,
       });
 
       const { TaskRepository } = await import("@/repositories/TaskRepository");
@@ -442,9 +484,10 @@ static async reorderTasks(
    * Ordering:
    * 1. Load task from source workspace
    * 2. Verify existence
-   * 3. Cancel native reminders
-   * 4. Delete from TaskRepository
-   * 5. Emit events & analytics
+   * 3. Add durable tombstone
+   * 4. Cancel native reminders
+   * 5. Delete from TaskRepository
+   * 6. Emit events & analytics
    */
   static async permanentlyDeleteTask(
     taskId: string,
@@ -453,22 +496,59 @@ static async reorderTasks(
   ): Promise<void> {
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    const { withLock } = await import("@/shared/utils/mutex");
 
-    // 1. Verify existence
-    const tasksMap = await TaskRepository.getTasks(workspaceId);
-    const task = tasksMap[taskId];
-    if (!task) {
-      throw new Error(
-        `[EntityCommandService] Task ${taskId} not found in workspace ${workspaceId}`
-      );
-    }
+    const lockKey = `pebble:v1:tasks:${workspaceId}`;
+    const deletedTask = await withLock(lockKey, async () => {
+      // 1. Verify existence under lock (active storage or recycle bin)
+      const tasksMap = await TaskRepository.getTasks(workspaceId);
+      let task = tasksMap[taskId];
+      let fromRecycleBin = false;
 
-    // 2. Remove from active storage FIRST (Commit Point)
-    await TaskRepository.deleteTask(taskId, workspaceId);
+      if (!task) {
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+        const binItems = await RecycleBinRepository.getRecycleBinItems();
+        const rbItem = binItems.find(
+          (i) => (i.entityId === taskId || i.id === taskId) && i.entityType === "task"
+        );
+        if (rbItem) {
+          try {
+            task = JSON.parse(rbItem.snapshot);
+            fromRecycleBin = true;
+          } catch {}
+        }
+      }
 
-    // 3. Cancel native reminders (Fire and forget)
-    if (task.reminder?.notificationIds && task.reminder.notificationIds.length > 0) {
-      cancelReminderIds(task.reminder.notificationIds, { throwOnError: false }).catch(e => {
+      if (!task) {
+        throw new Error(
+          `[EntityCommandService] Task ${taskId} not found in workspace ${workspaceId}`
+        );
+      }
+
+      // 2. Add durable tombstone
+      await TombstoneRepository.addTombstone({
+        id: `ts-task-${task.id}-g${task.lifecycleGeneration ?? 1}`,
+        entityType: "task",
+        entityId: task.id,
+        lifecycleGeneration: task.lifecycleGeneration ?? 1,
+        deletionRevision: task.revision ?? 1,
+        deletedAt: Date.now(),
+      });
+
+      // 3. Remove from active storage and recycle bin
+      if (!fromRecycleBin) {
+        await TaskRepository.deleteTaskUnlocked(taskId, workspaceId);
+      }
+      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+      await RecycleBinRepository.removeRecycleBinItems([taskId]);
+
+      return task;
+    });
+
+    // 4. Cancel native reminders (Fire and forget)
+    if (deletedTask.reminder?.notificationIds && deletedTask.reminder.notificationIds.length > 0) {
+      cancelReminderIds(deletedTask.reminder.notificationIds, { throwOnError: false }).catch(e => {
         console.warn(`[EntityCommandService] Failed to cancel reminders for permanently deleted task ${taskId}`, e);
       });
     }
@@ -580,6 +660,8 @@ static async reorderTasks(
         sourceWorkspaceId: task.workspaceId,
         targetWorkspaceId: task.workspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: task.lifecycleGeneration || 1,
+        expectedRevision: task.revision || 1,
       }));
       await MoveJournalRepository.addOperations(operations);
 
@@ -683,6 +765,8 @@ static async reorderTasks(
         sourceWorkspaceId: workspaceId,
         targetWorkspaceId: workspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: task.lifecycleGeneration ?? 1,
+        expectedRevision: task.revision ?? 1,
       });
 
       // 3. Snapshot task into Recycle Bin (Safe operation first)
@@ -762,6 +846,8 @@ static async reorderTasks(
       const movedTask: Task = {
         ...existing,
         workspaceId: targetWorkspaceId,
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -779,6 +865,8 @@ static async reorderTasks(
         sourceWorkspaceId,
         targetWorkspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
+        expectedRevision: existing.revision ?? 1,
       });
 
       // Save in new workspace first to avoid data loss, using unlocked primitives
@@ -1011,6 +1099,8 @@ static async reorderTasks(
         id: existing.id,
         createdAt: existing.createdAt,
         workspaceId: existing.workspaceId,
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -1110,6 +1200,8 @@ static async reorderTasks(
         ...task,
         status: "todo",
         completedAt: undefined,
+        revision: (task.revision ?? 1) + 1,
+        lifecycleGeneration: task.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
         ...(task.reminder
           ? {
@@ -1197,7 +1289,17 @@ static async reorderTasks(
         ...task,
         status: "completed",
         completedAt: Date.now(),
+        revision: (task.revision ?? 1) + 1,
+        lifecycleGeneration: task.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
+        ...(task.reminder
+          ? {
+              reminder: {
+                ...task.reminder,
+                notificationIds: undefined,
+              },
+            }
+          : {}),
       };
 
       await TaskRepository.saveTaskUnlocked(updatedTask);
@@ -1244,31 +1346,53 @@ static async reorderTasks(
     let needsScheduling = false;
     let parsedInput: ParsedProductivityItem | undefined;
 
-    if (isParsedProductivityItem(input)) {
-      task = buildTask(input, workspaceId);
-      needsScheduling = true;
-      parsedInput = input;
-    } else {
-      const targetWorkspace = input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
-      task = {
-        ...input,
-        workspaceId: targetWorkspace,
-        createdAt: input.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        status: input.status || "todo",
-        priority: input.priority || "none",
-      };
+    const targetWorkspace = isParsedProductivityItem(input)
+      ? workspaceId || INBOX_WORKSPACE_ID
+      : input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
 
-      if (task.reminder && task.reminder.notificationIds) {
-        task.reminder.notificationIds = undefined; // Strip so reconciler uses fresh IDs
-      }
-      if (task.reminder?.enabled && task.reminder?.triggerAt) {
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    const lockKey = `pebble:v1:tasks:${targetWorkspace}`;
+
+    task = await withLock(lockKey, async () => {
+      let candidate: Task;
+      if (isParsedProductivityItem(input)) {
+        candidate = buildTask(input, targetWorkspace);
         needsScheduling = true;
-      }
-    }
+        parsedInput = input;
+      } else {
+        candidate = {
+          ...input,
+          workspaceId: targetWorkspace,
+          revision: input.revision ?? 1,
+          lifecycleGeneration: input.lifecycleGeneration ?? 1,
+          createdAt: input.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          status: input.status || "todo",
+          priority: input.priority || "none",
+        };
 
-    // 1. Domain persistence FIRST
-    await TaskRepository.saveTask(task);
+        if (candidate.reminder && candidate.reminder.notificationIds) {
+          candidate.reminder.notificationIds = undefined; // Strip so reconciler uses fresh IDs
+        }
+        if (candidate.reminder?.enabled && candidate.reminder?.triggerAt) {
+          needsScheduling = true;
+        }
+      }
+
+      // Authoritative generation allocation inside the partition lock:
+      const highestTombstone = candidate.id
+        ? await TombstoneRepository.getHighestTombstonedGeneration("task", candidate.id)
+        : 0;
+      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+
+      candidate.lifecycleGeneration = allocatedGen;
+      candidate.revision = candidate.revision || 1;
+
+      // 1. Domain persistence FIRST
+      await TaskRepository.saveTaskUnlocked(candidate);
+      return candidate;
+    });
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (needsScheduling) {

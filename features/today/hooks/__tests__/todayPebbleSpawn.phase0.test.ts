@@ -39,6 +39,8 @@ const task = (id: string, workspaceId = "ws-spawn"): Task => ({
   title: `Task ${id}`,
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -49,6 +51,8 @@ const habit = (id: string, workspaceId = "ws-spawn"): Habit => ({
   title: `Habit ${id}`,
   recurrence: { frequency: "daily", interval: 1 },
   completionHistory: [],
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });

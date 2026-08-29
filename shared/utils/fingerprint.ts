@@ -7,7 +7,9 @@ export function generateEntityFingerprint(entity: any): string {
 
   // 1. Strip fields that are legitimately mutated by the persistence layer
   //    or by immediate post-persistence scheduling.
-  const { updatedAt, revision, reminder, ...stableFields } = entity;
+  const { updatedAt, revision, reminder, lifecycleGeneration, ...stableFields } = entity;
+
+  (stableFields as any).lifecycleGeneration = lifecycleGeneration ?? 1;
 
   // 2. Handle nested objects like reminder which have volatile notificationIds
   if (reminder) {

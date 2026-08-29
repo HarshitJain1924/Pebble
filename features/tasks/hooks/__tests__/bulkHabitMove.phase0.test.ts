@@ -24,8 +24,8 @@ jest.mock("@/shared/components/ui/UndoContext", () => ({
   useUndo: () => ({ showUndo: jest.fn(), showToast: jest.fn() }),
 }));
 const workspaces: Workspace[] = [
-  { id: "ws-1", name: "Workspace 1", createdAt: 1, updatedAt: 1 },
-  { id: "ws-2", name: "Workspace 2", createdAt: 1, updatedAt: 1 },
+  { id: "ws-1", name: "Workspace 1", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+  { id: "ws-2", name: "Workspace 2", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
 ];
 jest.mock("@/repositories/WorkspaceRepository", () => ({
   WorkspaceRepository: {
@@ -153,6 +153,8 @@ const habit = (id: string, workspaceId: string, title?: string): Habit => ({
   title: title || `Habit ${id}`,
   recurrence: { frequency: "daily", interval: 1 },
   completionHistory: [],
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1000,
   updatedAt: 1000,
 });

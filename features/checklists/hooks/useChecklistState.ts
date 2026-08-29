@@ -36,6 +36,8 @@ export function useChecklistState(selectedWorkspaceId: string) {
           title: it,
           completed: false,
         })),
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

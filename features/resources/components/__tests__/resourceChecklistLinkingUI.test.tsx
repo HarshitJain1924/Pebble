@@ -37,6 +37,8 @@ describe("Resource -> Checklist Linking UI & Persistence Suite", () => {
     workspaceId: "ws-1",
     title: "Travel Docs Guide",
     type: "note",
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: 1000,
     updatedAt: 1000,
   };
@@ -47,6 +49,8 @@ describe("Resource -> Checklist Linking UI & Persistence Suite", () => {
     title: "Packing List",
     items: [],
     resourceIds: [],
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: 1000,
     updatedAt: 1000,
   };
@@ -57,6 +61,8 @@ describe("Resource -> Checklist Linking UI & Persistence Suite", () => {
     title: "Flight Check",
     items: [],
     resourceIds: ["res-100"],
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: 1000,
     updatedAt: 1000,
   };
@@ -232,7 +238,7 @@ describe("Resource -> Checklist Linking UI & Persistence Suite", () => {
       latestChecklists = typeof updater === "function" ? updater(latestChecklists) : updater;
     };
 
-    const workspace: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
+    const workspace: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
     let api: ReturnType<typeof useResourceLinkState> | undefined;
     function Harness() {

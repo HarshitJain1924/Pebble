@@ -40,8 +40,8 @@ describe("BackupService - Hostile Concurrency & Locking", () => {
   const generateValidBackup = (): AppBackup => ({
     version: 1,
     timestamp: Date.now(),
-    workspaces: [{ id: "ws-1", name: "Backup WS", createdAt: 100, updatedAt: 100 }],
-    tasks: [{ id: "task-1", title: "Backup Task", workspaceId: "ws-1", status: "todo", priority: "none", createdAt: 100, updatedAt: 100 }],
+    workspaces: [{ id: "ws-1", name: "Backup WS", revision: 1, lifecycleGeneration: 1, createdAt: 100, updatedAt: 100 }],
+    tasks: [{ id: "task-1", title: "Backup Task", workspaceId: "ws-1", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 100, updatedAt: 100 }],
     habits: [],
     checklists: [],
     resources: [],
@@ -66,6 +66,8 @@ describe("BackupService - Hostile Concurrency & Locking", () => {
       workspaceId: "ws-1",
       status: "todo",
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 200,
       updatedAt: 200
     });
@@ -78,7 +80,7 @@ describe("BackupService - Hostile Concurrency & Locking", () => {
 
   it("handles duplicate keys gracefully (no duplicate lock deadlock)", async () => {
     const backup = generateValidBackup();
-    backup.workspaces.push({ id: "ws-1", name: "Duplicate WS", createdAt: 100, updatedAt: 100 });
+    backup.workspaces.push({ id: "ws-1", name: "Duplicate WS", revision: 1, lifecycleGeneration: 1, createdAt: 100, updatedAt: 100 });
     const promise = BackupService.restoreStructuredBackup(JSON.stringify(backup));
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Deadlock timeout")), 1000));
     await expect(Promise.race([promise, timeout])).resolves.not.toThrow();
@@ -110,6 +112,8 @@ describe("BackupService - Hostile Concurrency & Locking", () => {
       workspaceId: "inbox",
       status: "todo",
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100
     });
@@ -119,11 +123,14 @@ describe("BackupService - Hostile Concurrency & Locking", () => {
     // Simulate a move operation getting injected while restore is initializing
     const movePromise = MoveJournalRepository.addOperation({
       operationId: "op-1",
+      operationType: "move",
       entityId: "task-move",
       entityType: "task",
       sourceWorkspaceId: "inbox",
       targetWorkspaceId: "ws-1",
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await Promise.all([

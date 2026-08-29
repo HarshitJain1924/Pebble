@@ -113,8 +113,8 @@ describe("Backup System Verification", () => {
   });
 
   it("export → clear → import round trip preserves logical data", async () => {
-    await WorkspaceRepository.saveWorkspace({ id: "ws-rt", name: "RT", createdAt: 1, updatedAt: 1 });
-    await TaskRepository.saveTask({ id: "task-rt", workspaceId: "ws-rt", title: "RT Task", status: "todo", priority: "none", createdAt: 1, updatedAt: 1 });
+    await WorkspaceRepository.saveWorkspace({ id: "ws-rt", name: "RT", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 });
+    await TaskRepository.saveTask({ id: "task-rt", workspaceId: "ws-rt", title: "RT Task", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 });
 
     const exported = await BackupService.generateStructuredBackup();
 

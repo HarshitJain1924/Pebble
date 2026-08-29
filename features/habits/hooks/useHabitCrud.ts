@@ -79,6 +79,8 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
           interval: 1,
         },
         completionHistory: [],
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

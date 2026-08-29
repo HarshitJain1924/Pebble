@@ -97,6 +97,8 @@ export function normalizeResource(
     updatedAt: rawResource.updatedAt || Date.now(),
     archivedAt:
       rawResource.archivedAt || (rawResource.archived ? Date.now() : undefined),
+    revision: rawResource.revision ?? 1,
+    lifecycleGeneration: rawResource.lifecycleGeneration ?? 1,
   };
 }
 

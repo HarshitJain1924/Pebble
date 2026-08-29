@@ -44,8 +44,8 @@ describe("BackupService - restoreStructuredBackup FinalKeys Lock Race", () => {
     const validBackup: AppBackup = {
       version: 1,
       timestamp: Date.now(),
-      workspaces: [{ id: "ws-A", name: "Workspace A", createdAt: 1000, updatedAt: 1000 }],
-      tasks: [{ id: "task-A1", title: "Task A1", workspaceId: "ws-A", status: "todo", priority: "medium", createdAt: 1000, updatedAt: 1000 }],
+      workspaces: [{ id: "ws-A", name: "Workspace A", revision: 1, lifecycleGeneration: 1, createdAt: 1000, updatedAt: 1000 }],
+      tasks: [{ id: "task-A1", title: "Task A1", workspaceId: "ws-A", status: "todo", priority: "medium", revision: 1, lifecycleGeneration: 1, createdAt: 1000, updatedAt: 1000 }],
       habits: [],
       checklists: [],
       resources: [],

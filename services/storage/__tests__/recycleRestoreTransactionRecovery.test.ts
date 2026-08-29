@@ -38,8 +38,8 @@ jest.mock("@react-native-async-storage/async-storage", () => {
   };
 });
 
-const ws1: Workspace = { id: "ws-1", name: "Engineering", createdAt: 1, updatedAt: 1 };
-const ws2: Workspace = { id: "ws-2", name: "Product", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Engineering", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const ws2: Workspace = { id: "ws-2", name: "Product", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", () => {
   let cancelSpy: jest.SpyInstance;
@@ -92,6 +92,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       title: "Active Task",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -106,6 +108,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-1",
       timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await MoveReconcilerService.reconcileAll();
@@ -133,6 +137,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       title: "Ghost Task",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -147,6 +153,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-1",
       timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await MoveReconcilerService.reconcileAll();
@@ -168,6 +176,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       title: "Restoring Task",
       status: "todo",
       priority: "high",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -181,6 +191,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-1",
       timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await MoveReconcilerService.reconcileAll();
@@ -203,6 +215,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       title: "Restored Duplicate",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -217,6 +231,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-1",
       timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await MoveReconcilerService.reconcileAll();
@@ -238,6 +254,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       title: "Deleted Workspace Task",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -251,6 +269,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       sourceWorkspaceId: "ws-deleted",
       targetWorkspaceId: "ws-deleted",
       timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await MoveReconcilerService.reconcileAll();
@@ -272,6 +292,8 @@ describe("Recycle / Restore Transaction Recovery & Stale Protection (Fix #22)", 
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-1",
       timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await MoveReconcilerService.reconcileAll();

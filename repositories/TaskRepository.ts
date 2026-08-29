@@ -125,6 +125,7 @@ export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
     archivedAt:
       rawTask.archivedAt || (rawTask.archived ? Date.now() : undefined),
     revision: rawTask.revision ?? 1,
+    lifecycleGeneration: rawTask.lifecycleGeneration ?? 1,
   };
   return result;
 }

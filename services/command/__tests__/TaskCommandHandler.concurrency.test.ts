@@ -402,8 +402,8 @@ describe("TaskCommandHandler Concurrency", () => {
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const workspaceId = INBOX_WORKSPACE_ID;
     
-    const taskA = { id: "task-A", title: "Task A", status: "todo", workspaceId };
-    const taskC = { id: "task-C", title: "Task C", status: "todo", workspaceId };
+    const taskA = { id: "task-A", title: "Task A", status: "todo", workspaceId, revision: 1, lifecycleGeneration: 1 };
+    const taskC = { id: "task-C", title: "Task C", status: "todo", workspaceId, revision: 1, lifecycleGeneration: 1 };
 
     // Setup: Task A is in the Recycle Bin. Task C is in active storage.
     await RecycleBinRepository.saveRecycleBinItems([{
@@ -412,6 +412,7 @@ describe("TaskCommandHandler Concurrency", () => {
       entityId: "task-A",
       snapshot: JSON.stringify(taskA),
       deletedAt: Date.now(),
+      lifecycleGeneration: 1,
     }]);
     await TaskRepository.saveTasks([taskC], workspaceId);
 
@@ -442,7 +443,7 @@ describe("TaskCommandHandler Concurrency", () => {
     const workspaceId = INBOX_WORKSPACE_ID;
     const taskId = "task-dup-restore";
 
-    const snapshotTask = { id: taskId, title: "Duplicate Restore Target", status: "todo", workspaceId };
+    const snapshotTask = { id: taskId, title: "Duplicate Restore Target", status: "todo", workspaceId, revision: 1, lifecycleGeneration: 1 };
 
     await RecycleBinRepository.saveRecycleBinItems([{
       id: `rb-${taskId}`,
@@ -450,6 +451,7 @@ describe("TaskCommandHandler Concurrency", () => {
       entityId: taskId,
       snapshot: JSON.stringify(snapshotTask),
       deletedAt: Date.now(),
+      lifecycleGeneration: 1,
     }]);
 
     // Fire two restores concurrently
@@ -560,7 +562,7 @@ describe("TaskCommandHandler Concurrency", () => {
     const workspaceId = INBOX_WORKSPACE_ID;
     const taskId = "task-restore-race-1";
 
-    const snapshotTask = { id: taskId, title: "Snapshot Title", status: "todo", workspaceId };
+    const snapshotTask = { id: taskId, title: "Snapshot Title", status: "todo", workspaceId, revision: 1, lifecycleGeneration: 1 };
 
     // Setup: Task is in Recycle Bin
     await RecycleBinRepository.saveRecycleBinItems([{
@@ -569,6 +571,7 @@ describe("TaskCommandHandler Concurrency", () => {
       entityId: taskId,
       snapshot: JSON.stringify(snapshotTask),
       deletedAt: Date.now(),
+      lifecycleGeneration: 1,
     }]);
 
     const originalGetItems = RecycleBinRepository.getRecycleBinItems.bind(RecycleBinRepository);
@@ -638,7 +641,7 @@ describe("TaskCommandHandler Concurrency", () => {
     const taskId = "task-reconciler-deadlock";
 
     // 1. Setup a Task for Op A (recycleTask)
-    await TaskRepository.saveTasks([{ id: taskId, title: "To Recycle", status: "todo", workspaceId }], workspaceId);
+    await TaskRepository.saveTasks([{ id: taskId, title: "To Recycle", status: "todo", workspaceId, revision: 1, lifecycleGeneration: 1 }], workspaceId);
 
     // 2. Setup a MoveJournal operation for Op B (MoveReconcilerService)
     await MoveJournalRepository.addOperation({
@@ -649,14 +652,17 @@ describe("TaskCommandHandler Concurrency", () => {
       sourceWorkspaceId: workspaceId,
       targetWorkspaceId: workspaceId,
       timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
     // Ensure the Recycle Bin item exists for the Reconciler to process
     await RecycleBinRepository.saveRecycleBinItems([{
       id: "rb-another-task",
       entityType: "task",
       entityId: "another-task",
-      snapshot: JSON.stringify({ id: "another-task", workspaceId }),
+      snapshot: JSON.stringify({ id: "another-task", workspaceId, revision: 1, lifecycleGeneration: 1 }),
       deletedAt: Date.now(),
+      lifecycleGeneration: 1,
     }]);
 
     const originalAddToRecycleBin = RecycleBinRepository.addToRecycleBin.bind(RecycleBinRepository);
@@ -850,6 +856,8 @@ describe("TaskCommandHandler Concurrency", () => {
       status: "todo" as const,
       workspaceId,
       reminder: { enabled: true, triggerAt: Date.now() + 10000, notificationIds: undefined },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       priority: "none" as const,

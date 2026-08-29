@@ -36,6 +36,8 @@ describe("Checklist Mutations Regression Suite", () => {
       items: [
         { id: "item-1", title: "Passport", completed: false },
       ],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

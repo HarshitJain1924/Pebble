@@ -71,28 +71,30 @@ export function normalizeHabit(
     });
   }
 
-  return {
+  const habitObj: Habit = {
     id: rawHabit.id,
     workspaceId: wsId,
     title: rawHabit.title || "",
-    description: rawHabit.description || undefined,
-    categoryId: rawHabit.categoryId || rawHabit.category || undefined,
-    tags: rawHabit.tags || undefined,
     recurrence,
-    recurrenceExceptions: rawHabit.recurrenceExceptions || undefined,
     completionHistory,
-    reminder: reminder || undefined,
-    resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
     createdAt: rawHabit.createdAt || Date.now(),
     updatedAt: rawHabit.updatedAt || Date.now(),
-    archivedAt:
-      rawHabit.archivedAt || (rawHabit.archived ? Date.now() : undefined),
-    streak: typeof rawHabit.streak === "number" ? rawHabit.streak : undefined,
-    bestStreak:
-      typeof rawHabit.bestStreak === "number" ? rawHabit.bestStreak : undefined,
-    lastCompletedDate: rawHabit.lastCompletedDate || undefined,
     revision: rawHabit.revision ?? 1,
+    lifecycleGeneration: rawHabit.lifecycleGeneration ?? 1,
   };
+
+  if (rawHabit.description) habitObj.description = rawHabit.description;
+  if (rawHabit.categoryId || rawHabit.category) habitObj.categoryId = rawHabit.categoryId || rawHabit.category;
+  if (rawHabit.tags) habitObj.tags = rawHabit.tags;
+  if (rawHabit.recurrenceExceptions) habitObj.recurrenceExceptions = rawHabit.recurrenceExceptions;
+  if (reminder) habitObj.reminder = reminder;
+  if (resourceIds.length > 0) habitObj.resourceIds = resourceIds;
+  if (rawHabit.archivedAt || rawHabit.archived) habitObj.archivedAt = rawHabit.archivedAt || (rawHabit.archived ? Date.now() : undefined);
+  if (typeof rawHabit.streak === "number") habitObj.streak = rawHabit.streak;
+  if (typeof rawHabit.bestStreak === "number") habitObj.bestStreak = rawHabit.bestStreak;
+  if (rawHabit.lastCompletedDate) habitObj.lastCompletedDate = rawHabit.lastCompletedDate;
+
+  return habitObj;
 }
 
 export class HabitRepository {

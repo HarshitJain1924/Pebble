@@ -18,7 +18,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
 
   it("Workspace Deletion - captures all entities and clears active partitions", async () => {
     const wsId = "ws-test";
-    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
 
     const task = { id: "t-1", title: "Task 1", workspaceId: wsId };
     await TaskRepository.saveTasks([task], wsId);
@@ -65,7 +65,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
 
   it("Workspace Deletion - Cleanup failure aborts the deletion safely to prevent orphans", async () => {
     const wsId = "ws-cleanup-fail";
-    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
 
     const originalMultiRemove = AsyncStorage.multiRemove;
     AsyncStorage.multiRemove = jest.fn().mockRejectedValueOnce(new Error("Disk error")).mockImplementation((...args) => (originalMultiRemove as any)(...args));
@@ -89,7 +89,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
     
     // Simulate Recycle Bin
     const snapshot = {
-      list: { id: wsId, name: "Test WS 2", emoji: "🚀", createdAt: Date.now(), updatedAt: Date.now() },
+      list: { id: wsId, name: "Test WS 2", emoji: "🚀", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() },
       todos: [{ id: "t-1", title: "Task", workspaceId: wsId }],
       habits: [{ id: "h-1", title: "Habit", workspaceId: wsId }],
       checklists: [{ id: "c-1", title: "Checklist", workspaceId: wsId }],
@@ -117,7 +117,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
   it("Duplicate delete - does not crash and handles safely", async () => {
     // Calling deleteWorkspace twice should throw the second time because it's not found
     const wsId = "ws-test-3";
-    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS 3", emoji: "🤔", createdAt: Date.now(), updatedAt: Date.now() }]);
+    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS 3", emoji: "🤔", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
 
     await EntityCommandService.deleteWorkspace(wsId);
     
@@ -145,7 +145,8 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
 
     it("Test A: deletion vs task update - update is completely blocked", async () => {
       const wsId = "ws-concurrent-1";
-      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 1", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 1", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
+      await TaskRepository.saveTasks([{ id: "t-1", title: "Original", workspaceId: wsId }], wsId);
       await TaskRepository.saveTasks([{ id: "t-1", title: "Original", workspaceId: wsId }], wsId);
 
       let opAHasRead = false;
@@ -197,7 +198,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
 
     it("Test B: deletion vs task creation - creation is completely blocked", async () => {
       const wsId = "ws-concurrent-2";
-      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 2", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 2", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
 
       let opAHasRead = false;
       jest.spyOn(TaskRepository, "getTasks").mockImplementation(async (wId) => {
@@ -236,7 +237,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
 
     it("Test C: opposite lifecycle operations - delete vs restore serialize safely", async () => {
       const wsId = "ws-concurrent-3";
-      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 3", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+      await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "WS 3", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
       await TaskRepository.saveTasks([{ id: "t-3", title: "T3", workspaceId: wsId }], wsId);
 
       // We simulate a race where someone deletes a workspace, and then immediately tries to restore it

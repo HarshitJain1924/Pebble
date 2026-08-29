@@ -70,8 +70,8 @@ import { Task, Workspace } from "@/shared/types/domain.types";
 import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 
-const ws1: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
-const ws2: Workspace = { id: "ws-2", name: "Personal", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const ws2: Workspace = { id: "ws-2", name: "Personal", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 function findByAccessibilityLabel(root: any, label: string) {
   const match = root.findAll(
@@ -135,6 +135,8 @@ describe("Calendar Timed Task Creation/Editing & Duration Invariants (Fix #14)",
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "10:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -168,6 +170,8 @@ describe("Calendar Timed Task Creation/Editing & Duration Invariants (Fix #14)",
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "14:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -230,6 +234,8 @@ describe("Calendar Timed Task Creation/Editing & Duration Invariants (Fix #14)",
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "15:00", durationMinutes: 90 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -248,6 +254,8 @@ describe("Calendar Timed Task Creation/Editing & Duration Invariants (Fix #14)",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "15:00", durationMinutes: 60 },
       reminder: { enabled: true, triggerAt: new Date(2026, 7, 30, 14, 30).getTime() },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -300,6 +308,8 @@ describe("Calendar Timed Task Creation/Editing & Duration Invariants (Fix #14)",
       priority: "medium",
       schedule: { date: "2026-08-30" },
       reminder: { enabled: true, triggerAt: new Date(2026, 7, 30, 9, 0).getTime() },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -317,6 +327,8 @@ describe("Calendar Timed Task Creation/Editing & Duration Invariants (Fix #14)",
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "15:00", endTime: "16:30" }, // 90 min
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

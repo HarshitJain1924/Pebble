@@ -56,6 +56,8 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
     sourceWorkspaceId: workspaceId,
     targetWorkspaceId: workspaceId,
     timestamp: Date.now(),
+    lifecycleGeneration: 1,
+    expectedRevision: 1,
   });
 
   const mockTask = (id: string, workspaceId: string): Task => ({
@@ -65,6 +67,8 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
     status: "todo",
     priority: "medium",
     categoryId: "work",
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     schedule: {},
@@ -140,6 +144,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         id: "rb-task-3",
         entityType: "task",
         entityId: "task-3",
+        lifecycleGeneration: 1,
         snapshot: JSON.stringify(mockTask("task-3", "ws-2")),
         deletedAt: Date.now()
       }];
@@ -171,6 +176,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
         id: "rb-task-4",
         entityType: "task",
         entityId: "task-4",
+        lifecycleGeneration: 1,
         snapshot: JSON.stringify(targetMap["task-4"]),
         deletedAt: Date.now()
       }];

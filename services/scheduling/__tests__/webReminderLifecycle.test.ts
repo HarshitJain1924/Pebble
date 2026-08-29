@@ -21,13 +21,15 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 const DAY_MS = 24 * 60 * 60 * 1000;
 const storage = AsyncStorage as typeof AsyncStorage;
 
-const workspace: Workspace = { id: "ws-1", name: "Workspace 1", createdAt: 1, updatedAt: 1 };
+const workspace: Workspace = { id: "ws-1", name: "Workspace 1", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 const makeTask = (id: string): Task => ({
   id,
   workspaceId: "ws-1",
   title: `Task ${id}`,
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });

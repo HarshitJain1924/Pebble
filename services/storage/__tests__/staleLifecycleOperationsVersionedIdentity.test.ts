@@ -38,8 +38,8 @@ jest.mock("@react-native-async-storage/async-storage", () => {
   };
 });
 
-const ws1: Workspace = { id: "ws-1", name: "Engineering", createdAt: 1, updatedAt: 1 };
-const ws2: Workspace = { id: "ws-2", name: "Product", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Engineering", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const ws2: Workspace = { id: "ws-2", name: "Product", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix #23)", () => {
   let cancelSpy: jest.SpyInstance;
@@ -92,6 +92,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       title: "Version 1",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -105,6 +107,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       title: "Version 2 (Newer Active)",
       status: "todo",
       priority: "high",
+      revision: 2,
+      lifecycleGeneration: 1,
       createdAt: 2000,
       updatedAt: 2000,
     };
@@ -134,6 +138,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       title: "Snapshot V1",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -145,6 +151,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       title: "Snapshot V2",
       status: "todo",
       priority: "high",
+      revision: 2,
+      lifecycleGeneration: 1,
       createdAt: 2000,
       updatedAt: 2000,
     };
@@ -167,6 +175,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-1",
       timestamp: 1000,
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     await MoveReconcilerService.reconcileAll();
@@ -184,6 +194,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       title: "Drink Water 1L",
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -197,6 +209,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       title: "Drink Water 2L (Newer)",
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [],
+      revision: 2,
+      lifecycleGeneration: 1,
       createdAt: 2000,
       updatedAt: 2000,
     };
@@ -226,6 +240,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       schedule: { date: "2026-08-01", startTime: "10:00", durationMinutes: 60 },
       recurrence: { frequency: "weekly", interval: 1 },
       recurrenceExceptions: ["2026-08-08", "2026-08-15"],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -248,6 +264,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       title: "Idempotent Reconcile",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -261,6 +279,8 @@ describe("Stale Lifecycle Operations, Versioned Identity & Journal Ordering (Fix
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-1",
       timestamp: 1000,
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     // Pass 1

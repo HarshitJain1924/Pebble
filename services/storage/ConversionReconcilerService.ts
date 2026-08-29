@@ -54,12 +54,40 @@ export class ConversionReconcilerService {
   }
 
   private static async reconcileHabitToTask(op: ConversionJournalEntry): Promise<void> {
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    
+    // 0. Check Tombstones for source & destination generations
+    if (op.sourceGeneration && await TombstoneRepository.isTombstoned("habit", op.sourceId, op.sourceGeneration)) {
+      console.warn(`[ConversionReconciler] Source Habit ${op.sourceId} (gen: ${op.sourceGeneration}) is tombstoned. Aborting obsolete conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+    if (op.targetGeneration && await TombstoneRepository.isTombstoned("task", op.targetId, op.targetGeneration)) {
+      console.warn(`[ConversionReconciler] Destination Task ${op.targetId} (gen: ${op.targetGeneration}) is tombstoned. Aborting obsolete conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
     // Check if the destination Task actually exists in storage
     const tasksMap = await TaskRepository.getTasks(op.targetWorkspaceId);
-    const taskExists = !!tasksMap[op.targetId];
+    const task = tasksMap[op.targetId];
+    const taskExists = !!task;
 
     const habitsMap = await HabitRepository.getHabits(op.sourceWorkspaceId);
-    const habitExists = !!habitsMap[op.sourceId];
+    const habit = habitsMap[op.sourceId];
+    const habitExists = !!habit;
+
+    // Check generation mismatches (e.g. source or target was recreated with a newer generation)
+    if (habitExists && op.sourceGeneration && habit.lifecycleGeneration !== op.sourceGeneration) {
+      console.warn(`[ConversionReconciler] Source Habit ${op.sourceId} generation mismatch (${habit.lifecycleGeneration} vs expected ${op.sourceGeneration}). Aborting stale conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+    if (taskExists && op.targetGeneration && task.lifecycleGeneration !== op.targetGeneration) {
+      console.warn(`[ConversionReconciler] Destination Task ${op.targetId} generation mismatch (${task.lifecycleGeneration} vs expected ${op.targetGeneration}). Aborting stale conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
 
     if (!taskExists && habitExists) {
       console.warn(`[ConversionReconciler] Destination Task ${op.targetId} missing but source Habit exists. Rolling back.`);
@@ -68,9 +96,6 @@ export class ConversionReconcilerService {
     }
 
     if (taskExists && habitExists) {
-      const task = tasksMap[op.targetId];
-      const habit = habitsMap[op.sourceId];
-
       const targetMatches = op.targetCreatedAt ? task.createdAt === op.targetCreatedAt : true;
       const fingerprintMatches = op.targetFingerprint ? generateEntityFingerprint(task) === op.targetFingerprint : true;
       const sourceMatches = op.sourceRevision ? habit.revision === op.sourceRevision : true;
@@ -112,12 +137,40 @@ export class ConversionReconcilerService {
   }
 
   private static async reconcileTaskToHabit(op: ConversionJournalEntry): Promise<void> {
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+
+    // 0. Check Tombstones for source & destination generations
+    if (op.sourceGeneration && await TombstoneRepository.isTombstoned("task", op.sourceId, op.sourceGeneration)) {
+      console.warn(`[ConversionReconciler] Source Task ${op.sourceId} (gen: ${op.sourceGeneration}) is tombstoned. Aborting obsolete conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+    if (op.targetGeneration && await TombstoneRepository.isTombstoned("habit", op.targetId, op.targetGeneration)) {
+      console.warn(`[ConversionReconciler] Destination Habit ${op.targetId} (gen: ${op.targetGeneration}) is tombstoned. Aborting obsolete conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+
     // Check if the destination Habit actually exists in storage
     const habitsMap = await HabitRepository.getHabits(op.targetWorkspaceId);
-    const habitExists = !!habitsMap[op.targetId];
+    const habit = habitsMap[op.targetId];
+    const habitExists = !!habit;
 
     const tasksMap = await TaskRepository.getTasks(op.sourceWorkspaceId);
-    const taskExists = !!tasksMap[op.sourceId];
+    const task = tasksMap[op.sourceId];
+    const taskExists = !!task;
+
+    // Check generation mismatches (e.g. source or target was recreated with a newer generation)
+    if (taskExists && op.sourceGeneration && task.lifecycleGeneration !== op.sourceGeneration) {
+      console.warn(`[ConversionReconciler] Source Task ${op.sourceId} generation mismatch (${task.lifecycleGeneration} vs expected ${op.sourceGeneration}). Aborting stale conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
+    if (habitExists && op.targetGeneration && habit.lifecycleGeneration !== op.targetGeneration) {
+      console.warn(`[ConversionReconciler] Destination Habit ${op.targetId} generation mismatch (${habit.lifecycleGeneration} vs expected ${op.targetGeneration}). Aborting stale conversion.`);
+      await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
+      return;
+    }
 
     if (!habitExists && taskExists) {
       console.warn(`[ConversionReconciler] Destination Habit ${op.targetId} missing but source Task exists. Rolling back.`);
@@ -126,9 +179,6 @@ export class ConversionReconcilerService {
     }
 
     if (habitExists && taskExists) {
-      const habit = habitsMap[op.targetId];
-      const task = tasksMap[op.sourceId];
-
       const targetMatches = op.targetCreatedAt ? habit.createdAt === op.targetCreatedAt : true;
       const fingerprintMatches = op.targetFingerprint ? generateEntityFingerprint(habit) === op.targetFingerprint : true;
       const sourceMatches = op.sourceRevision ? task.revision === op.sourceRevision : true;

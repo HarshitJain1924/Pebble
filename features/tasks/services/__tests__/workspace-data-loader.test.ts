@@ -19,6 +19,8 @@ describe("workspace-data-loader", () => {
     name: `Workspace ${id}`,
     emoji: "📁",
     color: "#000",
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
@@ -30,6 +32,8 @@ describe("workspace-data-loader", () => {
     status: "todo",
     priority: "medium",
     categoryId: "work",
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: Date.now(),
     updatedAt,
     schedule: {},

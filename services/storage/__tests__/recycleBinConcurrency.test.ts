@@ -22,6 +22,7 @@ describe("Recycle Bin RMW Concurrency Vulnerability", () => {
         id: "rb-A",
         entityId: "A",
         entityType: "task",
+        lifecycleGeneration: 1,
         snapshot: "{}",
         deletedAt: Date.now(),
       },

@@ -27,6 +27,8 @@ describe("useTaskDetailForm and Reminder Date Isolation (Fix #5)", () => {
       enabled: true,
       triggerAt: originalReminderEpoch,
     },
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -116,6 +118,8 @@ describe("useTaskDetailForm and Reminder Date Isolation (Fix #5)", () => {
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30" },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -140,6 +144,8 @@ describe("useTaskDetailForm and Reminder Date Isolation (Fix #5)", () => {
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "10:00" },
       reminder: { enabled: true, triggerAt: sameDateEpoch },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

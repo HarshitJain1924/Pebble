@@ -148,6 +148,8 @@ export function WorkspaceModal({
         emoji: workspaceEmojiInput,
         color: workspaceColorInput,
         description: workspaceDescriptionInput.trim() || undefined,
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });

@@ -33,8 +33,8 @@ jest.mock("@react-native-async-storage/async-storage", () => {
   };
 });
 
-const ws1: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
-const ws2: Workspace = { id: "ws-2", name: "Personal", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const ws2: Workspace = { id: "ws-2", name: "Personal", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
   let cancelSpy: jest.SpyInstance;
@@ -90,6 +90,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "10:00", durationMinutes: 45 },
       reminder: { enabled: true, triggerAt: 5000, notificationIds: ["notif-old"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -122,6 +124,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       title: "Personal Task",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -152,6 +156,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       title: "Safe Item",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -182,6 +188,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       title: "Double Task",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -212,6 +220,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       title: "Original Version",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -238,6 +248,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       title: "Workspace Task",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -276,6 +288,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       status: "todo",
       priority: "medium",
       reminder: { enabled: true, triggerAt: Date.now() + 100000, notificationIds: ["old-id"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -302,6 +316,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       schedule: { date: "2026-08-01", startTime: "09:00", durationMinutes: 30 },
       recurrence: { frequency: "daily", interval: 1 },
       recurrenceExceptions: ["2026-08-30"],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -312,6 +328,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "14:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -336,6 +354,8 @@ describe("Recycle / Delete / Restore Referential Integrity (Fix #21)", () => {
       title: "Delete Forever",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

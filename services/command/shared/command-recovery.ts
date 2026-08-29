@@ -32,7 +32,7 @@ export async function restoreEntityFromBin<T>(
     throw new Error(`RecycleBin item not found or not ${entityType}`);
   }
 
-  const parsedData = JSON.parse(item.snapshot) as T & { workspaceId?: string };
+  const parsedData = JSON.parse(item.snapshot) as T & { workspaceId?: string; lifecycleGeneration?: number; revision?: number };
   const targetWorkspaceId = parsedData.workspaceId || "inbox";
   const { generateId } = await import("@/shared/utils/id");
   const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
@@ -46,6 +46,8 @@ export async function restoreEntityFromBin<T>(
     sourceWorkspaceId: targetWorkspaceId,
     targetWorkspaceId,
     timestamp: Date.now(),
+    lifecycleGeneration: item.lifecycleGeneration || parsedData.lifecycleGeneration || 1,
+    expectedRevision: parsedData.revision || 1,
   });
 
   await persist(parsedData);

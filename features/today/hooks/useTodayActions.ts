@@ -292,6 +292,8 @@ export function useTodayActions({
           priority: "high",
           workspaceId: INBOX_WORKSPACE_ID,
           schedule: { date: tomorrowStr },
+          revision: 1,
+          lifecycleGeneration: 1,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };

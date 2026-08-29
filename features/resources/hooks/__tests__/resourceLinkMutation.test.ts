@@ -29,13 +29,15 @@ jest.mock("expo-haptics", () => ({
   impactAsync: jest.fn(async () => undefined),
 }));
 
-const workspace: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
+const workspace: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 const initialTask: Task = {
   id: "task-1",
   workspaceId: "ws-1",
   title: "Build Feature",
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 };

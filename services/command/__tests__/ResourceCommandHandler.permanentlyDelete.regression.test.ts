@@ -27,6 +27,8 @@ describe("Hostile Regression: ResourceCommandHandler.permanentlyDeleteResource C
     await WorkspaceRepository.saveWorkspace({
       id: workspaceId,
       name: "Test Workspace 1",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -102,6 +104,8 @@ describe("Hostile Regression: ResourceCommandHandler.permanentlyDeleteResource C
     await WorkspaceRepository.saveWorkspace({
       id: workspace1,
       name: "Source WS",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -109,6 +113,8 @@ describe("Hostile Regression: ResourceCommandHandler.permanentlyDeleteResource C
     await WorkspaceRepository.saveWorkspace({
       id: workspace2,
       name: "Destination WS",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });

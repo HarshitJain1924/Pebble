@@ -107,6 +107,8 @@ describe("reminders.service", () => {
         triggerAt: Date.now() + 300000,
         notificationIds: [],
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -120,6 +122,8 @@ describe("reminders.service", () => {
         interval: 1,
       },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       reminder: {
         enabled: true,
         triggerAt: Date.now() + 300000,

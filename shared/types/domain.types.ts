@@ -14,6 +14,11 @@ export interface Workspace {
   emoji?: string;
   color?: string;
   description?: string;
+  type?: "list" | "tag" | "smart";
+  filterRules?: any;
+  order?: number;
+  revision: number;
+  lifecycleGeneration: number;
   createdAt: number;
   updatedAt: number;
   archivedAt?: number;
@@ -59,7 +64,8 @@ export interface Task {
   description?: string;
   categoryId?: string;
   tags?: string[];
-  revision?: number;
+  revision: number;
+  lifecycleGeneration: number;
   status: TaskStatus;
   priority: TaskPriority;
   schedule?: TaskSchedule;
@@ -87,7 +93,8 @@ export interface Habit {
   title: string;
   description?: string;
   categoryId?: string;
-  revision?: number;
+  revision: number;
+  lifecycleGeneration: number;
   tags?: string[];
   recurrence: RecurrenceRule;
   recurrenceExceptions?: string[];
@@ -120,6 +127,8 @@ export interface Checklist {
   items: ChecklistItem[];
   categoryId?: string;
   tags?: string[];
+  revision: number;
+  lifecycleGeneration: number;
   resourceIds?: string[];
   createdAt: number;
   updatedAt: number;
@@ -143,11 +152,15 @@ export interface Attachment {
 export interface Resource {
   id: string;
   workspaceId: string;
-  type: ResourceType;
   title: string;
+  type: ResourceType;
+  content?: string;
   body?: string;
-  tags?: string[];
   attachments?: Attachment[];
+  categoryId?: string;
+  tags?: string[];
+  revision: number;
+  lifecycleGeneration: number;
   createdAt: number;
   updatedAt: number;
   archivedAt?: number;
@@ -171,6 +184,7 @@ export interface RecycleBinItem {
   id: string;
   entityType: "workspace" | "task" | "habit" | "checklist" | "resource";
   entityId: string;
+  lifecycleGeneration: number;
   snapshot: string; // Stringified JSON representation of deleted entity
   deletedAt: number;
 }
@@ -193,6 +207,7 @@ export interface Settings {
   showTags?: boolean;
   showNotes?: boolean;
   showMascot?: boolean;
+  defaultTimeEstimate?: number;
   editorRowOrder?: string[];
 }
 
@@ -206,7 +221,19 @@ export interface UserProfile {
 }
 
 /**
- * 11. UiState Entity
+ * 11. Category Entity
+ */
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
+  icon: string;
+  order: number;
+  createdAt: number;
+}
+
+/**
+ * 12. UiState Entity
  */
 export interface UiState {
   activeWorkspaceId: string | null;
@@ -215,7 +242,7 @@ export interface UiState {
 }
 
 /**
- * 12. Relationship Entity
+ * 13. Relationship Entity
  */
 export interface Relationship {
   id: string;
@@ -231,7 +258,7 @@ export interface Relationship {
 }
 
 /**
- * 13. SystemEventLog Entity
+ * 14. SystemEventLog Entity
  */
 export interface SystemEventLog {
   id: string;
@@ -244,7 +271,7 @@ export interface SystemEventLog {
 }
 
 /**
- * 14. MoveJournalEntry Entity
+ * 15. MoveJournalEntry Entity
  */
 export interface MoveJournalEntry {
   operationId: string;
@@ -254,10 +281,13 @@ export interface MoveJournalEntry {
   sourceWorkspaceId: string;
   targetWorkspaceId: string;
   timestamp: number;
+  lifecycleGeneration: number;
+  expectedRevision: number;
+  sequence?: number;
 }
 
 /**
- * 15. ConversionJournalEntry Entity
+ * 16. ConversionJournalEntry Entity
  */
 export interface ConversionJournalEntry {
   operationId: string;
@@ -268,7 +298,22 @@ export interface ConversionJournalEntry {
   targetWorkspaceId: string;
   phase: "PREPARED" | "DESTINATION_WRITTEN";
   timestamp: number;
-  sourceRevision?: number;
+  sourceRevision: number;
+  sourceGeneration: number;
+  targetGeneration: number;
   targetCreatedAt?: number;
   targetFingerprint?: string;
+  sequence?: number;
+}
+
+/**
+ * 17. Tombstone Entity
+ */
+export interface Tombstone {
+  id: string;
+  entityType: "task" | "habit" | "checklist" | "resource" | "workspace";
+  entityId: string;
+  lifecycleGeneration: number;
+  deletionRevision?: number;
+  deletedAt: number;
 }

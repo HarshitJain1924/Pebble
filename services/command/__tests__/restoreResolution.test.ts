@@ -26,6 +26,8 @@ const storage = AsyncStorage as typeof AsyncStorage;
 const workspace: Workspace = {
   id: "ws-1",
   name: "Workspace 1",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 };
@@ -36,6 +38,8 @@ const task = (id: string, workspaceId: string = "ws-1"): Task => ({
   title: `Task ${id}`,
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -46,6 +50,8 @@ const habit = (id: string, workspaceId: string = "ws-1"): Habit => ({
   title: `Habit ${id}`,
   recurrence: { frequency: "daily", interval: 1 },
   completionHistory: [],
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -147,6 +153,7 @@ describe("restore resolution by entity ID (delete-Undo paths)", () => {
       entityId: "task-1",
       snapshot: JSON.stringify(task("task-1")),
       deletedAt: 1,
+      lifecycleGeneration: 1,
     };
     const item2: RecycleBinItem = {
       id: "rb-task-2",
@@ -154,6 +161,7 @@ describe("restore resolution by entity ID (delete-Undo paths)", () => {
       entityId: "task-2",
       snapshot: JSON.stringify(task("task-2")),
       deletedAt: 1,
+      lifecycleGeneration: 1,
     };
     await RecycleBinRepository.saveRecycleBinItems([item1, item2]);
 

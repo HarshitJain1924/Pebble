@@ -26,6 +26,8 @@ const habit = (
   completionHistory: [],
   createdAt: 1000,
   updatedAt: 1000,
+  revision: 1,
+  lifecycleGeneration: 1,
   ...overrides,
 });
 

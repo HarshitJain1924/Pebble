@@ -59,7 +59,7 @@ import { Task, Workspace } from "@/shared/types/domain.types";
 import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
 import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
 
-const ws1: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 function findByAccessibilityLabel(root: any, label: string) {
   const match = root.findAll(
@@ -148,6 +148,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "09:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -181,6 +183,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "15:00", durationMinutes: 60 },
       reminder: { enabled: true, triggerAt: new Date(2026, 7, 30, 14, 0).getTime() },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -232,6 +236,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "15:00", durationMinutes: 60 },
       reminder: { enabled: true, triggerAt: new Date(2026, 7, 30, 14, 0).getTime() },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -277,6 +283,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
       status: "todo",
       priority: "low",
       schedule: { date: "2026-08-30", startTime: "10:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -287,6 +295,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "14:00", durationMinutes: 90 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -310,6 +320,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "15:00", endTime: "16:30" },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -325,6 +337,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "10:00", durationMinutes: -45 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

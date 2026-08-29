@@ -102,7 +102,7 @@ describe("HabitCommandHandler Concurrency", () => {
   it("Test 2: deleteWorkspace vs updateHabit cannot produce a ghost Habit", async () => {
     const wsId = "ws-concurrent-habit";
     
-    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Concurrent WS", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() }]);
+    await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Concurrent WS", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
     await HabitRepository.saveHabitUnlocked({ id: "h-ghost-1", title: "Original Habit", workspaceId: wsId });
 
     const originalGetHabits = HabitRepository.getHabits.bind(HabitRepository);
@@ -377,8 +377,8 @@ describe("HabitCommandHandler Concurrency", () => {
 
     await HabitRepository.saveHabitUnlocked({ id: habitId, title: "Original Title", workspaceId: sourceWsId });
     await WorkspaceRepository.saveWorkspaces([
-      { id: sourceWsId, name: "Source", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() },
-      { id: targetWsId, name: "Target", emoji: "🎯", createdAt: Date.now(), updatedAt: Date.now() }
+      { id: sourceWsId, name: "Source", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() },
+      { id: targetWsId, name: "Target", emoji: "🎯", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }
     ]);
 
     const originalGetHabits = HabitRepository.getHabits.bind(HabitRepository);
@@ -447,8 +447,8 @@ describe("HabitCommandHandler Concurrency", () => {
     await HabitRepository.saveHabitUnlocked({ id: habit1Id, title: "Habit 1", workspaceId: wsA });
     await HabitRepository.saveHabitUnlocked({ id: habit2Id, title: "Habit 2", workspaceId: wsB });
     await WorkspaceRepository.saveWorkspaces([
-      { id: wsA, name: "Workspace A", emoji: "🧪", createdAt: Date.now(), updatedAt: Date.now() },
-      { id: wsB, name: "Workspace B", emoji: "🎯", createdAt: Date.now(), updatedAt: Date.now() }
+      { id: wsA, name: "Workspace A", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() },
+      { id: wsB, name: "Workspace B", emoji: "🎯", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }
     ]);
 
     // Fire them concurrently in opposite directions

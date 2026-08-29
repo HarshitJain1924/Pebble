@@ -53,9 +53,9 @@ import {
 import { Task, Habit, Workspace, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 
-const wsA: Workspace = { id: "ws-A", name: "Work", createdAt: 1, updatedAt: 1 };
-const wsB: Workspace = { id: "ws-B", name: "Personal", createdAt: 1, updatedAt: 1 };
-const wsC: Workspace = { id: "ws-C", name: "Projects", createdAt: 1, updatedAt: 1 };
+const wsA: Workspace = { id: "ws-A", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const wsB: Workspace = { id: "ws-B", name: "Personal", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const wsC: Workspace = { id: "ws-C", name: "Projects", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix #17)", () => {
   beforeEach(async () => {
@@ -70,10 +70,12 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
     const taskA: Task = {
       id: "task-A",
       workspaceId: "ws-A",
-      title: "Work Meeting",
+      title: "Design Meeting",
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "09:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -84,6 +86,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "14:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -94,6 +98,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30" },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -104,6 +110,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "low",
       schedule: { date: "2026-08-30", startTime: "16:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -158,6 +166,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       schedule: { date: "2026-08-01", startTime: "10:00", durationMinutes: 30 },
       recurrence: { frequency: "daily", interval: 1 },
       recurrenceExceptions: ["2026-08-30"],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -169,6 +179,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "15:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -214,6 +226,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       title: "Gym Workout",
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [{ date: "2026-08-30", completedAt: 1000 }],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -255,6 +269,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "10:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -265,6 +281,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "12:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -309,6 +327,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "09:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -343,6 +363,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "11:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -381,6 +403,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       title: "Task in A",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -390,6 +414,8 @@ describe("Calendar Workspace Scope & Cross-Workspace Visibility Invariants (Fix 
       title: "Task in B",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

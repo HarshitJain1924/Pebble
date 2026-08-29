@@ -27,6 +27,8 @@ const storage = AsyncStorage as typeof AsyncStorage;
 const workspace: Workspace = {
   id: "ws-1",
   name: "Workspace 1",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 };
@@ -57,6 +59,8 @@ describe("Hostile Regression: Task Uncomplete Reminder Lifecycle", () => {
       title: "One-time task",
       status: "todo",
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
       reminder: {
@@ -68,18 +72,22 @@ describe("Hostile Regression: Task Uncomplete Reminder Lifecycle", () => {
 
     await TaskRepository.saveTask(task);
 
-    // 2. Complete the Task and verify the native notification is cancelled.
+    // Step 1: Complete the task
     const completeResult = await EntityCommandService.completeTask("task-one-time", "ws-1", {
       skipAnalytics: true,
       skipEvents: true,
     });
+
     expect(completeResult).not.toBeNull();
     expect(completeResult?.updated.status).toBe("completed");
-
-    // Native cancel called for initial notification
     expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith("initial-id-123");
 
-    // 3. Uncomplete the Task
+    // Verify storage after completion
+    const completedTask = await TaskRepository.getTask("task-one-time", "ws-1");
+    expect(completedTask?.status).toBe("completed");
+    expect(completedTask?.reminder?.notificationIds).toBeUndefined();
+
+    // Step 2: Uncomplete the task
     const uncompleteResult = await EntityCommandService.uncompleteTask("task-one-time", "ws-1", {
       skipAnalytics: true,
       skipEvents: true,
@@ -88,25 +96,21 @@ describe("Hostile Regression: Task Uncomplete Reminder Lifecycle", () => {
     expect(uncompleteResult).not.toBeNull();
     expect(uncompleteResult?.updated.status).toBe("todo");
 
-    // 4. Verify a fresh notification is scheduled
+    // Fresh notification should be scheduled in the OS
     expect(Notifications.scheduleNotificationAsync).toHaveBeenCalled();
     const newIds = uncompleteResult?.updated.reminder?.notificationIds;
     expect(newIds).toBeDefined();
     expect(newIds?.length).toBeGreaterThan(0);
-
-    // 6. Verify old notification IDs are never left attached to the Task
     expect(newIds).not.toContain("initial-id-123");
 
-    // 5. Verify the Task persisted in AsyncStorage contains the NEW notification IDs, not the cancelled old IDs
-    const persisted = await TaskRepository.getTask("task-one-time", "ws-1");
-    expect(persisted).not.toBeNull();
-    expect(persisted?.status).toBe("todo");
-    expect(persisted?.reminder?.notificationIds).toEqual(newIds);
-    expect(persisted?.reminder?.notificationIds).not.toContain("initial-id-123");
+    // Verify storage has the NEW IDs, not undefined or old IDs
+    const uncompletedTask = await TaskRepository.getTask("task-one-time", "ws-1");
+    expect(uncompletedTask?.status).toBe("todo");
+    expect(uncompletedTask?.reminder?.notificationIds).toEqual(newIds);
   });
 
-  // 7. Test a recurring Task (whose initial triggerAt timestamp is in the past)
-  it("7: should reschedule a recurring Task even if triggerAt was in the past", async () => {
+  // 7. Active Task with recurring schedule + reminder -> complete -> uncomplete -> verify fresh IDs scheduled for upcoming occurrence
+  it("7: should reschedule recurring task reminders on uncomplete with fresh notification IDs", async () => {
     // For a recurring task, triggerAt might be 9:00 AM yesterday, but recurrence is daily
     const pastTriggerAt = Date.now() - 86_400_000;
     const task: Task = {
@@ -115,6 +119,8 @@ describe("Hostile Regression: Task Uncomplete Reminder Lifecycle", () => {
       title: "Daily morning workout",
       status: "todo",
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
       recurrence: {
@@ -166,6 +172,8 @@ describe("Hostile Regression: Task Uncomplete Reminder Lifecycle", () => {
       status: "completed",
       completedAt: Date.now() - 10_000,
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
     };
@@ -199,6 +207,8 @@ describe("Hostile Regression: Task Uncomplete Reminder Lifecycle", () => {
       status: "completed",
       completedAt: Date.now() - 1000,
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
       reminder: {
@@ -242,6 +252,8 @@ describe("Hostile Regression: Task Uncomplete Reminder Lifecycle", () => {
       status: "completed",
       completedAt: Date.now() - 1000,
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
       reminder: {

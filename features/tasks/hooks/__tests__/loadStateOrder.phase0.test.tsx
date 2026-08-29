@@ -33,8 +33,8 @@ jest.mock("@/repositories", () => ({
   UiStateRepository: { getUiState: jest.fn(async () => ({ activeWorkspaceId: "ws", completedOnboarding: true, themeCache: "dark" })) },
 }));
 
-const task = (title: string): Task => ({ id: "task", workspaceId: "ws", title, status: "todo", priority: "none", createdAt: 1, updatedAt: 1 });
-const workspace: Workspace = { id: "ws", name: "Workspace", createdAt: 1, updatedAt: 1 };
+const task = (title: string): Task => ({ id: "task", workspaceId: "ws", title, status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 });
+const workspace: Workspace = { id: "ws", name: "Workspace", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((res) => { resolve = res; }); return { promise, resolve }; };
 
 describe("Phase 0 useTasksState load ordering", () => {

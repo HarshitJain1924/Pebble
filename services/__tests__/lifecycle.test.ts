@@ -28,6 +28,8 @@ describe("Lifecycle Consistency Tests (V3 Architecture)", () => {
     await EntityCommandService.createWorkspace({
       id: wsId,
       name: "Test Workspace",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -38,6 +40,8 @@ describe("Lifecycle Consistency Tests (V3 Architecture)", () => {
       title: "Task 1",
       status: "todo",
       priority: "high",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }, wsId);
@@ -60,6 +64,8 @@ describe("Lifecycle Consistency Tests (V3 Architecture)", () => {
     await EntityCommandService.createWorkspace({
       id: wsId,
       name: "Test Workspace",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -70,6 +76,8 @@ describe("Lifecycle Consistency Tests (V3 Architecture)", () => {
       title: "Task to Convert",
       status: "todo",
       priority: "high",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }, wsId);

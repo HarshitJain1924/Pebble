@@ -66,6 +66,15 @@ export class MoveReconcilerService {
   }
 
   private static async reconcileOperation(op: MoveJournalEntry): Promise<ReconciliationStatus> {
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration(op.entityType, op.entityId);
+    const isTombstoned = (op.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned(op.entityType, op.entityId, op.lifecycleGeneration);
+    if (isTombstoned) {
+      console.warn(`[MoveReconciler] Entity ${op.entityId} (${op.entityType}) is tombstoned. Aborting obsolete operation ${op.operationId}.`);
+      await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+      return "OBSOLETE";
+    }
+
     if (op.operationType === "recycle") {
       return this.reconcileRecycle(op);
     } else if (op.operationType === "restore") {
@@ -118,6 +127,12 @@ export class MoveReconcilerService {
             console.warn(`[MoveReconciler] UNCERTAIN STATE: Entity ${op.entityId} (${op.entityType}) missing from both source (${op.sourceWorkspaceId}) and target (${op.targetWorkspaceId}) for operation ${op.operationId}. Preserving journal.`);
             return "PRESERVED";
           } else if (sourceData && !targetData) {
+            const isNewerGen = (sourceData.lifecycleGeneration || 1) > (op.lifecycleGeneration || 1);
+            if (isNewerGen) {
+              console.warn(`[MoveReconciler] Source ${op.entityId} is a newer generation (${sourceData.lifecycleGeneration} vs ${op.lifecycleGeneration}). Aborting obsolete move.`);
+              await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+              return "OBSOLETE";
+            }
             // Case A variant: Target write failed entirely, or was deleted. Source is only copy.
             sourceData.workspaceId = op.targetWorkspaceId;
             sourceData.updatedAt = Date.now();
@@ -158,48 +173,40 @@ export class MoveReconcilerService {
               // 3. Cancel and strip stale OS notifications from the source fork
               if (fork.reminder?.notificationIds?.length) {
                 try {
-                  // Must cancel native OS notifications to prevent zombies.
-                  // We use throwOnError: false because the Native layer could be unavailable, 
-                  // but if it completely crashes, the Promise will reject, reverting the entire multiSet.
-                  await cancelReminderIds(fork.reminder.notificationIds, { throwOnError: false });
+                  const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
+                  cancelReminderIds(fork.reminder.notificationIds, { throwOnError: false }).catch(() => {});
                 } catch (e) {
-                  console.warn(`[MoveReconciler] Failed to cancel notifications for fork ${forkId}`, e);
-                  // We intentionally rethrow to abort the transaction if cancellation hard-crashes.
-                  // This ensures the move journal entry is preserved for safe retry.
-                  throw e;
+                  console.warn(`[MoveReconciler] Failed to cancel notifications for conflict fork ${forkId}`, e);
                 }
-                // Strip IDs so NotificationReconciler generates fresh ones for the fork.
-                delete fork.reminder.notificationIds;
+                fork.reminder = { ...fork.reminder, notificationIds: undefined };
               }
 
               targetMap[forkId] = fork;
             }
           }
 
-          // Step 2: Write Target (Add entity)
-          // We MUST write target FIRST to prevent data loss on crash.
+          // Step 1: Write Target First (Commit Point)
           await AsyncStorage.setItem(targetKey, JSON.stringify(targetMap));
           
-          // Step 3: Verify Target Write (Durable Post-Condition)
-          const vTargetRaw = await AsyncStorage.getItem(targetKey);
-          if (vTargetRaw !== JSON.stringify(targetMap)) {
-            console.error(`DEBUG: vTargetRaw: ${vTargetRaw}, targetMap: ${JSON.stringify(targetMap)}`);
+          // Verify Target Write (Durable Post-Condition)
+          const verifyTargetRaw = await AsyncStorage.getItem(targetKey);
+          if (verifyTargetRaw !== JSON.stringify(targetMap)) {
             throw new Error(`[MoveReconciler] Durable write verification failed for target partition ${targetKey}`);
           }
 
-          // Step 4: Write Source (Delete entity)
+          // Step 2: Delete Source Second
           if (sourceMap[op.entityId]) {
             delete sourceMap[op.entityId];
-          }
-          await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
-          
-          // Step 5: Verify Source Write (Durable Post-Condition)
-          const vSourceRaw = await AsyncStorage.getItem(sourceKey);
-          if (vSourceRaw !== JSON.stringify(sourceMap)) {
-             throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
+            await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+            
+            // Verify Source Write (Durable Post-Condition)
+            const verifySourceRaw = await AsyncStorage.getItem(sourceKey);
+            if (verifySourceRaw !== JSON.stringify(sourceMap)) {
+              throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
+            }
           }
 
-          // Step 4: Remove the completed operation from the journal using the unlocked primitive
+          // Step 3: Delete MoveJournal Entry Last
           await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
           console.log(`[MoveReconciler] Successfully reconciled operation ${op.operationId}`);
           return "RESOLVED";
@@ -232,11 +239,22 @@ export class MoveReconcilerService {
           const isInBin = binItemIndex !== -1;
 
           if (sourceData && !isInBin) {
+            const isNewerGen = (sourceData.lifecycleGeneration || 1) > (op.lifecycleGeneration || 1);
+            const isNewerRev = (sourceData.revision || 1) > (op.expectedRevision || 1);
+
+            if (isNewerGen || isNewerRev) {
+              console.warn(`[MoveReconciler] Active source ${op.entityId} is newer than recycle intent (gen: ${sourceData.lifecycleGeneration} vs ${op.lifecycleGeneration}, rev: ${sourceData.revision} vs ${op.expectedRevision}). Dropping stale recycle.`);
+              await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+              return "OBSOLETE";
+            }
+
             // Add to recycle bin, remove from active
+            const lifecycleGeneration = sourceData.lifecycleGeneration || 1;
             const newItem = {
-              id: `rb-${op.entityId}`,
+              id: `rb-${op.entityId}-g${lifecycleGeneration}`,
               entityType: op.entityType,
               entityId: op.entityId,
+              lifecycleGeneration,
               snapshot: JSON.stringify(sourceData),
               deletedAt: op.timestamp || Date.now(),
             };
@@ -257,10 +275,12 @@ export class MoveReconcilerService {
                throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
             }
           } else if (sourceData && isInBin) {
-            // Check if source was updated AFTER the recycle intent timestamp
-            const sourceEdited = (sourceData.updatedAt || 0) > (op.timestamp || 0);
+            // Check if source is a newer generation or was updated AFTER the recycle intent
+            const isNewerGen = (sourceData.lifecycleGeneration || 1) > (op.lifecycleGeneration || 1);
+            const isNewerRev = (sourceData.revision || 1) > (op.expectedRevision || 1);
+            const sourceEdited = isNewerGen || isNewerRev || (sourceData.updatedAt || 0) > (op.timestamp || 0);
             if (sourceEdited) {
-              console.warn(`[MoveReconciler] Source ${op.entityId} was updated after recycle intent. Preserving newer active version and removing stale bin snapshot.`);
+              console.warn(`[MoveReconciler] Source ${op.entityId} was updated after recycle intent (gen: ${sourceData.lifecycleGeneration}, rev: ${sourceData.revision}). Preserving newer active version and removing stale bin snapshot.`);
               binArray.splice(binItemIndex, 1);
               await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
             } else {
@@ -320,8 +340,21 @@ export class MoveReconcilerService {
           let targetMap: Record<string, any> = targetRaw ? JSON.parse(targetRaw) : {};
           let binArray: any[] = binRaw ? JSON.parse(binRaw) : [];
 
-          const binItemIndex = binArray.findIndex(i => i.entityId === op.entityId || i.id === `rb-${op.entityId}`);
+          const binItemIndex = binArray.findIndex(i => 
+            (i.entityId === op.entityId || i.id === `rb-${op.entityId}` || i.id.startsWith(`rb-${op.entityId}-g`)) &&
+            ((i.lifecycleGeneration ?? 1) === (op.lifecycleGeneration ?? 1))
+          );
           const targetData = targetMap[op.entityId];
+
+          if (targetData && (targetData.lifecycleGeneration || 1) > (op.lifecycleGeneration || 1)) {
+            console.warn(`[MoveReconciler] Target entity ${op.entityId} has newer generation (${targetData.lifecycleGeneration} vs ${op.lifecycleGeneration}). Aborting stale restore.`);
+            if (binItemIndex !== -1) {
+              binArray.splice(binItemIndex, 1);
+              await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+            }
+            await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+            return "OBSOLETE";
+          }
 
           if (binItemIndex !== -1 && !targetData) {
             // Restore it

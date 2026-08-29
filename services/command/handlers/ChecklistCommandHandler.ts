@@ -86,16 +86,27 @@ static async moveChecklist(
         throw new Error(`Target workspace ${targetWorkspaceId} no longer exists.`);
       }
 
-      const movedEntity: Checklist = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+      const currentGen = existing.lifecycleGeneration || 1;
+      const nextRev = (existing.revision || 1) + 1;
+      const movedEntity: Checklist = {
+        ...existing,
+        workspaceId: targetWorkspaceId,
+        revision: nextRev,
+        lifecycleGeneration: currentGen,
+        updatedAt: Date.now(),
+      };
 
       const opId = `move-${generateId()}`;
       await MoveJournalRepository.addOperation({
         operationId: opId,
+        operationType: "move",
         entityId: checklistId,
         entityType: "checklist",
         sourceWorkspaceId,
         targetWorkspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: currentGen,
+        expectedRevision: existing.revision || 1,
       });
 
       await ChecklistRepository.saveChecklistUnlocked(movedEntity);
@@ -140,12 +151,14 @@ static async moveChecklist(
 
   static async restoreChecklist(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Checklist> {
     const { withLock } = await import("@/shared/utils/mutex");
-    const { getRecycleBinItems } = await import("@/services/storage/storage.service");
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     
     // Unlocked read to determine the target workspace before locking
-    const initialBinItems = await getRecycleBinItems();
-    const initialItem = initialBinItems.find((i) => i.id === recycleBinItemId);
+    const initialBinItems = await RecycleBinRepository.getRecycleBinItems();
+    const cleanId = recycleBinItemId.startsWith("rb-") ? recycleBinItemId.slice(3) : recycleBinItemId;
+    const initialItem = initialBinItems.find(
+      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`)
+    );
     if (!initialItem || initialItem.entityType !== "checklist") {
       throw new Error(`RecycleBin item not found or not checklist`);
     }
@@ -156,8 +169,10 @@ static async moveChecklist(
     
     return await withLock(lockKey, async () => {
       // Re-read inside the lock to ensure it wasn't already restored
-      const binItems = await getRecycleBinItems();
-      const item = binItems.find((i) => i.id === recycleBinItemId);
+      const binItems = await RecycleBinRepository.getRecycleBinItems();
+      const item = binItems.find(
+        (i) => i.id === initialItem.id || i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`)
+      );
       if (!item || item.entityType !== "checklist") {
         throw new Error(`RecycleBin item not found or not checklist`);
       }
@@ -168,6 +183,19 @@ static async moveChecklist(
       if (currentWorkspaceId !== targetWorkspaceId) {
         throw new Error(`Concurrent modification: Target workspace changed from ${targetWorkspaceId} to ${currentWorkspaceId}`);
       }
+
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration("checklist", currentParsedData.id);
+      const isDead = (currentParsedData.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned("checklist", currentParsedData.id, currentParsedData.lifecycleGeneration || 1);
+      if (isDead) {
+        try {
+          await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
+        } catch {}
+        throw new Error(`[EntityCommandService] Checklist ${currentParsedData.id} was permanently deleted.`);
+      }
+
+      currentParsedData.revision = (currentParsedData.revision ?? 1) + 1;
+      currentParsedData.lifecycleGeneration = currentParsedData.lifecycleGeneration ?? 1;
 
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
@@ -181,13 +209,25 @@ static async moveChecklist(
         sourceWorkspaceId: targetWorkspaceId,
         targetWorkspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: currentParsedData.lifecycleGeneration,
+        expectedRevision: currentParsedData.revision,
       });
 
       const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+      const existingActiveMap = await ChecklistRepository.getChecklists(targetWorkspaceId);
+      const existingActive = existingActiveMap[currentParsedData.id];
+      if (existingActive) {
+        try {
+          await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
+        } catch {}
+        await MoveJournalRepository.removeOperation(operationId);
+        return existingActive;
+      }
+
       await ChecklistRepository.saveChecklistUnlocked(currentParsedData);
 
       try {
-        await RecycleBinRepository.removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
+        await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
       } catch (e) {
         console.warn(`[CommandRecovery] Failed to remove entity from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
       }
@@ -209,13 +249,46 @@ static async moveChecklist(
   ): Promise<void> {
     const { emitStateChange } = await import("@/services/events/state-events");
     const { withLock } = await import("@/shared/utils/mutex");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
 
     const lockKey = `pebble:v1:checklists:${workspaceId}`;
     await withLock(lockKey, async () => {
       const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
-      if (!checklistsMap[checklistId]) throw new Error(`Checklist ${checklistId} not found`);
+      let checklist = checklistsMap[checklistId];
+      let fromRecycleBin = false;
 
-      await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
+      if (!checklist) {
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+        const binItems = await RecycleBinRepository.getRecycleBinItems();
+        const rbItem = binItems.find(
+          (i) => (i.entityId === checklistId || i.id === checklistId) && i.entityType === "checklist"
+        );
+        if (rbItem) {
+          try {
+            checklist = JSON.parse(rbItem.snapshot);
+            fromRecycleBin = true;
+          } catch {}
+        }
+      }
+
+      if (!checklist) throw new Error(`Checklist ${checklistId} not found`);
+
+      // 1. Add durable tombstone
+      await TombstoneRepository.addTombstone({
+        id: `ts-checklist-${checklist.id}-g${checklist.lifecycleGeneration ?? 1}`,
+        entityType: "checklist",
+        entityId: checklist.id,
+        lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
+        deletionRevision: checklist.revision ?? 1,
+        deletedAt: Date.now(),
+      });
+
+      // 2. Remove from active storage and recycle bin
+      if (!fromRecycleBin) {
+        await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
+      }
+      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+      await RecycleBinRepository.removeRecycleBinItems([checklistId]);
     });
 
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
@@ -252,6 +325,8 @@ static async recycleChecklist(
         sourceWorkspaceId: workspaceId,
         targetWorkspaceId: workspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: checklist.lifecycleGeneration || 1,
+        expectedRevision: checklist.revision || 1,
       });
 
       await RecycleBinRepository.addToRecycleBin("checklist", checklist, workspaceId, { throwOnError: true });
@@ -475,20 +550,43 @@ static async recycleChecklist(
   ): Promise<Checklist> {
     let checklist: Checklist;
 
-    if (isParsedProductivityItem(input)) {
-      checklist = buildChecklist(input, workspaceId);
-    } else {
-      const targetWorkspace = input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
-      checklist = {
-        ...input,
-        workspaceId: targetWorkspace,
-        createdAt: input.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        items: input.items || [],
-      };
-    }
+    const targetWorkspace = isParsedProductivityItem(input)
+      ? workspaceId || INBOX_WORKSPACE_ID
+      : input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
 
-    await ChecklistRepository.saveChecklist(checklist);
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    const lockKey = `pebble:v1:checklists:${targetWorkspace}`;
+
+    checklist = await withLock(lockKey, async () => {
+      let candidate: Checklist;
+      if (isParsedProductivityItem(input)) {
+        candidate = buildChecklist(input, targetWorkspace);
+      } else {
+        candidate = {
+          ...input,
+          workspaceId: targetWorkspace,
+          revision: input.revision ?? 1,
+          lifecycleGeneration: input.lifecycleGeneration ?? 1,
+          createdAt: input.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          items: input.items || [],
+        };
+      }
+
+      // Authoritative generation allocation inside the partition lock:
+      const highestTombstone = candidate.id
+        ? await TombstoneRepository.getHighestTombstonedGeneration("checklist", candidate.id)
+        : 0;
+      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+
+      candidate.lifecycleGeneration = allocatedGen;
+      candidate.revision = candidate.revision || 1;
+
+      // 1. Domain persistence FIRST
+      await ChecklistRepository.saveChecklistUnlocked(candidate);
+      return candidate;
+    });
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);

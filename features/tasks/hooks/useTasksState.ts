@@ -798,6 +798,8 @@ export function useTasksState() {
         title: h.title,
         recurrence: h.recurrence,
         completionHistory: h.completionHistory || [],
+        revision: h.revision || 1,
+        lifecycleGeneration: h.lifecycleGeneration || 1,
         createdAt: h.createdAt,
         updatedAt: h.updatedAt,
       }));

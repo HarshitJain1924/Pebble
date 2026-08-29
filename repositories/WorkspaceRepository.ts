@@ -20,6 +20,8 @@ export function normalizeWorkspace(raw: any): Workspace {
     emoji: raw.emoji || (raw.iconType === "emoji" ? raw.icon : undefined),
     color: raw.color || undefined,
     description: raw.description || undefined,
+    revision: raw.revision ?? 1,
+    lifecycleGeneration: raw.lifecycleGeneration ?? 1,
     createdAt: raw.createdAt || Date.now(),
     updatedAt: raw.updatedAt || Date.now(),
     archivedAt: raw.archivedAt || (raw.archived ? Date.now() : undefined),

@@ -87,16 +87,27 @@ export class ResourceCommandHandler {
         throw new Error(`Target workspace ${targetWorkspaceId} no longer exists.`);
       }
 
-      const moved: Resource = { ...existing, workspaceId: targetWorkspaceId, updatedAt: Date.now() };
+      const currentGen = existing.lifecycleGeneration || 1;
+      const nextRev = (existing.revision || 1) + 1;
+      const moved: Resource = {
+        ...existing,
+        workspaceId: targetWorkspaceId,
+        revision: nextRev,
+        lifecycleGeneration: currentGen,
+        updatedAt: Date.now(),
+      };
 
       const operationId = `move-${generateId()}`;
       await MoveJournalRepository.addOperation({
         operationId,
+        operationType: "move",
         entityId: resourceId,
         entityType: "resource",
         sourceWorkspaceId,
         targetWorkspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: currentGen,
+        expectedRevision: existing.revision || 1,
       });
 
       await ResourceRepository.saveResourceUnlocked(moved);
@@ -167,12 +178,14 @@ export class ResourceCommandHandler {
 
   static async restoreResource(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Resource> {
     const { withLock } = await import("@/shared/utils/mutex");
-    const { getRecycleBinItems } = await import("@/services/storage/storage.service");
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     
     // Unlocked read to determine the target workspace before locking
-    const initialBinItems = await getRecycleBinItems();
-    const initialItem = initialBinItems.find((i) => i.id === recycleBinItemId);
+    const initialBinItems = await RecycleBinRepository.getRecycleBinItems();
+    const cleanId = recycleBinItemId.startsWith("rb-") ? recycleBinItemId.slice(3) : recycleBinItemId;
+    const initialItem = initialBinItems.find(
+      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`)
+    );
     if (!initialItem || initialItem.entityType !== "resource") {
       throw new Error(`RecycleBin item not found or not resource`);
     }
@@ -183,8 +196,10 @@ export class ResourceCommandHandler {
     
     return await withLock(lockKey, async () => {
       // Re-read inside the lock to ensure it wasn't already restored
-      const binItems = await getRecycleBinItems();
-      const item = binItems.find((i) => i.id === recycleBinItemId);
+      const binItems = await RecycleBinRepository.getRecycleBinItems();
+      const item = binItems.find(
+        (i) => i.id === initialItem.id || i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`)
+      );
       if (!item || item.entityType !== "resource") {
         throw new Error(`RecycleBin item not found or not resource`);
       }
@@ -195,6 +210,19 @@ export class ResourceCommandHandler {
       if (currentWorkspaceId !== targetWorkspaceId) {
         throw new Error(`Concurrent modification: Target workspace changed from ${targetWorkspaceId} to ${currentWorkspaceId}`);
       }
+
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration("resource", currentParsedData.id);
+      const isDead = (currentParsedData.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned("resource", currentParsedData.id, currentParsedData.lifecycleGeneration || 1);
+      if (isDead) {
+        try {
+          await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
+        } catch {}
+        throw new Error(`[EntityCommandService] Resource ${currentParsedData.id} was permanently deleted.`);
+      }
+
+      currentParsedData.revision = (currentParsedData.revision ?? 1) + 1;
+      currentParsedData.lifecycleGeneration = currentParsedData.lifecycleGeneration ?? 1;
 
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
@@ -208,13 +236,25 @@ export class ResourceCommandHandler {
         sourceWorkspaceId: targetWorkspaceId,
         targetWorkspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: currentParsedData.lifecycleGeneration,
+        expectedRevision: currentParsedData.revision,
       });
 
       const { ResourceRepository } = await import("@/repositories/ResourceRepository");
+      const existingActiveMap = await ResourceRepository.getResources(targetWorkspaceId);
+      const existingActive = existingActiveMap[currentParsedData.id];
+      if (existingActive) {
+        try {
+          await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
+        } catch {}
+        await MoveJournalRepository.removeOperation(operationId);
+        return existingActive;
+      }
+
       await ResourceRepository.saveResourceUnlocked(currentParsedData);
 
       try {
-        await RecycleBinRepository.removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
+        await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
       } catch (e) {
         console.warn(`[CommandRecovery] Failed to remove entity from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
       }
@@ -236,13 +276,46 @@ export class ResourceCommandHandler {
   ): Promise<void> {
     const { emitStateChange } = await import("@/services/events/state-events");
     const { withLock } = await import("@/shared/utils/mutex");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
 
     const lockKey = `pebble:v1:resources:${workspaceId}`;
     await withLock(lockKey, async () => {
       const resourcesMap = await ResourceRepository.getResources(workspaceId);
-      if (!resourcesMap[resourceId]) throw new Error(`Resource ${resourceId} not found`);
+      let resource = resourcesMap[resourceId];
+      let fromRecycleBin = false;
 
-      await ResourceRepository.deleteResourceUnlocked(resourceId, workspaceId);
+      if (!resource) {
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+        const binItems = await RecycleBinRepository.getRecycleBinItems();
+        const rbItem = binItems.find(
+          (i) => (i.entityId === resourceId || i.id === resourceId) && i.entityType === "resource"
+        );
+        if (rbItem) {
+          try {
+            resource = JSON.parse(rbItem.snapshot);
+            fromRecycleBin = true;
+          } catch {}
+        }
+      }
+
+      if (!resource) throw new Error(`Resource ${resourceId} not found`);
+
+      // 1. Add durable tombstone
+      await TombstoneRepository.addTombstone({
+        id: `ts-resource-${resource.id}-g${resource.lifecycleGeneration ?? 1}`,
+        entityType: "resource",
+        entityId: resource.id,
+        lifecycleGeneration: resource.lifecycleGeneration ?? 1,
+        deletionRevision: resource.revision ?? 1,
+        deletedAt: Date.now(),
+      });
+
+      // 2. Remove from active storage and recycle bin
+      if (!fromRecycleBin) {
+        await ResourceRepository.deleteResourceUnlocked(resourceId, workspaceId);
+      }
+      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+      await RecycleBinRepository.removeRecycleBinItems([resourceId]);
     });
 
     if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
@@ -278,6 +351,8 @@ export class ResourceCommandHandler {
         sourceWorkspaceId: workspaceId,
         targetWorkspaceId: workspaceId,
         timestamp: Date.now(),
+        lifecycleGeneration: resource.lifecycleGeneration || 1,
+        expectedRevision: resource.revision || 1,
       });
 
       await RecycleBinRepository.addToRecycleBin("resource", resource, workspaceId, { throwOnError: true });
@@ -306,20 +381,43 @@ export class ResourceCommandHandler {
   ): Promise<Resource> {
     let resource: Resource;
 
-    if (isParsedProductivityItem(input)) {
-      resource = buildResource(input, workspaceId);
-    } else {
-      const targetWorkspace = input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
-      resource = {
-        ...input,
-        workspaceId: targetWorkspace,
-        createdAt: input.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        tags: input.tags || [],
-      };
-    }
+    const targetWorkspace = isParsedProductivityItem(input)
+      ? workspaceId || INBOX_WORKSPACE_ID
+      : input.workspaceId || workspaceId || INBOX_WORKSPACE_ID;
 
-    await ResourceRepository.saveResource(resource);
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    const lockKey = `pebble:v1:resources:${targetWorkspace}`;
+
+    resource = await withLock(lockKey, async () => {
+      let candidate: Resource;
+      if (isParsedProductivityItem(input)) {
+        candidate = buildResource(input, targetWorkspace);
+      } else {
+        candidate = {
+          ...input,
+          workspaceId: targetWorkspace,
+          revision: input.revision ?? 1,
+          lifecycleGeneration: input.lifecycleGeneration ?? 1,
+          createdAt: input.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          tags: input.tags || [],
+        };
+      }
+
+      // Authoritative generation allocation inside the partition lock:
+      const highestTombstone = candidate.id
+        ? await TombstoneRepository.getHighestTombstonedGeneration("resource", candidate.id)
+        : 0;
+      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+
+      candidate.lifecycleGeneration = allocatedGen;
+      candidate.revision = candidate.revision || 1;
+
+      // 1. Domain persistence FIRST
+      await ResourceRepository.saveResourceUnlocked(candidate);
+      return candidate;
+    });
 
     if (!options?.skipEvents) {
       emitStateChange("resources_changed", options?.source);
@@ -331,6 +429,4 @@ export class ResourceCommandHandler {
 
     return resource;
   }
-
-
 }

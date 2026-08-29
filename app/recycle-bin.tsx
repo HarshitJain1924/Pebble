@@ -180,13 +180,26 @@ export default function RecycleBinScreen() {
         style: "destructive",
         onPress: async () => {
           try {
+            const snap = parseSnapshot(item.snapshot);
             if (item.entityType === "task" || item.entityType === "habit") {
-              const snap = parseSnapshot(item.snapshot);
               const notifIds = snap?.reminder?.notificationIds || snap?.notificationIds || [];
               if (notifIds.length > 0) {
                 await cancelReminderIds(notifIds);
               }
             }
+
+            const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+            const entityId = item.entityId || snap?.id || item.id;
+            const lifecycleGeneration = item.lifecycleGeneration ?? snap?.lifecycleGeneration ?? 1;
+            const revision = snap?.revision ?? 1;
+            await TombstoneRepository.addTombstone({
+              id: `ts-${item.entityType}-${entityId}-g${lifecycleGeneration}`,
+              entityType: item.entityType,
+              entityId,
+              lifecycleGeneration,
+              deletionRevision: revision,
+              deletedAt: Date.now(),
+            });
 
             const remaining = items.filter((i) => i.id !== item.id);
             await saveRecycleBinItems(remaining);
@@ -269,6 +282,23 @@ export default function RecycleBinScreen() {
           onPress: async () => {
             setLoading(true);
             try {
+              const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+              const tombstonesToAdd = items.map((item) => {
+                const snap = parseSnapshot(item.snapshot);
+                const entityId = item.entityId || snap?.id || item.id;
+                const lifecycleGeneration = item.lifecycleGeneration ?? snap?.lifecycleGeneration ?? 1;
+                const revision = snap?.revision ?? 1;
+                return {
+                  id: `ts-${item.entityType}-${entityId}-g${lifecycleGeneration}`,
+                  entityType: item.entityType,
+                  entityId,
+                  lifecycleGeneration,
+                  deletionRevision: revision,
+                  deletedAt: Date.now(),
+                };
+              });
+              await TombstoneRepository.addTombstones(tombstonesToAdd);
+
               await saveRecycleBinItems([]);
               setItems([]);
               Haptics.notificationAsync(

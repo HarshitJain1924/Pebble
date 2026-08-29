@@ -100,6 +100,8 @@ describe("MoveReconciler Journal Coalescing Hostile Verification", () => {
     sourceWorkspaceId: sourceWs,
     targetWorkspaceId: targetWs,
     timestamp,
+    lifecycleGeneration: 1,
+    expectedRevision: 1,
   });
 
   const mockTask = (id: string, workspaceId: string): Task => ({
@@ -109,6 +111,8 @@ describe("MoveReconciler Journal Coalescing Hostile Verification", () => {
     status: "todo",
     priority: "medium",
     categoryId: "work",
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: 1000,
     updatedAt: 1000,
     schedule: {},

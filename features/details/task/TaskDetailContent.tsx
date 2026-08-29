@@ -239,13 +239,15 @@ export function TaskDetailContent({
     try {
       // Load workspaces via WorkspaceRepository
       const folderList = await WorkspaceRepository.getWorkspaces();
-      const loadedWorkspaces =
+      const loadedWorkspaces: Workspace[] =
         folderList.length > 0
           ? folderList.map((f) => ({
               id: f.id,
               name: f.name,
               emoji: f.emoji || "📁",
               color: f.color || "#6366F1",
+              revision: f.revision || 1,
+              lifecycleGeneration: f.lifecycleGeneration || 1,
               createdAt: f.createdAt,
               updatedAt: f.updatedAt || Date.now(),
               archivedAt: f.archivedAt,
@@ -256,6 +258,8 @@ export function TaskDetailContent({
                 name: "Inbox",
                 emoji: "📥",
                 color: "#6366F1",
+                revision: 1,
+                lifecycleGeneration: 1,
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
               },
@@ -308,6 +312,8 @@ export function TaskDetailContent({
               ? { startTime: initialStartTime, durationMinutes: 60 }
               : {}),
           },
+          revision: 1,
+          lifecycleGeneration: 1,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };

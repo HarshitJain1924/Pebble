@@ -53,7 +53,7 @@ import { useCalendarState } from "@/features/calendar/hooks/useCalendarState";
 import { TaskRepository, WorkspaceRepository, UiStateRepository } from "@/repositories";
 import { Task, Workspace } from "@/shared/types/domain.types";
 
-const ws1: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Defensive Calendar Schedule Parsing (Fix #16)", () => {
   beforeEach(async () => {
@@ -196,6 +196,8 @@ describe("Defensive Calendar Schedule Parsing (Fix #16)", () => {
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "25:00", durationMinutes: -50 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -237,6 +239,8 @@ describe("Defensive Calendar Schedule Parsing (Fix #16)", () => {
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "10:00", endTime: "invalid" },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

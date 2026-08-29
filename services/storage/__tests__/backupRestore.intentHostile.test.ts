@@ -50,8 +50,8 @@ function makeBackup(): AppBackup {
   return {
     version: 1,
     timestamp: 200,
-    workspaces: [{ id: "ws-backup", name: "Backup Workspace", createdAt: 200, updatedAt: 200 }],
-    tasks: [{ id: "task-backup", title: "Backup Task", workspaceId: "ws-backup", status: "todo", priority: "none", createdAt: 200, updatedAt: 200 }],
+    workspaces: [{ id: "ws-backup", name: "Backup Workspace", revision: 1, lifecycleGeneration: 1, createdAt: 200, updatedAt: 200 }],
+    tasks: [{ id: "task-backup", title: "Backup Task", workspaceId: "ws-backup", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 200, updatedAt: 200 }],
     habits: [],
     checklists: [],
     resources: [],

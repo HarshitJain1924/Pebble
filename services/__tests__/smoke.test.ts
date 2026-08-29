@@ -22,7 +22,7 @@ describe("Phase 11: Fresh-Install Production Smoke Test", () => {
 
   it("should complete the fresh-user flow", async () => {
     const wsId = "ws-smoke";
-    await EntityCommandService.createWorkspace({ id: wsId, name: "Personal", createdAt: Date.now(), updatedAt: Date.now() });
+    await EntityCommandService.createWorkspace({ id: wsId, name: "Personal", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() });
 
     // 5. Create task
     const task = await EntityCommandService.createTask({

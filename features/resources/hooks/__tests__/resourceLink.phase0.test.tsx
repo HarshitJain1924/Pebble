@@ -6,8 +6,8 @@ import type { Task, Workspace } from "@/shared/types/domain.types";
 
 jest.mock("expo-haptics", () => ({ ImpactFeedbackStyle: { Light: "light" }, impactAsync: jest.fn(async () => undefined) }));
 
-const workspace: Workspace = { id: "ws", name: "Workspace", createdAt: 1, updatedAt: 1 };
-const task: Task = { id: "task", workspaceId: "ws", title: "Task", status: "todo", priority: "none", createdAt: 1, updatedAt: 1 };
+const workspace: Workspace = { id: "ws", name: "Workspace", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const task: Task = { id: "task", workspaceId: "ws", title: "Task", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Phase 0 resource-link persistence", () => {
   it("loads the actual hook without introducing a new production dependency", () => {

@@ -54,6 +54,7 @@ describe("MoveReconciler Journal Gap Hostile Verification", () => {
       createdAt: Date.now(),
       updatedAt: 1000,
       revision: 1,
+      lifecycleGeneration: 1,
     };
 
     const op: MoveJournalEntry = {
@@ -64,6 +65,8 @@ describe("MoveReconciler Journal Gap Hostile Verification", () => {
       sourceWorkspaceId: sourceWs,
       targetWorkspaceId: targetWs,
       timestamp: 2000,
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     };
 
     store.set(`pebble:v1:tasks:${sourceWs}`, JSON.stringify({ [taskId]: task }));

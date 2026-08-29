@@ -25,8 +25,8 @@ jest.mock("@react-native-async-storage/async-storage", () => {
   };
 });
 
-const ws1: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
-const ws2: Workspace = { id: "ws-2", name: "Personal", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const ws2: Workspace = { id: "ws-2", name: "Personal", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
   let cancelSpy: jest.SpyInstance;
@@ -86,6 +86,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
         status: "todo",
         priority: "medium",
         reminder: { enabled: true, triggerAt: Date.now() + 3600000 },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: 1000,
         updatedAt: 1000,
       },
@@ -106,6 +108,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       status: "todo",
       priority: "medium",
       reminder: { enabled: true, triggerAt: Date.now() + 1000, notificationIds: ["old-id-123"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -134,6 +138,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       status: "todo",
       priority: "medium",
       reminder: { enabled: true, triggerAt: Date.now() + 1000, notificationIds: ["old-active-id"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -161,6 +167,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       status: "todo",
       priority: "medium",
       reminder: { enabled: true, triggerAt: Date.now() + 100000, notificationIds: ["recycle-id"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -196,6 +204,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
         status: "todo",
         priority: "high",
         reminder: { enabled: true, triggerAt: Date.now() + 99999 },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: 1000,
         updatedAt: 1000,
       },
@@ -218,6 +228,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       recurrence: { frequency: "daily", interval: 1 },
       reminder: { enabled: true, triggerAt: Date.now() + 100000 },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -236,6 +248,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       schedule: { date: "2026-08-01", startTime: "09:00", durationMinutes: 30 },
       recurrence: { frequency: "daily", interval: 1 },
       reminder: { enabled: true, triggerAt: Date.now() + 100000, notificationIds: ["master-notif"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -265,6 +279,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "14:00", durationMinutes: 30 },
       reminder: { enabled: true, triggerAt: Date.now() + 200000 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -282,6 +298,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       priority: "medium",
       recurrence: { frequency: "daily", interval: 1 },
       reminder: { enabled: true, triggerAt: Date.now() + 50000, notificationIds: ["task-notif-old"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -305,6 +323,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       status: "todo",
       priority: "high",
       reminder: { enabled: true, triggerAt: Date.now() + 50000, notificationIds: ["ws1-notif"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -329,6 +349,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "15:00", durationMinutes: 60 },
       reminder: { enabled: true, triggerAt: 500000 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -353,6 +375,8 @@ describe("Reminder / Notification Referential Integrity (Fix #20)", () => {
       status: "todo",
       priority: "none",
       reminder: { enabled: true, triggerAt: Date.now() + 50000, notificationIds: ["done-id"] },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

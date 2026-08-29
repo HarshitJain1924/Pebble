@@ -108,6 +108,8 @@ export function SuggestionBanner({
                     categoryId: "learning",
                     recurrence: { frequency: "daily", interval: 1 },
                     completionHistory: [],
+                    revision: 1,
+                    lifecycleGeneration: 1,
                     createdAt: Date.now(),
                     updatedAt: Date.now(),
                   };
@@ -136,6 +138,8 @@ export function SuggestionBanner({
                     categoryId: "learning",
                     priority: "high",
                     schedule: { date: getDateKey() },
+                    revision: 1,
+                    lifecycleGeneration: 1,
                     createdAt: Date.now(),
                     updatedAt: Date.now(),
                   };

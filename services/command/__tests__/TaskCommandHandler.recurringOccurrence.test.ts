@@ -62,6 +62,8 @@ describe("TaskCommandHandler.rescheduleRecurringOccurrence Hardened Concurrency 
         frequency: "daily",
         interval: 1,
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -214,6 +216,8 @@ describe("TaskCommandHandler.rescheduleRecurringOccurrence Hardened Concurrency 
         date: "2026-08-30",
         startTime: "10:00",
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -273,6 +277,8 @@ describe("TaskCommandHandler.rescheduleRecurringOccurrence Hardened Concurrency 
         interval: 1,
       },
       recurrenceExceptions: ["2026-08-10", "2026-08-20"],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -306,6 +312,8 @@ describe("TaskCommandHandler.rescheduleRecurringOccurrence Hardened Concurrency 
       title: "Unrelated Task",
       status: "todo",
       priority: "low",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

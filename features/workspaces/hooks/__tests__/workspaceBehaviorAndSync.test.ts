@@ -43,8 +43,8 @@ jest.mock("expo-haptics", () => ({
   selectionAsync: jest.fn(async () => undefined),
 }));
 
-const wsA: Workspace = { id: "ws-a", name: "Workspace A", createdAt: 10, updatedAt: 10 };
-const wsB: Workspace = { id: "ws-b", name: "Workspace B", createdAt: 20, updatedAt: 20 };
+const wsA: Workspace = { id: "ws-a", name: "Workspace A", revision: 1, lifecycleGeneration: 1, createdAt: 10, updatedAt: 10 };
+const wsB: Workspace = { id: "ws-b", name: "Workspace B", revision: 1, lifecycleGeneration: 1, createdAt: 20, updatedAt: 20 };
 
 const taskA: Task = {
   id: "task-a",
@@ -52,6 +52,8 @@ const taskA: Task = {
   title: "Task in A",
   status: "todo",
   priority: "high",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 10,
   updatedAt: 10,
 };
@@ -62,6 +64,8 @@ const taskB: Task = {
   title: "Task in B",
   status: "todo",
   priority: "medium",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 20,
   updatedAt: 20,
 };

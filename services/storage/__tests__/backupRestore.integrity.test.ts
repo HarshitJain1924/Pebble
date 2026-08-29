@@ -41,8 +41,8 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
   const generateValidBackup = (): AppBackup => ({
     version: 1,
     timestamp: Date.now(),
-    workspaces: [{ id: "ws-1", name: "Backup WS", createdAt: 100, updatedAt: 100 }],
-    tasks: [{ id: "task-1", title: "Backup Task", workspaceId: "ws-1", status: "todo", priority: "none", createdAt: 100, updatedAt: 100 }],
+    workspaces: [{ id: "ws-1", name: "Backup WS", revision: 1, lifecycleGeneration: 1, createdAt: 100, updatedAt: 100 }],
+    tasks: [{ id: "task-1", title: "Backup Task", workspaceId: "ws-1", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 100, updatedAt: 100 }],
     habits: [],
     checklists: [],
     resources: [],
@@ -74,11 +74,14 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
         // before BackupService proceeds to compute lockKeys.
         await MoveJournalRepository.addOperation({
           operationId: "op-sneaky",
+          operationType: "move",
           entityId: "task-sneaky",
           entityType: "task",
           sourceWorkspaceId: "inbox",
           targetWorkspaceId: "ws-1",
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          lifecycleGeneration: 1,
+          expectedRevision: 1,
         });
       }
       
@@ -243,11 +246,14 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
     // Simulate move happening after restore
     await MoveJournalRepository.addOperation({
       operationId: "op-post",
+      operationType: "move",
       entityId: "task-1",
       entityType: "task",
       sourceWorkspaceId: "ws-1",
       targetWorkspaceId: "ws-2",
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     // Journal should be safely intact
@@ -266,11 +272,14 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
     // Operation where source workspace no longer exists in storage
     await MoveJournalRepository.addOperation({
       operationId: "op-deleted-ws",
+      operationType: "move",
       entityId: "task-ghost",
       entityType: "task",
       sourceWorkspaceId: "ghost-ws",
       targetWorkspaceId: "ws-1",
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      lifecycleGeneration: 1,
+      expectedRevision: 1,
     });
 
     // Run reconciliation 

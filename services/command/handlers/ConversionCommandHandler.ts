@@ -60,6 +60,8 @@ export class ConversionCommandHandler {
         schedule: { date: new Date().toISOString().split("T")[0] },
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        lifecycleGeneration: 1,
+        revision: 1,
         reminder: habit.reminder
           ? {
               enabled: habit.reminder.enabled,
@@ -87,6 +89,8 @@ export class ConversionCommandHandler {
         phase: "PREPARED",
         timestamp: Date.now(),
         sourceRevision: habit.revision,
+        sourceGeneration: habit.lifecycleGeneration,
+        targetGeneration: newTask.lifecycleGeneration,
         targetCreatedAt: newTask.createdAt,
         targetFingerprint: generateEntityFingerprint(newTask),
       });
@@ -200,6 +204,8 @@ export class ConversionCommandHandler {
         resourceIds: task.resourceIds,
         createdAt: task.createdAt,
         updatedAt: Date.now(),
+        lifecycleGeneration: 1,
+        revision: 1,
         archivedAt: task.archivedAt,
       };
 
@@ -221,6 +227,8 @@ export class ConversionCommandHandler {
         phase: "PREPARED",
         timestamp: Date.now(),
         sourceRevision: task.revision,
+        sourceGeneration: task.lifecycleGeneration,
+        targetGeneration: habit.lifecycleGeneration,
         targetCreatedAt: habit.createdAt,
         targetFingerprint: generateEntityFingerprint(habit),
       });

@@ -110,6 +110,8 @@ export function useTodayDashboard(): TodayDashboardStats {
           name: "Inbox",
           emoji: "📥",
           color: "#6366F1",
+          revision: 1,
+          lifecycleGeneration: 1,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         });

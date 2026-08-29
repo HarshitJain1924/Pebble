@@ -74,11 +74,14 @@ describe("MoveReconcilerService", () => {
     entityType: "task" | "habit" | "checklist" | "resource" = "task",
   ): MoveJournalEntry => ({
     operationId: `move-${generateId()}`,
+    operationType: "move",
     entityId,
     entityType,
     sourceWorkspaceId: "ws-1",
     targetWorkspaceId: "ws-2",
     timestamp: Date.now(),
+    lifecycleGeneration: 1,
+    expectedRevision: 1,
   });
 
   const mockTask = (id: string, workspaceId: string, updatedAt: number = Date.now()): Task => ({
@@ -88,6 +91,8 @@ describe("MoveReconcilerService", () => {
     status: "todo",
     priority: "medium",
     categoryId: "work",
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: updatedAt,
     updatedAt,
     schedule: {},

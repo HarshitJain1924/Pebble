@@ -67,6 +67,8 @@ describe("State Events & Attribution Contract Suite", () => {
         title: "External Task",
         status: "todo",
         priority: "none",
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: 100,
         updatedAt: 100,
       };
@@ -111,6 +113,8 @@ describe("State Events & Attribution Contract Suite", () => {
       title: "Daily Habit",
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
     };
@@ -120,6 +124,8 @@ describe("State Events & Attribution Contract Suite", () => {
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Checklist",
       items: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
     };
@@ -127,7 +133,7 @@ describe("State Events & Attribution Contract Suite", () => {
     await EntityCommandService.createHabit(habit, INBOX_WORKSPACE_ID, { source: "habits_screen" });
     await EntityCommandService.createChecklist(checklist, INBOX_WORKSPACE_ID, { source: "checklists_screen" });
     await EntityCommandService.createWorkspace(
-      { id: "ws-evt-1", name: "New WS", createdAt: 100, updatedAt: 100 },
+      { id: "ws-evt-1", name: "New WS", revision: 1, lifecycleGeneration: 1, createdAt: 100, updatedAt: 100 },
     );
 
     unsubH();
@@ -161,6 +167,8 @@ describe("State Events & Attribution Contract Suite", () => {
       title: "Persisted Task",
       status: "todo",
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 100,
       updatedAt: 100,
     };

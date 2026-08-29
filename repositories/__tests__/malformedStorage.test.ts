@@ -23,6 +23,8 @@ const task = (id: string): Task => ({
   title: `Task ${id}`,
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -33,6 +35,8 @@ const habit = (id: string): Habit => ({
   title: `Habit ${id}`,
   recurrence: { frequency: "daily", interval: 1 },
   completionHistory: [],
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -42,6 +46,8 @@ const checklist = (id: string): Checklist => ({
   workspaceId: "ws-1",
   title: `Checklist ${id}`,
   items: [],
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -51,6 +57,8 @@ const resource = (id: string): Resource => ({
   workspaceId: "ws-1",
   type: "note",
   title: `Resource ${id}`,
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });

@@ -55,6 +55,8 @@ import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.s
 const wsMain: Workspace = {
   id: "ws-main",
   name: "Main",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 100,
   updatedAt: 100,
 };
@@ -75,6 +77,8 @@ describe("Habit Calendar Scheduling & Completion Invariants (Fix #13)", () => {
       title: "Drink Water",
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -84,6 +88,8 @@ describe("Habit Calendar Scheduling & Completion Invariants (Fix #13)", () => {
       title: "Review Team PRs",
       recurrence: { frequency: "weekly", interval: 1, daysOfWeek: [1, 2, 3, 4, 5] },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -103,26 +109,21 @@ describe("Habit Calendar Scheduling & Completion Invariants (Fix #13)", () => {
     });
 
     try {
-      // 2026-08-30 is a Sunday
+      // 2026-08-30 is a Sunday (day 0)
       await act(async () => {
         state!.setSelectedDate("2026-08-30");
       });
+      // Daily habit should be in allDayItems, weekday habit should NOT
+      expect(state!.allDayItems.some((h) => h.id === "habit-daily-1")).toBe(true);
+      expect(state!.allDayItems.some((h) => h.id === "habit-weekday-1")).toBe(false);
 
-      // Daily habit appears on Sunday, weekday habit does not
-      expect(state!.timelineItems.map((h) => h.id)).toContain("habit-daily-1");
-      expect(state!.timelineItems.map((h) => h.id)).not.toContain("habit-weekday-1");
-
-      // Both reside in allDayItems ("Anytime")
-      expect(state!.allDayItems.map((h) => h.id)).toContain("habit-daily-1");
-
-      // 2026-08-31 is a Monday
+      // 2026-08-31 is a Monday (day 1)
       await act(async () => {
         state!.setSelectedDate("2026-08-31");
       });
-
-      // Both appear on Monday
-      expect(state!.timelineItems.map((h) => h.id)).toContain("habit-daily-1");
-      expect(state!.timelineItems.map((h) => h.id)).toContain("habit-weekday-1");
+      // Both should be in allDayItems
+      expect(state!.allDayItems.some((h) => h.id === "habit-daily-1")).toBe(true);
+      expect(state!.allDayItems.some((h) => h.id === "habit-weekday-1")).toBe(true);
     } finally {
       act(() => {
         renderer.unmount();
@@ -142,6 +143,8 @@ describe("Habit Calendar Scheduling & Completion Invariants (Fix #13)", () => {
         triggerAt: new Date(2026, 7, 30, 20, 30).getTime(), // 8:30 PM reminder
       },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -190,6 +193,8 @@ describe("Habit Calendar Scheduling & Completion Invariants (Fix #13)", () => {
         { date: "2026-08-30", completedAt: 2000 },
       ],
       streak: 2,
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

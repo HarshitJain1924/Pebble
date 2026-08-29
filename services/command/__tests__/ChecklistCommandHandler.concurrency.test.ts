@@ -18,12 +18,14 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 describe("ChecklistCommandHandler Concurrency", () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
-    jest.clearAllMocks();
+    jest.restoreAllMocks();
     
     // Seed inbox workspace
     await WorkspaceRepository.saveWorkspace({
       id: "inbox",
       name: "Inbox",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -442,6 +444,8 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await WorkspaceRepository.saveWorkspace({
       id: workspaceB,
       name: "Workspace B",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -518,8 +522,8 @@ describe("ChecklistCommandHandler Concurrency", () => {
     const workspaceA = "workspace-a-deadlock";
     const workspaceB = "workspace-b-deadlock";
 
-    await WorkspaceRepository.saveWorkspace({ id: workspaceA, name: "A", createdAt: 0, updatedAt: 0 });
-    await WorkspaceRepository.saveWorkspace({ id: workspaceB, name: "B", createdAt: 0, updatedAt: 0 });
+    await WorkspaceRepository.saveWorkspace({ id: workspaceA, name: "A", revision: 1, lifecycleGeneration: 1, createdAt: 0, updatedAt: 0 });
+    await WorkspaceRepository.saveWorkspace({ id: workspaceB, name: "B", revision: 1, lifecycleGeneration: 1, createdAt: 0, updatedAt: 0 });
 
     await ChecklistRepository.saveChecklistUnlocked({ id: checklist1, workspaceId: workspaceA, title: "C1" });
     await ChecklistRepository.saveChecklistUnlocked({ id: checklist2, workspaceId: workspaceB, title: "C2" });
@@ -838,6 +842,8 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await WorkspaceRepository.saveWorkspace({
       id: workspace1,
       name: "WS 1",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -845,6 +851,8 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await WorkspaceRepository.saveWorkspace({
       id: workspace2,
       name: "WS 2",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -864,6 +872,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     const resumeDelete = new Promise<void>((r) => { resolveResumeDelete = r; });
 
     let getChecklistsCallCount = 0;
+    let moveStartedRead = false;
     jest
       .spyOn(ChecklistRepository, "getChecklists")
       .mockImplementation(async (wsId) => {
@@ -873,6 +882,8 @@ describe("ChecklistCommandHandler Concurrency", () => {
           if (getChecklistsCallCount === 1) {
             resolveDeleteRead();
             await resumeDelete;
+          } else {
+            moveStartedRead = true;
           }
         }
         return originalGetChecklists(wsId);
@@ -885,12 +896,6 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await deleteReadStarted;
 
     // 4. Concurrently start move C to Workspace 2 (this should block)
-    let moveStartedRead = false;
-    jest.spyOn(ChecklistRepository, "getChecklists").mockImplementationOnce(async (wsId) => {
-      if (wsId === workspace1) moveStartedRead = true;
-      return originalGetChecklists(wsId);
-    });
-
     const movePromise = ChecklistCommandHandler.moveChecklist(checklistId, workspace2, workspace1, { skipEvents: true });
 
     // Prove moveChecklist cannot enter its read phase

@@ -36,13 +36,15 @@ jest.mock("expo-router", () => {
   };
 });
 
-const workspace: Workspace = { id: "ws-sync", name: "Sync Workspace", createdAt: 1, updatedAt: 1 };
+const workspace: Workspace = { id: "ws-sync", name: "Sync Workspace", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 const initialTask: Task = {
   id: "task-sync-1",
   workspaceId: "ws-sync",
   title: "Initial Task",
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };
@@ -78,6 +80,8 @@ describe("State Synchronization & Today Freshness Test Suite", () => {
         title: "External Task",
         status: "todo",
         priority: "high",
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -94,6 +98,8 @@ describe("State Synchronization & Today Freshness Test Suite", () => {
         workspaceId: "ws-sync",
         title: "Daily Workout",
         recurrence: { frequency: "daily", interval: 1 },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         completionHistory: [],

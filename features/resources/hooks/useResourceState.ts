@@ -52,6 +52,8 @@ export function useResourceState(
         body: item.body || undefined,
         tags: item.tags || undefined,
         attachments: item.attachments || undefined,
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

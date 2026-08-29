@@ -57,6 +57,8 @@ export default function TabLayout() {
           name: ws.name,
           emoji: ws.emoji || "📁",
           color: ws.color || "#6366F1",
+          revision: ws.revision || 1,
+          lifecycleGeneration: ws.lifecycleGeneration || 1,
           createdAt: ws.createdAt || Date.now(),
           updatedAt: ws.updatedAt || Date.now(),
         }));

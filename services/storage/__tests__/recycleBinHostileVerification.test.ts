@@ -30,7 +30,7 @@ describe("Recycle Bin Hostile Verification", () => {
   describe("Test A - Deterministic stale-snapshot reproduction", () => {
     it("should serialize reads and writes to prevent data loss", async () => {
       await RecycleBinRepository.saveRecycleBinItemsUnlocked([
-        { id: "rb-A", entityId: "A", entityType: "task", snapshot: "{}", deletedAt: 1 },
+        { id: "rb-A", entityId: "A", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
       ]);
 
       const getBarrier1 = createBarrier();
@@ -71,8 +71,8 @@ describe("Recycle Bin Hostile Verification", () => {
   describe("Test B - add vs remove", () => {
     it("should safely handle concurrent add and remove", async () => {
       await RecycleBinRepository.saveRecycleBinItemsUnlocked([
-        { id: "rb-A", entityId: "A", entityType: "task", snapshot: "{}", deletedAt: 1 },
-        { id: "rb-B", entityId: "B", entityType: "task", snapshot: "{}", deletedAt: 1 },
+        { id: "rb-A", entityId: "A", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
+        { id: "rb-B", entityId: "B", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
       ]);
 
       const getBarrier = createBarrier();
@@ -105,8 +105,8 @@ describe("Recycle Bin Hostile Verification", () => {
   describe("Test C - restore vs add", () => {
     it("should safely handle restore (remove) vs add", async () => {
       await RecycleBinRepository.saveRecycleBinItemsUnlocked([
-        { id: "rb-A", entityId: "A", entityType: "task", snapshot: "{}", deletedAt: 1 },
-        { id: "rb-B", entityId: "B", entityType: "task", snapshot: "{}", deletedAt: 1 },
+        { id: "rb-A", entityId: "A", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
+        { id: "rb-B", entityId: "B", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
       ]);
 
       const opRestore = RecycleBinRepository.removeRecycleBinItems(["rb-A"]);
@@ -124,9 +124,9 @@ describe("Recycle Bin Hostile Verification", () => {
   describe("Test D - concurrent restores", () => {
     it("should safely handle multiple restores removing items concurrently", async () => {
       await RecycleBinRepository.saveRecycleBinItemsUnlocked([
-        { id: "rb-A", entityId: "A", entityType: "task", snapshot: "{}", deletedAt: 1 },
-        { id: "rb-B", entityId: "B", entityType: "task", snapshot: "{}", deletedAt: 1 },
-        { id: "rb-C", entityId: "C", entityType: "task", snapshot: "{}", deletedAt: 1 },
+        { id: "rb-A", entityId: "A", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
+        { id: "rb-B", entityId: "B", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
+        { id: "rb-C", entityId: "C", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
       ]);
 
       const opRestoreA = RecycleBinRepository.removeRecycleBinItems(["rb-A"]);
@@ -143,9 +143,9 @@ describe("Recycle Bin Hostile Verification", () => {
   describe("Test E - multiple concurrent mutations", () => {
     it("should safely handle massive concurrent reads and writes", async () => {
       await RecycleBinRepository.saveRecycleBinItemsUnlocked([
-        { id: "rb-A", entityId: "A", entityType: "task", snapshot: "{}", deletedAt: 1 },
-        { id: "rb-B", entityId: "B", entityType: "task", snapshot: "{}", deletedAt: 1 },
-        { id: "rb-C", entityId: "C", entityType: "task", snapshot: "{}", deletedAt: 1 },
+        { id: "rb-A", entityId: "A", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
+        { id: "rb-B", entityId: "B", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
+        { id: "rb-C", entityId: "C", entityType: "task", lifecycleGeneration: 1, snapshot: "{}", deletedAt: 1 },
       ]);
 
       const ops = [
@@ -227,7 +227,7 @@ describe("Recycle Bin Hostile Verification", () => {
 
     it("should have correct locks for restoreWorkspace without deadlock", async () => {
       await RecycleBinRepository.saveRecycleBinItemsUnlocked([
-        { id: "rb-ws-1", entityId: "ws-1", entityType: "workspace", snapshot: JSON.stringify({ id: "ws-1" }), deletedAt: 1 }
+        { id: "rb-ws-1", entityId: "ws-1", entityType: "workspace", lifecycleGeneration: 1, snapshot: JSON.stringify({ id: "ws-1" }), deletedAt: 1 }
       ]);
       
       const { WorkspaceCommandHandler } = require("@/services/command/handlers/WorkspaceCommandHandler");

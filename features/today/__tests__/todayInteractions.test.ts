@@ -70,6 +70,8 @@ describe("Today screen row interaction model", () => {
       title: "Checkbox Task",
       status: "todo",
       priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -101,6 +103,8 @@ describe("Today screen row interaction model", () => {
       name: "Work",
       emoji: "💼",
       color: "#6366F1",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1,
       updatedAt: 1,
     };
@@ -110,6 +114,8 @@ describe("Today screen row interaction model", () => {
       title: "Pending Task",
       status: "todo",
       priority: "high",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1,
       updatedAt: 1,
     };
@@ -119,6 +125,8 @@ describe("Today screen row interaction model", () => {
       title: "Completed Task",
       status: "completed",
       priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1,
       updatedAt: 1,
     };
@@ -168,6 +176,8 @@ describe("Today screen row interaction model", () => {
       title: "Checkbox Habit",
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -206,6 +216,8 @@ describe("Today screen row interaction model", () => {
         { id: "i1", title: "Milk", completed: false },
         { id: "i2", title: "Eggs", completed: false },
       ],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

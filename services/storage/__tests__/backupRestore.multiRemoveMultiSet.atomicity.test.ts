@@ -101,7 +101,7 @@ function makeBackup(): AppBackup {
     version: 1,
     timestamp: 200,
     workspaces: [
-      { id: "ws-backup", name: "Backup Workspace", createdAt: 200, updatedAt: 200 },
+      { id: "ws-backup", name: "Backup Workspace", revision: 1, lifecycleGeneration: 1, createdAt: 200, updatedAt: 200 },
     ],
     tasks: [
       {
@@ -110,6 +110,8 @@ function makeBackup(): AppBackup {
         workspaceId: "ws-backup",
         status: "todo",
         priority: "none",
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: 200,
         updatedAt: 200,
       },

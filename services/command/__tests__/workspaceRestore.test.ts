@@ -34,6 +34,8 @@ const fullWorkspace = (id: string, name: string): Workspace => ({
   emoji: "🚀",
   color: "#FF5733",
   description: `Description of ${name}`,
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 123,
   updatedAt: 456,
 });
@@ -44,6 +46,8 @@ const task = (id: string, workspaceId: string): Task => ({
   title: `Task ${id}`,
   status: "todo",
   priority: "none",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -54,6 +58,8 @@ const habit = (id: string, workspaceId: string): Habit => ({
   title: `Habit ${id}`,
   recurrence: { frequency: "daily", interval: 1 },
   completionHistory: [],
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1,
   updatedAt: 1,
 });
@@ -71,7 +77,7 @@ beforeEach(async () => {
   jest.restoreAllMocks();
   await storage.clear();
   GraphRepository.resetCache();
-  await WorkspaceRepository.saveWorkspace({ id: INBOX_WORKSPACE_ID, name: "Inbox", createdAt: 1, updatedAt: 1 });
+  await WorkspaceRepository.saveWorkspace({ id: INBOX_WORKSPACE_ID, name: "Inbox", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 });
 
   emitStateChangeSpy = jest
     .spyOn(require("@/services/events/state-events"), "emitStateChange")

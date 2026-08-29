@@ -136,6 +136,8 @@ export function buildTask(
       ? { enabled: true, triggerAt, notificationIds: undefined }
       : undefined,
     recurrence: item.recurrence ? buildRecurrenceRule(item.recurrence) : undefined,
+    lifecycleGeneration: 1,
+    revision: 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -166,6 +168,8 @@ export function buildHabit(
     reminder: triggerAt
       ? { enabled: true, triggerAt, notificationIds: undefined }
       : undefined,
+    lifecycleGeneration: 1,
+    revision: 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -190,6 +194,8 @@ export function buildChecklist(
       title,
       completed: false,
     })),
+    lifecycleGeneration: 1,
+    revision: 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -218,6 +224,8 @@ export function buildResource(
     title: item.title,
     body: item.type === "link" ? item.url || item.title : undefined,
     attachments: item.attachments && item.attachments.length > 0 ? item.attachments : undefined,
+    lifecycleGeneration: 1,
+    revision: 1,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };

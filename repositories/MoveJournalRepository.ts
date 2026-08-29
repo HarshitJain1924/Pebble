@@ -4,6 +4,15 @@ import type { MoveJournalEntry } from "@/shared/types/domain.types";
 
 export class MoveJournalRepository {
   private static readonly JOURNAL_KEY = "pebble:v1:move_journal";
+  private static readonly SEQUENCE_KEY = "pebble:v1:move_journal_seq";
+
+  static async getNextSequence(): Promise<number> {
+    const raw = await AsyncStorage.getItem(this.SEQUENCE_KEY);
+    const current = raw ? parseInt(raw, 10) : 0;
+    const next = current + 1;
+    await AsyncStorage.setItem(this.SEQUENCE_KEY, String(next));
+    return next;
+  }
 
   /**
    * Get all pending move operations ordered by creation time.
@@ -13,8 +22,11 @@ export class MoveJournalRepository {
       const raw = await AsyncStorage.getItem(this.JOURNAL_KEY);
       if (!raw) return [];
       const parsed: MoveJournalEntry[] = JSON.parse(raw);
-      // Sort ascending by timestamp and operationId to ensure deterministic chronological replay
+      // Sort ascending by sequence / timestamp and operationId to ensure deterministic chronological replay
       return parsed.sort((a, b) => {
+        if (a.sequence !== undefined && b.sequence !== undefined && a.sequence !== b.sequence) {
+          return a.sequence - b.sequence;
+        }
         if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
         return a.operationId.localeCompare(b.operationId);
       });
@@ -37,6 +49,10 @@ export class MoveJournalRepository {
         return;
       }
 
+      if (entry.sequence === undefined) {
+        entry.sequence = await this.getNextSequence();
+      }
+
       current.push(entry);
       await AsyncStorage.setItem(this.JOURNAL_KEY, JSON.stringify(current));
     });
@@ -55,6 +71,12 @@ export class MoveJournalRepository {
       );
 
       if (newEntries.length === 0) return;
+
+      for (const entry of newEntries) {
+        if (entry.sequence === undefined) {
+          entry.sequence = await this.getNextSequence();
+        }
+      }
 
       current.push(...newEntries);
       await AsyncStorage.setItem(this.JOURNAL_KEY, JSON.stringify(current));

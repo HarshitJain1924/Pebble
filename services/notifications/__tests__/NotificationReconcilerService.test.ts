@@ -24,7 +24,7 @@ describe("NotificationReconcilerService", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (WorkspaceRepository.getWorkspaces as jest.Mock).mockResolvedValue([
-      { id: "ws-1", name: "Inbox", isDefault: true, createdAt: 1, updatedAt: 1 },
+      { id: "ws-1", name: "Inbox", isDefault: true, revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
     (HabitRepository.getHabits as jest.Mock).mockResolvedValue({});
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({});
@@ -48,6 +48,8 @@ describe("NotificationReconcilerService", () => {
       triggerAt,
       notificationIds,
     },
+    revision: 1,
+    lifecycleGeneration: 1,
     createdAt: 1,
     updatedAt: 1,
   });

@@ -74,7 +74,7 @@ import {
 import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
 import { useCalendarState } from "@/features/calendar/hooks/useCalendarState";
 
-const ws1: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 const TODAY = "2026-08-30";
 const YESTERDAY = "2026-08-29";
 const TOMORROW = "2026-08-31";
@@ -96,6 +96,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       status: "todo",
       priority: "high",
       schedule: { date: TODAY, startTime: "15:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -117,6 +119,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       priority: "medium",
       schedule: { date: TODAY, startTime: "15:00", durationMinutes: 60 },
       reminder: { enabled: true, triggerAt: new Date(2026, 7, 30, 14, 0).getTime() },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -132,6 +136,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       status: "todo",
       priority: "high",
       schedule: { date: YESTERDAY, startTime: "10:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -148,6 +154,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       status: "todo",
       priority: "low",
       schedule: { date: TODAY },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -158,6 +166,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       status: "todo",
       priority: "high",
       schedule: { date: TODAY, startTime: "11:00", durationMinutes: 90 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -180,6 +190,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       completedAt: 2000,
       priority: "high",
       schedule: { date: TODAY, startTime: "14:00", durationMinutes: 120 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 2000,
     };
@@ -224,6 +236,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       schedule: { date: "2026-08-01", startTime: "09:00", durationMinutes: 30 },
       recurrence: { frequency: "daily", interval: 1 },
       recurrenceExceptions: [TODAY], // Exception for today
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -234,6 +248,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       status: "todo",
       priority: "medium",
       schedule: { date: TODAY, startTime: "16:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -264,6 +280,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       priority: "high",
       schedule: { date: TODAY, startTime: "10:00", durationMinutes: 60 },
       reminder: { enabled: true, triggerAt: new Date(2026, 7, 29, 20, 0).getTime() },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -287,6 +305,8 @@ describe("Calendar Task/Event Semantics vs Today, Overdue, Completion, and Histo
       priority: "high",
       schedule: { date: TODAY, startTime: "15:00", durationMinutes: 60 },
       reminder: { enabled: true, triggerAt: new Date(2026, 7, 30, 14, 0).getTime() },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

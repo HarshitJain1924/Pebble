@@ -166,6 +166,8 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         name: folder.name,
         emoji: folder.emoji,
         color: folder.color,
+        revision: folder.revision || 1,
+        lifecycleGeneration: folder.lifecycleGeneration || 1,
         createdAt: folder.createdAt,
         updatedAt: folder.updatedAt || Date.now(),
         archivedAt: folder.archivedAt,

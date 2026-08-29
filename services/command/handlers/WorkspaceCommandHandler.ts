@@ -85,14 +85,15 @@ static async reorderWorkspaces(
     recycleBinItemId: string,
     options?: CreateEntityOptions,
   ): Promise<Workspace> {
-    const { getRecycleBinItems } = await import("@/services/storage/storage.service");
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { emitStateChange } = await import("@/services/events/state-events");
 
     // 1. Resolve the bin item by its RecycleBin item id ("rb-<workspaceId>") or
     // the raw workspace id so callers that pass either work.
-    const binItems = await getRecycleBinItems();
+    const binItems = await RecycleBinRepository.getRecycleBinItems();
+    const cleanId = recycleBinItemId.startsWith("rb-") ? recycleBinItemId.slice(3) : recycleBinItemId;
     const item = binItems.find(
-      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId,
+      (i) => i.id === recycleBinItemId || i.entityId === recycleBinItemId || i.entityId === cleanId || i.id === `rb-${cleanId}` || i.id.startsWith(`rb-${cleanId}-g`),
     );
     if (!item || item.entityType !== "workspace") {
       throw new Error(`RecycleBin item not found or not workspace`);
@@ -120,6 +121,20 @@ static async reorderWorkspaces(
       `ws_lifecycle_${workspace.id}`
     ];
     return withLocks(locks, async () => {
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration("workspace", workspace.id);
+      const isDead = (workspace.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned("workspace", workspace.id, workspace.lifecycleGeneration || 1);
+      if (isDead) {
+        try {
+          const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+          await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
+        } catch {}
+        throw new Error(`[EntityCommandService] Workspace ${workspace.id} was permanently deleted.`);
+      }
+
+      workspace.revision = (workspace.revision ?? 1) + 1;
+      workspace.lifecycleGeneration = workspace.lifecycleGeneration ?? 1;
+
       // 3. Persist the workspace through the canonical repository.
       await WorkspaceRepository.saveWorkspace(workspace);
 
@@ -390,13 +405,22 @@ static async reorderWorkspaces(
    */
   static async createWorkspace(workspace: Workspace): Promise<void> {
     try {
-      await WorkspaceRepository.saveWorkspace(workspace);
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const highestTombstone = workspace.id
+        ? await TombstoneRepository.getHighestTombstonedGeneration("workspace", workspace.id)
+        : 0;
+      const allocatedGen = Math.max(workspace.lifecycleGeneration || 1, highestTombstone + 1);
+      const candidate: Workspace = {
+        ...workspace,
+        lifecycleGeneration: allocatedGen,
+        revision: workspace.revision || 1,
+      };
+
+      await WorkspaceRepository.saveWorkspace(candidate, { throwOnError: true });
       emitStateChange("workspace_changed", "tasks_screen");
     } catch (e) {
       console.warn("Failed to create workspace", e);
       throw e;
     }
   }
-
-
 }

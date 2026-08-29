@@ -10,8 +10,8 @@ jest.mock("expo-notifications", () => ({
 }));
 
 const storage = AsyncStorage as typeof AsyncStorage;
-const workspace: Workspace = { id: "ws-a", name: "A", createdAt: 1, updatedAt: 1 };
-const task: Task = { id: "task-a", workspaceId: "ws-a", title: "A", status: "todo", priority: "none", createdAt: 1, updatedAt: 1 };
+const workspace: Workspace = { id: "ws-a", name: "A", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const task: Task = { id: "task-a", workspaceId: "ws-a", title: "A", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 const backup = (): AppBackup => ({
   version: 1,
   timestamp: 1,

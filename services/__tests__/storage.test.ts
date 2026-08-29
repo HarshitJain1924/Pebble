@@ -30,6 +30,7 @@ describe("storage.service", () => {
         entityType: "task",
         entityId: "task-1",
         snapshot: JSON.stringify({ title: "Test Task" }),
+        lifecycleGeneration: 1,
         deletedAt: Date.now(),
       },
     ];
@@ -100,6 +101,7 @@ describe("storage.service", () => {
         entityId: "task-old",
         snapshot: JSON.stringify({ title: "Very Old Task", reminder: { notificationIds: ["notif-old-123"] } }),
         deletedAt: now - 35 * DAY_MS,
+        lifecycleGeneration: 1,
       },
       {
         id: "rb-recent",
@@ -107,6 +109,7 @@ describe("storage.service", () => {
         entityId: "task-recent",
         snapshot: JSON.stringify({ title: "Recent Task" }),
         deletedAt: now - 5 * DAY_MS,
+        lifecycleGeneration: 1,
       },
     ];
 

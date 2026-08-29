@@ -16,8 +16,8 @@ describe("Workspace Deletion Hostile Verification", () => {
 
     // Setup initial state
     await WorkspaceRepository.saveWorkspaces([
-      { id: INBOX_WORKSPACE_ID, name: "Inbox", createdAt: 1, updatedAt: 1 },
-      { id: MY_PEBBLES_WORKSPACE_ID, name: "My Pebbles", createdAt: 1, updatedAt: 1 },
+      { id: INBOX_WORKSPACE_ID, name: "Inbox", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: MY_PEBBLES_WORKSPACE_ID, name: "My Pebbles", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ]);
   });
 
@@ -32,11 +32,13 @@ describe("Workspace Deletion Hostile Verification", () => {
       await WorkspaceRepository.saveWorkspace({
         id: "ws-target",
         name: "Target",
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: 1,
         updatedAt: 1,
       });
       await TaskRepository.saveTasksUnlocked([
-        { id: "task-1", title: "Crucial Data", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-target", kind: "todo", revision: 1 }
+        { id: "task-1", title: "Crucial Data", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-target", kind: "todo", revision: 1, lifecycleGeneration: 1 }
       ], "ws-target");
 
       // 2. Inject failure into Workspace metadata deletion (Step 5)

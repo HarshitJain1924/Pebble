@@ -48,7 +48,7 @@ import { TaskRepository, HabitRepository, WorkspaceRepository, UiStateRepository
 import { Task, Habit, Workspace } from "@/shared/types/domain.types";
 import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
 
-const ws1: Workspace = { id: "ws-1", name: "Work", createdAt: 1, updatedAt: 1 };
+const ws1: Workspace = { id: "ws-1", name: "Work", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (Fix #15)", () => {
   beforeEach(async () => {
@@ -67,6 +67,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "09:30", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -77,6 +79,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "15:30", durationMinutes: 90 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -102,6 +106,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "09:00", durationMinutes: 120 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -113,6 +119,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "09:30", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -124,6 +132,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "10:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -180,6 +190,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "09:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -190,6 +202,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "10:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -234,6 +248,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "low",
       schedule: { date: "2026-08-30" },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -244,6 +260,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30" },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -253,6 +271,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       title: "Daily Meditation",
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -263,6 +283,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "11:00", durationMinutes: 60 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -273,6 +295,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "medium",
       schedule: { date: "2026-08-30", startTime: "14:00", durationMinutes: 30 },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };
@@ -325,6 +349,8 @@ describe("Calendar Timeline Layout, Overlap, and Duration Rendering Invariants (
       status: "todo",
       priority: "high",
       schedule: { date: "2026-08-30", startTime: "15:00", endTime: "16:30" },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: 1000,
       updatedAt: 1000,
     };

@@ -33,6 +33,8 @@ const mockTask = (id: string, workspaceId: string): Task => ({
   status: "todo",
   priority: "medium",
   categoryId: "work",
+  revision: 1,
+  lifecycleGeneration: 1,
   createdAt: 1000,
   updatedAt: 1000,
   schedule: {}
@@ -75,6 +77,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "ws-2",
         timestamp: 2000,
         operationType: "move",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 
@@ -101,6 +105,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "ws-2",
         timestamp: 2000,
         operationType: "move",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 
@@ -125,6 +131,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "recycle-bin",
         timestamp: 2000,
         operationType: "recycle",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 
@@ -147,6 +155,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "recycle-bin",
         timestamp: 2000,
         operationType: "recycle",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 
@@ -156,6 +166,7 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
       id: "bin-item-1",
       entityId: "task-exists",
       entityType: "task",
+      lifecycleGeneration: 1,
       data: binnedTask, 
       deletedAt: 2000, 
       originalWorkspaceId: "ws-1" 
@@ -177,6 +188,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "ws-1",
         timestamp: 2000,
         operationType: "restore",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 
@@ -199,6 +212,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "ws-1",
         timestamp: 2000,
         operationType: "restore",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 
@@ -221,6 +236,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "ws-2",
         timestamp: 2000,
         operationType: "move",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 
@@ -249,6 +266,8 @@ describe("MoveReconciler Missing Everywhere Hostile Verification", () => {
         targetWorkspaceId: "ws-2",
         timestamp: 2000,
         operationType: "move",
+        lifecycleGeneration: 1,
+        expectedRevision: 1,
       },
     ]);
 

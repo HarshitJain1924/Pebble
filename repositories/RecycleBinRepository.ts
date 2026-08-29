@@ -23,10 +23,18 @@ export function normalizeRecycleBinItem(raw: any): RecycleBinItem {
       ? raw.snapshot
       : JSON.stringify(raw.data || raw);
 
+  let parsedSnapshot: any = null;
+  try {
+    parsedSnapshot = JSON.parse(snapshotStr);
+  } catch {}
+
+  const lifecycleGeneration = raw.lifecycleGeneration ?? parsedSnapshot?.lifecycleGeneration ?? 1;
+
   return {
-    id: raw.id || entityId,
+    id: raw.id || (lifecycleGeneration > 1 ? `rb-${entityId}-g${lifecycleGeneration}` : `rb-${entityId}`),
     entityType,
     entityId,
+    lifecycleGeneration,
     snapshot: snapshotStr,
     deletedAt: raw.deletedAt || Date.now(),
   };
@@ -83,17 +91,23 @@ export class RecycleBinRepository {
       await withLock(this.RECYCLE_BIN_KEY, async () => {
         const items = await this.getRecycleBinItems();
         const entityId = item.id || item.list?.id || String(Date.now());
+        const lifecycleGeneration = item.lifecycleGeneration ?? 1;
+        const rbItemId = lifecycleGeneration > 1 ? `rb-${entityId}-g${lifecycleGeneration}` : `rb-${entityId}`;
 
-        // Remove any existing entry for the same entity ID to prevent duplicates
+        // Remove any existing entry for the SAME entity ID AND lifecycle generation
         const filtered = items.filter(
           (existing) =>
-            existing.entityId !== entityId && existing.id !== entityId,
+            !(
+              (existing.entityId === entityId || existing.id === entityId || existing.id === rbItemId) &&
+              (existing.lifecycleGeneration ?? 1) === lifecycleGeneration
+            )
         );
 
         const newItem: RecycleBinItem = {
-          id: `rb-${entityId}`,
+          id: rbItemId,
           entityType,
           entityId,
+          lifecycleGeneration,
           snapshot: JSON.stringify(item),
           deletedAt: Date.now(),
         };
@@ -120,21 +134,24 @@ export class RecycleBinRepository {
         
         const newSnapshots = itemsToAdd.map(({ entityType, item }) => {
           const entityId = item.id || item.list?.id || String(Date.now());
+          const lifecycleGeneration = item.lifecycleGeneration ?? 1;
+          const rbItemId = lifecycleGeneration > 1 ? `rb-${entityId}-g${lifecycleGeneration}` : `rb-${entityId}`;
           return {
-            id: `rb-${entityId}`,
+            id: rbItemId,
             entityType,
             entityId,
+            lifecycleGeneration,
             snapshot: JSON.stringify(item),
             deletedAt: Date.now(),
           } as RecycleBinItem;
         });
 
-        const validEntityIds = new Set(newSnapshots.map(s => s.entityId));
-        
-        // Remove any existing entry for the same entity IDs to prevent duplicates
+        // Remove any existing entry for the same entity IDs and generations
+        const matchingKeys = new Set(newSnapshots.map(s => `${s.entityId}:g${s.lifecycleGeneration ?? 1}`));
         const filtered = items.filter(
           (existing) =>
-            !validEntityIds.has(existing.entityId) && !validEntityIds.has(existing.id)
+            !matchingKeys.has(`${existing.entityId}:g${existing.lifecycleGeneration ?? 1}`) &&
+            !newSnapshots.some(s => s.id === existing.id)
         );
 
         await this.saveRecycleBinItemsUnlocked([...newSnapshots, ...filtered], options);

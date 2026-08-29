@@ -84,6 +84,8 @@ export async function loadWorkspaceData(
         tags: r.tags || [],
         createdAt: r.createdAt || Date.now(),
         updatedAt: r.updatedAt || Date.now(),
+        revision: r.revision || 1,
+        lifecycleGeneration: r.lifecycleGeneration || 1,
         fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
         fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
         mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,

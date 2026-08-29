@@ -73,6 +73,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         enabled: true,
         triggerAt: new Date("2026-08-29T20:00:00").getTime(),
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -105,6 +107,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         enabled: true,
         triggerAt: reminderEpoch,
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -130,6 +134,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         enabled: true,
         triggerAt: new Date("2026-08-30T09:00:00").getTime(),
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -150,6 +156,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
       schedule: {
         date: "2026-08-30",
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -164,6 +172,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         date: "2026-08-30",
         startTime: "11:30",
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -195,6 +205,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         frequency: "daily",
         interval: 1,
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -231,6 +243,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: reminderEpoch,
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -260,6 +274,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "11:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -291,6 +307,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: reminderEpoch,
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -320,6 +338,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "10:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -350,6 +370,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: selectedDate,
           startTime: hourStr,
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -377,6 +399,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: selectedDate,
           startTime: hourStr,
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -399,6 +423,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: selectedDate,
           startTime: "15:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -468,6 +494,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: new Date("2026-08-30T14:00:00").getTime(),
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -497,6 +525,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: new Date("2026-08-29T20:00:00").getTime(),
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -526,6 +556,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: new Date("2026-08-30T11:00:00").getTime(),
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -553,6 +585,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: new Date("2026-08-30T15:00:00").getTime(),
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -582,6 +616,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: new Date("2026-08-30T14:00:00").getTime(),
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -618,6 +654,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: reminderEpoch,
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -653,6 +691,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "15:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -680,6 +720,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime,
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -700,6 +742,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "15:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -721,6 +765,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "15:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -741,6 +787,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "15:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -764,6 +812,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-18",
           startTime: "10:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -805,6 +855,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         schedule: {
           date: "2026-08-30",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -827,6 +879,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         schedule: {
           date: "2026-08-30",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -850,6 +904,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "15:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -878,6 +934,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           date: "2026-08-30",
           startTime: "15:00",
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -907,6 +965,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           schedule: {
             date: "2026-08-30",
           },
+          revision: 1,
+          lifecycleGeneration: 1,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
@@ -949,6 +1009,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
         frequency: "daily",
         interval: 1,
       },
+      revision: 1,
+      lifecycleGeneration: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -1074,6 +1136,8 @@ describe("Calendar Scheduling and Reminder Separation", () => {
           enabled: true,
           triggerAt: 123456789,
         },
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

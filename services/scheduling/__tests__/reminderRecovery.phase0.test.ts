@@ -1,4 +1,4 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { listScheduledNotifications, rescheduleTodoReminders, scheduleReminderBatch } from "@/services/scheduling/reminders.service";
 import { TaskRepository } from "@/repositories/TaskRepository";
@@ -13,7 +13,7 @@ jest.mock("expo-notifications", () => ({
 }));
 
 const storage = AsyncStorage as typeof AsyncStorage;
-const task: Task = { id: "task-reminder", workspaceId: "inbox", title: "Reminder task", status: "todo", priority: "none", createdAt: 1, updatedAt: 1, reminder: { enabled: true, triggerAt: Date.now() + 3_600_000, notificationIds: [] } };
+const task: Task = { id: "task-reminder", workspaceId: "inbox", title: "Reminder task", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1, reminder: { enabled: true, triggerAt: Date.now() + 3_600_000, notificationIds: [] } };
 
 beforeEach(async () => {
   await storage.clear();

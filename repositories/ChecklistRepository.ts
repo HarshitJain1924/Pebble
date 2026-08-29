@@ -56,6 +56,8 @@ export function normalizeChecklist(
       rawChecklist.archivedAt ||
       (rawChecklist.archived ? Date.now() : undefined),
     pebbleAwarded: rawChecklist.pebbleAwarded ? true : undefined,
+    revision: rawChecklist.revision ?? 1,
+    lifecycleGeneration: rawChecklist.lifecycleGeneration ?? 1,
   };
 }
 

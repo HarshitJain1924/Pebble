@@ -13,15 +13,15 @@ jest.mock("@/services/scheduling/reminders.service", () => ({
 }));
 
 const storage = AsyncStorage as typeof AsyncStorage;
-const workspace: Workspace = { id: "ws-delete", name: "Delete me", createdAt: 1, updatedAt: 1 };
-const task = (workspaceId: string): Task => ({ id: "task-1", workspaceId, title: "Task", status: "todo", priority: "none", createdAt: 1, updatedAt: 1, reminder: { enabled: true, triggerAt: 100, notificationIds: ["native-1"] } });
+const workspace: Workspace = { id: "ws-delete", name: "Delete me", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const task = (workspaceId: string): Task => ({ id: "task-1", workspaceId, title: "Task", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1, reminder: { enabled: true, triggerAt: 100, notificationIds: ["native-1"] } });
 const relationship: Relationship = { id: "rel-1", source: { id: "task-1", type: "task" }, target: { id: "resource-1", type: "resource" }, relationType: "references", createdAt: 1 };
 
 beforeEach(async () => {
   await storage.clear();
   jest.restoreAllMocks();
   GraphRepository.resetCache();
-  await WorkspaceRepository.saveWorkspaces([{ id: "ws-source", name: "src", createdAt: 1, updatedAt: 1 }, { id: "ws-target", name: "tgt", createdAt: 1, updatedAt: 1 }]);
+  await WorkspaceRepository.saveWorkspaces([{ id: "ws-source", name: "src", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 }, { id: "ws-target", name: "tgt", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 }]);
 });
 
 describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
@@ -77,7 +77,7 @@ describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
   });
 
   test("tolerates a bin ghost when restore bin removal fails, does not roll back active", async () => {
-    const item: RecycleBinItem = { id: "bin-1", entityType: "task", entityId: "task-1", snapshot: JSON.stringify(task("ws-source")), deletedAt: 1 };
+    const item: RecycleBinItem = { id: "bin-1", entityType: "task", entityId: "task-1", snapshot: JSON.stringify(task("ws-source")), deletedAt: 1, lifecycleGeneration: 1 };
     await RecycleBinRepository.saveRecycleBinItems([item]);
     
     // Mock failure during bin removal
@@ -95,7 +95,7 @@ describe("Phase 1 Ghost Toleration & Notification Decoupling", () => {
   });
 
   test("does not fail restore when native reminder scheduling fails", async () => {
-    const item: RecycleBinItem = { id: "bin-2", entityType: "task", entityId: "task-1", snapshot: JSON.stringify(task("ws-source")), deletedAt: 1 };
+    const item: RecycleBinItem = { id: "bin-2", entityType: "task", entityId: "task-1", snapshot: JSON.stringify(task("ws-source")), deletedAt: 1, lifecycleGeneration: 1 };
     await RecycleBinRepository.saveRecycleBinItems([item]);
     
     const remindersService = require("@/services/scheduling/reminders.service");
