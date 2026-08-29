@@ -323,6 +323,165 @@ export function TaskDetailForm({
             />
           </View>
         )}
+
+        {/* Schedule Time & Duration */}
+        {form.scheduleDate !== "inbox" && (
+          <View
+            style={{
+              marginTop: 10,
+              padding: 12,
+              borderRadius: 14,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              gap: 8,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <TouchableOpacity
+                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                onPress={() =>
+                  update({
+                    scheduleTimePickerVisible: !form.scheduleTimePickerVisible,
+                  })
+                }
+              >
+                <Feather name="clock" size={14} color={colors.primary} />
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 13,
+                    fontWeight: "600",
+                  }}
+                >
+                  {form.startTime
+                    ? `Time: ${form.startTime}`
+                    : "All-Day (No specific time)"}
+                </Text>
+                <Feather
+                  name={
+                    form.scheduleTimePickerVisible
+                      ? "chevron-up"
+                      : "chevron-down"
+                  }
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </TouchableOpacity>
+              {form.startTime && (
+                <TouchableOpacity
+                  onPress={() =>
+                    update({
+                      startTime: undefined,
+                      durationMinutes: undefined,
+                      scheduleTimePickerVisible: false,
+                    })
+                  }
+                >
+                  <Text
+                    style={{
+                      color: colors.error,
+                      fontSize: 12,
+                      fontWeight: "600",
+                    }}
+                  >
+                    Clear Time
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {form.scheduleTimePickerVisible && (
+              <View style={{ marginTop: 6 }}>
+                <TimeSelectorDial
+                  colors={colors}
+                  initialHour={
+                    form.startTime ? Number(form.startTime.split(":")[0]) : 9
+                  }
+                  initialMinute={
+                    form.startTime ? Number(form.startTime.split(":")[1]) : 0
+                  }
+                  onSave={(h, m) => {
+                    const formatted = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                    update({
+                      startTime: formatted,
+                      durationMinutes: form.durationMinutes || 60,
+                      scheduleTimePickerVisible: false,
+                    });
+                  }}
+                  saveLabel="Confirm Start Time"
+                />
+              </View>
+            )}
+
+            {form.startTime && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 4,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.textMuted,
+                    fontSize: 12,
+                    fontWeight: "600",
+                  }}
+                >
+                  Duration:
+                </Text>
+                <View
+                  style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}
+                >
+                  {[30, 60, 90, 120].map((dur) => {
+                    const isDurSelected = (form.durationMinutes || 60) === dur;
+                    return (
+                      <TouchableOpacity
+                        key={dur}
+                        style={[
+                          styles.pill,
+                          {
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            backgroundColor: isDurSelected
+                              ? `${colors.primary}22`
+                              : colors.cardLight,
+                            borderColor: isDurSelected
+                              ? colors.primary
+                              : colors.border,
+                          },
+                        ]}
+                        onPress={() => update({ durationMinutes: dur })}
+                      >
+                        <Text
+                          style={{
+                            color: isDurSelected ? colors.primary : colors.text,
+                            fontSize: 12,
+                            fontWeight: "600",
+                          }}
+                        >
+                          {dur < 60
+                            ? `${dur}m`
+                            : dur % 60 === 0
+                              ? `${dur / 60}h`
+                              : `${dur / 60}h`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
       </View>
 
       {/* === REMINDER (canonical — time only, no weekdays) === */}
@@ -381,14 +540,25 @@ export function TaskDetailForm({
               initialHour={form.reminderTime?.hour ?? 9}
               initialMinute={form.reminderTime?.minute ?? 0}
               onSave={(h, m) => {
-                update({ reminderTime: { hour: h, minute: m }, timePickerVisible: false });
+                const effectiveReminderDate =
+                  form.reminderDate ||
+                  (form.scheduleDate !== "inbox" ? form.scheduleDate : getDateKey());
+                update({
+                  reminderDate: effectiveReminderDate,
+                  reminderTime: { hour: h, minute: m },
+                  timePickerVisible: false,
+                });
               }}
               saveLabel="Confirm Time"
             />
             <TouchableOpacity
               style={{ alignSelf: "center", marginTop: 8 }}
               onPress={() =>
-                update({ reminderTime: undefined, timePickerVisible: false })
+                update({
+                  reminderDate: undefined,
+                  reminderTime: undefined,
+                  timePickerVisible: false,
+                })
               }
             >
               <Text

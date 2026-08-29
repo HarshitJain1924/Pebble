@@ -292,4 +292,461 @@ describe("TaskDetailContent", () => {
     });
     expect(onBack).toHaveBeenCalledTimes(1);
   });
+
+  describe("Calendar Empty Slot Task Creation (Fix #3)", () => {
+    it("TEST 1: Creating a Task from the 15:00 Calendar slot preserves schedule.date and schedule.startTime='15:00'", async () => {
+      (TaskRepository.getTask as jest.Mock).mockResolvedValue(null);
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-new-15"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            initialStartTime="15:00"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      const nameInput = renderer.root.findAllByType(TextInput)[0];
+      await act(async () => {
+        nameInput.props.onChangeText("Team Standup");
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      expect(EntityCommandService.createTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Team Standup",
+          schedule: expect.objectContaining({
+            date: "2026-08-30",
+            startTime: "15:00",
+          }),
+        }),
+        "inbox",
+        expect.anything(),
+      );
+    });
+
+    it("TEST 2: Creating a Task from the 09:00 slot produces schedule.startTime='09:00'", async () => {
+      (TaskRepository.getTask as jest.Mock).mockResolvedValue(null);
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-new-09"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            initialStartTime="09:00"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      const nameInput = renderer.root.findAllByType(TextInput)[0];
+      await act(async () => {
+        nameInput.props.onChangeText("Morning Review");
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      expect(EntityCommandService.createTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Morning Review",
+          schedule: expect.objectContaining({
+            date: "2026-08-30",
+            startTime: "09:00",
+          }),
+        }),
+        "inbox",
+        expect.anything(),
+      );
+    });
+
+    it("TEST 3: Selecting a Calendar time does NOT create or modify reminder.triggerAt", async () => {
+      (TaskRepository.getTask as jest.Mock).mockResolvedValue(null);
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-new-rem"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            initialStartTime="15:00"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      const nameInput = renderer.root.findAllByType(TextInput)[0];
+      await act(async () => {
+        nameInput.props.onChangeText("No Reminder Task");
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      const createCall = (EntityCommandService.createTask as jest.Mock).mock.calls[0][0];
+      expect(createCall.schedule.startTime).toBe("15:00");
+      // Reminder is not created / remains undefined
+      expect(createCall.reminder).toBeUndefined();
+    });
+
+    it("TEST 4: Editing an existing Task does not overwrite its existing schedule with initialStartTime", async () => {
+      const existingTask = {
+        ...baseTask,
+        id: "task-existing-1",
+        schedule: { date: "2026-08-18", startTime: "10:00" },
+      };
+      (TaskRepository.getTask as jest.Mock).mockImplementation(
+        async (_id: string, workspaceId: string) =>
+          workspaceId === "inbox" ? existingTask : null,
+      );
+
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-existing-1"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            initialStartTime="15:00"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Edit task").props.onPress();
+      });
+
+      const nameInput = renderer.root.findAllByType(TextInput)[0];
+      await act(async () => {
+        nameInput.props.onChangeText("Updated Existing Task");
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      expect(EntityCommandService.updateTask).toHaveBeenCalledWith(
+        "task-existing-1",
+        "inbox",
+        expect.objectContaining({
+          title: "Updated Existing Task",
+          schedule: expect.objectContaining({
+            date: "2026-08-18",
+            startTime: "10:00",
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("TEST 5: Existing Task creation without Calendar time context continues to behave as all-day task", async () => {
+      (TaskRepository.getTask as jest.Mock).mockResolvedValue(null);
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-new-allday"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      const nameInput = renderer.root.findAllByType(TextInput)[0];
+      await act(async () => {
+        nameInput.props.onChangeText("All Day Task");
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      const createCall = (EntityCommandService.createTask as jest.Mock).mock.calls[0][0];
+      expect(createCall.schedule.date).toBe("2026-08-30");
+      expect(createCall.schedule.startTime).toBeUndefined();
+    });
+  });
+
+  describe("Reminder Date and Schedule Date Separation (Fix #5)", () => {
+    const originalReminderDate = "2026-08-29";
+    const [rY, rM, rD] = originalReminderDate.split("-").map(Number);
+    const originalReminderEpoch = new Date(rY, rM - 1, rD, 20, 0, 0, 0).getTime();
+
+    const taskWithDiffReminderDate: any = {
+      id: "task-diff-rem-1",
+      workspaceId: "inbox",
+      title: "Schedule vs Reminder Isolation",
+      description: "Testing date separation",
+      categoryId: "work",
+      priority: "high",
+      status: "todo",
+      schedule: {
+        date: "2026-08-30",
+        startTime: "15:00",
+      },
+      reminder: {
+        enabled: true,
+        triggerAt: originalReminderEpoch,
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    it("TEST 1: Opening and saving a Task without changing reminder preserves the exact original triggerAt epoch", async () => {
+      (TaskRepository.getTask as jest.Mock).mockImplementation(
+        async (_id: string, workspaceId: string) =>
+          workspaceId === "inbox" ? taskWithDiffReminderDate : null,
+      );
+
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-diff-rem-1"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Edit task").props.onPress();
+      });
+
+      const nameInput = renderer.root.findAllByType(TextInput)[0];
+      await act(async () => {
+        nameInput.props.onChangeText("Title updated only");
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      expect(EntityCommandService.updateTask).toHaveBeenCalledWith(
+        "task-diff-rem-1",
+        "inbox",
+        expect.objectContaining({
+          title: "Title updated only",
+          schedule: expect.objectContaining({
+            date: "2026-08-30",
+            startTime: "15:00",
+          }),
+          reminder: expect.objectContaining({
+            enabled: true,
+            triggerAt: originalReminderEpoch,
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("TEST 2: Changing schedule.date does NOT move reminder.triggerAt", async () => {
+      (TaskRepository.getTask as jest.Mock).mockImplementation(
+        async (_id: string, workspaceId: string) =>
+          workspaceId === "inbox" ? taskWithDiffReminderDate : null,
+      );
+
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-diff-rem-1"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Edit task").props.onPress();
+      });
+
+      // Find the TaskDetailForm and trigger scheduleDate update to "2026-09-02"
+      const taskForm = renderer.root.findByType(require("@/features/details/task/components/TaskDetailForm").TaskDetailForm);
+      await act(async () => {
+        taskForm.props.update({ scheduleDate: "2026-09-02" });
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      expect(EntityCommandService.updateTask).toHaveBeenCalledWith(
+        "task-diff-rem-1",
+        "inbox",
+        expect.objectContaining({
+          schedule: expect.objectContaining({
+            date: "2026-09-02",
+          }),
+          reminder: expect.objectContaining({
+            enabled: true,
+            triggerAt: originalReminderEpoch, // Stays Aug 29 20:00!
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("TEST 3: Changing schedule.startTime does NOT move reminder.triggerAt", async () => {
+      (TaskRepository.getTask as jest.Mock).mockImplementation(
+        async (_id: string, workspaceId: string) =>
+          workspaceId === "inbox" ? taskWithDiffReminderDate : null,
+      );
+
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-diff-rem-1"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Edit task").props.onPress();
+      });
+
+      const taskForm = renderer.root.findByType(require("@/features/details/task/components/TaskDetailForm").TaskDetailForm);
+      await act(async () => {
+        taskForm.props.update({ startTime: "17:00" });
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      expect(EntityCommandService.updateTask).toHaveBeenCalledWith(
+        "task-diff-rem-1",
+        "inbox",
+        expect.objectContaining({
+          schedule: expect.objectContaining({
+            startTime: "17:00",
+          }),
+          reminder: expect.objectContaining({
+            enabled: true,
+            triggerAt: originalReminderEpoch, // Stays Aug 29 20:00!
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("TEST 4: Changing reminder time intentionally updates triggerAt using reminderDate (Aug 29), not scheduleDate (Aug 30)", async () => {
+      (TaskRepository.getTask as jest.Mock).mockImplementation(
+        async (_id: string, workspaceId: string) =>
+          workspaceId === "inbox" ? taskWithDiffReminderDate : null,
+      );
+
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-diff-rem-1"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Edit task").props.onPress();
+      });
+
+      const taskForm = renderer.root.findByType(require("@/features/details/task/components/TaskDetailForm").TaskDetailForm);
+      await act(async () => {
+        taskForm.props.update({ reminderTime: { hour: 21, minute: 30 } });
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      const expectedNewEpoch = new Date(rY, rM - 1, rD, 21, 30, 0, 0).getTime();
+      expect(EntityCommandService.updateTask).toHaveBeenCalledWith(
+        "task-diff-rem-1",
+        "inbox",
+        expect.objectContaining({
+          reminder: expect.objectContaining({
+            enabled: true,
+            triggerAt: expectedNewEpoch,
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("TEST 5: Task with no reminder does NOT create a reminder when saved", async () => {
+      const taskNoReminder: any = {
+        id: "task-no-rem-save",
+        workspaceId: "inbox",
+        title: "No Reminder Task",
+        status: "todo",
+        priority: "low",
+        schedule: { date: "2026-08-30" },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      (TaskRepository.getTask as jest.Mock).mockImplementation(
+        async (_id: string, workspaceId: string) =>
+          workspaceId === "inbox" ? taskNoReminder : null,
+      );
+
+      let renderer!: Renderer;
+      await act(async () => {
+        renderer = create(
+          <TaskDetailContent
+            taskId="task-no-rem-save"
+            workspaceId="inbox"
+            selectedOccurrenceDate="2026-08-30"
+            onBack={jest.fn()}
+            onConvertedToHabit={jest.fn()}
+          />,
+        );
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Edit task").props.onPress();
+      });
+
+      const nameInput = renderer.root.findAllByType(TextInput)[0];
+      await act(async () => {
+        nameInput.props.onChangeText("Updated title");
+      });
+
+      await act(async () => {
+        findByAccessibilityLabel(renderer, "Save task").props.onPress();
+      });
+
+      const updateCall = (EntityCommandService.updateTask as jest.Mock).mock.calls.find(
+        (c) => c[0] === "task-no-rem-save",
+      );
+      expect(updateCall[2].reminder).toBeUndefined();
+    });
+  });
 });

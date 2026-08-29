@@ -4,7 +4,8 @@ import {
   UiStateRepository,
   WorkspaceRepository,
 } from "@/repositories";
-import { INBOX_WORKSPACE_ID, Workspace } from "@/shared/types/domain.types";
+import { INBOX_WORKSPACE_ID, Workspace, Task, Habit } from "@/shared/types/domain.types";
+import { deduplicateEntities } from "@/shared/utils/deduplication";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -33,7 +34,10 @@ import {
   rescheduleTodoReminders,
 } from "@/services/scheduling/reminders.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
-import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
+import {
+  calculateRescheduledTask,
+  getStructuredSchedule,
+} from "@/services/scheduling/scheduling.service";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
@@ -203,23 +207,39 @@ export function useCalendarState() {
   const loadDataFromStorage = useCallback(async () => {
     console.log("[INSTRUMENT] [useCalendarState] loadDataFromStorage() CALLED");
     try {
-      const uiState = await UiStateRepository.getUiState();
-      const activeWorkspace = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
       const currentLists = await WorkspaceRepository.getWorkspaces();
       setLists(currentLists);
 
-      // Fetch from repository
-      const tasksMap = await TaskRepository.getTasks(activeWorkspace);
-      const habitsMap = await HabitRepository.getHabits(activeWorkspace);
+      const workspaceIds = Array.from(
+        new Set([INBOX_WORKSPACE_ID, ...currentLists.map((f) => f.id)]),
+      );
 
-      const listTodos = Object.values(tasksMap).filter((t) => !t.archivedAt);
+      const allTasksList: Task[] = [];
+      const allHabitsList: Habit[] = [];
 
-      const listHabits = Object.values(habitsMap).filter((h) => !h.archivedAt);
+      for (const wsId of workspaceIds) {
+        const tasksMap = await TaskRepository.getTasks(wsId);
+        Object.values(tasksMap).forEach((t) => {
+          if (!t.archivedAt) {
+            allTasksList.push(t);
+          }
+        });
 
-      console.log("[INSTRUMENT] [useCalendarState] loadDataFromStorage() loaded", listTodos.length, "todos, calling setAllTodos");
-      setAllTodos(listTodos as any[]);
+        const habitsMap = await HabitRepository.getHabits(wsId);
+        Object.values(habitsMap).forEach((h) => {
+          if (!h.archivedAt) {
+            allHabitsList.push(h);
+          }
+        });
+      }
+
+      const dedupTasks = deduplicateEntities(allTasksList);
+      const dedupHabits = deduplicateEntities(allHabitsList);
+
+      console.log("[INSTRUMENT] [useCalendarState] loadDataFromStorage() loaded", dedupTasks.length, "todos, calling setAllTodos");
+      setAllTodos(dedupTasks as any[]);
       console.log("[INSTRUMENT] [useCalendarState] setAllTodos CALLED");
-      setAllHabits(listHabits as any[]);
+      setAllHabits(dedupHabits as any[]);
     } catch (e) {
       console.log("Error loading storage data in calendar current", e);
     }
@@ -261,9 +281,13 @@ export function useCalendarState() {
     const unsubHabits = addStateListener("habits_changed", () => {
       loadDataFromStorage();
     });
+    const unsubWorkspace = addStateListener("workspace_changed", () => {
+      loadDataFromStorage();
+    });
     return () => {
       unsubTasks();
       unsubHabits();
+      unsubWorkspace();
     };
   }, [loadDataFromStorage]);
 
@@ -292,12 +316,7 @@ export function useCalendarState() {
   const timelineItems = useMemo(() => {
     const tasks = allTodos
       .filter((todo) => {
-        const matchesReminderDate = todo.reminder?.triggerAt
-          ? getDateKey(new Date(todo.reminder.triggerAt)) === selectedDate
-          : false;
-        const matchesDate =
-          isRecurringOccurrenceForDate(todo, selectedDate) ||
-          matchesReminderDate;
+        const matchesDate = isRecurringOccurrenceForDate(todo, selectedDate);
         return matchesDate && todo.schedule?.date !== "inbox";
       })
       .map((todo) => {
@@ -309,6 +328,7 @@ export function useCalendarState() {
 
         return {
           id: todo.id,
+          workspaceId: todo.workspaceId || INBOX_WORKSPACE_ID,
           title: todo.title,
           timeLabel,
           rawHours: sched.startTime ? sched.sortKey / 60 : 24,
@@ -317,6 +337,8 @@ export function useCalendarState() {
           streak: undefined,
           category: todo.category,
           priority: todo.priority,
+          startHour: sched.startTime?.hour,
+          startMinute: sched.startTime?.minute,
           reminderHour: sched.startTime?.hour,
           reminderMinute: sched.startTime?.minute,
           durationMinutes: sched.duration,
@@ -341,6 +363,7 @@ export function useCalendarState() {
 
         return {
           id: habit.id,
+          workspaceId: habit.workspaceId || INBOX_WORKSPACE_ID,
           title: habit.title,
           timeLabel,
           rawHours: sched.startTime ? sched.sortKey / 60 : 25,
@@ -349,6 +372,8 @@ export function useCalendarState() {
           streak: habit.streak || 0,
           category: undefined,
           priority: habit.priority,
+          startHour: sched.startTime?.hour,
+          startMinute: sched.startTime?.minute,
           reminderHour: sched.startTime?.hour,
           reminderMinute: sched.startTime?.minute,
           durationMinutes: sched.duration,
@@ -362,7 +387,7 @@ export function useCalendarState() {
   const allDayItems = useMemo(() => {
     return timelineItems.filter(
       (item) =>
-        item.reminderHour === undefined || item.reminderMinute === undefined,
+        item.startHour === undefined || item.startMinute === undefined,
     );
   }, [timelineItems]);
 
@@ -370,24 +395,24 @@ export function useCalendarState() {
   const timedItemsWithLayout = useMemo(() => {
     const timed = timelineItems.filter(
       (item) =>
-        item.reminderHour !== undefined && item.reminderMinute !== undefined,
+        item.startHour !== undefined && item.startMinute !== undefined,
     );
 
     const sorted = [...timed].sort((a, b) => {
-      const startA = a.reminderHour! * 60 + a.reminderMinute!;
-      const startB = b.reminderHour! * 60 + b.reminderMinute!;
+      const startA = a.startHour! * 60 + a.startMinute!;
+      const startB = b.startHour! * 60 + b.startMinute!;
       return startA - startB;
     });
 
     const clusters: (typeof sorted)[] = [];
     for (const item of sorted) {
-      const start = item.reminderHour! * 60 + item.reminderMinute!;
+      const start = item.startHour! * 60 + item.startMinute!;
       const end = start + item.durationMinutes;
 
       let placed = false;
       for (const cluster of clusters) {
         const overlaps = cluster.some((cItem) => {
-          const cStart = cItem.reminderHour! * 60 + cItem.reminderMinute!;
+          const cStart = cItem.startHour! * 60 + cItem.startMinute!;
           const cEnd = cStart + cItem.durationMinutes;
           return start < cEnd && cStart < end;
         });
@@ -407,7 +432,7 @@ export function useCalendarState() {
       const itemCols = new Map<string, number>();
 
       for (const item of cluster) {
-        const start = item.reminderHour! * 60 + item.reminderMinute!;
+        const start = item.startHour! * 60 + item.startMinute!;
         const end = start + item.durationMinutes;
 
         let colIdx = 0;
@@ -419,7 +444,7 @@ export function useCalendarState() {
           }
 
           const overlaps = columns[colIdx].some((cItem) => {
-            const cStart = cItem.reminderHour! * 60 + cItem.reminderMinute!;
+            const cStart = cItem.startHour! * 60 + cItem.startMinute!;
             const cEnd = cStart + cItem.durationMinutes;
             return start < cEnd && cStart < end;
           });
@@ -522,6 +547,14 @@ export function useCalendarState() {
   useEffect(() => {
     calendarViewModeRef.current = calendarViewMode;
   }, [calendarViewMode]);
+
+  useEffect(() => {
+    hoveredHourRef.current = hoveredHour;
+  }, [hoveredHour]);
+
+  useEffect(() => {
+    hoveredDateRef.current = hoveredDate;
+  }, [hoveredDate]);
 
   const handleDragStart = useCallback(
     (item: any, absoluteX: number, absoluteY: number) => {
@@ -732,35 +765,39 @@ export function useCalendarState() {
           ).catch(() => {});
           try {
             const uiState = await UiStateRepository.getUiState();
-            const activeWorkspace =
-              uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
+            const targetWorkspace =
+              dragItem.workspaceId ||
+              uiState.activeWorkspaceId ||
+              INBOX_WORKSPACE_ID;
             if (dragItem.type === "task") {
-              const taskMap = await TaskRepository.getTasks(activeWorkspace);
+              const taskMap = await TaskRepository.getTasks(targetWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
-                const [year, monthVal, dayVal] = selDate.split("-").map(Number);
-                const newAlarmDate = new Date(
-                  year,
-                  monthVal - 1,
-                  dayVal,
-                  hHour,
-                  0,
-                  0,
-                  0,
-                );
-
                 const { EntityCommandService } = require("@/services/command/EntityCommandService");
-                await EntityCommandService.updateTask(todo.id, activeWorkspace, {
-                  schedule: { ...todo.schedule, date: selDate },
-                  reminder: {
-                    ...(todo.reminder || { enabled: true }),
-                    enabled: true,
-                    triggerAt: newAlarmDate.getTime(),
-                  },
-                }, { source: "calendar_drag_drop", skipEvents: true });
+                if (todo.recurrence) {
+                  await EntityCommandService.rescheduleRecurringOccurrence(
+                    todo.id,
+                    targetWorkspace,
+                    selDate,
+                    { hour: hHour },
+                    { source: "calendar_drag_drop", skipEvents: true },
+                  );
+                } else {
+                  const updates = calculateRescheduledTask(
+                    todo,
+                    { hour: hHour },
+                    selDate,
+                  );
+                  await EntityCommandService.updateTask(
+                    todo.id,
+                    targetWorkspace,
+                    updates,
+                    { source: "calendar_drag_drop", skipEvents: true },
+                  );
+                }
               }
             } else if (dragItem.type === "habit") {
-              const habitMap = await HabitRepository.getHabits(activeWorkspace);
+              const habitMap = await HabitRepository.getHabits(targetWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
                 // Update habit reminder time to match the dropped hour
@@ -775,7 +812,7 @@ export function useCalendarState() {
                   0,
                 );
                 const { EntityCommandService } = require("@/services/command/EntityCommandService");
-                await EntityCommandService.updateHabit(habit.id, activeWorkspace, {
+                await EntityCommandService.updateHabit(habit.id, targetWorkspace, {
                   reminder: {
                     ...(habit.reminder || { enabled: true }),
                     enabled: true,
@@ -807,46 +844,35 @@ export function useCalendarState() {
           ).catch(() => {});
           try {
             const uiState = await UiStateRepository.getUiState();
-            const activeWorkspace =
-              uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
+            const targetWorkspace =
+              dragItem.workspaceId ||
+              uiState.activeWorkspaceId ||
+              INBOX_WORKSPACE_ID;
             if (dragItem.type === "task") {
-              const taskMap = await TaskRepository.getTasks(activeWorkspace);
+              const taskMap = await TaskRepository.getTasks(targetWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
-                // Derive hour/minute from canonical reminder.triggerAt
-                let newTriggerAt: number | undefined;
-                if (todo.reminder?.triggerAt) {
-                  const triggerDate = new Date(todo.reminder.triggerAt);
-                  const [hours, minutes] = [
-                    triggerDate.getHours(),
-                    triggerDate.getMinutes(),
-                  ];
-                  const [year, monthVal, dayVal] = hDate.split("-").map(Number);
-                  newTriggerAt = new Date(
-                    year,
-                    monthVal - 1,
-                    dayVal,
-                    hours,
-                    minutes,
-                    0,
-                    0,
-                  ).getTime();
-                }
-
                 const { EntityCommandService } = require("@/services/command/EntityCommandService");
-                await EntityCommandService.updateTask(todo.id, activeWorkspace, {
-                  schedule: { ...todo.schedule, date: hDate },
-                  ...(newTriggerAt ? {
-                    reminder: {
-                      ...(todo.reminder || { enabled: true }),
-                      enabled: true,
-                      triggerAt: newTriggerAt,
-                    }
-                  } : {})
-                }, { source: "calendar_drag_drop", skipEvents: true });
+                if (todo.recurrence) {
+                  await EntityCommandService.rescheduleRecurringOccurrence(
+                    todo.id,
+                    targetWorkspace,
+                    selDate,
+                    { date: hDate },
+                    { source: "calendar_drag_drop", skipEvents: true },
+                  );
+                } else {
+                  const updates = calculateRescheduledTask(todo, { date: hDate });
+                  await EntityCommandService.updateTask(
+                    todo.id,
+                    targetWorkspace,
+                    updates,
+                    { source: "calendar_drag_drop", skipEvents: true },
+                  );
+                }
               }
             } else if (dragItem.type === "habit") {
-              const habitMap = await HabitRepository.getHabits(activeWorkspace);
+              const habitMap = await HabitRepository.getHabits(targetWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
                 // Update habit reminder date to the dropped date, preserve time if any
@@ -864,7 +890,7 @@ export function useCalendarState() {
                   0,
                 );
                 const { EntityCommandService } = require("@/services/command/EntityCommandService");
-                await EntityCommandService.updateHabit(habit.id, activeWorkspace, {
+                await EntityCommandService.updateHabit(habit.id, targetWorkspace, {
                   reminder: {
                     ...(habit.reminder || { enabled: true }),
                     enabled: true,

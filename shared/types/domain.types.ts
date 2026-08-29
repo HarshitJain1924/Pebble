@@ -29,6 +29,7 @@ export interface TaskSchedule {
   date?: string; // YYYY-MM-DD
   startTime?: string; // HH:mm
   endTime?: string; // HH:mm
+  durationMinutes?: number; // Duration in minutes
   allDay?: boolean;
 }
 

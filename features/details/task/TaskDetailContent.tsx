@@ -36,6 +36,7 @@ import {
   getDateKey,
   getRecurrenceLabel,
 } from "@/services/scheduling/recurrence.service";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 import { emitStateChange } from "@/services/events/state-events";
 import { CategoryChip } from "@/shared/components/design-system";
 import {
@@ -66,6 +67,8 @@ export interface TaskDetailContentProps {
   workspaceId?: string;
   /** The occurrence date (YYYY-MM-DD) this task was opened from. */
   selectedOccurrenceDate: string;
+  /** Initial start time (HH:mm) when creating from a calendar time slot. */
+  initialStartTime?: string;
   onBack: () => void;
   /** Called after a successful Task → Habit conversion with the new habit id. */
   onConvertedToHabit: (habitId: string) => void;
@@ -81,6 +84,7 @@ export function TaskDetailContent({
   taskId,
   workspaceId: workspaceIdHint,
   selectedOccurrenceDate,
+  initialStartTime,
   onBack,
   onConvertedToHabit,
 }: TaskDetailContentProps) {
@@ -152,15 +156,38 @@ export function TaskDetailContent({
     // Compare schedule — canonical only
     const itemScheduleDate = item.schedule?.date || "inbox";
     if (form.scheduleDate !== itemScheduleDate) return true;
+    const itemStartTime = item.schedule?.startTime;
+    if (form.startTime !== itemStartTime) return true;
+    const itemDuration = item.schedule?.durationMinutes;
+    if (form.durationMinutes !== itemDuration) return true;
 
     // Compare reminder — canonical only (compare triggerAt epoch)
     const itemReminderTriggerAt = item.reminder?.triggerAt;
+    const itemReminderDate = itemReminderTriggerAt
+      ? dateKeyFromDate(new Date(itemReminderTriggerAt))
+      : undefined;
+    const itemReminderHour = itemReminderTriggerAt
+      ? new Date(itemReminderTriggerAt).getHours()
+      : undefined;
+    const itemReminderMinute = itemReminderTriggerAt
+      ? new Date(itemReminderTriggerAt).getMinutes()
+      : undefined;
+
+    const isReminderUnchanged =
+      itemReminderTriggerAt !== undefined &&
+      form.reminderDate === itemReminderDate &&
+      form.reminderTime?.hour === itemReminderHour &&
+      form.reminderTime?.minute === itemReminderMinute;
+
     const formReminderTriggerAt = form.reminderTime
-      ? computeTriggerEpoch(
-          form.reminderTime.hour,
-          form.reminderTime.minute,
-          form.scheduleDate,
-        )
+      ? isReminderUnchanged
+        ? itemReminderTriggerAt
+        : computeTriggerEpoch(
+            form.reminderTime.hour,
+            form.reminderTime.minute,
+            form.reminderDate ||
+              (form.scheduleDate !== "inbox" ? form.scheduleDate : undefined),
+          )
       : undefined;
     if (formReminderTriggerAt !== itemReminderTriggerAt) return true;
 
@@ -267,8 +294,26 @@ export function TaskDetailContent({
         setItem(foundTask);
         reset(foundTask);
       } else {
-        Alert.alert("Error", "Task not found.");
-        onBack();
+        const initialTask: TaskDetailItem = {
+          id: taskId || generateId("task-"),
+          workspaceId: workspaceIdHint || INBOX_WORKSPACE_ID,
+          title: "",
+          description: "",
+          categoryId: "work",
+          priority: "medium",
+          status: "todo",
+          schedule: {
+            date: selectedOccurrenceDate,
+            ...(initialStartTime
+              ? { startTime: initialStartTime, durationMinutes: 60 }
+              : {}),
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        setItem(initialTask);
+        reset(initialTask);
+        setIsEditing(true);
       }
     } catch (e) {
       console.warn("Failed to load details", e);
@@ -312,16 +357,46 @@ export function TaskDetailContent({
       // Compute canonical Reminder
       let updatedReminder: Reminder | undefined;
       if (form.reminderTime) {
+        const itemReminderTriggerAt = item.reminder?.triggerAt;
+        const itemReminderDate = itemReminderTriggerAt
+          ? dateKeyFromDate(new Date(itemReminderTriggerAt))
+          : undefined;
+        const itemReminderHour = itemReminderTriggerAt
+          ? new Date(itemReminderTriggerAt).getHours()
+          : undefined;
+        const itemReminderMinute = itemReminderTriggerAt
+          ? new Date(itemReminderTriggerAt).getMinutes()
+          : undefined;
+
+        const isReminderUnchanged =
+          itemReminderTriggerAt !== undefined &&
+          form.reminderDate === itemReminderDate &&
+          form.reminderTime.hour === itemReminderHour &&
+          form.reminderTime.minute === itemReminderMinute;
+
+        const targetDate =
+          form.reminderDate ||
+          (form.scheduleDate !== "inbox" ? form.scheduleDate : dateKeyFromDate(new Date()));
+
+        const triggerAt = isReminderUnchanged
+          ? itemReminderTriggerAt
+          : computeTriggerEpoch(
+              form.reminderTime.hour,
+              form.reminderTime.minute,
+              targetDate,
+            );
+
         updatedReminder = {
           enabled: true,
-          triggerAt: computeTriggerEpoch(
-            form.reminderTime.hour,
-            form.reminderTime.minute,
-            form.scheduleDate,
-          ),
+          triggerAt,
+          ...(item.reminder?.notificationIds
+            ? { notificationIds: item.reminder.notificationIds }
+            : {}),
         };
-      } else {
+      } else if (item.reminder?.triggerAt) {
         updatedReminder = { enabled: false, triggerAt: 0 };
+      } else {
+        updatedReminder = undefined;
       }
 
       // Capture saved object for immediate UI refresh
@@ -341,14 +416,20 @@ export function TaskDetailContent({
           priority: form.priority,
           workspaceId: form.workspaceId,
           recurrence: undefined, // non-recurring copy
-          schedule: { date: selectedOccurrenceDate },
+          schedule: {
+            date: selectedOccurrenceDate,
+            ...(form.startTime ? { startTime: form.startTime } : {}),
+            ...(form.durationMinutes !== undefined
+              ? { durationMinutes: form.durationMinutes }
+              : {}),
+          },
           reminder: form.reminderTime
             ? {
                 enabled: true,
                 triggerAt: computeTriggerEpoch(
                   form.reminderTime.hour,
                   form.reminderTime.minute,
-                  selectedOccurrenceDate,
+                  form.reminderDate || selectedOccurrenceDate,
                 ),
               }
             : undefined,
@@ -401,8 +482,15 @@ export function TaskDetailContent({
           category: form.category,
           priority: form.priority,
           workspaceId: form.workspaceId,
-          schedule: { date: form.scheduleDate },
-          reminder: updatedReminder,
+          schedule: {
+            ...item.schedule,
+            date: form.scheduleDate,
+            ...(form.startTime ? { startTime: form.startTime } : {}),
+            ...(form.durationMinutes !== undefined
+              ? { durationMinutes: form.durationMinutes }
+              : {}),
+          },
+          ...(updatedReminder ? { reminder: updatedReminder } : {}),
           recurrence: updatedRecurrence ?? undefined,
           lastUpdated: getDateKey(),
           resourceIds: form.linkedCollectionIds,
@@ -411,6 +499,13 @@ export function TaskDetailContent({
           archived: item.archived ?? !!item.archivedAt,
           archivedAt: item.archivedAt,
         };
+        if (!form.startTime && updatedItem.schedule) {
+          delete updatedItem.schedule.startTime;
+          delete updatedItem.schedule.durationMinutes;
+        }
+        if (!updatedReminder && updatedItem.reminder) {
+          delete updatedItem.reminder;
+        }
 
         // Strip legacy scheduling fields — V3 canonical fields only
         delete updatedItem.reminderHour;
@@ -419,21 +514,33 @@ export function TaskDetailContent({
         delete updatedItem.scheduledDate;
 
         // Handle Task via EntityCommandService (owns reminder lifecycle)
-        const oldFolderId = item.workspaceId || INBOX_WORKSPACE_ID;
-        if (oldFolderId !== form.workspaceId) {
-          await EntityCommandService.moveTask(
+        const existsInRepo = await TaskRepository.getTask(
+          item.id,
+          item.workspaceId || INBOX_WORKSPACE_ID,
+        );
+        if (existsInRepo) {
+          const oldFolderId = item.workspaceId || INBOX_WORKSPACE_ID;
+          if (oldFolderId !== form.workspaceId) {
+            await EntityCommandService.moveTask(
+              item.id,
+              oldFolderId,
+              form.workspaceId,
+              { skipEvents: true, skipAnalytics: true },
+            );
+          }
+          await EntityCommandService.updateTask(
             item.id,
-            oldFolderId,
             form.workspaceId,
-            { skipEvents: true, skipAnalytics: true },
+            updatedItem,
+            { skipEvents: true, skipAnalytics: true, source: "task-details" },
+          );
+        } else {
+          await EntityCommandService.createTask(
+            updatedItem as Task,
+            form.workspaceId,
+            { skipEvents: true, skipAnalytics: true, source: "task-details" },
           );
         }
-        await EntityCommandService.updateTask(
-          item.id,
-          form.workspaceId,
-          updatedItem,
-          { skipEvents: true, skipAnalytics: true, source: "task-details" },
-        );
         savedItemForRefresh = { ...updatedItem, workspaceId: form.workspaceId };
       }
 
@@ -676,7 +783,11 @@ export function TaskDetailContent({
   };
 
   const scheduleDisplay =
-    form.scheduleDate === "inbox" ? "Inbox" : form.scheduleDate || "None";
+    form.scheduleDate === "inbox"
+      ? "Inbox"
+      : form.startTime
+        ? `${form.scheduleDate} at ${form.startTime}${form.durationMinutes ? ` (${form.durationMinutes}m)` : ""}`
+        : form.scheduleDate || "None";
 
   const isCompleted = !!(item.completed || item.status === "completed");
   const isArchived = !!(item.archived || item.archivedAt);

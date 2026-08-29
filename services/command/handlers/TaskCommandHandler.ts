@@ -847,6 +847,118 @@ static async reorderTasks(
     return updated;
   }
 
+  /**
+   * Fix #9: Hardened recurring occurrence drag/drop.
+   * Atomically creates a recurrence exception on a master Task and creates a detached
+   * non-recurring Task for the moved occurrence in a single atomic storage transaction.
+   */
+  static async rescheduleRecurringOccurrence(
+    masterTaskId: string,
+    workspaceId: string,
+    occurrenceDate: string,
+    dropTarget: { hour?: number | null; date?: string | null },
+    options?: CreateEntityOptions,
+  ): Promise<{ masterTask: Task; occurrenceTask: Task }> {
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { generateId } = await import("@/shared/utils/id");
+    const { calculateRescheduledTask } = await import("@/services/scheduling/scheduling.service");
+    const key = `pebble:v1:tasks:${workspaceId}`;
+
+    const { updatedMaster, newCopy, needsReminderScheduling } = await withLock(key, async () => {
+      const tasksMap = await TaskRepository.getTasks(workspaceId);
+      const master = tasksMap[masterTaskId];
+      if (!master) {
+        throw new Error(
+          `[TaskCommandHandler] rescheduleRecurringOccurrence failed: Task ${masterTaskId} not found in workspace ${workspaceId}`
+        );
+      }
+
+      if (!master.recurrence) {
+        throw new Error(
+          `[TaskCommandHandler] rescheduleRecurringOccurrence failed: Task ${masterTaskId} is not a recurring task`
+        );
+      }
+
+      // 1. Calculate new schedule for the dropped occurrence
+      const updates = calculateRescheduledTask(master, dropTarget, occurrenceDate);
+
+      // 2. Add occurrence date to master's recurrenceExceptions (idempotent set)
+      const existingExceptions = master.recurrenceExceptions || [];
+      const updatedExceptions = existingExceptions.includes(occurrenceDate)
+        ? existingExceptions
+        : [...existingExceptions, occurrenceDate];
+
+      const updatedMaster: Task = {
+        ...master,
+        recurrenceExceptions: updatedExceptions,
+        updatedAt: Date.now(),
+      };
+
+      // 3. Construct detached non-recurring task
+      const targetDate = dropTarget.date || occurrenceDate;
+      const newTaskId = generateId("task-");
+      const newCopy: Task = {
+        ...master,
+        id: newTaskId,
+        workspaceId,
+        recurrence: undefined, // Detached non-recurring copy
+        recurrenceExceptions: undefined,
+        schedule: {
+          ...master.schedule,
+          ...updates.schedule,
+          date: targetDate,
+        },
+        reminder: master.reminder
+          ? {
+              ...master.reminder,
+              notificationIds: undefined, // Strip so fresh IDs are scheduled
+            }
+          : undefined,
+        status: "todo",
+        completedAt: undefined,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      // 4. Atomic Domain Persistence: write BOTH master and copy in a SINGLE partition write
+      await TaskRepository.saveTasksUnlocked([updatedMaster, newCopy], workspaceId);
+
+      const needsReminderScheduling = !!(newCopy.reminder?.enabled && newCopy.reminder?.triggerAt);
+
+      return { updatedMaster, newCopy, needsReminderScheduling };
+    });
+
+    // 5. Post-persistence notification scheduling for the new copy (isolated)
+    let finalOccurrenceTask = newCopy;
+    if (needsReminderScheduling) {
+      try {
+        const { rescheduleTodoReminders } = await import("@/services/scheduling/reminders.service");
+        const scheduled = await rescheduleTodoReminders(newCopy);
+        if (scheduled.reminder?.notificationIds?.length) {
+          await TaskRepository.updateNotificationIds(
+            scheduled.id,
+            workspaceId,
+            scheduled.reminder.notificationIds
+          );
+          finalOccurrenceTask = scheduled;
+        }
+      } catch (e) {
+        console.warn("[TaskCommandHandler] Failed to schedule reminder for detached occurrence:", e);
+      }
+    }
+
+    // 6. Post-persistence events & analytics
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+    }
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+    void syncWidgetData().catch(() => {});
+
+    return { masterTask: updatedMaster, occurrenceTask: finalOccurrenceTask };
+  }
+
 /**
    * Update an existing Task.
    * Modifies task fields and intelligently reschedules reminders only if relevant state changed.

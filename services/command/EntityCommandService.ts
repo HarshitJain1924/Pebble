@@ -70,6 +70,27 @@ export class EntityCommandService {
   }
 
   /**
+   * Fix #9: Atomically reschedules a single occurrence of a recurring Task.
+   * Modifies the master's recurrenceExceptions and creates a detached non-recurring Task
+   * in a single atomic storage transaction under the workspace partition lock.
+   */
+  static async rescheduleRecurringOccurrence(
+    masterTaskId: string,
+    workspaceId: string,
+    occurrenceDate: string,
+    dropTarget: { hour?: number | null; date?: string | null },
+    options?: CreateEntityOptions,
+  ): Promise<{ masterTask: Task; occurrenceTask: Task }> {
+    return TaskCommandHandler.rescheduleRecurringOccurrence(
+      masterTaskId,
+      workspaceId,
+      occurrenceDate,
+      dropTarget,
+      options,
+    );
+  }
+
+  /**
    * Create and persist a Habit entity.
    */
   static async createHabit(

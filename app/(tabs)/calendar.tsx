@@ -1,43 +1,39 @@
+import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  View,
-  Alert,
+  View
 } from "react-native";
-import { AppText as Text } from "@/shared/components/ui/AppText";
 import Animated, {
+  Easing,
   FadeInDown,
   runOnJS,
-  useSharedValue,
   useAnimatedStyle,
+  useSharedValue,
   withSpring,
   withTiming,
-  Easing,
 } from "react-native-reanimated";
 
-import { Typography } from "@/shared/constants/typography";
-import * as Haptics from "expo-haptics";
 import {
+  getDateKey,
+  MONTH_NAMES,
   useCalendarState,
   WEEKDAY_NAMES,
-  MONTH_NAMES,
-  getDateKey,
 } from "@/features/calendar/hooks/useCalendarState";
-import { Task, Habit, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { generateId } from "@/shared/utils/id";
-import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import { Typography } from "@/shared/constants/typography";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { generateId } from "@/shared/utils/id";
+import * as Haptics from "expo-haptics";
 
-import { historyForDate } from "@/services/analytics/productivity-history.service";
-import { GestureDetector, Gesture } from "react-native-gesture-handler";
-import PressableScale from "@/shared/components/ui/PressableScale";
-import Svg, { Rect, Path, Line, Circle } from "react-native-svg";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
+import PressableScale from "@/shared/components/ui/PressableScale";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 export default function CalendarScreen() {
   const {
@@ -103,22 +99,44 @@ export default function CalendarScreen() {
 
   const getItemType = (item: any) => {
     if (item.type === "habit") return "habit";
-    if (item.categoryId === "focus" || item.category === "focus") return "focus";
-    if (item.categoryId === "learning" || item.category === "learning") return "resource";
-    if ((item.schedule?.startTime && item.schedule?.endTime) || item.categoryId === "travel" || item.categoryId === "creative") return "event";
-    if (item.categoryId === "home" || item.category === "home" || (item.items && item.items.length > 0)) return "checklist";
+    if (item.categoryId === "focus" || item.category === "focus")
+      return "focus";
+    if (item.categoryId === "learning" || item.category === "learning")
+      return "resource";
+    if (
+      item.categoryId === "home" ||
+      item.category === "home" ||
+      (item.items && item.items.length > 0)
+    )
+      return "checklist";
+    if (item.schedule?.startTime)
+      return "event";
     return "task";
   };
 
   const getDateIndicatorStats = (dateStr: string) => {
     if (!dateStr) return { tasks: 0, habits: 0, events: 0, focus: 0 };
-    const dayTasks = allTodos.filter(t => t.schedule?.date === dateStr && !t.archivedAt && !isTaskCompleted(t));
-    
-    const tasks = dayTasks.filter(t => !(t.schedule?.startTime && t.schedule?.endTime) && t.categoryId !== "focus" && t.categoryId !== "learning" && t.categoryId !== "travel" && t.categoryId !== "creative").length;
-    const events = dayTasks.filter(t => (t.schedule?.startTime && t.schedule?.endTime) || t.categoryId === "travel" || t.categoryId === "creative").length;
-    const focus = dayTasks.filter(t => t.categoryId === "focus" || t.category === "focus").length;
-    
-    const habits = allHabits.filter(h => isRecurringOccurrenceForDate(h, dateStr)).length;
+    const dayTasks = allTodos.filter(
+      (t) =>
+        t.schedule?.date === dateStr && !t.archivedAt && !isTaskCompleted(t),
+    );
+
+    const tasks = dayTasks.filter(
+      (t) =>
+        !t.schedule?.startTime &&
+        t.categoryId !== "focus" &&
+        t.categoryId !== "learning",
+    ).length;
+    const events = dayTasks.filter(
+      (t) => !!t.schedule?.startTime,
+    ).length;
+    const focus = dayTasks.filter(
+      (t) => t.categoryId === "focus" || t.category === "focus",
+    ).length;
+
+    const habits = allHabits.filter((h) =>
+      isRecurringOccurrenceForDate(h, dateStr),
+    ).length;
 
     return { tasks, habits, events, focus };
   };
@@ -126,22 +144,62 @@ export default function CalendarScreen() {
   // Custom Indicators Component
   const CellIndicators = ({ dateStr }: { dateStr: string }) => {
     const stats = getDateIndicatorStats(dateStr);
-    const hasAny = stats.tasks > 0 || stats.habits > 0 || stats.events > 0 || stats.focus > 0;
+    const hasAny =
+      stats.tasks > 0 ||
+      stats.habits > 0 ||
+      stats.events > 0 ||
+      stats.focus > 0;
     if (!hasAny) return null;
 
     return (
-      <View style={{ flexDirection: "row", gap: 3, justifyContent: "center", marginTop: 2, alignItems: "center" }}>
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 3,
+          justifyContent: "center",
+          marginTop: 2,
+          alignItems: "center",
+        }}
+      >
         {stats.tasks > 0 && (
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: "#6C63FF" }} />
+          <View
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: "#6C63FF",
+            }}
+          />
         )}
         {stats.habits > 0 && (
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: "#10B981" }} />
+          <View
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: "#10B981",
+            }}
+          />
         )}
         {stats.events > 0 && (
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: "#F59E0B" }} />
+          <View
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: "#F59E0B",
+            }}
+          />
         )}
         {stats.focus > 0 && (
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: "#EC4899" }} />
+          <View
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: "#EC4899",
+            }}
+          />
         )}
       </View>
     );
@@ -169,11 +227,12 @@ export default function CalendarScreen() {
   // ─── Free Time Calculator ─────────────────────────────────────────
   const freeTimeGaps = useMemo(() => {
     const timed = timelineItems.filter(
-      (item) => item.reminderHour !== undefined && item.reminderMinute !== undefined
+      (item) =>
+        item.startHour !== undefined && item.startMinute !== undefined,
     );
     const sorted = [...timed].sort((a, b) => {
-      const startA = a.reminderHour! * 60 + a.reminderMinute!;
-      const startB = b.reminderHour! * 60 + b.reminderMinute!;
+      const startA = a.startHour! * 60 + a.startMinute!;
+      const startB = b.startHour! * 60 + b.startMinute!;
       return startA - startB;
     });
 
@@ -182,7 +241,7 @@ export default function CalendarScreen() {
     const dayEnd = 22 * 60; // 10 PM
 
     for (const item of sorted) {
-      const start = item.reminderHour! * 60 + item.reminderMinute!;
+      const start = item.startHour! * 60 + item.startMinute!;
       const end = start + (item.durationMinutes || 60);
 
       if (start > currentStart) {
@@ -215,7 +274,11 @@ export default function CalendarScreen() {
   // ─── Switcher & Calendar Morph Animations ──────────────────────────
   const getHeaderTitle = () => {
     const d = new Date(selectedDate);
-    const options: Intl.DateTimeFormatOptions = { weekday: "long", month: "long", day: "numeric" };
+    const options: Intl.DateTimeFormatOptions = {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    };
     return d.toLocaleDateString("en-US", options);
   };
 
@@ -255,19 +318,28 @@ export default function CalendarScreen() {
   useEffect(() => {
     if (calendarViewMode === "month") {
       activeTabX.value = 0;
-      calendarHeight.value = withTiming(260, { duration: 220, easing: Easing.bezier(0.25, 1, 0.5, 1) });
+      calendarHeight.value = withTiming(260, {
+        duration: 220,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+      });
       opacityMonth.value = withTiming(1, { duration: 150 });
       opacityWeek.value = withTiming(0, { duration: 100 });
       opacityTimeline.value = withTiming(0, { duration: 100 });
     } else if (calendarViewMode === "week") {
       activeTabX.value = 1;
-      calendarHeight.value = withTiming(84, { duration: 220, easing: Easing.bezier(0.25, 1, 0.5, 1) });
+      calendarHeight.value = withTiming(84, {
+        duration: 220,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+      });
       opacityMonth.value = withTiming(0, { duration: 100 });
       opacityWeek.value = withTiming(1, { duration: 150 });
       opacityTimeline.value = withTiming(0, { duration: 100 });
     } else {
       activeTabX.value = 2;
-      calendarHeight.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 1, 0.5, 1) });
+      calendarHeight.value = withTiming(0, {
+        duration: 220,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+      });
       opacityMonth.value = withTiming(0, { duration: 100 });
       opacityWeek.value = withTiming(0, { duration: 100 });
       opacityTimeline.value = withTiming(1, { duration: 150 });
@@ -278,7 +350,14 @@ export default function CalendarScreen() {
     const tabWidth = 260 / 3;
     const lineOffset = (tabWidth - 50) / 2;
     return {
-      transform: [{ translateX: withSpring(activeTabX.value * tabWidth + lineOffset, { stiffness: 140, damping: 15 }) }],
+      transform: [
+        {
+          translateX: withSpring(activeTabX.value * tabWidth + lineOffset, {
+            stiffness: 140,
+            damping: 15,
+          }),
+        },
+      ],
     };
   });
 
@@ -319,7 +398,7 @@ export default function CalendarScreen() {
       .onUpdate((e) => {
         dragX.value = e.absoluteX;
         dragY.value = e.absoluteY;
-        
+
         // Manhattan distance check to throttle calls across the bridge to the JS thread
         const dx = Math.abs(e.absoluteX - lastCheckX.value);
         const dy = Math.abs(e.absoluteY - lastCheckY.value);
@@ -336,8 +415,13 @@ export default function CalendarScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <Animated.View entering={FadeInDown.duration(450).springify()} style={{ flex: 1 }}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+    >
+      <Animated.View
+        entering={FadeInDown.duration(450).springify()}
+        style={{ flex: 1 }}
+      >
         <ScrollView
           ref={scrollRef}
           scrollEnabled={!isDragging}
@@ -349,14 +433,33 @@ export default function CalendarScreen() {
           }}
         >
           {/* Screen Header */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, marginTop: 4 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              marginBottom: 12,
+              marginTop: 4,
+            }}
+          >
             <View style={{ gap: 2, flex: 1, paddingRight: 16 }}>
-              <Text style={[styles.kicker, { color: colors.primary }]}>SCHEDULE</Text>
-              <Text style={{ fontSize: 24, fontWeight: "800", color: colors.text }}>
+              <Text style={[styles.kicker, { color: colors.primary }]}>
+                SCHEDULE
+              </Text>
+              <Text
+                style={{ fontSize: 24, fontWeight: "800", color: colors.text }}
+              >
                 {getHeaderTitle()}
               </Text>
               {getHeaderSubtitle() ? (
-                <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: "600", marginTop: 2 }}>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.textMuted,
+                    fontWeight: "600",
+                    marginTop: 2,
+                  }}
+                >
                   {getHeaderSubtitle()}
                 </Text>
               ) : null}
@@ -365,7 +468,9 @@ export default function CalendarScreen() {
             {/* Contextual Toggle Button */}
             <PressableScale
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                  () => {},
+                );
                 // Cycle: month -> week -> timeline -> month
                 if (calendarViewMode === "month") {
                   setCalendarViewMode("week");
@@ -393,8 +498,8 @@ export default function CalendarScreen() {
                   calendarViewMode === "month"
                     ? "calendar"
                     : calendarViewMode === "week"
-                    ? "list"
-                    : "clock"
+                      ? "list"
+                      : "clock"
                 }
                 size={16}
                 color={colors.primary}
@@ -412,10 +517,20 @@ export default function CalendarScreen() {
                 borderColor: colors.border,
                 shadowColor: "#000",
                 shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: calendarViewMode === "timeline" ? 0 : (colorScheme === "light" ? 0.04 : 0.15),
+                shadowOpacity:
+                  calendarViewMode === "timeline"
+                    ? 0
+                    : colorScheme === "light"
+                      ? 0.04
+                      : 0.15,
                 shadowRadius: 16,
                 elevation: calendarViewMode === "timeline" ? 0 : 4,
-                marginTop: calendarViewMode === "timeline" ? 0 : (Platform.OS === "ios" ? 12 : 8),
+                marginTop:
+                  calendarViewMode === "timeline"
+                    ? 0
+                    : Platform.OS === "ios"
+                      ? 12
+                      : 8,
                 position: "relative",
                 overflow: "hidden",
               },
@@ -423,8 +538,20 @@ export default function CalendarScreen() {
             ]}
           >
             {/* Month View Section */}
-            <Animated.View style={[monthStyle, { position: "absolute", top: 12, left: 16, right: 16 }]}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <Animated.View
+              style={[
+                monthStyle,
+                { position: "absolute", top: 12, left: 16, right: 16 },
+              ]}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 6,
+                }}
+              >
                 <Pressable
                   onPress={handlePrevMonth}
                   hitSlop={8}
@@ -434,14 +561,26 @@ export default function CalendarScreen() {
                     borderRadius: 8,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.04)",
+                    backgroundColor: isLight
+                      ? "#F1F5F9"
+                      : "rgba(255,255,255,0.04)",
                     borderWidth: 1,
                     borderColor: colors.border,
                   }}
                 >
-                  <Feather name="chevron-left" size={14} color={colors.textMuted} />
+                  <Feather
+                    name="chevron-left"
+                    size={14}
+                    color={colors.textMuted}
+                  />
                 </Pressable>
-                <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 14,
+                    fontWeight: "800",
+                  }}
+                >
                   {MONTH_NAMES[month.month]} {month.year}
                 </Text>
                 <Pressable
@@ -453,12 +592,18 @@ export default function CalendarScreen() {
                     borderRadius: 8,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.04)",
+                    backgroundColor: isLight
+                      ? "#F1F5F9"
+                      : "rgba(255,255,255,0.04)",
                     borderWidth: 1,
                     borderColor: colors.border,
                   }}
                 >
-                  <Feather name="chevron-right" size={14} color={colors.textMuted} />
+                  <Feather
+                    name="chevron-right"
+                    size={14}
+                    color={colors.textMuted}
+                  />
                 </Pressable>
               </View>
 
@@ -469,11 +614,22 @@ export default function CalendarScreen() {
                   marginBottom: 4,
                   paddingBottom: 4,
                   borderBottomWidth: 1,
-                  borderBottomColor: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.04)",
+                  borderBottomColor: isLight
+                    ? "rgba(0,0,0,0.05)"
+                    : "rgba(255,255,255,0.04)",
                 }}
               >
                 {WEEKDAY_NAMES.map((name) => (
-                  <Text key={name} style={{ flex: 1, textAlign: "center", color: colors.textMuted, fontSize: 9, fontWeight: "800" }}>
+                  <Text
+                    key={name}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      color: colors.textMuted,
+                      fontSize: 9,
+                      fontWeight: "800",
+                    }}
+                  >
                     {name.charAt(0)}
                   </Text>
                 ))}
@@ -487,7 +643,12 @@ export default function CalendarScreen() {
               >
                 {calendarCells.map((cell) => {
                   if (cell.type === "empty") {
-                    return <View key={cell.key} style={{ width: "14.28%", height: 30 }} />;
+                    return (
+                      <View
+                        key={cell.key}
+                        style={{ width: "14.28%", height: 30 }}
+                      />
+                    );
                   }
                   const dateStr = cell.dateString || "";
                   const isSelected = selectedDate === dateStr;
@@ -495,12 +656,13 @@ export default function CalendarScreen() {
                   const isHovered = hoveredDate === dateStr;
 
                   let borderStyles = {
-                    borderWidth: (isToday && !isSelected) || isHovered ? 1.5 : 0,
+                    borderWidth:
+                      (isToday && !isSelected) || isHovered ? 1.5 : 0,
                     borderColor: isHovered
                       ? colors.primary
                       : isToday && !isSelected
-                      ? colors.primary
-                      : "transparent",
+                        ? colors.primary
+                        : "transparent",
                   };
 
                   return (
@@ -525,23 +687,30 @@ export default function CalendarScreen() {
                             backgroundColor: isSelected
                               ? colors.primary
                               : isHovered
-                              ? `${colors.primary}22`
-                              : "transparent",
+                                ? `${colors.primary}22`
+                                : "transparent",
                           },
                           borderStyles,
                         ]}
                       >
                         <Text
                           style={{
-                            color: isSelected ? "#FFFFFF" : isToday ? colors.primary : colors.text,
+                            color: isSelected
+                              ? "#FFFFFF"
+                              : isToday
+                                ? colors.primary
+                                : colors.text,
                             fontSize: 11,
-                            fontWeight: isSelected || isToday || isHovered ? "800" : "500",
+                            fontWeight:
+                              isSelected || isToday || isHovered
+                                ? "800"
+                                : "500",
                           }}
                         >
                           {cell.dayNum}
                         </Text>
                       </View>
-                      
+
                       {/* Indicators */}
                       <CellIndicators dateStr={dateStr} />
                     </Pressable>
@@ -551,7 +720,12 @@ export default function CalendarScreen() {
             </Animated.View>
 
             {/* Week View Section */}
-            <Animated.View style={[weekStyle, { position: "absolute", top: 12, left: 16, right: 16 }]}>
+            <Animated.View
+              style={[
+                weekStyle,
+                { position: "absolute", top: 12, left: 16, right: 16 },
+              ]}
+            >
               <View
                 ref={weekStripRef}
                 onLayout={measureWeekStrip}
@@ -574,7 +748,14 @@ export default function CalendarScreen() {
                         paddingVertical: 2,
                       }}
                     >
-                      <Text style={{ fontSize: 9, fontWeight: "700", color: isSelected ? colors.primary : colors.textMuted, textTransform: "uppercase" }}>
+                      <Text
+                        style={{
+                          fontSize: 9,
+                          fontWeight: "700",
+                          color: isSelected ? colors.primary : colors.textMuted,
+                          textTransform: "uppercase",
+                        }}
+                      >
                         {day.dayName}
                       </Text>
                       <View
@@ -594,7 +775,11 @@ export default function CalendarScreen() {
                       >
                         <Text
                           style={{
-                            color: isSelected ? "#FFFFFF" : isToday ? colors.primary : colors.text,
+                            color: isSelected
+                              ? "#FFFFFF"
+                              : isToday
+                                ? colors.primary
+                                : colors.text,
                             fontSize: 13,
                             fontWeight: isSelected || isToday ? "800" : "500",
                           }}
@@ -602,7 +787,7 @@ export default function CalendarScreen() {
                           {day.dayNum}
                         </Text>
                       </View>
-                      
+
                       {/* Indicators */}
                       <CellIndicators dateStr={day.dateString} />
                     </Pressable>
@@ -612,7 +797,12 @@ export default function CalendarScreen() {
             </Animated.View>
 
             {/* Timeline View Section */}
-            <Animated.View style={[timelineStyle, { position: "absolute", top: 12, left: 16, right: 16 }]}>
+            <Animated.View
+              style={[
+                timelineStyle,
+                { position: "absolute", top: 12, left: 16, right: 16 },
+              ]}
+            >
               <View
                 style={{
                   flexDirection: "row",
@@ -633,7 +823,14 @@ export default function CalendarScreen() {
                         paddingVertical: 1,
                       }}
                     >
-                      <Text style={{ fontSize: 8, fontWeight: "700", color: isSelected ? colors.primary : colors.textMuted, textTransform: "uppercase" }}>
+                      <Text
+                        style={{
+                          fontSize: 8,
+                          fontWeight: "700",
+                          color: isSelected ? colors.primary : colors.textMuted,
+                          textTransform: "uppercase",
+                        }}
+                      >
                         {day.dayName.charAt(0)}
                       </Text>
                       <View
@@ -653,7 +850,11 @@ export default function CalendarScreen() {
                       >
                         <Text
                           style={{
-                            color: isSelected ? "#FFFFFF" : isToday ? colors.primary : colors.text,
+                            color: isSelected
+                              ? "#FFFFFF"
+                              : isToday
+                                ? colors.primary
+                                : colors.text,
                             fontSize: 11,
                             fontWeight: isSelected || isToday ? "800" : "500",
                           }}
@@ -680,20 +881,36 @@ export default function CalendarScreen() {
               marginBottom: 4,
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" }}>Agenda</Text>
-              
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+            >
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 14,
+                  fontWeight: "800",
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                }}
+              >
+                Agenda
+              </Text>
+
               {/* Quick Jump Trigger Button */}
               <Pressable
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                    () => {},
+                  );
                   setShowQuickJump(true);
                 }}
                 style={{
                   width: 28,
                   height: 28,
                   borderRadius: 14,
-                  backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
+                  backgroundColor: isLight
+                    ? "#F1F5F9"
+                    : "rgba(255,255,255,0.05)",
                   alignItems: "center",
                   justifyContent: "center",
                   borderWidth: 1,
@@ -707,14 +924,18 @@ export default function CalendarScreen() {
               {/* Filters Trigger Button */}
               <Pressable
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                    () => {},
+                  );
                   setShowFilter(true);
                 }}
                 style={{
                   width: 28,
                   height: 28,
                   borderRadius: 14,
-                  backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
+                  backgroundColor: isLight
+                    ? "#F1F5F9"
+                    : "rgba(255,255,255,0.05)",
                   alignItems: "center",
                   justifyContent: "center",
                   borderWidth: 1,
@@ -727,7 +948,9 @@ export default function CalendarScreen() {
 
               <Pressable
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                    () => {},
+                  );
                   setShowQuickCreate(true);
                 }}
                 style={{
@@ -745,8 +968,17 @@ export default function CalendarScreen() {
                 <Feather name="plus" size={14} color={colors.primary} />
               </Pressable>
             </View>
-            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "700" }}>
-              {filteredTimedItems.length + filteredAllDayItems.length} item{(filteredTimedItems.length + filteredAllDayItems.length) !== 1 ? "s" : ""}
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 12,
+                fontWeight: "700",
+              }}
+            >
+              {filteredTimedItems.length + filteredAllDayItems.length} item
+              {filteredTimedItems.length + filteredAllDayItems.length !== 1
+                ? "s"
+                : ""}
             </Text>
           </View>
 
@@ -755,11 +987,19 @@ export default function CalendarScreen() {
             {/* All Day / Anytime Section */}
             {filteredAllDayItems.length > 0 && (
               <View style={styles.allDaySection}>
-                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>ALL DAY</Text>
+                <Text
+                  style={[styles.sectionSubtitle, { color: colors.textMuted }]}
+                >
+                  ALL DAY
+                </Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}
+                  contentContainerStyle={{
+                    flexDirection: "row",
+                    gap: 8,
+                    paddingVertical: 4,
+                  }}
                 >
                   {filteredAllDayItems.map((item, idx) => {
                     const gesture = createPanGesture(item);
@@ -777,8 +1017,12 @@ export default function CalendarScreen() {
                       <GestureDetector key={item.id || idx} gesture={gesture}>
                         <Pressable
                           onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                            router.push(`/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`);
+                            Haptics.impactAsync(
+                              Haptics.ImpactFeedbackStyle.Light,
+                            ).catch(() => {});
+                            router.push(
+                              `/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`,
+                            );
                           }}
                           style={[
                             styles.allDayCard,
@@ -789,11 +1033,15 @@ export default function CalendarScreen() {
                                   ? "#F1F5F9"
                                   : "rgba(255, 255, 255, 0.03)"
                                 : isLight
-                                ? "#E2E8F0"
-                                : "rgba(255, 255, 255, 0.08)",
-                              borderColor: item.completed ? colors.border : themeColor,
+                                  ? "#E2E8F0"
+                                  : "rgba(255, 255, 255, 0.08)",
+                              borderColor: item.completed
+                                ? colors.border
+                                : themeColor,
                               borderLeftWidth: 3,
-                              borderLeftColor: item.completed ? colors.border : themeColor,
+                              borderLeftColor: item.completed
+                                ? colors.border
+                                : themeColor,
                             },
                           ]}
                         >
@@ -801,12 +1049,18 @@ export default function CalendarScreen() {
                             style={[
                               styles.allDayCardText,
                               {
-                                color: item.completed ? colors.textMuted : colors.text,
-                                textDecorationLine: item.completed ? "line-through" : "none",
+                                color: item.completed
+                                  ? colors.textMuted
+                                  : colors.text,
+                                textDecorationLine: item.completed
+                                  ? "line-through"
+                                  : "none",
                               },
                             ]}
                           >
-                            {item.type === "habit" ? `⚡ ${item.title}` : item.title}
+                            {item.type === "habit"
+                              ? `⚡ ${item.title}`
+                              : item.title}
                           </Text>
                         </Pressable>
                       </GestureDetector>
@@ -831,24 +1085,43 @@ export default function CalendarScreen() {
                 return (
                   <View key={hr} style={styles.hourRow}>
                     <View style={styles.hourLabelCol}>
-                      <Text style={[styles.hourLabelText, { color: colors.textMuted }]}>{timeStr}</Text>
+                      <Text
+                        style={[
+                          styles.hourLabelText,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        {timeStr}
+                      </Text>
                     </View>
                     <Pressable
                       onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        router.push(`/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`);
+                        Haptics.impactAsync(
+                          Haptics.ImpactFeedbackStyle.Light,
+                        ).catch(() => {});
+                        const hourStr = String(hr).padStart(2, "0");
+                        router.push(
+                          `/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}&hour=${hourStr}`,
+                        );
                       }}
-                      style={[styles.hourLineCol, { borderColor: colors.border }]}
+                      style={[
+                        styles.hourLineCol,
+                        { borderColor: colors.border },
+                      ]}
                     />
                   </View>
                 );
               })}
 
               {/* Absolutely positioned task blocks */}
-              <View style={styles.absoluteBlocksContainer} pointerEvents="box-none">
+              <View
+                style={styles.absoluteBlocksContainer}
+                pointerEvents="box-none"
+              >
                 {/* Redesigned Timed Items */}
                 {filteredTimedItems.map((item, idx) => {
-                  const startMinutes = (item.reminderHour ?? 0) * 60 + (item.reminderMinute ?? 0);
+                  const startMinutes =
+                    (item.startHour ?? 0) * 60 + (item.startMinute ?? 0);
 
                   const top = (startMinutes / 60) * 80;
                   const height = (item.durationMinutes / 60) * 80;
@@ -860,27 +1133,59 @@ export default function CalendarScreen() {
                   const isHabit = type === "habit";
 
                   const themeStyles = {
-                    task: { bg: isLight ? "#EEF2F6" : "rgba(108, 99, 255, 0.08)", border: "#6C63FF", icon: "check-square" },
-                    habit: { bg: isLight ? "#ECFDF5" : "rgba(16, 185, 129, 0.08)", border: "#10B981", icon: "activity" },
-                    checklist: { bg: isLight ? "#EFF6FF" : "rgba(59, 130, 246, 0.08)", border: "#3B82F6", icon: "list" },
-                    event: { bg: isLight ? "#FFF7ED" : "rgba(245, 158, 11, 0.08)", border: "#F59E0B", icon: "map-pin" },
-                    focus: { bg: isLight ? "#FDF2F8" : "rgba(236, 72, 153, 0.08)", border: "#EC4899", icon: "target" },
-                    resource: { bg: isLight ? "#F9FAFB" : "rgba(107, 114, 128, 0.08)", border: "#6B7280", icon: "book-open" },
+                    task: {
+                      bg: isLight ? "#EEF2F6" : "rgba(108, 99, 255, 0.08)",
+                      border: "#6C63FF",
+                      icon: "check-square",
+                    },
+                    habit: {
+                      bg: isLight ? "#ECFDF5" : "rgba(16, 185, 129, 0.08)",
+                      border: "#10B981",
+                      icon: "activity",
+                    },
+                    checklist: {
+                      bg: isLight ? "#EFF6FF" : "rgba(59, 130, 246, 0.08)",
+                      border: "#3B82F6",
+                      icon: "list",
+                    },
+                    event: {
+                      bg: isLight ? "#FFF7ED" : "rgba(245, 158, 11, 0.08)",
+                      border: "#F59E0B",
+                      icon: "map-pin",
+                    },
+                    focus: {
+                      bg: isLight ? "#FDF2F8" : "rgba(236, 72, 153, 0.08)",
+                      border: "#EC4899",
+                      icon: "target",
+                    },
+                    resource: {
+                      bg: isLight ? "#F9FAFB" : "rgba(107, 114, 128, 0.08)",
+                      border: "#6B7280",
+                      icon: "book-open",
+                    },
                   }[type];
 
                   let cardBg = item.completed
-                    ? (isLight ? "#F1F5F9" : "rgba(255, 255, 255, 0.02)")
+                    ? isLight
+                      ? "#F1F5F9"
+                      : "rgba(255, 255, 255, 0.02)"
                     : themeStyles.bg;
                   let textColor = colors.text;
-                  let accentColor = item.completed ? "#9CA3AF" : themeStyles.border;
+                  let accentColor = item.completed
+                    ? "#9CA3AF"
+                    : themeStyles.border;
 
                   const gesture = createPanGesture(item);
                   return (
                     <GestureDetector key={item.id || idx} gesture={gesture}>
                       <Pressable
                         onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                          router.push(`/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`);
+                          Haptics.impactAsync(
+                            Haptics.ImpactFeedbackStyle.Light,
+                          ).catch(() => {});
+                          router.push(
+                            `/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`,
+                          );
                         }}
                         style={[
                           styles.timedBlockCard,
@@ -895,10 +1200,31 @@ export default function CalendarScreen() {
                           },
                         ]}
                       >
-                        <View style={{ flex: 1, padding: 6, justifyContent: "space-between" }}>
+                        <View
+                          style={{
+                            flex: 1,
+                            padding: 6,
+                            justifyContent: "space-between",
+                          }}
+                        >
                           <View>
-                            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                              <Text style={{ fontSize: 9, fontWeight: "800", color: item.completed ? colors.textMuted : accentColor, textTransform: "uppercase" }}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: "800",
+                                  color: item.completed
+                                    ? colors.textMuted
+                                    : accentColor,
+                                  textTransform: "uppercase",
+                                }}
+                              >
                                 {item.timeLabel} ({item.durationMinutes}m)
                               </Text>
                               {item.priority && item.priority !== "medium" && (
@@ -906,7 +1232,10 @@ export default function CalendarScreen() {
                                   style={{
                                     fontSize: 8,
                                     fontWeight: "900",
-                                    color: item.priority === "high" ? colors.error : colors.success,
+                                    color:
+                                      item.priority === "high"
+                                        ? colors.error
+                                        : colors.success,
                                   }}
                                 >
                                   {item.priority.toUpperCase()}
@@ -918,9 +1247,13 @@ export default function CalendarScreen() {
                               style={{
                                 fontSize: 12,
                                 fontWeight: "700",
-                                color: item.completed ? colors.textMuted : colors.text,
+                                color: item.completed
+                                  ? colors.textMuted
+                                  : colors.text,
                                 marginTop: 2,
-                                textDecorationLine: item.completed ? "line-through" : "none",
+                                textDecorationLine: item.completed
+                                  ? "line-through"
+                                  : "none",
                               }}
                             >
                               {item.title}
@@ -928,9 +1261,31 @@ export default function CalendarScreen() {
                           </View>
 
                           {height >= 60 && (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                              <Feather name={themeStyles.icon as any} size={10} color={item.completed ? colors.textMuted : accentColor} />
-                              <Text style={{ fontSize: 9, color: item.completed ? colors.textMuted : colors.text, opacity: 0.8 }}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <Feather
+                                name={themeStyles.icon as any}
+                                size={10}
+                                color={
+                                  item.completed
+                                    ? colors.textMuted
+                                    : accentColor
+                                }
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 9,
+                                  color: item.completed
+                                    ? colors.textMuted
+                                    : colors.text,
+                                  opacity: 0.8,
+                                }}
+                              >
                                 {type.charAt(0).toUpperCase() + type.slice(1)}
                               </Text>
                             </View>
@@ -947,7 +1302,10 @@ export default function CalendarScreen() {
                   const height = (gap.durationMinutes / 60) * 80;
                   const hrs = Math.floor(gap.durationMinutes / 60);
                   const mins = gap.durationMinutes % 60;
-                  const durationStr = hrs > 0 ? `${hrs}h ${mins > 0 ? `${mins}m` : ""}` : `${mins}m`;
+                  const durationStr =
+                    hrs > 0
+                      ? `${hrs}h ${mins > 0 ? `${mins}m` : ""}`
+                      : `${mins}m`;
 
                   return (
                     <View
@@ -962,7 +1320,9 @@ export default function CalendarScreen() {
                         borderWidth: 1.5,
                         borderColor: colors.border,
                         borderStyle: "dashed",
-                        backgroundColor: isLight ? "#F8FAFC" : "rgba(255, 255, 255, 0.02)",
+                        backgroundColor: isLight
+                          ? "#F8FAFC"
+                          : "rgba(255, 255, 255, 0.02)",
                         paddingHorizontal: 12,
                         flexDirection: "row",
                         alignItems: "center",
@@ -970,22 +1330,51 @@ export default function CalendarScreen() {
                         gap: 8,
                       }}
                     >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: `${colors.primary}12`, alignItems: "center", justifyContent: "center" }}>
-                          <Feather name="coffee" size={12} color={colors.primary} />
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: 12,
+                            backgroundColor: `${colors.primary}12`,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Feather
+                            name="coffee"
+                            size={12}
+                            color={colors.primary}
+                          />
                         </View>
                         <View>
-                          <Text style={{ fontSize: 11, fontWeight: "700", color: colors.text }}>
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: "700",
+                              color: colors.text,
+                            }}
+                          >
                             {durationStr} free
                           </Text>
-                          <Text style={{ fontSize: 9, color: colors.textMuted }}>
+                          <Text
+                            style={{ fontSize: 9, color: colors.textMuted }}
+                          >
                             Perfect for Deep Work
                           </Text>
                         </View>
                       </View>
                       <PressableScale
                         onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          Haptics.impactAsync(
+                            Haptics.ImpactFeedbackStyle.Light,
+                          ).catch(() => {});
                           router.push("/focus");
                         }}
                         scaleTo={0.95}
@@ -996,7 +1385,13 @@ export default function CalendarScreen() {
                           borderRadius: 8,
                         }}
                       >
-                        <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "800" }}>
+                        <Text
+                          style={{
+                            color: "#FFFFFF",
+                            fontSize: 9,
+                            fontWeight: "800",
+                          }}
+                        >
                           Start Focus
                         </Text>
                       </PressableScale>
@@ -1014,7 +1409,9 @@ export default function CalendarScreen() {
                         height: 78,
                         left: "0%",
                         width: "100%",
-                        backgroundColor: isLight ? "rgba(59, 130, 246, 0.06)" : "rgba(59, 130, 246, 0.12)",
+                        backgroundColor: isLight
+                          ? "rgba(59, 130, 246, 0.06)"
+                          : "rgba(59, 130, 246, 0.12)",
                         borderStyle: "dashed",
                         borderWidth: 2,
                         borderColor: colors.primary,
@@ -1023,8 +1420,16 @@ export default function CalendarScreen() {
                       },
                     ]}
                   >
-                    <Text style={{ fontSize: 11, fontWeight: "800", color: colors.primary, textTransform: "uppercase" }}>
-                      Move to {hoveredHour === 12 ? 12 : hoveredHour % 12}:00 {hoveredHour >= 12 ? "PM" : "AM"}
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: "800",
+                        color: colors.primary,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Move to {hoveredHour === 12 ? 12 : hoveredHour % 12}:00{" "}
+                      {hoveredHour >= 12 ? "PM" : "AM"}
                     </Text>
                   </View>
                 )}
@@ -1039,7 +1444,10 @@ export default function CalendarScreen() {
         <Animated.View style={floatingCardStyle} pointerEvents="none">
           <View
             style={{
-              backgroundColor: activeDragItem.type === "habit" ? colors.warning : colors.primary,
+              backgroundColor:
+                activeDragItem.type === "habit"
+                  ? colors.warning
+                  : colors.primary,
               borderRadius: 14,
               padding: 12,
               borderWidth: 1.5,
@@ -1051,16 +1459,26 @@ export default function CalendarScreen() {
               elevation: 8,
             }}
           >
-            <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "800", textTransform: "uppercase", marginBottom: 2 }}>
+            <Text
+              style={{
+                color: "#FFFFFF",
+                fontSize: 12,
+                fontWeight: "800",
+                textTransform: "uppercase",
+                marginBottom: 2,
+              }}
+            >
               {activeDragItem.timeLabel || "All Day"}
             </Text>
-            <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "700" }} numberOfLines={1}>
+            <Text
+              style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "700" }}
+              numberOfLines={1}
+            >
               {activeDragItem.title}
             </Text>
           </View>
         </Animated.View>
       )}
-
 
       {/* ── QUICK JUMP SHEET ───────────────────────── */}
       <AnimatedOverlay
@@ -1082,21 +1500,55 @@ export default function CalendarScreen() {
             }}
           >
             {/* Header */}
-            <View style={{ alignItems: "center", paddingBottom: 12, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border + "40" }}>
-              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+            <View
+              style={{
+                alignItems: "center",
+                paddingBottom: 12,
+                marginBottom: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border + "40",
+              }}
+            >
+              <Text
+                style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}
+              >
                 Quick Jump
               </Text>
             </View>
 
             {/* Jump Options */}
-            <Text style={{ fontSize: 11, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, paddingHorizontal: 4 }}>
+            <Text
+              style={{
+                fontSize: 11,
+                fontWeight: "800",
+                color: colors.textMuted,
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 4,
+                paddingHorizontal: 4,
+              }}
+            >
               Jump To
             </Text>
             <View style={{ marginBottom: 20 }}>
               {[
-                { label: "Today", icon: "calendar", date: getDateKey(new Date()) },
-                { label: "Tomorrow", icon: "arrow-right", date: getDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000)) },
-                { label: "Next Week", icon: "chevrons-right", date: getDateKey(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)) },
+                {
+                  label: "Today",
+                  icon: "calendar",
+                  date: getDateKey(new Date()),
+                },
+                {
+                  label: "Tomorrow",
+                  icon: "arrow-right",
+                  date: getDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+                },
+                {
+                  label: "Next Week",
+                  icon: "chevrons-right",
+                  date: getDateKey(
+                    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  ),
+                },
               ].map((opt, idx) => (
                 <Pressable
                   key={opt.label}
@@ -1114,8 +1566,18 @@ export default function CalendarScreen() {
                     gap: 12,
                   }}
                 >
-                  <Feather name={opt.icon as any} size={14} color={colors.textMuted} />
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text }}>
+                  <Feather
+                    name={opt.icon as any}
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: colors.text,
+                    }}
+                  >
                     {opt.label}
                   </Text>
                 </Pressable>
@@ -1123,18 +1585,54 @@ export default function CalendarScreen() {
             </View>
 
             {/* Separator line */}
-            <View style={{ height: 1, backgroundColor: colors.border, marginBottom: 20 }} />
+            <View
+              style={{
+                height: 1,
+                backgroundColor: colors.border,
+                marginBottom: 20,
+              }}
+            />
 
             {/* Quick Create */}
-            <Text style={{ fontSize: 11, fontWeight: "800", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, paddingHorizontal: 4 }}>
+            <Text
+              style={{
+                fontSize: 11,
+                fontWeight: "800",
+                color: colors.textMuted,
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 4,
+                paddingHorizontal: 4,
+              }}
+            >
               Create
             </Text>
             <View>
               {[
-                { label: "Task", icon: "check-square", color: "#6C63FF", cat: "work" },
-                { label: "Event", icon: "map-pin", color: "#F59E0B", cat: "travel" },
-                { label: "Habit", icon: "activity", color: "#10B981", cat: null },
-                { label: "Focus Session", icon: "target", color: "#EC4899", cat: "focus" },
+                {
+                  label: "Task",
+                  icon: "check-square",
+                  color: "#6C63FF",
+                  cat: "work",
+                },
+                {
+                  label: "Event",
+                  icon: "map-pin",
+                  color: "#F59E0B",
+                  cat: "travel",
+                },
+                {
+                  label: "Habit",
+                  icon: "activity",
+                  color: "#10B981",
+                  cat: null,
+                },
+                {
+                  label: "Focus Session",
+                  icon: "target",
+                  color: "#EC4899",
+                  cat: "focus",
+                },
               ].map((opt, idx) => (
                 <Pressable
                   key={opt.label}
@@ -1144,7 +1642,9 @@ export default function CalendarScreen() {
                       router.push("/settings");
                     } else {
                       setTimeout(() => {
-                        router.push(`/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`);
+                        router.push(
+                          `/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`,
+                        );
                       }, 300);
                     }
                   }}
@@ -1159,7 +1659,13 @@ export default function CalendarScreen() {
                   }}
                 >
                   <Feather name={opt.icon as any} size={14} color={opt.color} />
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: colors.text,
+                    }}
+                  >
                     {opt.label}
                   </Text>
                 </Pressable>
@@ -1189,14 +1695,31 @@ export default function CalendarScreen() {
             }}
           >
             {/* Header */}
-            <View style={{ alignItems: "center", paddingBottom: 12, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border + "40" }}>
-              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+            <View
+              style={{
+                alignItems: "center",
+                paddingBottom: 12,
+                marginBottom: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border + "40",
+              }}
+            >
+              <Text
+                style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}
+              >
                 Filter Timeline
               </Text>
             </View>
 
             {/* Filter Options */}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 16,
+              }}
+            >
               {[
                 { key: "task", label: "Tasks", color: "#6C63FF" },
                 { key: "habit", label: "Habits", color: "#10B981" },
@@ -1211,7 +1734,9 @@ export default function CalendarScreen() {
                     key={opt.key}
                     onPress={() => {
                       if (isActive) {
-                        setActiveFilters(activeFilters.filter((f) => f !== opt.key));
+                        setActiveFilters(
+                          activeFilters.filter((f) => f !== opt.key),
+                        );
                       } else {
                         setActiveFilters([...activeFilters, opt.key]);
                       }
@@ -1223,13 +1748,23 @@ export default function CalendarScreen() {
                       paddingHorizontal: 12,
                       paddingVertical: 6,
                       borderRadius: 20,
-                      backgroundColor: isActive ? `${opt.color}18` : (isLight ? "#F1F5F9" : "rgba(255,255,255,0.02)"),
+                      backgroundColor: isActive
+                        ? `${opt.color}18`
+                        : isLight
+                          ? "#F1F5F9"
+                          : "rgba(255,255,255,0.02)",
                       borderWidth: 1,
                       borderColor: isActive ? opt.color : colors.border,
                       gap: 4,
                     }}
                   >
-                    <Text style={{ fontSize: 12, fontWeight: "700", color: isActive ? opt.color : colors.textMuted }}>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: "700",
+                        color: isActive ? opt.color : colors.textMuted,
+                      }}
+                    >
                       {isActive ? "✓ " : ""} {opt.label}
                     </Text>
                   </PressableScale>
@@ -1238,7 +1773,13 @@ export default function CalendarScreen() {
             </View>
 
             {/* Completed Tasks Toggle */}
-            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 8 }} />
+            <View
+              style={{
+                height: 1,
+                backgroundColor: colors.border,
+                marginVertical: 8,
+              }}
+            />
             <PressableScale
               onPress={() => setShowCompleted(!showCompleted)}
               scaleTo={0.98}
@@ -1248,14 +1789,28 @@ export default function CalendarScreen() {
                 justifyContent: "space-between",
                 padding: 12,
                 borderRadius: 12,
-                backgroundColor: showCompleted ? `${colors.primary}1a` : "transparent",
+                backgroundColor: showCompleted
+                  ? `${colors.primary}1a`
+                  : "transparent",
                 borderWidth: 1,
                 borderColor: showCompleted ? colors.primary : colors.border,
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Feather name="eye" size={14} color={showCompleted ? colors.primary : colors.textMuted} />
-                <Text style={{ fontSize: 13, fontWeight: "700", color: colors.text }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              >
+                <Feather
+                  name="eye"
+                  size={14}
+                  color={showCompleted ? colors.primary : colors.textMuted}
+                />
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "700",
+                    color: colors.text,
+                  }}
+                >
                   Show Completed Items
                 </Text>
               </View>
@@ -1287,18 +1842,48 @@ export default function CalendarScreen() {
             }}
           >
             {/* Header */}
-            <View style={{ alignItems: "center", paddingBottom: 12, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border + "40" }}>
-              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+            <View
+              style={{
+                alignItems: "center",
+                paddingBottom: 12,
+                marginBottom: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border + "40",
+              }}
+            >
+              <Text
+                style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}
+              >
                 Create New
               </Text>
             </View>
 
             <View style={{ marginBottom: 8 }}>
               {[
-                { label: "Task", icon: "check-square", color: "#6C63FF", cat: "work" },
-                { label: "Event", icon: "map-pin", color: "#F59E0B", cat: "travel" },
-                { label: "Habit", icon: "activity", color: "#10B981", cat: null },
-                { label: "Focus Session", icon: "target", color: "#EC4899", cat: "focus" },
+                {
+                  label: "Task",
+                  icon: "check-square",
+                  color: "#6C63FF",
+                  cat: "work",
+                },
+                {
+                  label: "Event",
+                  icon: "map-pin",
+                  color: "#F59E0B",
+                  cat: "work",
+                },
+                {
+                  label: "Habit",
+                  icon: "activity",
+                  color: "#10B981",
+                  cat: null,
+                },
+                {
+                  label: "Focus Session",
+                  icon: "target",
+                  color: "#EC4899",
+                  cat: "focus",
+                },
               ].map((opt, idx) => (
                 <Pressable
                   key={opt.label}
@@ -1308,7 +1893,9 @@ export default function CalendarScreen() {
                       router.push("/settings");
                     } else {
                       setTimeout(() => {
-                        router.push(`/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`);
+                        router.push(
+                          `/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`,
+                        );
                       }, 300);
                     }
                   }}
@@ -1323,7 +1910,13 @@ export default function CalendarScreen() {
                   }}
                 >
                   <Feather name={opt.icon as any} size={14} color={opt.color} />
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: colors.text,
+                    }}
+                  >
                     {opt.label}
                   </Text>
                 </Pressable>
@@ -1332,7 +1925,6 @@ export default function CalendarScreen() {
           </View>
         )}
       </AnimatedOverlay>
-
 
       {/* Task creation — routed to full-screen task-details.tsx */}
     </SafeAreaView>

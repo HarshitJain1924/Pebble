@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 
 import type { TaskPriority } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 import type { TaskDetailItem } from "@/features/details/task/types";
 
 export interface TaskFormState {
@@ -11,7 +12,11 @@ export interface TaskFormState {
   priority: TaskPriority;
   workspaceId: string;
   scheduleDate: string;
+  startTime?: string;
+  durationMinutes?: number;
   showDatePicker: boolean;
+  scheduleTimePickerVisible: boolean;
+  reminderDate?: string;
   reminderTime?: { hour: number; minute: number };
   timePickerVisible: boolean;
   recurrenceType: string;
@@ -28,7 +33,11 @@ const INITIAL_FORM: TaskFormState = {
   priority: "medium",
   workspaceId: INBOX_WORKSPACE_ID,
   scheduleDate: "inbox",
+  startTime: undefined,
+  durationMinutes: undefined,
   showDatePicker: false,
+  scheduleTimePickerVisible: false,
+  reminderDate: undefined,
   reminderTime: undefined,
   timePickerVisible: false,
   recurrenceType: "none",
@@ -40,18 +49,19 @@ const INITIAL_FORM: TaskFormState = {
 
 /**
  * Compute the epoch timestamp for a reminder trigger from an hour/minute pair
- * plus the task's schedule date. When there is no concrete date ("inbox"),
- * falls back to today — this matches the pre-extraction behavior exactly.
+ * plus a target reminder date string (YYYY-MM-DD). When no concrete date is given,
+ * falls back to today in local time.
  */
 export function computeTriggerEpoch(
   hour: number,
   minute: number,
-  dateStr: string,
+  dateStr?: string,
 ): number {
   if (dateStr && dateStr !== "inbox") {
-    return new Date(
-      `${dateStr}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`,
-    ).getTime();
+    const [y, m, d] = dateStr.split("-").map(Number);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      return new Date(y, m - 1, d, hour, minute, 0, 0).getTime();
+    }
   }
   // No specific date — use today as fallback for scheduling
   const d = new Date();
@@ -78,11 +88,24 @@ export function useTaskDetailForm() {
 
   const reset = useCallback((data: TaskDetailItem) => {
     const rec = data.recurrence;
+    let reminderDate: string | undefined;
     let reminderTime: TaskFormState["reminderTime"];
     if (data.reminder?.triggerAt) {
       const d = new Date(data.reminder.triggerAt);
+      reminderDate = dateKeyFromDate(d);
       reminderTime = { hour: d.getHours(), minute: d.getMinutes() };
     }
+
+    let durationMinutes = data.schedule?.durationMinutes;
+    if (durationMinutes === undefined && data.schedule?.startTime && data.schedule?.endTime) {
+      const [sH, sM] = data.schedule.startTime.split(":").map(Number);
+      const [eH, eM] = data.schedule.endTime.split(":").map(Number);
+      if (!isNaN(sH) && !isNaN(sM) && !isNaN(eH) && !isNaN(eM)) {
+        const diff = (eH * 60 + eM) - (sH * 60 + sM);
+        if (diff > 0) durationMinutes = diff;
+      }
+    }
+
     setForm({
       title: data.title || "",
       description: data.description || "",
@@ -90,8 +113,12 @@ export function useTaskDetailForm() {
       priority: data.priority || "medium",
       workspaceId: data.workspaceId || INBOX_WORKSPACE_ID,
       scheduleDate: data.schedule?.date || "inbox",
+      startTime: data.schedule?.startTime,
+      durationMinutes,
+      reminderDate,
       reminderTime,
       showDatePicker: false,
+      scheduleTimePickerVisible: false,
       timePickerVisible: false,
       recurrenceType: rec?.frequency || "none",
       intervalVal: rec?.interval || 1,

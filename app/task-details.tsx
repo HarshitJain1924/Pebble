@@ -19,11 +19,23 @@ export default function TaskDetailsScreen() {
     type?: "task" | "habit";
     workspaceId?: string;
     date?: string;
+    hour?: string;
+    time?: string;
   }>();
   const itemId = params.id;
   const itemType = params.type || (params.id?.startsWith("habit-") ? "habit" : "task");
   const isTask = itemType === "task";
   const selectedOccurrenceDate = params.date || getDateKey();
+
+  let initialStartTime: string | undefined;
+  if (params.time) {
+    initialStartTime = params.time;
+  } else if (params.hour !== undefined && params.hour !== "") {
+    const parsedHour = Number(params.hour);
+    if (!isNaN(parsedHour) && parsedHour >= 0 && parsedHour <= 23) {
+      initialStartTime = `${String(parsedHour).padStart(2, "0")}:00`;
+    }
+  }
 
   if (isTask) {
     return (
@@ -31,6 +43,7 @@ export default function TaskDetailsScreen() {
         taskId={itemId}
         workspaceId={params.workspaceId}
         selectedOccurrenceDate={selectedOccurrenceDate}
+        initialStartTime={initialStartTime}
         onBack={() => router.back()}
         onConvertedToHabit={(habitId) =>
           router.replace(`/task-details?id=${habitId}&type=habit`)

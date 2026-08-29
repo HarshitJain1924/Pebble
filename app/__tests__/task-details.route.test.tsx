@@ -48,9 +48,46 @@ describe("task-details route dispatch", () => {
         taskId: "t1",
         workspaceId: "ws1",
         selectedOccurrenceDate: "2026-08-18",
+        initialStartTime: undefined,
       }),
     );
     expect(mockHabitDetailContent).not.toHaveBeenCalled();
+  });
+
+  it("parses hour parameter into formatted initialStartTime (HH:00)", async () => {
+    await renderRoute({ id: "t1", type: "task", workspaceId: "ws1", date: "2026-08-30", hour: "15" });
+    expect(mockTaskDetailContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "t1",
+        workspaceId: "ws1",
+        selectedOccurrenceDate: "2026-08-30",
+        initialStartTime: "15:00",
+      }),
+    );
+  });
+
+  it("parses single-digit hour parameter (e.g. 9) into 09:00", async () => {
+    await renderRoute({ id: "t1", type: "task", workspaceId: "ws1", date: "2026-08-30", hour: "9" });
+    expect(mockTaskDetailContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "t1",
+        workspaceId: "ws1",
+        selectedOccurrenceDate: "2026-08-30",
+        initialStartTime: "09:00",
+      }),
+    );
+  });
+
+  it("parses time parameter directly if provided", async () => {
+    await renderRoute({ id: "t1", type: "task", workspaceId: "ws1", date: "2026-08-30", time: "14:30" });
+    expect(mockTaskDetailContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "t1",
+        workspaceId: "ws1",
+        selectedOccurrenceDate: "2026-08-30",
+        initialStartTime: "14:30",
+      }),
+    );
   });
 
   it("routes type=habit to HabitDetailContent with route params", async () => {
