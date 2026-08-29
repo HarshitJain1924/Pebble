@@ -393,8 +393,6 @@ export function TaskDetailContent({
             ? { notificationIds: item.reminder.notificationIds }
             : {}),
         };
-      } else if (item.reminder?.triggerAt) {
-        updatedReminder = { enabled: false, triggerAt: 0 };
       } else {
         updatedReminder = undefined;
       }
@@ -485,12 +483,10 @@ export function TaskDetailContent({
           schedule: {
             ...item.schedule,
             date: form.scheduleDate,
-            ...(form.startTime ? { startTime: form.startTime } : {}),
-            ...(form.durationMinutes !== undefined
-              ? { durationMinutes: form.durationMinutes }
-              : {}),
+            startTime: form.startTime || undefined,
+            durationMinutes: form.startTime ? form.durationMinutes : undefined,
           },
-          ...(updatedReminder ? { reminder: updatedReminder } : {}),
+          reminder: updatedReminder,
           recurrence: updatedRecurrence ?? undefined,
           lastUpdated: getDateKey(),
           resourceIds: form.linkedCollectionIds,
@@ -499,13 +495,6 @@ export function TaskDetailContent({
           archived: item.archived ?? !!item.archivedAt,
           archivedAt: item.archivedAt,
         };
-        if (!form.startTime && updatedItem.schedule) {
-          delete updatedItem.schedule.startTime;
-          delete updatedItem.schedule.durationMinutes;
-        }
-        if (!updatedReminder && updatedItem.reminder) {
-          delete updatedItem.reminder;
-        }
 
         // Strip legacy scheduling fields — V3 canonical fields only
         delete updatedItem.reminderHour;

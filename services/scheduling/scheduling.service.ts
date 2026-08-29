@@ -9,42 +9,86 @@ export interface StructuredSchedule {
 }
 
 /**
+ * Safely parses a time string in HH:mm format (00 <= HH <= 23, 00 <= mm <= 59).
+ * Returns undefined for invalid or malformed strings.
+ */
+export function parseTimeString(timeStr?: unknown): { hour: number; minute: number } | undefined {
+  if (typeof timeStr !== "string" || !timeStr.trim()) {
+    return undefined;
+  }
+  const parts = timeStr.trim().split(":");
+  if (parts.length !== 2) {
+    return undefined;
+  }
+  const [hStr, mStr] = parts;
+  if (!/^\d{1,2}$/.test(hStr) || !/^\d{1,2}$/.test(mStr)) {
+    return undefined;
+  }
+  const hour = Number(hStr);
+  const minute = Number(mStr);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return undefined;
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return undefined;
+  }
+  return { hour, minute };
+}
+
+/**
+ * Safely parses a duration in minutes.
+ * Returns undefined if non-numeric, non-positive, non-finite, or NaN.
+ */
+export function parseDurationMinutes(val: unknown): number | undefined {
+  if (typeof val === "number" && Number.isFinite(val) && val > 0) {
+    return Math.round(val);
+  }
+  if (typeof val === "string" && /^\d+$/.test(val.trim())) {
+    const parsed = Number(val.trim());
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.round(parsed);
+    }
+  }
+  return undefined;
+}
+
+/**
  * Parses and returns structured scheduling data from a Task or Habit.
  */
 export function getStructuredSchedule(
   item: Task | Habit | any,
   defaultDuration = 60
 ): StructuredSchedule {
-  let startDate = item.schedule?.date || item.scheduledDate;
-  let startHour: number | undefined;
-  let startMinute: number | undefined;
+  const startDate = item?.schedule?.date || item?.scheduledDate;
+  const parsedStartTime = parseTimeString(item?.schedule?.startTime);
+  const startTime = parsedStartTime;
+  const hasTime = !!parsedStartTime;
 
-  if (item.schedule?.startTime) {
-    const parts = item.schedule.startTime.split(":").map(Number);
-    if (!isNaN(parts[0]) && !isNaN(parts[1])) {
-      startHour = parts[0];
-      startMinute = parts[1];
-    }
-  }
+  let resolvedDuration: number | undefined;
 
-  const hasTime = startHour !== undefined && startMinute !== undefined;
-  const startTime = hasTime ? { hour: startHour!, minute: startMinute! } : undefined;
-
-  let derivedDuration = item.schedule?.durationMinutes;
-  if (derivedDuration === undefined && item.schedule?.startTime && item.schedule?.endTime) {
-    const [sH, sM] = item.schedule.startTime.split(":").map(Number);
-    const [eH, eM] = item.schedule.endTime.split(":").map(Number);
-    if (!isNaN(sH) && !isNaN(sM) && !isNaN(eH) && !isNaN(eM)) {
-      const diff = (eH * 60 + eM) - (sH * 60 + sM);
+  // Authority 1: Explicit durationMinutes
+  const explicitDuration = parseDurationMinutes(item?.schedule?.durationMinutes);
+  if (explicitDuration !== undefined) {
+    resolvedDuration = explicitDuration;
+  } else if (parsedStartTime && item?.schedule?.endTime) {
+    // Authority 2: Legacy endTime derivation if durationMinutes is absent
+    const parsedEndTime = parseTimeString(item.schedule.endTime);
+    if (parsedEndTime) {
+      const diff = (parsedEndTime.hour * 60 + parsedEndTime.minute) - (parsedStartTime.hour * 60 + parsedStartTime.minute);
       if (diff > 0) {
-        derivedDuration = diff;
+        resolvedDuration = diff;
       }
     }
   }
 
-  const duration = derivedDuration !== undefined ? derivedDuration : defaultDuration;
-  const isRecurring = !!item.recurrence;
-  const sortKey = hasTime ? startHour! * 60 + startMinute! : 24 * 60;
+  // Authority 3: Safe positive finite defaultDuration
+  const safeDefault = typeof defaultDuration === "number" && Number.isFinite(defaultDuration) && defaultDuration > 0
+    ? Math.round(defaultDuration)
+    : 60;
+
+  const duration = resolvedDuration !== undefined ? resolvedDuration : safeDefault;
+  const isRecurring = !!item?.recurrence;
+  const sortKey = parsedStartTime ? parsedStartTime.hour * 60 + parsedStartTime.minute : 24 * 60;
 
   return {
     startDate,
@@ -72,10 +116,10 @@ export function calculateRescheduledTask(
     let newEndTime = schedule.endTime;
 
     if (schedule.startTime && schedule.endTime) {
-      const [sH, sM] = schedule.startTime.split(":").map(Number);
-      const [eH, eM] = schedule.endTime.split(":").map(Number);
-      if (!isNaN(sH) && !isNaN(sM) && !isNaN(eH) && !isNaN(eM)) {
-        const diffMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+      const sTime = parseTimeString(schedule.startTime);
+      const eTime = parseTimeString(schedule.endTime);
+      if (sTime && eTime) {
+        const diffMinutes = (eTime.hour * 60 + eTime.minute) - (sTime.hour * 60 + sTime.minute);
         if (diffMinutes > 0) {
           const endTotalMinutes = dropTarget.hour * 60 + diffMinutes;
           if (endTotalMinutes >= 24 * 60) {

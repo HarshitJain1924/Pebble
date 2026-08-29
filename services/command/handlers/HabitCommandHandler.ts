@@ -176,7 +176,17 @@ static async restoreHabit(
     if (!initialItem || initialItem.entityType !== "habit") throw new Error("Invalid habit recycle bin item");
 
     const parsedSnapshot = JSON.parse(initialItem.snapshot);
-    const targetWorkspaceId = parsedSnapshot.workspaceId || INBOX_WORKSPACE_ID;
+    const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
+    const workspaces = await WorkspaceRepository.getWorkspaces();
+    const validWorkspaceIds = new Set(workspaces.map((w) => w.id));
+    let targetWorkspaceId = parsedSnapshot.workspaceId || INBOX_WORKSPACE_ID;
+    if (
+      !validWorkspaceIds.has(targetWorkspaceId) &&
+      targetWorkspaceId !== INBOX_WORKSPACE_ID &&
+      targetWorkspaceId !== MY_PEBBLES_WORKSPACE_ID
+    ) {
+      targetWorkspaceId = INBOX_WORKSPACE_ID;
+    }
     
     const { generateId } = await import("@/shared/utils/id");
     const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
@@ -206,6 +216,16 @@ static async restoreHabit(
         targetWorkspaceId,
         timestamp: Date.now(),
       });
+
+      const existingActiveHabits = await HabitRepository.getHabits(targetWorkspaceId);
+      if (existingActiveHabits[habit.id]) {
+        // If an active habit already exists with this ID, do NOT overwrite it and do NOT create a duplicate!
+        try {
+          await RecycleBinRepository.removeRecycleBinItems([item.id], { throwOnError: true });
+        } catch {}
+        await MoveJournalRepository.removeOperation(operationId);
+        return existingActiveHabits[habit.id];
+      }
 
       // 3. Persist to active partition
       await HabitRepository.saveHabitUnlocked(habit);
@@ -571,11 +591,11 @@ static async recycleHabit(
         updatedAt: Date.now(),
       };
 
-      const titleChanged = updates.title !== undefined && updates.title !== existing.title;
-      const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
-      const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
-      const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
-      const archivedChanged = ("archivedAt" in updates) && updates.archivedAt !== existing.archivedAt;
+      const titleChanged = "title" in updates && updates.title !== existing.title;
+      const categoryChanged = "categoryId" in updates && updates.categoryId !== existing.categoryId;
+      const recurrenceChanged = "recurrence" in updates && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = "reminder" in updates && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
+      const archivedChanged = "archivedAt" in updates && updates.archivedAt !== existing.archivedAt;
 
       needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || archivedChanged;
 

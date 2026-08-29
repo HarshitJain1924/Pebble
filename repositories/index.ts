@@ -8,3 +8,4 @@ export { ResourceRepository } from "./ResourceRepository";
 export { UiStateRepository } from "./UiStateRepository";
 export { clearRepositoryStorage } from "@/services/storage/storage-utils";
 export { ConversionJournalRepository } from "./ConversionJournalRepository";
+export { MoveJournalRepository } from "./MoveJournalRepository";

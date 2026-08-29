@@ -41,6 +41,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStore.clear();
+    mockStore.set("pebble:v1:workspaces", JSON.stringify([{ id: "ws-1" }, { id: "ws-2" }]));
   });
 
   const mockJournalEntry = (

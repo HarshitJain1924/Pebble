@@ -311,7 +311,18 @@ static async reorderTasks(
       throw new Error(`[EntityCommandService] Failed to parse RecycleBin snapshot for item ${recycleBinItemId}`);
     }
 
-    const targetWorkspaceId = parsedTask.workspaceId;
+    const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
+    const workspaces = await WorkspaceRepository.getWorkspaces();
+    const validWorkspaceIds = new Set(workspaces.map((w) => w.id));
+    let targetWorkspaceId = parsedTask.workspaceId || INBOX_WORKSPACE_ID;
+    if (
+      !validWorkspaceIds.has(targetWorkspaceId) &&
+      targetWorkspaceId !== INBOX_WORKSPACE_ID &&
+      targetWorkspaceId !== MY_PEBBLES_WORKSPACE_ID
+    ) {
+      targetWorkspaceId = INBOX_WORKSPACE_ID;
+    }
+
     const { withLock } = await import("@/shared/utils/mutex");
     const lockKey = `pebble:v1:tasks:${targetWorkspaceId}`;
     
@@ -330,9 +341,10 @@ static async reorderTasks(
         throw new Error(`[EntityCommandService] Failed to parse RecycleBin snapshot for item ${recycleBinItemId}`);
       }
 
-      if (!parsedTaskInside || !parsedTaskInside.id || !parsedTaskInside.workspaceId) {
-        throw new Error(`[EntityCommandService] Parsed Task is missing required fields (id or workspaceId).`);
+      if (!parsedTaskInside || !parsedTaskInside.id) {
+        throw new Error(`[EntityCommandService] Parsed Task is missing required fields (id).`);
       }
+      parsedTaskInside.workspaceId = targetWorkspaceId;
 
       if (parsedTaskInside.reminder && parsedTaskInside.reminder.notificationIds) {
         parsedTaskInside.reminder = { ...parsedTaskInside.reminder, notificationIds: undefined };
@@ -350,6 +362,16 @@ static async reorderTasks(
         targetWorkspaceId: parsedTaskInside.workspaceId,
         timestamp: Date.now(),
       });
+
+      const { TaskRepository } = await import("@/repositories/TaskRepository");
+      const existingActiveTasks = await TaskRepository.getTasks(targetWorkspaceId);
+      if (existingActiveTasks[parsedTaskInside.id]) {
+        // If an active entity already exists with this ID, do NOT overwrite it and do NOT create a duplicate!
+        // The restore is obsolete because the active entity is already present.
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+        await RecycleBinRepository.removeRecycleBinItems([itemInside.id], { throwOnError: true });
+        return { activeTaskToSave: existingActiveTasks[parsedTaskInside.id], itemInside, operationId };
+      }
 
       // 7. Persist to active storage
       const activeTaskToSave = { ...parsedTaskInside };
@@ -993,13 +1015,13 @@ static async reorderTasks(
       };
 
       // Reminder evaluation
-      const titleChanged = updates.title !== undefined && updates.title !== existing.title;
-      const categoryChanged = updates.categoryId !== undefined && updates.categoryId !== existing.categoryId;
-      const recurrenceChanged = updates.recurrence !== undefined && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
-      const reminderChanged = updates.reminder !== undefined && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
-      const statusChanged = updates.status !== undefined && updates.status !== existing.status;
-      const scheduleChanged = updates.schedule !== undefined && JSON.stringify(updates.schedule) !== JSON.stringify(existing.schedule);
-      const archivedChanged = ("archivedAt" in updates) && updates.archivedAt !== existing.archivedAt;
+      const titleChanged = "title" in updates && updates.title !== existing.title;
+      const categoryChanged = "categoryId" in updates && updates.categoryId !== existing.categoryId;
+      const recurrenceChanged = "recurrence" in updates && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = "reminder" in updates && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
+      const statusChanged = "status" in updates && updates.status !== existing.status;
+      const scheduleChanged = "schedule" in updates && JSON.stringify(updates.schedule) !== JSON.stringify(existing.schedule);
+      const archivedChanged = "archivedAt" in updates && updates.archivedAt !== existing.archivedAt;
 
       const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || statusChanged || scheduleChanged || archivedChanged;
 

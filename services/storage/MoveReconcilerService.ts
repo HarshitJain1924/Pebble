@@ -257,14 +257,22 @@ export class MoveReconcilerService {
                throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
             }
           } else if (sourceData && isInBin) {
-            // Ghost duplicate! Remove from active
-            delete sourceMap[op.entityId];
-            await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
-            
-            // Verify Source Write (Durable Post-Condition)
-            const vSourceRaw = await AsyncStorage.getItem(sourceKey);
-            if (vSourceRaw !== JSON.stringify(sourceMap)) {
-               throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
+            // Check if source was updated AFTER the recycle intent timestamp
+            const sourceEdited = (sourceData.updatedAt || 0) > (op.timestamp || 0);
+            if (sourceEdited) {
+              console.warn(`[MoveReconciler] Source ${op.entityId} was updated after recycle intent. Preserving newer active version and removing stale bin snapshot.`);
+              binArray.splice(binItemIndex, 1);
+              await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+            } else {
+              // Ghost duplicate! Remove from active
+              delete sourceMap[op.entityId];
+              await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+              
+              // Verify Source Write (Durable Post-Condition)
+              const vSourceRaw = await AsyncStorage.getItem(sourceKey);
+              if (vSourceRaw !== JSON.stringify(sourceMap)) {
+                 throw new Error(`[MoveReconciler] Durable write verification failed for source partition ${sourceKey}`);
+              }
             }
           } else if (!sourceData && !isInBin) {
             console.warn(`[MoveReconciler] UNCERTAIN STATE: Entity ${op.entityId} (${op.entityType}) missing from both active (${op.sourceWorkspaceId}) and recycle bin for operation ${op.operationId}. Preserving journal.`);
@@ -282,7 +290,20 @@ export class MoveReconcilerService {
   }
 
   private static async reconcileRestore(op: MoveJournalEntry): Promise<ReconciliationStatus> {
-    const targetKey = this.getPartitionKey(op.entityType, op.targetWorkspaceId);
+    const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
+    const workspaces = await WorkspaceRepository.getWorkspaces();
+    const { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
+    
+    let targetWorkspaceId = op.targetWorkspaceId || INBOX_WORKSPACE_ID;
+    const targetExists = targetWorkspaceId === INBOX_WORKSPACE_ID ||
+                         targetWorkspaceId === MY_PEBBLES_WORKSPACE_ID ||
+                         workspaces.some(w => w.id === targetWorkspaceId);
+
+    if (!targetExists) {
+      targetWorkspaceId = INBOX_WORKSPACE_ID;
+    }
+
+    const targetKey = this.getPartitionKey(op.entityType, targetWorkspaceId);
     const recycleBinKey = "pebble:v1:recycle_bin";
     const moveJournalKey = "pebble:v1:move_journal";
 
@@ -307,7 +328,7 @@ export class MoveReconcilerService {
             const binItem = binArray[binItemIndex];
             const restoredItem = {
               ...JSON.parse(binItem.snapshot),
-              workspaceId: op.targetWorkspaceId,
+              workspaceId: targetWorkspaceId,
             };
 
             targetMap[op.entityId] = restoredItem;

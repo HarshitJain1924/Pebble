@@ -11,13 +11,21 @@ import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
 export async function scheduleCreationNotifications(
   kind: "todo" | "habit",
   entityId: string,
-  item: ParsedProductivityItem,
+  item: ParsedProductivityItem | any,
 ): Promise<string[]> {
-  const triggerAt = computeTriggerAt(item);
+  const triggerAt = item.reminder?.triggerAt ?? computeTriggerAt(item);
   if (triggerAt === undefined) return [];
 
-  const { hours, minutes } = parseTime(item);
-  if (hours === undefined || minutes === undefined) return [];
+  let { hours, minutes } = parseTime(item);
+  if (hours === undefined || minutes === undefined) {
+    if (triggerAt) {
+      const d = new Date(triggerAt);
+      hours = d.getHours();
+      minutes = d.getMinutes();
+    } else {
+      return [];
+    }
+  }
 
   const category = item.category || (kind === "todo" ? "work" : "personal");
   const channelId =

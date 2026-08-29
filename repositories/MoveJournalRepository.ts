@@ -13,8 +13,11 @@ export class MoveJournalRepository {
       const raw = await AsyncStorage.getItem(this.JOURNAL_KEY);
       if (!raw) return [];
       const parsed: MoveJournalEntry[] = JSON.parse(raw);
-      // Sort ascending by timestamp to ensure chronological replay
-      return parsed.sort((a, b) => a.timestamp - b.timestamp);
+      // Sort ascending by timestamp and operationId to ensure deterministic chronological replay
+      return parsed.sort((a, b) => {
+        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+        return a.operationId.localeCompare(b.operationId);
+      });
     } catch (e) {
       console.error("[MoveJournalRepository] Failed to read journal", e);
       throw e;
