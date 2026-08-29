@@ -210,6 +210,7 @@ export class TaskRepository {
       const cleanTask: Task = normalizeTask(task, workspaceId);
       cleanTask.updatedAt = Date.now();
       cleanTask.revision = (records[task.id]?.revision || 0) + 1;
+      cleanTask.lifecycleGeneration = task.lifecycleGeneration || records[task.id]?.lifecycleGeneration || 1;
 
       // Pre-persistence guard: catch any code path that produces an enabled
       // reminder with an invalid triggerAt (e.g. Date.now() instead of the
@@ -244,6 +245,7 @@ export class TaskRepository {
     const cleanTask: Task = normalizeTask(task, workspaceId);
     cleanTask.updatedAt = Date.now();
     cleanTask.revision = (records[task.id]?.revision || 0) + 1;
+    cleanTask.lifecycleGeneration = task.lifecycleGeneration || records[task.id]?.lifecycleGeneration || 1;
 
     const validTrigger =
       Number.isFinite(cleanTask.reminder?.triggerAt) &&

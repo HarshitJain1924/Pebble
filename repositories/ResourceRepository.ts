@@ -183,6 +183,8 @@ export class ResourceRepository {
 
     const cleanResource: Resource = normalizeResource(resource, workspaceId);
     cleanResource.updatedAt = Date.now();
+    cleanResource.revision = (records[resource.id]?.revision || 0) + 1;
+    cleanResource.lifecycleGeneration = resource.lifecycleGeneration || records[resource.id]?.lifecycleGeneration || 1;
 
     records[resource.id] = cleanResource;
     await AsyncStorage.setItem(key, JSON.stringify(records));

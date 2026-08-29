@@ -157,6 +157,8 @@ export class ChecklistRepository {
       workspaceId,
     );
     cleanChecklist.updatedAt = Date.now();
+    cleanChecklist.revision = (records[checklist.id]?.revision || 0) + 1;
+    cleanChecklist.lifecycleGeneration = checklist.lifecycleGeneration || records[checklist.id]?.lifecycleGeneration || 1;
 
     records[checklist.id] = cleanChecklist;
     await AsyncStorage.setItem(key, JSON.stringify(records));

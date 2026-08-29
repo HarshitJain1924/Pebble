@@ -351,7 +351,7 @@ export class EntityCommandService {
   static async recycleHabit(
     habitId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return HabitCommandHandler.recycleHabit(habitId, workspaceId, options);
   }
@@ -366,7 +366,7 @@ export class EntityCommandService {
   static async recycleChecklist(
     checklistId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return ChecklistCommandHandler.recycleChecklist(checklistId, workspaceId, options);
   }
@@ -374,7 +374,7 @@ export class EntityCommandService {
   static async recycleResource(
     resourceId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return ResourceCommandHandler.recycleResource(resourceId, workspaceId, options);
   }
@@ -399,7 +399,7 @@ export class EntityCommandService {
     taskId: string,
     workspaceId: string,
     originalWorkspaceName: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return TaskCommandHandler.recycleTask(taskId, workspaceId, originalWorkspaceName, options);
   }
@@ -450,7 +450,7 @@ export class EntityCommandService {
   static async permanentlyDeleteTask(
     taskId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return TaskCommandHandler.permanentlyDeleteTask(taskId, workspaceId, options);
   }
@@ -458,7 +458,7 @@ export class EntityCommandService {
   static async permanentlyDeleteHabit(
     habitId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return HabitCommandHandler.permanentlyDeleteHabit(habitId, workspaceId, options);
   }
@@ -466,7 +466,7 @@ export class EntityCommandService {
   static async permanentlyDeleteChecklist(
     checklistId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return ChecklistCommandHandler.permanentlyDeleteChecklist(checklistId, workspaceId, options);
   }
@@ -474,7 +474,7 @@ export class EntityCommandService {
   static async permanentlyDeleteResource(
     resourceId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     return ResourceCommandHandler.permanentlyDeleteResource(resourceId, workspaceId, options);
   }

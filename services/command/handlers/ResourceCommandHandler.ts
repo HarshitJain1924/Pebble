@@ -80,6 +80,9 @@ export class ResourceCommandHandler {
       const existing = map[resourceId];
       if (!existing) throw new Error(`Resource ${resourceId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("resource", existing, options);
+
       const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
       const workspaces = await WorkspaceRepository.getWorkspaces();
       const { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
@@ -138,10 +141,15 @@ export class ResourceCommandHandler {
       const existing = map[resourceId];
       if (!existing) throw new Error(`Resource ${resourceId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("resource", existing, options);
+
       const willBeArchived = !existing.archivedAt;
       const merged: Resource = {
         ...existing,
         archivedAt: willBeArchived ? Date.now() : undefined,
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
       await ResourceRepository.saveResourceUnlocked(merged);
@@ -166,7 +174,17 @@ export class ResourceCommandHandler {
       const map = await ResourceRepository.getResources(workspaceId);
       const existing = map[resourceId];
       if (!existing) throw new Error(`Resource ${resourceId} not found`);
-      const merged = { ...existing, ...updates, updatedAt: Date.now() };
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("resource", existing, options);
+
+      const merged: Resource = {
+        ...existing,
+        ...updates,
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
+        updatedAt: Date.now(),
+      };
       await ResourceRepository.saveResourceUnlocked(merged);
       return merged;
     });
@@ -272,7 +290,7 @@ export class ResourceCommandHandler {
   static async permanentlyDeleteResource(
     resourceId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { emitStateChange } = await import("@/services/events/state-events");
     const { withLock } = await import("@/shared/utils/mutex");
@@ -300,6 +318,9 @@ export class ResourceCommandHandler {
 
       if (!resource) throw new Error(`Resource ${resourceId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("resource", resource, options, { allowTombstoned: true });
+
       // 1. Add durable tombstone
       await TombstoneRepository.addTombstone({
         id: `ts-resource-${resource.id}-g${resource.lifecycleGeneration ?? 1}`,
@@ -311,11 +332,9 @@ export class ResourceCommandHandler {
       });
 
       // 2. Remove from active storage and recycle bin
-      if (!fromRecycleBin) {
-        await ResourceRepository.deleteResourceUnlocked(resourceId, workspaceId);
-      }
+      await ResourceRepository.deleteResourceUnlocked(resourceId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-      await RecycleBinRepository.removeRecycleBinItems([resourceId]);
+      await RecycleBinRepository.removeRecycleBinItems([resourceId], { throwOnError: true });
     });
 
     if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);
@@ -328,7 +347,7 @@ export class ResourceCommandHandler {
   static async recycleResource(
     resourceId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { withLock } = await import("@/shared/utils/mutex");
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
@@ -339,6 +358,9 @@ export class ResourceCommandHandler {
       const resources = await ResourceRepository.getResources(workspaceId);
       const resource = resources[resourceId];
       if (!resource) return;
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("resource", resource, options);
 
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
@@ -393,9 +415,14 @@ export class ResourceCommandHandler {
       let candidate: Resource;
       if (isParsedProductivityItem(input)) {
         candidate = buildResource(input, targetWorkspace);
+        if (options?.explicitId) {
+          candidate.id = options.explicitId;
+        }
       } else {
+        const { generateId } = await import("@/shared/utils/id");
         candidate = {
           ...input,
+          id: options?.explicitId || (input as any).id || generateId("res-"),
           workspaceId: targetWorkspace,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
@@ -406,10 +433,17 @@ export class ResourceCommandHandler {
       }
 
       // Authoritative generation allocation inside the partition lock:
+      const activeResources = await ResourceRepository.getResources(targetWorkspace);
+      const activeExisting = candidate.id ? activeResources[candidate.id] : undefined;
+      const activeGen = activeExisting?.lifecycleGeneration || 0;
       const highestTombstone = candidate.id
         ? await TombstoneRepository.getHighestTombstonedGeneration("resource", candidate.id)
         : 0;
-      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+      const allocatedGen = Math.max(
+        candidate.lifecycleGeneration || 1,
+        activeGen + (activeExisting ? 1 : 0),
+        highestTombstone + 1
+      );
 
       candidate.lifecycleGeneration = allocatedGen;
       candidate.revision = candidate.revision || 1;

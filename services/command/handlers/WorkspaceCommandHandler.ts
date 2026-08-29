@@ -390,10 +390,31 @@ static async reorderWorkspaces(
 /**
    * Update and persist a Workspace entity (e.g. rename workspace).
    */
-  static async updateWorkspace(workspace: Workspace): Promise<void> {
+  static async updateWorkspace(workspace: Workspace, options?: CreateEntityOptions): Promise<void> {
     try {
-      await WorkspaceRepository.saveWorkspace(workspace);
-      emitStateChange("workspace_changed", "tasks_screen");
+      const { withLock } = await import("@/shared/utils/mutex");
+      const lockKey = `ws_lifecycle_${workspace.id}`;
+      await withLock(lockKey, async () => {
+        const workspaces = await WorkspaceRepository.getWorkspaces();
+        const existing = workspaces.find((w) => w.id === workspace.id);
+        if (!existing) {
+          throw new Error(`Workspace ${workspace.id} not found`);
+        }
+
+        const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+        await assertLifecycleMutationAllowed("workspace", existing, options);
+
+        const merged: Workspace = {
+          ...existing,
+          ...workspace,
+          revision: (existing.revision ?? 1) + 1,
+          lifecycleGeneration: existing.lifecycleGeneration ?? 1,
+          updatedAt: Date.now(),
+        };
+
+        await WorkspaceRepository.saveWorkspace(merged, { throwOnError: true });
+        emitStateChange("workspace_changed", options?.source || "tasks_screen");
+      });
     } catch (e) {
       console.warn("Failed to update workspace", e);
       throw e;

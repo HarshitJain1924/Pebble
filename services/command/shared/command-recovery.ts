@@ -32,8 +32,21 @@ export async function restoreEntityFromBin<T>(
     throw new Error(`RecycleBin item not found or not ${entityType}`);
   }
 
-  const parsedData = JSON.parse(item.snapshot) as T & { workspaceId?: string; lifecycleGeneration?: number; revision?: number };
+  const parsedData = JSON.parse(item.snapshot) as T & { id?: string; workspaceId?: string; lifecycleGeneration?: number; revision?: number };
   const targetWorkspaceId = parsedData.workspaceId || "inbox";
+  const entityId = item.entityId || (parsedData as any).id || item.id;
+  const gen = item.lifecycleGeneration || parsedData.lifecycleGeneration || 1;
+
+  const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+  const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration(entityType, entityId);
+  const isDead = gen <= highestTombstone || (await TombstoneRepository.isTombstoned(entityType, entityId, gen));
+  if (isDead) {
+    try {
+      await removeRecycleBinItems([recycleBinItemId], { throwOnError: true });
+    } catch {}
+    throw new Error(`[EntityCommandService] ${entityType} ${entityId} was permanently deleted.`);
+  }
+
   const { generateId } = await import("@/shared/utils/id");
   const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
   const operationId = `restore-${generateId()}`;

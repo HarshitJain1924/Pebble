@@ -2,7 +2,11 @@
  * TombstoneRepository.ts
  * ───────────────────────────
  * Durable Tombstone persistence for permanently deleted entity lifecycles.
+ *
  * Guarantees:
+ * - Fail-closed reads: Storage or JSON parsing failures propagate as errors; missing keys return [] normally.
+ * - Fail-closed writes: AsyncStorage.setItem failures propagate as errors; no silent success.
+ * - Idempotency: Adding the same tombstone ID multiple times produces a single logical entry.
  * - Permanent deletion creates a durable generation barrier.
  * - Stale operations targeting a dead generation are rejected.
  */
@@ -16,41 +20,39 @@ export class TombstoneRepository {
   static async getTombstones(): Promise<Tombstone[]> {
     try {
       const raw = await AsyncStorage.getItem(this.TOMBSTONES_KEY);
-      if (!raw) return [];
+      if (raw === null || raw === undefined) return [];
       const parsed: Tombstone[] = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        throw new Error(
+          `[TombstoneRepository] Corrupted tombstones store: expected array, received ${typeof parsed}`
+        );
+      }
       return parsed;
     } catch (e) {
       console.error("[TombstoneRepository] Failed to get tombstones", e);
-      return [];
+      throw e;
     }
   }
 
   static async saveTombstonesUnlocked(
-    tombstones: Tombstone[],
-    options?: { throwOnError?: boolean }
+    tombstones: Tombstone[]
   ): Promise<void> {
     try {
       await AsyncStorage.setItem(this.TOMBSTONES_KEY, JSON.stringify(tombstones));
     } catch (e) {
-      if (options?.throwOnError) {
-        console.warn("[TombstoneRepository] Failed to save tombstones (strict mode)", e);
-        throw e;
-      } else {
-        console.warn("[TombstoneRepository] Failed to save tombstones (tolerant mode)", e);
-      }
+      console.error("[TombstoneRepository] Failed to save tombstones", e);
+      throw e;
     }
   }
 
   static async addTombstone(
-    tombstone: Tombstone,
-    options?: { throwOnError?: boolean }
+    tombstone: Tombstone
   ): Promise<void> {
-    await this.addTombstones([tombstone], options);
+    await this.addTombstones([tombstone]);
   }
 
   static async addTombstones(
-    tombstonesToAdd: Tombstone[],
-    options?: { throwOnError?: boolean }
+    tombstonesToAdd: Tombstone[]
   ): Promise<void> {
     if (tombstonesToAdd.length === 0) return;
     try {
@@ -58,12 +60,11 @@ export class TombstoneRepository {
         const existing = await this.getTombstones();
         const idsToAdd = new Set(tombstonesToAdd.map((t) => t.id));
         const filtered = existing.filter((t) => !idsToAdd.has(t.id));
-        await this.saveTombstonesUnlocked([...filtered, ...tombstonesToAdd], options);
+        await this.saveTombstonesUnlocked([...filtered, ...tombstonesToAdd]);
       });
     } catch (e) {
-      if (options?.throwOnError) {
-        throw e;
-      }
+      console.error("[TombstoneRepository] Failed to add tombstones", e);
+      throw e;
     }
   }
 

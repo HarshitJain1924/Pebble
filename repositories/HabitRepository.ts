@@ -192,6 +192,7 @@ export class HabitRepository {
     const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
     cleanHabit.updatedAt = Date.now();
     cleanHabit.revision = (records[habit.id]?.revision || 0) + 1;
+    cleanHabit.lifecycleGeneration = habit.lifecycleGeneration || records[habit.id]?.lifecycleGeneration || 1;
 
     const validTrigger =
       Number.isFinite(cleanHabit.reminder?.triggerAt) &&

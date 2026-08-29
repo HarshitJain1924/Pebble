@@ -79,6 +79,9 @@ static async moveChecklist(
       const existing = map[checklistId];
       if (!existing) throw new Error(`Checklist ${checklistId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", existing, options);
+
       const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
       const workspaces = await WorkspaceRepository.getWorkspaces();
       const { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
@@ -139,7 +142,17 @@ static async moveChecklist(
       const map = await ChecklistRepository.getChecklists(workspaceId);
       const existing = map[checklistId];
       if (!existing) throw new Error(`Checklist ${checklistId} not found`);
-      const merged = { ...existing, ...updates, updatedAt: Date.now() };
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", existing, options);
+
+      const merged: Checklist = {
+        ...existing,
+        ...updates,
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
+        updatedAt: Date.now(),
+      };
       await ChecklistRepository.saveChecklistUnlocked(merged);
       return merged;
     });
@@ -245,7 +258,7 @@ static async moveChecklist(
   static async permanentlyDeleteChecklist(
     checklistId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { emitStateChange } = await import("@/services/events/state-events");
     const { withLock } = await import("@/shared/utils/mutex");
@@ -273,6 +286,9 @@ static async moveChecklist(
 
       if (!checklist) throw new Error(`Checklist ${checklistId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", checklist, options, { allowTombstoned: true });
+
       // 1. Add durable tombstone
       await TombstoneRepository.addTombstone({
         id: `ts-checklist-${checklist.id}-g${checklist.lifecycleGeneration ?? 1}`,
@@ -284,11 +300,9 @@ static async moveChecklist(
       });
 
       // 2. Remove from active storage and recycle bin
-      if (!fromRecycleBin) {
-        await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
-      }
+      await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-      await RecycleBinRepository.removeRecycleBinItems([checklistId]);
+      await RecycleBinRepository.removeRecycleBinItems([checklistId], { throwOnError: true });
     });
 
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
@@ -301,7 +315,7 @@ static async moveChecklist(
 static async recycleChecklist(
     checklistId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
@@ -313,6 +327,9 @@ static async recycleChecklist(
       const checklists = await ChecklistRepository.getChecklists(workspaceId);
       const checklist = checklists[checklistId];
       if (!checklist) return;
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", checklist, options);
 
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
@@ -362,9 +379,14 @@ static async recycleChecklist(
       const checklist = checklistsMap[checklistId];
       if (!checklist) return null;
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", checklist, options);
+
       const updatedChecklist: Checklist = {
         ...checklist,
         items: (checklist.items || []).filter((i) => i.id !== itemId),
+        revision: (checklist.revision ?? 1) + 1,
+        lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -403,6 +425,9 @@ static async recycleChecklist(
       const checklist = checklistsMap[checklistId];
       if (!checklist) return null;
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", checklist, options);
+
       const newItem = {
         id: `checklist-item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         title: itemTitle,
@@ -412,6 +437,8 @@ static async recycleChecklist(
       const updatedChecklist: Checklist = {
         ...checklist,
         items: [...(checklist.items || []), newItem],
+        revision: (checklist.revision ?? 1) + 1,
+        lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -450,6 +477,9 @@ static async recycleChecklist(
       const checklist = checklistsMap[checklistId];
       if (!checklist) return null;
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", checklist, options);
+
       const nextItems = (checklist.items || []).map((i) =>
         i.id === itemId ? { ...i, completed: !i.completed } : i
       );
@@ -460,6 +490,8 @@ static async recycleChecklist(
       const updatedChecklist: Checklist = {
         ...checklist,
         items: nextItems,
+        revision: (checklist.revision ?? 1) + 1,
+        lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -503,6 +535,9 @@ static async recycleChecklist(
       const existing = map[checklistId];
       if (!existing) throw new Error(`Checklist ${checklistId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("checklist", existing, options);
+
       const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
       const existingNorms = new Set(existing.items.map(i => normalize(i.title)));
 
@@ -524,6 +559,8 @@ static async recycleChecklist(
       const updatedChecklist = {
         ...existing,
         items: [...existing.items, ...itemsToAdd],
+        revision: (existing.revision ?? 1) + 1,
+        lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -562,9 +599,14 @@ static async recycleChecklist(
       let candidate: Checklist;
       if (isParsedProductivityItem(input)) {
         candidate = buildChecklist(input, targetWorkspace);
+        if (options?.explicitId) {
+          candidate.id = options.explicitId;
+        }
       } else {
+        const { generateId } = await import("@/shared/utils/id");
         candidate = {
           ...input,
+          id: options?.explicitId || (input as any).id || generateId("checklist-"),
           workspaceId: targetWorkspace,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
@@ -575,10 +617,17 @@ static async recycleChecklist(
       }
 
       // Authoritative generation allocation inside the partition lock:
+      const activeChecklists = await ChecklistRepository.getChecklists(targetWorkspace);
+      const activeExisting = candidate.id ? activeChecklists[candidate.id] : undefined;
+      const activeGen = activeExisting?.lifecycleGeneration || 0;
       const highestTombstone = candidate.id
         ? await TombstoneRepository.getHighestTombstonedGeneration("checklist", candidate.id)
         : 0;
-      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+      const allocatedGen = Math.max(
+        candidate.lifecycleGeneration || 1,
+        activeGen + (activeExisting ? 1 : 0),
+        highestTombstone + 1
+      );
 
       candidate.lifecycleGeneration = allocatedGen;
       candidate.revision = candidate.revision || 1;

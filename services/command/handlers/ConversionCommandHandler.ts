@@ -47,6 +47,13 @@ export class ConversionCommandHandler {
         throw new Error(`[ConversionCommandHandler] convertHabitToTask failed: Habit ${habitId} not found in workspace ${targetWorkspaceId}`);
       }
 
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const isDead = await TombstoneRepository.isTombstoned("habit", habit.id, habit.lifecycleGeneration);
+      if (isDead) {
+        await HabitRepository.deleteHabitUnlocked(habitId, targetWorkspaceId);
+        throw new Error(`[ConversionCommandHandler] convertHabitToTask failed: Habit ${habitId} is permanently deleted.`);
+      }
+
       // 2. Construct Task
       const newTaskId = generateId("task-");
       const newTask: Task = {
@@ -181,6 +188,13 @@ export class ConversionCommandHandler {
       const task = tasksMap[taskId];
       if (!task) {
         throw new Error(`[ConversionCommandHandler] convertTaskToHabit failed: Task ${taskId} not found`);
+      }
+
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const isDead = await TombstoneRepository.isTombstoned("task", task.id, task.lifecycleGeneration);
+      if (isDead) {
+        await TaskRepository.deleteTaskUnlocked(taskId, targetWorkspaceId);
+        throw new Error(`[ConversionCommandHandler] convertTaskToHabit failed: Task ${taskId} is permanently deleted.`);
       }
 
       const habitId = generateId("habit-");

@@ -77,6 +77,9 @@ export class HabitCommandHandler {
       const existing = map[habitId];
       if (!existing) throw new Error(`Habit ${habitId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("habit", existing, options);
+
       const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
       const workspaces = await WorkspaceRepository.getWorkspaces();
       const { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
@@ -138,7 +141,7 @@ export class HabitCommandHandler {
   static async permanentlyDeleteHabit(
     habitId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
@@ -167,6 +170,9 @@ export class HabitCommandHandler {
 
       if (!habit) throw new Error(`Habit ${habitId} not found`);
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("habit", habit, options, { allowTombstoned: true });
+
       // 1. Add durable tombstone
       await TombstoneRepository.addTombstone({
         id: `ts-habit-${habit.id}-g${habit.lifecycleGeneration ?? 1}`,
@@ -178,11 +184,9 @@ export class HabitCommandHandler {
       });
 
       // 2. Remove from active storage and recycle bin
-      if (!fromRecycleBin) {
-        await HabitRepository.deleteHabitUnlocked(habitId, workspaceId);
-      }
+      await HabitRepository.deleteHabitUnlocked(habitId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-      await RecycleBinRepository.removeRecycleBinItems([habitId]);
+      await RecycleBinRepository.removeRecycleBinItems([habitId], { throwOnError: true });
       
       return habit;
     });
@@ -334,7 +338,7 @@ static async restoreHabit(
 static async recycleHabit(
     habitId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
@@ -346,6 +350,9 @@ static async recycleHabit(
       const habitMap = await HabitRepository.getHabits(workspaceId);
       const existing = habitMap[habitId];
       if (!existing) return null;
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("habit", existing, options);
 
       const { generateId } = await import("@/shared/utils/id");
       const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
@@ -406,8 +413,11 @@ static async recycleHabit(
       const habit = habitsMap[habitId];
       if (!habit) return null;
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("habit", habit, options);
+
       const today = new Date();
-      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+      const yesterday = new Date(today.getTime() - 24 * 60 * 1000 * 60);
       const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
 
       const updatedHistory = [
@@ -418,6 +428,8 @@ static async recycleHabit(
       const updatedHabit: Habit = {
         ...habit,
         completionHistory: updatedHistory,
+        revision: (habit.revision ?? 1) + 1,
+        lifecycleGeneration: habit.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -451,6 +463,9 @@ static async recycleHabit(
       const habitsMap = await HabitRepository.getHabits(workspaceId);
       const habit = habitsMap[habitId];
       if (!habit) return null;
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("habit", habit, options);
 
       const today = getTodayDateKey();
       if (!isHabitCompletedToday(habit, today)) {
@@ -515,6 +530,9 @@ static async recycleHabit(
       const habitsMap = await HabitRepository.getHabits(workspaceId);
       const habit = habitsMap[habitId];
       if (!habit) return null;
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("habit", habit, options);
 
       const today = getTodayDateKey();
       if (isHabitCompletedToday(habit, today)) {
@@ -647,6 +665,9 @@ static async recycleHabit(
         throw new Error(`Habit ${habitId} not found in workspace ${workspaceId}`);
       }
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("habit", existing, options);
+
       if (updates.workspaceId && updates.workspaceId !== workspaceId) {
         throw new Error("Workspace movement is not supported in updateHabit.");
       }
@@ -733,11 +754,16 @@ static async recycleHabit(
       let candidate: Habit;
       if (isParsedProductivityItem(input)) {
         candidate = buildHabit(input, targetWorkspace);
+        if (options?.explicitId) {
+          candidate.id = options.explicitId;
+        }
         needsScheduling = true;
         parsedInput = input;
       } else {
+        const { generateId } = await import("@/shared/utils/id");
         candidate = {
           ...input,
+          id: options?.explicitId || (input as any).id || generateId("habit-"),
           workspaceId: targetWorkspace,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
@@ -755,10 +781,17 @@ static async recycleHabit(
       }
 
       // Authoritative generation allocation inside the partition lock:
+      const activeHabits = await HabitRepository.getHabits(targetWorkspace);
+      const activeExisting = candidate.id ? activeHabits[candidate.id] : undefined;
+      const activeGen = activeExisting?.lifecycleGeneration || 0;
       const highestTombstone = candidate.id
         ? await TombstoneRepository.getHighestTombstonedGeneration("habit", candidate.id)
         : 0;
-      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+      const allocatedGen = Math.max(
+        candidate.lifecycleGeneration || 1,
+        activeGen + (activeExisting ? 1 : 0),
+        highestTombstone + 1
+      );
 
       candidate.lifecycleGeneration = allocatedGen;
       candidate.revision = candidate.revision || 1;

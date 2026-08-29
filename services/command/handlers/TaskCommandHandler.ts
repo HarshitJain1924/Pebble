@@ -382,8 +382,10 @@ static async reorderTasks(
       const highestTombstone = await TombstoneRepository.getHighestTombstonedGeneration("task", parsedTaskInside.id);
       const isDead = (parsedTaskInside.lifecycleGeneration || 1) <= highestTombstone || await TombstoneRepository.isTombstoned("task", parsedTaskInside.id, parsedTaskInside.lifecycleGeneration);
       if (isDead) {
-        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-        await RecycleBinRepository.removeRecycleBinItems([itemInside.id], { throwOnError: true });
+        try {
+          const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+          await RecycleBinRepository.removeRecycleBinItems([itemInside.id], { throwOnError: true });
+        } catch {}
         throw new Error(`[EntityCommandService] Task ${parsedTaskInside.id} was permanently deleted.`);
       }
 
@@ -492,7 +494,7 @@ static async reorderTasks(
   static async permanentlyDeleteTask(
     taskId: string,
     workspaceId: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
     const { emitStateChange } = await import("@/services/events/state-events");
@@ -526,6 +528,9 @@ static async reorderTasks(
         );
       }
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("task", task, options, { allowTombstoned: true });
+
       // 2. Add durable tombstone
       await TombstoneRepository.addTombstone({
         id: `ts-task-${task.id}-g${task.lifecycleGeneration ?? 1}`,
@@ -537,11 +542,9 @@ static async reorderTasks(
       });
 
       // 3. Remove from active storage and recycle bin
-      if (!fromRecycleBin) {
-        await TaskRepository.deleteTaskUnlocked(taskId, workspaceId);
-      }
+      await TaskRepository.deleteTaskUnlocked(taskId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-      await RecycleBinRepository.removeRecycleBinItems([taskId]);
+      await RecycleBinRepository.removeRecycleBinItems([taskId], { throwOnError: true });
 
       return task;
     });
@@ -734,7 +737,7 @@ static async reorderTasks(
     taskId: string,
     workspaceId: string,
     originalWorkspaceName: string,
-    options?: { skipEvents?: boolean; skipAnalytics?: boolean; source?: string }
+    options?: CreateEntityOptions
   ): Promise<void> {
     const { addToRecycleBin } = await import("@/services/storage/storage.service");
     const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
@@ -752,6 +755,9 @@ static async reorderTasks(
           `[EntityCommandService] Task ${taskId} not found in workspace ${workspaceId}`
         );
       }
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("task", task, options);
 
       // 2. Add intent to MoveJournal
       const { generateId } = await import("@/shared/utils/id");
@@ -835,6 +841,9 @@ static async reorderTasks(
       if (!existing) {
         throw new Error(`Task ${taskId} not found in workspace ${sourceWorkspaceId}`);
       }
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("task", existing, options);
 
       const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
       const workspaces = await WorkspaceRepository.getWorkspaces();
@@ -1026,6 +1035,8 @@ static async reorderTasks(
           : undefined,
         status: "todo",
         completedAt: undefined,
+        lifecycleGeneration: 1,
+        revision: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -1088,6 +1099,9 @@ static async reorderTasks(
       if (!existing) {
         throw new Error(`Task ${taskId} not found in workspace ${workspaceId}`);
       }
+
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("task", existing, options);
 
       if (updates.workspaceId && updates.workspaceId !== workspaceId) {
         throw new Error("Workspace movement is not supported in updateTask.");
@@ -1192,6 +1206,9 @@ static async reorderTasks(
       const task = tasksMap[taskId];
       if (!task) return null;
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("task", task, options);
+
       if (task.status !== "completed") {
         return { previous: task, updated: task, skipped: true }; // Already uncompleted
       }
@@ -1281,6 +1298,9 @@ static async reorderTasks(
       const task = tasksMap[taskId];
       if (!task) return null;
 
+      const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
+      await assertLifecycleMutationAllowed("task", task, options);
+
       if (task.status === "completed") {
         return { previous: task, updated: task, skipped: true }; // Already completed
       }
@@ -1358,11 +1378,16 @@ static async reorderTasks(
       let candidate: Task;
       if (isParsedProductivityItem(input)) {
         candidate = buildTask(input, targetWorkspace);
+        if (options?.explicitId) {
+          candidate.id = options.explicitId;
+        }
         needsScheduling = true;
         parsedInput = input;
       } else {
+        const { generateId } = await import("@/shared/utils/id");
         candidate = {
           ...input,
+          id: options?.explicitId || (input as any).id || generateId("task-"),
           workspaceId: targetWorkspace,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
@@ -1381,10 +1406,17 @@ static async reorderTasks(
       }
 
       // Authoritative generation allocation inside the partition lock:
+      const activeTasks = await TaskRepository.getTasks(targetWorkspace);
+      const activeExisting = candidate.id ? activeTasks[candidate.id] : undefined;
+      const activeGen = activeExisting?.lifecycleGeneration || 0;
       const highestTombstone = candidate.id
         ? await TombstoneRepository.getHighestTombstonedGeneration("task", candidate.id)
         : 0;
-      const allocatedGen = Math.max(candidate.lifecycleGeneration || 1, highestTombstone + 1);
+      const allocatedGen = Math.max(
+        candidate.lifecycleGeneration || 1,
+        activeGen + (activeExisting ? 1 : 0),
+        highestTombstone + 1
+      );
 
       candidate.lifecycleGeneration = allocatedGen;
       candidate.revision = candidate.revision || 1;

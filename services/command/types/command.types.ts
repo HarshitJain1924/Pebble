@@ -7,6 +7,12 @@ export interface CreateEntityOptions {
   skipAnalytics?: boolean;
   /** Origin identifier for state event emission to prevent self-reload loops */
   source?: string;
+  /** Explicit ID to assign (e.g. during migrations, tests, or deterministic sync) */
+  explicitId?: string;
+  /** Expected lifecycle generation for optimistic concurrency guard */
+  expectedGeneration?: number;
+  /** Expected revision for optimistic concurrency guard */
+  expectedRevision?: number;
 }
 
 /**

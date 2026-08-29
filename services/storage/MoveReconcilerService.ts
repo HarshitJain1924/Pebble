@@ -102,6 +102,17 @@ export class MoveReconcilerService {
           const targetData = targetMap[op.entityId];
           const sourceData = sourceMap[op.entityId];
 
+          const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+          if (op.lifecycleGeneration && (await TombstoneRepository.isTombstoned(op.entityType, op.entityId, op.lifecycleGeneration))) {
+            console.warn(`[MoveReconciler] Entity ${op.entityId} (${op.entityType}, gen: ${op.lifecycleGeneration}) is tombstoned. Aborting obsolete move.`);
+            if (sourceMap[op.entityId] && (sourceMap[op.entityId].lifecycleGeneration || 1) <= op.lifecycleGeneration) {
+              delete sourceMap[op.entityId];
+              await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+            }
+            await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+            return "OBSOLETE";
+          }
+
           // ----------------------------------------------------------------------
           // BUG FIX: Validate target workspace existence before continuing.
           // If the target workspace was deleted after the intent was created, 
@@ -238,6 +249,21 @@ export class MoveReconcilerService {
           const binItemIndex = binArray.findIndex(i => i.entityId === op.entityId || i.id === `rb-${op.entityId}`);
           const isInBin = binItemIndex !== -1;
 
+          const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+          if (op.lifecycleGeneration && (await TombstoneRepository.isTombstoned(op.entityType, op.entityId, op.lifecycleGeneration))) {
+            console.warn(`[MoveReconciler] Entity ${op.entityId} (${op.entityType}, gen: ${op.lifecycleGeneration}) is tombstoned. Aborting obsolete recycle.`);
+            if (sourceData && (sourceData.lifecycleGeneration || 1) <= op.lifecycleGeneration) {
+              delete sourceMap[op.entityId];
+              await AsyncStorage.setItem(sourceKey, JSON.stringify(sourceMap));
+            }
+            if (binItemIndex !== -1) {
+              binArray.splice(binItemIndex, 1);
+              await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+            }
+            await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+            return "OBSOLETE";
+          }
+
           if (sourceData && !isInBin) {
             const isNewerGen = (sourceData.lifecycleGeneration || 1) > (op.lifecycleGeneration || 1);
             const isNewerRev = (sourceData.revision || 1) > (op.expectedRevision || 1);
@@ -345,6 +371,17 @@ export class MoveReconcilerService {
             ((i.lifecycleGeneration ?? 1) === (op.lifecycleGeneration ?? 1))
           );
           const targetData = targetMap[op.entityId];
+
+          const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+          if (op.lifecycleGeneration && (await TombstoneRepository.isTombstoned(op.entityType, op.entityId, op.lifecycleGeneration))) {
+            console.warn(`[MoveReconciler] Entity ${op.entityId} (${op.entityType}, gen: ${op.lifecycleGeneration}) is tombstoned. Aborting obsolete restore.`);
+            if (binItemIndex !== -1) {
+              binArray.splice(binItemIndex, 1);
+              await AsyncStorage.setItem(recycleBinKey, JSON.stringify(binArray));
+            }
+            await MoveJournalRepository.removeOperationsUnlocked([op.operationId]);
+            return "OBSOLETE";
+          }
 
           if (targetData && (targetData.lifecycleGeneration || 1) > (op.lifecycleGeneration || 1)) {
             console.warn(`[MoveReconciler] Target entity ${op.entityId} has newer generation (${targetData.lifecycleGeneration} vs ${op.lifecycleGeneration}). Aborting stale restore.`);
