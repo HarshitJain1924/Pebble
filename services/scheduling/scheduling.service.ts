@@ -59,7 +59,7 @@ export function getStructuredSchedule(
   item: Task | Habit | any,
   defaultDuration = 60
 ): StructuredSchedule {
-  const startDate = item?.schedule?.date || item?.scheduledDate;
+  const startDate = item?.schedule?.date;
   const parsedStartTime = parseTimeString(item?.schedule?.startTime);
   const startTime = parsedStartTime;
   const hasTime = !!parsedStartTime;
@@ -155,81 +155,4 @@ export function calculateRescheduledTask(
   return {};
 }
 
-export interface CalendarDropPlan {
-  isRecurringOccurrence: boolean;
-  masterUpdate?: {
-    id: string;
-    workspaceId: string;
-    patch: Partial<Task>;
-  };
-  createdExceptionCopy?: Task;
-  directTaskUpdate?: {
-    id: string;
-    workspaceId: string;
-    patch: Partial<Task>;
-  };
-}
 
-/**
- * Plans the persistent mutations for a Calendar drag-drop action.
- * For non-recurring tasks, plans a direct update to the task.
- * For recurring task occurrences, adds the dragged occurrence date to the master's
- * recurrenceExceptions and creates a detached non-recurring copy for the occurrence.
- */
-export function planCalendarTaskDrop(
-  todo: Task,
-  workspaceId: string,
-  dropTarget: { hour?: number | null; date?: string | null },
-  selectedDate: string,
-  generateNewId: () => string
-): CalendarDropPlan {
-  const isRecurring = !!todo.recurrence;
-
-  if (!isRecurring) {
-    const updates = calculateRescheduledTask(todo, dropTarget, selectedDate);
-    return {
-      isRecurringOccurrence: false,
-      directTaskUpdate: {
-        id: todo.id,
-        workspaceId,
-        patch: updates,
-      },
-    };
-  }
-
-  // Recurring Task Occurrence Exception
-  const updates = calculateRescheduledTask(todo, dropTarget, selectedDate);
-  const updatedExceptions = [
-    ...(todo.recurrenceExceptions || []).filter((d) => d !== selectedDate),
-    selectedDate,
-  ];
-
-  const targetDate = dropTarget.date || selectedDate;
-  const newCopy: Task = {
-    ...todo,
-    id: generateNewId(),
-    workspaceId,
-    recurrence: undefined, // Detached non-recurring copy
-    recurrenceExceptions: undefined,
-    schedule: {
-      ...todo.schedule,
-      ...updates.schedule,
-      date: targetDate,
-    },
-    reminder: todo.reminder,
-    status: "todo",
-    completedAt: undefined,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-
-  return {
-    isRecurringOccurrence: true,
-    masterUpdate: {
-      id: todo.id,
-      workspaceId,
-      patch: { recurrenceExceptions: updatedExceptions },
-    },
-    createdExceptionCopy: newCopy,
-  };
-}

@@ -28,7 +28,7 @@ import {
 } from "@/shared/types/domain.types";
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import { getDateKey } from "@/services/scheduling/recurrence.service";
-
+import { parseTimeString } from "@/services/scheduling/scheduling.service";
 import { generateId } from "@/shared/utils/id";
 export function parseTime(item: ParsedProductivityItem): {
   hours: number | undefined;
@@ -122,6 +122,11 @@ export function buildTask(
     low: "low",
   };
 
+  const parsedTime = parseTimeString(item.time);
+  const formattedStartTime = parsedTime
+    ? `${String(parsedTime.hour).padStart(2, "0")}:${String(parsedTime.minute).padStart(2, "0")}`
+    : undefined;
+
   return {
     id,
     workspaceId,
@@ -130,7 +135,8 @@ export function buildTask(
     priority: priorityMap[item.priority || "medium"] || "medium",
     categoryId: item.category || "work",
     schedule: {
-      date: item.date || (item.time ? getDateKey() : "inbox"),
+      date: item.date || (formattedStartTime ? getDateKey() : "inbox"),
+      startTime: formattedStartTime,
     },
     reminder: triggerAt
       ? { enabled: true, triggerAt, notificationIds: undefined }
@@ -158,6 +164,11 @@ export function buildHabit(
     ? buildRecurrenceRule(item.recurrence)
     : { frequency: "daily", interval: 1 };
 
+  const parsedTime = parseTimeString(item.time);
+  const formattedStartTime = parsedTime
+    ? `${String(parsedTime.hour).padStart(2, "0")}:${String(parsedTime.minute).padStart(2, "0")}`
+    : undefined;
+
   return {
     id,
     workspaceId,
@@ -165,6 +176,7 @@ export function buildHabit(
     categoryId: item.category || "health",
     recurrence: persistedRecurrence,
     completionHistory: [],
+    schedule: formattedStartTime ? { startTime: formattedStartTime } : undefined,
     reminder: triggerAt
       ? { enabled: true, triggerAt, notificationIds: undefined }
       : undefined,

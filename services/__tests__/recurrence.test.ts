@@ -33,27 +33,27 @@ describe("recurrence service unit tests", () => {
     const mockItemNonRecurring = {
       id: "task-1",
       title: "One-off task",
-      scheduledDate: "2026-06-09",
+      schedule: { date: "2026-06-09" },
     };
 
     const mockItemDaily = {
       id: "task-2",
       title: "Daily task",
-      scheduledDate: "2026-06-09",
+      schedule: { date: "2026-06-09" },
       recurrence: { type: "daily" as const },
     };
 
     const mockItemWeekdays = {
       id: "task-3",
       title: "Weekday task",
-      scheduledDate: "2026-06-08", // Monday
+      schedule: { date: "2026-06-08" }, // Monday
       recurrence: { type: "weekdays" as const },
     };
 
     const mockItemWeekly = {
       id: "task-4",
       title: "Weekly task",
-      scheduledDate: "2026-06-08", // Monday
+      schedule: { date: "2026-06-08" }, // Monday
       recurrence: {
         type: "weekly" as const,
         days: [1, 4], // Monday, Thursday
@@ -63,7 +63,7 @@ describe("recurrence service unit tests", () => {
     const mockItemInterval = {
       id: "task-5",
       title: "Interval task",
-      scheduledDate: "2026-06-08", // Monday
+      schedule: { date: "2026-06-08" }, // Monday
       recurrence: {
         type: "interval" as const,
         interval: 3,

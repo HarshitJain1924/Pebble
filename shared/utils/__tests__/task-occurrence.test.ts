@@ -66,13 +66,7 @@ describe("getTaskOccurrenceState — non-recurring tasks", () => {
     expect(state.isUpcoming).toBe(false);
   });
 
-  it("supports the legacy scheduledDate field", () => {
-    const task = makeTask({ scheduledDate: REF } as Task & { scheduledDate?: string });
-    const state = getTaskOccurrenceState(task, REF);
 
-    expect(state.occurs).toBe(true);
-    expect(state.isToday).toBe(true);
-  });
 });
 
 describe("getTaskOccurrenceState — recurring tasks", () => {

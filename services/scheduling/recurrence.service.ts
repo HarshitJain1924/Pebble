@@ -35,7 +35,7 @@ export function isRecurringOccurrenceForDate(
   }
 
   const recurrence: RecurrenceRule | undefined = item.recurrence;
-  const scheduleDate = item.schedule?.date || item.scheduledDate;
+  const scheduleDate = item.schedule?.date;
 
   // If no recurrence, only matches if scheduled date is exactly dateKey
   if (!recurrence) {

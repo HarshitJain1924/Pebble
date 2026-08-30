@@ -88,6 +88,7 @@ export function normalizeHabit(
   if (rawHabit.tags) habitObj.tags = rawHabit.tags;
   if (rawHabit.recurrenceExceptions) habitObj.recurrenceExceptions = rawHabit.recurrenceExceptions;
   if (reminder) habitObj.reminder = reminder;
+  if (rawHabit.schedule) habitObj.schedule = rawHabit.schedule;
   if (resourceIds.length > 0) habitObj.resourceIds = resourceIds;
   if (rawHabit.archivedAt || rawHabit.archived) habitObj.archivedAt = rawHabit.archivedAt || (rawHabit.archived ? Date.now() : undefined);
   if (typeof rawHabit.streak === "number") habitObj.streak = rawHabit.streak;

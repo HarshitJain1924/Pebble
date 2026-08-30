@@ -99,6 +99,7 @@ export interface Habit {
   recurrence: RecurrenceRule;
   recurrenceExceptions?: string[];
   completionHistory: HabitCompletion[];
+  schedule?: TaskSchedule;
   reminder?: Reminder;
   resourceIds?: string[];
   createdAt: number;

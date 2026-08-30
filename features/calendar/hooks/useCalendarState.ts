@@ -28,11 +28,7 @@ import {
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
-import {
-  cancelReminderIds,
-  rescheduleHabitReminders,
-  rescheduleTodoReminders,
-} from "@/services/scheduling/reminders.service";
+
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
 import {
   calculateRescheduledTask,

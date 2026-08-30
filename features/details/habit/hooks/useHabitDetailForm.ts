@@ -11,6 +11,7 @@ export interface HabitFormState {
   priority: TaskPriority;
   workspaceId: string;
   scheduleDate: string;
+  scheduleTime?: { hour: number; minute: number };
   reminderTime?: { hour: number; minute: number };
   timePickerVisible: boolean;
   recurrenceType: string;
@@ -27,6 +28,7 @@ const INITIAL_FORM: HabitFormState = {
   priority: "medium",
   workspaceId: INBOX_WORKSPACE_ID,
   scheduleDate: "inbox",
+  scheduleTime: undefined,
   reminderTime: undefined,
   timePickerVisible: false,
   recurrenceType: "none",
@@ -77,6 +79,15 @@ export function useHabitDetailForm() {
       const d = new Date(data.reminder.triggerAt);
       reminderTime = { hour: d.getHours(), minute: d.getMinutes() };
     }
+    
+    let scheduleTime: HabitFormState["scheduleTime"];
+    if (data.schedule?.startTime) {
+      const parts = data.schedule.startTime.split(":");
+      if (parts.length === 2) {
+        scheduleTime = { hour: Number(parts[0]), minute: Number(parts[1]) };
+      }
+    }
+
     setForm({
       title: data.title || "",
       description: data.description || "",
@@ -84,6 +95,7 @@ export function useHabitDetailForm() {
       priority: data.priority || "medium",
       workspaceId: data.workspaceId || INBOX_WORKSPACE_ID,
       scheduleDate: data.schedule?.date || "inbox",
+      scheduleTime,
       reminderTime,
       timePickerVisible: false,
       recurrenceType: rec?.frequency || "none",

@@ -172,6 +172,13 @@ export function HabitDetailContent({
       : undefined;
     if (formReminderTriggerAt !== itemReminderTriggerAt) return true;
 
+    // Compare schedule time
+    const itemScheduleTimeStr = item.schedule?.startTime;
+    const formScheduleTimeStr = form.scheduleTime
+      ? `${String(form.scheduleTime.hour).padStart(2, "0")}:${String(form.scheduleTime.minute).padStart(2, "0")}`
+      : undefined;
+    if (formScheduleTimeStr !== itemScheduleTimeStr) return true;
+
     // Compare linked collections
     const sortedLinkedCurrent = [...form.linkedCollectionIds].sort();
     const sortedLinkedItem = [
@@ -316,6 +323,17 @@ export function HabitDetailContent({
         updatedReminder = { enabled: false, triggerAt: 0 };
       }
 
+      // Compute canonical Schedule Time
+      let updatedSchedule = item.schedule || {};
+      if (form.scheduleTime) {
+        updatedSchedule = {
+          ...updatedSchedule,
+          startTime: `${String(form.scheduleTime.hour).padStart(2, "0")}:${String(form.scheduleTime.minute).padStart(2, "0")}`,
+        };
+      } else {
+        updatedSchedule = { ...updatedSchedule, startTime: undefined };
+      }
+
       // Capture saved object for immediate UI refresh
       let savedItemForRefresh: HabitDetailItem | null = null;
 
@@ -343,6 +361,7 @@ export function HabitDetailContent({
                 ),
               }
             : undefined,
+          schedule: updatedSchedule,
           lastUpdated: getDateKey(),
           completed: false,
           completedToday: false,
@@ -388,6 +407,7 @@ export function HabitDetailContent({
           priority: form.priority,
           workspaceId: form.workspaceId,
           reminder: updatedReminder,
+          schedule: updatedSchedule,
           recurrence: updatedRecurrence,
           lastUpdated: getDateKey(),
           resourceIds: form.linkedCollectionIds,

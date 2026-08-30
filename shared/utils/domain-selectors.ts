@@ -19,10 +19,10 @@ export function isTaskCompleted(task: Task): boolean {
 
 /**
  * Read the raw schedule date key of a task, tolerating the legacy
- * `scheduledDate` field for items produced before the canonical migration.
+ * canonical `schedule.date` migration.
  */
 function getScheduleDateKey(task: Task): string | undefined {
-  return task.schedule?.date || (task as Task & { scheduledDate?: string }).scheduledDate;
+  return task.schedule?.date;
 }
 
 /**
