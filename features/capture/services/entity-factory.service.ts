@@ -30,46 +30,41 @@ import { type ParsedProductivityItem } from "@/features/capture/services/nlp-par
 import { getDateKey } from "@/services/scheduling/recurrence.service";
 import { parseTimeString } from "@/services/scheduling/scheduling.service";
 import { generateId } from "@/shared/utils/id";
+import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
+
 export function parseTime(item: ParsedProductivityItem): {
   hours: number | undefined;
   minutes: number | undefined;
 } {
-  if (!item.time) return { hours: undefined, minutes: undefined };
-  const [h, m] = item.time.split(":").map(Number);
+  const timeToUse = item.reminderTime || item.time;
+  if (!timeToUse) return { hours: undefined, minutes: undefined };
+  const [h, m] = timeToUse.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return { hours: undefined, minutes: undefined };
   return { hours: h, minutes: m };
 }
 
 /**
  * Compute the epoch triggerAt for a parsed item.
  *
- * Priority:
- *   1. If date + time are specified and future → use exact date+time
- *   2. If only time is specified → use today at that time
- *   3. Otherwise → undefined
+ * ONLY computes a trigger timestamp when a reminder was explicitly requested
+ * (e.g. "remind me 30 minutes before", "remind me at 7 PM", "remind me to...", etc.).
+ * A schedule time alone (e.g. "Study Kubernetes at 8 PM") is strictly for calendar/timeline
+ * and does NOT create a reminder.
  */
 export function computeTriggerAt(item: ParsedProductivityItem): number | undefined {
-  const { hours, minutes } = parseTime(item);
-  if (hours === undefined || minutes === undefined) return undefined;
-
-  if (item.date && item.date !== "inbox") {
-    const date = new Date(`${item.date}T${item.time}:00`);
-    if (item.reminderOffsetMinutes) {
-      date.setMinutes(date.getMinutes() - item.reminderOffsetMinutes);
-    }
-    if (date.getTime() > Date.now()) return date.getTime();
-    // Past time on the specified date — don't schedule a stale reminder
+  if (!item.explicitReminder && item.reminderOffsetMinutes === undefined) {
     return undefined;
   }
 
-  // Inbox or no date: use today at the specified time
-  const todayAtTime = new Date();
-  todayAtTime.setHours(hours, minutes, 0, 0);
+  const { hours, minutes } = parseTime(item);
+  if (hours === undefined || minutes === undefined) return undefined;
+
+  const targetDateStr = item.date && item.date !== "inbox" ? item.date : undefined;
+  let epoch = computeTriggerEpoch(hours, minutes, targetDateStr);
   if (item.reminderOffsetMinutes) {
-    todayAtTime.setMinutes(todayAtTime.getMinutes() - item.reminderOffsetMinutes);
+    epoch -= item.reminderOffsetMinutes * 60 * 1000;
   }
-  if (todayAtTime.getTime() > Date.now()) return todayAtTime.getTime();
-  // Time already passed today — don't schedule a stale reminder
-  return undefined;
+  return epoch;
 }
 
 /**

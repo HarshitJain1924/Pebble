@@ -28,7 +28,6 @@ import {
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { Typography } from "@/shared/constants/typography";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
-import { generateId } from "@/shared/utils/id";
 import * as Haptics from "expo-haptics";
 
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
@@ -88,57 +87,38 @@ export default function CalendarScreen() {
     "task",
     "habit",
     "checklist",
-    "event",
-    "focus",
-    "resource",
   ]);
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
   const [showQuickJump, setShowQuickJump] = useState<boolean>(false);
   const [showFilter, setShowFilter] = useState<boolean>(false);
-  const [showQuickCreate, setShowQuickCreate] = useState<boolean>(false);
 
   const getItemType = (item: any) => {
     if (item.type === "habit") return "habit";
-    if (item.categoryId === "focus" || item.category === "focus")
-      return "focus";
-    if (item.categoryId === "learning" || item.category === "learning")
-      return "resource";
     if (
       item.categoryId === "home" ||
       item.category === "home" ||
       (item.items && item.items.length > 0)
     )
       return "checklist";
-    if (item.schedule?.startTime)
-      return "event";
     return "task";
   };
 
   const getDateIndicatorStats = (dateStr: string) => {
-    if (!dateStr) return { tasks: 0, habits: 0, events: 0, focus: 0 };
+    if (!dateStr) return { tasks: 0, habits: 0 };
     const dayTasks = allTodos.filter(
       (t) =>
-        t.schedule?.date === dateStr && !t.archivedAt && !isTaskCompleted(t),
+        !t.archivedAt &&
+        !isTaskCompleted(t) &&
+        isRecurringOccurrenceForDate(t, dateStr),
     );
 
-    const tasks = dayTasks.filter(
-      (t) =>
-        !t.schedule?.startTime &&
-        t.categoryId !== "focus" &&
-        t.categoryId !== "learning",
-    ).length;
-    const events = dayTasks.filter(
-      (t) => !!t.schedule?.startTime,
-    ).length;
-    const focus = dayTasks.filter(
-      (t) => t.categoryId === "focus" || t.category === "focus",
-    ).length;
+    const tasks = dayTasks.length;
 
     const habits = allHabits.filter((h) =>
-      isRecurringOccurrenceForDate(h, dateStr),
+      !h.archivedAt && isRecurringOccurrenceForDate(h, dateStr),
     ).length;
 
-    return { tasks, habits, events, focus };
+    return { tasks, habits };
   };
 
   // Custom Indicators Component
@@ -146,9 +126,7 @@ export default function CalendarScreen() {
     const stats = getDateIndicatorStats(dateStr);
     const hasAny =
       stats.tasks > 0 ||
-      stats.habits > 0 ||
-      stats.events > 0 ||
-      stats.focus > 0;
+      stats.habits > 0;
     if (!hasAny) return null;
 
     return (
@@ -178,26 +156,6 @@ export default function CalendarScreen() {
               height: 4,
               borderRadius: 2,
               backgroundColor: "#10B981",
-            }}
-          />
-        )}
-        {stats.events > 0 && (
-          <View
-            style={{
-              width: 4,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: "#F59E0B",
-            }}
-          />
-        )}
-        {stats.focus > 0 && (
-          <View
-            style={{
-              width: 4,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: "#EC4899",
             }}
           />
         )}
@@ -945,28 +903,6 @@ export default function CalendarScreen() {
               >
                 <Feather name="sliders" size={12} color={colors.text} />
               </Pressable>
-
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                    () => {},
-                  );
-                  setShowQuickCreate(true);
-                }}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
-                  backgroundColor: `${colors.primary}18`,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderWidth: 1,
-                  borderColor: `${colors.primary}33`,
-                }}
-                hitSlop={8}
-              >
-                <Feather name="plus" size={14} color={colors.primary} />
-              </Pressable>
             </View>
             <Text
               style={{
@@ -1008,10 +944,7 @@ export default function CalendarScreen() {
                       task: "#6C63FF",
                       habit: "#10B981",
                       checklist: "#3B82F6",
-                      event: "#F59E0B",
-                      focus: "#EC4899",
-                      resource: "#6B7280",
-                    }[type];
+                    }[type] || "#6C63FF";
 
                     return (
                       <GestureDetector key={item.id || idx} gesture={gesture}>
@@ -1094,16 +1027,7 @@ export default function CalendarScreen() {
                         {timeStr}
                       </Text>
                     </View>
-                    <Pressable
-                      onPress={() => {
-                        Haptics.impactAsync(
-                          Haptics.ImpactFeedbackStyle.Light,
-                        ).catch(() => {});
-                        const hourStr = String(hr).padStart(2, "0");
-                        router.push(
-                          `/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}&hour=${hourStr}`,
-                        );
-                      }}
+                    <View
                       style={[
                         styles.hourLineCol,
                         { borderColor: colors.border },
@@ -1148,22 +1072,11 @@ export default function CalendarScreen() {
                       border: "#3B82F6",
                       icon: "list",
                     },
-                    event: {
-                      bg: isLight ? "#FFF7ED" : "rgba(245, 158, 11, 0.08)",
-                      border: "#F59E0B",
-                      icon: "map-pin",
-                    },
-                    focus: {
-                      bg: isLight ? "#FDF2F8" : "rgba(236, 72, 153, 0.08)",
-                      border: "#EC4899",
-                      icon: "target",
-                    },
-                    resource: {
-                      bg: isLight ? "#F9FAFB" : "rgba(107, 114, 128, 0.08)",
-                      border: "#6B7280",
-                      icon: "book-open",
-                    },
-                  }[type];
+                  }[type] || {
+                    bg: isLight ? "#EEF2F6" : "rgba(108, 99, 255, 0.08)",
+                    border: "#6C63FF",
+                    icon: "check-square",
+                  };
 
                   let cardBg = item.completed
                     ? isLight
@@ -1530,7 +1443,7 @@ export default function CalendarScreen() {
             >
               Jump To
             </Text>
-            <View style={{ marginBottom: 20 }}>
+            <View>
               {[
                 {
                   label: "Today",
@@ -1571,94 +1484,6 @@ export default function CalendarScreen() {
                     size={14}
                     color={colors.textMuted}
                   />
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: "600",
-                      color: colors.text,
-                    }}
-                  >
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Separator line */}
-            <View
-              style={{
-                height: 1,
-                backgroundColor: colors.border,
-                marginBottom: 20,
-              }}
-            />
-
-            {/* Quick Create */}
-            <Text
-              style={{
-                fontSize: 11,
-                fontWeight: "800",
-                color: colors.textMuted,
-                textTransform: "uppercase",
-                letterSpacing: 0.5,
-                marginBottom: 4,
-                paddingHorizontal: 4,
-              }}
-            >
-              Create
-            </Text>
-            <View>
-              {[
-                {
-                  label: "Task",
-                  icon: "check-square",
-                  color: "#6C63FF",
-                  cat: "work",
-                },
-                {
-                  label: "Event",
-                  icon: "map-pin",
-                  color: "#F59E0B",
-                  cat: "travel",
-                },
-                {
-                  label: "Habit",
-                  icon: "activity",
-                  color: "#10B981",
-                  cat: null,
-                },
-                {
-                  label: "Focus Session",
-                  icon: "target",
-                  color: "#EC4899",
-                  cat: "focus",
-                },
-              ].map((opt, idx) => (
-                <Pressable
-                  key={opt.label}
-                  onPress={() => {
-                    close();
-                    if (opt.label === "Habit") {
-                      router.push("/settings");
-                    } else {
-                      setTimeout(() => {
-                        router.push(
-                          `/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`,
-                        );
-                      }, 300);
-                    }
-                  }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingVertical: 12,
-                    paddingHorizontal: 4,
-                    borderBottomWidth: idx < 3 ? 1 : 0,
-                    borderBottomColor: colors.border,
-                    gap: 12,
-                  }}
-                >
-                  <Feather name={opt.icon as any} size={14} color={opt.color} />
                   <Text
                     style={{
                       fontSize: 14,
@@ -1724,9 +1549,6 @@ export default function CalendarScreen() {
                 { key: "task", label: "Tasks", color: "#6C63FF" },
                 { key: "habit", label: "Habits", color: "#10B981" },
                 { key: "checklist", label: "Checklists", color: "#3B82F6" },
-                { key: "event", label: "Events", color: "#F59E0B" },
-                { key: "focus", label: "Focus", color: "#EC4899" },
-                { key: "resource", label: "Resources", color: "#6B7280" },
               ].map((opt) => {
                 const isActive = activeFilters.includes(opt.key);
                 return (
@@ -1821,112 +1643,6 @@ export default function CalendarScreen() {
           </View>
         )}
       </AnimatedOverlay>
-
-      {/* ── QUICK CREATE SHEET ───────────────────────── */}
-      <AnimatedOverlay
-        visible={showQuickCreate}
-        onClose={() => setShowQuickCreate(false)}
-        type="bottom-sheet"
-      >
-        {(close) => (
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              paddingTop: 16,
-              paddingHorizontal: 20,
-              paddingBottom: Platform.OS === "ios" ? 36 : 24,
-              borderWidth: 1.5,
-              borderColor: colors.border,
-            }}
-          >
-            {/* Header */}
-            <View
-              style={{
-                alignItems: "center",
-                paddingBottom: 12,
-                marginBottom: 16,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.border + "40",
-              }}
-            >
-              <Text
-                style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}
-              >
-                Create New
-              </Text>
-            </View>
-
-            <View style={{ marginBottom: 8 }}>
-              {[
-                {
-                  label: "Task",
-                  icon: "check-square",
-                  color: "#6C63FF",
-                  cat: "work",
-                },
-                {
-                  label: "Event",
-                  icon: "map-pin",
-                  color: "#F59E0B",
-                  cat: "work",
-                },
-                {
-                  label: "Habit",
-                  icon: "activity",
-                  color: "#10B981",
-                  cat: null,
-                },
-                {
-                  label: "Focus Session",
-                  icon: "target",
-                  color: "#EC4899",
-                  cat: "focus",
-                },
-              ].map((opt, idx) => (
-                <Pressable
-                  key={opt.label}
-                  onPress={() => {
-                    close();
-                    if (opt.label === "Habit") {
-                      router.push("/settings");
-                    } else {
-                      setTimeout(() => {
-                        router.push(
-                          `/task-details?id=${generateId("task-")}&type=task&date=${selectedDate}`,
-                        );
-                      }, 300);
-                    }
-                  }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingVertical: 12,
-                    paddingHorizontal: 4,
-                    borderBottomWidth: idx < 3 ? 1 : 0,
-                    borderBottomColor: colors.border,
-                    gap: 12,
-                  }}
-                >
-                  <Feather name={opt.icon as any} size={14} color={opt.color} />
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: "600",
-                      color: colors.text,
-                    }}
-                  >
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        )}
-      </AnimatedOverlay>
-
-      {/* Task creation — routed to full-screen task-details.tsx */}
     </SafeAreaView>
   );
 }

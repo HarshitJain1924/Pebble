@@ -27,7 +27,7 @@ import {
   isHabitCompletedToday,
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
-import { dateKeyFromDate } from "@/shared/utils/date-key";
+import { dateKeyFromDate, parseDateKey } from "@/shared/utils/date-key";
 
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
 import {
@@ -71,14 +71,79 @@ export function useCalendarState() {
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
 
-  const [month, setMonth] = useState(getMonthKey());
+  const [month, _setMonth] = useState(getMonthKey());
   const [history, setHistory] = useState<DailyHistory[]>([]);
-  const [selectedDate, setSelectedDate] = useState(getDateKey());
+  const [selectedDate, _setSelectedDate] = useState(getDateKey());
   const [allTodos, setAllTodos] = useState<any[]>([]);
   const [allHabits, setAllHabits] = useState<any[]>([]);
   const [calendarViewMode, setCalendarViewMode] = useState<
     "month" | "week" | "timeline"
   >("month");
+
+  const setSelectedDate = useCallback(
+    (action: string | ((prev: string) => string)) => {
+      _setSelectedDate((prev) => {
+        const nextDate = typeof action === "function" ? action(prev) : action;
+        if (nextDate && typeof nextDate === "string") {
+          const [y, m] = nextDate.split("-").map(Number);
+          if (!isNaN(y) && !isNaN(m)) {
+            _setMonth((prevMonth) => {
+              if (prevMonth.year !== y || prevMonth.month !== m - 1) {
+                return { year: y, month: m - 1 };
+              }
+              return prevMonth;
+            });
+          }
+        }
+        return nextDate;
+      });
+    },
+    [],
+  );
+
+  const setMonth = useCallback(
+    (
+      action:
+        | { year: number; month: number }
+        | ((prev: { year: number; month: number }) => {
+            year: number;
+            month: number;
+          }),
+    ) => {
+      _setMonth((prev) => {
+        const nextMonthObj =
+          typeof action === "function" ? action(prev) : action;
+        if (
+          nextMonthObj &&
+          (nextMonthObj.year !== prev.year || nextMonthObj.month !== prev.month)
+        ) {
+          _setSelectedDate((currDate) => {
+            const currentDateObj = parseDateKey(currDate);
+            const currentYear = currentDateObj.getFullYear();
+            const currentMonth = currentDateObj.getMonth();
+            if (
+              currentYear === nextMonthObj.year &&
+              currentMonth === nextMonthObj.month
+            ) {
+              return currDate;
+            }
+            const currentDay = currentDateObj.getDate();
+            const maxDaysInTargetMonth = new Date(
+              nextMonthObj.year,
+              nextMonthObj.month + 1,
+              0,
+            ).getDate();
+            const targetDay = Math.min(currentDay, maxDaysInTargetMonth);
+            return dateKeyFromDate(
+              new Date(nextMonthObj.year, nextMonthObj.month, targetDay),
+            );
+          });
+        }
+        return nextMonthObj;
+      });
+    },
+    [],
+  );
 
   // Workspaces list
   const [lists, setLists] = useState<Workspace[]>([]);
@@ -195,33 +260,45 @@ export function useCalendarState() {
     measureTimelineGrid,
   ]);
 
+  const loadGenerationRef = useRef(0);
+
   const loadMonth = useCallback(async (year: number, monthIndex: number) => {
     const entries = await getHistoryForMonth(year, monthIndex);
     setHistory(entries);
   }, []);
 
   const loadDataFromStorage = useCallback(async () => {
-    console.log("[INSTRUMENT] [useCalendarState] loadDataFromStorage() CALLED");
+    const generation = ++loadGenerationRef.current;
     try {
       const currentLists = await WorkspaceRepository.getWorkspaces();
+      if (generation !== loadGenerationRef.current) return;
       setLists(currentLists);
 
       const workspaceIds = Array.from(
         new Set([INBOX_WORKSPACE_ID, ...currentLists.map((f) => f.id)]),
       );
 
+      const workspaceResults = await Promise.all(
+        workspaceIds.map(async (wsId) => {
+          const [tasksMap, habitsMap] = await Promise.all([
+            TaskRepository.getTasks(wsId),
+            HabitRepository.getHabits(wsId),
+          ]);
+          return { tasksMap, habitsMap };
+        }),
+      );
+
+      if (generation !== loadGenerationRef.current) return;
+
       const allTasksList: Task[] = [];
       const allHabitsList: Habit[] = [];
 
-      for (const wsId of workspaceIds) {
-        const tasksMap = await TaskRepository.getTasks(wsId);
+      for (const { tasksMap, habitsMap } of workspaceResults) {
         Object.values(tasksMap).forEach((t) => {
           if (!t.archivedAt) {
             allTasksList.push(t);
           }
         });
-
-        const habitsMap = await HabitRepository.getHabits(wsId);
         Object.values(habitsMap).forEach((h) => {
           if (!h.archivedAt) {
             allHabitsList.push(h);
@@ -232,19 +309,18 @@ export function useCalendarState() {
       const dedupTasks = deduplicateEntities(allTasksList);
       const dedupHabits = deduplicateEntities(allHabitsList);
 
-      console.log("[INSTRUMENT] [useCalendarState] loadDataFromStorage() loaded", dedupTasks.length, "todos, calling setAllTodos");
+      if (generation !== loadGenerationRef.current) return;
+
       setAllTodos(dedupTasks as any[]);
-      console.log("[INSTRUMENT] [useCalendarState] setAllTodos CALLED");
       setAllHabits(dedupHabits as any[]);
     } catch (e) {
       console.log("Error loading storage data in calendar current", e);
     }
   }, []);
 
-  // Load data on focus and when month changes
+  // Load data on focus
   useFocusEffect(
     useCallback(() => {
-      void loadMonth(month.year, month.month);
       void loadDataFromStorage();
       AsyncStorage.getItem("todoapp:calendar:selectedDate").then(
         (storedDate) => {
@@ -256,8 +332,13 @@ export function useCalendarState() {
           }
         },
       );
-    }, [loadMonth, loadDataFromStorage, month.month, month.year]),
+    }, [loadDataFromStorage, setMonth, setSelectedDate]),
   );
+
+  // Load productivity history when displayed month changes
+  useEffect(() => {
+    void loadMonth(month.year, month.month);
+  }, [loadMonth, month.year, month.month]);
 
   useEffect(() => {
     const unsubTasks = addStateListener("tasks_changed", () => {
@@ -492,7 +573,7 @@ export function useCalendarState() {
     return cells;
   }, [month]);
 
-  const handlePrevMonth = () => {
+  const handlePrevMonth = useCallback(() => {
     setMonth((prev) => {
       let nextMonth = prev.month - 1;
       let nextYear = prev.year;
@@ -502,9 +583,9 @@ export function useCalendarState() {
       }
       return { year: nextYear, month: nextMonth };
     });
-  };
+  }, [setMonth]);
 
-  const handleNextMonth = () => {
+  const handleNextMonth = useCallback(() => {
     setMonth((prev) => {
       let nextMonth = prev.month + 1;
       let nextYear = prev.year;
@@ -514,7 +595,7 @@ export function useCalendarState() {
       }
       return { year: nextYear, month: nextMonth };
     });
-  };
+  }, [setMonth]);
 
   const headerDateLabel = useMemo(() => {
     const d = new Date(selectedDate);

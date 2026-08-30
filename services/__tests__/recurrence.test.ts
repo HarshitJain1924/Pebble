@@ -5,6 +5,7 @@ import {
   isRecurringOccurrenceForDate,
   getRecurrenceLabel,
 } from "@/services/scheduling/recurrence.service";
+import type { Task } from "@/shared/types/domain.types";
 
 describe("recurrence service unit tests", () => {
   describe("getDateKey and parseDateKey", () => {
@@ -119,6 +120,176 @@ describe("recurrence service unit tests", () => {
       expect(isRecurringOccurrenceForDate(mockItemInterval, "2026-06-09")).toBe(false); // diff 1
       expect(isRecurringOccurrenceForDate(mockItemInterval, "2026-06-11")).toBe(true); // diff 3
       expect(isRecurringOccurrenceForDate(mockItemInterval, "2026-06-14")).toBe(true); // diff 6
+    });
+
+    // Fix #4: Recurrence End Boundaries
+    it("Test A: should enforce endDate boundary (Aug 30 exists, Aug 31 does not)", () => {
+      const itemWithEndDate: Task = {
+        id: "task-end-date",
+        workspaceId: "ws-1",
+        title: "Daily Task With End Date",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        schedule: { date: "2026-08-25" },
+        recurrence: {
+          frequency: "daily",
+          interval: 1,
+          endDate: "2026-08-30",
+        },
+      };
+
+      expect(isRecurringOccurrenceForDate(itemWithEndDate, "2026-08-25")).toBe(true);
+      expect(isRecurringOccurrenceForDate(itemWithEndDate, "2026-08-29")).toBe(true);
+      expect(isRecurringOccurrenceForDate(itemWithEndDate, "2026-08-30")).toBe(true);
+      expect(isRecurringOccurrenceForDate(itemWithEndDate, "2026-08-31")).toBe(false);
+      expect(isRecurringOccurrenceForDate(itemWithEndDate, "2026-09-01")).toBe(false);
+    });
+
+    it("Test B: should enforce occurrence count limit (occurrences = 3)", () => {
+      const itemWithCountLimit: Task = {
+        id: "task-count-limit",
+        workspaceId: "ws-1",
+        title: "Daily Task With 3 Occurrences",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        schedule: { date: "2026-08-25" },
+        recurrence: {
+          frequency: "daily",
+          interval: 1,
+          occurrences: 3,
+        },
+      };
+
+      expect(isRecurringOccurrenceForDate(itemWithCountLimit, "2026-08-25")).toBe(true); // Occurrence 1
+      expect(isRecurringOccurrenceForDate(itemWithCountLimit, "2026-08-26")).toBe(true); // Occurrence 2
+      expect(isRecurringOccurrenceForDate(itemWithCountLimit, "2026-08-27")).toBe(true); // Occurrence 3
+      expect(isRecurringOccurrenceForDate(itemWithCountLimit, "2026-08-28")).toBe(false); // Occurrence 4 (exceeds 3)
+      expect(isRecurringOccurrenceForDate(itemWithCountLimit, "2026-08-29")).toBe(false);
+    });
+
+    it("Test C: should prevent occurrences before start date", () => {
+      const itemWithStartDate: Task = {
+        id: "task-start-bound",
+        workspaceId: "ws-1",
+        title: "Daily Task Starting Aug 25",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        schedule: { date: "2026-08-25" },
+        recurrence: {
+          frequency: "daily",
+          interval: 1,
+        },
+      };
+
+      expect(isRecurringOccurrenceForDate(itemWithStartDate, "2026-08-24")).toBe(false);
+      expect(isRecurringOccurrenceForDate(itemWithStartDate, "2026-08-25")).toBe(true);
+    });
+
+    // Fix #5: Prevent Inbox/Unscheduled Recurring Tasks From Appearing on Calendar
+    it("Fix #5 Test A: inbox + daily recurring Task never produces calendar occurrences", () => {
+      const inboxDailyTask: Task = {
+        id: "task-inbox-daily",
+        workspaceId: "ws-1",
+        title: "Unscheduled Daily Task",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        schedule: { date: "inbox" },
+        recurrence: {
+          frequency: "daily",
+          interval: 1,
+        },
+      };
+
+      expect(isRecurringOccurrenceForDate(inboxDailyTask, "2026-08-30")).toBe(false);
+      expect(isRecurringOccurrenceForDate(inboxDailyTask, "2026-08-31")).toBe(false);
+      expect(isRecurringOccurrenceForDate(inboxDailyTask, "2026-09-01")).toBe(false);
+      expect(isRecurringOccurrenceForDate(inboxDailyTask, "2026-12-25")).toBe(false);
+    });
+
+    it("Fix #5 Test B: inbox + weekly recurring Task produces no calendar occurrence", () => {
+      const inboxWeeklyTask: Task = {
+        id: "task-inbox-weekly",
+        workspaceId: "ws-1",
+        title: "Unscheduled Weekly Task",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        schedule: { date: "inbox" },
+        recurrence: {
+          frequency: "weekly",
+          daysOfWeek: [1, 3, 5],
+          interval: 1,
+        },
+      };
+
+      expect(isRecurringOccurrenceForDate(inboxWeeklyTask, "2026-08-31")).toBe(false); // Monday
+      expect(isRecurringOccurrenceForDate(inboxWeeklyTask, "2026-09-02")).toBe(false); // Wednesday
+      expect(isRecurringOccurrenceForDate(inboxWeeklyTask, "2026-09-04")).toBe(false); // Friday
+    });
+
+    it("Fix #5 Test C: inbox + monthly/custom recurring Task produces no calendar occurrence", () => {
+      const inboxMonthlyTask: Task = {
+        id: "task-inbox-monthly",
+        workspaceId: "ws-1",
+        title: "Unscheduled Monthly Task",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        schedule: { date: "inbox" },
+        recurrence: {
+          frequency: "monthly",
+          dayOfMonth: 15,
+          interval: 1,
+        },
+      };
+
+      expect(isRecurringOccurrenceForDate(inboxMonthlyTask, "2026-09-15")).toBe(false);
+      expect(isRecurringOccurrenceForDate(inboxMonthlyTask, "2026-10-15")).toBe(false);
+    });
+
+    it("Fix #5 Test D: scheduled recurrence still works as expected", () => {
+      const scheduledTask: Task = {
+        id: "task-scheduled-daily",
+        workspaceId: "ws-1",
+        title: "Scheduled Daily Task",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        schedule: { date: "2026-08-25" },
+        recurrence: {
+          frequency: "daily",
+          interval: 1,
+        },
+      };
+
+      expect(isRecurringOccurrenceForDate(scheduledTask, "2026-08-25")).toBe(true);
+      expect(isRecurringOccurrenceForDate(scheduledTask, "2026-08-26")).toBe(true);
+      expect(isRecurringOccurrenceForDate(scheduledTask, "2026-08-27")).toBe(true);
     });
   });
 

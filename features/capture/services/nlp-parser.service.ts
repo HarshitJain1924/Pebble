@@ -19,6 +19,8 @@ export type ParsedProductivityItem = {
     dayOfMonth?: number;
   };
   reminderOffsetMinutes?: number; // Alarm offset (e.g. 30 for "30 mins before")
+  explicitReminder?: boolean;
+  reminderTime?: string; // explicit reminder time HH:MM if specified
   confidence: number;
   // Checklist-specific: parsed items from multiline input
   items?: string[];
@@ -74,6 +76,8 @@ export interface ProductivitySignals {
     recurrence?: ParsedProductivityItem["recurrence"];
     hasRecurrence: boolean;
     reminderOffsetMinutes?: number;
+    explicitReminder?: boolean;
+    reminderTime?: string;
     matchedTemporalPhrases: string[];
   };
   metadata: {
@@ -382,16 +386,63 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
     };
   }
 
-  // Reminder Offset
+  // Reminder Offset & Explicit Reminders
   let reminderOffsetMinutes: number | undefined;
-  const reminderRegex = /\b(?:remind|alert)(?:\s+me)?\s+(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs|h)\s*(?:before|prior)\b/i;
-  const reminderMatch = temporalTextWorking.match(reminderRegex);
-  if (reminderMatch) {
-    const num = Number(reminderMatch[1]);
-    const unit = reminderMatch[2].toLowerCase();
+  let explicitReminder = false;
+  let reminderTime: string | undefined;
+
+  const reminderOffsetRegex = /\b(?:remind|alert)(?:\s+me)?\s+(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs|h)\s*(?:before|prior)\b/i;
+  const reminderOffsetMatch = temporalTextWorking.match(reminderOffsetRegex);
+  if (reminderOffsetMatch) {
+    const num = Number(reminderOffsetMatch[1]);
+    const unit = reminderOffsetMatch[2].toLowerCase();
     reminderOffsetMinutes = unit.startsWith("h") ? num * 60 : num;
-    matchedTemporalPhrases.push(reminderMatch[0]);
-    temporalTextWorking = temporalTextWorking.replace(reminderMatch[0], "");
+    explicitReminder = true;
+    matchedTemporalPhrases.push(reminderOffsetMatch[0]);
+    temporalTextWorking = temporalTextWorking.replace(reminderOffsetMatch[0], "");
+  }
+
+  // Explicit reminder at specific time (e.g., "remind me at 7 PM", "alert at 7:30pm")
+  const reminderTimeRegex = /\b(?:remind|alert|notify)(?:\s+me)?\s+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}:\d{2})\b/i;
+  const reminderTimeMatch = temporalTextWorking.match(reminderTimeRegex);
+  if (reminderTimeMatch) {
+    const rawTime = reminderTimeMatch[1];
+    const parsedDate = chrono.parseDate(rawTime);
+    if (parsedDate) {
+      reminderTime = formatTime(parsedDate);
+    } else {
+      const timeRegexes = [
+        { pattern: /^(\d{1,2})pm$/i, offset: 12 },
+        { pattern: /^(\d{1,2})am$/i, offset: 0 },
+        { pattern: /^(\d{1,2}):(\d{2})pm$/i, offset: 12 },
+        { pattern: /^(\d{1,2}):(\d{2})am$/i, offset: 0 },
+      ];
+      for (const tr of timeRegexes) {
+        const match = rawTime.match(tr.pattern);
+        if (match) {
+          let h = Number(match[1]);
+          const m = match[2] ? Number(match[2]) : 0;
+          if (tr.offset === 12 && h < 12) h += 12;
+          if (tr.offset === 0 && h === 12) h = 0;
+          reminderTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+          break;
+        }
+      }
+    }
+    if (reminderTime) {
+      explicitReminder = true;
+      matchedTemporalPhrases.push(reminderTimeMatch[0]);
+      temporalTextWorking = temporalTextWorking.replace(reminderTimeMatch[0], "");
+    }
+  }
+
+  // Explicit reminder keyword (e.g. "remind me to...", "set a reminder to...")
+  const explicitReminderKeywordRegex = /\b(?:remind(?:\s+me)?(?:\s+to)?|set\s+(?:a\s+)?reminder(?:\s+to)?|alert(?:\s+me)?(?:\s+to)?|notify(?:\s+me)?(?:\s+to)?)\b/i;
+  const explicitReminderKeywordMatch = temporalTextWorking.match(explicitReminderKeywordRegex);
+  if (explicitReminderKeywordMatch) {
+    explicitReminder = true;
+    matchedTemporalPhrases.push(explicitReminderKeywordMatch[0]);
+    temporalTextWorking = temporalTextWorking.replace(explicitReminderKeywordMatch[0], "");
   }
 
   // Chrono & Date/Time parsing
@@ -515,6 +566,8 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
       recurrence,
       hasRecurrence: !!recurrence,
       reminderOffsetMinutes,
+      explicitReminder,
+      reminderTime,
       matchedTemporalPhrases,
     },
     metadata: {
@@ -739,9 +792,11 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
   // Title formatting and cleanup
   cleanedTitle = cleanedTitle
     .replace(/\s+/g, " ")
+    .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
     .trim()
     .replace(/^(at|on|by|for|to|with|in)\s+/i, "")
     .replace(/\s+(at|on|by|for|to|with|in)$/i, "")
+    .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
     .trim();
 
   if (cleanedTitle.length === 0) {
@@ -763,6 +818,8 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     priorityDetected: !!signals.metadata.priority,
     recurrence: isResource || isList ? undefined : signals.temporal.recurrence,
     reminderOffsetMinutes: isResource || isList ? undefined : signals.temporal.reminderOffsetMinutes,
+    explicitReminder: isResource || isList ? undefined : signals.temporal.explicitReminder,
+    reminderTime: isResource || isList ? undefined : signals.temporal.reminderTime,
     confidence: ranking.confidence,
     items: checklistItems,
     url: detectedUrl,

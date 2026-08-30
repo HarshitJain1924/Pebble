@@ -6,7 +6,7 @@ import { getDateKey } from "@/services/scheduling/recurrence.service";
 describe("FIX #30 — Quick Capture Timed Task Persistence", () => {
   const todayKey = getDateKey();
 
-  it("1. 'Study Kubernetes at 8 PM' → persists schedule.startTime='20:00'", () => {
+  it("1. 'Study Kubernetes at 8 PM' → persists schedule.startTime='20:00' and reminder is undefined", () => {
     const parsed = parseProductivityText("Study Kubernetes at 8 PM");
     expect(parsed.type).toBe("task");
     expect(parsed.time).toBe("20:00");
@@ -15,9 +15,11 @@ describe("FIX #30 — Quick Capture Timed Task Persistence", () => {
     expect(task.title).toBe("Study Kubernetes");
     expect(task.schedule?.startTime).toBe("20:00");
     expect(task.schedule?.date).toBe(todayKey);
+    // Explicitly assert reminder is absent when not explicitly requested
+    expect(task.reminder).toBeUndefined();
   });
 
-  it("2. 'Study Kubernetes at 8:30 PM' → persists schedule.startTime='20:30'", () => {
+  it("2. 'Study Kubernetes at 8:30 PM' → persists schedule.startTime='20:30' and reminder is undefined", () => {
     const parsed = parseProductivityText("Study Kubernetes at 8:30 PM");
     expect(parsed.type).toBe("task");
     expect(parsed.time).toBe("20:30");
@@ -26,6 +28,7 @@ describe("FIX #30 — Quick Capture Timed Task Persistence", () => {
     expect(task.title).toBe("Study Kubernetes");
     expect(task.schedule?.startTime).toBe("20:30");
     expect(task.schedule?.date).toBe(todayKey);
+    expect(task.reminder).toBeUndefined();
   });
 
   it("3. Task without time → schedule.startTime is undefined (all-day/inbox)", () => {
@@ -35,6 +38,7 @@ describe("FIX #30 — Quick Capture Timed Task Persistence", () => {
     const task = buildTask(parsed);
     expect(task.schedule?.startTime).toBeUndefined();
     expect(task.schedule?.date).toBe("inbox");
+    expect(task.reminder).toBeUndefined();
 
     const sched = getStructuredSchedule(task);
     expect(sched.startTime).toBeUndefined();
@@ -52,23 +56,51 @@ describe("FIX #30 — Quick Capture Timed Task Persistence", () => {
     const task = buildTask(invalidParsed);
     expect(task.schedule?.startTime).toBeUndefined();
     expect(task.schedule?.date).toBe("inbox");
+    expect(task.reminder).toBeUndefined();
   });
 
-  it("5. Reminder remains independent from schedule.startTime", () => {
-    const parsed = parseProductivityText("Team Standup at 9:00 AM");
+  it("5. Explicit reminder: 'Study Kubernetes at 8 PM, remind me 30 minutes before' creates reminder with offset", () => {
+    const parsed = parseProductivityText("Study Kubernetes at 8 PM, remind me 30 minutes before");
+    expect(parsed.type).toBe("task");
+    expect(parsed.time).toBe("20:00");
+    expect(parsed.reminderOffsetMinutes).toBe(30);
+
     const task = buildTask(parsed);
+    expect(task.title).toBe("Study Kubernetes");
+    expect(task.schedule?.startTime).toBe("20:00");
+    expect(task.schedule?.date).toBe(todayKey);
 
-    // schedule.startTime is the canonical HH:mm string for calendar visual placement
-    expect(task.schedule?.startTime).toBe("09:00");
-
-    // reminder.triggerAt (if future or undefined if past) is an epoch timestamp strictly for notifications
-    if (task.reminder) {
-      expect(typeof task.reminder.triggerAt).toBe("number");
-      expect(task.reminder.enabled).toBe(true);
+    // Explicit reminder MUST exist
+    expect(task.reminder).toBeDefined();
+    expect(task.reminder?.enabled).toBe(true);
+    if (task.reminder?.triggerAt) {
+      const reminderDate = new Date(task.reminder.triggerAt);
+      expect(reminderDate.getHours()).toBe(19);
+      expect(reminderDate.getMinutes()).toBe(30);
     }
   });
 
-  it("6. Calendar receives the persisted startTime and calculates correct slot layout", () => {
+  it("6. Explicit reminder at specific time: 'Study Kubernetes at 8 PM, remind me at 7 PM'", () => {
+    const parsed = parseProductivityText("Study Kubernetes at 8 PM, remind me at 7 PM");
+    expect(parsed.type).toBe("task");
+    expect(parsed.time).toBe("20:00");
+    expect(parsed.reminderTime).toBe("19:00");
+
+    const task = buildTask(parsed);
+    expect(task.title).toBe("Study Kubernetes");
+    expect(task.schedule?.startTime).toBe("20:00");
+    expect(task.schedule?.date).toBe(todayKey);
+
+    expect(task.reminder).toBeDefined();
+    expect(task.reminder?.enabled).toBe(true);
+    if (task.reminder?.triggerAt) {
+      const reminderDate = new Date(task.reminder.triggerAt);
+      expect(reminderDate.getHours()).toBe(19);
+      expect(reminderDate.getMinutes()).toBe(0);
+    }
+  });
+
+  it("7. Calendar receives the persisted startTime and calculates correct slot layout", () => {
     const parsed = parseProductivityText("Study Kubernetes at 8 PM");
     const task = buildTask(parsed);
 

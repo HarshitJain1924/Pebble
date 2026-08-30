@@ -21,6 +21,77 @@ export function dayDiff(fromDateKey: string, toDateKey: string): number {
   return Math.round((to - from) / DAY_MS);
 }
 
+function countWeekdayOccurrences(startDateKey: string, endDateKey: string): number {
+  let count = 0;
+  const current = parseDateKey(startDateKey);
+  const end = parseDateKey(endDateKey);
+  while (current.getTime() <= end.getTime()) {
+    const day = current.getDay();
+    if (day >= 1 && day <= 5) {
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
+}
+
+function countWeeklyOccurrences(
+  startDateKey: string,
+  endDateKey: string,
+  targetDays: number[],
+  interval: number = 1,
+): number {
+  let count = 0;
+  const current = parseDateKey(startDateKey);
+  const end = parseDateKey(endDateKey);
+  while (current.getTime() <= end.getTime()) {
+    const currKey = dateKeyFromDate(current);
+    const weeksDiff = Math.floor(dayDiff(startDateKey, currKey) / 7);
+    if (weeksDiff % interval === 0 && targetDays.includes(current.getDay())) {
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
+}
+
+function countMonthlyOccurrences(
+  startDateKey: string,
+  endDateKey: string,
+  dayOfMonth: number,
+  interval: number = 1,
+): number {
+  let count = 0;
+  const start = parseDateKey(startDateKey);
+  const end = parseDateKey(endDateKey);
+  let year = start.getFullYear();
+  let month = start.getMonth();
+
+  while (true) {
+    const d = new Date(year, month, dayOfMonth);
+    if (d.getDate() === dayOfMonth) {
+      const dKey = dateKeyFromDate(d);
+      if (dKey >= startDateKey && dKey <= endDateKey) {
+        const monthDiff = (year - start.getFullYear()) * 12 + (month - start.getMonth());
+        if (monthDiff % interval === 0) {
+          count++;
+        }
+      } else if (dKey > endDateKey) {
+        break;
+      }
+    }
+    month++;
+    if (month > 11) {
+      month = 0;
+      year++;
+    }
+    if (new Date(year, month, 1).getTime() > end.getTime()) {
+      break;
+    }
+  }
+  return count;
+}
+
 /**
  * Check if a task or habit is scheduled for a specific date (YYYY-MM-DD).
  */
@@ -39,7 +110,12 @@ export function isRecurringOccurrenceForDate(
   }
 
   const recurrence: RecurrenceRule | undefined = item.recurrence;
-  const scheduleDate = item.schedule?.date || item.scheduledDate;
+  const scheduleDate = item.schedule?.date;
+
+  // Unscheduled / inbox items must not produce calendar occurrences
+  if (scheduleDate === "inbox") {
+    return false;
+  }
 
   // If no recurrence, only matches if scheduled date is exactly dateKey
   if (!recurrence) {
@@ -56,6 +132,11 @@ export function isRecurringOccurrenceForDate(
     return false;
   }
 
+  // Cannot occur after its configured end date
+  if (recurrence.endDate && dateKey > recurrence.endDate) {
+    return false;
+  }
+
   const targetDate = parseDateKey(dateKey);
   const dayOfWeek = targetDate.getDay(); // 0 = Sunday .. 6 = Saturday
 
@@ -63,39 +144,106 @@ export function isRecurringOccurrenceForDate(
     (recurrence as any).type ||
     "daily") as string;
 
+  let isMatch = false;
+
   switch (freq) {
-    case "daily":
-      return true;
-    case "weekdays":
-      return dayOfWeek >= 1 && dayOfWeek <= 5;
+    case "daily": {
+      const interval = recurrence.interval || 1;
+      const diff = dayDiff(startDayKey, dateKey);
+      if (diff >= 0 && diff % interval === 0) {
+        if (recurrence.occurrences !== undefined && recurrence.occurrences > 0) {
+          const occurrenceNumber = Math.floor(diff / interval) + 1;
+          isMatch = occurrenceNumber <= recurrence.occurrences;
+        } else {
+          isMatch = true;
+        }
+      }
+      break;
+    }
+    case "weekdays": {
+      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        if (recurrence.occurrences !== undefined && recurrence.occurrences > 0) {
+          const count = countWeekdayOccurrences(startDayKey, dateKey);
+          isMatch = count <= recurrence.occurrences;
+        } else {
+          isMatch = true;
+        }
+      }
+      break;
+    }
     case "weekly": {
       const targetDays = recurrence.daysOfWeek ||
         (recurrence as any).days || [parseDateKey(startDayKey).getDay()];
-      return targetDays.includes(dayOfWeek);
+      const interval = recurrence.interval || 1;
+      const weeksDiff = Math.floor(dayDiff(startDayKey, dateKey) / 7);
+      if (weeksDiff % interval === 0 && targetDays.includes(dayOfWeek)) {
+        if (recurrence.occurrences !== undefined && recurrence.occurrences > 0) {
+          const count = countWeeklyOccurrences(startDayKey, dateKey, targetDays, interval);
+          isMatch = count <= recurrence.occurrences;
+        } else {
+          isMatch = true;
+        }
+      }
+      break;
     }
     case "monthly": {
       const dayOfMonth =
         recurrence.dayOfMonth || parseDateKey(startDayKey).getDate();
-      return targetDate.getDate() === dayOfMonth;
+      const interval = recurrence.interval || 1;
+      if (targetDate.getDate() === dayOfMonth) {
+        const start = parseDateKey(startDayKey);
+        const monthDiff =
+          (targetDate.getFullYear() - start.getFullYear()) * 12 +
+          (targetDate.getMonth() - start.getMonth());
+        if (monthDiff >= 0 && monthDiff % interval === 0) {
+          if (recurrence.occurrences !== undefined && recurrence.occurrences > 0) {
+            const count = countMonthlyOccurrences(startDayKey, dateKey, dayOfMonth, interval);
+            isMatch = count <= recurrence.occurrences;
+          } else {
+            isMatch = true;
+          }
+        }
+      }
+      break;
     }
     case "yearly": {
       const interval = recurrence.interval || 1;
       const diff = dayDiff(startDayKey, dateKey);
-      return diff >= 0 && diff % (interval * 365) === 0;
+      if (diff >= 0 && diff % (interval * 365) === 0) {
+        if (recurrence.occurrences !== undefined && recurrence.occurrences > 0) {
+          const occurrenceNumber = Math.floor(diff / (interval * 365)) + 1;
+          isMatch = occurrenceNumber <= recurrence.occurrences;
+        } else {
+          isMatch = true;
+        }
+      }
+      break;
     }
     case "interval":
     case "custom": {
       const interval = recurrence.interval || 1;
       const unit = recurrence.unit || (recurrence as any).unit || "days";
       if (unit === "hours") {
-        return true;
+        isMatch = true;
+      } else {
+        const diff = dayDiff(startDayKey, dateKey);
+        if (diff >= 0 && diff % interval === 0) {
+          if (recurrence.occurrences !== undefined && recurrence.occurrences > 0) {
+            const occurrenceNumber = Math.floor(diff / interval) + 1;
+            isMatch = occurrenceNumber <= recurrence.occurrences;
+          } else {
+            isMatch = true;
+          }
+        }
       }
-      const diff = dayDiff(startDayKey, dateKey);
-      return diff >= 0 && diff % interval === 0;
+      break;
     }
     default:
-      return true;
+      isMatch = true;
+      break;
   }
+
+  return isMatch;
 }
 
 /**
