@@ -292,7 +292,7 @@ static async restoreHabit(
       }
 
       // 3. Persist to active partition
-      await HabitRepository.saveHabitUnlocked(habit);
+      const savedHabit = await HabitRepository.saveHabitUnlocked(habit);
       
       // 4. Atomic removal from Recycle Bin
       try {
@@ -303,22 +303,43 @@ static async restoreHabit(
       
       await MoveJournalRepository.removeOperation(operationId);
       
-      return habit;
+      return savedHabit;
     });
 
     // 5. Non-domain side effects
     const needsScheduling = restoredHabit.reminder?.enabled && restoredHabit.reminder?.triggerAt;
     if (needsScheduling) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
         const { rescheduleHabitReminders } = await import("@/services/scheduling/reminders.service");
         const scheduledHabit = await rescheduleHabitReminders(restoredHabit);
-        await HabitRepository.updateNotificationIds(
-          scheduledHabit.id,
-          scheduledHabit.workspaceId,
-          scheduledHabit.reminder?.notificationIds
-        );
+        generatedNotificationIds = scheduledHabit.reminder?.notificationIds;
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await HabitRepository.updateNotificationIds(
+            restoredHabit.id,
+            restoredHabit.workspaceId,
+            generatedNotificationIds,
+            {
+              reminder: restoredHabit.reminder,
+              archivedAt: restoredHabit.archivedAt,
+              updatedAt: restoredHabit.updatedAt,
+              revision: restoredHabit.revision,
+            }
+          );
+          const verify = await HabitRepository.getHabit(restoredHabit.id, restoredHabit.workspaceId);
+          if (status === 'not_found' || status === 'state_changed' || !verify || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            if (restoredHabit.reminder) restoredHabit.reminder.notificationIds = undefined;
+          } else {
+            if (restoredHabit.reminder) restoredHabit.reminder.notificationIds = generatedNotificationIds;
+          }
+        }
       } catch (e) {
         console.warn("[EntityCommandService] Failed to schedule habit reminder after restore:", e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
+        if (restoredHabit.reminder) restoredHabit.reminder.notificationIds = undefined;
       }
     }
 
@@ -693,8 +714,8 @@ static async recycleHabit(
       }
 
       // 1. Domain persistence FIRST
-      await HabitRepository.saveHabitUnlocked(mergedHabit);
-      return mergedHabit;
+      const savedHabit = await HabitRepository.saveHabitUnlocked(mergedHabit);
+      return savedHabit;
     });
 
     // 2. OS Notification Scheduling SECOND (isolated)
@@ -710,11 +731,37 @@ static async recycleHabit(
       const isArchived = !!updatedHabit.archivedAt;
 
       if (!isArchived) {
+        let generatedNotificationIds: string[] | undefined = undefined;
         try {
-          updatedHabit = await rescheduleHabitReminders(updatedHabit);
-          await HabitRepository.updateNotificationIds(updatedHabit.id, updatedHabit.workspaceId, updatedHabit.reminder?.notificationIds);
+          const scheduled = await rescheduleHabitReminders(updatedHabit);
+          generatedNotificationIds = scheduled.reminder?.notificationIds;
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            const status = await HabitRepository.updateNotificationIds(
+              updatedHabit.id, 
+              updatedHabit.workspaceId, 
+              generatedNotificationIds,
+              {
+                reminder: updatedHabit.reminder,
+                archivedAt: updatedHabit.archivedAt,
+                updatedAt: updatedHabit.updatedAt,
+                revision: updatedHabit.revision,
+              }
+            );
+
+            const verify = await HabitRepository.getHabit(updatedHabit.id, updatedHabit.workspaceId);
+            if (status === 'not_found' || status === 'state_changed' || !verify || verify.archivedAt) {
+              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+              if (updatedHabit.reminder) updatedHabit.reminder.notificationIds = undefined;
+            } else {
+              if (updatedHabit.reminder) updatedHabit.reminder.notificationIds = generatedNotificationIds;
+            }
+          }
         } catch (e) {
           console.warn("[EntityCommandService] Failed to reschedule habit reminder during update:", e);
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+          }
+          if (updatedHabit.reminder) updatedHabit.reminder.notificationIds = undefined;
         }
       }
     }
@@ -797,26 +844,48 @@ static async recycleHabit(
       candidate.revision = candidate.revision || 1;
 
       // 1. Domain persistence FIRST
-      await HabitRepository.saveHabitUnlocked(candidate);
-      return candidate;
+      return await HabitRepository.saveHabitUnlocked(candidate);
     });
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (needsScheduling) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
         if (parsedInput) {
-          const notificationIds = await scheduleHabitNotifications(habit.id, parsedInput);
-          if (notificationIds.length > 0 && habit.reminder) {
-            habit.reminder.notificationIds = notificationIds;
-            await HabitRepository.updateNotificationIds(habit.id, habit.workspaceId, notificationIds);
-          }
+          generatedNotificationIds = await scheduleHabitNotifications(habit.id, parsedInput);
         } else {
-          // Assuming rescheduleHabitReminders behaves like rescheduleTodoReminders
-          habit = await rescheduleHabitReminders(habit);
-          await HabitRepository.updateNotificationIds(habit.id, habit.workspaceId, habit.reminder?.notificationIds);
+          const scheduled = await rescheduleHabitReminders(habit);
+          generatedNotificationIds = scheduled.reminder?.notificationIds;
+        }
+
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await HabitRepository.updateNotificationIds(
+            habit.id, 
+            habit.workspaceId, 
+            generatedNotificationIds,
+            {
+              reminder: habit.reminder,
+              archivedAt: habit.archivedAt,
+              updatedAt: habit.updatedAt,
+              revision: habit.revision,
+            }
+          );
+
+          // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
+          const verify = await HabitRepository.getHabit(habit.id, habit.workspaceId);
+          if (status === 'not_found' || status === 'state_changed' || !verify || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            if (habit.reminder) habit.reminder.notificationIds = undefined;
+          } else {
+            if (habit.reminder) habit.reminder.notificationIds = generatedNotificationIds;
+          }
         }
       } catch (e) {
         console.warn("[EntityCommandService] Failed to schedule habit reminder after persistence:", e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
+        if (habit.reminder) habit.reminder.notificationIds = undefined;
       }
     }
 

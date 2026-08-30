@@ -418,8 +418,7 @@ static async reorderTasks(
       }
 
       // 7. Persist to active storage
-      const activeTaskToSave = { ...parsedTaskInside };
-      await TaskRepository.saveTaskUnlocked(activeTaskToSave);
+      const activeTaskToSave = await TaskRepository.saveTaskUnlocked(parsedTaskInside);
 
       // 8. Safely remove from Recycle Bin inside the lock
       try {
@@ -445,12 +444,26 @@ static async reorderTasks(
         generatedNotificationIds = taskWithReminders.reminder?.notificationIds;
         
         if (generatedNotificationIds && generatedNotificationIds.length > 0) {
-          const status = await TaskRepository.updateNotificationIds(taskWithReminders.id, taskWithReminders.workspaceId, generatedNotificationIds);
+          const status = await TaskRepository.updateNotificationIds(
+            taskWithReminders.id, 
+            taskWithReminders.workspaceId, 
+            generatedNotificationIds,
+            {
+              reminder: taskWithReminders.reminder,
+              status: taskWithReminders.status,
+              archivedAt: taskWithReminders.archivedAt,
+              updatedAt: taskWithReminders.updatedAt,
+              revision: taskWithReminders.revision,
+            }
+          );
           
           // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
           const verify = await TaskRepository.getTask(taskWithReminders.id, taskWithReminders.workspaceId);
-          if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
+          if (status === 'not_found' || status === 'state_changed' || !verify || verify.status === "completed" || verify.archivedAt) {
             cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            if (restoredTask.reminder) restoredTask.reminder.notificationIds = undefined;
+          } else {
+            if (restoredTask.reminder) restoredTask.reminder.notificationIds = generatedNotificationIds;
           }
         }
       } catch (e) {
@@ -458,6 +471,7 @@ static async reorderTasks(
         if (generatedNotificationIds && generatedNotificationIds.length > 0) {
           cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
         }
+        if (restoredTask.reminder) restoredTask.reminder.notificationIds = undefined;
       }
     }
 
@@ -1052,19 +1066,38 @@ static async reorderTasks(
     // 5. Post-persistence notification scheduling for the new copy (isolated)
     let finalOccurrenceTask = newCopy;
     if (needsReminderScheduling) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
         const { rescheduleTodoReminders } = await import("@/services/scheduling/reminders.service");
         const scheduled = await rescheduleTodoReminders(newCopy);
-        if (scheduled.reminder?.notificationIds?.length) {
-          await TaskRepository.updateNotificationIds(
+        generatedNotificationIds = scheduled.reminder?.notificationIds;
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await TaskRepository.updateNotificationIds(
             scheduled.id,
             workspaceId,
-            scheduled.reminder.notificationIds
+            generatedNotificationIds,
+            {
+              reminder: scheduled.reminder,
+              status: scheduled.status,
+              archivedAt: scheduled.archivedAt,
+              updatedAt: scheduled.updatedAt,
+              revision: scheduled.revision,
+            }
           );
-          finalOccurrenceTask = scheduled;
+          const verify = await TaskRepository.getTask(scheduled.id, workspaceId);
+          if (status === 'not_found' || status === 'state_changed' || !verify || verify.status === "completed" || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            if (finalOccurrenceTask.reminder) finalOccurrenceTask.reminder.notificationIds = undefined;
+          } else {
+            finalOccurrenceTask = scheduled;
+          }
         }
       } catch (e) {
         console.warn("[TaskCommandHandler] Failed to schedule reminder for detached occurrence:", e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
+        if (finalOccurrenceTask.reminder) finalOccurrenceTask.reminder.notificationIds = undefined;
       }
     }
 
@@ -1134,9 +1167,9 @@ static async reorderTasks(
       }
 
       // 1. Domain persistence FIRST
-      await TaskRepository.saveTaskUnlocked(updatedTask);
+      const savedTask = await TaskRepository.saveTaskUnlocked(updatedTask);
 
-      return { updatedTask, existing, needsReminderUpdate };
+      return { updatedTask: savedTask, existing, needsReminderUpdate };
     });
 
     let finalTask = updatedTask;
@@ -1146,7 +1179,7 @@ static async reorderTasks(
       // Fire and forget cancel existing
       if (existing.reminder?.notificationIds?.length) {
         cancelReminderIds(existing.reminder.notificationIds, { throwOnError: false }).catch(e => {
-          console.warn("[EntityCommandService] Failed to cancel old reminder IDs during update", e);
+          console.warn("[EntityCommandService] Failed to cancel old reminder IDs during task update", e);
         });
       }
       
@@ -1155,24 +1188,41 @@ static async reorderTasks(
       const isCompleted = finalTask.status === "completed";
 
       if (!isArchived && !isCompleted) {
+        let generatedNotificationIds: string[] | undefined = undefined;
         try {
-          finalTask = await rescheduleTodoReminders(finalTask);
-          if (finalTask.reminder?.notificationIds?.length) {
-            const status = await TaskRepository.updateNotificationIds(finalTask.id, finalTask.workspaceId, finalTask.reminder.notificationIds);
+          const scheduled = await rescheduleTodoReminders(finalTask);
+          generatedNotificationIds = scheduled.reminder?.notificationIds;
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            const status = await TaskRepository.updateNotificationIds(
+              finalTask.id, 
+              finalTask.workspaceId, 
+              generatedNotificationIds,
+              {
+                reminder: finalTask.reminder,
+                status: finalTask.status,
+                archivedAt: finalTask.archivedAt,
+                updatedAt: finalTask.updatedAt,
+                revision: finalTask.revision
+              }
+            );
             
             // Re-verify domain state to prevent Zombie notifications.
             // If the task was completed, archived, deleted, or moved by a concurrent operation
             // while we were talking to the OS, we MUST cancel the newly scheduled notifications.
             const verify = await TaskRepository.getTask(finalTask.id, finalTask.workspaceId);
-            if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
-              cancelReminderIds(finalTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+            if (status === 'not_found' || status === 'state_changed' || !verify || verify.status === "completed" || verify.archivedAt) {
+              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+              if (finalTask.reminder) finalTask.reminder.notificationIds = undefined;
+            } else {
+              if (finalTask.reminder) finalTask.reminder.notificationIds = generatedNotificationIds;
             }
           }
         } catch (e) {
           console.warn("[EntityCommandService] Failed to reschedule task reminder during update:", e);
-          if (finalTask.reminder?.notificationIds?.length) {
-            cancelReminderIds(finalTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
           }
+          if (finalTask.reminder) finalTask.reminder.notificationIds = undefined;
         }
       }
     }
@@ -1213,7 +1263,7 @@ static async reorderTasks(
         return { previous: task, updated: task, skipped: true }; // Already uncompleted
       }
 
-      let updatedTask: Task = {
+      let cleanTask: Task = {
         ...task,
         status: "todo",
         completedAt: undefined,
@@ -1231,9 +1281,8 @@ static async reorderTasks(
       };
 
       // 1. Domain persistence FIRST
-      await TaskRepository.saveTaskUnlocked(updatedTask);
-
-      return { previous: task, updated: updatedTask, skipped: false };
+      const saved = await TaskRepository.saveTaskUnlocked(cleanTask);
+      return { previous: task, updated: saved, skipped: false };
     });
 
     if (!result) return null;
@@ -1245,25 +1294,42 @@ static async reorderTasks(
     await reversePebbleReward(`task:${previous.id}`);
 
     // 2. OS Notification Scheduling SECOND (isolated)
+    let generatedNotificationIds: string[] | undefined = undefined;
     try {
       // If the task has an enabled reminder in the future or recurrence, it must be re-scheduled
       // because completeTask previously cancelled it.
-      const finalTask = await rescheduleTodoReminders(updatedTask);
-      if (finalTask.reminder?.notificationIds?.length) {
-        const status = await TaskRepository.updateNotificationIds(finalTask.id, finalTask.workspaceId, finalTask.reminder.notificationIds);
+      const scheduled = await rescheduleTodoReminders(updatedTask);
+      generatedNotificationIds = scheduled.reminder?.notificationIds;
+      if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+        const status = await TaskRepository.updateNotificationIds(
+          updatedTask.id, 
+          updatedTask.workspaceId, 
+          generatedNotificationIds,
+          {
+            reminder: updatedTask.reminder,
+            status: updatedTask.status,
+            archivedAt: updatedTask.archivedAt,
+            updatedAt: updatedTask.updatedAt,
+            revision: updatedTask.revision
+          }
+        );
         
         // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
-        const verify = await TaskRepository.getTask(finalTask.id, finalTask.workspaceId);
-        if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
-          cancelReminderIds(finalTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+        const verify = await TaskRepository.getTask(updatedTask.id, updatedTask.workspaceId);
+        if (status === 'not_found' || status === 'state_changed' || !verify || verify.status === "completed" || verify.archivedAt) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+          if (updatedTask.reminder) updatedTask.reminder.notificationIds = undefined;
+        } else {
+          if (updatedTask.reminder) updatedTask.reminder.notificationIds = generatedNotificationIds;
         }
       }
-      updatedTask = finalTask;
+      updatedTask = scheduled;
     } catch (e) {
       console.warn("[EntityCommandService] Failed to reschedule reminders after uncomplete", e);
-      if (updatedTask.reminder?.notificationIds?.length) {
-        cancelReminderIds(updatedTask.reminder.notificationIds, { throwOnError: false }).catch(() => {});
+      if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+        cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
       }
+      if (updatedTask.reminder) updatedTask.reminder.notificationIds = undefined;
     }
 
     pluginManager.dispatchTaskUncompleted(updatedTask);
@@ -1322,9 +1388,9 @@ static async reorderTasks(
           : {}),
       };
 
-      await TaskRepository.saveTaskUnlocked(updatedTask);
+      const saved = await TaskRepository.saveTaskUnlocked(updatedTask);
 
-      return { previous: task, updated: updatedTask, skipped: false };
+      return { previous: task, updated: saved, skipped: false };
     });
 
     if (!result) return null;
@@ -1422,8 +1488,7 @@ static async reorderTasks(
       candidate.revision = candidate.revision || 1;
 
       // 1. Domain persistence FIRST
-      await TaskRepository.saveTaskUnlocked(candidate);
-      return candidate;
+      return await TaskRepository.saveTaskUnlocked(candidate);
     });
 
     // 2. OS Notification Scheduling SECOND (isolated)
@@ -1432,27 +1497,32 @@ static async reorderTasks(
       try {
         if (parsedInput) {
           generatedNotificationIds = await scheduleTaskNotifications(task.id, parsedInput);
-          if (generatedNotificationIds.length > 0 && task.reminder) {
-            task.reminder.notificationIds = generatedNotificationIds;
-            const status = await TaskRepository.updateNotificationIds(task.id, task.workspaceId, generatedNotificationIds);
-            
-            // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
-            const verify = await TaskRepository.getTask(task.id, task.workspaceId);
-            if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
-              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
-            }
-          }
         } else {
-          task = await rescheduleTodoReminders(task);
-          generatedNotificationIds = task.reminder?.notificationIds;
-          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
-            const status = await TaskRepository.updateNotificationIds(task.id, task.workspaceId, generatedNotificationIds);
-            
-            // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
-            const verify = await TaskRepository.getTask(task.id, task.workspaceId);
-            if (status === 'not_found' || !verify || verify.status === "completed" || verify.archivedAt) {
-              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+          const scheduled = await rescheduleTodoReminders(task);
+          generatedNotificationIds = scheduled.reminder?.notificationIds;
+        }
+
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await TaskRepository.updateNotificationIds(
+            task.id, 
+            task.workspaceId, 
+            generatedNotificationIds,
+            {
+              reminder: task.reminder,
+              status: task.status,
+              archivedAt: task.archivedAt,
+              updatedAt: task.updatedAt,
+              revision: task.revision,
             }
+          );
+          
+          // Re-verify domain state to prevent Zombie notifications in case of concurrent mutation
+          const verify = await TaskRepository.getTask(task.id, task.workspaceId);
+          if (status === 'not_found' || status === 'state_changed' || !verify || verify.status === "completed" || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            if (task.reminder) task.reminder.notificationIds = undefined;
+          } else {
+            if (task.reminder) task.reminder.notificationIds = generatedNotificationIds;
           }
         }
       } catch (e) {
@@ -1460,6 +1530,7 @@ static async reorderTasks(
         if (generatedNotificationIds && generatedNotificationIds.length > 0) {
           cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
         }
+        if (task.reminder) task.reminder.notificationIds = undefined;
       }
     }
 

@@ -126,8 +126,9 @@ export class ConversionCommandHandler {
     }
 
     if (createdTask.reminder?.enabled) {
+       let newNotificationIds: string[] | undefined = undefined;
        try {
-           const newNotificationIds = await scheduleTaskNotifications(createdTask.id, createdTask as any);
+           newNotificationIds = await scheduleTaskNotifications(createdTask.id, createdTask as any);
            if (newNotificationIds && newNotificationIds.length > 0) {
                const updateResult = await TaskRepository.updateNotificationIds(
                    createdTask.id, 
@@ -145,10 +146,17 @@ export class ConversionCommandHandler {
                if (updateResult === 'state_changed' || updateResult === 'not_found') {
                    // A concurrent mutation occurred; cancel our stale native OS notifications.
                    cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+                   if (createdTask.reminder) createdTask.reminder.notificationIds = undefined;
+               } else {
+                   if (createdTask.reminder) createdTask.reminder.notificationIds = newNotificationIds;
                }
            }
        } catch (e) {
            console.warn(`[ConversionCommandHandler] Failed to schedule new reminders for ${habitId}`, e);
+           if (newNotificationIds && newNotificationIds.length > 0) {
+             cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+           }
+           if (createdTask.reminder) createdTask.reminder.notificationIds = undefined;
        }
     }
 
@@ -271,8 +279,9 @@ export class ConversionCommandHandler {
     }
 
     if (createdHabit.reminder?.enabled) {
+       let newNotificationIds: string[] | undefined = undefined;
        try {
-           const newNotificationIds = await scheduleHabitNotifications(createdHabit.id, createdHabit as any);
+           newNotificationIds = await scheduleHabitNotifications(createdHabit.id, createdHabit as any);
            if (newNotificationIds && newNotificationIds.length > 0) {
                const updateResult = await HabitRepository.updateNotificationIds(
                    createdHabit.id, 
@@ -289,10 +298,17 @@ export class ConversionCommandHandler {
                if (updateResult === 'state_changed' || updateResult === 'not_found') {
                    // A concurrent mutation occurred; cancel our stale native OS notifications.
                    cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+                   if (createdHabit.reminder) createdHabit.reminder.notificationIds = undefined;
+               } else {
+                   if (createdHabit.reminder) createdHabit.reminder.notificationIds = newNotificationIds;
                }
            }
        } catch (e) {
            console.warn(`[ConversionCommandHandler] Failed to schedule new reminders for ${taskId}`, e);
+           if (newNotificationIds && newNotificationIds.length > 0) {
+             cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+           }
+           if (createdHabit.reminder) createdHabit.reminder.notificationIds = undefined;
        }
     }
 

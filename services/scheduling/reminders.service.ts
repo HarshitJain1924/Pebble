@@ -3,6 +3,7 @@ import { Alert, Platform } from "react-native";
 import { getNotificationPayload } from "@/services/scheduling/notification-routes";
 import { DAY_MS } from "@/services/storage/storage.service";
 import { type SchedulerRecurrence, recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
+import { type NotificationPurpose, buildNotificationLogicalSignature } from "@/services/notifications/notification-identity";
 
 export type ReminderKind = "todo" | "habit";
 
@@ -30,7 +31,7 @@ export type ReminderScheduleOptions = {
   context?: ReminderContext;
   /** Only accepts the scheduler's internal recurrence format. */
   recurrence?: SchedulerRecurrence;
-  logicalSignature?: string;
+  purpose?: NotificationPurpose;
 };
 
 export type ScheduledReminderBatch = {
@@ -138,13 +139,15 @@ function buildNotificationData(
   kind: ReminderKind,
   itemId: string,
   escalationLevel: number,
-  logicalSignature?: string,
+  purpose: NotificationPurpose = escalationLevel > 0 ? "escalation" : "reminder",
 ) {
+  const logicalSignature = buildNotificationLogicalSignature(kind, itemId, purpose);
   return {
     type: kind,
     itemId,
     escalationLevel,
     logicalSignature,
+    purpose,
   };
 }
 
@@ -369,11 +372,12 @@ export async function scheduleReminderBatch(
       options.context ?? { title: options.title },
       index,
     );
+    const purpose = index === 0 ? (options.purpose || "reminder") : "escalation";
     const data = buildNotificationData(
       options.kind,
       options.itemId,
       index,
-      options.logicalSignature,
+      purpose,
     );
 
     if (options.oneTimeAt) {
@@ -583,11 +587,16 @@ export async function scheduleReminderBatch(
             channelId: resolvedChannelId,
           });
 
+          const notifData = {
+            ...data,
+            weekday: platformWeekday,
+          };
+
           const notificationId = await Notifications.scheduleNotificationAsync({
             content: {
               title: options.kind === "habit" ? "Daily habit reminder" : "Task reminder",
               body,
-              data,
+              data: notifData,
             },
             trigger: triggerObj,
           });
@@ -812,7 +821,6 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
           recurrence: recurrenceRuleToScheduler(todo.recurrence),
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-          logicalSignature: todo.reminder.triggerAt.toString(),
         });
         return {
           ...todo,
@@ -832,7 +840,6 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
         category: todo.categoryId,
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-        logicalSignature: todo.reminder.triggerAt.toString(),
       });
       return {
         ...todo,
@@ -882,7 +889,6 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
           recurrence: recurrenceRuleToScheduler(habit.recurrence),
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-          logicalSignature: habit.reminder.triggerAt.toString(),
         });
         return {
           ...habit,
@@ -902,7 +908,6 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
         category: habit.categoryId,
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-        logicalSignature: habit.reminder.triggerAt.toString(),
       });
       return {
         ...habit,

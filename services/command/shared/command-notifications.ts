@@ -1,6 +1,7 @@
 import type { ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import { computeTriggerAt, parseTime } from "@/features/capture/services/entity-factory.service";
 import { scheduleReminderBatch } from "@/services/scheduling/reminders.service";
+import { buildNotificationLogicalSignature } from "@/services/notifications/notification-identity";
 
 /**
  * Unified notification scheduling for entity creation.

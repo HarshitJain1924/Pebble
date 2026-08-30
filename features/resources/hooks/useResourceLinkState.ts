@@ -47,6 +47,9 @@ export function useResourceLinkState(
               { resourceIds: updatedResourceIds },
               { skipEvents: true, skipAnalytics: true },
             );
+            if (!updatedTask.resourceIds && updatedResourceIds.length === 0) {
+              updatedTask = { ...updatedTask, resourceIds: [] };
+            }
           } else {
             updatedTask = {
               ...(currentTask || {
@@ -101,6 +104,9 @@ export function useResourceLinkState(
               { resourceIds: updatedResourceIds },
               { skipEvents: true, skipAnalytics: true },
             );
+            if (!updatedHabit.resourceIds && updatedResourceIds.length === 0) {
+              updatedHabit = { ...updatedHabit, resourceIds: [] };
+            }
           } else {
             updatedHabit = {
               ...(currentHabit || {

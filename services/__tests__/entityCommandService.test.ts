@@ -705,7 +705,8 @@ describe("EntityCommandService unit tests", () => {
       const restored = await EntityCommandService.restoreTask(item.id, { skipAnalytics: true, skipEvents: true });
       
       expect(rescheduleTodoRemindersSpy).toHaveBeenCalled();
-      expect(restored.reminder?.notificationIds).toBeUndefined();
+      expect(restored.reminder?.notificationIds).toEqual(["new-id"]);
+      expect(restored.reminder?.notificationIds).not.toContain("old-id");
     });
 
     it("7. Missing recycle-bin item throws", async () => {

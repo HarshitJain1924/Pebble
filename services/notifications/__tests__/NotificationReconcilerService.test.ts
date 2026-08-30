@@ -195,4 +195,151 @@ describe("NotificationReconcilerService", () => {
     
     await expect(NotificationReconcilerService.reconcileAll()).resolves.not.toThrow();
   });
+
+  it("12. Duplicate resolution prefers canonical entity-owned signature over legacy timestamp signature", async () => {
+    const task = createMockTask("t1", 1000, ["os-legacy", "os-canonical"]);
+    const legacyNotif = {
+      identifier: "os-legacy",
+      content: {
+        data: {
+          type: "todo",
+          itemId: "t1",
+          escalationLevel: 0,
+          logicalSignature: "1000",
+        },
+      },
+    };
+    const canonicalNotif = {
+      identifier: "os-canonical",
+      content: {
+        data: {
+          type: "todo",
+          itemId: "t1",
+          escalationLevel: 0,
+          purpose: "reminder",
+          logicalSignature: "todo:t1:reminder",
+        },
+      },
+    };
+
+    (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ t1: task });
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([legacyNotif, canonicalNotif]);
+
+    await NotificationReconcilerService.reconcileAll();
+
+    // Legacy duplicate should be cancelled
+    expect(cancelReminderIds).toHaveBeenCalledWith(["os-legacy"], { throwOnError: false });
+    // Domain should be repaired to retain only the winning canonical notification ID
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t1", "ws-1", ["os-canonical"]);
+  });
+
+  it("13. Multi-day weekly recurring notifications are preserved as distinct slots and not cancelled as duplicates", async () => {
+    const task = createMockTask("t-weekly", 1000, ["os-mon", "os-wed"]);
+    const monNotif = {
+      identifier: "os-mon",
+      content: {
+        data: {
+          type: "todo",
+          itemId: "t-weekly",
+          escalationLevel: 0,
+          purpose: "reminder",
+          logicalSignature: "todo:t-weekly:reminder",
+          weekday: 2, // Monday
+        },
+      },
+    };
+    const wedNotif = {
+      identifier: "os-wed",
+      content: {
+        data: {
+          type: "todo",
+          itemId: "t-weekly",
+          escalationLevel: 0,
+          purpose: "reminder",
+          logicalSignature: "todo:t-weekly:reminder",
+          weekday: 4, // Wednesday
+        },
+      },
+    };
+
+    (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "t-weekly": task });
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([monNotif, wedNotif]);
+
+    await NotificationReconcilerService.reconcileAll();
+
+    // Neither day should be cancelled as a duplicate
+    expect(cancelReminderIds).not.toHaveBeenCalled();
+    // Neither day needs rescheduling
+    expect(rescheduleTodoReminders).not.toHaveBeenCalled();
+  });
+
+  it("14. Two entities reconcile concurrently with no cross-entity interference", async () => {
+    const taskA = createMockTask("t-A", 1000, ["os-A"]);
+    const taskB = createMockTask("t-B", 2000, []); // Missing in OS
+    const habitC = {
+      id: "h-C",
+      workspaceId: "ws-1",
+      title: "Habit C",
+      categoryId: "health",
+      reminder: { enabled: true, triggerAt: 3000, notificationIds: ["os-C"] },
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const osNotifA = createMockOsNotif("os-A", "t-A", 1000);
+    const osNotifC = {
+      identifier: "os-C",
+      content: {
+        data: {
+          type: "habit",
+          itemId: "h-C",
+          escalationLevel: 0,
+          purpose: "reminder",
+          logicalSignature: "habit:h-C:reminder",
+        },
+      },
+    };
+
+    (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "t-A": taskA, "t-B": taskB });
+    (HabitRepository.getHabits as jest.Mock).mockResolvedValue({ "h-C": habitC });
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([osNotifA, osNotifC]);
+
+    await NotificationReconcilerService.reconcileAll();
+
+    // t-A is valid -> no reschedule, no cancel
+    // h-C is valid -> no reschedule, no cancel
+    // t-B is missing in OS -> rescheduled independently
+    expect(cancelReminderIds).not.toHaveBeenCalled();
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(taskB);
+    expect(rescheduleHabitReminders).not.toHaveBeenCalled();
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-B", "ws-1", []);
+  });
+
+  it("15. Repeated reconciliation passes converge to a stable fixed-point with zero redundant writes", async () => {
+    const task = createMockTask("t-converge", 1000, ["os-1"]);
+    const osNotif = createMockOsNotif("os-1", "t-converge", 1000);
+
+    (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "t-converge": task });
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([osNotif]);
+
+    // Pass 1
+    await NotificationReconcilerService.reconcileAll();
+    expect(cancelReminderIds).not.toHaveBeenCalled();
+    expect(rescheduleTodoReminders).not.toHaveBeenCalled();
+    expect(TaskRepository.updateNotificationIds).not.toHaveBeenCalled();
+
+    // Pass 2
+    await NotificationReconcilerService.reconcileAll();
+    expect(cancelReminderIds).not.toHaveBeenCalled();
+    expect(rescheduleTodoReminders).not.toHaveBeenCalled();
+    expect(TaskRepository.updateNotificationIds).not.toHaveBeenCalled();
+
+    // Pass 3
+    await NotificationReconcilerService.reconcileAll();
+    expect(cancelReminderIds).not.toHaveBeenCalled();
+    expect(rescheduleTodoReminders).not.toHaveBeenCalled();
+    expect(TaskRepository.updateNotificationIds).not.toHaveBeenCalled();
+  });
 });

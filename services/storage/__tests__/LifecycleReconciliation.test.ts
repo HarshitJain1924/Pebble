@@ -15,7 +15,11 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
     return mockStore.get(key) || null;
   }),
   multiGet: jest.fn(),
-  multiSet: jest.fn(),
+  multiSet: jest.fn().mockImplementation(async (pairs: [string, string][]) => {
+    for (const [key, value] of pairs) {
+      mockStore.set(key, value);
+    }
+  }),
   removeItem: jest.fn(),
   multiRemove: jest.fn(),
   getAllKeys: jest.fn(),
@@ -55,7 +59,7 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
     entityType: "task",
     sourceWorkspaceId: workspaceId,
     targetWorkspaceId: workspaceId,
-    timestamp: Date.now(),
+    timestamp: 5000,
     lifecycleGeneration: 1,
     expectedRevision: 1,
   });
@@ -69,8 +73,8 @@ describe("LifecycleReconciliation (Recycle/Restore)", () => {
     categoryId: "work",
     revision: 1,
     lifecycleGeneration: 1,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: 1000,
+    updatedAt: 1000,
     schedule: {},
   });
 
