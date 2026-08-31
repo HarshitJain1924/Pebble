@@ -219,7 +219,6 @@ static async moveChecklist(
               {
                 reminder: finalChecklist.reminder,
                 archivedAt: finalChecklist.archivedAt,
-                updatedAt: finalChecklist.updatedAt,
                 revision: finalChecklist.revision,
               }
             );
@@ -357,7 +356,6 @@ static async moveChecklist(
             {
               reminder: restoredChecklist.reminder,
               archivedAt: restoredChecklist.archivedAt,
-              updatedAt: restoredChecklist.updatedAt,
               revision: restoredChecklist.revision,
             }
           );
@@ -371,6 +369,10 @@ static async moveChecklist(
         }
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to reschedule reminders during restore of Checklist ${restoredChecklist.id}:`, e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
+        if (restoredChecklist.reminder) restoredChecklist.reminder.notificationIds = undefined;
       }
     }
 
@@ -1010,24 +1012,35 @@ static async moveChecklist(
 
     // Schedule notification for detached occurrence if applicable
     if (newCopy.reminder?.enabled && newCopy.reminder?.triggerAt) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
         const scheduled = await rescheduleChecklistReminders(newCopy);
-        if (scheduled.reminder?.notificationIds?.length) {
-          await ChecklistRepository.updateNotificationIds(
+        generatedNotificationIds = scheduled.reminder?.notificationIds;
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await ChecklistRepository.updateNotificationIds(
             newCopy.id,
             newCopy.workspaceId,
-            scheduled.reminder.notificationIds,
+            generatedNotificationIds,
             {
               reminder: newCopy.reminder,
               archivedAt: newCopy.archivedAt,
-              updatedAt: newCopy.updatedAt,
               revision: newCopy.revision,
             }
           );
-          newCopy.reminder.notificationIds = scheduled.reminder.notificationIds;
+          const verify = await ChecklistRepository.getChecklist(newCopy.id, newCopy.workspaceId);
+          if (status === 'not_found' || status === 'state_changed' || !verify || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            if (newCopy.reminder) newCopy.reminder.notificationIds = undefined;
+          } else {
+            if (newCopy.reminder) newCopy.reminder.notificationIds = generatedNotificationIds;
+          }
         }
       } catch (e) {
         console.warn("[EntityCommandService] Failed to schedule reminder for detached checklist occurrence:", e);
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+        }
+        if (newCopy.reminder) newCopy.reminder.notificationIds = undefined;
       }
     }
 

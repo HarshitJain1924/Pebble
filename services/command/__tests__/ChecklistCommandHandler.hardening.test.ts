@@ -54,6 +54,8 @@ describe("Checklist Scheduling & Command Hardening (P0-1 through P1-5)", () => {
       color: "blue",
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 1,
+      lifecycleGeneration: 1,
     });
 
     await WorkspaceRepository.saveWorkspace({
@@ -62,6 +64,8 @@ describe("Checklist Scheduling & Command Hardening (P0-1 through P1-5)", () => {
       color: "green",
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 1,
+      lifecycleGeneration: 1,
     });
   });
 
@@ -76,7 +80,7 @@ describe("Checklist Scheduling & Command Hardening (P0-1 through P1-5)", () => {
     };
 
     test("A Task with categoryId 'home' or items must remain 'task' and never become 'checklist'", () => {
-      const taskWithHomeCategory: Partial<Task> = {
+      const taskWithHomeCategory: any = {
         id: "task-1",
         type: "task",
         categoryId: "home",
@@ -477,7 +481,7 @@ describe("Checklist Scheduling & Command Hardening (P0-1 through P1-5)", () => {
           triggerAt: 1785578400000,
         },
         items: [{ id: "i1", title: "Task 1", completed: false }],
-      } as Checklist, wsId);
+      } as unknown as Checklist, wsId);
 
       const moved = await EntityCommandService.moveChecklist(created.id, wsId, targetWsId);
 
@@ -595,4 +599,230 @@ describe("Checklist Scheduling & Command Hardening (P0-1 through P1-5)", () => {
       expect(occurrenceChecklist.schedule?.startTime).toBe("10:00");
     });
   });
+
+  // ===========================================================================
+  // Concurrency & In-Flight Race Conditions (Requirements 3, 4, 5)
+  // ===========================================================================
+  describe("Concurrency & In-Flight Race Conditions", () => {
+    test("Update A (slow) vs Update B (fast): Stale A scheduling result cannot overwrite B or lose B's notifications", async () => {
+      // Create initial checklist
+      const initial = await EntityCommandService.createChecklist({
+        id: "chk-race-1",
+        workspaceId: wsId,
+        title: "Race Test Checklist",
+        schedule: {
+          date: "2026-10-20",
+          startTime: "08:00",
+        },
+        reminder: {
+          enabled: true,
+          triggerAt: new Date(2026, 9, 20, 8, 0, 0, 0).getTime(),
+        },
+        items: [{ id: "i1", title: "Item 1", completed: false }],
+      } as Checklist, wsId);
+
+      expect(initial.revision).toBe(1);
+
+      // Track notification scheduling calls
+      let resolveScheduleA: (ids: string[]) => void;
+      let resolveScheduleB: (ids: string[]) => void;
+
+      const scheduleAPromise = new Promise<string[]>((res) => {
+        resolveScheduleA = res;
+      });
+      const scheduleBPromise = new Promise<string[]>((res) => {
+        resolveScheduleB = res;
+      });
+
+      let callCount = 0;
+      const originalReschedule = RemindersService.rescheduleChecklistReminders;
+      jest.spyOn(RemindersService, "rescheduleChecklistReminders").mockImplementation(async (chk: Checklist) => {
+        callCount++;
+        if (callCount === 1) {
+          // Update A: delay until scheduleAPromise resolves
+          const notifIds = await scheduleAPromise;
+          return {
+            ...chk,
+            reminder: { ...chk.reminder!, notificationIds: notifIds },
+          };
+        } else {
+          // Update B: delay until scheduleBPromise resolves
+          const notifIds = await scheduleBPromise;
+          return {
+            ...chk,
+            reminder: { ...chk.reminder!, notificationIds: notifIds },
+          };
+        }
+      });
+
+      // 1. Launch Update A (startTime: 09:00 -> rev 2)
+      const promiseA = EntityCommandService.updateChecklist(initial.id, wsId, {
+        schedule: { date: "2026-10-20", startTime: "09:00" },
+      });
+
+      // Allow Update A's domain persistence to complete
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 2. Launch Update B (startTime: 10:00 -> rev 3)
+      const promiseB = EntityCommandService.updateChecklist(initial.id, wsId, {
+        schedule: { date: "2026-10-20", startTime: "10:00" },
+      });
+
+      // Allow Update B's domain persistence to complete
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 3. Resolve B FIRST (fast OS response for B)
+      resolveScheduleB!(["notif-id-B"]);
+      const resultB = await promiseB;
+
+      expect(resultB.revision).toBe(3);
+      expect(resultB.schedule?.startTime).toBe("10:00");
+
+      // Verify that storage has B's notification IDs
+      const storedAfterB = await ChecklistRepository.getChecklist(initial.id, wsId);
+      expect(storedAfterB?.revision).toBe(3);
+      expect(storedAfterB?.reminder?.notificationIds).toEqual(["notif-id-B"]);
+
+      // 4. Resolve A AFTER B (slow OS response for A finishes late)
+      resolveScheduleA!(["notif-id-A-stale"]);
+      await promiseA;
+
+      // 5. Final Invariant Verification:
+      // - Checklist in storage MUST remain at revision 3
+      // - Must retain Update B's reminder (10:00) and notification IDs (["notif-id-B"])
+      // - Must NEVER attach A's stale notification IDs
+      // - Stale notification A MUST have been cancelled via cancelScheduledNotificationAsync
+      const finalStored = await ChecklistRepository.getChecklist(initial.id, wsId);
+      expect(finalStored?.revision).toBe(3);
+      expect(finalStored?.schedule?.startTime).toBe("10:00");
+      expect(finalStored?.reminder?.notificationIds).toEqual(["notif-id-B"]);
+
+      // Verify stale A notification was cancelled
+      expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith("notif-id-A-stale");
+
+      // Restore spy
+      (RemindersService.rescheduleChecklistReminders as any).mockRestore?.();
+    });
+
+    test("Move + Reminder in-flight: Stale async scheduling cannot resurrect checklist in old workspace", async () => {
+      const initial = await EntityCommandService.createChecklist({
+        id: "chk-move-race",
+        workspaceId: wsId,
+        title: "Move Race Checklist",
+        schedule: {
+          date: "2026-10-25",
+          startTime: "09:00",
+        },
+        reminder: {
+          enabled: true,
+          triggerAt: new Date(2026, 9, 25, 9, 0, 0, 0).getTime(),
+        },
+        items: [{ id: "i1", title: "Item 1", completed: false }],
+      } as Checklist, wsId);
+
+      let resolveSlowSchedule: (ids: string[]) => void;
+      const slowSchedulePromise = new Promise<string[]>((res) => {
+        resolveSlowSchedule = res;
+      });
+
+      jest.spyOn(RemindersService, "rescheduleChecklistReminders").mockImplementationOnce(async (chk: Checklist) => {
+        const notifIds = await slowSchedulePromise;
+        return {
+          ...chk,
+          reminder: { ...chk.reminder!, notificationIds: notifIds },
+        };
+      });
+
+      // 1. Trigger update in source workspace (wsId)
+      const updatePromise = EntityCommandService.updateChecklist(initial.id, wsId, {
+        schedule: { date: "2026-10-25", startTime: "11:00" },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 2. Concurrently move checklist to target workspace (targetWsId)
+      await EntityCommandService.moveChecklist(initial.id, wsId, targetWsId);
+
+      // Verify it was moved out of source workspace
+      const sourceChecklist = await ChecklistRepository.getChecklist(initial.id, wsId);
+      expect(sourceChecklist).toBeNull();
+
+      // 3. Now let the slow scheduling finish for source workspace
+      resolveSlowSchedule!(["stale-move-notif"]);
+      await updatePromise;
+
+      // 4. Invariant: Source workspace MUST NOT have been resurrected
+      const sourceAfterLateAsync = await ChecklistRepository.getChecklist(initial.id, wsId);
+      expect(sourceAfterLateAsync).toBeNull();
+
+      // Target workspace has the moved checklist
+      const targetChecklist = await ChecklistRepository.getChecklist(initial.id, targetWsId);
+      expect(targetChecklist).toBeDefined();
+      expect(targetChecklist?.workspaceId).toBe(targetWsId);
+
+      // Stale notification was cancelled
+      expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith("stale-move-notif");
+
+      (RemindersService.rescheduleChecklistReminders as any).mockRestore?.();
+    });
+
+    test("Restore + Stale Snapshot: Stale notification IDs are rejected if state changes during scheduling", async () => {
+      // Create and recycle
+      const initial = await EntityCommandService.createChecklist({
+        id: "chk-restore-race",
+        workspaceId: wsId,
+        title: "Restore Race Checklist",
+        schedule: {
+          date: "2026-10-28",
+          startTime: "09:00",
+        },
+        reminder: {
+          enabled: true,
+          triggerAt: new Date(2026, 9, 28, 9, 0, 0, 0).getTime(),
+        },
+        items: [{ id: "i1", title: "Item 1", completed: false }],
+      } as Checklist, wsId);
+
+      await EntityCommandService.recycleChecklist(initial.id, wsId);
+
+      const binItems = await RecycleBinRepository.getRecycleBinItems();
+      const binItem = binItems.find((b) => b.entityId === initial.id);
+      expect(binItem).toBeDefined();
+
+      let resolveRestoreSchedule: (ids: string[]) => void;
+      const restoreSchedulePromise = new Promise<string[]>((res) => {
+        resolveRestoreSchedule = res;
+      });
+
+      jest.spyOn(RemindersService, "rescheduleChecklistReminders").mockImplementationOnce(async (chk: Checklist) => {
+        const notifIds = await restoreSchedulePromise;
+        return {
+          ...chk,
+          reminder: { ...chk.reminder!, notificationIds: notifIds },
+        };
+      });
+
+      // 1. Restore checklist
+      const restorePromise = EntityCommandService.restoreChecklist(binItem!.id);
+
+      await new Promise((r) => setTimeout(r, 20));
+
+      // 2. Concurrently update checklist before notification finishes (advancing revision)
+      await EntityCommandService.updateChecklist(initial.id, wsId, {
+        title: "Updated Immediately After Restore",
+      });
+
+      // 3. Resolve restore's slow notification
+      resolveRestoreSchedule!(["stale-restore-notif"]);
+      await restorePromise;
+
+      // 4. Invariant: The checklist has the updated title and stale restore notification was cancelled
+      const active = await ChecklistRepository.getChecklist(initial.id, wsId);
+      expect(active?.title).toBe("Updated Immediately After Restore");
+      expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith("stale-restore-notif");
+
+      (RemindersService.rescheduleChecklistReminders as any).mockRestore?.();
+    });
+  });
 });
+

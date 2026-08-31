@@ -27,17 +27,22 @@ export function normalizeChecklist(
     }),
   );
 
-  // Construct resourceIds
-  let resourceIds = rawChecklist.resourceIds || [];
+  // Purely construct resourceIds without mutating rawChecklist.resourceIds
+  const resourceIds: string[] = Array.isArray(rawChecklist.resourceIds)
+    ? [...rawChecklist.resourceIds]
+    : [];
   if (
     rawChecklist.resourceId &&
+    typeof rawChecklist.resourceId === "string" &&
     !resourceIds.includes(rawChecklist.resourceId)
   ) {
     resourceIds.push(rawChecklist.resourceId);
   }
   if (Array.isArray(rawChecklist.linkedResourceIds)) {
     rawChecklist.linkedResourceIds.forEach((rid: string) => {
-      if (!resourceIds.includes(rid)) resourceIds.push(rid);
+      if (typeof rid === "string" && !resourceIds.includes(rid)) {
+        resourceIds.push(rid);
+      }
     });
   }
 
@@ -48,7 +53,7 @@ export function normalizeChecklist(
     description: rawChecklist.description || undefined,
     items,
     categoryId: rawChecklist.categoryId || rawChecklist.category || undefined,
-    tags: rawChecklist.tags || undefined,
+    tags: Array.isArray(rawChecklist.tags) ? [...rawChecklist.tags] : undefined,
     resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
     createdAt: rawChecklist.createdAt || Date.now(),
     updatedAt: rawChecklist.updatedAt || Date.now(),
@@ -63,7 +68,14 @@ export function normalizeChecklist(
     recurrenceExceptions: Array.isArray(rawChecklist.recurrenceExceptions)
       ? [...rawChecklist.recurrenceExceptions]
       : undefined,
-    reminder: rawChecklist.reminder ? { ...rawChecklist.reminder } : undefined,
+    reminder: rawChecklist.reminder
+      ? {
+          ...rawChecklist.reminder,
+          notificationIds: Array.isArray(rawChecklist.reminder.notificationIds)
+            ? [...rawChecklist.reminder.notificationIds]
+            : undefined,
+        }
+      : undefined,
     occurrenceHistory:
       rawChecklist.occurrenceHistory &&
       typeof rawChecklist.occurrenceHistory === "object"
@@ -91,10 +103,9 @@ export class ChecklistRepository {
   }
 
   /**
-   * Parse a stored workspace payload defensively. Malformed JSON (e.g. from a
-   * partial write or corrupted storage) must never crash the consuming screen;
-   * following the repository's tolerant recovery convention, the payload is
-   * logged and treated as empty so callers see a missing/empty collection.
+   * Parse a stored workspace payload defensively. Validates that the payload
+   * is valid JSON and a JSON object. Logs and re-throws on parse failure or corrupt
+   * non-object payloads to preserve error detection across the repository layer.
    */
   private static parseRecords(
     raw: string,
