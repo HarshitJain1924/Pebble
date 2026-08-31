@@ -40,19 +40,20 @@ export function parseTime(item: ParsedProductivityItem): {
   if (!timeToUse) return { hours: undefined, minutes: undefined };
   const [h, m] = timeToUse.split(":").map(Number);
   if (isNaN(h) || isNaN(m)) return { hours: undefined, minutes: undefined };
+  if (h < 0 || h > 23 || m < 0 || m > 59) return { hours: undefined, minutes: undefined };
   return { hours: h, minutes: m };
 }
 
 /**
  * Compute the epoch triggerAt for a parsed item.
  *
- * ONLY computes a trigger timestamp when a reminder was explicitly requested
- * (e.g. "remind me 30 minutes before", "remind me at 7 PM", "remind me to...", etc.).
- * A schedule time alone (e.g. "Study Kubernetes at 8 PM") is strictly for calendar/timeline
- * and does NOT create a reminder.
+ * Implements the Pebble domain invariant:
+ * When a scheduled start time is provided (e.g. "Study Kubernetes at 10 PM"),
+ * reminder time defaults to scheduled start time (applying reminderOffsetMinutes if given),
+ * unless the user explicitly requested "No reminder" (explicitReminder === false).
  */
 export function computeTriggerAt(item: ParsedProductivityItem): number | undefined {
-  if (!item.explicitReminder && item.reminderOffsetMinutes === undefined) {
+  if (item.explicitReminder === false) {
     return undefined;
   }
 

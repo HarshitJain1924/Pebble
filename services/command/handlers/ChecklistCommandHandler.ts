@@ -150,45 +150,28 @@ static async moveChecklist(
       const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
       await assertLifecycleMutationAllowed("checklist", existing, options);
 
+      const { normalizeScheduleReminder } = await import("../shared/schedule-reminder-normalizer");
+      const normalizedUpdates = normalizeScheduleReminder(existing, updates);
+
       // Reminder & schedule evaluation
-      const titleChanged = "title" in updates && updates.title !== existing.title;
-      const categoryChanged = "categoryId" in updates && updates.categoryId !== existing.categoryId;
-      const recurrenceChanged = "recurrence" in updates && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
-      const reminderChanged = "reminder" in updates && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
-      const scheduleChanged = "schedule" in updates && JSON.stringify(updates.schedule) !== JSON.stringify(existing.schedule);
-      const archivedChanged = "archivedAt" in updates && updates.archivedAt !== existing.archivedAt;
+      const titleChanged = "title" in normalizedUpdates && normalizedUpdates.title !== existing.title;
+      const categoryChanged = "categoryId" in normalizedUpdates && normalizedUpdates.categoryId !== existing.categoryId;
+      const recurrenceChanged = "recurrence" in normalizedUpdates && JSON.stringify(normalizedUpdates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = "reminder" in normalizedUpdates && JSON.stringify(normalizedUpdates.reminder) !== JSON.stringify(existing.reminder);
+      const scheduleChanged = "schedule" in normalizedUpdates && JSON.stringify(normalizedUpdates.schedule) !== JSON.stringify(existing.schedule);
+      const archivedChanged = "archivedAt" in normalizedUpdates && normalizedUpdates.archivedAt !== existing.archivedAt;
 
       const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || scheduleChanged || archivedChanged;
 
       let merged: Checklist = {
         ...existing,
-        ...updates,
+        ...normalizedUpdates,
         revision: (existing.revision ?? 1) + 1,
         lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
-      // If schedule or reminder changed and reminder is enabled, recompute triggerAt
-      if (merged.reminder?.enabled && (scheduleChanged || reminderChanged)) {
-        let triggerHour: number | undefined;
-        let triggerMinute: number | undefined;
-        const timeStr = merged.schedule?.startTime;
-        if (timeStr) {
-          const parts = timeStr.split(":").map(Number);
-          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            triggerHour = parts[0];
-            triggerMinute = parts[1];
-          }
-        }
-        if (triggerHour !== undefined && triggerMinute !== undefined) {
-          const targetDateStr = merged.schedule?.date && merged.schedule.date !== "inbox" ? merged.schedule.date : undefined;
-          merged.reminder = {
-            ...merged.reminder,
-            triggerAt: computeTriggerEpoch(triggerHour, triggerMinute, targetDateStr),
-            notificationIds: undefined,
-          };
-        }
-      } else if (needsReminderUpdate && merged.reminder && merged.reminder.notificationIds) {
+      if (needsReminderUpdate && merged.reminder && merged.reminder.notificationIds) {
         merged.reminder = { ...merged.reminder, notificationIds: undefined };
       }
 
@@ -816,6 +799,8 @@ static async moveChecklist(
     const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
     const lockKey = `pebble:v1:checklists:${targetWorkspace}`;
 
+    let parsedInput: ParsedProductivityItem | undefined;
+
     checklist = await withLock(lockKey, async () => {
       let candidate: Checklist;
       if (isParsedProductivityItem(input)) {
@@ -823,12 +808,25 @@ static async moveChecklist(
         if (options?.explicitId) {
           candidate.id = options.explicitId;
         }
+        parsedInput = input;
       } else {
         const { generateId } = await import("@/shared/utils/id");
+        let candidateReminder = input.reminder;
+        if (!candidateReminder && input.schedule?.startTime) {
+          const [h, m] = input.schedule.startTime.split(":").map(Number);
+          if (!isNaN(h) && !isNaN(m)) {
+            const dateStr = input.schedule.date && input.schedule.date !== "inbox" ? input.schedule.date : undefined;
+            const { computeTriggerEpoch } = await import("@/features/details/task/hooks/useTaskDetailForm");
+            const epoch = computeTriggerEpoch(h, m, dateStr);
+            candidateReminder = { enabled: true, triggerAt: epoch };
+          }
+        }
+
         candidate = {
           ...input,
           id: options?.explicitId || (input as any).id || generateId("checklist-"),
           workspaceId: targetWorkspace,
+          reminder: candidateReminder,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
           createdAt: input.createdAt || Date.now(),
@@ -860,13 +858,21 @@ static async moveChecklist(
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (checklist.reminder?.enabled && checklist.reminder?.triggerAt) {
+      let generatedNotificationIds: string[] | undefined = undefined;
       try {
-        const scheduled = await rescheduleChecklistReminders(checklist);
-        if (scheduled.reminder?.notificationIds?.length) {
+        if (parsedInput) {
+          const { scheduleChecklistNotifications } = await import("../shared/command-notifications");
+          generatedNotificationIds = await scheduleChecklistNotifications(checklist.id, parsedInput);
+        } else {
+          const scheduled = await rescheduleChecklistReminders(checklist);
+          generatedNotificationIds = scheduled.reminder?.notificationIds;
+        }
+
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
           await ChecklistRepository.updateNotificationIds(
             checklist.id,
             checklist.workspaceId,
-            scheduled.reminder.notificationIds,
+            generatedNotificationIds,
             {
               reminder: checklist.reminder,
               archivedAt: checklist.archivedAt,
@@ -875,7 +881,7 @@ static async moveChecklist(
           );
           checklist.reminder = {
             ...checklist.reminder,
-            notificationIds: scheduled.reminder.notificationIds,
+            notificationIds: generatedNotificationIds,
           };
         }
       } catch (e) {

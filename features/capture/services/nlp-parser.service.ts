@@ -392,7 +392,7 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
   let explicitReminder = false;
   let reminderTime: string | undefined;
 
-  const reminderOffsetRegex = /\b(?:remind|alert)(?:\s+me)?\s+(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs|h)\s*(?:before|prior)\b/i;
+  const reminderOffsetRegex = /\b(?:remind|alert)(?:\s+me)?\s+(\d+)\s*(mins|min|minute|minutes|hour|hours|hr|hrs|h)\s*(?:before|prior)\b/i;
   const reminderOffsetMatch = temporalTextWorking.match(reminderOffsetRegex);
   if (reminderOffsetMatch) {
     const num = Number(reminderOffsetMatch[1]);
@@ -437,10 +437,20 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
     }
   }
 
+  // Explicit no-reminder keyword (e.g., "no reminder", "without reminder", "don't remind me", "no alert")
+  let explicitNoReminder = false;
+  const noReminderRegex = /\b(?:no\s+reminder|without\s+(?:a\s+)?reminder|don'?t\s+remind(?:\s+me)?|no\s+alert)\b/i;
+  const noReminderMatch = temporalTextWorking.match(noReminderRegex);
+  if (noReminderMatch) {
+    explicitNoReminder = true;
+    matchedTemporalPhrases.push(noReminderMatch[0]);
+    temporalTextWorking = temporalTextWorking.replace(noReminderMatch[0], "");
+  }
+
   // Explicit reminder keyword (e.g. "remind me to...", "set a reminder to...")
   const explicitReminderKeywordRegex = /\b(?:remind(?:\s+me)?(?:\s+to)?|set\s+(?:a\s+)?reminder(?:\s+to)?|alert(?:\s+me)?(?:\s+to)?|notify(?:\s+me)?(?:\s+to)?)\b/i;
   const explicitReminderKeywordMatch = temporalTextWorking.match(explicitReminderKeywordRegex);
-  if (explicitReminderKeywordMatch) {
+  if (explicitReminderKeywordMatch && !explicitNoReminder) {
     explicitReminder = true;
     matchedTemporalPhrases.push(explicitReminderKeywordMatch[0]);
     temporalTextWorking = temporalTextWorking.replace(explicitReminderKeywordMatch[0], "");
@@ -575,7 +585,7 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
       recurrence,
       hasRecurrence: !!recurrence,
       reminderOffsetMinutes,
-      explicitReminder,
+      explicitReminder: explicitNoReminder ? false : explicitReminder ? true : undefined,
       reminderTime,
       matchedTemporalPhrases,
     },

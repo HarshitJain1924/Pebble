@@ -108,7 +108,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
     const saved15 = await TaskRepository.getTask("new-15", "ws-1");
     expect(saved15?.schedule?.date).toBe("2026-08-30");
     expect(saved15?.schedule?.startTime).toBe("15:00");
-    expect(saved15?.reminder).toBeUndefined(); // TEST 3: No accidental reminder
+    expect(saved15?.reminder).toBeDefined();
+    expect(saved15?.reminder?.enabled).toBe(true);
 
     // 09:00 creation
     let renderer09: any;
@@ -136,7 +137,8 @@ describe("Calendar Task Creation & Edit Semantics (Fix #18)", () => {
 
     const saved09 = await TaskRepository.getTask("new-09", "ws-1");
     expect(saved09?.schedule?.startTime).toBe("09:00");
-    expect(saved09?.reminder).toBeUndefined();
+    expect(saved09?.reminder).toBeDefined();
+    expect(saved09?.reminder?.enabled).toBe(true);
   });
 
   // TEST 4: Existing Task opened from Calendar does not get its persisted startTime overwritten

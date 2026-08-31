@@ -107,8 +107,9 @@ describe("Pebble Fix #9: End-to-End Timed Task → Calendar Integration", () => 
     expect(persistedTask?.schedule?.date).toBe(todayKey);
     expect(persistedTask?.schedule?.startTime).toBe("20:00");
 
-    // 4. Assertion 2: Reminder separation (absent reminder)
-    expect(persistedTask?.reminder).toBeUndefined();
+    // 4. Assertion 2: Canonical default reminder at scheduled start time
+    expect(persistedTask?.reminder).toBeDefined();
+    expect(persistedTask?.reminder?.enabled).toBe(true);
 
     // 5. Assertion 3: Entity Identity (Task entity, not an Event)
     expect(persistedTask?.status).toBe("todo");

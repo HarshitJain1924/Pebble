@@ -1140,9 +1140,12 @@ static async reorderTasks(
         throw new Error("Workspace movement is not supported in updateTask.");
       }
 
+      const { normalizeScheduleReminder } = await import("../shared/schedule-reminder-normalizer");
+      const normalizedUpdates = normalizeScheduleReminder(existing, updates);
+
       let updatedTask: Task = {
         ...existing,
-        ...updates,
+        ...normalizedUpdates,
         id: existing.id,
         createdAt: existing.createdAt,
         workspaceId: existing.workspaceId,
@@ -1152,13 +1155,13 @@ static async reorderTasks(
       };
 
       // Reminder evaluation
-      const titleChanged = "title" in updates && updates.title !== existing.title;
-      const categoryChanged = "categoryId" in updates && updates.categoryId !== existing.categoryId;
-      const recurrenceChanged = "recurrence" in updates && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
-      const reminderChanged = "reminder" in updates && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
-      const statusChanged = "status" in updates && updates.status !== existing.status;
-      const scheduleChanged = "schedule" in updates && JSON.stringify(updates.schedule) !== JSON.stringify(existing.schedule);
-      const archivedChanged = "archivedAt" in updates && updates.archivedAt !== existing.archivedAt;
+      const titleChanged = "title" in normalizedUpdates && normalizedUpdates.title !== existing.title;
+      const categoryChanged = "categoryId" in normalizedUpdates && normalizedUpdates.categoryId !== existing.categoryId;
+      const recurrenceChanged = "recurrence" in normalizedUpdates && JSON.stringify(normalizedUpdates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = "reminder" in normalizedUpdates && JSON.stringify(normalizedUpdates.reminder) !== JSON.stringify(existing.reminder);
+      const statusChanged = "status" in normalizedUpdates && normalizedUpdates.status !== existing.status;
+      const scheduleChanged = "schedule" in normalizedUpdates && JSON.stringify(normalizedUpdates.schedule) !== JSON.stringify(existing.schedule);
+      const archivedChanged = "archivedAt" in normalizedUpdates && normalizedUpdates.archivedAt !== existing.archivedAt;
 
       const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || statusChanged || scheduleChanged || archivedChanged;
 
@@ -1451,10 +1454,22 @@ static async reorderTasks(
         parsedInput = input;
       } else {
         const { generateId } = await import("@/shared/utils/id");
+        let candidateReminder = input.reminder;
+        if (!candidateReminder && input.schedule?.startTime) {
+          const [h, m] = input.schedule.startTime.split(":").map(Number);
+          if (!isNaN(h) && !isNaN(m)) {
+            const dateStr = input.schedule.date && input.schedule.date !== "inbox" ? input.schedule.date : undefined;
+            const { computeTriggerEpoch } = await import("@/features/details/task/hooks/useTaskDetailForm");
+            const epoch = computeTriggerEpoch(h, m, dateStr);
+            candidateReminder = { enabled: true, triggerAt: epoch };
+          }
+        }
+
         candidate = {
           ...input,
           id: options?.explicitId || (input as any).id || generateId("task-"),
           workspaceId: targetWorkspace,
+          reminder: candidateReminder,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
           createdAt: input.createdAt || Date.now(),

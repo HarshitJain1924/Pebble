@@ -693,21 +693,25 @@ static async recycleHabit(
         throw new Error("Workspace movement is not supported in updateHabit.");
       }
 
+      const { normalizeScheduleReminder } = await import("../shared/schedule-reminder-normalizer");
+      const normalizedUpdates = normalizeScheduleReminder(existing, updates);
+
       let mergedHabit: Habit = {
         ...existing,
-        ...updates,
+        ...normalizedUpdates,
         revision: (existing.revision ?? 1) + 1,
         lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
-      const titleChanged = "title" in updates && updates.title !== existing.title;
-      const categoryChanged = "categoryId" in updates && updates.categoryId !== existing.categoryId;
-      const recurrenceChanged = "recurrence" in updates && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
-      const reminderChanged = "reminder" in updates && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
-      const archivedChanged = "archivedAt" in updates && updates.archivedAt !== existing.archivedAt;
+      const titleChanged = "title" in normalizedUpdates && normalizedUpdates.title !== existing.title;
+      const categoryChanged = "categoryId" in normalizedUpdates && normalizedUpdates.categoryId !== existing.categoryId;
+      const recurrenceChanged = "recurrence" in normalizedUpdates && JSON.stringify(normalizedUpdates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = "reminder" in normalizedUpdates && JSON.stringify(normalizedUpdates.reminder) !== JSON.stringify(existing.reminder);
+      const scheduleChanged = "schedule" in normalizedUpdates && JSON.stringify(normalizedUpdates.schedule) !== JSON.stringify(existing.schedule);
+      const archivedChanged = "archivedAt" in normalizedUpdates && normalizedUpdates.archivedAt !== existing.archivedAt;
 
-      needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || archivedChanged;
+      needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || scheduleChanged || archivedChanged;
 
       if (needsReminderUpdate && mergedHabit.reminder && mergedHabit.reminder.notificationIds) {
         mergedHabit.reminder = { ...mergedHabit.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
@@ -808,10 +812,21 @@ static async recycleHabit(
         parsedInput = input;
       } else {
         const { generateId } = await import("@/shared/utils/id");
+        let candidateReminder = input.reminder;
+        if (!candidateReminder && input.schedule?.startTime) {
+          const [h, m] = input.schedule.startTime.split(":").map(Number);
+          if (!isNaN(h) && !isNaN(m)) {
+            const { computeTriggerEpoch } = await import("@/features/details/task/hooks/useTaskDetailForm");
+            const epoch = computeTriggerEpoch(h, m);
+            candidateReminder = { enabled: true, triggerAt: epoch };
+          }
+        }
+
         candidate = {
           ...input,
           id: options?.explicitId || (input as any).id || generateId("habit-"),
           workspaceId: targetWorkspace,
+          reminder: candidateReminder,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
           createdAt: input.createdAt || Date.now(),
