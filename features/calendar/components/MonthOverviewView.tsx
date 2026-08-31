@@ -9,7 +9,6 @@ import {
   WEEKDAY_NAMES,
   getDateKey,
 } from "@/features/calendar/hooks/useCalendarState";
-import { getCalendarItemType } from "@/features/calendar/types";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
 import {
@@ -17,7 +16,7 @@ import {
   isHabitCompletedToday,
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
-import { ENTITY_ACCENT } from "./TimelineItem";
+import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
 
 interface MonthOverviewViewProps {
   selectedDate: string;
@@ -156,6 +155,10 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
   const selectedMonthName = MONTH_NAMES[parsedSelDate.getMonth()];
   const selectedDayNum = parsedSelDate.getDate();
 
+  const taskConfig = getCalendarEntityPresentation("task", isLight);
+  const habitConfig = getCalendarEntityPresentation("habit", isLight);
+  const checklistConfig = getCalendarEntityPresentation("checklist", isLight);
+
   return (
     <View style={styles.container}>
       {/* 1. Month Calendar Grid Card */}
@@ -279,13 +282,13 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                 {/* Indicator Dots: Task (Amber), Habit (Green), Checklist (Blue) */}
                 <View style={styles.indicatorRow}>
                   {stats.tasks > 0 && (
-                    <View style={[styles.indicatorDot, { backgroundColor: "#F59E0B" }]} />
+                    <View style={[styles.indicatorDot, { backgroundColor: taskConfig.accent }]} />
                   )}
                   {stats.habits > 0 && (
-                    <View style={[styles.indicatorDot, { backgroundColor: "#10B981" }]} />
+                    <View style={[styles.indicatorDot, { backgroundColor: habitConfig.accent }]} />
                   )}
                   {stats.checklists > 0 && (
-                    <View style={[styles.indicatorDot, { backgroundColor: "#3B82F6" }]} />
+                    <View style={[styles.indicatorDot, { backgroundColor: checklistConfig.accent }]} />
                   )}
                 </View>
               </Pressable>
@@ -340,25 +343,26 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.allDayChipsList}>
               {allDayItems.map((item) => {
-                const config = ENTITY_ACCENT[item.type] || ENTITY_ACCENT.task;
+                const config = getCalendarEntityPresentation(item.type, isLight);
                 return (
-                  <Pressable
+                  <PressableScale
                     key={item.id}
                     onPress={() => onOpenItem(item)}
-                    style={[
+                    scaleTo={0.96}
+                    contentStyle={[
                       styles.agendaAllDayChip,
                       {
-                        backgroundColor: isLight ? config.lightBg : config.darkBg,
-                        borderLeftColor: config.main,
-                        borderColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
+                        backgroundColor: config.surface,
+                        borderLeftColor: config.accent,
+                        borderColor: isLight ? "rgba(0,0,0,0.06)" : config.borderColor,
                       },
                     ]}
                   >
-                    <Feather name={config.icon} size={11} color={config.main} />
+                    <Feather name={config.icon} size={11} color={config.accent} />
                     <Text style={[styles.allDayChipText, { color: colors.text }]} numberOfLines={1}>
                       {item.title}
                     </Text>
-                  </Pressable>
+                  </PressableScale>
                 );
               })}
             </ScrollView>
@@ -369,11 +373,11 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
         {timedItems.length > 0 ? (
           <View style={styles.timedAgendaList}>
             {timedItems.map((item) => {
-              const config = ENTITY_ACCENT[item.type] || ENTITY_ACCENT.task;
-              const accent = item.completed ? colors.textMuted : config.main;
+              const config = getCalendarEntityPresentation(item.type, isLight);
+              const accent = item.completed ? colors.textMuted : config.accent;
               const bg = item.completed
                 ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.02)"
-                : isLight ? config.lightBg : config.darkBg;
+                : config.surface;
 
               const timeStr = formatTime(item.startHour!, item.startMinute!);
               const durStr = formatDuration(item.durationMinutes);
@@ -399,7 +403,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                       {
                         backgroundColor: bg,
                         borderLeftColor: accent,
-                        borderColor: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)",
+                        borderColor: isLight ? "rgba(0,0,0,0.05)" : config.borderColor,
                         opacity: item.completed ? 0.55 : 1,
                       },
                     ]}

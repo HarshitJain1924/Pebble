@@ -4,6 +4,34 @@ import { GestureDetector } from "react-native-gesture-handler";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { getCalendarItemType } from "@/features/calendar/types";
+import {
+  getCalendarEntityPresentation,
+  CALENDAR_ENTITY_TOKENS,
+} from "@/features/calendar/constants/calendarEntityTokens";
+
+export { getCalendarEntityPresentation, CALENDAR_ENTITY_TOKENS };
+
+// Backward compatibility export if needed by legacy callers
+export const ENTITY_ACCENT = {
+  task: {
+    main: "#F59E0B",
+    lightBg: "#FFFBEB",
+    darkBg: "rgba(245, 158, 11, 0.12)",
+    icon: "check-square" as const,
+  },
+  habit: {
+    main: "#10B981",
+    lightBg: "#F0FDF4",
+    darkBg: "rgba(16, 185, 129, 0.12)",
+    icon: "rotate-cw" as const,
+  },
+  checklist: {
+    main: "#3B82F6",
+    lightBg: "#EFF6FF",
+    darkBg: "rgba(59, 130, 246, 0.12)",
+    icon: "list" as const,
+  },
+};
 
 interface TimelineItemProps {
   item: {
@@ -30,28 +58,6 @@ interface TimelineItemProps {
   onOpenItem: (item: any) => void;
   createPanGesture: (item: any) => any;
 }
-
-// Distinct semantic accent colors per entity type
-export const ENTITY_ACCENT: Record<string, { main: string; lightBg: string; darkBg: string; icon: keyof typeof Feather.glyphMap }> = {
-  task: {
-    main: "#F59E0B", // Warm Amber
-    lightBg: "#FFFBEB",
-    darkBg: "rgba(245, 158, 11, 0.12)",
-    icon: "check-square",
-  },
-  habit: {
-    main: "#10B981", // Emerald Green
-    lightBg: "#F0FDF4",
-    darkBg: "rgba(16, 185, 129, 0.12)",
-    icon: "rotate-cw",
-  },
-  checklist: {
-    main: "#3B82F6", // Deep Blue
-    lightBg: "#EFF6FF",
-    darkBg: "rgba(59, 130, 246, 0.12)",
-    icon: "list",
-  },
-};
 
 function formatTimeOnly(h: number, m: number): string {
   const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
@@ -82,14 +88,12 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   const leftPercent = item.colIdx * widthPercent;
 
   const type = getCalendarItemType(item);
-  const config = ENTITY_ACCENT[type] || ENTITY_ACCENT.task;
-  const accent = item.completed ? colors.textMuted : config.main;
+  const config = getCalendarEntityPresentation(type, isLight);
+  const accent = item.completed ? colors.textMuted : config.accent;
 
   const cardBg = item.completed
     ? isLight ? "#F1F5F9" : "rgba(255, 255, 255, 0.03)"
-    : isLight
-      ? config.lightBg
-      : config.darkBg;
+    : config.surface;
 
   // Compute end time and duration string
   const endTotalMinutes = startMinutes + (item.durationMinutes ?? 0);
@@ -140,7 +144,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
             width: `${widthPercent - 1}%`,
             backgroundColor: cardBg,
             borderLeftColor: accent,
-            borderColor: isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.08)",
+            borderColor: isLight ? "rgba(0, 0, 0, 0.06)" : config.borderColor,
             opacity: pressed ? 0.85 : item.completed ? 0.55 : 1,
           },
         ]}
@@ -175,8 +179,8 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
                 style={[
                   styles.progressBadge,
                   {
-                    backgroundColor: isLight ? "rgba(59, 130, 246, 0.12)" : "rgba(59, 130, 246, 0.22)",
-                    borderColor: "rgba(59, 130, 246, 0.3)",
+                    backgroundColor: config.surfaceSubtle,
+                    borderColor: config.borderColor,
                   },
                 ]}
               >

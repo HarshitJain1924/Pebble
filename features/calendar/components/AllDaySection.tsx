@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { GestureDetector } from "react-native-gesture-handler";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { getCalendarItemType } from "@/features/calendar/types";
-import { ENTITY_ACCENT } from "./TimelineItem";
+import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
 
 interface AllDaySectionProps {
   items: Array<{
@@ -69,13 +69,11 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
           {items.map((item, idx) => {
             const gesture = createPanGesture(item);
             const type = getCalendarItemType(item);
-            const config = ENTITY_ACCENT[type] || ENTITY_ACCENT.task;
-            const accent = item.completed ? colors.textMuted : config.main;
+            const config = getCalendarEntityPresentation(type, isLight);
+            const accent = item.completed ? colors.textMuted : config.accent;
             const bg = item.completed
               ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.03)"
-              : isLight
-                ? config.lightBg
-                : config.darkBg;
+              : config.surface;
 
             const itemCount =
               type === "checklist" && item.items && item.items.length > 0
@@ -90,7 +88,7 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
                     styles.chip,
                     {
                       backgroundColor: bg,
-                      borderColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
+                      borderColor: isLight ? "rgba(0,0,0,0.06)" : config.borderColor,
                       borderLeftColor: accent,
                       opacity: pressed ? 0.8 : item.completed ? 0.5 : 1,
                     },

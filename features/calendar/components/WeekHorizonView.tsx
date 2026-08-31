@@ -1,12 +1,13 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import {
   View,
   ScrollView,
   Pressable,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  LayoutChangeEvent,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -16,10 +17,7 @@ import {
   getDateKey,
   WEEKDAY_NAMES,
   MONTH_NAMES,
-  calculateCurrentTimePosition,
-  formatCurrentTimeLabel,
 } from "@/features/calendar/hooks/useCalendarState";
-import { getCalendarItemType } from "@/features/calendar/types";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
 import {
@@ -27,6 +25,8 @@ import {
   isHabitCompletedToday,
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
+import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
+import { WeekTimelineItem } from "./WeekTimelineItem";
 
 interface WeekHorizonViewProps {
   selectedDate: string;
@@ -42,43 +42,14 @@ interface WeekHorizonViewProps {
 }
 
 const HOUR_HEIGHT = 64;
-const HOURS = Array.from({ length: 18 }, (_, i) => i + 6); // 6:00 AM to 11:00 PM (18 hours)
-const TIME_LABEL_WIDTH = 48;
-const SCREEN_WIDTH = Dimensions.get("window").width;
-const VISIBLE_DAYS = 3;
-const DAY_COLUMN_WIDTH = Math.floor((SCREEN_WIDTH - TIME_LABEL_WIDTH - 24) / VISIBLE_DAYS);
-
-const ENTITY_ACCENT: Record<string, { main: string; lightBg: string; darkBg: string; icon: keyof typeof Feather.glyphMap }> = {
-  task: {
-    main: "#F59E0B",
-    lightBg: "#FFFBEB",
-    darkBg: "rgba(245, 158, 11, 0.18)",
-    icon: "check-square",
-  },
-  habit: {
-    main: "#10B981",
-    lightBg: "#F0FDF4",
-    darkBg: "rgba(16, 185, 129, 0.18)",
-    icon: "rotate-cw",
-  },
-  checklist: {
-    main: "#3B82F6",
-    lightBg: "#EFF6FF",
-    darkBg: "rgba(59, 130, 246, 0.18)",
-    icon: "list",
-  },
-};
+const DAY_START_HOUR = 6;
+const HOURS = Array.from({ length: 18 }, (_, i) => i + DAY_START_HOUR); // 6:00 AM to 11:00 PM (18 hours)
+const TIME_LABEL_WIDTH = 50;
 
 function formatHour(h: number): string {
   const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
   const ampm = h >= 12 ? "PM" : "AM";
   return `${displayH} ${ampm}`;
-}
-
-function formatBlockTime(h: number, m: number): string {
-  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  const mStr = m < 10 ? `0${m}` : `${m}`;
-  return `${displayH}:${mStr}`;
 }
 
 export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
@@ -93,8 +64,24 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
   colors,
   isLight,
 }) => {
+  const { width: windowWidth } = useWindowDimensions();
+  const [containerWidth, setContainerWidth] = useState<number>(windowWidth - 28);
   const horizontalScrollRef = useRef<ScrollView>(null);
   const [currentPage, setCurrentPage] = useState(0);
+
+  const onContainerLayout = useCallback((e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    if (w > 0 && Math.abs(w - containerWidth) > 2) {
+      setContainerWidth(w);
+    }
+  }, [containerWidth]);
+
+  // Responsive column sizing
+  const isTablet = containerWidth >= 620;
+  const visibleDaysCount = isTablet ? 7 : 3;
+  const dayColWidth = Math.floor((containerWidth - TIME_LABEL_WIDTH) / visibleDaysCount);
+  const totalPages = isTablet ? 1 : Math.ceil(7 / visibleDaysCount);
+  const pageInterval = dayColWidth * visibleDaysCount;
 
   // Live Current Time
   const [now, setNow] = useState(() => new Date());
@@ -152,6 +139,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
             startMinute: sched.startTime?.minute,
             durationMinutes: sched.duration,
             priority: habit.priority,
+            streak: habit.streak || 0,
           };
         });
 
@@ -160,6 +148,8 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
         .filter((chk) => !chk.archivedAt && isRecurringOccurrenceForDate(chk, dateStr) && chk.schedule?.date !== "inbox")
         .map((chk) => {
           const sched = getStructuredSchedule(chk, 45);
+          const totalItems = chk.items?.length || 0;
+          const completedCount = chk.items?.filter((it: any) => it.completed)?.length || 0;
           return {
             id: chk.id,
             title: chk.title,
@@ -168,7 +158,8 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
             startHour: sched.startTime?.hour,
             startMinute: sched.startTime?.minute,
             durationMinutes: sched.duration,
-            itemsCount: chk.items?.length || 0,
+            itemsCount: totalItems,
+            completedItemsCount: completedCount,
           };
         });
 
@@ -191,16 +182,13 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
         dayIndex: i,
         timedItems,
         allDayItems,
-        taskCount: tasks.length,
-        habitCount: habits.length,
-        checklistCount: checklists.length,
         totalItemsCount: allItems.length,
       });
     }
     return days;
   }, [selectedDate, allTodos, allHabits, allChecklists, todayDateStr]);
 
-  // Aggregate All-Day items across the week for top strip
+  // Aggregate All-Day items across the week
   const allWeekAllDayItems = useMemo(() => {
     const list: Array<{ id: string; title: string; type: string; dateString: string; completed?: boolean }> = [];
     weekDays.forEach((d) => {
@@ -211,114 +199,43 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
     return list;
   }, [weekDays]);
 
-  // Scroll to selected day index on load or date change
+  // Scroll to selected day index page on date change
   useEffect(() => {
+    if (isTablet) return;
     const selectedIdx = weekDays.findIndex((d) => d.isSelected);
     if (selectedIdx !== -1 && horizontalScrollRef.current) {
-      const targetScrollX = Math.max(0, Math.min(selectedIdx * DAY_COLUMN_WIDTH, (7 - VISIBLE_DAYS) * DAY_COLUMN_WIDTH));
+      const targetPage = Math.floor(selectedIdx / visibleDaysCount);
+      const targetScrollX = targetPage * pageInterval;
       horizontalScrollRef.current.scrollTo({ x: targetScrollX, animated: true });
+      setCurrentPage(targetPage);
     }
-  }, [selectedDate, weekDays]);
+  }, [selectedDate, weekDays, isTablet, visibleDaysCount, pageInterval]);
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (isTablet) return;
     const x = e.nativeEvent.contentOffset.x;
-    const page = Math.round(x / (DAY_COLUMN_WIDTH * VISIBLE_DAYS));
-    setCurrentPage(page);
+    const page = Math.round(x / pageInterval);
+    if (page !== currentPage && page >= 0 && page < totalPages) {
+      setCurrentPage(page);
+    }
   };
 
-  const currentYPosition = (currentHours - 6) * HOUR_HEIGHT + (currentMinutes / 60) * HOUR_HEIGHT;
-  const isCurrentTimeInRange = currentHours >= 6 && currentHours <= 23;
+  const handlePageDotPress = (page: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (horizontalScrollRef.current) {
+      horizontalScrollRef.current.scrollTo({ x: page * pageInterval, animated: true });
+      setCurrentPage(page);
+    }
+  };
+
+  const currentYPosition = (currentHours - DAY_START_HOUR) * HOUR_HEIGHT + (currentMinutes / 60) * HOUR_HEIGHT;
+  const isCurrentTimeInRange = currentHours >= DAY_START_HOUR && currentHours <= 23;
 
   return (
-    <View style={styles.container}>
-      {/* 1. Weekday Navigator Strip with Item Dots */}
-      <View
-        style={[
-          styles.weekStripCard,
-          {
-            backgroundColor: isLight ? "#FFFFFF" : colors.card,
-            borderColor: colors.border,
-          },
-        ]}
-      >
-        <View style={styles.stripRow}>
-          {weekDays.map((d) => {
-            const isSelected = d.isSelected;
-            return (
-              <Pressable
-                key={d.dateString}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setSelectedDate(d.dateString);
-                }}
-                style={styles.stripCol}
-              >
-                <Text
-                  style={[
-                    styles.stripDayName,
-                    { color: isSelected ? colors.primary : colors.textMuted },
-                  ]}
-                >
-                  {d.dayName.charAt(0)}
-                </Text>
-                <View
-                  style={[
-                    styles.stripDayCircle,
-                    {
-                      backgroundColor: isSelected
-                        ? colors.primary
-                        : "transparent",
-                      borderWidth: d.isToday && !isSelected ? 1.5 : 0,
-                      borderColor: colors.primary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.stripDayNum,
-                      {
-                        color: isSelected
-                          ? "#FFFFFF"
-                          : d.isToday
-                            ? colors.primary
-                            : colors.text,
-                        fontWeight: isSelected || d.isToday ? "800" : "600",
-                      },
-                    ]}
-                  >
-                    {d.dayNum}
-                  </Text>
-                </View>
-
-                {/* Entity Indicator Dots */}
-                <View style={styles.indicatorDotsRow}>
-                  {d.taskCount > 0 && (
-                    <View style={[styles.indicatorDot, { backgroundColor: "#F59E0B" }]} />
-                  )}
-                  {d.habitCount > 0 && (
-                    <View style={[styles.indicatorDot, { backgroundColor: "#10B981" }]} />
-                  )}
-                  {d.checklistCount > 0 && (
-                    <View style={[styles.indicatorDot, { backgroundColor: "#3B82F6" }]} />
-                  )}
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* 2. All-Day Section on Top of Time Grid */}
+    <View style={styles.container} onLayout={onContainerLayout}>
+      {/* 1. All-Day Section on Top of Time Grid */}
       {allWeekAllDayItems.length > 0 && (
-        <View
-          style={[
-            styles.allDayCard,
-            {
-              backgroundColor: isLight ? "#FFFFFF" : colors.card,
-              borderColor: colors.border,
-            },
-          ]}
-        >
+        <View style={styles.allDayRow}>
           <Text style={[styles.allDaySectionLabel, { color: colors.textMuted }]}>
             All Day
           </Text>
@@ -328,47 +245,43 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
             contentContainerStyle={styles.allDayScrollRow}
           >
             {allWeekAllDayItems.map((item) => {
-              const config = ENTITY_ACCENT[item.type] || ENTITY_ACCENT.task;
+              const config = getCalendarEntityPresentation(item.type, isLight);
               return (
-                <Pressable
+                <PressableScale
                   key={`${item.dateString}-${item.id}`}
                   onPress={() => onOpenItem(item)}
-                  style={[
+                  scaleTo={0.96}
+                  contentStyle={[
                     styles.allDayChip,
                     {
-                      backgroundColor: isLight ? config.lightBg : config.darkBg,
-                      borderLeftColor: config.main,
-                      borderColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
+                      backgroundColor: config.surface,
+                      borderLeftColor: config.accent,
+                      borderColor: isLight ? "rgba(0,0,0,0.06)" : config.borderColor,
                     },
                   ]}
                 >
-                  <Feather name={config.icon} size={11} color={config.main} />
+                  <Feather name={config.icon} size={11} color={config.accent} />
                   <Text
                     style={[styles.allDayChipText, { color: colors.text }]}
                     numberOfLines={1}
                   >
                     {item.title}
                   </Text>
-                </Pressable>
+                </PressableScale>
               );
             })}
           </ScrollView>
         </View>
       )}
 
-      {/* 3. True Spatial Multi-Day Time Grid Canvas */}
-      <View
-        style={[
-          styles.timeGridCard,
-          {
-            backgroundColor: isLight ? "#FFFFFF" : colors.card,
-            borderColor: colors.border,
-          },
-        ]}
-      >
-        <View style={styles.timeGridWrapper}>
+      {/* 2. True Spatial Multi-Day Time Grid Canvas */}
+      <View style={styles.spatialCanvasWrapper}>
+        <View style={styles.timeGridFlexRow}>
           {/* Left Y-Axis Time Labels */}
-          <View style={styles.timeLabelsCol}>
+          <View style={[styles.timeLabelsCol, { width: TIME_LABEL_WIDTH }]}>
+            {/* Header spacer to align with column date headers */}
+            <View style={styles.timeLabelHeaderSpacer} />
+
             {HOURS.map((h) => (
               <View key={h} style={[styles.timeLabelCell, { height: HOUR_HEIGHT }]}>
                 <Text style={[styles.timeLabelText, { color: colors.textMuted }]}>
@@ -378,16 +291,23 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
             ))}
           </View>
 
-          {/* Horizontal Scrollable Multi-Day Columns Canvas */}
+          {/* Horizontal Multi-Day Columns Canvas with 3-Day Snapped Paging */}
           <ScrollView
             ref={horizontalScrollRef}
             horizontal
+            pagingEnabled={false}
+            snapToInterval={pageInterval}
+            snapToAlignment="start"
+            decelerationRate="fast"
             showsHorizontalScrollIndicator={false}
             scrollEventThrottle={16}
             onScroll={handleScroll}
-            contentContainerStyle={styles.daysScrollCanvas}
+            contentContainerStyle={[
+              styles.daysScrollCanvas,
+              { width: dayColWidth * 7 },
+            ]}
           >
-            {/* Grid horizontal divider lines across the canvas */}
+            {/* Background horizontal hour divider lines */}
             <View style={styles.gridLinesOverlay} pointerEvents="none">
               {HOURS.map((h, idx) => (
                 <View
@@ -403,9 +323,10 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
               ))}
             </View>
 
-            {/* 7 Day Columns */}
+            {/* 7 Day Columns with Interactive Primary Day Headers */}
             {weekDays.map((day) => {
               const isToday = day.isToday;
+              const isSelected = day.isSelected;
 
               return (
                 <View
@@ -413,100 +334,92 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
                   style={[
                     styles.dayGridCol,
                     {
-                      width: DAY_COLUMN_WIDTH,
+                      width: dayColWidth,
                       borderRightColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)",
                     },
                   ]}
                 >
-                  {/* Column Header */}
-                  <Pressable
-                    onPress={() => onSelectDayAndOpenTimeline(day.dateString)}
-                    style={[
+                  {/* Primary Day Navigation Header */}
+                  <PressableScale
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setSelectedDate(day.dateString);
+                      onSelectDayAndOpenTimeline(day.dateString);
+                    }}
+                    scaleTo={0.96}
+                    contentStyle={[
                       styles.colHeader,
                       {
-                        backgroundColor: day.isSelected
-                          ? isLight ? `${colors.primary}15` : `${colors.primary}25`
-                          : "transparent",
+                        backgroundColor: isSelected
+                          ? isLight ? `${colors.primary}12` : `${colors.primary}20`
+                          : isToday
+                            ? isLight ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)"
+                            : "transparent",
+                        borderBottomColor: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)",
                       },
                     ]}
                   >
                     <Text
                       style={[
-                        styles.colHeaderTitle,
+                        styles.colHeaderDayName,
                         {
                           color: isToday
                             ? colors.primary
-                            : day.isSelected
+                            : isSelected
                               ? colors.text
                               : colors.textMuted,
-                          fontWeight: isToday || day.isSelected ? "800" : "600",
                         },
                       ]}
                     >
-                      {day.dayName} {day.dayNum}
+                      {day.dayName.toUpperCase()}
                     </Text>
-                  </Pressable>
+
+                    <View
+                      style={[
+                        styles.colHeaderNumCircle,
+                        {
+                          backgroundColor: isSelected
+                            ? colors.primary
+                            : "transparent",
+                          borderWidth: isToday && !isSelected ? 1.5 : 0,
+                          borderColor: colors.primary,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.colHeaderDayNum,
+                          {
+                            color: isSelected
+                              ? "#FFFFFF"
+                              : isToday
+                                ? colors.primary
+                                : colors.text,
+                            fontWeight: isToday || isSelected ? "800" : "600",
+                          },
+                        ]}
+                      >
+                        {day.dayNum}
+                      </Text>
+                    </View>
+                  </PressableScale>
 
                   {/* Day Column Timeline Area */}
                   <View style={[styles.dayTimelineArea, { height: HOURS.length * HOUR_HEIGHT }]}>
-                    {/* Render Scheduled Blocks */}
-                    {day.timedItems.map((item) => {
-                      const startMinutes = (item.startHour ?? 0) * 60 + (item.startMinute ?? 0);
-                      const top = Math.max(0, ((startMinutes - 6 * 60) / 60) * HOUR_HEIGHT);
-                      const height = Math.max(28, (item.durationMinutes / 60) * HOUR_HEIGHT);
+                    {/* Render Scheduled Blocks using shared WeekTimelineItem */}
+                    {day.timedItems.map((item) => (
+                      <WeekTimelineItem
+                        key={item.id}
+                        item={item}
+                        hourHeight={HOUR_HEIGHT}
+                        dayStartHour={DAY_START_HOUR}
+                        colors={colors}
+                        isLight={isLight}
+                        onOpenItem={onOpenItem}
+                      />
+                    ))}
 
-                      const config = ENTITY_ACCENT[item.type] || ENTITY_ACCENT.task;
-                      const accent = item.completed ? colors.textMuted : config.main;
-                      const bg = item.completed
-                        ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.03)"
-                        : isLight
-                          ? config.lightBg
-                          : config.darkBg;
-
-                      const timeStr = formatBlockTime(item.startHour!, item.startMinute!);
-
-                      return (
-                        <PressableScale
-                          key={item.id}
-                          onPress={() => onOpenItem(item)}
-                          scaleTo={0.96}
-                          contentStyle={[
-                            styles.spatialBlock,
-                            {
-                              top,
-                              height: height - 2,
-                              backgroundColor: bg,
-                              borderLeftColor: accent,
-                              borderColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
-                              opacity: item.completed ? 0.55 : 1,
-                            },
-                          ]}
-                        >
-                          <View style={styles.blockInner}>
-                            <View style={styles.blockTitleRow}>
-                              <Feather name={config.icon} size={10} color={accent} />
-                              <Text
-                                style={[
-                                  styles.blockTitleText,
-                                  { color: item.completed ? colors.textMuted : colors.text },
-                                ]}
-                                numberOfLines={height > 40 ? 2 : 1}
-                              >
-                                {item.title}
-                              </Text>
-                            </View>
-
-                            {height >= 38 && (
-                              <Text style={[styles.blockTimeText, { color: accent }]}>
-                                {timeStr}
-                              </Text>
-                            )}
-                          </View>
-                        </PressableScale>
-                      );
-                    })}
-
-                    {/* Red Current Time Line across Today's Column */}
+                    {/* Red Current Time Line spanning Today's Column */}
                     {isToday && isCurrentTimeInRange && (
                       <View
                         style={[
@@ -526,27 +439,36 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
           </ScrollView>
         </View>
 
-        {/* 4. Canvas Pagination Footer */}
-        <View style={styles.canvasFooter}>
-          <Text style={[styles.swipeHintText, { color: colors.textMuted }]}>
-            ← Swipe left/right to view more days →
-          </Text>
-          <View style={styles.paginationDots}>
-            {[0, 1, 2].map((i) => (
-              <View
-                key={i}
-                style={[
-                  styles.pageDot,
-                  {
-                    backgroundColor: currentPage === i
-                      ? colors.primary
-                      : isLight ? "#CBD5E1" : "rgba(255,255,255,0.15)",
-                  },
-                ]}
-              />
-            ))}
+        {/* 3. Pagination Footer on Mobile */}
+        {!isTablet && totalPages > 1 && (
+          <View style={styles.canvasFooter}>
+            <Text style={[styles.swipeHintText, { color: colors.textMuted }]}>
+              {currentPage === 0
+                ? "Mon – Wed · Swipe for Thu – Sat →"
+                : currentPage === 1
+                  ? "← Thu – Sat · Swipe for Sun →"
+                  : "← Sunday · Swipe for Mon – Wed"}
+            </Text>
+            <View style={styles.paginationDots}>
+              {Array.from({ length: totalPages }, (_, i) => (
+                <Pressable
+                  key={i}
+                  onPress={() => handlePageDotPress(i)}
+                  hitSlop={8}
+                  style={[
+                    styles.pageDot,
+                    {
+                      backgroundColor: currentPage === i
+                        ? colors.primary
+                        : isLight ? "#CBD5E1" : "rgba(255,255,255,0.18)",
+                      width: currentPage === i ? 14 : 5,
+                    },
+                  ]}
+                />
+              ))}
+            </View>
           </View>
-        </View>
+        )}
       </View>
 
       <View style={{ height: 80 }} />
@@ -558,63 +480,21 @@ WeekHorizonView.displayName = "WeekHorizonView";
 
 const styles = StyleSheet.create({
   container: {
-    gap: 12,
-    marginTop: 4,
+    gap: 8,
+    marginTop: 2,
   },
-  weekStripCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-  },
-  stripRow: {
+  allDayRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
   },
-  stripCol: {
-    flex: 1,
-    alignItems: "center",
-    gap: 3,
-  },
-  stripDayName: {
+  allDaySectionLabel: {
     fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
-  },
-  stripDayCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stripDayNum: {
-    fontSize: 12,
-  },
-  indicatorDotsRow: {
-    flexDirection: "row",
-    gap: 2,
-    height: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  indicatorDot: {
-    width: 3.5,
-    height: 3.5,
-    borderRadius: 1.75,
-  },
-  allDayCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 10,
-    gap: 6,
-  },
-  allDaySectionLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
   },
   allDayScrollRow: {
     flexDirection: "row",
@@ -625,44 +505,49 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
     paddingHorizontal: 8,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
     borderLeftWidth: 3,
   },
   allDayChipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
   },
-  timeGridCard: {
-    borderRadius: 18,
-    borderWidth: 1,
+  spatialCanvasWrapper: {
+    borderRadius: 14,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
   },
-  timeGridWrapper: {
+  timeGridFlexRow: {
     flexDirection: "row",
   },
   timeLabelsCol: {
-    width: TIME_LABEL_WIDTH,
     borderRightWidth: 1,
     borderRightColor: "rgba(0,0,0,0.06)",
-    paddingTop: 32, // Offset for column header height
+  },
+  timeLabelHeaderSpacer: {
+    height: 48,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.08)",
   },
   timeLabelCell: {
     justifyContent: "flex-start",
     paddingTop: 2,
-    paddingLeft: 6,
+    paddingLeft: 4,
   },
   timeLabelText: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: "600",
   },
   daysScrollCanvas: {
     flexDirection: "row",
+    position: "relative",
   },
   gridLinesOverlay: {
     position: "absolute",
-    top: 32,
+    top: 48,
     left: 0,
     right: 0,
     bottom: 0,
@@ -677,48 +562,31 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
   },
   colHeader: {
-    height: 32,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(0,0,0,0.06)",
+    gap: 2,
+    paddingVertical: 2,
   },
-  colHeaderTitle: {
+  colHeaderDayName: {
+    fontSize: 9.5,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  colHeaderNumCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  colHeaderDayNum: {
     fontSize: 11,
-    letterSpacing: 0.2,
   },
   dayTimelineArea: {
     position: "relative",
     paddingHorizontal: 2,
-  },
-  spatialBlock: {
-    position: "absolute",
-    left: 2,
-    right: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderLeftWidth: 3,
-    overflow: "hidden",
-  },
-  blockInner: {
-    flex: 1,
-    padding: 3,
-    justifyContent: "center",
-    gap: 1,
-  },
-  blockTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  blockTitleText: {
-    fontSize: 10,
-    fontWeight: "700",
-    flex: 1,
-  },
-  blockTimeText: {
-    fontSize: 9,
-    fontWeight: "700",
   },
   todayCurrentTimeLine: {
     position: "absolute",
@@ -729,9 +597,9 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   todayCurrentTimeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: "#EF4444",
   },
   todayCurrentTimeBar: {
@@ -754,9 +622,9 @@ const styles = StyleSheet.create({
   paginationDots: {
     flexDirection: "row",
     gap: 4,
+    alignItems: "center",
   },
   pageDot: {
-    width: 5,
     height: 5,
     borderRadius: 2.5,
   },

@@ -6,7 +6,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
-import { ENTITY_ACCENT } from "./TimelineItem";
+import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
 
 interface CalendarPlanningSheetProps {
   visible: boolean;
@@ -35,6 +35,9 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
   colors,
   isLight,
 }) => {
+  const taskConfig = getCalendarEntityPresentation("task", isLight);
+  const checklistConfig = getCalendarEntityPresentation("checklist", isLight);
+
   return (
     <AnimatedOverlay
       visible={visible}
@@ -138,7 +141,6 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                     {pendingTasks.map((task) => {
                       const taskDuration =
                         task.schedule?.durationMinutes || 60;
-                      const taskAccent = ENTITY_ACCENT.task;
 
                       return (
                         <PressableScale
@@ -166,9 +168,9 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                         >
                           <View style={styles.itemLeft}>
                             <Feather
-                              name={taskAccent.icon}
+                              name={taskConfig.icon}
                               size={15}
-                              color={taskAccent.main}
+                              color={taskConfig.accent}
                             />
                             <View style={styles.itemTextCol}>
                               <Text
@@ -187,16 +189,16 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           <View
                             style={[
                               styles.placeButton,
-                              { backgroundColor: `${taskAccent.main}15` },
+                              { backgroundColor: `${taskConfig.accent}15` },
                             ]}
                           >
                             <Feather
                               name="plus"
                               size={13}
-                              color={taskAccent.main}
+                              color={taskConfig.accent}
                             />
                             <Text
-                              style={[styles.placeButtonText, { color: taskAccent.main }]}
+                              style={[styles.placeButtonText, { color: taskConfig.accent }]}
                             >
                               Place
                             </Text>
@@ -225,7 +227,6 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           : "Empty checklist";
                       const duration =
                         checklist.schedule?.durationMinutes || 45;
-                      const chkAccent = ENTITY_ACCENT.checklist;
 
                       return (
                         <PressableScale
@@ -253,9 +254,9 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                         >
                           <View style={styles.itemLeft}>
                             <Feather
-                              name={chkAccent.icon}
+                              name={checklistConfig.icon}
                               size={15}
-                              color={chkAccent.main}
+                              color={checklistConfig.accent}
                             />
                             <View style={styles.itemTextCol}>
                               <Text
@@ -275,16 +276,16 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           <View
                             style={[
                               styles.placeButton,
-                              { backgroundColor: `${chkAccent.main}15` },
+                              { backgroundColor: `${checklistConfig.accent}15` },
                             ]}
                           >
                             <Feather
                               name="plus"
                               size={13}
-                              color={chkAccent.main}
+                              color={checklistConfig.accent}
                             />
                             <Text
-                              style={[styles.placeButtonText, { color: chkAccent.main }]}
+                              style={[styles.placeButtonText, { color: checklistConfig.accent }]}
                             >
                               Place
                             </Text>
