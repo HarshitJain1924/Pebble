@@ -38,6 +38,29 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   const monthName = MONTH_NAMES[d.getMonth()];
   const dayNum = d.getDate();
 
+  // Compute week range for Week view
+  const dayOfWeek = d.getDay();
+  const diff = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+  const startOfWeek = new Date(d);
+  startOfWeek.setDate(diff);
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+
+  const startMonth = MONTH_NAMES[startOfWeek.getMonth()].slice(0, 3);
+  const endMonth = MONTH_NAMES[endOfWeek.getMonth()].slice(0, 3);
+
+  const weekRangeText =
+    startOfWeek.getMonth() === endOfWeek.getMonth()
+      ? `${startMonth} ${startOfWeek.getDate()} – ${endOfWeek.getDate()}, ${startOfWeek.getFullYear()}`
+      : `${startMonth} ${startOfWeek.getDate()} – ${endMonth} ${endOfWeek.getDate()}, ${endOfWeek.getFullYear()}`;
+
+  const headerTitle =
+    calendarViewMode === "timeline"
+      ? `${weekday}, ${monthName} ${dayNum}`
+      : calendarViewMode === "week"
+        ? weekRangeText
+        : `${MONTH_NAMES[month.month]} ${month.year}`;
+
   const handleDatePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     if (onOpenQuickJump) {
@@ -52,13 +75,13 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
       <Pressable
         onPress={handleDatePress}
         style={styles.titleCol}
-        accessibilityLabel={`Selected date: ${weekday}, ${monthName} ${dayNum}. Tap to jump to another date.`}
+        accessibilityLabel={`Header: ${headerTitle}. Tap to jump to another date.`}
       >
         <View style={styles.dateLine}>
           <Text style={[styles.primaryDate, { color: colors.text }]}>
-            {weekday}, {monthName} {dayNum}
+            {headerTitle}
           </Text>
-          {isToday && (
+          {calendarViewMode === "timeline" && isToday && (
             <View
               style={[
                 styles.todayBadge,
@@ -124,10 +147,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryDate: {
-    fontSize: 21,
+    fontSize: 20,
     fontWeight: "700",
     letterSpacing: -0.3,
-    lineHeight: 26,
+    lineHeight: 25,
   },
   todayBadge: {
     paddingHorizontal: 7,

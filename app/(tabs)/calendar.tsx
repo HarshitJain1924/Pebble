@@ -28,9 +28,10 @@ import {
 } from "@/features/calendar/hooks/useCalendarState";
 import { CalendarViewMode, getCalendarItemType } from "@/features/calendar/types";
 import { CalendarHeader } from "@/features/calendar/components/CalendarHeader";
-import { CalendarNavigationCard } from "@/features/calendar/components/CalendarNavigationCard";
 import { DayContextSummary } from "@/features/calendar/components/DayContextSummary";
 import { DayPlannerView } from "@/features/calendar/components/DayPlannerView";
+import { WeekHorizonView } from "@/features/calendar/components/WeekHorizonView";
+import { MonthOverviewView } from "@/features/calendar/components/MonthOverviewView";
 import { CalendarPlanningSheet } from "@/features/calendar/components/CalendarPlanningSheet";
 import { QuickSlotSheet } from "@/features/calendar/components/QuickSlotSheet";
 import { QuickJumpSheet } from "@/features/calendar/components/QuickJumpSheet";
@@ -182,65 +183,11 @@ export default function CalendarScreen() {
     return freeTimeGaps.reduce((sum, g) => sum + (g.durationMinutes || 0), 0);
   }, [freeTimeGaps]);
 
-  // ─── View Switcher & Morph Animations ────────────────────────────
-  const activeTabX = useSharedValue(0);
-  const calendarHeight = useSharedValue(76);
-  const opacityMonth = useSharedValue(1);
-  const opacityWeek = useSharedValue(0);
-  const opacityTimeline = useSharedValue(0);
-
   useEffect(() => {
-    if (calendarViewMode === "month") {
-      activeTabX.value = 0;
-      calendarHeight.value = withTiming(260, {
-        duration: 220,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-      });
-      opacityMonth.value = withTiming(1, { duration: 150 });
-      opacityWeek.value = withTiming(0, { duration: 100 });
-      opacityTimeline.value = withTiming(0, { duration: 100 });
-    } else if (calendarViewMode === "week") {
-      activeTabX.value = 1;
-      calendarHeight.value = withTiming(84, {
-        duration: 220,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-      });
-      opacityMonth.value = withTiming(0, { duration: 100 });
-      opacityWeek.value = withTiming(1, { duration: 150 });
-      opacityTimeline.value = withTiming(0, { duration: 100 });
-    } else {
-      activeTabX.value = 2;
-      calendarHeight.value = withTiming(76, {
-        duration: 220,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-      });
-      opacityMonth.value = withTiming(0, { duration: 100 });
-      opacityWeek.value = withTiming(0, { duration: 100 });
-      opacityTimeline.value = withTiming(1, { duration: 150 });
+    if (calendarViewMode === "timeline") {
       performInitialScroll();
     }
-  }, [calendarViewMode, performInitialScroll, activeTabX, calendarHeight, opacityMonth, opacityWeek, opacityTimeline]);
-
-  const monthStyle = useAnimatedStyle(() => {
-    return {
-      opacity: opacityMonth.value,
-      display: opacityMonth.value > 0.01 ? "flex" : "none",
-    };
-  });
-
-  const weekStyle = useAnimatedStyle(() => {
-    return {
-      opacity: opacityWeek.value,
-      display: opacityWeek.value > 0.01 ? "flex" : "none",
-    };
-  });
-
-  const timelineStyle = useAnimatedStyle(() => {
-    return {
-      opacity: opacityTimeline.value,
-      display: opacityTimeline.value > 0.01 ? "flex" : "none",
-    };
-  });
+  }, [calendarViewMode, performInitialScroll]);
 
   const handleToggleViewMode = () => {
     if (calendarViewMode === "month") {
@@ -316,117 +263,140 @@ export default function CalendarScreen() {
             onOpenQuickJump={() => setShowQuickJump(true)}
           />
 
-          {/* 2. Day Context Summary */}
-          <DayContextSummary
-            scheduledCount={totalItemsCount}
-            plannedMinutes={plannedMinutes}
-            freeMinutes={freeMinutes}
-            colors={colors}
-            isLight={isLight}
-          />
+          {/* ── 1. DAY VIEW ── */}
+          {calendarViewMode === "timeline" && (
+            <>
+              {/* Day Context Summary */}
+              <DayContextSummary
+                scheduledCount={totalItemsCount}
+                plannedMinutes={plannedMinutes}
+                freeMinutes={freeMinutes}
+                colors={colors}
+                isLight={isLight}
+              />
 
-          {/* 3. Calendar Navigation Card (Month Grid / Week Strip) */}
-          <CalendarNavigationCard
-            calendarViewMode={calendarViewMode}
-            selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            month={month}
-            handlePrevMonth={handlePrevMonth}
-            handleNextMonth={handleNextMonth}
-            calendarCells={calendarCells}
-            weekDaysStrip={weekDaysStrip}
-            hoveredDate={hoveredDate}
-            monthGridRef={monthGridRef}
-            weekStripRef={weekStripRef}
-            measureMonthGrid={measureMonthGrid}
-            measureWeekStrip={measureWeekStrip}
-            allTodos={allTodos}
-            allHabits={allHabits}
-            allChecklists={allChecklists}
-            calendarHeight={calendarHeight}
-            monthStyle={monthStyle}
-            weekStyle={weekStyle}
-            timelineStyle={timelineStyle}
-            colors={colors}
-            colorScheme={colorScheme}
-            isLight={isLight}
-          />
+              {/* Agenda Quick Actions */}
+              <View style={styles.agendaStrip}>
+                <View style={styles.agendaLeft}>
+                  {/* Quick Jump */}
+                  <Pressable
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setShowQuickJump(true);
+                    }}
+                    style={[
+                      styles.iconButton,
+                      {
+                        backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    hitSlop={8}
+                  >
+                    <Feather name="compass" size={13} color={colors.textMuted} />
+                  </Pressable>
 
-          {/* 3. Agenda info strip — item count + icon actions */}
-          <View
-            style={[
-              styles.agendaStrip,
-              { marginTop: calendarViewMode === "timeline" ? 2 : 12 },
-            ]}
-          >
-            <View style={styles.agendaLeft}>
-              {/* Quick Jump */}
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setShowQuickJump(true);
+                  {/* Filters */}
+                  <Pressable
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setShowFilter(true);
+                    }}
+                    style={[
+                      styles.iconButton,
+                      {
+                        backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    hitSlop={8}
+                  >
+                    <Feather name="sliders" size={13} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+
+                {totalItemsCount > 0 && (
+                  <Text style={[styles.itemCountText, { color: colors.textMuted }]}>
+                    {totalItemsCount} item{totalItemsCount !== 1 ? "s" : ""}
+                  </Text>
+                )}
+              </View>
+
+              {/* 24-Hour Continuous Timeline */}
+              <DayPlannerView
+                timelineGridRef={timelineGridRef}
+                onLayoutTimeline={() => {
+                  measureTimelineGrid();
+                  performInitialScroll();
                 }}
-                style={[
-                  styles.iconButton,
-                  {
-                    backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
-                    borderColor: colors.border,
-                  },
-                ]}
-                hitSlop={8}
-              >
-                <Feather name="compass" size={12} color={colors.textMuted} />
-              </Pressable>
+                filteredAllDayItems={filteredAllDayItems}
+                filteredTimedItems={filteredTimedItems}
+                freeTimeGaps={freeTimeGaps}
+                hasPendingItems={pendingTasks.length > 0 || pendingChecklists.length > 0}
+                isViewingToday={isViewingToday}
+                currentTime={currentTime}
+                isDragging={isDragging}
+                hoveredHour={hoveredHour}
+                activeDragItem={activeDragItem}
+                onPlanAllDay={() => setPlaceTaskTarget({ isAllDay: true })}
+                onPlaceAtTime={(hour, minute) => setPlaceTaskTarget({ hour, minute })}
+                onOpenItem={handleOpenItem}
+                createPanGesture={createPanGesture}
+                colors={colors}
+                isLight={isLight}
+              />
+            </>
+          )}
 
-              {/* Filters */}
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setShowFilter(true);
-                }}
-                style={[
-                  styles.iconButton,
-                  {
-                    backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
-                    borderColor: colors.border,
-                  },
-                ]}
-                hitSlop={8}
-              >
-                <Feather name="sliders" size={12} color={colors.textMuted} />
-              </Pressable>
-            </View>
+          {/* ── 2. WEEK VIEW ── */}
+          {calendarViewMode === "week" && (
+            <WeekHorizonView
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              onSelectDayAndOpenTimeline={(date) => {
+                setSelectedDate(date);
+                setCalendarViewMode("timeline");
+              }}
+              allTodos={allTodos}
+              allHabits={allHabits}
+              allChecklists={allChecklists}
+              onOpenItem={handleOpenItem}
+              onPlanAtDate={(date) => {
+                setSelectedDate(date);
+                setPlaceTaskTarget({ isAllDay: true });
+              }}
+              colors={colors}
+              isLight={isLight}
+            />
+          )}
 
-            {totalItemsCount > 0 && (
-              <Text style={[styles.itemCountText, { color: colors.textMuted }]}>
-                {totalItemsCount} item{totalItemsCount !== 1 ? "s" : ""}
-              </Text>
-            )}
-          </View>
-
-          {/* 4. Day Planner View */}
-          <DayPlannerView
-            timelineGridRef={timelineGridRef}
-            onLayoutTimeline={() => {
-              measureTimelineGrid();
-              performInitialScroll();
-            }}
-            filteredAllDayItems={filteredAllDayItems}
-            filteredTimedItems={filteredTimedItems}
-            freeTimeGaps={freeTimeGaps}
-            hasPendingItems={pendingTasks.length > 0 || pendingChecklists.length > 0}
-            isViewingToday={isViewingToday}
-            currentTime={currentTime}
-            isDragging={isDragging}
-            hoveredHour={hoveredHour}
-            activeDragItem={activeDragItem}
-            onPlanAllDay={() => setPlaceTaskTarget({ isAllDay: true })}
-            onPlaceAtTime={(hour, minute) => setPlaceTaskTarget({ hour, minute })}
-            onOpenItem={handleOpenItem}
-            createPanGesture={createPanGesture}
-            colors={colors}
-            isLight={isLight}
-          />
+          {/* ── 3. MONTH VIEW ── */}
+          {calendarViewMode === "month" && (
+            <MonthOverviewView
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              onSelectDayAndOpenTimeline={(date) => {
+                setSelectedDate(date);
+                setCalendarViewMode("timeline");
+              }}
+              month={month}
+              handlePrevMonth={handlePrevMonth}
+              handleNextMonth={handleNextMonth}
+              calendarCells={calendarCells}
+              allTodos={allTodos}
+              allHabits={allHabits}
+              allChecklists={allChecklists}
+              onOpenItem={handleOpenItem}
+              onPlanAtDate={(date) => {
+                setSelectedDate(date);
+                setPlaceTaskTarget({ isAllDay: true });
+              }}
+              monthGridRef={monthGridRef}
+              measureMonthGrid={measureMonthGrid}
+              colors={colors}
+              isLight={isLight}
+            />
+          )}
         </ScrollView>
       </Animated.View>
 
