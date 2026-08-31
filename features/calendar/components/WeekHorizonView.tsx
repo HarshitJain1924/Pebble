@@ -21,11 +21,13 @@ import {
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { getStructuredSchedule } from "@/services/scheduling/scheduling.service";
 import {
+  getChecklistCompletedItemsCountForDate,
   isChecklistCompletedForDate,
   isHabitCompletedToday,
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
 import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
+import { calculateTimelineItemColumns } from "@/features/calendar/utils/timelineLayout";
 import { WeekTimelineItem } from "./WeekTimelineItem";
 
 interface WeekHorizonViewProps {
@@ -41,15 +43,15 @@ interface WeekHorizonViewProps {
   isLight: boolean;
 }
 
-const HOUR_HEIGHT = 64;
-const DAY_START_HOUR = 6;
-const HOURS = Array.from({ length: 18 }, (_, i) => i + DAY_START_HOUR); // 6:00 AM to 11:00 PM (18 hours)
+const HOUR_HEIGHT = 60;
+const HOURS = Array.from({ length: 24 }, (_, i) => i); // 00:00 (12 AM) to 23:00 (11 PM) - full 24-hour day coverage
 const TIME_LABEL_WIDTH = 50;
 
 function formatHour(h: number): string {
-  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  const ampm = h >= 12 ? "PM" : "AM";
-  return `${displayH} ${ampm}`;
+  if (h === 0) return "12 AM";
+  if (h === 12) return "12 PM";
+  if (h < 12) return `${h} AM`;
+  return `${h - 12} PM`;
 }
 
 export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
@@ -76,7 +78,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
     }
   }, [containerWidth]);
 
-  // Responsive column sizing
+  // Responsive column sizing: 7 days on desktop/tablet, 3 days on mobile
   const isTablet = containerWidth >= 620;
   const visibleDaysCount = isTablet ? 7 : 3;
   const dayColWidth = Math.floor((containerWidth - TIME_LABEL_WIDTH) / visibleDaysCount);
@@ -149,7 +151,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
         .map((chk) => {
           const sched = getStructuredSchedule(chk, 45);
           const totalItems = chk.items?.length || 0;
-          const completedCount = chk.items?.filter((it: any) => it.completed)?.length || 0;
+          const completedCount = getChecklistCompletedItemsCountForDate(chk, dateStr);
           return {
             id: chk.id,
             title: chk.title,
@@ -169,8 +171,11 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
         return timeA - timeB;
       });
 
-      const timedItems = allItems.filter((it) => it.startHour !== undefined && it.startMinute !== undefined);
+      const rawTimedItems = allItems.filter((it) => it.startHour !== undefined && it.startMinute !== undefined);
       const allDayItems = allItems.filter((it) => it.startHour === undefined || it.startMinute === undefined);
+
+      // Compute overlapping column layout for this day's timed items
+      const timedItems = calculateTimelineItemColumns(rawTimedItems);
 
       days.push({
         dateString: dateStr,
@@ -228,8 +233,8 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
     }
   };
 
-  const currentYPosition = (currentHours - DAY_START_HOUR) * HOUR_HEIGHT + (currentMinutes / 60) * HOUR_HEIGHT;
-  const isCurrentTimeInRange = currentHours >= DAY_START_HOUR && currentHours <= 23;
+  // Full 24-hour coordinate calculation for current time indicator
+  const currentYPosition = (currentHours * 60 + currentMinutes) / 60 * HOUR_HEIGHT;
 
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
@@ -277,18 +282,29 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
       {/* 2. True Spatial Multi-Day Time Grid Canvas */}
       <View style={styles.spatialCanvasWrapper}>
         <View style={styles.timeGridFlexRow}>
-          {/* Left Y-Axis Time Labels */}
+          {/* Left Y-Axis Time Labels (24 Hours) */}
           <View style={[styles.timeLabelsCol, { width: TIME_LABEL_WIDTH }]}>
             {/* Header spacer to align with column date headers */}
             <View style={styles.timeLabelHeaderSpacer} />
 
-            {HOURS.map((h) => (
-              <View key={h} style={[styles.timeLabelCell, { height: HOUR_HEIGHT }]}>
-                <Text style={[styles.timeLabelText, { color: colors.textMuted }]}>
-                  {formatHour(h)}
-                </Text>
-              </View>
-            ))}
+            {HOURS.map((h) => {
+              const isKeyHour = h === 0 || h === 12;
+              return (
+                <View key={h} style={[styles.timeLabelCell, { height: HOUR_HEIGHT }]}>
+                  <Text
+                    style={[
+                      styles.timeLabelText,
+                      {
+                        color: isKeyHour ? colors.text : colors.textMuted,
+                        fontWeight: isKeyHour ? "700" : "500",
+                      },
+                    ]}
+                  >
+                    {formatHour(h)}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
 
           {/* Horizontal Multi-Day Columns Canvas with 3-Day Snapped Paging */}
@@ -404,15 +420,14 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
                     </View>
                   </PressableScale>
 
-                  {/* Day Column Timeline Area */}
+                  {/* Day Column Timeline Area covering full 24 hours */}
                   <View style={[styles.dayTimelineArea, { height: HOURS.length * HOUR_HEIGHT }]}>
-                    {/* Render Scheduled Blocks using shared WeekTimelineItem */}
+                    {/* Render Scheduled Blocks with deterministic overlap columns */}
                     {day.timedItems.map((item) => (
                       <WeekTimelineItem
                         key={item.id}
                         item={item}
                         hourHeight={HOUR_HEIGHT}
-                        dayStartHour={DAY_START_HOUR}
                         colors={colors}
                         isLight={isLight}
                         onOpenItem={onOpenItem}
@@ -420,7 +435,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
                     ))}
 
                     {/* Red Current Time Line spanning Today's Column */}
-                    {isToday && isCurrentTimeInRange && (
+                    {isToday && (
                       <View
                         style={[
                           styles.todayCurrentTimeLine,
@@ -539,7 +554,7 @@ const styles = StyleSheet.create({
   },
   timeLabelText: {
     fontSize: 9.5,
-    fontWeight: "600",
+    letterSpacing: 0.1,
   },
   daysScrollCanvas: {
     flexDirection: "row",

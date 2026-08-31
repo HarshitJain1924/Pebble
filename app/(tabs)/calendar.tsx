@@ -184,7 +184,7 @@ export default function CalendarScreen() {
   }, [freeTimeGaps]);
 
   useEffect(() => {
-    if (calendarViewMode === "timeline") {
+    if (calendarViewMode === "timeline" || calendarViewMode === "week") {
       performInitialScroll();
     }
   }, [calendarViewMode, performInitialScroll]);

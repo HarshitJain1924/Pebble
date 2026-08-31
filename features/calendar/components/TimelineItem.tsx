@@ -11,25 +11,25 @@ import {
 
 export { getCalendarEntityPresentation, CALENDAR_ENTITY_TOKENS };
 
-// Backward compatibility export if needed by legacy callers
+// Backward compatibility export derived strictly from the canonical tokens
 export const ENTITY_ACCENT = {
   task: {
-    main: "#F59E0B",
-    lightBg: "#FFFBEB",
-    darkBg: "rgba(245, 158, 11, 0.12)",
-    icon: "check-square" as const,
+    main: CALENDAR_ENTITY_TOKENS.dark.task.accent,
+    lightBg: CALENDAR_ENTITY_TOKENS.light.task.surface,
+    darkBg: CALENDAR_ENTITY_TOKENS.dark.task.surface,
+    icon: CALENDAR_ENTITY_TOKENS.dark.task.icon,
   },
   habit: {
-    main: "#10B981",
-    lightBg: "#F0FDF4",
-    darkBg: "rgba(16, 185, 129, 0.12)",
-    icon: "rotate-cw" as const,
+    main: CALENDAR_ENTITY_TOKENS.dark.habit.accent,
+    lightBg: CALENDAR_ENTITY_TOKENS.light.habit.surface,
+    darkBg: CALENDAR_ENTITY_TOKENS.dark.habit.surface,
+    icon: CALENDAR_ENTITY_TOKENS.dark.habit.icon,
   },
   checklist: {
-    main: "#3B82F6",
-    lightBg: "#EFF6FF",
-    darkBg: "rgba(59, 130, 246, 0.12)",
-    icon: "list" as const,
+    main: CALENDAR_ENTITY_TOKENS.dark.checklist.accent,
+    lightBg: CALENDAR_ENTITY_TOKENS.light.checklist.surface,
+    darkBg: CALENDAR_ENTITY_TOKENS.dark.checklist.surface,
+    icon: CALENDAR_ENTITY_TOKENS.dark.checklist.icon,
   },
 };
 
@@ -84,8 +84,9 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   const top = (startMinutes / 60) * hourHeight;
   const height = (item.durationMinutes / 60) * hourHeight;
 
-  const widthPercent = 100 / item.totalCols;
-  const leftPercent = item.colIdx * widthPercent;
+  const totalCols = Math.max(1, item.totalCols || 1);
+  const widthPercent = 100 / totalCols;
+  const leftPercent = (item.colIdx || 0) * widthPercent;
 
   const type = getCalendarItemType(item);
   const config = getCalendarEntityPresentation(type, isLight);
@@ -128,8 +129,9 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
 
   const isHighPriority = item.priority === "high";
   const gesture = createPanGesture(item);
-  const isVeryCompact = height < 44;
-  const isTall = height >= 68;
+  const isVeryCompact = height < 38;
+  const isMedium = height >= 38 && height < 64;
+  const isTall = height >= 64;
 
   return (
     <GestureDetector gesture={gesture}>
@@ -139,7 +141,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
           styles.card,
           {
             top,
-            height: Math.max(36, height - 2),
+            height: Math.max(26, height - 2),
             left: `${leftPercent}%`,
             width: `${widthPercent - 1}%`,
             backgroundColor: cardBg,
@@ -149,20 +151,20 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
           },
         ]}
       >
-        <View style={styles.inner}>
+        <View style={[styles.inner, isVeryCompact && styles.innerCompact]}>
           {/* Header Row: Entity Icon + Title + Progress / Check Status */}
           <View style={styles.topRow}>
             <View style={styles.titleWithIcon}>
               <Feather
                 name={config.icon}
-                size={13}
+                size={isVeryCompact ? 11 : 13}
                 color={accent}
                 style={styles.entityIcon}
               />
               <Text
                 numberOfLines={isVeryCompact ? 1 : isTall ? 2 : 1}
                 style={[
-                  styles.title,
+                  isVeryCompact ? styles.titleCompact : styles.title,
                   {
                     color: item.completed ? colors.textMuted : colors.text,
                     textDecorationLine: item.completed ? "line-through" : "none",
@@ -205,7 +207,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
                 ]}
                 numberOfLines={1}
               >
-                {timeRangeStr}
+                {isMedium ? `${formatTimeOnly(item.startHour ?? 0, item.startMinute ?? 0)} ${startAmpm} · ${durStr}` : timeRangeStr}
               </Text>
 
               {isHighPriority && (
@@ -245,15 +247,19 @@ const styles = StyleSheet.create({
     position: "absolute",
     borderWidth: 1,
     borderLeftWidth: 3.5,
-    borderRadius: 9,
+    borderRadius: 8,
     overflow: "hidden",
   },
   inner: {
     flex: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     justifyContent: "center",
-    gap: 3,
+    gap: 2.5,
+  },
+  innerCompact: {
+    paddingVertical: 2,
+    gap: 0,
   },
   topRow: {
     flexDirection: "row",
@@ -264,27 +270,33 @@ const styles = StyleSheet.create({
   titleWithIcon: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     flex: 1,
   },
   entityIcon: {
-    marginTop: 1,
+    marginTop: 0.5,
   },
-  title: {
-    fontSize: 14,
+  titleCompact: {
+    fontSize: 12,
     fontWeight: "700",
     letterSpacing: -0.1,
-    lineHeight: 18,
+    flex: 1,
+  },
+  title: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+    lineHeight: 17,
     flex: 1,
   },
   progressBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 5,
+    paddingHorizontal: 4.5,
+    paddingVertical: 1,
+    borderRadius: 4,
     borderWidth: 1,
   },
   progressBadgeText: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: "800",
   },
   metaRow: {
@@ -294,32 +306,32 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   metaText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "600",
     letterSpacing: 0.1,
   },
   priorityPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3.5,
   },
   priorityDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 4.5,
+    height: 4.5,
+    borderRadius: 2.25,
     backgroundColor: "#EF4444",
   },
   priorityText: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: "700",
     color: "#EF4444",
   },
   habitRecurrenceText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: "500",
   },
   previewText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: "500",
     opacity: 0.85,
   },

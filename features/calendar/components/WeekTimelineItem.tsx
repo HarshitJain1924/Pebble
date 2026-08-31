@@ -19,10 +19,11 @@ interface WeekTimelineItemProps {
     streak?: number;
     itemsCount?: number;
     completedItemsCount?: number;
+    colIdx?: number;
+    totalCols?: number;
     [key: string]: any;
   };
   hourHeight?: number;
-  dayStartHour?: number;
   colors: any;
   isLight: boolean;
   onOpenItem: (item: any) => void;
@@ -46,15 +47,20 @@ function formatDuration(minutes: number): string {
 
 export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
   item,
-  hourHeight = 64,
-  dayStartHour = 6,
+  hourHeight = 60,
   colors,
   isLight,
   onOpenItem,
 }) => {
   const startMinutes = (item.startHour ?? 0) * 60 + (item.startMinute ?? 0);
-  const top = Math.max(0, ((startMinutes - dayStartHour * 60) / 60) * hourHeight);
-  const height = Math.max(28, ((item.durationMinutes || 30) / 60) * hourHeight);
+  const top = (startMinutes / 60) * hourHeight;
+  const height = Math.max(24, ((item.durationMinutes || 30) / 60) * hourHeight);
+
+  const colIdx = item.colIdx ?? 0;
+  const totalCols = Math.max(1, item.totalCols ?? 1);
+  const isMultiCol = totalCols > 1;
+  const widthPercent = 100 / totalCols;
+  const leftPercent = colIdx * widthPercent;
 
   const type = getCalendarItemType(item);
   const config = getCalendarEntityPresentation(type, isLight);
@@ -70,8 +76,10 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
   const completedItems = item.completedItemsCount ?? 0;
   const checklistProgress = totalItems > 0 ? `${completedItems}/${totalItems}` : null;
 
-  const isSmall = height < 38;
-  const isTall = height >= 58;
+  // Render tiers
+  const isVerySmall = height < 32;
+  const isMedium = height >= 32 && height < 52;
+  const isTall = height >= 52;
 
   return (
     <PressableScale
@@ -79,9 +87,18 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
       scaleTo={0.96}
       contentStyle={[
         styles.card,
+        isMultiCol
+          ? {
+              left: `${leftPercent}%`,
+              width: `${widthPercent - 0.8}%`,
+            }
+          : {
+              left: 2,
+              right: 2,
+            },
         {
           top,
-          height: height - 2,
+          height: Math.max(22, height - 1.5),
           backgroundColor: bg,
           borderLeftColor: accent,
           borderColor: isLight ? "rgba(0, 0, 0, 0.06)" : config.borderColor,
@@ -90,62 +107,96 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
       ]}
     >
       <View style={styles.inner}>
-        {/* Title row with icon */}
-        <View style={styles.titleRow}>
-          <Feather
-            name={config.icon}
-            size={11}
-            color={accent}
-            style={styles.icon}
-          />
-          <Text
-            style={[
-              styles.title,
-              {
-                color: item.completed ? colors.textMuted : colors.text,
-                textDecorationLine: item.completed ? "line-through" : "none",
-              },
-            ]}
-            numberOfLines={isSmall ? 1 : 2}
-          >
-            {item.title}
-          </Text>
-
-          {type === "checklist" && checklistProgress && (
-            <Text style={[styles.progressBadgeText, { color: accent }]}>
-              {checklistProgress}
+        {/* Tier 1: Very Small (< 32px) - Icon + Title on 1 line */}
+        {isVerySmall ? (
+          <View style={styles.titleRow}>
+            <Feather
+              name={config.icon}
+              size={9.5}
+              color={accent}
+              style={styles.icon}
+            />
+            <Text
+              style={[
+                styles.titleCompact,
+                {
+                  color: item.completed ? colors.textMuted : colors.text,
+                  textDecorationLine: item.completed ? "line-through" : "none",
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {item.title}
             </Text>
-          )}
-        </View>
-
-        {/* Time + Duration */}
-        {!isSmall && (
-          <Text
-            style={[
-              styles.timeText,
-              { color: item.completed ? colors.textMuted : accent },
-            ]}
-            numberOfLines={1}
-          >
-            {timeStr} · {durStr}
-          </Text>
-        )}
-
-        {/* Entity specific tertiary metadata for tall cards */}
-        {isTall && (
-          <View style={styles.metaRow}>
-            {type === "habit" && (
-              <Text style={[styles.metaSubtext, { color: colors.textMuted }]} numberOfLines={1}>
-                {item.streak ? `${item.streak}d streak` : "Habit"}
+          </View>
+        ) : (
+          /* Tier 2 & 3: Standard / Tall */
+          <>
+            <View style={styles.titleRow}>
+              <Feather
+                name={config.icon}
+                size={10}
+                color={accent}
+                style={styles.icon}
+              />
+              <Text
+                style={[
+                  styles.title,
+                  {
+                    color: item.completed ? colors.textMuted : colors.text,
+                    textDecorationLine: item.completed ? "line-through" : "none",
+                  },
+                ]}
+                numberOfLines={isTall ? 2 : 1}
+              >
+                {item.title}
               </Text>
-            )}
-            {type === "task" && item.priority === "high" && (
-              <View style={styles.priorityPill}>
-                <View style={styles.priorityDot} />
-                <Text style={styles.priorityText}>High</Text>
+
+              {type === "checklist" && checklistProgress && (
+                <View
+                  style={[
+                    styles.progressBadge,
+                    {
+                      backgroundColor: config.surfaceSubtle,
+                      borderColor: config.borderColor,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.progressBadgeText, { color: accent }]}>
+                    {checklistProgress}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Time / Duration Line */}
+            <Text
+              style={[
+                styles.timeText,
+                { color: item.completed ? colors.textMuted : accent },
+              ]}
+              numberOfLines={1}
+            >
+              {isMedium ? timeStr : `${timeStr} · ${durStr}`}
+            </Text>
+
+            {/* Tier 3 metadata for Tall cards */}
+            {isTall && (
+              <View style={styles.metaRow}>
+                {type === "habit" && (
+                  <Text style={[styles.metaSubtext, { color: colors.textMuted }]} numberOfLines={1}>
+                    {item.streak ? `${item.streak}d streak` : "Habit"}
+                  </Text>
+                )}
+                {type === "task" && item.priority === "high" && (
+                  <View style={styles.priorityPill}>
+                    <View style={styles.priorityDot} />
+                    <Text style={styles.priorityText}>High</Text>
+                  </View>
+                )}
               </View>
             )}
-          </View>
+          </>
         )}
       </View>
     </PressableScale>
@@ -157,9 +208,7 @@ WeekTimelineItem.displayName = "WeekTimelineItem";
 const styles = StyleSheet.create({
   card: {
     position: "absolute",
-    left: 2,
-    right: 2,
-    borderRadius: 7,
+    borderRadius: 6,
     borderWidth: 1,
     borderLeftWidth: 3,
     overflow: "hidden",
@@ -167,55 +216,68 @@ const styles = StyleSheet.create({
   inner: {
     flex: 1,
     paddingHorizontal: 4,
-    paddingVertical: 3,
+    paddingVertical: 2,
     justifyContent: "center",
-    gap: 1.5,
+    gap: 1,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3.5,
   },
   icon: {
     marginTop: 0.5,
   },
-  title: {
-    fontSize: 11,
+  titleCompact: {
+    fontSize: 10,
     fontWeight: "700",
     letterSpacing: -0.1,
     flex: 1,
   },
+  title: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+    flex: 1,
+    lineHeight: 13,
+  },
+  progressBadge: {
+    paddingHorizontal: 3.5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
   progressBadgeText: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: "800",
   },
   timeText: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: "600",
     letterSpacing: 0.1,
   },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
   },
   metaSubtext: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: "500",
   },
   priorityPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 2.5,
   },
   priorityDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 1.75,
     backgroundColor: "#EF4444",
   },
   priorityText: {
-    fontSize: 8.5,
+    fontSize: 8,
     fontWeight: "700",
     color: "#EF4444",
   },

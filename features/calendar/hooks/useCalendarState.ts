@@ -39,6 +39,7 @@ import {
 } from "@/services/scheduling/scheduling.service";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { calculateTimelineItemColumns } from "@/features/calendar/utils/timelineLayout";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -611,81 +612,7 @@ export function useCalendarState() {
 
   // Advanced Overlapping task layout columns computation
   const timedItemsWithLayout = useMemo(() => {
-    const timed = timelineItems.filter(
-      (item) =>
-        item.startHour !== undefined && item.startMinute !== undefined,
-    );
-
-    const sorted = [...timed].sort((a, b) => {
-      const startA = a.startHour! * 60 + a.startMinute!;
-      const startB = b.startHour! * 60 + b.startMinute!;
-      return startA - startB;
-    });
-
-    const clusters: (typeof sorted)[] = [];
-    for (const item of sorted) {
-      const start = item.startHour! * 60 + item.startMinute!;
-      const end = start + item.durationMinutes;
-
-      let placed = false;
-      for (const cluster of clusters) {
-        const overlaps = cluster.some((cItem) => {
-          const cStart = cItem.startHour! * 60 + cItem.startMinute!;
-          const cEnd = cStart + cItem.durationMinutes;
-          return start < cEnd && cStart < end;
-        });
-        if (overlaps) {
-          cluster.push(item);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        clusters.push([item]);
-      }
-    }
-
-    return clusters.flatMap((cluster) => {
-      const columns: (typeof sorted)[] = [];
-      const itemCols = new Map<string, number>();
-
-      for (const item of cluster) {
-        const start = item.startHour! * 60 + item.startMinute!;
-        const end = start + item.durationMinutes;
-
-        let colIdx = 0;
-        while (true) {
-          if (!columns[colIdx]) {
-            columns[colIdx] = [item];
-            itemCols.set(item.id, colIdx);
-            break;
-          }
-
-          const overlaps = columns[colIdx].some((cItem) => {
-            const cStart = cItem.startHour! * 60 + cItem.startMinute!;
-            const cEnd = cStart + cItem.durationMinutes;
-            return start < cEnd && cStart < end;
-          });
-
-          if (!overlaps) {
-            columns[colIdx].push(item);
-            itemCols.set(item.id, colIdx);
-            break;
-          }
-          colIdx++;
-        }
-      }
-
-      const totalCols = columns.length;
-      return cluster.map((item) => {
-        const colIdx = itemCols.get(item.id) || 0;
-        return {
-          ...item,
-          colIdx,
-          totalCols,
-        };
-      });
-    });
+    return calculateTimelineItemColumns(timelineItems);
   }, [timelineItems]);
 
   // ─── Daily Planner Derived State & Actions ─────────────────────────
