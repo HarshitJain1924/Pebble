@@ -6,7 +6,7 @@ import { DAY_MS } from "@/services/storage/storage.service";
 import { type SchedulerRecurrence, recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
 import { type NotificationPurpose, buildNotificationLogicalSignature } from "@/services/notifications/notification-identity";
 
-export type ReminderKind = "todo" | "habit";
+export type ReminderKind = "todo" | "habit" | "checklist";
 
 export type ReminderContext = {
   title: string;
@@ -65,6 +65,18 @@ async function loadNotifications() {
   return import("expo-notifications");
 }
 
+function getNotificationTitle(kind: ReminderKind): string {
+  switch (kind) {
+    case "habit":
+      return "⚡ Habit Reminder";
+    case "checklist":
+      return "📝 Checklist Reminder";
+    case "todo":
+    default:
+      return "📋 Task Reminder";
+  }
+}
+
 function getNotificationBody(
   kind: ReminderKind,
   context: ReminderContext,
@@ -81,6 +93,19 @@ function getNotificationBody(
       return `⚠ You still have ${context.remainingCount} habits left today`;
     }
     return `⚡ Final habit reminder: ${context.title}`;
+  }
+
+  if (kind === "checklist") {
+    if (level === 0) {
+      if (typeof context.remainingCount === "number" && typeof context.totalCount === "number") {
+        return `📋 ${context.title} — ${context.totalCount - context.remainingCount} of ${context.totalCount} items completed`;
+      }
+      return `📋 ${context.title} is due`;
+    }
+    if (level === 1 && typeof context.remainingCount === "number") {
+      return `⚠ ${context.remainingCount} items still incomplete on ${context.title}`;
+    }
+    return `🔥 Final reminder: ${context.title}`;
   }
 
   if (level === 0) {
@@ -427,8 +452,7 @@ export async function scheduleReminderBatch(
 
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
-          title:
-            options.kind === "habit" ? "Daily habit reminder" : "Task reminder",
+          title: getNotificationTitle(options.kind),
           body,
           data,
         },
@@ -475,7 +499,7 @@ export async function scheduleReminderBatch(
 
         const notificationId = await Notifications.scheduleNotificationAsync({
           content: {
-            title: options.kind === "habit" ? "Daily habit reminder" : "Task reminder",
+            title: getNotificationTitle(options.kind),
             body,
             data,
           },
@@ -536,7 +560,7 @@ export async function scheduleReminderBatch(
 
         const notificationId = await Notifications.scheduleNotificationAsync({
           content: {
-            title: options.kind === "habit" ? "Daily habit reminder" : "Task reminder",
+            title: getNotificationTitle(options.kind),
             body,
             data,
           },
@@ -638,7 +662,7 @@ export async function scheduleReminderBatch(
 
         const notificationId = await Notifications.scheduleNotificationAsync({
           content: {
-            title: options.kind === "habit" ? "Daily habit reminder" : "Task reminder",
+            title: getNotificationTitle(options.kind),
             body,
             data,
           },
@@ -941,8 +965,10 @@ export async function rescheduleChecklistReminders(
       const minute = triggerDate.getMinutes();
 
       if (checklist.recurrence) {
+        const completedCount = checklist.items?.filter(i => i.completed).length ?? 0;
+        const totalCount = checklist.items?.length ?? 0;
         const batch = await scheduleReminderBatch({
-          kind: "todo",
+          kind: "checklist",
           itemId: checklist.id,
           title: checklist.title,
           category: checklist.categoryId,
@@ -951,6 +977,7 @@ export async function rescheduleChecklistReminders(
           recurrence: recurrenceRuleToScheduler(checklist.recurrence),
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+          context: { title: checklist.title, remainingCount: totalCount - completedCount, totalCount },
         });
         return {
           ...checklist,
@@ -961,14 +988,17 @@ export async function rescheduleChecklistReminders(
         };
       }
 
+      const completedCount = checklist.items?.filter(i => i.completed).length ?? 0;
+      const totalCount = checklist.items?.length ?? 0;
       const batch = await scheduleReminderBatch({
-        kind: "todo",
+        kind: "checklist",
         itemId: checklist.id,
         title: checklist.title,
         oneTimeAt: new Date(checklist.reminder.triggerAt),
         category: checklist.categoryId,
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+        context: { title: checklist.title, remainingCount: totalCount - completedCount, totalCount },
       });
       return {
         ...checklist,

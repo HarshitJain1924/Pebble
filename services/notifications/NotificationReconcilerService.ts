@@ -1,9 +1,10 @@
 import { WorkspaceRepository } from "@/repositories/WorkspaceRepository";
 import { TaskRepository } from "@/repositories/TaskRepository";
 import { HabitRepository } from "@/repositories/HabitRepository";
-import { rescheduleTodoReminders, rescheduleHabitReminders, cancelReminderIds } from "@/services/scheduling/reminders.service";
+import { ChecklistRepository } from "@/repositories/ChecklistRepository";
+import { rescheduleTodoReminders, rescheduleHabitReminders, rescheduleChecklistReminders, cancelReminderIds } from "@/services/scheduling/reminders.service";
 import * as Notifications from "expo-notifications";
-import { Task, Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { Task, Habit, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isMatchingNotificationSignature } from "@/services/notifications/notification-identity";
 
 export class NotificationReconcilerService {
@@ -34,6 +35,7 @@ export class NotificationReconcilerService {
       
       const activeTasks = new Map<string, Task>();
       const activeHabits = new Map<string, Habit>();
+      const activeChecklists = new Map<string, Checklist>();
       
       // 1. Load authoritative domain state
       for (const wsId of workspaceIds) {
@@ -48,6 +50,13 @@ export class NotificationReconcilerService {
         Object.values(habits).forEach(h => {
           if (!h.archivedAt) {
             activeHabits.set(h.id, h);
+          }
+        });
+
+        const checklists = await ChecklistRepository.getChecklists(wsId);
+        Object.values(checklists).forEach(cl => {
+          if (!cl.archivedAt) {
+            activeChecklists.set(cl.id, cl);
           }
         });
       }
@@ -65,7 +74,7 @@ export class NotificationReconcilerService {
         const id = osNotif.identifier;
 
         // Ignore notifications that don't belong to our subsystem
-        if (data?.type !== "todo" && data?.type !== "habit") {
+        if (data?.type !== "todo" && data?.type !== "habit" && data?.type !== "checklist") {
           continue;
         }
 
@@ -84,6 +93,11 @@ export class NotificationReconcilerService {
         } else if (data.type === "habit") {
           const habit = activeHabits.get(itemId);
           if (habit && isMatchingNotificationSignature(data, habit, "habit")) {
+            isMatch = true;
+          }
+        } else if (data.type === "checklist") {
+          const checklist = activeChecklists.get(itemId);
+          if (checklist && isMatchingNotificationSignature(data, checklist, "checklist")) {
             isMatch = true;
           }
         }
@@ -200,6 +214,38 @@ export class NotificationReconcilerService {
               await HabitRepository.updateNotificationIds(habit.id, habit.workspaceId, retainedOsIds);
             } catch (e) {
               console.warn(`[NotificationReconcilerService] Failed to repair domain notificationIds for ${habit.id}`, e);
+            }
+          }
+        }
+      }
+
+      for (const checklist of Array.from(activeChecklists.values())) {
+        if (!checklist.reminder?.enabled || !checklist.reminder?.triggerAt) continue;
+
+        const retainedOsIds = Array.from(validNotifications).filter(id => {
+          const osNotif = allOsNotifications.find(n => n.identifier === id);
+          return osNotif && 
+                 (osNotif.content?.data as any)?.itemId === checklist.id &&
+                 (osNotif.content?.data as any)?.type === "checklist";
+        });
+
+        if (retainedOsIds.length === 0) {
+          try {
+            const updatedChecklist = await rescheduleChecklistReminders(checklist);
+            await ChecklistRepository.updateNotificationIds(updatedChecklist.id, updatedChecklist.workspaceId, updatedChecklist.reminder?.notificationIds);
+          } catch (e) {
+            console.warn(`[NotificationReconcilerService] Failed to reschedule missing checklist reminder for ${checklist.id}`, e);
+          }
+        } else {
+          const domainIds = checklist.reminder.notificationIds || [];
+          const isDomainMismatched = domainIds.length !== retainedOsIds.length || 
+                                     domainIds.some(id => !retainedOsIds.includes(id));
+          
+          if (isDomainMismatched) {
+            try {
+              await ChecklistRepository.updateNotificationIds(checklist.id, checklist.workspaceId, retainedOsIds);
+            } catch (e) {
+              console.warn(`[NotificationReconcilerService] Failed to repair domain notificationIds for ${checklist.id}`, e);
             }
           }
         }

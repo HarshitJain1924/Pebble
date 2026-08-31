@@ -105,12 +105,14 @@ export default function NotificationListener() {
               duration: 6000,
               onSnooze: async () => {
                 try {
-                  // schedule a quick snooze 5 minutes later
+                  // schedule a quick snooze 5 minutes later, preserving entity data
+                  // so tapping the snoozed notification routes correctly.
                   const Notifications = await import("expo-notifications");
                   await Notifications.scheduleNotificationAsync({
                     content: {
                       title: title || "Snoozed",
                       body: body || "Reminder",
+                      data: data ? { ...data, snoozed: true } : undefined,
                     },
                     trigger: {
                       seconds: 60 * 5,

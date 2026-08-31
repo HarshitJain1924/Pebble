@@ -1,4 +1,4 @@
-export type NotificationKind = "todo" | "habit";
+export type NotificationKind = "todo" | "habit" | "checklist";
 export type NotificationPurpose = "reminder" | "escalation" | string;
 
 /**

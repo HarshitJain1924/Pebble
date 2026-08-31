@@ -10,7 +10,7 @@ import { buildNotificationLogicalSignature } from "@/services/notifications/noti
  * time validation with the entity builders.
  */
 export async function scheduleCreationNotifications(
-  kind: "todo" | "habit",
+  kind: "todo" | "habit" | "checklist",
   entityId: string,
   item: ParsedProductivityItem | any,
 ): Promise<string[]> {
@@ -28,17 +28,17 @@ export async function scheduleCreationNotifications(
     }
   }
 
-  const category = item.category || (kind === "todo" ? "work" : "personal");
+  const category = item.category || (kind === "habit" ? "personal" : "work");
   const channelId =
-    kind === "todo"
-      ? `task_reminders_${category}`
-      : `habit_reminders_${category}`;
+    kind === "habit"
+      ? `habit_reminders_${category}`
+      : `task_reminders_${category}`;
 
   try {
-    if (kind === "todo" && !item.recurrence) {
-      // One-time task notification
+    if ((kind === "todo" || kind === "checklist") && !item.recurrence) {
+      // One-time task/checklist notification
       const batch = await scheduleReminderBatch({
-        kind: "todo",
+        kind,
         itemId: entityId,
         title: item.title,
         oneTimeAt: new Date(triggerAt),
@@ -48,7 +48,7 @@ export async function scheduleCreationNotifications(
       return batch.ids;
     }
 
-    // Recurring (task with recurrence OR any habit)
+    // Recurring (task with recurrence OR any habit OR checklist with recurrence)
     const scheduled = await scheduleReminderBatch({
       kind,
       itemId: entityId,
@@ -63,9 +63,9 @@ export async function scheduleCreationNotifications(
       escalationMinutes: [120, 240],
       channelId,
       context:
-        kind === "todo"
-          ? { title: item.title, remainingCount: 1, totalCount: 1 }
-          : { title: item.title, streak: 0 },
+        kind === "habit"
+          ? { title: item.title, streak: 0 }
+          : { title: item.title, remainingCount: 1, totalCount: 1 },
     });
     return scheduled.ids;
   } catch (e) {
@@ -95,4 +95,14 @@ export async function scheduleHabitNotifications(
   item: ParsedProductivityItem,
 ): Promise<string[]> {
   return scheduleCreationNotifications("habit", habitId, item);
+}
+
+/**
+ * Schedule reminder notifications for a checklist input.
+ */
+export async function scheduleChecklistNotifications(
+  checklistId: string,
+  item: ParsedProductivityItem,
+): Promise<string[]> {
+  return scheduleCreationNotifications("checklist", checklistId, item);
 }
