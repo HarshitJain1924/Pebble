@@ -17,7 +17,13 @@ import {
   NotificationStatus,
 } from "./notification.types";
 import { isHabitCompletedToday } from "@/shared/utils/domain-selectors";
-import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
+import {
+  dateKeyFromDate,
+  getOffsetDateKey,
+  getTodayDateKey,
+  parseDateKey,
+} from "@/shared/utils/date-key";
+import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 
 /**
@@ -26,53 +32,52 @@ import { EntityCommandService } from "@/services/command/EntityCommandService";
  * Canonical projection service for the user-facing Alert Center.
  *
  * Invariant: Domain State is Authoritative.
- * Alert Center items are derived directly from domain entities + reminder configurations,
+ * Alert Center items are derived directly from canonical domain entities + reminder configurations,
  * never from scattered local state or OS notifications.
  */
 export class AlertCenterService {
   /**
-   * Computes the next scheduled epoch timestamp for a recurring item whose initial
-   * triggerAt timestamp may be in the past.
+   * Computes the next scheduled epoch timestamp for a recurring item using Pebble's
+   * canonical recurrence rules (`isRecurringOccurrenceForDate`).
    */
-  private static getNextRecurringTriggerEpoch(
+  static getNextRecurringOccurrenceEpoch(
+    item: Task | Habit | Checklist,
     initialTriggerAt: number,
-    recurrenceDays?: number[],
+    startOffsetDays: number = 0,
   ): number {
-    const now = new Date();
     const triggerDate = new Date(initialTriggerAt);
     const hour = triggerDate.getHours();
     const minute = triggerDate.getMinutes();
+    const now = Date.now();
 
-    // If specific weekdays are specified
-    if (recurrenceDays && recurrenceDays.length > 0) {
-      const todayDay = now.getDay();
-      // Look ahead up to 7 days to find the next active weekday
-      for (let offset = 0; offset <= 7; offset++) {
-        const candidateDate = new Date(now);
-        candidateDate.setDate(candidateDate.getDate() + offset);
-        candidateDate.setHours(hour, minute, 0, 0);
+    const todayKey = getTodayDateKey();
 
-        const candidateDay = candidateDate.getDay();
-        if (recurrenceDays.includes(candidateDay)) {
-          if (candidateDate.getTime() > now.getTime()) {
-            return candidateDate.getTime();
-          }
-        }
+    // Check if it occurs today (only if startOffsetDays <= 0)
+    if (startOffsetDays <= 0 && isRecurringOccurrenceForDate(item, todayKey)) {
+      const todayOccurrence = parseDateKey(todayKey);
+      todayOccurrence.setHours(hour, minute, 0, 0);
+      // If today's alarm is still in the future, that is the next occurrence
+      if (todayOccurrence.getTime() > now) {
+        return todayOccurrence.getTime();
       }
     }
 
-    // Default daily recurrence
-    const todayCandidate = new Date(now);
-    todayCandidate.setHours(hour, minute, 0, 0);
-
-    if (todayCandidate.getTime() > now.getTime()) {
-      return todayCandidate.getTime();
+    // Otherwise, scan forward for the next active occurrence date (up to 365 days)
+    const scanStart = Math.max(1, startOffsetDays);
+    for (let offset = scanStart; offset <= 365; offset++) {
+      const candidateKey = getOffsetDateKey(-offset, todayKey);
+      if (isRecurringOccurrenceForDate(item, candidateKey)) {
+        const candidateDate = parseDateKey(candidateKey);
+        candidateDate.setHours(hour, minute, 0, 0);
+        return candidateDate.getTime();
+      }
     }
 
-    const tomorrowCandidate = new Date(now);
-    tomorrowCandidate.setDate(tomorrowCandidate.getDate() + 1);
-    tomorrowCandidate.setHours(hour, minute, 0, 0);
-    return tomorrowCandidate.getTime();
+    // Fallback: tomorrow (or next day) at target time
+    const fallback = new Date();
+    fallback.setDate(fallback.getDate() + scanStart);
+    fallback.setHours(hour, minute, 0, 0);
+    return fallback.getTime();
   }
 
   /**
@@ -175,8 +180,8 @@ export class AlertCenterService {
       const tasksMap = await TaskRepository.getTasks(wsId);
       for (const task of Object.values(tasksMap)) {
         if (task.archivedAt || task.status === "completed") continue;
-        if (!task.reminder?.enabled || !task.reminder?.triggerAt) continue;
-        const alertId = `todo:${task.id}`;
+        if (!task.reminder || typeof task.reminder.triggerAt !== "number" || task.reminder.enabled === false) continue;
+        const alertId = `task:${task.id}`;
         if (seenEntities.has(alertId)) continue;
         seenEntities.add(alertId);
 
@@ -184,9 +189,9 @@ export class AlertCenterService {
         let effectiveTriggerAt = task.reminder.triggerAt;
 
         if (isRecurring && task.reminder.triggerAt < now) {
-          effectiveTriggerAt = this.getNextRecurringTriggerEpoch(
+          effectiveTriggerAt = this.getNextRecurringOccurrenceEpoch(
+            task,
             task.reminder.triggerAt,
-            task.recurrence?.daysOfWeek,
           );
         }
 
@@ -208,7 +213,7 @@ export class AlertCenterService {
         items.push({
           id: alertId,
           entityId: task.id,
-          entityType: "todo",
+          entityType: "task",
           title: task.title,
           triggerAt: effectiveTriggerAt,
           status,
@@ -230,16 +235,15 @@ export class AlertCenterService {
       const habitsMap = await HabitRepository.getHabits(wsId);
       for (const habit of Object.values(habitsMap)) {
         if (habit.archivedAt) continue;
-        if (!habit.reminder?.enabled || !habit.reminder?.triggerAt) continue;
+        if (!habit.reminder || typeof habit.reminder.triggerAt !== "number" || habit.reminder.enabled === false) continue;
         const alertId = `habit:${habit.id}`;
         if (seenEntities.has(alertId)) continue;
         seenEntities.add(alertId);
 
         const isCompletedToday = isHabitCompletedToday(habit);
-        const nextTriggerAt = this.getNextRecurringTriggerEpoch(
-          habit.reminder.triggerAt,
-          habit.recurrence?.daysOfWeek,
-        );
+        const nextTriggerAt = isCompletedToday
+          ? this.getNextRecurringOccurrenceEpoch(habit, habit.reminder.triggerAt, 1)
+          : this.getNextRecurringOccurrenceEpoch(habit, habit.reminder.triggerAt, 0);
 
         // For habits, even if past today's alarm, it's a recurring daily commitment
         // not a missed single-shot task. If completed today, scheduled for next cycle.
@@ -269,7 +273,7 @@ export class AlertCenterService {
       const checklistsMap = await ChecklistRepository.getChecklists(wsId);
       for (const checklist of Object.values(checklistsMap)) {
         if (checklist.archivedAt) continue;
-        if (!checklist.reminder?.enabled || !checklist.reminder?.triggerAt) continue;
+        if (!checklist.reminder || typeof checklist.reminder.triggerAt !== "number" || checklist.reminder.enabled === false) continue;
         const alertId = `checklist:${checklist.id}`;
         if (seenEntities.has(alertId)) continue;
         seenEntities.add(alertId);
@@ -284,9 +288,9 @@ export class AlertCenterService {
 
         let effectiveTriggerAt = checklist.reminder.triggerAt;
         if (isRecurring && checklist.reminder.triggerAt < now) {
-          effectiveTriggerAt = this.getNextRecurringTriggerEpoch(
+          effectiveTriggerAt = this.getNextRecurringOccurrenceEpoch(
+            checklist,
             checklist.reminder.triggerAt,
-            checklist.recurrence?.daysOfWeek,
           );
         }
 
@@ -369,11 +373,11 @@ export class AlertCenterService {
    * Action: Cancel reminder directly through canonical EntityCommandService.
    */
   static async cancelReminder(
-    entityType: "todo" | "habit" | "checklist",
+    entityType: "task" | "todo" | "habit" | "checklist",
     entityId: string,
     workspaceId: string,
   ): Promise<void> {
-    if (entityType === "todo") {
+    if (entityType === "task" || entityType === "todo") {
       await EntityCommandService.updateTask(entityId, workspaceId, {
         reminder: undefined,
       });

@@ -6,10 +6,10 @@
  */
 
 /** The canonical entity types that can own notifications in Pebble. */
-export type NotificationEntityType = "todo" | "habit" | "checklist";
+export type NotificationEntityType = "task" | "habit" | "checklist" | "todo";
 
 /** Backwards-compatible alias for ReminderKind / NotificationKind */
-export type NotificationKind = NotificationEntityType;
+export type NotificationKind = "task" | "habit" | "checklist" | "todo";
 
 /** The logical purpose of a notification. */
 export type NotificationPurpose = "reminder" | "escalation" | string;

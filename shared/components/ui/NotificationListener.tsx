@@ -54,14 +54,12 @@ export default function NotificationListener() {
         }
 
         Notifications.setNotificationHandler({
-          handleNotification: async () =>
-            ({
-              shouldShowAlert: true,
-              shouldPlaySound: true,
-              shouldSetBadge: false,
-              shouldShowBanner: true,
-              shouldShowList: true,
-            }) as any,
+          handleNotification: async () => ({
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+            shouldShowBanner: true,
+            shouldShowList: true,
+          }),
         });
 
         void Notifications.getLastNotificationResponseAsync().then(

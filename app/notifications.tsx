@@ -4,11 +4,11 @@ import {
   Alert,
   Linking,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
@@ -36,6 +36,7 @@ import {
 } from "@/services/scheduling/notifications-log";
 
 export default function AlertCenterScreen() {
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const router = useRouter();
@@ -285,6 +286,7 @@ export default function AlertCenterScreen() {
         return "#10B981"; // Emerald green
       case "checklist":
         return "#3B82F6"; // Electric blue
+      case "task":
       case "todo":
       default:
         return "#F59E0B"; // Warm amber
@@ -297,6 +299,7 @@ export default function AlertCenterScreen() {
         return "repeat";
       case "checklist":
         return "check-square";
+      case "task":
       case "todo":
       default:
         return "calendar";
@@ -309,6 +312,7 @@ export default function AlertCenterScreen() {
         return "Habit";
       case "checklist":
         return "Checklist";
+      case "task":
       case "todo":
       default:
         return "Task";
@@ -316,7 +320,7 @@ export default function AlertCenterScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <View style={[styles.safeArea, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       {/* Header */}
       <View style={[styles.header, { borderColor: colors.border }]}>
         <PressableScale
@@ -440,7 +444,7 @@ export default function AlertCenterScreen() {
                               <Text style={[styles.smallButtonText, { color: colors.text }]}>Open</Text>
                             </PressableScale>
 
-                            {item.entityType === "todo" && (
+                            {(item.entityType === "task" || item.entityType === "todo") && (
                               <PressableScale
                                 haptic
                                 onPress={() => handleCompleteTask(item)}
@@ -561,7 +565,7 @@ export default function AlertCenterScreen() {
                                     </>
                                   )}
 
-                                  {item.entityType === "todo" && item.meta?.recurrenceLabel && (
+                                  {(item.entityType === "task" || item.entityType === "todo") && item.meta?.recurrenceLabel && (
                                     <>
                                       <Text style={[styles.metaDot, { color: colors.textMuted }]}>·</Text>
                                       <Text style={[styles.recurrenceText, { color: colors.textMuted }]}>
@@ -829,7 +833,7 @@ export default function AlertCenterScreen() {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

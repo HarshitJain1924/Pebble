@@ -75,7 +75,15 @@ export function normalizeChecklist(
             ? [...rawChecklist.reminder.notificationIds]
             : undefined,
         }
-      : undefined,
+      : typeof rawChecklist.alarmTime === "number"
+        ? {
+            enabled: true,
+            triggerAt: rawChecklist.alarmTime,
+            notificationIds:
+              rawChecklist.notificationIds ||
+              (rawChecklist.alarmId ? [rawChecklist.alarmId] : undefined),
+          }
+        : undefined,
     occurrenceHistory:
       rawChecklist.occurrenceHistory &&
       typeof rawChecklist.occurrenceHistory === "object"
