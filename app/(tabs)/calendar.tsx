@@ -1,6 +1,6 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -20,6 +20,9 @@ import Animated, {
 } from "react-native-reanimated";
 
 import {
+  calculateCurrentTimePosition,
+  calculateInitialTimelineScrollOffset,
+  formatCurrentTimeLabel,
   getDateKey,
   MONTH_NAMES,
   useCalendarState,
@@ -27,7 +30,8 @@ import {
 } from "@/features/calendar/hooks/useCalendarState";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { Typography } from "@/shared/constants/typography";
-import { isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
+import { isHabitCompletedToday, isTaskCompleted } from "@/shared/utils/domain-selectors";
 import * as Haptics from "expo-haptics";
 
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
@@ -80,6 +84,9 @@ export default function CalendarScreen() {
     allDayItems,
     timedItemsWithLayout,
     calendarCells,
+    pendingTasks,
+    freeTimeGaps,
+    planTask,
   } = useCalendarState();
 
   // ─── Filters & Custom States ──────────────────────────────────────
@@ -91,6 +98,54 @@ export default function CalendarScreen() {
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
   const [showQuickJump, setShowQuickJump] = useState<boolean>(false);
   const [showFilter, setShowFilter] = useState<boolean>(false);
+  const [quickSlotTask, setQuickSlotTask] = useState<any | null>(null);
+  const [placeTaskTarget, setPlaceTaskTarget] = useState<{
+    hour: number;
+    minute: number;
+  } | null>(null);
+
+  // ─── Initial Viewport Anchoring ──────────────────────────────────
+  const hasInitialScrolledRef = useRef(false);
+  const userScrolledRef = useRef(false);
+
+  const performInitialScroll = useCallback(() => {
+    if (hasInitialScrolledRef.current || userScrolledRef.current) return;
+    hasInitialScrolledRef.current = true;
+
+    const offset = calculateInitialTimelineScrollOffset({
+      selectedDate,
+      hourHeight: 80,
+    });
+
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: offset, animated: false });
+    });
+  }, [selectedDate, scrollRef]);
+
+  // ─── Current Time Indicator (Live update every minute for Today) ──
+  const isViewingToday = selectedDate === getDateKey();
+  const [currentTime, setCurrentTime] = useState(() => {
+    const now = new Date();
+    return { hours: now.getHours(), minutes: now.getMinutes() };
+  });
+
+  useEffect(() => {
+    if (!isViewingToday) return;
+
+    const updateCurrentTime = () => {
+      const now = new Date();
+      setCurrentTime((prev) => {
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+        if (prev.hours === hours && prev.minutes === minutes) return prev;
+        return { hours, minutes };
+      });
+    };
+
+    updateCurrentTime();
+    const interval = setInterval(updateCurrentTime, 60000);
+    return () => clearInterval(interval);
+  }, [isViewingToday]);
 
   const getItemType = (item: any) => {
     if (item.type === "habit") return "habit";
@@ -182,53 +237,6 @@ export default function CalendarScreen() {
     });
   }, [timedItemsWithLayout, activeFilters, showCompleted]);
 
-  // ─── Free Time Calculator ─────────────────────────────────────────
-  const freeTimeGaps = useMemo(() => {
-    const timed = timelineItems.filter(
-      (item) =>
-        item.startHour !== undefined && item.startMinute !== undefined,
-    );
-    const sorted = [...timed].sort((a, b) => {
-      const startA = a.startHour! * 60 + a.startMinute!;
-      const startB = b.startHour! * 60 + b.startMinute!;
-      return startA - startB;
-    });
-
-    const gaps = [];
-    let currentStart = 8 * 60; // 8 AM
-    const dayEnd = 22 * 60; // 10 PM
-
-    for (const item of sorted) {
-      const start = item.startHour! * 60 + item.startMinute!;
-      const end = start + (item.durationMinutes || 60);
-
-      if (start > currentStart) {
-        const gapDuration = start - currentStart;
-        if (gapDuration >= 30) {
-          gaps.push({
-            startMinutes: currentStart,
-            durationMinutes: gapDuration,
-          });
-        }
-      }
-      if (end > currentStart) {
-        currentStart = end;
-      }
-    }
-
-    if (dayEnd > currentStart) {
-      const gapDuration = dayEnd - currentStart;
-      if (gapDuration >= 30) {
-        gaps.push({
-          startMinutes: currentStart,
-          durationMinutes: gapDuration,
-        });
-      }
-    }
-
-    return gaps;
-  }, [timelineItems]);
-
   // ─── Switcher & Calendar Morph Animations ──────────────────────────
   const getHeaderTitle = () => {
     const d = new Date(selectedDate);
@@ -301,8 +309,9 @@ export default function CalendarScreen() {
       opacityMonth.value = withTiming(0, { duration: 100 });
       opacityWeek.value = withTiming(0, { duration: 100 });
       opacityTimeline.value = withTiming(1, { duration: 150 });
+      performInitialScroll();
     }
-  }, [calendarViewMode]);
+  }, [calendarViewMode, performInitialScroll]);
 
   const activePillStyle = useAnimatedStyle(() => {
     const tabWidth = 260 / 3;
@@ -386,6 +395,9 @@ export default function CalendarScreen() {
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
+          onScrollBeginDrag={() => {
+            userScrolledRef.current = true;
+          }}
           onScroll={(e) => {
             scrollYRef.current = e.nativeEvent.contentOffset.y;
           }}
@@ -402,7 +414,7 @@ export default function CalendarScreen() {
           >
             <View style={{ gap: 2, flex: 1, paddingRight: 16 }}>
               <Text style={[styles.kicker, { color: colors.primary }]}>
-                SCHEDULE
+                {calendarViewMode === "timeline" ? "DAILY PLANNER" : "SCHEDULE"}
               </Text>
               <Text
                 style={{ fontSize: 24, fontWeight: "800", color: colors.text }}
@@ -1006,7 +1018,10 @@ export default function CalendarScreen() {
             {/* Hourly Planner Visual Blocks */}
             <View
               ref={timelineGridRef}
-              onLayout={measureTimelineGrid}
+              onLayout={() => {
+                measureTimelineGrid();
+                performInitialScroll();
+              }}
               style={styles.timelineGridWrapper}
             >
               {/* Background Hours & Lines */}
@@ -1027,7 +1042,20 @@ export default function CalendarScreen() {
                         {timeStr}
                       </Text>
                     </View>
-                    <View
+                    <Pressable
+                      onPress={(e) => {
+                        const locationY = e.nativeEvent.locationY;
+                        const minuteIndex = Math.min(
+                          3,
+                          Math.max(0, Math.floor(locationY / 20)),
+                        );
+                        const minute = minuteIndex * 15;
+                        Haptics.impactAsync(
+                          Haptics.ImpactFeedbackStyle.Light,
+                        ).catch(() => {});
+                        setPlaceTaskTarget({ hour: hr, minute });
+                      }}
+                      accessibilityLabel={`Place task at ${timeStr}`}
                       style={[
                         styles.hourLineCol,
                         { borderColor: colors.border },
@@ -1209,7 +1237,7 @@ export default function CalendarScreen() {
                   );
                 })}
 
-                {/* Free Time Suggestion Cards */}
+                {/* Inline Free-Time Planner Affordances */}
                 {freeTimeGaps.map((gap, idx) => {
                   const top = (gap.startMinutes / 60) * 80;
                   const height = (gap.durationMinutes / 60) * 80;
@@ -1220,95 +1248,107 @@ export default function CalendarScreen() {
                       ? `${hrs}h ${mins > 0 ? `${mins}m` : ""}`
                       : `${mins}m`;
 
+                  const gapHour = Math.floor(gap.startMinutes / 60);
+                  const gapMin = gap.startMinutes % 60;
+
                   return (
-                    <View
+                    <Pressable
                       key={`gap-${idx}`}
+                      onPress={() => {
+                        Haptics.impactAsync(
+                          Haptics.ImpactFeedbackStyle.Light,
+                        ).catch(() => {});
+                        setPlaceTaskTarget({ hour: gapHour, minute: gapMin });
+                      }}
+                      accessibilityLabel={`Plan task in ${durationStr} available free time at ${gapHour}:${gapMin < 10 ? "0" : ""}${gapMin}`}
                       style={{
                         position: "absolute",
                         top: top + 2,
-                        height: height - 4,
+                        height: Math.max(34, height - 4),
                         left: 0,
                         right: 8,
-                        borderRadius: 14,
+                        borderRadius: 12,
                         borderWidth: 1.5,
-                        borderColor: colors.border,
+                        borderColor: isLight
+                          ? "#E2E8F0"
+                          : "rgba(255, 255, 255, 0.08)",
                         borderStyle: "dashed",
                         backgroundColor: isLight
                           ? "#F8FAFC"
                           : "rgba(255, 255, 255, 0.02)",
                         paddingHorizontal: 12,
+                        paddingVertical: 6,
                         flexDirection: "row",
                         alignItems: "center",
                         justifyContent: "space-between",
                         gap: 8,
                       }}
                     >
+                      {/* Available duration label */}
                       <View
                         style={{
                           flexDirection: "row",
                           alignItems: "center",
-                          gap: 10,
+                          gap: 6,
+                          flexShrink: 1,
                         }}
                       >
-                        <View
-                          style={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: 12,
-                            backgroundColor: `${colors.primary}12`,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Feather
-                            name="coffee"
-                            size={12}
-                            color={colors.primary}
-                          />
-                        </View>
-                        <View>
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              fontWeight: "700",
-                              color: colors.text,
-                            }}
-                          >
-                            {durationStr} free
-                          </Text>
-                          <Text
-                            style={{ fontSize: 9, color: colors.textMuted }}
-                          >
-                            Perfect for Deep Work
-                          </Text>
-                        </View>
-                      </View>
-                      <PressableScale
-                        onPress={() => {
-                          Haptics.impactAsync(
-                            Haptics.ImpactFeedbackStyle.Light,
-                          ).catch(() => {});
-                          router.push("/focus");
-                        }}
-                        scaleTo={0.95}
-                        contentStyle={{
-                          backgroundColor: colors.primary,
-                          paddingHorizontal: 10,
-                          paddingVertical: 5,
-                          borderRadius: 8,
-                        }}
-                      >
+                        <Feather
+                          name="clock"
+                          size={11}
+                          color={colors.textMuted}
+                        />
                         <Text
                           style={{
-                            color: "#FFFFFF",
-                            fontSize: 9,
+                            fontSize: 11,
+                            fontWeight: "600",
+                            color: colors.textMuted,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {durationStr} available
+                        </Text>
+                      </View>
+
+                      {/* Action Affordance Pill */}
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          backgroundColor: isLight
+                            ? "#FFFFFF"
+                            : "rgba(255, 255, 255, 0.06)",
+                          paddingHorizontal: 9,
+                          paddingVertical: 4,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: isLight
+                            ? "#E2E8F0"
+                            : "rgba(255, 255, 255, 0.12)",
+                          shadowColor: "#000",
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: isLight ? 0.04 : 0,
+                          shadowRadius: 2,
+                          elevation: 1,
+                        }}
+                      >
+                        <Feather
+                          name="plus"
+                          size={11}
+                          color={colors.primary}
+                        />
+                        <Text
+                          style={{
+                            fontSize: 11,
                             fontWeight: "800",
+                            color: colors.primary,
                           }}
                         >
-                          Start Focus
+                          Plan something
                         </Text>
-                      </PressableScale>
-                    </View>
+                      </View>
+                    </Pressable>
                   );
                 })}
 
@@ -1346,8 +1386,80 @@ export default function CalendarScreen() {
                     </Text>
                   </View>
                 )}
+
+                {/* Current Time Indicator (Today Only) */}
+                {isViewingToday && (
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: Math.max(
+                        0,
+                        Math.min(
+                          1918,
+                          calculateCurrentTimePosition(
+                            currentTime.hours,
+                            currentTime.minutes,
+                            80,
+                          ) - 1,
+                        ),
+                      ),
+                      left: -4,
+                      right: 0,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      zIndex: 30,
+                    }}
+                    pointerEvents="none"
+                  >
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: "#EF4444",
+                      }}
+                    />
+                    <View
+                      style={{
+                        paddingHorizontal: 5,
+                        paddingVertical: 1.5,
+                        borderRadius: 4,
+                        backgroundColor: isLight
+                          ? "#FEE2E2"
+                          : "rgba(239, 68, 68, 0.2)",
+                        marginLeft: 4,
+                        marginRight: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: "800",
+                          color: "#EF4444",
+                          lineHeight: 12,
+                        }}
+                      >
+                        {formatCurrentTimeLabel(
+                          currentTime.hours,
+                          currentTime.minutes,
+                        )}
+                      </Text>
+                    </View>
+                    <View
+                      style={{
+                        flex: 1,
+                        height: 2,
+                        backgroundColor: "#EF4444",
+                        borderRadius: 1,
+                      }}
+                    />
+                  </View>
+                )}
               </View>
             </View>
+
+            {/* Bottom spacer for clean timeline scroll clearance */}
+            <View style={{ height: 48 }} />
           </View>
         </ScrollView>
       </Animated.View>
@@ -1642,6 +1754,564 @@ export default function CalendarScreen() {
             </PressableScale>
           </View>
         )}
+      </AnimatedOverlay>
+
+      {/* ── QUICK SLOT SCHEDULE SHEET ───────────────────────── */}
+      <AnimatedOverlay
+        visible={!!quickSlotTask}
+        onClose={() => setQuickSlotTask(null)}
+        type="bottom-sheet"
+      >
+        {(close) => {
+          if (!quickSlotTask) return null;
+          const taskDuration =
+            quickSlotTask.schedule?.durationMinutes || 60;
+
+          // Helper to format free gap suggestions
+          const topGaps = freeTimeGaps.slice(0, 3).map((gap) => {
+            const gapHour = Math.floor(gap.startMinutes / 60);
+            const gapMin = gap.startMinutes % 60;
+            const timeLabel =
+              formatReminderTime(gapHour, gapMin) ||
+              `${String(gapHour).padStart(2, "0")}:${String(gapMin).padStart(2, "0")}`;
+            const durHours = Math.floor(gap.durationMinutes / 60);
+            const durMins = gap.durationMinutes % 60;
+            const durLabel =
+              durHours > 0
+                ? `${durHours}h${durMins > 0 ? ` ${durMins}m` : ""}`
+                : `${durMins}m`;
+            return {
+              hour: gapHour,
+              minute: gapMin,
+              timeLabel,
+              durLabel,
+            };
+          });
+
+          // Common quick preset hours
+          const commonPresets = [
+            { hour: 9, minute: 0, label: "09:00 AM" },
+            { hour: 11, minute: 0, label: "11:00 AM" },
+            { hour: 14, minute: 0, label: "02:00 PM" },
+            { hour: 16, minute: 0, label: "04:00 PM" },
+            { hour: 18, minute: 30, label: "06:30 PM" },
+          ];
+
+          return (
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                paddingTop: 16,
+                paddingHorizontal: 20,
+                paddingBottom: Platform.OS === "ios" ? 36 : 24,
+                borderWidth: 1.5,
+                borderColor: colors.border,
+                gap: 14,
+              }}
+            >
+              {/* Header */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingBottom: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.border + "40",
+                }}
+              >
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 16,
+                      fontWeight: "800",
+                    }}
+                    numberOfLines={1}
+                  >
+                    Schedule Task
+                  </Text>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 12,
+                      fontWeight: "600",
+                      marginTop: 2,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {quickSlotTask.title} • {taskDuration} min
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={close}
+                  hitSlop={8}
+                  style={{
+                    padding: 6,
+                    borderRadius: 16,
+                    backgroundColor: isLight
+                      ? "#F1F5F9"
+                      : "rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <Feather name="x" size={16} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              {/* 1. Suggested Free Time Windows */}
+              {topGaps.length > 0 && (
+                <View style={{ gap: 8 }}>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: "800",
+                      color: colors.textMuted,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      paddingHorizontal: 2,
+                    }}
+                  >
+                    Suggested Free Windows
+                  </Text>
+                  <View style={{ gap: 6 }}>
+                    {topGaps.map((gap, idx) => (
+                      <PressableScale
+                        key={`gap-${gap.hour}-${gap.minute}-${idx}`}
+                        onPress={async () => {
+                          Haptics.notificationAsync(
+                            Haptics.NotificationFeedbackType.Success,
+                          ).catch(() => {});
+                          await planTask(quickSlotTask.id, {
+                            hour: gap.hour,
+                            minute: gap.minute,
+                          });
+                          close();
+                        }}
+                        scaleTo={0.98}
+                        contentStyle={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                          borderRadius: 12,
+                          backgroundColor: `${colors.primary}12`,
+                          borderWidth: 1,
+                          borderColor: `${colors.primary}35`,
+                        }}
+                      >
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 10,
+                          }}
+                        >
+                          <Feather
+                            name="clock"
+                            size={14}
+                            color={colors.primary}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              fontWeight: "700",
+                              color: colors.text,
+                            }}
+                          >
+                            {gap.timeLabel}
+                          </Text>
+                        </View>
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: "600",
+                            color: colors.primary,
+                          }}
+                        >
+                          {gap.durLabel} free
+                        </Text>
+                      </PressableScale>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* 2. Common Quick Slots */}
+              <View style={{ gap: 8 }}>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "800",
+                    color: colors.textMuted,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                    paddingHorizontal: 2,
+                  }}
+                >
+                  Quick Slots
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 8,
+                  }}
+                >
+                  {commonPresets.map((preset) => (
+                    <PressableScale
+                      key={preset.label}
+                      onPress={async () => {
+                        Haptics.notificationAsync(
+                          Haptics.NotificationFeedbackType.Success,
+                        ).catch(() => {});
+                        await planTask(quickSlotTask.id, {
+                          hour: preset.hour,
+                          minute: preset.minute,
+                        });
+                        close();
+                      }}
+                      scaleTo={0.96}
+                      contentStyle={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 12,
+                        backgroundColor: isLight
+                          ? "#F1F5F9"
+                          : "rgba(255,255,255,0.04)",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        gap: 6,
+                      }}
+                    >
+                      <Feather name="sun" size={12} color={colors.textMuted} />
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: "700",
+                          color: colors.text,
+                        }}
+                      >
+                        {preset.label}
+                      </Text>
+                    </PressableScale>
+                  ))}
+                </View>
+              </View>
+
+              {/* 3. All-Day / Anytime Option */}
+              <View
+                style={{
+                  height: 1,
+                  backgroundColor: colors.border,
+                  marginVertical: 2,
+                }}
+              />
+              <PressableScale
+                onPress={async () => {
+                  Haptics.notificationAsync(
+                    Haptics.NotificationFeedbackType.Success,
+                  ).catch(() => {});
+                  await planTask(quickSlotTask.id, { isAllDay: true });
+                  close();
+                }}
+                scaleTo={0.98}
+                contentStyle={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: 12,
+                  borderRadius: 12,
+                  backgroundColor: isLight
+                    ? "#F8FAFC"
+                    : "rgba(255,255,255,0.02)",
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <Feather name="calendar" size={14} color={colors.textMuted} />
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: "700",
+                      color: colors.text,
+                    }}
+                  >
+                    Place in All Day / Anytime
+                  </Text>
+                </View>
+                <Feather
+                  name="arrow-right"
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </PressableScale>
+            </View>
+          );
+        }}
+      </AnimatedOverlay>
+
+      {/* ── TIMELINE-FIRST PLACE TASK SHEET ───────────────────────── */}
+      <AnimatedOverlay
+        visible={!!placeTaskTarget}
+        onClose={() => setPlaceTaskTarget(null)}
+        type="bottom-sheet"
+      >
+        {(close) => {
+          if (!placeTaskTarget) return null;
+          const targetTimeLabel =
+            formatReminderTime(placeTaskTarget.hour, placeTaskTarget.minute) ||
+            `${String(placeTaskTarget.hour).padStart(2, "0")}:${String(placeTaskTarget.minute).padStart(2, "0")}`;
+
+          return (
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                paddingTop: 16,
+                paddingHorizontal: 20,
+                paddingBottom: Platform.OS === "ios" ? 36 : 24,
+                borderWidth: 1.5,
+                borderColor: colors.border,
+                gap: 14,
+                maxHeight: 520,
+              }}
+            >
+              {/* Header */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingBottom: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.border + "40",
+                }}
+              >
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 16,
+                      fontWeight: "800",
+                    }}
+                    numberOfLines={1}
+                  >
+                    Place at {targetTimeLabel}
+                  </Text>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 12,
+                      fontWeight: "600",
+                      marginTop: 2,
+                    }}
+                  >
+                    Select an unplaced task to schedule
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={close}
+                  hitSlop={8}
+                  style={{
+                    padding: 6,
+                    borderRadius: 16,
+                    backgroundColor: isLight
+                      ? "#F1F5F9"
+                      : "rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <Feather name="x" size={16} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              {/* Task list or empty state */}
+              {pendingTasks.length === 0 ? (
+                <View
+                  style={{
+                    paddingVertical: 24,
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Feather
+                    name="check-circle"
+                    size={24}
+                    color={colors.success}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "700",
+                      color: colors.text,
+                    }}
+                  >
+                    No Unplaced Tasks
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: colors.textMuted,
+                      textAlign: "center",
+                    }}
+                  >
+                    All tasks for this workspace are already scheduled.
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView
+                  style={{ maxHeight: 320 }}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8 }}
+                >
+                  {pendingTasks.map((task) => {
+                    const taskDuration =
+                      task.schedule?.durationMinutes || 60;
+                    return (
+                      <PressableScale
+                        key={task.id}
+                        onPress={async () => {
+                          Haptics.notificationAsync(
+                            Haptics.NotificationFeedbackType.Success,
+                          ).catch(() => {});
+                          await planTask(task.id, {
+                            hour: placeTaskTarget.hour,
+                            minute: placeTaskTarget.minute,
+                          });
+                          close();
+                        }}
+                        scaleTo={0.98}
+                        contentStyle={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: 12,
+                          borderRadius: 14,
+                          backgroundColor: isLight
+                            ? "#F8FAFC"
+                            : "rgba(255,255,255,0.03)",
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        }}
+                      >
+                        <View
+                          style={{
+                            flex: 1,
+                            marginRight: 10,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <View
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: 4,
+                              backgroundColor:
+                                task.priority === "high"
+                                  ? "#EF4444"
+                                  : task.priority === "medium"
+                                    ? "#F59E0B"
+                                    : "#3B82F6",
+                            }}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                fontWeight: "700",
+                                color: colors.text,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {task.title}
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: colors.textMuted,
+                                fontWeight: "500",
+                                marginTop: 1,
+                              }}
+                            >
+                              {taskDuration} min
+                            </Text>
+                          </View>
+                        </View>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                            backgroundColor: `${colors.primary}15`,
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 8,
+                          }}
+                        >
+                          <Feather
+                            name="plus"
+                            size={12}
+                            color={colors.primary}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: "800",
+                              color: colors.primary,
+                            }}
+                          >
+                            Place
+                          </Text>
+                        </View>
+                      </PressableScale>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              {/* Cancel button */}
+              <PressableScale
+                onPress={close}
+                scaleTo={0.98}
+                contentStyle={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingVertical: 11,
+                  borderRadius: 12,
+                  backgroundColor: isLight
+                    ? "#F1F5F9"
+                    : "rgba(255,255,255,0.04)",
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "700",
+                    color: colors.textMuted,
+                  }}
+                >
+                  Cancel
+                </Text>
+              </PressableScale>
+            </View>
+          );
+        }}
       </AnimatedOverlay>
     </SafeAreaView>
   );

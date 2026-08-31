@@ -24,7 +24,7 @@ All text in Pebble must map to a semantic tier. Do not specify arbitrary font si
 
 ## 2. Spacing Scale
 
-Always align layout margins, paddings, gaps, and heights to Pebble's 4px baseline system. Map margins/paddings semantic names to variables defined in `dashboardStyles.ts`:
+Always align layout margins, paddings, gaps, and heights to Pebble's 4px baseline system. Map margins/paddings semantic names to variables defined in theme / style constants (`shared/constants/dashboardStyles.ts`):
 
 *   `spacing.xs` (Extra Small): Gap for tiny element offsets (like streak fire gaps, text-icon spacing).
 *   `spacing.sm` (Small): Spacing for row contents or checkbox-text gaps.

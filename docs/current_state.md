@@ -95,7 +95,7 @@ At boot, Pebble runs the following idempotently:
 
 ## 16. Known Limitations
 - Native SQLite is not used; `AsyncStorage` forces string serialization overhead on large arrays.
-- `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `decision-log`).
+- `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
 ## 17. Current Test-Suite Status
 - **Total Tests**: 731 passing

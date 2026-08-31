@@ -1,11 +1,6 @@
----
-name: decision-log
-description: Pebble's architectural and product memory. Records accepted decisions, rejected ideas, future experiments, known limitations, user research, and technical debt.
----
-
 # Pebble Architectural & Product Memory
 
-This skill serves as Pebble's permanent product and technical memory. It indexes accepted decisions, rejected directions, future experiments, user research findings, and technical debt. Before recommending changes, verify your proposal against this memory.
+This document serves as Pebble's permanent product and technical memory. It indexes accepted decisions, rejected directions, future experiments, user research findings, and technical debt. Before recommending changes, verify your proposal against this memory.
 
 ---
 

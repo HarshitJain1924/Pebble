@@ -63,6 +63,76 @@ export const MONTH_NAMES = [
   "December",
 ];
 
+export interface InitialTimelineScrollOptions {
+  selectedDate: string;
+  currentDate?: string;
+  currentHour?: number;
+  hourHeight?: number;
+  headerOffset?: number;
+}
+
+/**
+ * Calculates the initial vertical scroll offset for the Day/Timeline viewport.
+ * 
+ * Rules:
+ * 1. If viewing Today and currentHour >= 7: positions the timeline near currentHour
+ *    with 1 hour of visual headroom (Math.max(0, currentHour - 1)).
+ * 2. If viewing Today and currentHour < 7 (early morning): falls back to 7:00 AM.
+ * 3. If viewing a non-today date: falls back to 7:00 AM.
+ */
+export function calculateInitialTimelineScrollOffset(
+  options: InitialTimelineScrollOptions,
+): number {
+  const {
+    selectedDate,
+    currentDate = getDateKey(),
+    currentHour = new Date().getHours(),
+    hourHeight = 80,
+    headerOffset = 0,
+  } = options;
+
+  const isToday = selectedDate === currentDate;
+
+  let targetHour = 7;
+  if (isToday) {
+    if (currentHour >= 7) {
+      targetHour = Math.max(0, currentHour - 1);
+    } else {
+      targetHour = 7;
+    }
+  }
+
+  return Math.max(0, targetHour * hourHeight + headerOffset);
+}
+
+/**
+ * Calculates the vertical Y coordinate (in pixels) for the Current Time Indicator
+ * on the 24-hour Day timeline.
+ */
+export function calculateCurrentTimePosition(
+  hours: number,
+  minutes: number,
+  hourHeight: number = 80,
+): number {
+  const clampedHours = Math.max(0, Math.min(23, hours));
+  const clampedMinutes = Math.max(0, Math.min(59, minutes));
+  const totalMinutes = clampedHours * 60 + clampedMinutes;
+  return (totalMinutes / 60) * hourHeight;
+}
+
+/**
+ * Formats 24-hour wall-clock time (hours, minutes) into standard 12-hour display string.
+ * Example: 17:48 -> "5:48 PM", 00:00 -> "12:00 AM", 12:01 -> "12:01 PM"
+ */
+export function formatCurrentTimeLabel(hours: number, minutes: number): string {
+  const clampedHours = Math.max(0, Math.min(23, hours));
+  const clampedMinutes = Math.max(0, Math.min(59, minutes));
+  const displayHour = clampedHours % 12 === 0 ? 12 : clampedHours % 12;
+  const ampm = clampedHours >= 12 ? "PM" : "AM";
+  const displayMinutes = clampedMinutes < 10 ? `0${clampedMinutes}` : `${clampedMinutes}`;
+  return `${displayHour}:${displayMinutes} ${ampm}`;
+}
+
 export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function useCalendarState() {
@@ -147,6 +217,7 @@ export function useCalendarState() {
 
   // Workspaces list
   const [lists, setLists] = useState<Workspace[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
 
   // Drag and Drop rescheduling states
   const [isDragging, setIsDragging] = useState(false);
@@ -270,8 +341,12 @@ export function useCalendarState() {
   const loadDataFromStorage = useCallback(async () => {
     const generation = ++loadGenerationRef.current;
     try {
-      const currentLists = await WorkspaceRepository.getWorkspaces();
+      const [uiState, currentLists] = await Promise.all([
+        UiStateRepository.getUiState(),
+        WorkspaceRepository.getWorkspaces(),
+      ]);
       if (generation !== loadGenerationRef.current) return;
+      setActiveWorkspaceId(uiState.activeWorkspaceId || null);
       setLists(currentLists);
 
       const workspaceIds = Array.from(
@@ -546,6 +621,158 @@ export function useCalendarState() {
       });
     });
   }, [timelineItems]);
+
+  // ─── Daily Planner Derived State & Actions ─────────────────────────
+  const pendingTasks = useMemo(() => {
+    const currentWs = activeWorkspaceId || INBOX_WORKSPACE_ID;
+    return allTodos.filter((todo) => {
+      // 1. Must belong to the active workspace (or INBOX if active workspace is inbox/null)
+      const matchesWs =
+        todo.workspaceId === currentWs ||
+        (currentWs === INBOX_WORKSPACE_ID &&
+          (!todo.workspaceId || todo.workspaceId === INBOX_WORKSPACE_ID));
+      if (!matchesWs) return false;
+
+      // 2. Active incomplete tasks only (exclude recycled/archived and completed)
+      if (todo.archivedAt || isTaskCompleted(todo)) return false;
+
+      // 3. Exclude tasks already scheduled for the selectedDate (or recurring on selectedDate)
+      const isScheduledForSelectedDate =
+        isRecurringOccurrenceForDate(todo, selectedDate) ||
+        todo.schedule?.date === selectedDate;
+      if (isScheduledForSelectedDate) return false;
+
+      return true;
+    });
+  }, [allTodos, activeWorkspaceId, selectedDate]);
+
+  const plannerHabits = useMemo(() => {
+    const currentWs = activeWorkspaceId || INBOX_WORKSPACE_ID;
+    return allHabits.filter((habit) => {
+      if (habit.archivedAt) return false;
+      const matchesWs =
+        habit.workspaceId === currentWs ||
+        (currentWs === INBOX_WORKSPACE_ID &&
+          (!habit.workspaceId || habit.workspaceId === INBOX_WORKSPACE_ID));
+      if (!matchesWs) return false;
+      return isRecurringOccurrenceForDate(habit, selectedDate);
+    });
+  }, [allHabits, activeWorkspaceId, selectedDate]);
+
+  // ─── Free Time Gaps Calculator ──────────────────────────────────
+  const freeTimeGaps = useMemo(() => {
+    const timed = timelineItems.filter(
+      (item) =>
+        item.startHour !== undefined && item.startMinute !== undefined,
+    );
+    const sorted = [...timed].sort((a, b) => {
+      const startA = a.startHour! * 60 + a.startMinute!;
+      const startB = b.startHour! * 60 + b.startMinute!;
+      return startA - startB;
+    });
+
+    const gaps: { startMinutes: number; durationMinutes: number }[] = [];
+    let currentStart = 0; // 00:00 (Midnight)
+    const dayEnd = 24 * 60; // 24:00 (End of day = 1440 min)
+
+    for (const item of sorted) {
+      const start = item.startHour! * 60 + item.startMinute!;
+      const end = start + (item.durationMinutes || 60);
+
+      if (start > currentStart) {
+        const gapDuration = start - currentStart;
+        if (gapDuration >= 30) {
+          gaps.push({
+            startMinutes: currentStart,
+            durationMinutes: gapDuration,
+          });
+        }
+      }
+      if (end > currentStart) {
+        currentStart = end;
+      }
+    }
+
+    if (dayEnd > currentStart) {
+      const gapDuration = dayEnd - currentStart;
+      if (gapDuration >= 30) {
+        gaps.push({
+          startMinutes: currentStart,
+          durationMinutes: gapDuration,
+        });
+      }
+    }
+
+    return gaps;
+  }, [timelineItems]);
+
+  const planTask = useCallback(
+    async (
+      taskId: string,
+      options?: { hour?: number; minute?: number; isAllDay?: boolean; date?: string },
+    ) => {
+      try {
+        const uiState = await UiStateRepository.getUiState();
+        const targetWs =
+          activeWorkspaceId || uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
+        const task =
+          allTodos.find((t) => t.id === taskId) ||
+          (await TaskRepository.getTask(taskId, targetWs));
+        if (!task) return false;
+
+        const targetWorkspace = task.workspaceId || targetWs;
+        const selDate = options?.date || selectedDate || getDateKey();
+        const {
+          EntityCommandService,
+        } = require("@/services/command/EntityCommandService");
+
+        let updates: Partial<Task>;
+        if (
+          options?.hour !== undefined &&
+          options.hour !== null &&
+          !options.isAllDay
+        ) {
+          updates = calculateRescheduledTask(
+            task,
+            { hour: options.hour, minute: options.minute, date: selDate },
+            selDate,
+          );
+        } else if (options?.isAllDay) {
+          // Explicit user choice to place in All-Day / Anytime: clears time
+          updates = {
+            schedule: {
+              ...(task.schedule || {}),
+              date: selDate,
+              startTime: undefined,
+              endTime: undefined,
+            },
+          };
+        } else {
+          // Safe move/assign to selected date while PRESERVING existing time and duration
+          updates = {
+            schedule: {
+              ...(task.schedule || {}),
+              date: selDate,
+            },
+          };
+        }
+
+        await EntityCommandService.updateTask(
+          task.id,
+          targetWorkspace,
+          updates,
+          { source: "daily_planner", skipEvents: false },
+        );
+
+        await loadDataFromStorage();
+        return true;
+      } catch (err) {
+        console.warn("Failed to plan task in daily planner", err);
+        return false;
+      }
+    },
+    [activeWorkspaceId, allTodos, loadDataFromStorage, selectedDate],
+  );
 
   const calendarCells = useMemo(() => {
     const cells = [];
@@ -1088,5 +1315,10 @@ export function useCalendarState() {
     allDayItems,
     timedItemsWithLayout,
     calendarCells,
+    activeWorkspaceId,
+    pendingTasks,
+    plannerHabits,
+    freeTimeGaps,
+    planTask,
   };
 }

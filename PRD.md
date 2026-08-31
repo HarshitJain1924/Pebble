@@ -26,7 +26,7 @@ graph TD
     A[Tap FAB or Header Capture Pill] --> B[Open Premium Glassmorphic Pebble Capture Modal (Bottom Sheet)]
     B --> C[Fading Rotating Placeholders Teach Users NLP Syntax]
     C --> D[User Types: 'Study React tomorrow at 8pm and remind me 30 mins before']
-    D --> E[100% Offline Parser Chrono + Compromise Runs in <12ms]
+    D --> E[100% Offline Parser (Chrono + Pattern Heuristics) Runs in <12ms]
     E --> F[Display Interactive Real-Time Preview Card]
     F --> G{Smart Detection Badge: '✨ Smartly detected' or '📝 Draft'}
     G --> H[Interactive Cycle-on-Tap Badges for Rapid Fine-tuning]
@@ -40,7 +40,7 @@ graph TD
 ## 4. Feature Specifications
 
 ### 4.1 Pebble Capture Engine
-- **Heuristic Parsing:** Centralized parsing handling using `chrono-node` and `compromise`.
+- **Heuristic Parsing:** Centralized client-side parsing using `chrono-node` and regex pattern heuristics.
 - **Habit/Recurrence Detection:** Matches recurring keywords (`daily`, `every day`, `every morning`, `weekdays`, `weekends`) and automatically classifies the item as a `"habit"`.
 - **Smart Date & Time Extraction:** Extracts date/time phrases, combines them into actionable timestamps, and strips them from the task title.
 - **Smart Lead Reminders Offset:** Detects phrases like *"remind me 30 minutes before"* to compute offset and set accurate local notifications using `expo-notifications`.
@@ -65,7 +65,7 @@ graph TD
 
 ## 5. Technical Stack & Non-Functional Requirements
 - **Framework:** Expo SDK 54, React Native 0.81 (New Architecture & React Compiler enabled), Expo Router with Typed Routes.
-- **Core Libraries:** `chrono-node` (date/time parser), `compromise` (offline NLP).
+- **Core Libraries:** `chrono-node` (date/time parser), pattern heuristics.
 - **Storage:** `@react-native-async-storage/async-storage` (100% offline local-first state).
 - **UI & Transitions:** `react-native-reanimated` (animations), `react-native-gesture-handler` (interactions), `expo-blur` (glassmorphism), `@gorhom/bottom-sheet` (bottom sheet modals).
 - **Performance Thresholds:**

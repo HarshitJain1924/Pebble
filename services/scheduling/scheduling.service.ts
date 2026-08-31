@@ -100,19 +100,24 @@ export function getStructuredSchedule(
 }
 
 /**
- * Calculates updated Task schedule fields following a Calendar drag/drop event.
- * Preserves existing duration when endTime was present, and guarantees
+ * Calculates updated Task schedule fields following a Calendar drag/drop event
+ * or Quick Slot planning action.
+ * Preserves existing duration when endTime or durationMinutes was present, and guarantees
  * Task.reminder is untouched.
  */
 export function calculateRescheduledTask(
   todo: Task,
-  dropTarget: { hour?: number | null; date?: string | null },
+  dropTarget: { hour?: number | null; minute?: number | null; date?: string | null },
   fallbackDate?: string
 ): Partial<Task> {
   const schedule = todo.schedule || {};
 
   if (dropTarget.hour !== undefined && dropTarget.hour !== null) {
-    const formattedStartTime = `${String(dropTarget.hour).padStart(2, "0")}:00`;
+    const min =
+      dropTarget.minute !== undefined && dropTarget.minute !== null && Number.isInteger(dropTarget.minute)
+        ? Math.max(0, Math.min(59, dropTarget.minute))
+        : 0;
+    const formattedStartTime = `${String(dropTarget.hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
     let newEndTime = schedule.endTime;
 
     if (schedule.startTime && schedule.endTime) {
@@ -121,7 +126,7 @@ export function calculateRescheduledTask(
       if (sTime && eTime) {
         const diffMinutes = (eTime.hour * 60 + eTime.minute) - (sTime.hour * 60 + sTime.minute);
         if (diffMinutes > 0) {
-          const endTotalMinutes = dropTarget.hour * 60 + diffMinutes;
+          const endTotalMinutes = dropTarget.hour * 60 + min + diffMinutes;
           if (endTotalMinutes >= 24 * 60) {
             newEndTime = "23:59";
           } else {
@@ -131,12 +136,21 @@ export function calculateRescheduledTask(
           }
         }
       }
+    } else if (schedule.durationMinutes && Number.isFinite(schedule.durationMinutes) && schedule.durationMinutes > 0) {
+      const endTotalMinutes = dropTarget.hour * 60 + min + schedule.durationMinutes;
+      if (endTotalMinutes >= 24 * 60) {
+        newEndTime = "23:59";
+      } else {
+        const endH = Math.floor(endTotalMinutes / 60);
+        const endM = endTotalMinutes % 60;
+        newEndTime = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+      }
     }
 
     return {
       schedule: {
         ...schedule,
-        date: fallbackDate || schedule.date,
+        date: fallbackDate || dropTarget.date || schedule.date,
         startTime: formattedStartTime,
         ...(newEndTime ? { endTime: newEndTime } : {}),
       },

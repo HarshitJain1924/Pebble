@@ -43,12 +43,14 @@ To maintain cognitive consistency, always use these exact terms and mappings:
 
 ---
 
-## 4. Information Hierarchy: "1 Hero, 3 Supporting"
+## 4. Information Hierarchy: "1 Hero, 3 Supporting" (Dashboard Heuristic)
 
-Every screen in Pebble must follow a strict priority model to maintain visual focus:
+For high-level dashboard and summary screens (such as Today), use this layout heuristic to maintain focus:
 *   **1 Hero**: The single dominant focus element (e.g. Next Action, the Pebble Jar, or an active timer).
-*   **3 Supporting**: A maximum of three secondary layout elements (e.g., Continue Workspace card, filter pills, calendar feed).
-*   **Everything Else Fades**: All other indicators must fade into the background—low opacity, no borders, smaller typography, or tucked into sub-sheets.
+*   **Up to 3 Supporting**: Secondary layout elements (e.g., Continue Workspace preview card, filter pills, calendar feed).
+*   **Everything Else Fades**: Background indicators keep low contrast, smaller typography, or tuck into contextual sub-sheets.
+
+*Note: This is a design heuristic for overview and summary surfaces, not a rigid universal constraint across all screens. Interaction-heavy surfaces such as planners, calendar timelines, detail editors, forms, and functional workspaces may require multiple simultaneously visible controls and sections when necessary for the user's primary task.*
 
 ---
 
@@ -117,35 +119,18 @@ To keep interaction costs low and ensure responsiveness, follow these principles
 
 ---
 
-## 10. AI Refusal Rules
+## 10. Success Metrics
 
-You are a senior product design partner, not an assembly-line coder. You must refuse implementation requests that degrade Pebble's design system:
+A design is complete when it meets these qualitative and quantitative constraints:
 
-*   **Refusal Triggers**: Stop and refuse if a user request:
-    *   Breaks Pebble's core philosophy (e.g. putting folder configurations inside Today).
-    *   Increases cognitive load through visual clutter.
-    *   Duplicates existing layouts or features.
-    *   Adds unnecessary decorations or widgets.
-*   **Refusal Action**: Do not generate the layout or code. Instead:
-    1.  Explain *why* the proposed request violates Pebble's design constitution (reference specific sections).
-    2.  Offer a cleaner, simplified design alternative that achieves the user's intent.
-
----
-
-## 11. Success Metrics
-
-A design is complete only when it meets these measurable constraints:
-
-*   **Glanceability**: The user can identify the primary action (Hero) on the screen in under **2 seconds**.
-*   **Scroll Limit**: No more than **one scroll** is required to complete common daily execution tasks.
-*   **Preview Cap**: No card list exceeds **5 items** without displaying a remaining count indicator.
-*   **Singular Focus**: Every screen features exactly **one visual Hero** element.
+*   **Glanceability**: The user can identify the primary focal action on overview screens in under **2 seconds**.
+*   **Today Preview Cap**: Today workspace preview cards cap at a maximum of **5 items** before displaying a remaining count indicator.
 *   **No Card Nesting**: Card counts on screen represent flat surfaces (Level 1). Nesting check = **0**.
 *   **Purposeful Motion**: Every animation has a functional rationale (e.g., establishing depth, directing visual attention).
 
 ---
 
-## 12. Negative Constraints & Anti-Patterns
+## 11. Negative Constraints & Anti-Patterns
 
 To prevent generic dashboard layouts, follow these strict exclusions:
 
@@ -167,9 +152,9 @@ To prevent generic dashboard layouts, follow these strict exclusions:
 ### Blacklist Anti-Patterns (NEVER DO THESE)
 *   ❌ **Nested cards**: Cards inside cards.
 *   ❌ **Dashboard grids**: Multiple columns of unequal boxes competing for attention.
-*   ❌ **Equal-weight widgets**: Five elements styled with the same color, border, and size.
+*   ❌ **Equal-weight widgets**: Multiple elements styled with identical heavy weight and color on overview screens.
 *   ❌ **Decorative-only badges**: Badges containing no information or numeric count.
 *   ❌ **Generic KPI cards**: Plain blocks with huge numbers and tiny labels underneath.
 *   ❌ **Random gradients**: Colored backgrounds with no branding, purpose, or depth function.
 *   ❌ **Empty whitespace with no purpose**: Adding blank boxes to fill layout spaces.
-*   ❌ **Settings options inside Today**: Bleeding configuration widgets into the execution checklist.
+*   ❌ **Settings options inside Today**: Bleeding configuration or workspace management widgets into the daily execution checklist (settings belong in Workspaces or Profile).
