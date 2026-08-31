@@ -1,4 +1,5 @@
 import { Alert, Platform } from "react-native";
+import type { Task, Habit, Checklist } from "@/shared/types/domain.types";
 
 import { getNotificationPayload } from "@/services/scheduling/notification-routes";
 import { DAY_MS } from "@/services/storage/storage.service";
@@ -787,8 +788,6 @@ export function hasNotificationPayload(data: unknown) {
   return Boolean(getNotificationPayload(data));
 }
 
-import { type Task, type Habit } from "@/shared/types/domain.types";
-
 export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
   try {
     if (
@@ -921,6 +920,77 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
   } catch (e) {
     console.warn("Failed to reschedule habit reminders", e);
     return habit;
+  }
+}
+
+export async function rescheduleChecklistReminders(
+  checklist: Checklist,
+): Promise<Checklist> {
+  try {
+    if (
+      checklist.reminder &&
+      checklist.reminder.enabled &&
+      (checklist.reminder.triggerAt > Date.now() || checklist.recurrence)
+    ) {
+      if (checklist.reminder.notificationIds?.length) {
+        await cancelReminderIds(checklist.reminder.notificationIds);
+      }
+
+      const triggerDate = new Date(checklist.reminder.triggerAt);
+      const hour = triggerDate.getHours();
+      const minute = triggerDate.getMinutes();
+
+      if (checklist.recurrence) {
+        const batch = await scheduleReminderBatch({
+          kind: "todo",
+          itemId: checklist.id,
+          title: checklist.title,
+          category: checklist.categoryId,
+          dailyTime: { hour, minute },
+          dailyDays: checklist.recurrence.daysOfWeek,
+          recurrence: recurrenceRuleToScheduler(checklist.recurrence),
+          escalationMinutes: [120, 240],
+          channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+        });
+        return {
+          ...checklist,
+          reminder: {
+            ...checklist.reminder,
+            notificationIds: batch.ids,
+          },
+        };
+      }
+
+      const batch = await scheduleReminderBatch({
+        kind: "todo",
+        itemId: checklist.id,
+        title: checklist.title,
+        oneTimeAt: new Date(checklist.reminder.triggerAt),
+        category: checklist.categoryId,
+        escalationMinutes: [120, 240],
+        channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+      });
+      return {
+        ...checklist,
+        reminder: {
+          ...checklist.reminder,
+          notificationIds: batch.ids,
+        },
+      };
+    } else if (checklist.reminder?.notificationIds?.length) {
+      await cancelReminderIds(checklist.reminder.notificationIds);
+      return {
+        ...checklist,
+        reminder: {
+          ...checklist.reminder,
+          notificationIds: undefined,
+        },
+      };
+    }
+    return checklist;
+  } catch (e) {
+    console.warn("Failed to reschedule checklist reminders", e);
+    return checklist;
   }
 }
 

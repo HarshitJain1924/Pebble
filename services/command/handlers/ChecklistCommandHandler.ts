@@ -22,6 +22,7 @@ import {
   cancelReminderIds,
   rescheduleHabitReminders,
   rescheduleTodoReminders,
+  rescheduleChecklistReminders,
   scheduleReminderBatch,
 } from "@/services/scheduling/reminders.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
@@ -38,6 +39,7 @@ import {
   getHabitCurrentStreak,
   getHabitBestStreak,
   getHabitLastCompletedDate,
+  pruneChecklistOccurrenceHistory,
 } from "@/shared/utils/domain-selectors";
 import {
   type Task,
@@ -51,6 +53,8 @@ import {
   MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
 import { HabitCommandHandler } from "./HabitCommandHandler";
+import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
 
 import { CreateEntityOptions, isParsedProductivityItem } from "../types/command.types";
 import { scheduleCreationNotifications, scheduleTaskNotifications, scheduleHabitNotifications } from "../shared/command-notifications";
@@ -138,7 +142,7 @@ static async moveChecklist(
     const { withLock } = await import("@/shared/utils/mutex");
     const lockKey = `pebble:v1:checklists:${workspaceId}`;
 
-    const updated = await withLock(lockKey, async () => {
+    const { updatedChecklist, existing, needsReminderUpdate } = await withLock(lockKey, async () => {
       const map = await ChecklistRepository.getChecklists(workspaceId);
       const existing = map[checklistId];
       if (!existing) throw new Error(`Checklist ${checklistId} not found`);
@@ -146,20 +150,101 @@ static async moveChecklist(
       const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
       await assertLifecycleMutationAllowed("checklist", existing, options);
 
-      const merged: Checklist = {
+      // Reminder & schedule evaluation
+      const titleChanged = "title" in updates && updates.title !== existing.title;
+      const categoryChanged = "categoryId" in updates && updates.categoryId !== existing.categoryId;
+      const recurrenceChanged = "recurrence" in updates && JSON.stringify(updates.recurrence) !== JSON.stringify(existing.recurrence);
+      const reminderChanged = "reminder" in updates && JSON.stringify(updates.reminder) !== JSON.stringify(existing.reminder);
+      const scheduleChanged = "schedule" in updates && JSON.stringify(updates.schedule) !== JSON.stringify(existing.schedule);
+      const archivedChanged = "archivedAt" in updates && updates.archivedAt !== existing.archivedAt;
+
+      const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || scheduleChanged || archivedChanged;
+
+      let merged: Checklist = {
         ...existing,
         ...updates,
         revision: (existing.revision ?? 1) + 1,
         lifecycleGeneration: existing.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
+
+      // If schedule or reminder changed and reminder is enabled, recompute triggerAt
+      if (merged.reminder?.enabled && (scheduleChanged || reminderChanged)) {
+        let triggerHour: number | undefined;
+        let triggerMinute: number | undefined;
+        const timeStr = merged.schedule?.startTime;
+        if (timeStr) {
+          const parts = timeStr.split(":").map(Number);
+          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            triggerHour = parts[0];
+            triggerMinute = parts[1];
+          }
+        }
+        if (triggerHour !== undefined && triggerMinute !== undefined) {
+          const targetDateStr = merged.schedule?.date && merged.schedule.date !== "inbox" ? merged.schedule.date : undefined;
+          merged.reminder = {
+            ...merged.reminder,
+            triggerAt: computeTriggerEpoch(triggerHour, triggerMinute, targetDateStr),
+            notificationIds: undefined,
+          };
+        }
+      } else if (needsReminderUpdate && merged.reminder && merged.reminder.notificationIds) {
+        merged.reminder = { ...merged.reminder, notificationIds: undefined };
+      }
+
       await ChecklistRepository.saveChecklistUnlocked(merged);
-      return merged;
+      return { updatedChecklist: merged, existing, needsReminderUpdate };
     });
+
+    let finalChecklist = updatedChecklist;
+
+    if (needsReminderUpdate) {
+      if (existing.reminder?.notificationIds?.length) {
+        cancelReminderIds(existing.reminder.notificationIds, { throwOnError: false }).catch((e) => {
+          console.warn("[EntityCommandService] Failed to cancel old reminder IDs during checklist update", e);
+        });
+      }
+
+      const isArchived = !!finalChecklist.archivedAt;
+      if (!isArchived && finalChecklist.reminder?.enabled && finalChecklist.reminder?.triggerAt) {
+        let generatedNotificationIds: string[] | undefined = undefined;
+        try {
+          const scheduled = await rescheduleChecklistReminders(finalChecklist);
+          generatedNotificationIds = scheduled.reminder?.notificationIds;
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            const status = await ChecklistRepository.updateNotificationIds(
+              finalChecklist.id,
+              finalChecklist.workspaceId,
+              generatedNotificationIds,
+              {
+                reminder: finalChecklist.reminder,
+                archivedAt: finalChecklist.archivedAt,
+                updatedAt: finalChecklist.updatedAt,
+                revision: finalChecklist.revision,
+              }
+            );
+
+            const verify = await ChecklistRepository.getChecklist(finalChecklist.id, finalChecklist.workspaceId);
+            if (status === 'not_found' || status === 'state_changed' || !verify || verify.archivedAt) {
+              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+              if (finalChecklist.reminder) finalChecklist.reminder.notificationIds = undefined;
+            } else {
+              if (finalChecklist.reminder) finalChecklist.reminder.notificationIds = generatedNotificationIds;
+            }
+          }
+        } catch (e) {
+          console.warn("[EntityCommandService] Failed to reschedule checklist reminder during update:", e);
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+          }
+          if (finalChecklist.reminder) finalChecklist.reminder.notificationIds = undefined;
+        }
+      }
+    }
 
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
-    return updated;
+    return finalChecklist;
   }
 
   static async restoreChecklist(recycleBinItemId: string, options?: CreateEntityOptions): Promise<Checklist> {
@@ -180,7 +265,7 @@ static async moveChecklist(
     const targetWorkspaceId = parsedData.workspaceId || "inbox";
     const lockKey = `pebble:v1:checklists:${targetWorkspaceId}`;
     
-    return await withLock(lockKey, async () => {
+    const restoredData = await withLock(lockKey, async () => {
       // Re-read inside the lock to ensure it wasn't already restored
       const binItems = await RecycleBinRepository.getRecycleBinItems();
       const item = binItems.find(
@@ -205,6 +290,11 @@ static async moveChecklist(
           await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
         } catch {}
         throw new Error(`[EntityCommandService] Checklist ${currentParsedData.id} was permanently deleted.`);
+      }
+
+      // Strip stale notification IDs
+      if (currentParsedData.reminder && currentParsedData.reminder.notificationIds) {
+        currentParsedData.reminder = { ...currentParsedData.reminder, notificationIds: undefined };
       }
 
       currentParsedData.revision = (currentParsedData.revision ?? 1) + 1;
@@ -234,7 +324,7 @@ static async moveChecklist(
           await RecycleBinRepository.removeRecycleBinItems([item.id, recycleBinItemId], { throwOnError: true });
         } catch {}
         await MoveJournalRepository.removeOperation(operationId);
-        return existingActive;
+        return { restoredChecklist: existingActive, operationId };
       }
 
       await ChecklistRepository.saveChecklistUnlocked(currentParsedData);
@@ -245,14 +335,49 @@ static async moveChecklist(
         console.warn(`[CommandRecovery] Failed to remove entity from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
       }
 
-      await MoveJournalRepository.removeOperation(operationId);
-
-      if (!options?.skipEvents) {
-        const { emitStateChange } = await import("@/services/events/state-events");
-        emitStateChange("checklists_changed", options?.source);
-      }
-      return currentParsedData;
+      return { restoredChecklist: currentParsedData, operationId };
     });
+
+    const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
+    await MoveJournalRepository.removeOperation(restoredData.operationId);
+
+    const restoredChecklist = restoredData.restoredChecklist;
+
+    // Reschedule reminders safely outside the critical section
+    if (restoredChecklist.reminder && restoredChecklist.reminder.enabled && restoredChecklist.reminder.triggerAt) {
+      let generatedNotificationIds: string[] | undefined = undefined;
+      try {
+        const scheduled = await rescheduleChecklistReminders(restoredChecklist);
+        generatedNotificationIds = scheduled.reminder?.notificationIds;
+        if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+          const status = await ChecklistRepository.updateNotificationIds(
+            restoredChecklist.id,
+            restoredChecklist.workspaceId,
+            generatedNotificationIds,
+            {
+              reminder: restoredChecklist.reminder,
+              archivedAt: restoredChecklist.archivedAt,
+              updatedAt: restoredChecklist.updatedAt,
+              revision: restoredChecklist.revision,
+            }
+          );
+          const verify = await ChecklistRepository.getChecklist(restoredChecklist.id, restoredChecklist.workspaceId);
+          if (status === 'not_found' || status === 'state_changed' || !verify || verify.archivedAt) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+            if (restoredChecklist.reminder) restoredChecklist.reminder.notificationIds = undefined;
+          } else {
+            if (restoredChecklist.reminder) restoredChecklist.reminder.notificationIds = generatedNotificationIds;
+          }
+        }
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to reschedule reminders during restore of Checklist ${restoredChecklist.id}:`, e);
+      }
+    }
+
+    if (!options?.skipEvents) {
+      emitStateChange("checklists_changed", options?.source);
+    }
+    return restoredChecklist;
   }
 
   static async permanentlyDeleteChecklist(
@@ -265,7 +390,7 @@ static async moveChecklist(
     const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
 
     const lockKey = `pebble:v1:checklists:${workspaceId}`;
-    await withLock(lockKey, async () => {
+    const deletedChecklist = await withLock(lockKey, async () => {
       const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
       let checklist = checklistsMap[checklistId];
       let fromRecycleBin = false;
@@ -303,7 +428,17 @@ static async moveChecklist(
       await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
       await RecycleBinRepository.removeRecycleBinItems([checklistId], { throwOnError: true });
+
+      return checklist;
     });
+
+    if (deletedChecklist.reminder?.notificationIds && deletedChecklist.reminder.notificationIds.length > 0) {
+      try {
+        await cancelReminderIds(deletedChecklist.reminder.notificationIds, { throwOnError: false });
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to cancel reminders for permanently deleted checklist ${checklistId}`, e);
+      }
+    }
 
     if (!options?.skipEvents) emitStateChange("checklists_changed", options?.source);
     if (!options?.skipAnalytics) {
@@ -312,7 +447,7 @@ static async moveChecklist(
     }
   }
 
-static async recycleChecklist(
+  static async recycleChecklist(
     checklistId: string,
     workspaceId: string,
     options?: CreateEntityOptions
@@ -323,10 +458,10 @@ static async recycleChecklist(
 
     const lockKey = `pebble:v1:checklists:${workspaceId}`;
 
-    await withLock(lockKey, async () => {
+    const recycledChecklist = await withLock(lockKey, async () => {
       const checklists = await ChecklistRepository.getChecklists(workspaceId);
       const checklist = checklists[checklistId];
-      if (!checklist) return;
+      if (!checklist) return null;
 
       const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
       await assertLifecycleMutationAllowed("checklist", checklist, options);
@@ -355,7 +490,16 @@ static async recycleChecklist(
       }
       
       await MoveJournalRepository.removeOperation(operationId);
+      return checklist;
     });
+
+    if (recycledChecklist?.reminder?.notificationIds?.length) {
+      try {
+        await cancelReminderIds(recycledChecklist.reminder.notificationIds, { throwOnError: false });
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to cancel reminders for recycled checklist ${checklistId}`, e);
+      }
+    }
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -378,6 +522,9 @@ static async recycleChecklist(
       const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
       const checklist = checklistsMap[checklistId];
       if (!checklist) return null;
+
+      const itemExists = (checklist.items || []).some((i) => i.id === itemId);
+      if (!itemExists) return null;
 
       const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
       await assertLifecycleMutationAllowed("checklist", checklist, options);
@@ -462,8 +609,11 @@ static async recycleChecklist(
 
 /**
    * Toggle a Checklist item completion state.
-   * If dateKey is provided and the checklist is recurring, updates occurrenceHistory[dateKey]
-   * to guarantee that master template items remain unmutated for other dates.
+   * If dateKey is provided and the checklist is recurring:
+   * 1. Validates itemId actually belongs to checklist.items (rejects unknown IDs).
+   * 2. Validates dateKey is a valid occurrence per recurrence rule and exceptions.
+   * 3. Updates occurrenceHistory[dateKey] with filtered valid item IDs.
+   * 4. Prunes occurrenceHistory to prevent unbounded growth.
    */
   static async toggleChecklistItem(
     checklistId: string,
@@ -485,6 +635,19 @@ static async recycleChecklist(
       const checklist = checklistsMap[checklistId];
       if (!checklist) return null;
 
+      // P0-2: Verify itemId actually exists in checklist.items
+      const itemExists = (checklist.items || []).some((i) => i.id === itemId);
+      if (!itemExists) {
+        return null;
+      }
+
+      // P0-3: If dateKey is supplied for a recurring checklist, verify it is a real occurrence
+      if (checklist.recurrence && dateKey) {
+        if (!isRecurringOccurrenceForDate(checklist, dateKey)) {
+          return null;
+        }
+      }
+
       const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
       await assertLifecycleMutationAllowed("checklist", checklist, effectiveOptions);
 
@@ -500,19 +663,26 @@ static async recycleChecklist(
           ? currentCompletedIds.filter((id) => id !== itemId)
           : [...currentCompletedIds, itemId];
 
-        const totalItems = checklist.items?.length || 0;
+        const validItemIds = new Set((checklist.items || []).map((i) => i.id));
+        const filteredCompletedIds = nextCompletedIds.filter((id) =>
+          validItemIds.has(id),
+        );
+
         const allCompleted =
-          totalItems > 0 && nextCompletedIds.length >= totalItems;
+          validItemIds.size > 0 &&
+          (checklist.items || []).every((i) => filteredCompletedIds.includes(i.id));
+
+        const updatedHistory = pruneChecklistOccurrenceHistory({
+          ...checklist.occurrenceHistory,
+          [dateKey]: {
+            completedItemIds: filteredCompletedIds,
+            completedAt: allCompleted ? Date.now() : undefined,
+          },
+        });
 
         updatedChecklist = {
           ...checklist,
-          occurrenceHistory: {
-            ...checklist.occurrenceHistory,
-            [dateKey]: {
-              completedItemIds: nextCompletedIds,
-              completedAt: allCompleted ? Date.now() : undefined,
-            },
-          },
+          occurrenceHistory: updatedHistory,
           revision: (checklist.revision ?? 1) + 1,
           lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
           updatedAt: Date.now(),
@@ -682,9 +852,34 @@ static async recycleChecklist(
       candidate.revision = candidate.revision || 1;
 
       // 1. Domain persistence FIRST
-      await ChecklistRepository.saveChecklistUnlocked(candidate);
-      return candidate;
+      const saved = await ChecklistRepository.saveChecklistUnlocked(candidate);
+      return saved;
     });
+
+    // 2. OS Notification Scheduling SECOND (isolated)
+    if (checklist.reminder?.enabled && checklist.reminder?.triggerAt) {
+      try {
+        const scheduled = await rescheduleChecklistReminders(checklist);
+        if (scheduled.reminder?.notificationIds?.length) {
+          await ChecklistRepository.updateNotificationIds(
+            checklist.id,
+            checklist.workspaceId,
+            scheduled.reminder.notificationIds,
+            {
+              reminder: checklist.reminder,
+              archivedAt: checklist.archivedAt,
+              revision: checklist.revision,
+            }
+          );
+          checklist.reminder = {
+            ...checklist.reminder,
+            notificationIds: scheduled.reminder.notificationIds,
+          };
+        }
+      } catch (e) {
+        console.warn("[EntityCommandService] Failed to schedule reminder on createChecklist:", e);
+      }
+    }
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -746,6 +941,8 @@ static async recycleChecklist(
       const updatedMaster: Checklist = {
         ...master,
         recurrenceExceptions: updatedExceptions,
+        revision: (master.revision ?? 1) + 1,
+        lifecycleGeneration: master.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
       };
 
@@ -756,6 +953,28 @@ static async recycleChecklist(
       // Carry forward occurrence completion items if any
       const occurrenceCompletedIds =
         master.occurrenceHistory?.[occurrenceDate]?.completedItemIds || [];
+
+      // Recompute detached triggerAt if master had an enabled reminder
+      let detachedReminder = undefined;
+      if (master.reminder?.enabled) {
+        let triggerHour: number | undefined;
+        let triggerMinute: number | undefined;
+        const timeStr = updates.schedule?.startTime || master.schedule?.startTime;
+        if (timeStr) {
+          const parts = timeStr.split(":").map(Number);
+          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            triggerHour = parts[0];
+            triggerMinute = parts[1];
+          }
+        }
+        if (triggerHour !== undefined && triggerMinute !== undefined) {
+          detachedReminder = {
+            ...master.reminder,
+            triggerAt: computeTriggerEpoch(triggerHour, triggerMinute, targetDate),
+            notificationIds: undefined,
+          };
+        }
+      }
 
       const newCopy: Checklist = {
         ...master,
@@ -773,12 +992,7 @@ static async recycleChecklist(
           ...updates.schedule,
           date: targetDate,
         },
-        reminder: master.reminder
-          ? {
-              ...master.reminder,
-              notificationIds: undefined,
-            }
-          : undefined,
+        reminder: detachedReminder,
         lifecycleGeneration: 1,
         revision: 1,
         createdAt: Date.now(),
@@ -793,6 +1007,29 @@ static async recycleChecklist(
 
       return { updatedMaster, newCopy };
     });
+
+    // Schedule notification for detached occurrence if applicable
+    if (newCopy.reminder?.enabled && newCopy.reminder?.triggerAt) {
+      try {
+        const scheduled = await rescheduleChecklistReminders(newCopy);
+        if (scheduled.reminder?.notificationIds?.length) {
+          await ChecklistRepository.updateNotificationIds(
+            newCopy.id,
+            newCopy.workspaceId,
+            scheduled.reminder.notificationIds,
+            {
+              reminder: newCopy.reminder,
+              archivedAt: newCopy.archivedAt,
+              updatedAt: newCopy.updatedAt,
+              revision: newCopy.revision,
+            }
+          );
+          newCopy.reminder.notificationIds = scheduled.reminder.notificationIds;
+        }
+      } catch (e) {
+        console.warn("[EntityCommandService] Failed to schedule reminder for detached checklist occurrence:", e);
+      }
+    }
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);

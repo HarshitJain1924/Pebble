@@ -156,7 +156,7 @@ export class ChecklistRepository {
     });
   }
 
-  static async saveChecklistUnlocked(checklist: any): Promise<void> {
+  static async saveChecklistUnlocked(checklist: any): Promise<Checklist> {
     this.validateId(checklist?.id, "saveChecklistUnlocked");
     const workspaceId = checklist.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getChecklistsKey(workspaceId);
@@ -168,11 +168,12 @@ export class ChecklistRepository {
       workspaceId,
     );
     cleanChecklist.updatedAt = Date.now();
-    cleanChecklist.revision = (records[checklist.id]?.revision || 0) + 1;
+    cleanChecklist.revision = checklist.revision ?? ((records[checklist.id]?.revision || 0) + 1);
     cleanChecklist.lifecycleGeneration = checklist.lifecycleGeneration || records[checklist.id]?.lifecycleGeneration || 1;
 
     records[checklist.id] = cleanChecklist;
     await AsyncStorage.setItem(key, JSON.stringify(records));
+    return cleanChecklist;
   }
 
   /**
@@ -186,9 +187,63 @@ export class ChecklistRepository {
       this.validateId(checklist?.id, "saveChecklistsUnlocked");
       const cleanChecklist: Checklist = normalizeChecklist(checklist, workspaceId);
       cleanChecklist.updatedAt = Date.now();
+      cleanChecklist.revision = checklist.revision ?? ((records[checklist.id]?.revision || 0) + 1);
+      cleanChecklist.lifecycleGeneration = checklist.lifecycleGeneration || records[checklist.id]?.lifecycleGeneration || 1;
       records[checklist.id] = cleanChecklist;
     }
     await AsyncStorage.setItem(key, JSON.stringify(records));
+  }
+
+  /**
+   * Safely targets notification IDs for modification without disturbing user edits
+   * or touching the updatedAt timestamp.
+   * Handles workspace moves gracefully by returning not_found if the entity is missing.
+   */
+  static async updateNotificationIds(
+    id: string,
+    workspaceId: string,
+    notificationIds?: string[],
+    expectedSnapshot?: {
+      reminder?: { enabled: boolean; triggerAt?: number };
+      archivedAt?: number | null;
+      updatedAt?: number;
+      revision?: number;
+    }
+  ): Promise<'updated' | 'not_found' | 'state_changed'> {
+    this.validateId(id, "updateNotificationIds");
+    const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getChecklistsKey(targetWorkspaceId);
+
+    return await withLock(key, async () => {
+      const records = await this.getChecklists(targetWorkspaceId);
+      const existing = records[id];
+      if (!existing) {
+        return 'not_found';
+      }
+
+      if (expectedSnapshot) {
+        const reminderMatches =
+          existing.reminder?.enabled === expectedSnapshot.reminder?.enabled &&
+          existing.reminder?.triggerAt === expectedSnapshot.reminder?.triggerAt;
+
+        const archiveMatches = existing.archivedAt === expectedSnapshot.archivedAt;
+        const revisionMatches = expectedSnapshot.revision === undefined || existing.revision === expectedSnapshot.revision;
+
+        if (!reminderMatches || !archiveMatches || !revisionMatches) {
+          return 'state_changed';
+        }
+      }
+
+      // Preserve ALL fields exactly, only modify notificationIds
+      if (existing.reminder) {
+        existing.reminder.notificationIds = notificationIds;
+      } else if (notificationIds && notificationIds.length > 0) {
+        existing.reminder = { enabled: true, triggerAt: 0, notificationIds };
+      }
+
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+      return 'updated';
+    });
   }
 
   static async deleteChecklistUnlocked(id: string, workspaceId: string): Promise<void> {

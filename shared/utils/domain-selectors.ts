@@ -390,3 +390,35 @@ export function getChecklistOccurrenceStats(
   };
 }
 
+/**
+ * Prunes checklist occurrence history to prevent unbounded storage growth.
+ * Preserves occurrence records within the retention window (default 90 days)
+ * as well as any future dates.
+ */
+export function pruneChecklistOccurrenceHistory(
+  history?: Record<string, import("../types/domain.types").ChecklistOccurrenceRecord>,
+  retentionDays: number = 90,
+): Record<string, import("../types/domain.types").ChecklistOccurrenceRecord> | undefined {
+  if (!history) return undefined;
+  const entries = Object.entries(history);
+  if (entries.length <= 60) return history;
+
+  const cutoffEpoch = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const pruned: Record<string, import("../types/domain.types").ChecklistOccurrenceRecord> = {};
+
+  for (const [dateKey, record] of entries) {
+    const parts = dateKey.split("-").map(Number);
+    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      const dateEpoch = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
+      if (dateEpoch >= cutoffEpoch) {
+        pruned[dateKey] = record;
+      }
+    } else {
+      // Retain non-standard date keys safely
+      pruned[dateKey] = record;
+    }
+  }
+
+  return Object.keys(pruned).length > 0 ? pruned : undefined;
+}
+

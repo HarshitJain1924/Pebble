@@ -159,13 +159,7 @@ export default function CalendarScreen() {
 
   const getItemType = (item: any) => {
     if (item.type === "habit") return "habit";
-    if (
-      item.type === "checklist" ||
-      item.categoryId === "home" ||
-      item.category === "home" ||
-      (item.items && item.items.length > 0)
-    )
-      return "checklist";
+    if (item.type === "checklist") return "checklist";
     return "task";
   };
 
