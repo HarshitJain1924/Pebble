@@ -1,10 +1,8 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
-import { Typography } from "@/shared/constants/typography";
 import { MONTH_NAMES, getDateKey } from "@/features/calendar/hooks/useCalendarState";
 import { CalendarViewMode } from "@/features/calendar/types";
 
@@ -17,6 +15,12 @@ interface CalendarHeaderProps {
   onToggleViewMode: () => void;
 }
 
+const VIEW_LABELS: Record<CalendarViewMode, string> = {
+  month: "Month",
+  week: "Week",
+  timeline: "Day",
+};
+
 export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   calendarViewMode,
   selectedDate,
@@ -25,84 +29,48 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   isLight,
   onToggleViewMode,
 }) => {
-  const getHeaderTitle = () => {
-    const d = new Date(selectedDate);
-    const options: Intl.DateTimeFormatOptions = {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    };
-    return d.toLocaleDateString("en-US", options);
-  };
+  const d = new Date(selectedDate);
+  const isToday = selectedDate === getDateKey();
 
-  const getHeaderSubtitle = () => {
-    const dateObj = new Date(selectedDate);
-    if (calendarViewMode === "month") {
-      return `${MONTH_NAMES[month.month]} ${month.year}`;
-    } else if (calendarViewMode === "week") {
-      const startOfWeek = new Date(dateObj);
-      const day = startOfWeek.getDay();
-      const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
-      startOfWeek.setDate(diff);
+  const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
+  const monthName = MONTH_NAMES[d.getMonth()];
+  const dayNum = d.getDate();
 
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-
-      const startMonth = MONTH_NAMES[startOfWeek.getMonth()];
-      const endMonth = MONTH_NAMES[endOfWeek.getMonth()];
-
-      if (startMonth === endMonth) {
-        return `${startMonth} ${startOfWeek.getDate()} – ${endOfWeek.getDate()}`;
-      } else {
-        return `${startMonth} ${startOfWeek.getDate()} – ${endMonth} ${endOfWeek.getDate()}`;
-      }
-    } else {
-      const isTodayStr = selectedDate === getDateKey();
-      return isTodayStr ? "Today" : "";
-    }
-  };
+  const contextLabel = isToday ? "Today" : `${monthName} ${dayNum}`;
 
   return (
     <View style={styles.headerRow}>
       <View style={styles.titleCol}>
-        <Text style={[styles.kicker, { color: colors.primary }]}>
-          {calendarViewMode === "timeline" ? "DAILY PLANNER" : "SCHEDULE"}
+        {/* Weekday — primary */}
+        <Text style={[styles.weekday, { color: colors.text }]}>
+          {weekday}
         </Text>
-        <Text style={[styles.title, { color: colors.text }]}>
-          {getHeaderTitle()}
+        {/* Month + day — secondary */}
+        <Text style={[styles.monthDate, { color: colors.textMuted }]}>
+          {monthName} {dayNum}
         </Text>
-        {getHeaderSubtitle() ? (
-          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            {getHeaderSubtitle()}
-          </Text>
-        ) : null}
       </View>
 
+      {/* View mode pill button */}
       <PressableScale
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           onToggleViewMode();
         }}
-        scaleTo={0.9}
+        scaleTo={0.94}
         contentStyle={[
           styles.viewToggleButton,
           {
-            backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.04)",
-            borderColor: colors.border,
+            backgroundColor: isLight
+              ? "#F1F5F9"
+              : "rgba(255,255,255,0.06)",
+            borderColor: isLight ? colors.border : "rgba(255,255,255,0.1)",
           },
         ]}
       >
-        <Feather
-          name={
-            calendarViewMode === "month"
-              ? "calendar"
-              : calendarViewMode === "week"
-                ? "list"
-                : "clock"
-          }
-          size={16}
-          color={colors.primary}
-        />
+        <Text style={[styles.viewToggleLabel, { color: colors.primary }]}>
+          {VIEW_LABELS[calendarViewMode]} ▾
+        </Text>
       </PressableScale>
     </View>
   );
@@ -113,35 +81,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 12,
-    marginTop: 4,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   titleCol: {
-    gap: 2,
     flex: 1,
-    paddingRight: 16,
+    paddingRight: 12,
   },
-  kicker: {
-    fontSize: Typography.sizes.xs,
-    letterSpacing: 2,
+  weekday: {
+    fontSize: 26,
     fontWeight: "700",
+    letterSpacing: -0.3,
+    lineHeight: 30,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  subtitle: {
-    fontSize: 13,
-    fontWeight: "600",
+  monthDate: {
+    fontSize: 14,
+    fontWeight: "500",
     marginTop: 2,
   },
   viewToggleButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
     borderWidth: 1,
-    marginTop: 2,
+    marginTop: 4,
+    alignSelf: "flex-start",
+  },
+  viewToggleLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: 0.1,
   },
 });

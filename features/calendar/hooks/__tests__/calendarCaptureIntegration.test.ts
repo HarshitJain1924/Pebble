@@ -52,6 +52,10 @@ import { getDateKey } from "@/services/scheduling/recurrence.service";
 
 const flushPromises = () => new Promise((r) => setImmediate(r));
 
+// These tests mount real React hooks, flush async storage, and schedule
+// notifications — they are inherently slower than unit tests.
+jest.setTimeout(15000);
+
 describe("Pebble Fix #9: End-to-End Timed Task → Calendar Integration", () => {
   beforeEach(async () => {
     await AsyncStorage.clear();

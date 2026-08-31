@@ -330,19 +330,15 @@ export default function CalendarScreen() {
             isLight={isLight}
           />
 
-          {/* 3. Selected Date Info Strip */}
+          {/* 3. Agenda info strip — item count + icon actions */}
           <View
             style={[
               styles.agendaStrip,
-              { marginTop: calendarViewMode === "timeline" ? 4 : 16 },
+              { marginTop: calendarViewMode === "timeline" ? 2 : 12 },
             ]}
           >
             <View style={styles.agendaLeft}>
-              <Text style={[styles.agendaTitle, { color: colors.text }]}>
-                Agenda
-              </Text>
-
-              {/* Quick Jump Trigger Button */}
+              {/* Quick Jump */}
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -357,10 +353,10 @@ export default function CalendarScreen() {
                 ]}
                 hitSlop={8}
               >
-                <Feather name="compass" size={12} color={colors.text} />
+                <Feather name="compass" size={12} color={colors.textMuted} />
               </Pressable>
 
-              {/* Filters Trigger Button */}
+              {/* Filters */}
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -375,13 +371,15 @@ export default function CalendarScreen() {
                 ]}
                 hitSlop={8}
               >
-                <Feather name="sliders" size={12} color={colors.text} />
+                <Feather name="sliders" size={12} color={colors.textMuted} />
               </Pressable>
             </View>
 
-            <Text style={[styles.itemCountText, { color: colors.textMuted }]}>
-              {totalItemsCount} item{totalItemsCount !== 1 ? "s" : ""}
-            </Text>
+            {totalItemsCount > 0 && (
+              <Text style={[styles.itemCountText, { color: colors.textMuted }]}>
+                {totalItemsCount} item{totalItemsCount !== 1 ? "s" : ""}
+              </Text>
+            )}
           </View>
 
           {/* 4. Day Planner View */}
@@ -485,27 +483,21 @@ const styles = StyleSheet.create({
   },
   container: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 16,
+    paddingTop: 12,
+    gap: 12,
     paddingBottom: 110,
   },
   agendaStrip: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 4,
-    marginBottom: 4,
+    paddingHorizontal: 2,
+    marginBottom: 2,
   },
   agendaLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-  },
-  agendaTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
+    gap: 8,
   },
   iconButton: {
     width: 28,

@@ -1,6 +1,5 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { GestureDetector } from "react-native-gesture-handler";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { getCalendarItemType } from "@/features/calendar/types";
@@ -18,6 +17,7 @@ interface TimelineItemProps {
     timeLabel: string;
     priority?: string;
     completed?: boolean;
+    items?: Array<{ title: string; completed?: boolean }>;
     [key: string]: any;
   };
   hourHeight?: number;
@@ -27,6 +27,31 @@ interface TimelineItemProps {
   createPanGesture: (item: any) => any;
 }
 
+// Accent colors per entity type — consistent with brand colors
+const ACCENT: Record<string, string> = {
+  task: "#6366F1",      // Indigo
+  habit: "#10B981",     // Emerald
+  checklist: "#3B82F6", // Blue
+};
+
+// Near-neutral backgrounds — accent does the work
+const CARD_BG_LIGHT: Record<string, string> = {
+  task:      "#F5F4FF",
+  habit:     "#F0FDF9",
+  checklist: "#EFF6FF",
+};
+
+const CARD_BG_DARK: Record<string, string> = {
+  task:      "rgba(99, 102, 241, 0.07)",
+  habit:     "rgba(16, 185, 129, 0.07)",
+  checklist: "rgba(59, 130, 246, 0.07)",
+};
+
+const PRIORITY_DOT: Record<string, string> = {
+  high:   "#EF4444",
+  low:    "#10B981",
+};
+
 export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   item,
   hourHeight = 80,
@@ -35,9 +60,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   onOpenItem,
   createPanGesture,
 }) => {
-  const startMinutes =
-    (item.startHour ?? 0) * 60 + (item.startMinute ?? 0);
-
+  const startMinutes = (item.startHour ?? 0) * 60 + (item.startMinute ?? 0);
   const top = (startMinutes / 60) * hourHeight;
   const height = (item.durationMinutes / 60) * hourHeight;
 
@@ -45,130 +68,87 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   const leftPercent = item.colIdx * widthPercent;
 
   const type = getCalendarItemType(item);
-
-  const themeStyles = {
-    task: {
-      bg: isLight ? "#EEF2F6" : "rgba(108, 99, 255, 0.08)",
-      border: "#6C63FF",
-      icon: "check-square",
-    },
-    habit: {
-      bg: isLight ? "#ECFDF5" : "rgba(16, 185, 129, 0.08)",
-      border: "#10B981",
-      icon: "activity",
-    },
-    checklist: {
-      bg: isLight ? "#EFF6FF" : "rgba(59, 130, 246, 0.08)",
-      border: "#3B82F6",
-      icon: "list",
-    },
-  }[type] || {
-    bg: isLight ? "#EEF2F6" : "rgba(108, 99, 255, 0.08)",
-    border: "#6C63FF",
-    icon: "check-square",
-  };
+  const accent = item.completed ? "#9CA3AF" : (ACCENT[type] ?? ACCENT.task);
 
   const cardBg = item.completed
-    ? isLight
-      ? "#F1F5F9"
-      : "rgba(255, 255, 255, 0.02)"
-    : themeStyles.bg;
-  const accentColor = item.completed
-    ? "#9CA3AF"
-    : themeStyles.border;
+    ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.02)"
+    : isLight
+      ? (CARD_BG_LIGHT[type] ?? CARD_BG_LIGHT.task)
+      : (CARD_BG_DARK[type] ?? CARD_BG_DARK.task);
+
+  // Checklist item preview — up to 2 items, comma-separated
+  const checklistPreview =
+    type === "checklist" && item.items && item.items.length > 0
+      ? item.items
+          .slice(0, 2)
+          .map((it: any) => it.title)
+          .join(" · ")
+      : null;
+
+  const priorityDotColor =
+    item.priority && item.priority !== "medium" && item.priority !== "none"
+      ? PRIORITY_DOT[item.priority]
+      : null;
 
   const gesture = createPanGesture(item);
+  const isCompact = height < 52;
+  const isTall = height >= 72;
 
   return (
     <GestureDetector gesture={gesture}>
       <Pressable
         onPress={() => onOpenItem(item)}
-        style={[
-          styles.timedBlockCard,
+        style={({ pressed }) => [
+          styles.card,
           {
             top,
             height: Math.max(36, height - 2),
             left: `${leftPercent}%`,
             width: `${widthPercent - 1}%`,
             backgroundColor: cardBg,
-            borderLeftColor: accentColor,
-            borderLeftWidth: 3,
+            borderLeftColor: accent,
+            opacity: pressed ? 0.85 : item.completed ? 0.5 : 1,
           },
         ]}
       >
-        <View style={styles.cardContent}>
-          <View>
-            <View style={styles.topRow}>
-              <Text
-                style={[
-                  styles.timeLabelText,
-                  {
-                    color: item.completed
-                      ? colors.textMuted
-                      : accentColor,
-                  },
-                ]}
-              >
-                {item.timeLabel} ({item.durationMinutes}m)
-              </Text>
-              {item.priority && item.priority !== "medium" && item.priority !== "none" && (
-                <Text
-                  style={[
-                    styles.priorityText,
-                    {
-                      color:
-                        item.priority === "high"
-                          ? colors.error
-                          : colors.success,
-                    },
-                  ]}
-                >
-                  {item.priority.toUpperCase()}
-                </Text>
-              )}
-            </View>
-            <Text
-              numberOfLines={height < 50 ? 1 : 2}
-              style={[
-                styles.titleText,
-                {
-                  color: item.completed
-                    ? colors.textMuted
-                    : colors.text,
-                  textDecorationLine: item.completed
-                    ? "line-through"
-                    : "none",
-                },
-              ]}
-            >
-              {item.title}
-            </Text>
-          </View>
+        <View style={styles.inner}>
+          {/* Title — hero text */}
+          <Text
+            numberOfLines={isCompact ? 1 : isTall ? 2 : 1}
+            style={[
+              styles.title,
+              {
+                color: item.completed ? colors.textMuted : colors.text,
+              },
+            ]}
+          >
+            {item.title}
+          </Text>
 
-          {height >= 60 && (
-            <View style={styles.bottomRow}>
-              <Feather
-                name={themeStyles.icon as any}
-                size={10}
-                color={
-                  item.completed
-                    ? colors.textMuted
-                    : accentColor
-                }
-              />
+          {/* Time + duration — secondary below title */}
+          {!isCompact && (
+            <View style={styles.metaRow}>
+              {/* Priority dot (if high/low) */}
+              {priorityDotColor && (
+                <View style={[styles.priorityDot, { backgroundColor: priorityDotColor }]} />
+              )}
               <Text
-                style={[
-                  styles.typeLabel,
-                  {
-                    color: item.completed
-                      ? colors.textMuted
-                      : colors.text,
-                  },
-                ]}
+                style={[styles.metaText, { color: accent }]}
+                numberOfLines={1}
               >
-                {type.charAt(0).toUpperCase() + type.slice(1)}
+                {item.timeLabel} · {item.durationMinutes}m
               </Text>
             </View>
+          )}
+
+          {/* Checklist item preview */}
+          {isTall && checklistPreview && (
+            <Text
+              style={[styles.previewText, { color: colors.textMuted }]}
+              numberOfLines={1}
+            >
+              {checklistPreview}
+            </Text>
           )}
         </View>
       </Pressable>
@@ -179,47 +159,41 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
 TimelineItem.displayName = "TimelineItem";
 
 const styles = StyleSheet.create({
-  timedBlockCard: {
+  card: {
     position: "absolute",
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
+    borderLeftWidth: 2,
+    borderRadius: 6,
     overflow: "hidden",
   },
-  cardContent: {
+  inner: {
     flex: 1,
-    padding: 6,
-    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    justifyContent: "center",
+    gap: 2,
   },
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  timeLabelText: {
-    fontSize: 9,
-    fontWeight: "800",
-    textTransform: "uppercase",
-  },
-  priorityText: {
-    fontSize: 8,
-    fontWeight: "900",
-  },
-  titleText: {
+  title: {
     fontSize: 12,
-    fontWeight: "700",
-    marginTop: 2,
+    fontWeight: "600",
+    lineHeight: 16,
   },
-  bottomRow: {
+  metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
   },
-  typeLabel: {
-    fontSize: 9,
+  priorityDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  metaText: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  previewText: {
+    fontSize: 10,
+    fontWeight: "400",
     opacity: 0.8,
   },
 });

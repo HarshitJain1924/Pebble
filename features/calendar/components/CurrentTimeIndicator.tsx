@@ -13,6 +13,8 @@ interface CurrentTimeIndicatorProps {
   isLight: boolean;
 }
 
+const RED = "#EF4444";
+
 export const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = React.memo(({
   hours,
   minutes,
@@ -27,34 +29,25 @@ export const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = React.m
     ),
   );
 
+  const label = formatCurrentTimeLabel(hours, minutes);
+
   return (
     <View
       style={[styles.container, { top: topPos }]}
       pointerEvents="none"
     >
-      {/* Left Time Label (Aligned with hour labels in hourLabelCol) */}
-      <View style={styles.labelWrapper}>
-        <View
-          style={[
-            styles.labelBadge,
-            {
-              backgroundColor: isLight
-                ? "#FEE2E2"
-                : "rgba(239, 68, 68, 0.25)",
-            },
-          ]}
-        >
-          <Text style={styles.labelText} numberOfLines={1}>
-            {formatCurrentTimeLabel(hours, minutes)}
-          </Text>
-        </View>
+      {/* Right-aligned time label — sits in the label column naturally */}
+      <View style={styles.labelCol}>
+        <Text style={styles.labelText} numberOfLines={1}>
+          {label}
+        </Text>
       </View>
 
-      {/* Center Dot Marker (At the grid line boundary) */}
-      <View style={styles.dotMarker} />
+      {/* Small dot marker at the grid edge */}
+      <View style={styles.dot} />
 
-      {/* Horizontal Red Line (Spanning the task timeline grid) */}
-      <View style={styles.horizontalLine} />
+      {/* Thin horizontal line across the timeline */}
+      <View style={styles.line} />
     </View>
   );
 });
@@ -70,35 +63,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 30,
   },
-  labelWrapper: {
+  labelCol: {
     width: 65,
     alignItems: "flex-end",
-    paddingRight: 6,
+    paddingRight: 8,
     justifyContent: "center",
   },
-  labelBadge: {
-    paddingHorizontal: 4,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-  },
   labelText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#EF4444",
+    fontSize: 10,
+    fontWeight: "600",
+    color: RED,
     textAlign: "right",
-    lineHeight: 11,
   },
-  dotMarker: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#EF4444",
-    marginLeft: -4,
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: RED,
+    marginLeft: -3,
   },
-  horizontalLine: {
+  line: {
     flex: 1,
-    height: 2,
-    backgroundColor: "#EF4444",
-    borderRadius: 1,
+    height: 1,
+    backgroundColor: RED,
+    opacity: 0.85,
   },
 });

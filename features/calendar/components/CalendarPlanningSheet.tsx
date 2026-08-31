@@ -154,12 +154,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           scaleTo={0.98}
                           contentStyle={[
                             styles.itemCard,
-                            {
-                              backgroundColor: isLight
-                                ? "#F8FAFC"
-                                : "rgba(255,255,255,0.03)",
-                              borderColor: colors.border,
-                            },
+                            { borderBottomColor: colors.border },
                           ]}
                         >
                           <View style={styles.itemLeft}>
@@ -249,14 +244,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           scaleTo={0.98}
                           contentStyle={[
                             styles.itemCard,
-                            {
-                              backgroundColor: isLight
-                                ? "#EFF6FF"
-                                : "rgba(59, 130, 246, 0.05)",
-                              borderColor: isLight
-                                ? "#BFDBFE"
-                                : "rgba(59, 130, 246, 0.2)",
-                            },
+                            { borderBottomColor: colors.border },
                           ]}
                         >
                           <View style={styles.itemLeft}>
@@ -305,19 +293,11 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
               </ScrollView>
             )}
 
-            {/* Cancel button */}
+            {/* Cancel button — plain text link */}
             <PressableScale
               onPress={close}
-              scaleTo={0.98}
-              contentStyle={[
-                styles.cancelButton,
-                {
-                  backgroundColor: isLight
-                    ? "#F1F5F9"
-                    : "rgba(255,255,255,0.04)",
-                  borderColor: colors.border,
-                },
-              ]}
+              scaleTo={0.97}
+              contentStyle={styles.cancelButton}
             >
               <Text
                 style={[styles.cancelButtonText, { color: colors.textMuted }]}
@@ -341,7 +321,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === "ios" ? 36 : 24,
     borderWidth: 1.5,
     gap: 14,
-    maxHeight: 540,
+    maxHeight: 480,
   },
   headerRow: {
     flexDirection: "row",
@@ -400,9 +380,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   itemLeft: {
     flex: 1,
@@ -443,12 +423,10 @@ const styles = StyleSheet.create({
   cancelButton: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 11,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingVertical: 8,
   },
   cancelButtonText: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "500",
   },
 });

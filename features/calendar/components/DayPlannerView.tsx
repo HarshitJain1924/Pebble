@@ -143,13 +143,13 @@ DayPlannerView.displayName = "DayPlannerView";
 
 const styles = StyleSheet.create({
   plannerContainer: {
-    marginTop: 8,
-    gap: 16,
+    marginTop: 4,
+    gap: 8,
   },
   timelineGridWrapper: {
     position: "relative",
     flexDirection: "column",
-    marginTop: 10,
+    marginTop: 8,
   },
   absoluteBlocksContainer: {
     position: "absolute",
@@ -160,21 +160,20 @@ const styles = StyleSheet.create({
   },
   dragGuideCard: {
     position: "absolute",
-    borderRadius: 12,
+    borderRadius: 6,
     height: 78,
     left: 0,
     right: 0,
     borderStyle: "dashed",
-    borderWidth: 2,
+    borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   dragGuideText: {
     fontSize: 11,
-    fontWeight: "800",
-    textTransform: "uppercase",
+    fontWeight: "600",
   },
   bottomSpacer: {
-    height: 48,
+    height: 64,
   },
 });
