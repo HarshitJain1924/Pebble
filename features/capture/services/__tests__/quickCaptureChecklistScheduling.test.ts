@@ -345,4 +345,33 @@ describe("Quick Capture → Checklist Scheduling Regression Suite (A-L)", () => 
     // 4. Router pushes to /checklist-details?id=...
     expect(mockPush).toHaveBeenCalledWith(`/checklist-details?id=${saved.id}`);
   });
+
+  test("M: Raw NLP Input 'Study at 10 PM\\n- Kube\\n- Node' parses and creates scheduled Checklist end-to-end", async () => {
+    const rawText = "Study at 10 PM\n- Kube\n- Node";
+    const parsed = parseProductivityText(rawText);
+
+    expect(parsed.type).toBe("checklist");
+    expect(parsed.title).toBe("Study");
+    expect(parsed.time).toBe("22:00");
+    expect(parsed.items).toEqual(["Kube", "Node"]);
+
+    const saved = await saveParsedItem(parsed, INBOX_WORKSPACE_ID);
+    expect(saved).toBeDefined();
+
+    const checklist = saved as Checklist;
+    expect(checklist.title).toBe("Study");
+    expect(checklist.items.map((i) => i.title)).toEqual(["Kube", "Node"]);
+    expect(checklist.schedule).toBeDefined();
+    expect(checklist.schedule?.startTime).toBe("22:00");
+    expect(checklist.schedule?.durationMinutes).toBe(45);
+
+    // Verify TaskRepository is completely untouched (No task created)
+    const allTasks = await TaskRepository.getTasks(INBOX_WORKSPACE_ID);
+    expect(Object.keys(allTasks).length).toBe(0);
+
+    // Verify ChecklistRepository has exactly 1 checklist with preserved ID
+    const allChecklists = await ChecklistRepository.getChecklists(INBOX_WORKSPACE_ID);
+    expect(Object.keys(allChecklists).length).toBe(1);
+    expect(allChecklists[checklist.id]).toBeDefined();
+  });
 });

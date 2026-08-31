@@ -451,6 +451,14 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
     const chronoResults = chrono.parse(temporalTextWorking);
     if (chronoResults.length > 0) {
       for (const result of chronoResults) {
+        // Guard against bare "weekend" without temporal qualifiers (e.g. "Weekend Packing", "Weekend Trip")
+        if (
+          result.text.toLowerCase() === "weekend" &&
+          !/\b(?:this|next|on|over|during|for\s+(?:the\s+)?|every)\s+weekend\b/i.test(temporalTextWorking)
+        ) {
+          continue;
+        }
+
         const parsedDate = result.start.date();
         dateStr = dateKeyFromDate(parsedDate);
 
@@ -749,7 +757,31 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
       const firstLine = signals.structural.lines[0] || "Checklist";
       const isTitleLine = !(/^[-*•]\s/.test(firstLine) || /^\d+[.)\s]/.test(firstLine));
       if (isTitleLine) {
-        cleanedTitle = firstLine.replace(/:$/, "").replace(/—$/, "").trim();
+        let working = firstLine.replace(/:$/, "").replace(/—$/, "").trim();
+        for (const phrase of signals.temporal.matchedTemporalPhrases) {
+          if (!phrase || !phrase.trim()) continue;
+          const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const startBoundary = /^\w/.test(phrase.trim()) ? '\\b' : '';
+          const endBoundary = /\w$/.test(phrase.trim()) ? '\\b' : '';
+          const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
+          working = working.replace(regex, "");
+        }
+        if (signals.metadata.matchedPriorityPhrase) {
+          const escaped = signals.metadata.matchedPriorityPhrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const startBoundary = /^\w/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
+          const endBoundary = /\w$/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
+          const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
+          working = working.replace(regex, "");
+        }
+        const cleanedWorking = working
+          .replace(/\s+/g, " ")
+          .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+          .trim()
+          .replace(/^(at|on|by|for|to|with|in)\s+/i, "")
+          .replace(/\s+(at|on|by|for|to|with|in)$/i, "")
+          .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+          .trim();
+        cleanedTitle = cleanedWorking.length > 0 ? cleanedWorking : firstLine.replace(/:$/, "").replace(/—$/, "").trim() || "Checklist";
       } else {
         cleanedTitle = "Checklist";
       }
@@ -778,11 +810,18 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
       // Remove matched temporal phrases and priority words from the title
       let working = originalText;
       for (const phrase of signals.temporal.matchedTemporalPhrases) {
-        const regex = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "gi");
+        if (!phrase || !phrase.trim()) continue;
+        const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const startBoundary = /^\w/.test(phrase.trim()) ? '\\b' : '';
+        const endBoundary = /\w$/.test(phrase.trim()) ? '\\b' : '';
+        const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
         working = working.replace(regex, "");
       }
       if (signals.metadata.matchedPriorityPhrase) {
-        const regex = new RegExp(`\\b${signals.metadata.matchedPriorityPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "gi");
+        const escaped = signals.metadata.matchedPriorityPhrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const startBoundary = /^\w/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
+        const endBoundary = /\w$/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
+        const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
         working = working.replace(regex, "");
       }
       cleanedTitle = working;
@@ -801,26 +840,25 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     .trim();
 
   if (cleanedTitle.length === 0) {
-    cleanedTitle = originalText;
+    cleanedTitle = ranking.topIntent === "checklist" ? "Checklist" : originalText;
   } else if (ranking.topIntent !== "link" && /^[a-z]/.test(cleanedTitle)) {
     cleanedTitle = cleanedTitle.charAt(0).toUpperCase() + cleanedTitle.slice(1);
   }
 
   const isResource = ranking.topIntent === "link" || ranking.topIntent === "idea" || ranking.topIntent === "note";
-  const isList = ranking.topIntent === "checklist";
 
   return {
     type: ranking.topIntent,
     title: cleanedTitle,
-    date: isResource || isList ? undefined : signals.temporal.date,
-    time: isResource || isList ? undefined : signals.temporal.time,
+    date: isResource ? undefined : signals.temporal.date,
+    time: isResource ? undefined : signals.temporal.time,
     category: isResource ? undefined : signals.metadata.category,
-    priority: isResource || isList ? undefined : signals.metadata.priority || "medium",
+    priority: isResource ? undefined : signals.metadata.priority || "medium",
     priorityDetected: !!signals.metadata.priority,
-    recurrence: isResource || isList ? undefined : signals.temporal.recurrence,
-    reminderOffsetMinutes: isResource || isList ? undefined : signals.temporal.reminderOffsetMinutes,
-    explicitReminder: isResource || isList ? undefined : signals.temporal.explicitReminder,
-    reminderTime: isResource || isList ? undefined : signals.temporal.reminderTime,
+    recurrence: isResource ? undefined : signals.temporal.recurrence,
+    reminderOffsetMinutes: isResource ? undefined : signals.temporal.reminderOffsetMinutes,
+    explicitReminder: isResource ? undefined : signals.temporal.explicitReminder,
+    reminderTime: isResource ? undefined : signals.temporal.reminderTime,
     confidence: ranking.confidence,
     items: checklistItems,
     url: detectedUrl,

@@ -127,6 +127,74 @@ describe("nlpParser service unit tests", () => {
       const result = parseProductivityText("I need to remember that milk is running out.\nI will go to the store later today.");
       expect(result.type).not.toBe("checklist");
     });
+
+    it("A. Checklist with time: cleans title and preserves parsed time", () => {
+      const input = "Study at 10 PM\n- Kube\n- Node";
+      const result = parseProductivityText(input);
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Study");
+      expect(result.time).toBe("22:00");
+      expect(result.items).toEqual(["Kube", "Node"]);
+    });
+
+    it("B. Checklist with date + time: cleans title and preserves date and time", () => {
+      const input = "Study tomorrow at 10 PM\n- Kube\n- Node";
+      const result = parseProductivityText(input);
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Study");
+      expect(result.time).toBe("22:00");
+      expect(result.date).toBeDefined();
+      expect(result.items).toEqual(["Kube", "Node"]);
+    });
+
+    it("C. Checklist without temporal information: title preserved and schedule undefined", () => {
+      const input = "Shopping\n- Milk\n- Bread";
+      const result = parseProductivityText(input);
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Shopping");
+      expect(result.date).toBeUndefined();
+      expect(result.time).toBeUndefined();
+      expect(result.items).toEqual(["Milk", "Bread"]);
+    });
+
+    it("D. Checklist with recurrence: cleans title and preserves recurrence", () => {
+      const input = "Study every Sunday at 10 PM\n- Kube\n- Node";
+      const result = parseProductivityText(input);
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Study");
+      expect(result.time).toBe("22:00");
+      expect(result.recurrence).toBeDefined();
+      expect(result.recurrence?.type).toBe("weekly");
+      expect(result.recurrence?.days).toEqual([0]);
+      expect(result.items).toEqual(["Kube", "Node"]);
+    });
+
+    it("E. Checklist with reminder: preserves reminder fields", () => {
+      const input = "Study at 10 PM remind me 15 minutes before\n- Kube\n- Node";
+      const result = parseProductivityText(input);
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Study");
+      expect(result.time).toBe("22:00");
+      expect(result.explicitReminder).toBe(true);
+      expect(result.reminderOffsetMinutes).toBe(15);
+      expect(result.items).toEqual(["Kube", "Node"]);
+    });
+
+    it("F. Task regression: Study Kubernetes at 10 PM remains a Task with clean title/time", () => {
+      const input = "Study Kubernetes at 10 PM";
+      const result = parseProductivityText(input);
+      expect(result.type).toBe("task");
+      expect(result.title).toBe("Study Kubernetes");
+      expect(result.time).toBe("22:00");
+    });
+
+    it("G. Multiline Task regression: long prose or non-list multiline input remains a Task", () => {
+      const input = "Please review the deployment configuration for the server tomorrow at 3pm";
+      const result = parseProductivityText(input);
+      expect(result.type).toBe("task");
+      expect(result.title).toBe("Please review the deployment configuration for the server");
+      expect(result.time).toBe("15:00");
+    });
   });
 
   describe("Intent Hierarchy - Idea", () => {
