@@ -63,6 +63,8 @@ export default function CalendarScreen() {
     activeDragItem,
     hoveredDate,
     hoveredHour,
+    hoveredMinute,
+    hoveredTargetTime,
     dragX,
     dragY,
     monthGridRef,
@@ -77,6 +79,7 @@ export default function CalendarScreen() {
     handleNextMonth,
     checkHoveredDate,
     handleDrop,
+    handleCancelDrag,
     floatingCardStyle,
     weekDaysStrip,
     allDayItems,
@@ -275,11 +278,11 @@ export default function CalendarScreen() {
 
   const createPanGesture = (item: any) => {
     return Gesture.Pan()
-      .activateAfterLongPress(500)
+      .activateAfterLongPress(380)
       .onStart((e) => {
         lastCheckX.value = e.absoluteX;
         lastCheckY.value = e.absoluteY;
-        runOnJS(handleDragStart)(item, e.absoluteX, e.absoluteY);
+        runOnJS(handleDragStart)(item, e.absoluteX, e.absoluteY, e.y);
       })
       .onUpdate((e) => {
         dragX.value = e.absoluteX;
@@ -288,7 +291,7 @@ export default function CalendarScreen() {
         // Manhattan distance check to throttle calls across the bridge to the JS thread
         const dx = Math.abs(e.absoluteX - lastCheckX.value);
         const dy = Math.abs(e.absoluteY - lastCheckY.value);
-        if (dx > 8 || dy > 8) {
+        if (dx > 4 || dy > 4) {
           lastCheckX.value = e.absoluteX;
           lastCheckY.value = e.absoluteY;
           runOnJS(checkHoveredDate)(e.absoluteX, e.absoluteY);
@@ -296,6 +299,9 @@ export default function CalendarScreen() {
       })
       .onEnd((e) => {
         runOnJS(handleDrop)(e.absoluteX, e.absoluteY);
+      })
+      .onFinalize(() => {
+        runOnJS(handleCancelDrag)();
       });
   };
 
@@ -407,6 +413,8 @@ export default function CalendarScreen() {
                 currentTime={currentTime}
                 isDragging={isDragging}
                 hoveredHour={hoveredHour}
+                hoveredMinute={hoveredMinute}
+                hoveredTargetTime={hoveredTargetTime}
                 activeDragItem={activeDragItem}
                 onPlanAllDay={() => setPlaceTaskTarget({ isAllDay: true })}
                 onPlaceAtTime={(hour, minute, gap) =>
@@ -487,7 +495,9 @@ export default function CalendarScreen() {
             ]}
           >
             <Text style={styles.dragFloatingTime}>
-              {activeDragItem.timeLabel || "All Day"}
+              {hoveredTargetTime
+                ? `${hoveredTargetTime.timeRangeLabel} · ${hoveredTargetTime.durationLabel}`
+                : activeDragItem.timeLabel || "All Day"}
             </Text>
             <Text style={styles.dragFloatingTitle} numberOfLines={1}>
               {activeDragItem.title}

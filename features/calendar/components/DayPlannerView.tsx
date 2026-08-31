@@ -22,6 +22,8 @@ interface DayPlannerViewProps {
   currentTime: { hours: number; minutes: number };
   isDragging: boolean;
   hoveredHour: number | null;
+  hoveredMinute?: number | null;
+  hoveredTargetTime?: any | null;
   activeDragItem: any;
   onPlanAllDay: () => void;
   onPlaceAtTime: (
@@ -46,6 +48,8 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
   currentTime,
   isDragging,
   hoveredHour,
+  hoveredMinute,
+  hoveredTargetTime,
   activeDragItem,
   onPlanAllDay,
   onPlaceAtTime,
@@ -74,10 +78,31 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
     return processGapsLayout(freeTimeGaps, expandedGapKeys, 80);
   }, [freeTimeGaps, expandedGapKeys]);
 
-  const dragGuideTop = useMemo(() => {
-    if (hoveredHour === null) return 0;
-    return calculateTimeYCoordinate(hoveredHour * 60, activeCollapsedGaps, 80);
-  }, [hoveredHour, activeCollapsedGaps]);
+  const dragGuideLayout = useMemo(() => {
+    if (!hoveredTargetTime && hoveredHour === null) return null;
+    const startMinutes = hoveredTargetTime
+      ? hoveredTargetTime.startMinutes
+      : (hoveredHour ?? 0) * 60 + (hoveredMinute ?? 0);
+    const durationMinutes = hoveredTargetTime
+      ? hoveredTargetTime.durationMinutes
+      : activeDragItem?.durationMinutes || 60;
+
+    const top = calculateTimeYCoordinate(startMinutes, activeCollapsedGaps, 80);
+    const bottom = calculateTimeYCoordinate(
+      Math.min(1440, startMinutes + durationMinutes),
+      activeCollapsedGaps,
+      80,
+    );
+    const height = Math.max(36, bottom - top);
+
+    return {
+      top,
+      height,
+      timeLabel: hoveredTargetTime?.timeRangeLabel,
+      durationLabel: hoveredTargetTime?.durationLabel,
+      title: activeDragItem?.title,
+    };
+  }, [hoveredTargetTime, hoveredHour, hoveredMinute, activeDragItem, activeCollapsedGaps]);
 
   return (
     <View style={styles.plannerContainer}>
@@ -140,13 +165,14 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
             />
           ))}
 
-          {/* Snappable hourly drag outline guide */}
-          {isDragging && hoveredHour !== null && activeDragItem && (
+          {/* Snappable minute-accurate drag outline guide */}
+          {isDragging && dragGuideLayout && activeDragItem && (
             <View
               style={[
                 styles.dragGuideCard,
                 {
-                  top: dragGuideTop,
+                  top: dragGuideLayout.top,
+                  height: dragGuideLayout.height,
                   backgroundColor: isLight
                     ? "rgba(59, 130, 246, 0.06)"
                     : "rgba(59, 130, 246, 0.12)",
@@ -159,10 +185,23 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
                   styles.dragGuideText,
                   { color: colors.primary },
                 ]}
+                numberOfLines={1}
               >
-                Move to {hoveredHour === 12 ? 12 : hoveredHour % 12}:00{" "}
-                {hoveredHour >= 12 ? "PM" : "AM"}
+                {dragGuideLayout.timeLabel
+                  ? `${dragGuideLayout.timeLabel}${dragGuideLayout.durationLabel ? ` · ${dragGuideLayout.durationLabel}` : ""}`
+                  : `Move to ${hoveredHour === 12 ? 12 : (hoveredHour ?? 0) % 12}:00 ${(hoveredHour ?? 0) >= 12 ? "PM" : "AM"}`}
               </Text>
+              {dragGuideLayout.title && (
+                <Text
+                  style={[
+                    styles.dragGuideSubtext,
+                    { color: isLight ? "#475569" : "#94A3B8" },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {dragGuideLayout.title}
+                </Text>
+              )}
             </View>
           )}
 
@@ -217,6 +256,11 @@ const styles = StyleSheet.create({
   dragGuideText: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  dragGuideSubtext: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 2,
   },
   bottomSpacer: {
     height: 48,

@@ -40,6 +40,15 @@ import {
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { calculateTimelineItemColumns } from "@/features/calendar/utils/timelineLayout";
+import {
+  calculateDraggedItemStartMinutes,
+  buildDraggedItemTimeTarget,
+  DraggedItemTimeTarget,
+} from "@/features/calendar/utils/timelineDrag";
+import {
+  processGapsLayout,
+  TimelineGap,
+} from "@/features/calendar/utils/timelineCollapsibleLayout";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -229,11 +238,15 @@ export function useCalendarState() {
   const [activeDragItem, setActiveDragItem] = useState<any | null>(null);
   const [hoveredDate, _setHoveredDate] = useState<string | null>(null);
   const [hoveredHour, _setHoveredHour] = useState<number | null>(null);
+  const [hoveredMinute, _setHoveredMinute] = useState<number | null>(null);
+  const [hoveredTargetTime, _setHoveredTargetTime] =
+    useState<DraggedItemTimeTarget | null>(null);
 
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
 
   const touchStartRef = useRef({ x: 0, y: 0 });
+  const grabOffsetYRef = useRef<number>(0);
   const monthGridRef = useRef<View>(null);
   const weekStripRef = useRef<View>(null);
   const timelineGridRef = useRef<View>(null);
@@ -244,6 +257,8 @@ export function useCalendarState() {
   // Refs to avoid stale closures in gesture handlers
   const hoveredDateRef = useRef<string | null>(null);
   const hoveredHourRef = useRef<number | null>(null);
+  const hoveredMinuteRef = useRef<number | null>(null);
+  const hoveredTargetTimeRef = useRef<DraggedItemTimeTarget | null>(null);
 
   const setHoveredDate = useCallback((date: string | null) => {
     hoveredDateRef.current = date;
@@ -254,6 +269,19 @@ export function useCalendarState() {
     hoveredHourRef.current = hour;
     _setHoveredHour(hour);
   }, []);
+
+  const setHoveredMinute = useCallback((minute: number | null) => {
+    hoveredMinuteRef.current = minute;
+    _setHoveredMinute(minute);
+  }, []);
+
+  const setHoveredTargetTime = useCallback(
+    (target: DraggedItemTimeTarget | null) => {
+      hoveredTargetTimeRef.current = target;
+      _setHoveredTargetTime(target);
+    },
+    [],
+  );
   const monthGridBoundsRef = useRef<{
     x: number;
     y: number;
@@ -1027,18 +1055,19 @@ export function useCalendarState() {
     calendarViewModeRef.current = calendarViewMode;
   }, [calendarViewMode]);
 
+  const activeCollapsedGaps = useMemo(() => {
+    return processGapsLayout(freeTimeGaps, new Set(), 80).activeCollapsedGaps;
+  }, [freeTimeGaps]);
+  const activeCollapsedGapsRef = useRef<TimelineGap[]>([]);
   useEffect(() => {
-    hoveredHourRef.current = hoveredHour;
-  }, [hoveredHour]);
-
-  useEffect(() => {
-    hoveredDateRef.current = hoveredDate;
-  }, [hoveredDate]);
+    activeCollapsedGapsRef.current = activeCollapsedGaps;
+  }, [activeCollapsedGaps]);
 
   const handleDragStart = useCallback(
-    (item: any, absoluteX: number, absoluteY: number) => {
+    (item: any, absoluteX: number, absoluteY: number, grabOffsetY?: number) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       activeDragItemRef.current = item;
+      grabOffsetYRef.current = grabOffsetY || 0;
       setActiveDragItem(item);
       setIsDragging(true);
       dragX.value = absoluteX;
@@ -1046,8 +1075,12 @@ export function useCalendarState() {
 
       hoveredDateRef.current = null;
       hoveredHourRef.current = null;
+      hoveredMinuteRef.current = null;
+      hoveredTargetTimeRef.current = null;
       setHoveredDate(null);
       setHoveredHour(null);
+      setHoveredMinute(null);
+      setHoveredTargetTime(null);
 
       initialScrollYRef.current = scrollYRef.current;
       lastDragXRef.current = absoluteX;
@@ -1057,7 +1090,15 @@ export function useCalendarState() {
       measureWeekStrip();
       measureTimelineGrid();
     },
-    [measureMonthGrid, measureWeekStrip, measureTimelineGrid],
+    [
+      measureMonthGrid,
+      measureWeekStrip,
+      measureTimelineGrid,
+      setHoveredDate,
+      setHoveredHour,
+      setHoveredMinute,
+      setHoveredTargetTime,
+    ],
   );
 
   const stopAutoScroll = useCallback(() => {
@@ -1109,6 +1150,8 @@ export function useCalendarState() {
               if (hoveredHourRef.current !== null) {
                 hoveredHourRef.current = null;
                 setHoveredHour(null);
+                setHoveredMinute(null);
+                setHoveredTargetTime(null);
               }
               if (hoveredDateRef.current !== cell.dateString) {
                 hoveredDateRef.current = cell.dateString;
@@ -1140,6 +1183,8 @@ export function useCalendarState() {
             if (hoveredHourRef.current !== null) {
               hoveredHourRef.current = null;
               setHoveredHour(null);
+              setHoveredMinute(null);
+              setHoveredTargetTime(null);
             }
             if (hoveredDateRef.current !== day.dateString) {
               hoveredDateRef.current = day.dateString;
@@ -1165,16 +1210,30 @@ export function useCalendarState() {
         ) {
           hoveredTimeline = true;
           const localY = y - adjustedTy;
-          const hourRowIndex = Math.floor(localY / 80);
-          const clampedHour = Math.max(0, Math.min(23, hourRowIndex));
+          const duration = activeDragItemRef.current?.durationMinutes || 60;
+          const grabOffset = grabOffsetYRef.current || 0;
+          const snappedStart = calculateDraggedItemStartMinutes(
+            localY,
+            grabOffset,
+            activeCollapsedGapsRef.current,
+            duration,
+            80,
+          );
+          const target = buildDraggedItemTimeTarget(snappedStart, duration);
 
           if (hoveredDateRef.current !== null) {
             hoveredDateRef.current = null;
             setHoveredDate(null);
           }
-          if (hoveredHourRef.current !== clampedHour) {
-            hoveredHourRef.current = clampedHour;
-            setHoveredHour(clampedHour);
+          if (
+            hoveredTargetTimeRef.current?.startMinutes !== target.startMinutes
+          ) {
+            hoveredTargetTimeRef.current = target;
+            setHoveredTargetTime(target);
+            hoveredHourRef.current = target.startHour;
+            setHoveredHour(target.startHour);
+            hoveredMinuteRef.current = target.startMinute;
+            setHoveredMinute(target.startMinute);
             Haptics.selectionAsync().catch(() => {});
           }
         }
@@ -1189,6 +1248,14 @@ export function useCalendarState() {
           hoveredHourRef.current = null;
           setHoveredHour(null);
         }
+        if (hoveredMinuteRef.current !== null) {
+          hoveredMinuteRef.current = null;
+          setHoveredMinute(null);
+        }
+        if (hoveredTargetTimeRef.current !== null) {
+          hoveredTargetTimeRef.current = null;
+          setHoveredTargetTime(null);
+        }
       }
 
       // Auto-scroll ScrollView when dragging near top/bottom boundaries
@@ -1197,30 +1264,40 @@ export function useCalendarState() {
           autoScrollTimerRef.current = setInterval(() => {
             const currentScroll = scrollYRef.current;
             if (currentScroll > 0) {
-              const newScroll = Math.max(0, currentScroll - 15);
+              const proximity = Math.max(
+                0.2,
+                (220 - lastDragYRef.current) / 220,
+              );
+              const step = Math.round(15 * proximity);
+              const newScroll = Math.max(0, currentScroll - step);
               scrollRef.current?.scrollTo({ y: newScroll, animated: false });
               scrollYRef.current = newScroll;
               checkHoveredDate(lastDragXRef.current, lastDragYRef.current);
             } else {
               stopAutoScroll();
             }
-          }, 30);
+          }, 25);
         }
       } else if (y > SCREEN_HEIGHT - 160) {
         if (!autoScrollTimerRef.current) {
           autoScrollTimerRef.current = setInterval(() => {
             const currentScroll = scrollYRef.current;
-            const newScroll = currentScroll + 15;
+            const proximity = Math.max(
+              0.2,
+              (lastDragYRef.current - (SCREEN_HEIGHT - 160)) / 160,
+            );
+            const step = Math.round(15 * proximity);
+            const newScroll = currentScroll + step;
             scrollRef.current?.scrollTo({ y: newScroll, animated: false });
             scrollYRef.current = newScroll;
             checkHoveredDate(lastDragXRef.current, lastDragYRef.current);
-          }, 30);
+          }, 25);
         }
       } else {
         stopAutoScroll();
       }
     },
-    [stopAutoScroll],
+    [setHoveredDate, setHoveredHour, setHoveredMinute, setHoveredTargetTime, stopAutoScroll],
   );
 
   // Reschedule Persistence on Drop
@@ -1232,13 +1309,25 @@ export function useCalendarState() {
       }
 
       const dragItem = activeDragItemRef.current;
+      const targetTime = hoveredTargetTimeRef.current;
       const hHour = hoveredHourRef.current;
       const hDate = hoveredDateRef.current;
       const selDate = selectedDateRef.current || selectedDate || getDateKey();
 
       if (dragItem) {
-        // 1. Reschedule Hour (on selectedDate)
-        if (hHour !== null) {
+        const isChecklist =
+          dragItem.type === "checklist" ||
+          (Array.isArray((dragItem as any).items) && !(dragItem as any).frequency);
+        const isHabit =
+          dragItem.type === "habit" || (dragItem as any).frequency !== undefined;
+        const isTask =
+          dragItem.type === "task" || (!isChecklist && !isHabit);
+
+        // 1. Reschedule Hour & Minute (on selectedDate)
+        if (targetTime !== null || hHour !== null) {
+          const dropHour = targetTime ? targetTime.startHour : hHour!;
+          const dropMinute = targetTime ? targetTime.startMinute : 0;
+
           Haptics.notificationAsync(
             Haptics.NotificationFeedbackType.Success,
           ).catch(() => {});
@@ -1248,7 +1337,7 @@ export function useCalendarState() {
               dragItem.workspaceId ||
               uiState.activeWorkspaceId ||
               INBOX_WORKSPACE_ID;
-            if (dragItem.type === "task") {
+            if (isTask) {
               const taskMap = await TaskRepository.getTasks(targetWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
@@ -1258,13 +1347,13 @@ export function useCalendarState() {
                     todo.id,
                     targetWorkspace,
                     selDate,
-                    { hour: hHour },
+                    { hour: dropHour, minute: dropMinute },
                     { source: "calendar_drag_drop", skipEvents: true },
                   );
                 } else {
                   const updates = calculateRescheduledTask(
                     todo,
-                    { hour: hHour },
+                    { hour: dropHour, minute: dropMinute },
                     selDate,
                   );
                   await EntityCommandService.updateTask(
@@ -1275,18 +1364,18 @@ export function useCalendarState() {
                   );
                 }
               }
-            } else if (dragItem.type === "habit") {
+            } else if (isHabit) {
               const habitMap = await HabitRepository.getHabits(targetWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
-                // Update habit reminder time to match the dropped hour
+                // Update habit reminder time to match the dropped hour & minute
                 const [year, monthVal, dayVal] = selDate.split("-").map(Number);
                 const newReminderDate = new Date(
                   year,
                   monthVal - 1,
                   dayVal,
-                  hHour,
-                  0,
+                  dropHour,
+                  dropMinute,
                   0,
                   0,
                 );
@@ -1299,7 +1388,7 @@ export function useCalendarState() {
                   },
                 }, { source: "calendar_drag_drop", skipEvents: true });
               }
-            } else if (dragItem.type === "checklist") {
+            } else if (isChecklist) {
               const checklistMap = await ChecklistRepository.getChecklists(targetWorkspace);
               const checklist = checklistMap[dragItem.id] as any;
               if (checklist) {
@@ -1309,13 +1398,13 @@ export function useCalendarState() {
                     checklist.id,
                     targetWorkspace,
                     selDate,
-                    { hour: hHour },
+                    { hour: dropHour, minute: dropMinute },
                     { source: "calendar_drag_drop", skipEvents: true },
                   );
                 } else {
                   const updates = calculateRescheduledTask(
                     checklist,
-                    { hour: hHour },
+                    { hour: dropHour, minute: dropMinute },
                     selDate,
                   );
                   await EntityCommandService.updateChecklist(
@@ -1331,11 +1420,11 @@ export function useCalendarState() {
             await loadDataFromStorage();
             void loadMonth(month.year, month.month);
 
-            if (dragItem.type === "task") {
+            if (isTask) {
               emitStateChange("tasks_changed");
-            } else if (dragItem.type === "habit") {
+            } else if (isHabit) {
               emitStateChange("habits_changed");
-            } else if (dragItem.type === "checklist") {
+            } else if (isChecklist) {
               emitStateChange("checklists_changed");
             }
           } catch (err) {
@@ -1356,7 +1445,7 @@ export function useCalendarState() {
               dragItem.workspaceId ||
               uiState.activeWorkspaceId ||
               INBOX_WORKSPACE_ID;
-            if (dragItem.type === "task") {
+            if (isTask) {
               const taskMap = await TaskRepository.getTasks(targetWorkspace);
               const todo = taskMap[dragItem.id] as any;
               if (todo) {
@@ -1379,21 +1468,21 @@ export function useCalendarState() {
                   );
                 }
               }
-            } else if (dragItem.type === "habit") {
+            } else if (isHabit) {
               const habitMap = await HabitRepository.getHabits(targetWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
                 // Update habit reminder date to the dropped date, preserve time if any
                 const [year, monthVal, dayVal] = hDate.split("-").map(Number);
-                const existingReminderDate = habit.reminder?.triggerAt
+                const existingDate = habit.reminder?.triggerAt
                   ? new Date(habit.reminder.triggerAt)
                   : new Date();
                 const newReminderDate = new Date(
                   year,
                   monthVal - 1,
                   dayVal,
-                  existingReminderDate.getHours(),
-                  existingReminderDate.getMinutes(),
+                  existingDate.getHours(),
+                  existingDate.getMinutes(),
                   0,
                   0,
                 );
@@ -1406,7 +1495,7 @@ export function useCalendarState() {
                   },
                 }, { source: "calendar_drag_drop", skipEvents: true });
               }
-            } else if (dragItem.type === "checklist") {
+            } else if (isChecklist) {
               const checklistMap = await ChecklistRepository.getChecklists(targetWorkspace);
               const checklist = checklistMap[dragItem.id] as any;
               if (checklist) {
@@ -1435,11 +1524,11 @@ export function useCalendarState() {
             await loadDataFromStorage();
             void loadMonth(month.year, month.month);
 
-            if (dragItem.type === "task") {
+            if (isTask) {
               emitStateChange("tasks_changed");
-            } else if (dragItem.type === "habit") {
+            } else if (isHabit) {
               emitStateChange("habits_changed");
-            } else if (dragItem.type === "checklist") {
+            } else if (isChecklist) {
               emitStateChange("checklists_changed");
             }
           } catch (err) {
@@ -1455,15 +1544,25 @@ export function useCalendarState() {
       setActiveDragItem(null);
       setHoveredDate(null);
       setHoveredHour(null);
+      setHoveredMinute(null);
+      setHoveredTargetTime(null);
       hoveredDateRef.current = null;
       hoveredHourRef.current = null;
+      hoveredMinuteRef.current = null;
+      hoveredTargetTimeRef.current = null;
+      grabOffsetYRef.current = 0;
     },
     [
-      selectedDate,
-      month.year,
-      month.month,
       loadDataFromStorage,
       loadMonth,
+      month.month,
+      month.year,
+      selectedDate,
+      setHoveredDate,
+      setHoveredHour,
+      setHoveredMinute,
+      setHoveredTargetTime,
+      setSelectedDate,
       stopAutoScroll,
     ],
   );
@@ -1474,9 +1573,20 @@ export function useCalendarState() {
     setActiveDragItem(null);
     setHoveredDate(null);
     setHoveredHour(null);
+    setHoveredMinute(null);
+    setHoveredTargetTime(null);
     hoveredDateRef.current = null;
     hoveredHourRef.current = null;
-  }, [stopAutoScroll]);
+    hoveredMinuteRef.current = null;
+    hoveredTargetTimeRef.current = null;
+    grabOffsetYRef.current = 0;
+  }, [
+    setHoveredDate,
+    setHoveredHour,
+    setHoveredMinute,
+    setHoveredTargetTime,
+    stopAutoScroll,
+  ]);
 
   // Reanimated style for the absolute floating item (lifted 85px above finger, semi-transparent for visibility)
   const floatingCardStyle = useAnimatedStyle(() => {
@@ -1518,6 +1628,10 @@ export function useCalendarState() {
     setHoveredDate,
     hoveredHour,
     setHoveredHour,
+    hoveredMinute,
+    setHoveredMinute,
+    hoveredTargetTime,
+    setHoveredTargetTime,
     dragX,
     dragY,
     touchStartRef,
