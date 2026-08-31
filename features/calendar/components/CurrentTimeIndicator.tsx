@@ -1,14 +1,18 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { formatCurrentTimeLabel } from "@/features/calendar/hooks/useCalendarState";
 import {
-  calculateCurrentTimePosition,
-  formatCurrentTimeLabel,
-} from "@/features/calendar/hooks/useCalendarState";
+  calculateTimeYCoordinate,
+  TimelineGap,
+  STANDARD_HOUR_HEIGHT,
+} from "@/features/calendar/utils/timelineCollapsibleLayout";
 
 interface CurrentTimeIndicatorProps {
   hours: number;
   minutes: number;
+  top?: number;
+  activeCollapsedGaps?: TimelineGap[];
   hourHeight?: number;
   isLight: boolean;
 }
@@ -18,22 +22,21 @@ const RED = "#EF4444";
 export const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = React.memo(({
   hours,
   minutes,
-  hourHeight = 80,
+  top: propTop,
+  activeCollapsedGaps = [],
+  hourHeight = STANDARD_HOUR_HEIGHT,
   isLight,
 }) => {
-  const topPos = Math.max(
-    0,
-    Math.min(
-      24 * hourHeight - 2,
-      calculateCurrentTimePosition(hours, minutes, hourHeight) - 1,
-    ),
-  );
+  const currentMinutes = hours * 60 + minutes;
+  const topPos = propTop !== undefined
+    ? propTop
+    : calculateTimeYCoordinate(currentMinutes, activeCollapsedGaps, hourHeight) - 1;
 
   const label = formatCurrentTimeLabel(hours, minutes);
 
   return (
     <View
-      style={[styles.container, { top: topPos }]}
+      style={[styles.container, { top: Math.max(0, topPos) }]}
       pointerEvents="none"
     >
       {/* Right-aligned time label */}

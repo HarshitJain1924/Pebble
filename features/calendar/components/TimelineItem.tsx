@@ -52,6 +52,8 @@ interface TimelineItemProps {
     streak?: number;
     [key: string]: any;
   };
+  top?: number;
+  activeCollapsedGaps?: any[];
   hourHeight?: number;
   colors: any;
   isLight: boolean;
@@ -74,6 +76,8 @@ function formatTimeWithAmpm(h: number, m: number): string {
 
 export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   item,
+  top: propTop,
+  activeCollapsedGaps = [],
   hourHeight = 80,
   colors,
   isLight,
@@ -81,7 +85,16 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   createPanGesture,
 }) => {
   const startMinutes = (item.startHour ?? 0) * 60 + (item.startMinute ?? 0);
-  const top = (startMinutes / 60) * hourHeight;
+  const top =
+    propTop !== undefined
+      ? propTop
+      : (activeCollapsedGaps && activeCollapsedGaps.length > 0
+          ? require("@/features/calendar/utils/timelineCollapsibleLayout").calculateTimeYCoordinate(
+              startMinutes,
+              activeCollapsedGaps,
+              hourHeight,
+            )
+          : (startMinutes / 60) * hourHeight);
   const height = (item.durationMinutes / 60) * hourHeight;
 
   const totalCols = Math.max(1, item.totalCols || 1);
