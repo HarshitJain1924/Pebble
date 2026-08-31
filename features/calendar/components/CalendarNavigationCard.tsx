@@ -123,22 +123,12 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
       style={[
         styles.navCard,
         {
-          backgroundColor: colors.card,
+          backgroundColor: isLight ? "#FFFFFF" : colors.card,
           borderColor: colors.border,
-          borderWidth: calendarViewMode === "timeline" ? 0 : 1,
-          shadowOpacity:
-            calendarViewMode === "timeline"
-              ? 0
-              : colorScheme === "light"
-                ? 0.04
-                : 0.15,
-          elevation: calendarViewMode === "timeline" ? 0 : 4,
-          marginTop:
-            calendarViewMode === "timeline"
-              ? 0
-              : Platform.OS === "ios"
-                ? 12
-                : 8,
+          borderWidth: 1,
+          shadowOpacity: isLight ? 0.03 : 0.12,
+          elevation: calendarViewMode === "timeline" ? 1 : 3,
+          marginTop: calendarViewMode === "timeline" ? 4 : Platform.OS === "ios" ? 10 : 6,
           height: calendarHeight,
         },
       ]}
@@ -414,18 +404,18 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
 
 const styles = StyleSheet.create({
   navCard: {
-    borderRadius: 28,
+    borderRadius: 16,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 10,
     position: "relative",
     overflow: "hidden",
   },
   sectionAbsolute: {
     position: "absolute",
-    top: 12,
-    left: 16,
-    right: 16,
+    top: 8,
+    left: 12,
+    right: 12,
   },
   monthHeaderRow: {
     flexDirection: "row",

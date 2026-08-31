@@ -1,5 +1,5 @@
 import React from "react";
-import { View, StyleSheet } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
@@ -13,6 +13,7 @@ interface CalendarHeaderProps {
   colors: any;
   isLight: boolean;
   onToggleViewMode: () => void;
+  onOpenQuickJump?: () => void;
 }
 
 const VIEW_LABELS: Record<CalendarViewMode, string> = {
@@ -28,6 +29,7 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   colors,
   isLight,
   onToggleViewMode,
+  onOpenQuickJump,
 }) => {
   const d = new Date(selectedDate);
   const isToday = selectedDate === getDateKey();
@@ -36,9 +38,22 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   const monthName = MONTH_NAMES[d.getMonth()];
   const dayNum = d.getDate();
 
+  const handleDatePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (onOpenQuickJump) {
+      onOpenQuickJump();
+    } else {
+      onToggleViewMode();
+    }
+  };
+
   return (
     <View style={styles.headerRow}>
-      <View style={styles.titleCol}>
+      <Pressable
+        onPress={handleDatePress}
+        style={styles.titleCol}
+        accessibilityLabel={`Selected date: ${weekday}, ${monthName} ${dayNum}. Tap to jump to another date.`}
+      >
         <View style={styles.dateLine}>
           <Text style={[styles.primaryDate, { color: colors.text }]}>
             {weekday}, {monthName} {dayNum}
@@ -63,7 +78,7 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
             </View>
           )}
         </View>
-      </View>
+      </Pressable>
 
       {/* View mode toggle pill */}
       <PressableScale
@@ -96,7 +111,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingTop: 4,
-    paddingBottom: 6,
+    paddingBottom: 2,
   },
   titleCol: {
     flex: 1,

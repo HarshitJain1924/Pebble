@@ -27,7 +27,7 @@ interface TimelineItemProps {
   createPanGesture: (item: any) => any;
 }
 
-// Accent colors per entity type — solid, vibrant Pebble brand colors
+// Accent colors per entity type — vibrant, accessible Pebble brand colors
 const ACCENT: Record<string, string> = {
   task: "#6366F1",      // Indigo
   habit: "#10B981",     // Emerald
@@ -53,6 +53,19 @@ const PRIORITY_DOT: Record<string, string> = {
   low:    "#10B981",
 };
 
+function formatTimeOnly(h: number, m: number): string {
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const mStr = m < 10 ? `0${m}` : `${m}`;
+  return `${displayH}:${mStr}`;
+}
+
+function formatTimeWithAmpm(h: number, m: number): string {
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const mStr = m < 10 ? `0${m}` : `${m}`;
+  return `${displayH}:${mStr} ${ampm}`;
+}
+
 export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   item,
   hourHeight = 80,
@@ -77,7 +90,25 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
       ? (CARD_BG_LIGHT[type] ?? CARD_BG_LIGHT.task)
       : (CARD_BG_DARK[type] ?? CARD_BG_DARK.task);
 
-  // Checklist item preview — up to 2 items, bullet/dot separated
+  // Compute end time and duration string
+  const endTotalMinutes = startMinutes + (item.durationMinutes ?? 0);
+  const endHour = Math.floor(endTotalMinutes / 60) % 24;
+  const endMinute = endTotalMinutes % 60;
+
+  const durHrs = Math.floor(item.durationMinutes / 60);
+  const durMins = item.durationMinutes % 60;
+  const durStr = durHrs > 0
+    ? `${durHrs}h${durMins > 0 ? ` ${durMins}m` : ""}`
+    : `${durMins}m`;
+
+  const startAmpm = (item.startHour ?? 0) >= 12 ? "PM" : "AM";
+  const endAmpm = endHour >= 12 ? "PM" : "AM";
+
+  const timeRangeStr = startAmpm === endAmpm
+    ? `${formatTimeOnly(item.startHour ?? 0, item.startMinute ?? 0)} – ${formatTimeOnly(endHour, endMinute)} ${endAmpm} · ${durStr}`
+    : `${formatTimeWithAmpm(item.startHour ?? 0, item.startMinute ?? 0)} – ${formatTimeWithAmpm(endHour, endMinute)} · ${durStr}`;
+
+  // Checklist item preview — up to 2 items
   const checklistPreview =
     type === "checklist" && item.items && item.items.length > 0
       ? item.items
@@ -92,8 +123,10 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
       : null;
 
   const gesture = createPanGesture(item);
-  const isCompact = height < 50;
+  const isVeryCompact = height < 44;
   const isTall = height >= 68;
+
+  const titlePrefix = type === "habit" ? "⚡ " : "";
 
   return (
     <GestureDetector gesture={gesture}>
@@ -103,7 +136,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
           styles.card,
           {
             top,
-            height: Math.max(38, height - 2),
+            height: Math.max(36, height - 2),
             left: `${leftPercent}%`,
             width: `${widthPercent - 1}%`,
             backgroundColor: cardBg,
@@ -116,7 +149,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
         <View style={styles.inner}>
           {/* Primary Title */}
           <Text
-            numberOfLines={isCompact ? 1 : isTall ? 2 : 1}
+            numberOfLines={isVeryCompact ? 1 : isTall ? 2 : 1}
             style={[
               styles.title,
               {
@@ -124,11 +157,11 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
               },
             ]}
           >
-            {item.title}
+            {titlePrefix}{item.title}
           </Text>
 
-          {/* Time & Duration Metadata */}
-          {!isCompact && (
+          {/* Temporal Allocation: Start → End · Duration */}
+          {!isVeryCompact && (
             <View style={styles.metaRow}>
               {priorityDotColor && (
                 <View style={[styles.priorityDot, { backgroundColor: priorityDotColor }]} />
@@ -140,12 +173,12 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
                 ]}
                 numberOfLines={1}
               >
-                {item.timeLabel} · {item.durationMinutes} min
+                {timeRangeStr}
               </Text>
             </View>
           )}
 
-          {/* Checklist Item Preview */}
+          {/* Checklist Item Preview (on tall cards) */}
           {isTall && checklistPreview && (
             <Text
               style={[styles.previewText, { color: colors.textMuted }]}
@@ -173,9 +206,9 @@ const styles = StyleSheet.create({
   inner: {
     flex: 1,
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 6,
     justifyContent: "center",
-    gap: 3,
+    gap: 2,
   },
   title: {
     fontSize: 14,

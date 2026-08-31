@@ -29,6 +29,7 @@ import {
 import { CalendarViewMode, getCalendarItemType } from "@/features/calendar/types";
 import { CalendarHeader } from "@/features/calendar/components/CalendarHeader";
 import { CalendarNavigationCard } from "@/features/calendar/components/CalendarNavigationCard";
+import { DayContextSummary } from "@/features/calendar/components/DayContextSummary";
 import { DayPlannerView } from "@/features/calendar/components/DayPlannerView";
 import { CalendarPlanningSheet } from "@/features/calendar/components/CalendarPlanningSheet";
 import { QuickSlotSheet } from "@/features/calendar/components/QuickSlotSheet";
@@ -170,9 +171,20 @@ export default function CalendarScreen() {
     });
   }, [timedItemsWithLayout, activeFilters, showCompleted]);
 
+  const plannedMinutes = useMemo(() => {
+    return filteredTimedItems.reduce(
+      (sum, it) => sum + (it.durationMinutes || 0),
+      0,
+    );
+  }, [filteredTimedItems]);
+
+  const freeMinutes = useMemo(() => {
+    return freeTimeGaps.reduce((sum, g) => sum + (g.durationMinutes || 0), 0);
+  }, [freeTimeGaps]);
+
   // ─── View Switcher & Morph Animations ────────────────────────────
   const activeTabX = useSharedValue(0);
-  const calendarHeight = useSharedValue(260);
+  const calendarHeight = useSharedValue(76);
   const opacityMonth = useSharedValue(1);
   const opacityWeek = useSharedValue(0);
   const opacityTimeline = useSharedValue(0);
@@ -198,7 +210,7 @@ export default function CalendarScreen() {
       opacityTimeline.value = withTiming(0, { duration: 100 });
     } else {
       activeTabX.value = 2;
-      calendarHeight.value = withTiming(0, {
+      calendarHeight.value = withTiming(76, {
         duration: 220,
         easing: Easing.bezier(0.25, 1, 0.5, 1),
       });
@@ -301,9 +313,19 @@ export default function CalendarScreen() {
             colors={colors}
             isLight={isLight}
             onToggleViewMode={handleToggleViewMode}
+            onOpenQuickJump={() => setShowQuickJump(true)}
           />
 
-          {/* 2. Calendar Navigation Card */}
+          {/* 2. Day Context Summary */}
+          <DayContextSummary
+            scheduledCount={totalItemsCount}
+            plannedMinutes={plannedMinutes}
+            freeMinutes={freeMinutes}
+            colors={colors}
+            isLight={isLight}
+          />
+
+          {/* 3. Calendar Navigation Card (Month Grid / Week Strip) */}
           <CalendarNavigationCard
             calendarViewMode={calendarViewMode}
             selectedDate={selectedDate}
