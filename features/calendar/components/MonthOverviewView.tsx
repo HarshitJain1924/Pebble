@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, Pressable, StyleSheet, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -17,6 +17,7 @@ import {
   isHabitCompletedToday,
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
+import { ENTITY_ACCENT } from "./TimelineItem";
 
 interface MonthOverviewViewProps {
   selectedDate: string;
@@ -37,29 +38,20 @@ interface MonthOverviewViewProps {
   isLight: boolean;
 }
 
-const ACCENT: Record<string, string> = {
-  task: "#6366F1",
-  habit: "#10B981",
-  checklist: "#3B82F6",
-};
-
-const CARD_BG_LIGHT: Record<string, string> = {
-  task: "#F4F3FF",
-  habit: "#F0FDF4",
-  checklist: "#EFF6FF",
-};
-
-const CARD_BG_DARK: Record<string, string> = {
-  task: "rgba(99, 102, 241, 0.12)",
-  habit: "rgba(16, 185, 129, 0.12)",
-  checklist: "rgba(59, 130, 246, 0.12)",
-};
-
 function formatTime(h: number, m: number): string {
   const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
   const ampm = h >= 12 ? "PM" : "AM";
   const mStr = m < 10 ? `0${m}` : `${m}`;
   return `${displayH}:${mStr} ${ampm}`;
+}
+
+function formatDuration(minutes: number): string {
+  const hrs = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hrs > 0) {
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  }
+  return `${mins}m`;
 }
 
 export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
@@ -96,8 +88,8 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
   };
 
   // Agenda items for the currently selected date
-  const selectedDateItems = useMemo(() => {
-    if (!selectedDate) return [];
+  const { allDayItems, timedItems, totalItemsCount } = useMemo(() => {
+    if (!selectedDate) return { allDayItems: [], timedItems: [], totalItemsCount: 0 };
 
     const tasks = allTodos
       .filter((t) => !t.archivedAt && isRecurringOccurrenceForDate(t, selectedDate) && t.schedule?.date !== "inbox")
@@ -147,22 +139,26 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
         };
       });
 
-    return [...tasks, ...habits, ...checklists].sort((a, b) => {
+    const all = [...tasks, ...habits, ...checklists].sort((a, b) => {
       const timeA = a.startHour !== undefined ? a.startHour * 60 + (a.startMinute || 0) : 9999;
       const timeB = b.startHour !== undefined ? b.startHour * 60 + (b.startMinute || 0) : 9999;
       return timeA - timeB;
     });
+
+    const timed = all.filter((it) => it.startHour !== undefined && it.startMinute !== undefined);
+    const allDay = all.filter((it) => it.startHour === undefined || it.startMinute === undefined);
+
+    return { allDayItems: allDay, timedItems: timed, totalItemsCount: all.length };
   }, [selectedDate, allTodos, allHabits, allChecklists]);
 
   const parsedSelDate = new Date(selectedDate);
   const selectedWeekday = WEEKDAY_NAMES[parsedSelDate.getDay()];
   const selectedMonthName = MONTH_NAMES[parsedSelDate.getMonth()];
   const selectedDayNum = parsedSelDate.getDate();
-  const isSelectedToday = selectedDate === getDateKey();
 
   return (
     <View style={styles.container}>
-      {/* 1. Month Calendar Card (Primary Surface) */}
+      {/* 1. Month Calendar Grid Card */}
       <View
         style={[
           styles.monthCard,
@@ -234,16 +230,13 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
         >
           {calendarCells.map((cell) => {
             if (cell.type === "empty") {
-              return (
-                <View key={cell.key} style={styles.emptyDayCell} />
-              );
+              return <View key={cell.key} style={styles.emptyDayCell} />;
             }
 
             const dateStr = cell.dateString || "";
             const isSelected = selectedDate === dateStr;
             const isToday = dateStr === getDateKey();
             const stats = getDateStats(dateStr);
-            const hasAny = stats.tasks > 0 || stats.habits > 0 || stats.checklists > 0;
 
             return (
               <Pressable
@@ -283,10 +276,10 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                   </Text>
                 </View>
 
-                {/* Indicator Dots */}
+                {/* Indicator Dots: Task (Amber), Habit (Green), Checklist (Blue) */}
                 <View style={styles.indicatorRow}>
                   {stats.tasks > 0 && (
-                    <View style={[styles.indicatorDot, { backgroundColor: "#6366F1" }]} />
+                    <View style={[styles.indicatorDot, { backgroundColor: "#F59E0B" }]} />
                   )}
                   {stats.habits > 0 && (
                     <View style={[styles.indicatorDot, { backgroundColor: "#10B981" }]} />
@@ -301,7 +294,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
         </View>
       </View>
 
-      {/* 2. Selected Date Agenda Section */}
+      {/* 2. Selected Date Agenda Card */}
       <View
         style={[
           styles.agendaCard,
@@ -313,28 +306,11 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
       >
         <View style={styles.agendaHeaderRow}>
           <View style={styles.agendaTitleCol}>
-            <View style={styles.agendaTitleLine}>
-              <Text style={[styles.agendaTitle, { color: colors.text }]}>
-                {selectedWeekday}, {selectedMonthName} {selectedDayNum}
-              </Text>
-              {isSelectedToday && (
-                <View
-                  style={[
-                    styles.todayBadge,
-                    {
-                      backgroundColor: `${colors.primary}15`,
-                      borderColor: `${colors.primary}30`,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.todayBadgeText, { color: colors.primary }]}>
-                    Today
-                  </Text>
-                </View>
-              )}
-            </View>
+            <Text style={[styles.agendaTitle, { color: colors.text }]}>
+              Agenda for {selectedWeekday}, {selectedMonthName} {selectedDayNum}
+            </Text>
             <Text style={[styles.agendaSubtext, { color: colors.textMuted }]}>
-              {selectedDateItems.length} item{selectedDateItems.length !== 1 ? "s" : ""} scheduled
+              {totalItemsCount} item{totalItemsCount !== 1 ? "s" : ""}
             </Text>
           </View>
 
@@ -350,83 +326,134 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
             ]}
           >
             <Text style={[styles.openDayButtonText, { color: colors.primary }]}>
-              Day Planner
+              Day View
             </Text>
             <Feather name="arrow-right" size={13} color={colors.primary} />
           </PressableScale>
         </View>
 
-        {/* Items List */}
-        {selectedDateItems.length > 0 ? (
-          <View style={styles.agendaItemsList}>
-            {selectedDateItems.map((item) => {
-              const accent = item.completed ? colors.textMuted : (ACCENT[item.type] || colors.primary);
-              const bg = isLight
-                ? (CARD_BG_LIGHT[item.type] || CARD_BG_LIGHT.task)
-                : (CARD_BG_DARK[item.type] || CARD_BG_DARK.task);
+        {/* All-Day Items */}
+        {allDayItems.length > 0 && (
+          <View style={styles.allDayRow}>
+            <Text style={[styles.allDayLabel, { color: colors.textMuted }]}>
+              All Day
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.allDayChipsList}>
+              {allDayItems.map((item) => {
+                const config = ENTITY_ACCENT[item.type] || ENTITY_ACCENT.task;
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => onOpenItem(item)}
+                    style={[
+                      styles.agendaAllDayChip,
+                      {
+                        backgroundColor: isLight ? config.lightBg : config.darkBg,
+                        borderLeftColor: config.main,
+                        borderColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
+                      },
+                    ]}
+                  >
+                    <Feather name={config.icon} size={11} color={config.main} />
+                    <Text style={[styles.allDayChipText, { color: colors.text }]} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
 
-              const timeStr =
-                item.startHour !== undefined && item.startMinute !== undefined
-                  ? formatTime(item.startHour, item.startMinute)
-                  : "All Day";
+        {/* Timed Items List with Left Time Column */}
+        {timedItems.length > 0 ? (
+          <View style={styles.timedAgendaList}>
+            {timedItems.map((item) => {
+              const config = ENTITY_ACCENT[item.type] || ENTITY_ACCENT.task;
+              const accent = item.completed ? colors.textMuted : config.main;
+              const bg = item.completed
+                ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.02)"
+                : isLight ? config.lightBg : config.darkBg;
+
+              const timeStr = formatTime(item.startHour!, item.startMinute!);
+              const durStr = formatDuration(item.durationMinutes);
 
               return (
                 <PressableScale
                   key={item.id}
                   onPress={() => onOpenItem(item)}
                   scaleTo={0.98}
-                  contentStyle={[
-                    styles.agendaItemRow,
-                    {
-                      backgroundColor: item.completed
-                        ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.02)"
-                        : bg,
-                      borderLeftColor: accent,
-                      borderColor: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)",
-                      opacity: item.completed ? 0.55 : 1,
-                    },
-                  ]}
+                  contentStyle={styles.agendaItemContainer}
                 >
-                  <View style={styles.agendaItemLeft}>
-                    <Text
-                      style={[
-                        styles.agendaItemTitle,
-                        { color: item.completed ? colors.textMuted : colors.text },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.type === "habit" ? "⚡ " : ""}{item.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.agendaItemMeta,
-                        { color: item.completed ? colors.textMuted : accent },
-                      ]}
-                    >
-                      {timeStr} · {item.durationMinutes}m
+                  {/* Left Time Column */}
+                  <View style={styles.itemTimeCol}>
+                    <Text style={[styles.itemTimeText, { color: colors.textMuted }]}>
+                      {timeStr}
                     </Text>
                   </View>
 
-                  <Feather name="chevron-right" size={14} color={colors.textMuted} />
+                  {/* Item Card Body */}
+                  <View
+                    style={[
+                      styles.itemCardBody,
+                      {
+                        backgroundColor: bg,
+                        borderLeftColor: accent,
+                        borderColor: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)",
+                        opacity: item.completed ? 0.55 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.itemCardLeft}>
+                      <View style={styles.itemTitleRow}>
+                        <Feather name={config.icon} size={12} color={accent} />
+                        <Text
+                          style={[
+                            styles.itemTitleText,
+                            {
+                              color: item.completed ? colors.textMuted : colors.text,
+                              textDecorationLine: item.completed ? "line-through" : "none",
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.title}
+                        </Text>
+                      </View>
+                      <Text style={[styles.itemDurationText, { color: accent }]}>
+                        {durStr}
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={14} color={colors.textMuted} />
+                  </View>
                 </PressableScale>
               );
             })}
           </View>
-        ) : (
+        ) : allDayItems.length === 0 ? (
           <View style={styles.emptyAgendaRow}>
             <Text style={[styles.emptyAgendaText, { color: colors.textMuted }]}>
               No items scheduled for this date.
             </Text>
-            <Pressable
-              onPress={() => onPlanAtDate(selectedDate)}
-              hitSlop={8}
-            >
-              <Text style={[styles.planLinkText, { color: colors.primary }]}>
-                + Plan something
-              </Text>
-            </Pressable>
           </View>
-        )}
+        ) : null}
+
+        {/* Plan Something Button */}
+        <PressableScale
+          onPress={() => onPlanAtDate(selectedDate)}
+          scaleTo={0.98}
+          contentStyle={[
+            styles.planSomethingButton,
+            {
+              borderColor: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)",
+            },
+          ]}
+        >
+          <Feather name="plus" size={14} color={colors.primary} />
+          <Text style={[styles.planSomethingText, { color: colors.primary }]}>
+            + Plan something
+          </Text>
+        </PressableScale>
       </View>
 
       <View style={{ height: 80 }} />
@@ -530,25 +557,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  agendaTitleLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
   agendaTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-  },
-  todayBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 5,
-    borderWidth: 1,
-  },
-  todayBadgeText: {
-    fontSize: 9,
-    fontWeight: "800",
-    textTransform: "uppercase",
   },
   agendaSubtext: {
     fontSize: 12,
@@ -566,45 +577,99 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
-  agendaItemsList: {
-    gap: 8,
+  allDayRow: {
+    gap: 6,
   },
-  agendaItemRow: {
+  allDayLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  allDayChipsList: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  agendaAllDayChip: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
     borderWidth: 1,
-    borderLeftWidth: 3.5,
+    borderLeftWidth: 3,
   },
-  agendaItemLeft: {
-    flex: 1,
-    gap: 2,
-    marginRight: 8,
-  },
-  agendaItemTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  agendaItemMeta: {
+  allDayChipText: {
     fontSize: 12,
     fontWeight: "600",
   },
-  emptyAgendaRow: {
+  timedAgendaList: {
+    gap: 8,
+  },
+  agendaItemContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  itemTimeCol: {
+    width: 68,
+  },
+  itemTimeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  itemCardBody: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderLeftWidth: 3.5,
+  },
+  itemCardLeft: {
+    flex: 1,
+    gap: 2,
+    marginRight: 6,
+  },
+  itemTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  itemTitleText: {
+    fontSize: 13,
+    fontWeight: "700",
+    flex: 1,
+  },
+  itemDurationText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  emptyAgendaRow: {
+    paddingVertical: 12,
+    alignItems: "center",
   },
   emptyAgendaText: {
     fontSize: 13,
     fontWeight: "500",
     fontStyle: "italic",
   },
-  planLinkText: {
+  planSomethingButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    marginTop: 4,
+  },
+  planSomethingText: {
     fontSize: 13,
     fontWeight: "700",
   },

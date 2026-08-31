@@ -29,28 +29,63 @@ export const DayContextSummary: React.FC<DayContextSummaryProps> = React.memo(({
   const plannedText = formatDuration(plannedMinutes);
   const freeText = formatDuration(freeMinutes);
 
-  let summaryText = "";
-  if (scheduledCount === 0) {
-    summaryText = freeMinutes > 0
-      ? `0 scheduled · ${freeText} open`
-      : "0 scheduled · Free day";
-  } else {
-    summaryText = `${scheduledCount} scheduled · ${plannedText} planned${
-      freeMinutes > 0 ? ` · ${freeText} free` : ""
-    }`;
-  }
-
   return (
     <View style={styles.container}>
-      <Text
+      <View
         style={[
-          styles.summaryText,
-          { color: colors.textMuted },
+          styles.statPill,
+          {
+            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            borderColor: colors.border,
+          },
         ]}
-        numberOfLines={1}
       >
-        {summaryText}
-      </Text>
+        <Text style={[styles.statValue, { color: colors.text }]}>
+          {scheduledCount}
+        </Text>
+        <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+          Scheduled
+        </Text>
+      </View>
+
+      <View
+        style={[
+          styles.statPill,
+          {
+            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            borderColor: colors.border,
+          },
+        ]}
+      >
+        <Text style={[styles.statValue, { color: colors.text }]}>
+          {plannedMinutes > 0 ? plannedText : "0m"}
+        </Text>
+        <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+          Planned
+        </Text>
+      </View>
+
+      <View
+        style={[
+          styles.statPill,
+          {
+            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            borderColor: colors.border,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.statValue,
+            { color: freeMinutes > 0 ? (isLight ? "#059669" : "#10B981") : colors.text },
+          ]}
+        >
+          {freeMinutes > 0 ? freeText : "Free"}
+        </Text>
+        <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+          Free
+        </Text>
+      </View>
     </View>
   );
 });
@@ -59,13 +94,30 @@ DayContextSummary.displayName = "DayContextSummary";
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 2,
-    marginTop: 2,
-    marginBottom: 4,
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 6,
   },
-  summaryText: {
-    fontSize: 13,
-    fontWeight: "500",
-    letterSpacing: 0.1,
+  statPill: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 1,
+  },
+  statValue: {
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  statLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
   },
 });

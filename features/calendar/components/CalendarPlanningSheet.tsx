@@ -6,6 +6,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
+import { ENTITY_ACCENT } from "./TimelineItem";
 
 interface CalendarPlanningSheetProps {
   visible: boolean;
@@ -137,6 +138,8 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                     {pendingTasks.map((task) => {
                       const taskDuration =
                         task.schedule?.durationMinutes || 60;
+                      const taskAccent = ENTITY_ACCENT.task;
+
                       return (
                         <PressableScale
                           key={task.id}
@@ -162,18 +165,10 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           ]}
                         >
                           <View style={styles.itemLeft}>
-                            <View
-                              style={[
-                                styles.priorityDot,
-                                {
-                                  backgroundColor:
-                                    task.priority === "high"
-                                      ? "#EF4444"
-                                      : task.priority === "medium"
-                                        ? "#F59E0B"
-                                        : "#6366F1",
-                                },
-                              ]}
+                            <Feather
+                              name={taskAccent.icon}
+                              size={15}
+                              color={taskAccent.main}
                             />
                             <View style={styles.itemTextCol}>
                               <Text
@@ -192,16 +187,16 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           <View
                             style={[
                               styles.placeButton,
-                              { backgroundColor: `${colors.primary}15` },
+                              { backgroundColor: `${taskAccent.main}15` },
                             ]}
                           >
                             <Feather
                               name="plus"
                               size={13}
-                              color={colors.primary}
+                              color={taskAccent.main}
                             />
                             <Text
-                              style={[styles.placeButtonText, { color: colors.primary }]}
+                              style={[styles.placeButtonText, { color: taskAccent.main }]}
                             >
                               Place
                             </Text>
@@ -230,6 +225,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           : "Empty checklist";
                       const duration =
                         checklist.schedule?.durationMinutes || 45;
+                      const chkAccent = ENTITY_ACCENT.checklist;
 
                       return (
                         <PressableScale
@@ -256,11 +252,10 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           ]}
                         >
                           <View style={styles.itemLeft}>
-                            <View
-                              style={[
-                                styles.priorityDot,
-                                { backgroundColor: "#3B82F6" },
-                              ]}
+                            <Feather
+                              name={chkAccent.icon}
+                              size={15}
+                              color={chkAccent.main}
                             />
                             <View style={styles.itemTextCol}>
                               <Text
@@ -280,16 +275,16 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           <View
                             style={[
                               styles.placeButton,
-                              { backgroundColor: "rgba(59, 130, 246, 0.15)" },
+                              { backgroundColor: `${chkAccent.main}15` },
                             ]}
                           >
                             <Feather
                               name="plus"
                               size={13}
-                              color="#3B82F6"
+                              color={chkAccent.main}
                             />
                             <Text
-                              style={[styles.placeButtonText, { color: "#3B82F6" }]}
+                              style={[styles.placeButtonText, { color: chkAccent.main }]}
                             >
                               Place
                             </Text>
@@ -402,11 +397,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-  },
-  priorityDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
   },
   itemTextCol: {
     flex: 1,

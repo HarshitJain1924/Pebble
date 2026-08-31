@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import { GestureDetector } from "react-native-gesture-handler";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { getCalendarItemType } from "@/features/calendar/types";
+import { ENTITY_ACCENT } from "./TimelineItem";
 
 interface AllDaySectionProps {
   items: Array<{
@@ -23,12 +24,6 @@ interface AllDaySectionProps {
   isLight: boolean;
 }
 
-const ACCENT: Record<string, string> = {
-  task:      "#6366F1",
-  habit:     "#10B981",
-  checklist: "#3B82F6",
-};
-
 export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
   items,
   hasPendingItems,
@@ -45,7 +40,7 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
       {/* Section Header Row */}
       <View style={styles.headerRow}>
         <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
-          ALL DAY
+          All Day
         </Text>
         {hasPendingItems && (
           <TouchableOpacity
@@ -74,8 +69,14 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
           {items.map((item, idx) => {
             const gesture = createPanGesture(item);
             const type = getCalendarItemType(item);
-            const accent = item.completed ? colors.textMuted : (ACCENT[type] ?? ACCENT.task);
-            const isHabit = item.type === "habit";
+            const config = ENTITY_ACCENT[type] || ENTITY_ACCENT.task;
+            const accent = item.completed ? colors.textMuted : config.main;
+            const bg = item.completed
+              ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.03)"
+              : isLight
+                ? config.lightBg
+                : config.darkBg;
+
             const itemCount =
               type === "checklist" && item.items && item.items.length > 0
                 ? item.items.length
@@ -88,13 +89,14 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
                   style={({ pressed }) => [
                     styles.chip,
                     {
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255, 255, 255, 0.05)",
-                      borderColor: isLight ? "rgba(0,0,0,0.08)" : "rgba(255, 255, 255, 0.1)",
+                      backgroundColor: bg,
+                      borderColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
                       borderLeftColor: accent,
                       opacity: pressed ? 0.8 : item.completed ? 0.5 : 1,
                     },
                   ]}
                 >
+                  <Feather name={config.icon} size={12} color={accent} />
                   <Text
                     style={[
                       styles.chipText,
@@ -102,7 +104,7 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
                     ]}
                     numberOfLines={1}
                   >
-                    {isHabit ? `⚡ ${item.title}` : item.title}
+                    {item.title}
                     {itemCount ? ` · ${itemCount}` : ""}
                   </Text>
                 </Pressable>
@@ -120,6 +122,7 @@ AllDaySection.displayName = "AllDaySection";
 const styles = StyleSheet.create({
   container: {
     gap: 6,
+    marginBottom: 4,
   },
   headerRow: {
     flexDirection: "row",
@@ -130,7 +133,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 1,
+    letterSpacing: 0.4,
     textTransform: "uppercase",
   },
   planButton: {
@@ -148,14 +151,17 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
     borderLeftWidth: 3,
   },
   chipText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     maxWidth: 180,
   },

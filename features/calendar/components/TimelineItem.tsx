@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
+import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { getCalendarItemType } from "@/features/calendar/types";
 
@@ -18,6 +19,9 @@ interface TimelineItemProps {
     priority?: string;
     completed?: boolean;
     items?: Array<{ title: string; completed?: boolean }>;
+    itemsCount?: number;
+    completedItemsCount?: number;
+    streak?: number;
     [key: string]: any;
   };
   hourHeight?: number;
@@ -27,30 +31,26 @@ interface TimelineItemProps {
   createPanGesture: (item: any) => any;
 }
 
-// Accent colors per entity type — vibrant, accessible Pebble brand colors
-const ACCENT: Record<string, string> = {
-  task: "#6366F1",      // Indigo
-  habit: "#10B981",     // Emerald
-  checklist: "#3B82F6", // Blue
-};
-
-// Tinted card surfaces for Light mode
-const CARD_BG_LIGHT: Record<string, string> = {
-  task:      "#F4F3FF",
-  habit:     "#F0FDF4",
-  checklist: "#EFF6FF",
-};
-
-// Tinted card surfaces for Dark mode
-const CARD_BG_DARK: Record<string, string> = {
-  task:      "rgba(99, 102, 241, 0.13)",
-  habit:     "rgba(16, 185, 129, 0.13)",
-  checklist: "rgba(59, 130, 246, 0.13)",
-};
-
-const PRIORITY_DOT: Record<string, string> = {
-  high:   "#EF4444",
-  low:    "#10B981",
+// Distinct semantic accent colors per entity type
+export const ENTITY_ACCENT: Record<string, { main: string; lightBg: string; darkBg: string; icon: keyof typeof Feather.glyphMap }> = {
+  task: {
+    main: "#F59E0B", // Warm Amber
+    lightBg: "#FFFBEB",
+    darkBg: "rgba(245, 158, 11, 0.12)",
+    icon: "check-square",
+  },
+  habit: {
+    main: "#10B981", // Emerald Green
+    lightBg: "#F0FDF4",
+    darkBg: "rgba(16, 185, 129, 0.12)",
+    icon: "rotate-cw",
+  },
+  checklist: {
+    main: "#3B82F6", // Deep Blue
+    lightBg: "#EFF6FF",
+    darkBg: "rgba(59, 130, 246, 0.12)",
+    icon: "list",
+  },
 };
 
 function formatTimeOnly(h: number, m: number): string {
@@ -82,13 +82,14 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   const leftPercent = item.colIdx * widthPercent;
 
   const type = getCalendarItemType(item);
-  const accent = item.completed ? colors.textMuted : (ACCENT[type] ?? ACCENT.task);
+  const config = ENTITY_ACCENT[type] || ENTITY_ACCENT.task;
+  const accent = item.completed ? colors.textMuted : config.main;
 
   const cardBg = item.completed
     ? isLight ? "#F1F5F9" : "rgba(255, 255, 255, 0.03)"
     : isLight
-      ? (CARD_BG_LIGHT[type] ?? CARD_BG_LIGHT.task)
-      : (CARD_BG_DARK[type] ?? CARD_BG_DARK.task);
+      ? config.lightBg
+      : config.darkBg;
 
   // Compute end time and duration string
   const endTotalMinutes = startMinutes + (item.durationMinutes ?? 0);
@@ -108,7 +109,11 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
     ? `${formatTimeOnly(item.startHour ?? 0, item.startMinute ?? 0)} – ${formatTimeOnly(endHour, endMinute)} ${endAmpm} · ${durStr}`
     : `${formatTimeWithAmpm(item.startHour ?? 0, item.startMinute ?? 0)} – ${formatTimeWithAmpm(endHour, endMinute)} · ${durStr}`;
 
-  // Checklist item preview — up to 2 items
+  // Checklist specific metadata
+  const totalChecklistItems = item.itemsCount ?? item.items?.length ?? 0;
+  const completedChecklistItems = item.completedItemsCount ?? item.items?.filter((i: any) => i.completed)?.length ?? 0;
+  const checklistProgressText = totalChecklistItems > 0 ? `${completedChecklistItems}/${totalChecklistItems}` : null;
+
   const checklistPreview =
     type === "checklist" && item.items && item.items.length > 0
       ? item.items
@@ -117,16 +122,10 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
           .join(" · ")
       : null;
 
-  const priorityDotColor =
-    item.priority && item.priority !== "medium" && item.priority !== "none"
-      ? PRIORITY_DOT[item.priority]
-      : null;
-
+  const isHighPriority = item.priority === "high";
   const gesture = createPanGesture(item);
   const isVeryCompact = height < 44;
   const isTall = height >= 68;
-
-  const titlePrefix = type === "habit" ? "⚡ " : "";
 
   return (
     <GestureDetector gesture={gesture}>
@@ -147,25 +146,54 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
         ]}
       >
         <View style={styles.inner}>
-          {/* Primary Title */}
-          <Text
-            numberOfLines={isVeryCompact ? 1 : isTall ? 2 : 1}
-            style={[
-              styles.title,
-              {
-                color: item.completed ? colors.textMuted : colors.text,
-              },
-            ]}
-          >
-            {titlePrefix}{item.title}
-          </Text>
+          {/* Header Row: Entity Icon + Title + Progress / Check Status */}
+          <View style={styles.topRow}>
+            <View style={styles.titleWithIcon}>
+              <Feather
+                name={config.icon}
+                size={13}
+                color={accent}
+                style={styles.entityIcon}
+              />
+              <Text
+                numberOfLines={isVeryCompact ? 1 : isTall ? 2 : 1}
+                style={[
+                  styles.title,
+                  {
+                    color: item.completed ? colors.textMuted : colors.text,
+                    textDecorationLine: item.completed ? "line-through" : "none",
+                  },
+                ]}
+              >
+                {item.title}
+              </Text>
+            </View>
 
-          {/* Temporal Allocation: Start → End · Duration */}
+            {/* Right badge: Checklist progress or completion status */}
+            {type === "checklist" && checklistProgressText && (
+              <View
+                style={[
+                  styles.progressBadge,
+                  {
+                    backgroundColor: isLight ? "rgba(59, 130, 246, 0.12)" : "rgba(59, 130, 246, 0.22)",
+                    borderColor: "rgba(59, 130, 246, 0.3)",
+                  },
+                ]}
+              >
+                <Text style={[styles.progressBadgeText, { color: accent }]}>
+                  {checklistProgressText}
+                </Text>
+              </View>
+            )}
+
+            {item.completed && (
+              <Feather name="check-circle" size={13} color={colors.success || "#10B981"} />
+            )}
+          </View>
+
+          {/* Temporal Allocation & Priority */}
           {!isVeryCompact && (
             <View style={styles.metaRow}>
-              {priorityDotColor && (
-                <View style={[styles.priorityDot, { backgroundColor: priorityDotColor }]} />
-              )}
               <Text
                 style={[
                   styles.metaText,
@@ -175,6 +203,19 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
               >
                 {timeRangeStr}
               </Text>
+
+              {isHighPriority && (
+                <View style={styles.priorityPill}>
+                  <View style={styles.priorityDot} />
+                  <Text style={styles.priorityText}>High Priority</Text>
+                </View>
+              )}
+
+              {type === "habit" && !isHighPriority && (
+                <Text style={[styles.habitRecurrenceText, { color: colors.textMuted }]}>
+                  {item.streak ? `· ${item.streak}d streak` : "· Habit"}
+                </Text>
+              )}
             </View>
           )}
 
@@ -208,28 +249,70 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     justifyContent: "center",
-    gap: 2,
+    gap: 3,
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  titleWithIcon: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  entityIcon: {
+    marginTop: 1,
   },
   title: {
     fontSize: 14,
     fontWeight: "700",
     letterSpacing: -0.1,
     lineHeight: 18,
+    flex: 1,
+  },
+  progressBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    borderWidth: 1,
+  },
+  progressBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
   },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-  },
-  priorityDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    flexWrap: "wrap",
+    gap: 6,
   },
   metaText: {
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0.1,
+  },
+  priorityPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  priorityDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "#EF4444",
+  },
+  priorityText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#EF4444",
+  },
+  habitRecurrenceText: {
+    fontSize: 11,
+    fontWeight: "500",
   },
   previewText: {
     fontSize: 11,
