@@ -373,14 +373,14 @@ export async function scheduleReminderBatch(
 
     // 2. Check if oneTimeAt falls in quiet hours
     if (options.oneTimeAt) {
-      if (isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, options.oneTimeAt.getHours())) {
+      if (isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, options.oneTimeAt.getHours(), options.oneTimeAt.getMinutes())) {
         return { ids: [], escalationMinutes };
       }
     }
 
     // 3. Check if dailyTime falls in quiet hours
     if (options.dailyTime) {
-      if (isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, options.dailyTime.hour)) {
+      if (isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, options.dailyTime.hour, options.dailyTime.minute)) {
         return { ids: [], escalationMinutes };
       }
     }
@@ -410,7 +410,7 @@ export async function scheduleReminderBatch(
       const triggerDate = new Date(
         options.oneTimeAt.getTime() + offset * 60 * 1000,
       );
-      if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, triggerDate.getHours())) {
+      if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, triggerDate.getHours(), triggerDate.getMinutes())) {
         console.log(`[scheduleReminderBatch] Skipping offset ${offset} for oneTimeAt because it falls inside Quiet Hours.`);
         continue;
       }
@@ -520,7 +520,7 @@ export async function scheduleReminderBatch(
         offset,
       );
 
-      if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, adjusted.hour)) {
+      if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, adjusted.hour, adjusted.minute)) {
         console.log(`[scheduleReminderBatch] Skipping offset ${offset} for recurrence because it falls inside Quiet Hours.`);
         continue;
       }
@@ -619,7 +619,7 @@ export async function scheduleReminderBatch(
 
           const notificationId = await Notifications.scheduleNotificationAsync({
             content: {
-              title: options.kind === "habit" ? "Daily habit reminder" : "Task reminder",
+              title: getNotificationTitle(options.kind),
               body,
               data: notifData,
             },
@@ -684,7 +684,7 @@ export async function scheduleReminderBatch(
       offset,
     );
 
-    if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, adjusted.hour)) {
+    if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, adjusted.hour, adjusted.minute)) {
       console.log(`[scheduleReminderBatch] Skipping offset ${offset} for fallback daily/weekly because it falls inside Quiet Hours.`);
       continue;
     }
@@ -735,10 +735,7 @@ export async function scheduleReminderBatch(
 
         const notificationId = await Notifications.scheduleNotificationAsync({
           content: {
-            title:
-              options.kind === "habit"
-                ? "Daily habit reminder"
-                : "Task reminder",
+            title: getNotificationTitle(options.kind),
             body,
             data,
           },
@@ -787,8 +784,7 @@ export async function scheduleReminderBatch(
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title:
-          options.kind === "habit" ? "Daily habit reminder" : "Task reminder",
+        title: getNotificationTitle(options.kind),
         body,
         data,
       },

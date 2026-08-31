@@ -1,59 +1,56 @@
-import { AppCard } from "@/shared/components/ui/AppCard";
-import PressableScale from "@/shared/components/ui/PressableScale";
-import { Colors } from "@/shared/constants/theme";
-import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import React, { useCallback, useState } from "react";
 import {
-    addNotificationLog,
-    clearNotificationLogs,
-    getNotificationLogs,
-    markNotificationLogsAsRead,
-    type NotificationLogEntry,
-} from "@/services/scheduling/notifications-log";
-import {
-    TaskRepository,
-    HabitRepository,
-    WorkspaceRepository,
-} from "@/repositories";
-import { INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as IntentLauncher from "expo-intent-launcher";
-// NOTE: avoid importing `expo-notifications` at module top-level because
-// it auto-registers push token listeners which will error/warn in Expo Go.
-// Use dynamic import inside async functions instead.
+
+import { AppCard } from "@/shared/components/ui/AppCard";
+import PressableScale from "@/shared/components/ui/PressableScale";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import { Colors } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
-    ActivityIndicator,
-    Alert,
-    Linking,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    View,
-} from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
+  AlertCenterService,
+} from "@/services/notifications/AlertCenterService";
+import {
+  AlertCenterGroups,
+  AlertCenterItem,
+} from "@/services/notifications/notification.types";
+import {
+  addNotificationLog,
+  clearNotificationLogs,
+  getNotificationLogs,
+  markNotificationLogsAsRead,
+  type NotificationLogEntry,
+} from "@/services/scheduling/notifications-log";
 
-type FutureReminder = {
-  id: string;
-  title: string;
-  timeLabel: string;
-  kind: "todo" | "habit";
-};
-
-export default function NotificationsCenter() {
+export default function AlertCenterScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const router = useRouter();
 
-  const [permissionStatus, setPermissionStatus] =
-    useState<string>("undetermined");
+  const [permissionStatus, setPermissionStatus] = useState<string>("undetermined");
+  const [alertGroups, setAlertGroups] = useState<AlertCenterGroups>({
+    needsAttention: [],
+    upNext: [],
+    later: [],
+    all: [],
+  });
   const [logs, setLogs] = useState<NotificationLogEntry[]>([]);
-  const [futureReminders, setFutureReminders] = useState<FutureReminder[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [testing, setTesting] = useState<boolean>(false);
+  const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
 
   // 1. Fetch system permission status
   const checkPermissions = useCallback(async () => {
@@ -69,10 +66,6 @@ export default function NotificationsCenter() {
     try {
       const Notifications = await import("expo-notifications");
       const { status } = await Notifications.getPermissionsAsync();
-      console.log(
-        "[NotificationsCenter] checkPermissions getPermissionsAsync status:",
-        status,
-      );
       setPermissionStatus(status);
     } catch {
       setPermissionStatus("undetermined");
@@ -95,10 +88,6 @@ export default function NotificationsCenter() {
     try {
       const Notifications = await import("expo-notifications");
       const { status } = await Notifications.requestPermissionsAsync();
-      console.log(
-        "[NotificationsCenter] requestPermissions requestPermissionsAsync status:",
-        status,
-      );
       setPermissionStatus(status);
       if (status === "granted") {
         Alert.alert("Granted", "Notifications are active on your device!");
@@ -108,105 +97,19 @@ export default function NotificationsCenter() {
     }
   };
 
-  // 3. Load all logs and future reminders
+  // 3. Load all canonical Alert Center data + history logs
   const loadData = useCallback(async () => {
-    setLoading(true);
     try {
-      // Load Triggered Log Inbox
-      const inAppLogs = await getNotificationLogs();
+      const [groups, inAppLogs] = await Promise.all([
+        AlertCenterService.getAlertCenterData(),
+        getNotificationLogs(),
+      ]);
+
+      setAlertGroups(groups);
       setLogs(inAppLogs);
       await markNotificationLogsAsRead();
-
-      // Compiling Future reminders
-      const upcomingList: FutureReminder[] = [];
-
-      // A. Query Native Scheduled Alarms (If Native)
-      if (Platform.OS !== "web") {
-        try {
-          const Notifications = await import("expo-notifications");
-          const nativeAlarms =
-            await Notifications.getAllScheduledNotificationsAsync();
-          // We can match these against stored titles or list them
-          nativeAlarms.forEach((alarm) => {
-            const trigger: any = alarm.trigger;
-            let timeLabel = "Scheduled";
-
-            if (trigger) {
-              if (trigger.date) {
-                const dateObj = new Date(trigger.date);
-                timeLabel = dateObj.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                });
-              } else if (
-                trigger.hour !== undefined &&
-                trigger.minute !== undefined
-              ) {
-                const hourStr = String(trigger.hour).padStart(2, "0");
-                const minStr = String(trigger.minute).padStart(2, "0");
-                timeLabel = `Daily at ${hourStr}:${minStr}`;
-              }
-            }
-            upcomingList.push({
-              id: alarm.identifier,
-              title: alarm.content.title || "Scheduled Reminder",
-              timeLabel,
-              kind: "todo",
-            });
-          });
-        } catch {
-          // ignore native scheduled query failures
-        }
-      }
-
-      // B. Query current Tasks and Habits for future schedules
-      const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(
-        new Set([INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
-      );
-
-      for (const fId of folderIds) {
-        const tasksMap = await TaskRepository.getTasks(fId);
-        Object.values(tasksMap).forEach((t) => {
-          if (t.status !== "completed" && t.reminder?.triggerAt && t.reminder.triggerAt > Date.now()) {
-            if (!upcomingList.some((u) => u.title.includes(t.title))) {
-              const alarmDate = new Date(t.reminder.triggerAt);
-              const label = alarmDate.toLocaleString([], {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-              upcomingList.push({
-                id: t.id,
-                title: t.title,
-                timeLabel: label,
-                kind: "todo",
-              });
-            }
-          }
-        });
-
-        const habitsMap = await HabitRepository.getHabits(fId);
-        Object.values(habitsMap).forEach((h) => {
-          if (!h.archivedAt && h.reminder?.triggerAt) {
-            const reminderDate = new Date(h.reminder.triggerAt);
-            const hourStr = String(reminderDate.getHours()).padStart(2, "0");
-            const minStr = String(reminderDate.getMinutes()).padStart(2, "0");
-            upcomingList.push({
-              id: h.id,
-              title: `Habit: ${h.title}`,
-              timeLabel: `Daily at ${hourStr}:${minStr}`,
-              kind: "habit",
-            });
-          }
-        });
-      }
-
-      // Sort and keep top 10 future reminders
-      setFutureReminders(upcomingList.slice(0, 10));
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn("[AlertCenter] Failed to load alert center data:", e);
     } finally {
       setLoading(false);
     }
@@ -219,15 +122,13 @@ export default function NotificationsCenter() {
     }, [checkPermissions, loadData]),
   );
 
-  // 4. Send Test Notification (interactive validation)
+  // 4. Send Test Notification (Diagnostics only)
   const sendTestNotification = async () => {
     setTesting(true);
-    const title = "🎯 Level Up Focus!";
-    const body =
-      "Your focus streak is strong. Check out your achievements today!";
+    const title = "🎯 Test Notification";
+    const body = "Pebble alert system verification check.";
 
     try {
-      // Save to logs database immediately
       await addNotificationLog(title, body, "test-alert");
 
       if (Platform.OS === "web") {
@@ -236,25 +137,17 @@ export default function NotificationsCenter() {
             setTimeout(() => {
               new Notification(title, { body });
             }, 3000);
-            Alert.alert(
-              "Scheduled",
-              "A test notification will trigger in 3 seconds!",
-            );
+            Alert.alert("Scheduled", "A test notification will trigger in 3 seconds!");
           } else {
-            // Fallback in-app modal immediately
             setTimeout(() => {
               Alert.alert(title, body);
             }, 3000);
-            Alert.alert(
-              "Notice",
-              "Notification blocked. Showing test alert as in-app popup in 3 seconds.",
-            );
+            Alert.alert("Notice", "Notifications blocked. Showing test alert as in-app popup in 3 seconds.");
           }
         } else {
           Alert.alert(title, body);
         }
       } else {
-        // Native
         const Notifications = await import("expo-notifications");
         const { status } = await Notifications.getPermissionsAsync();
         if (status === "granted") {
@@ -267,8 +160,7 @@ export default function NotificationsCenter() {
             },
             trigger: {
               seconds: 3,
-              channelId:
-                Platform.OS === "android" ? "todo-reminders" : undefined,
+              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
             } as any,
           });
           Alert.alert("Scheduled", "Alert will trigger in 3 seconds!");
@@ -276,16 +168,12 @@ export default function NotificationsCenter() {
           setTimeout(() => {
             Alert.alert(title, body);
           }, 3000);
-          Alert.alert(
-            "Granted",
-            "Notifications disabled. Showing test alert in-app in 3 seconds.",
-          );
+          Alert.alert("Notice", "Notifications disabled in OS. Showing test alert in-app in 3 seconds.");
         }
       }
     } catch {
       Alert.alert("Error", "Could not send test notification.");
     } finally {
-      // Reload logs after scheduling/writing
       setTimeout(() => {
         loadData();
         setTesting(false);
@@ -293,11 +181,11 @@ export default function NotificationsCenter() {
     }
   };
 
-  // 5. Clear Inbox
-  const clearInbox = async () => {
+  // 5. Clear History
+  const clearHistory = async () => {
     Alert.alert(
-      "Clear Inbox",
-      "Are you sure you want to clear your notifications history?",
+      "Clear History",
+      "Are you sure you want to clear your alerts history?",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -322,26 +210,59 @@ export default function NotificationsCenter() {
           "android.settings.REQUEST_SCHEDULE_EXACT_ALARM",
           { data: `package:${packageName}` },
         );
-      } catch (e) {
+      } catch {
         Alert.alert(
           "Error",
-          "Could not open Alarms & Reminders settings directly. Please search 'Special App Access' in your phone's settings and look for 'Alarms & Reminders'.",
+          "Could not open Alarms & Reminders settings directly. Please search 'Special App Access' in your phone's settings.",
         );
       }
     } else {
-      Alert.alert(
-        "Not Supported",
-        "Alarms & Reminders settings are only configurable on Android devices.",
-      );
+      Alert.alert("Not Supported", "Alarms & Reminders settings are only configurable on Android devices.");
     }
   };
 
-  // 7. Open General App settings (Notifications, Battery optimizations)
   const openGeneralSettings = async () => {
     try {
       await Linking.openSettings();
     } catch {
       Alert.alert("Error", "Could not open settings page.");
+    }
+  };
+
+  // Navigation handlers
+  const handleItemPress = (item: AlertCenterItem) => {
+    if (item.entityType === "checklist") {
+      router.push({
+        pathname: "/checklist-details",
+        params: { id: item.entityId, workspaceId: item.workspaceId },
+      });
+    } else {
+      router.push({
+        pathname: "/task-details",
+        params: {
+          id: item.entityId,
+          type: item.entityType === "habit" ? "habit" : "task",
+          workspaceId: item.workspaceId,
+        },
+      });
+    }
+  };
+
+  const handleCompleteTask = async (item: AlertCenterItem) => {
+    try {
+      await AlertCenterService.completeTask(item.entityId, item.workspaceId);
+      await loadData();
+    } catch (e) {
+      console.warn("[AlertCenter] Failed to complete task:", e);
+    }
+  };
+
+  const handleCompleteHabit = async (item: AlertCenterItem) => {
+    try {
+      await AlertCenterService.completeHabit(item.entityId, item.workspaceId);
+      await loadData();
+    } catch (e) {
+      console.warn("[AlertCenter] Failed to complete habit:", e);
     }
   };
 
@@ -358,22 +279,56 @@ export default function NotificationsCenter() {
     });
   };
 
+  const getEntityColor = (entityType: string) => {
+    switch (entityType) {
+      case "habit":
+        return "#10B981"; // Emerald green
+      case "checklist":
+        return "#3B82F6"; // Electric blue
+      case "todo":
+      default:
+        return "#F59E0B"; // Warm amber
+    }
+  };
+
+  const getEntityIcon = (entityType: string): keyof typeof Feather.glyphMap => {
+    switch (entityType) {
+      case "habit":
+        return "repeat";
+      case "checklist":
+        return "check-square";
+      case "todo":
+      default:
+        return "calendar";
+    }
+  };
+
+  const getEntityTypeName = (entityType: string) => {
+    switch (entityType) {
+      case "habit":
+        return "Habit";
+      case "checklist":
+        return "Checklist";
+      case "todo":
+      default:
+        return "Task";
+    }
+  };
+
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: colors.background }]}
-    >
-      {/* Immersive Glassmorphic Header */}
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      {/* Header */}
       <View style={[styles.header, { borderColor: colors.border }]}>
         <PressableScale
           onPress={() => router.back()}
           haptic
           contentStyle={{ alignItems: "center", justifyContent: "center" }}
-          style={styles.backButton}
+          style={styles.headerButton}
         >
           <Feather name="arrow-left" size={20} color={colors.text} />
         </PressableScale>
         <Text style={[styles.headerTitle, { color: colors.text }]}>
-          Alerts Center
+          Alert Center
         </Text>
         <View style={{ width: 40 }} />
       </View>
@@ -385,28 +340,18 @@ export default function NotificationsCenter() {
         {/* Permission Advisory Banner */}
         {permissionStatus !== "granted" && (
           <Animated.View entering={FadeInDown.duration(400)}>
-            <AppCard
-              style={[styles.alertBanner, { borderColor: colors.warning }]}
-            >
-              <View
-                style={[
-                  styles.iconBox,
-                  { backgroundColor: `${colors.warning}18` },
-                ]}
-              >
-                <Feather
-                  name="alert-triangle"
-                  size={18}
-                  color={colors.warning}
-                />
+            <AppCard style={[styles.alertBanner, { borderColor: colors.warning }]}>
+              <View style={[styles.iconBox, { backgroundColor: `${colors.warning}18` }]}>
+                <Feather name="alert-triangle" size={18} color={colors.warning} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.bannerTitle, { color: colors.text }]}>
-                  Notifications Paused
+                  Notifications Inactive
                 </Text>
                 <Text style={[styles.bannerText, { color: colors.textMuted }]}>
-                  Alarms and reminders will fall back to in-app alerts if
-                  permissions are inactive.
+                  {Platform.OS === "web"
+                    ? "Browser notification permissions are not granted. Alerts will display in-app."
+                    : "OS notification permissions are disabled. Enable alerts to receive alarms on time."}
                 </Text>
                 <PressableScale
                   haptic
@@ -416,10 +361,7 @@ export default function NotificationsCenter() {
                     paddingHorizontal: 16,
                     borderRadius: 10,
                   }}
-                  style={[
-                    styles.bannerButton,
-                    { backgroundColor: colors.warning },
-                  ]}
+                  style={[styles.bannerButton, { backgroundColor: colors.warning }]}
                 >
                   <Text style={styles.bannerButtonText}>Enable Alerts</Text>
                 </PressableScale>
@@ -428,354 +370,482 @@ export default function NotificationsCenter() {
           </Animated.View>
         )}
 
-        {/* Action Controls Card */}
-        <Animated.View entering={FadeInDown.delay(100).duration(450)}>
-          <AppCard style={styles.controlsCard}>
-            <View style={styles.controlHeader}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                System Diagnostics
-              </Text>
-              <Text
-                style={[
-                  styles.permissionIndicator,
-                  {
-                    color:
-                      permissionStatus === "granted"
-                        ? colors.success
-                        : colors.warning,
-                  },
-                ]}
-              >
-                {permissionStatus === "granted"
-                  ? "🔔 Connected"
-                  : "🔕 In-App Only"}
-              </Text>
-            </View>
-
-            <View style={styles.buttonRow}>
-              <PressableScale
-                style={[
-                  styles.actionButton,
-                  {
-                    backgroundColor: `${colors.primary}12`,
-                    borderColor: colors.primary,
-                  },
-                ]}
-                contentStyle={{
-                  height: 42,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-                onPress={sendTestNotification}
-                haptic
-                disabled={testing}
-              >
-                {testing ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : (
-                  <>
-                    <Feather name="zap" size={15} color={colors.primary} />
-                    <Text
-                      style={[
-                        styles.actionButtonText,
-                        { color: colors.primary },
-                      ]}
-                    >
-                      Test Alert (3s)
-                    </Text>
-                  </>
-                )}
-              </PressableScale>
-
-              {logs.length > 0 && (
-                <PressableScale
-                  style={[
-                    styles.actionButton,
-                    {
-                      backgroundColor: `${colors.error}12`,
-                      borderColor: colors.error,
-                    },
-                  ]}
-                  contentStyle={{
-                    height: 42,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  onPress={clearInbox}
-                  haptic
-                >
-                  <Feather name="trash-2" size={15} color={colors.error} />
-                  <Text
-                    style={[styles.actionButtonText, { color: colors.error }]}
-                  >
-                    Clear Inbox
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={colors.primary}
+            style={{ marginVertical: 32 }}
+          />
+        ) : (
+          <>
+            {/* 1. NEEDS ATTENTION SECTION */}
+            {alertGroups.needsAttention.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Feather name="alert-circle" size={14} color={colors.error} />
+                  <Text style={[styles.sectionTitleOverdue, { color: colors.error }]}>
+                    NEEDS ATTENTION ({alertGroups.needsAttention.length})
                   </Text>
-                </PressableScale>
-              )}
-            </View>
-          </AppCard>
-        </Animated.View>
+                </View>
 
-        {/* Troubleshooter Card */}
-        <Animated.View entering={FadeInDown.delay(150).duration(450)}>
-          <AppCard style={styles.troubleshootCard}>
-            <View style={styles.troubleshootHeader}>
-              <Feather name="help-circle" size={16} color={colors.warning} />
-              <Text style={[styles.troubleshootTitle, { color: colors.text }]}>
-                Trouble receiving alerts?
-              </Text>
-            </View>
-            <Text
-              style={[styles.troubleshootDesc, { color: colors.textMuted }]}
-            >
-              Modern mobile devices require special permissions and power
-              exemptions to deliver timely background notifications.
-            </Text>
-            <View style={styles.troubleshootButtons}>
-              {Platform.OS === "android" && (
-                <PressableScale
-                  style={[
-                    styles.troubleshootButton,
-                    {
-                      backgroundColor: `${colors.warning}12`,
-                      borderColor: colors.warning,
-                    },
-                  ]}
-                  contentStyle={{
-                    height: 38,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  onPress={openSpecialAlarmSettings}
-                  haptic
-                >
-                  <Feather name="clock" size={14} color={colors.warning} />
-                  <Text
-                    style={[
-                      styles.troubleshootButtonText,
-                      { color: colors.warning },
-                    ]}
-                  >
-                    Alarms Permission
-                  </Text>
-                </PressableScale>
-              )}
-              <PressableScale
-                style={[
-                  styles.troubleshootButton,
-                  {
-                    backgroundColor: `${colors.primary}12`,
-                    borderColor: colors.primary,
-                  },
-                ]}
-                contentStyle={{
-                  height: 38,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-                onPress={openGeneralSettings}
-                haptic
-              >
-                <Feather name="settings" size={14} color={colors.primary} />
-                <Text
-                  style={[
-                    styles.troubleshootButtonText,
-                    { color: colors.primary },
-                  ]}
-                >
-                  App Settings
+                <View style={styles.itemList}>
+                  {alertGroups.needsAttention.map((item, idx) => {
+                    const entityColor = getEntityColor(item.entityType);
+                    const iconName = getEntityIcon(item.entityType);
+
+                    return (
+                      <Animated.View
+                        key={item.id}
+                        entering={FadeInDown.delay(idx * 40).duration(300)}
+                      >
+                        <AppCard style={[styles.overdueCard, { borderLeftColor: colors.error }]}>
+                          <View style={styles.rowMain}>
+                            <View
+                              style={[
+                                styles.entityIconBox,
+                                { backgroundColor: `${entityColor}18` },
+                              ]}
+                            >
+                              <Feather name={iconName} size={15} color={entityColor} />
+                            </View>
+
+                            <View style={styles.infoCol}>
+                              <Text
+                                style={[styles.itemTitle, { color: colors.text }]}
+                                numberOfLines={1}
+                              >
+                                {item.title}
+                              </Text>
+
+                              <View style={styles.metaRow}>
+                                <Text style={[styles.entityTag, { color: entityColor }]}>
+                                  {getEntityTypeName(item.entityType)}
+                                </Text>
+                                <Text style={[styles.metaDot, { color: colors.textMuted }]}>·</Text>
+                                <Text style={[styles.overdueText, { color: colors.error }]}>
+                                  {item.meta?.relativeLabel || "Overdue"}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+
+                          {/* Action Buttons */}
+                          <View style={styles.actionRow}>
+                            <PressableScale
+                              haptic
+                              onPress={() => handleItemPress(item)}
+                              style={[styles.smallButton, { backgroundColor: `${colors.textMuted}14` }]}
+                              contentStyle={styles.smallButtonContent}
+                            >
+                              <Text style={[styles.smallButtonText, { color: colors.text }]}>Open</Text>
+                            </PressableScale>
+
+                            {item.entityType === "todo" && (
+                              <PressableScale
+                                haptic
+                                onPress={() => handleCompleteTask(item)}
+                                style={[styles.smallButton, { backgroundColor: `${colors.success}18` }]}
+                                contentStyle={styles.smallButtonContent}
+                              >
+                                <Feather name="check" size={13} color={colors.success} />
+                                <Text style={[styles.smallButtonText, { color: colors.success }]}>Done</Text>
+                              </PressableScale>
+                            )}
+
+                            {item.entityType === "habit" && (
+                              <PressableScale
+                                haptic
+                                onPress={() => handleCompleteHabit(item)}
+                                style={[styles.smallButton, { backgroundColor: `${colors.success}18` }]}
+                                contentStyle={styles.smallButtonContent}
+                              >
+                                <Feather name="check" size={13} color={colors.success} />
+                                <Text style={[styles.smallButtonText, { color: colors.success }]}>Check in</Text>
+                              </PressableScale>
+                            )}
+                          </View>
+                        </AppCard>
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* 2. UP NEXT SECTION */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+                  UP NEXT ({alertGroups.upNext.length})
                 </Text>
-              </PressableScale>
-            </View>
-          </AppCard>
-        </Animated.View>
-
-        {/* Chronological Notification Logs (Inbox) */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
-              INBOX HISTORY ({logs.length})
-            </Text>
-          </View>
-
-          {loading ? (
-            <ActivityIndicator
-              size="small"
-              color={colors.primary}
-              style={{ marginVertical: 20 }}
-            />
-          ) : logs.length === 0 ? (
-            <AppCard style={styles.emptyCard}>
-              <View
-                style={[
-                  styles.emptyIconWrap,
-                  { backgroundColor: `${colors.textMuted}10` },
-                ]}
-              >
-                <Feather name="inbox" size={24} color={colors.textMuted} />
               </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                Your inbox is clean
-              </Text>
-              <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
-                Alert logs and system events will appear here when triggered.
-              </Text>
-            </AppCard>
-          ) : (
-            <View style={styles.logList}>
-              {logs.map((log, idx) => (
-                <Animated.View
-                  key={log.id}
-                  entering={FadeInDown.delay(150 + idx * 50).duration(400)}
-                >
-                  <AppCard
-                    style={[
-                      styles.logCard,
-                      {
-                        borderLeftColor:
-                          log.type === "test-alert"
-                            ? colors.primary
-                            : colors.success,
-                      },
-                    ]}
-                  >
-                    <View style={styles.logMetaRow}>
-                      <View style={styles.logBadgeRow}>
-                        <View
-                          style={[
-                            styles.logDot,
-                            {
-                              backgroundColor:
-                                log.type === "test-alert"
-                                  ? colors.primary
-                                  : colors.success,
-                            },
-                          ]}
-                        />
-                        <Text
-                          style={[
-                            styles.logCategory,
-                            { color: colors.textMuted },
-                          ]}
+
+              {alertGroups.upNext.length === 0 ? (
+                <AppCard style={styles.emptyCard}>
+                  <Feather name="clock" size={20} color={colors.textMuted} />
+                  <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                    No upcoming alerts
+                  </Text>
+                  <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
+                    Reminders scheduled for the next 24 hours will appear here.
+                  </Text>
+                </AppCard>
+              ) : (
+                <View style={styles.itemList}>
+                  {alertGroups.upNext.map((item, idx) => {
+                    const entityColor = getEntityColor(item.entityType);
+                    const iconName = getEntityIcon(item.entityType);
+
+                    return (
+                      <Animated.View
+                        key={item.id}
+                        entering={FadeInDown.delay(idx * 30).duration(300)}
+                      >
+                        <PressableScale
+                          haptic
+                          onPress={() => handleItemPress(item)}
+                          contentStyle={{ flex: 1 }}
                         >
-                          {log.type === "test-alert" ? "SYSTEM" : "REMINDER"}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[styles.logTime, { color: colors.textMuted }]}
-                      >
-                        {getRelativeTime(log.timestamp)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.logTitle, { color: colors.text }]}>
-                      {log.title}
-                    </Text>
-                    <Text style={[styles.logBody, { color: colors.textMuted }]}>
-                      {log.body}
-                    </Text>
-                  </AppCard>
-                </Animated.View>
-              ))}
-            </View>
-          )}
-        </View>
+                          <AppCard style={[styles.alertCard, { borderLeftColor: entityColor }]}>
+                            <View style={styles.rowMain}>
+                              <View
+                                style={[
+                                  styles.entityIconBox,
+                                  { backgroundColor: `${entityColor}18` },
+                                ]}
+                              >
+                                <Feather name={iconName} size={15} color={entityColor} />
+                              </View>
 
-        {/* Future Alarms Queue */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
-            FUTURE REMINDERS QUEUE ({futureReminders.length})
-          </Text>
-          {futureReminders.length === 0 ? (
-            <AppCard style={styles.emptyCard}>
-              <View
-                style={[
-                  styles.emptyIconWrap,
-                  { backgroundColor: `${colors.textMuted}10` },
-                ]}
-              >
-                <Feather name="clock" size={24} color={colors.textMuted} />
-              </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No scheduled alarms
-              </Text>
-              <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
-                Add custom alarm times to your Planner todos or Habits to queue
-                reminder triggers.
-              </Text>
-            </AppCard>
-          ) : (
-            <View style={styles.logList}>
-              {futureReminders.map((alarm, idx) => (
-                <Animated.View
-                  key={alarm.id}
-                  entering={FadeInDown.delay(300 + idx * 50).duration(400)}
-                >
-                  <AppCard style={styles.alarmCard}>
-                    <View
-                      style={[
-                        styles.alarmIconWrap,
-                        {
-                          backgroundColor:
-                            alarm.kind === "habit"
-                              ? `${colors.warning}18`
-                              : `${colors.primary}18`,
-                        },
-                      ]}
-                    >
-                      <Feather
-                        name={alarm.kind === "habit" ? "repeat" : "calendar"}
-                        size={16}
-                        color={
-                          alarm.kind === "habit"
-                            ? colors.warning
-                            : colors.primary
-                        }
-                      />
-                    </View>
-                    <View style={styles.alarmInfo}>
-                      <Text
-                        style={[styles.alarmTitle, { color: colors.text }]}
-                        numberOfLines={1}
+                              <View style={styles.infoCol}>
+                                <View style={styles.topMetaRow}>
+                                  <Text style={[styles.timeHeader, { color: colors.text }]}>
+                                    {item.meta?.timeLabel || "Scheduled"}
+                                  </Text>
+                                  {item.meta?.relativeLabel ? (
+                                    <Text style={[styles.relativePill, { color: colors.textMuted }]}>
+                                      {item.meta.relativeLabel}
+                                    </Text>
+                                  ) : null}
+                                </View>
+
+                                <Text
+                                  style={[styles.itemTitle, { color: colors.text }]}
+                                  numberOfLines={1}
+                                >
+                                  {item.title}
+                                </Text>
+
+                                <View style={styles.metaRow}>
+                                  <Text style={[styles.entityTag, { color: entityColor }]}>
+                                    {getEntityTypeName(item.entityType)}
+                                  </Text>
+
+                                  {item.entityType === "checklist" &&
+                                    item.meta?.totalCount !== undefined &&
+                                    item.meta.totalCount > 0 && (
+                                      <>
+                                        <Text style={[styles.metaDot, { color: colors.textMuted }]}>·</Text>
+                                        <Text style={[styles.checklistProgressText, { color: colors.textMuted }]}>
+                                          {item.meta.completedCount || 0}/{item.meta.totalCount} completed
+                                        </Text>
+                                      </>
+                                    )}
+
+                                  {item.entityType === "habit" && (
+                                    <>
+                                      <Text style={[styles.metaDot, { color: colors.textMuted }]}>·</Text>
+                                      <Text style={[styles.habitStreakText, { color: colors.textMuted }]}>
+                                        {item.meta?.streak ? `🔥 ${item.meta.streak}d streak` : item.meta?.recurrenceLabel || "Daily"}
+                                      </Text>
+                                    </>
+                                  )}
+
+                                  {item.entityType === "todo" && item.meta?.recurrenceLabel && (
+                                    <>
+                                      <Text style={[styles.metaDot, { color: colors.textMuted }]}>·</Text>
+                                      <Text style={[styles.recurrenceText, { color: colors.textMuted }]}>
+                                        {item.meta.recurrenceLabel}
+                                      </Text>
+                                    </>
+                                  )}
+                                </View>
+                              </View>
+                            </View>
+                          </AppCard>
+                        </PressableScale>
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
+            {/* 3. LATER SECTION */}
+            {alertGroups.later.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+                    LATER ({alertGroups.later.length})
+                  </Text>
+                </View>
+
+                <View style={styles.itemList}>
+                  {alertGroups.later.map((item, idx) => {
+                    const entityColor = getEntityColor(item.entityType);
+                    const iconName = getEntityIcon(item.entityType);
+
+                    return (
+                      <Animated.View
+                        key={item.id}
+                        entering={FadeInDown.delay(idx * 30).duration(300)}
                       >
-                        {alarm.title}
-                      </Text>
-                      <Text
+                        <PressableScale
+                          haptic
+                          onPress={() => handleItemPress(item)}
+                          contentStyle={{ flex: 1 }}
+                        >
+                          <AppCard style={[styles.alertCard, { borderLeftColor: entityColor }]}>
+                            <View style={styles.rowMain}>
+                              <View
+                                style={[
+                                  styles.entityIconBox,
+                                  { backgroundColor: `${entityColor}18` },
+                                ]}
+                              >
+                                <Feather name={iconName} size={15} color={entityColor} />
+                              </View>
+
+                              <View style={styles.infoCol}>
+                                <Text style={[styles.timeHeader, { color: colors.text }]}>
+                                  {item.meta?.timeLabel || "Scheduled"}
+                                </Text>
+
+                                <Text
+                                  style={[styles.itemTitle, { color: colors.text }]}
+                                  numberOfLines={1}
+                                >
+                                  {item.title}
+                                </Text>
+
+                                <View style={styles.metaRow}>
+                                  <Text style={[styles.entityTag, { color: entityColor }]}>
+                                    {getEntityTypeName(item.entityType)}
+                                  </Text>
+                                  {item.meta?.relativeLabel ? (
+                                    <>
+                                      <Text style={[styles.metaDot, { color: colors.textMuted }]}>·</Text>
+                                      <Text style={[styles.relativePill, { color: colors.textMuted }]}>
+                                        {item.meta.relativeLabel}
+                                      </Text>
+                                    </>
+                                  ) : null}
+                                </View>
+                              </View>
+                            </View>
+                          </AppCard>
+                        </PressableScale>
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* 4. HISTORY LOGS SECTION */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderBetween}>
+                <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+                  HISTORY ({logs.length})
+                </Text>
+                {logs.length > 0 && (
+                  <PressableScale
+                    haptic
+                    onPress={clearHistory}
+                    contentStyle={{ paddingHorizontal: 8, paddingVertical: 4 }}
+                  >
+                    <Text style={[styles.clearLinkText, { color: colors.error }]}>Clear</Text>
+                  </PressableScale>
+                )}
+              </View>
+
+              {logs.length === 0 ? (
+                <AppCard style={styles.emptyCard}>
+                  <Feather name="inbox" size={20} color={colors.textMuted} />
+                  <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                    No alerts yet
+                  </Text>
+                  <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
+                    Received notifications will be logged here.
+                  </Text>
+                </AppCard>
+              ) : (
+                <View style={styles.itemList}>
+                  {logs.slice(0, 20).map((log, idx) => (
+                    <Animated.View
+                      key={log.id}
+                      entering={FadeInDown.delay(idx * 25).duration(300)}
+                    >
+                      <AppCard
                         style={[
-                          styles.alarmTimeLabel,
-                          { color: colors.textMuted },
+                          styles.logCard,
+                          {
+                            borderLeftColor:
+                              log.type === "test-alert"
+                                ? colors.primary
+                                : colors.success,
+                          },
                         ]}
                       >
-                        {alarm.timeLabel}
+                        <View style={styles.logMetaRow}>
+                          <View style={styles.logBadgeRow}>
+                            <View
+                              style={[
+                                styles.logDot,
+                                {
+                                  backgroundColor:
+                                    log.type === "test-alert"
+                                      ? colors.primary
+                                      : colors.success,
+                                },
+                              ]}
+                            />
+                            <Text style={[styles.logCategory, { color: colors.textMuted }]}>
+                              {log.type === "test-alert" ? "SYSTEM" : "REMINDER"}
+                            </Text>
+                          </View>
+                          <Text style={[styles.logTime, { color: colors.textMuted }]}>
+                            {getRelativeTime(log.timestamp)}
+                          </Text>
+                        </View>
+                        <Text style={[styles.logTitle, { color: colors.text }]}>
+                          {log.title}
+                        </Text>
+                        {log.body ? (
+                          <Text style={[styles.logBody, { color: colors.textMuted }]}>
+                            {log.body}
+                          </Text>
+                        ) : null}
+                      </AppCard>
+                    </Animated.View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* 5. SECONDARY TROUBLESHOOTING & DIAGNOSTICS */}
+            <View style={styles.section}>
+              <PressableScale
+                haptic
+                onPress={() => setShowDiagnostics(!showDiagnostics)}
+                contentStyle={styles.diagToggleContent}
+                style={[styles.diagToggle, { borderColor: colors.border }]}
+              >
+                <View style={styles.diagHeaderLeft}>
+                  <Feather name="shield" size={14} color={colors.textMuted} />
+                  <Text style={[styles.diagToggleText, { color: colors.textMuted }]}>
+                    System Diagnostics & Settings
+                  </Text>
+                </View>
+                <Feather
+                  name={showDiagnostics ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={colors.textMuted}
+                />
+              </PressableScale>
+
+              {showDiagnostics && (
+                <Animated.View entering={FadeInDown.duration(300)}>
+                  <AppCard style={styles.troubleshootCard}>
+                    <View style={styles.troubleshootHeader}>
+                      <Feather name="help-circle" size={15} color={colors.warning} />
+                      <Text style={[styles.troubleshootTitle, { color: colors.text }]}>
+                        Notification Reliability
                       </Text>
                     </View>
-                    <Feather
-                      name="bell"
-                      size={14}
-                      color={colors.textMuted}
-                      style={{ marginLeft: 8 }}
-                    />
+                    <Text style={[styles.troubleshootDesc, { color: colors.textMuted }]}>
+                      Mobile devices may require special permissions and battery exemptions to deliver background notifications precisely on time.
+                    </Text>
+
+                    <View style={styles.troubleshootButtons}>
+                      <PressableScale
+                        style={[
+                          styles.diagActionBtn,
+                          { backgroundColor: `${colors.primary}12`, borderColor: colors.primary },
+                        ]}
+                        contentStyle={styles.diagActionContent}
+                        onPress={sendTestNotification}
+                        haptic
+                        disabled={testing}
+                      >
+                        {testing ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <>
+                            <Feather name="zap" size={13} color={colors.primary} />
+                            <Text style={[styles.diagActionText, { color: colors.primary }]}>
+                              Test Alert (3s)
+                            </Text>
+                          </>
+                        )}
+                      </PressableScale>
+
+                      {Platform.OS === "android" && (
+                        <PressableScale
+                          style={[
+                            styles.diagActionBtn,
+                            { backgroundColor: `${colors.warning}12`, borderColor: colors.warning },
+                          ]}
+                          contentStyle={styles.diagActionContent}
+                          onPress={openSpecialAlarmSettings}
+                          haptic
+                        >
+                          <Feather name="clock" size={13} color={colors.warning} />
+                          <Text style={[styles.diagActionText, { color: colors.warning }]}>
+                            Alarms Permission
+                          </Text>
+                        </PressableScale>
+                      )}
+
+                      <PressableScale
+                        style={[
+                          styles.diagActionBtn,
+                          { backgroundColor: `${colors.textMuted}12`, borderColor: colors.border },
+                        ]}
+                        contentStyle={styles.diagActionContent}
+                        onPress={openGeneralSettings}
+                        haptic
+                      >
+                        <Feather name="settings" size={13} color={colors.text} />
+                        <Text style={[styles.diagActionText, { color: colors.text }]}>
+                          App Settings
+                        </Text>
+                      </PressableScale>
+                    </View>
                   </AppCard>
                 </Animated.View>
-              ))}
+              )}
             </View>
-          )}
-        </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: {
+    flex: 1,
+  },
   header: {
-    height: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  backButton: {
+  headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -784,134 +854,204 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "700",
+    fontFamily: "Outfit_600SemiBold",
+    letterSpacing: -0.3,
   },
   scrollContainer: {
     padding: 16,
-    gap: 20,
-    paddingBottom: 80,
+    paddingBottom: 40,
   },
   alertBanner: {
-    padding: 16,
-    borderWidth: 1,
-    borderStyle: "solid",
     flexDirection: "row",
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 20,
     gap: 12,
-    backgroundColor: "rgba(245, 158, 11, 0.03)",
+    alignItems: "flex-start",
   },
   iconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   bannerTitle: {
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Outfit_600SemiBold",
     marginBottom: 4,
   },
   bannerText: {
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 18,
-    marginBottom: 12,
+    marginBottom: 10,
+    fontFamily: "Outfit_400Regular",
   },
   bannerButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 10,
     alignSelf: "flex-start",
   },
   bannerButtonText: {
     color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  controlsCard: {
-    padding: 16,
-    gap: 14,
-  },
-  controlHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  permissionIndicator: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  buttonRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  actionButton: {
-    flex: 1,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  actionButtonText: {
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Outfit_600SemiBold",
   },
   section: {
-    gap: 10,
+    marginBottom: 24,
   },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 6,
+    marginBottom: 10,
+    paddingHorizontal: 4,
   },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1.5,
+  sectionHeaderBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontFamily: "Outfit_700Bold",
+    letterSpacing: 0.8,
+  },
+  sectionTitleOverdue: {
+    fontSize: 12,
+    fontFamily: "Outfit_700Bold",
+    letterSpacing: 0.8,
+  },
+  clearLinkText: {
+    fontSize: 13,
+    fontFamily: "Outfit_600SemiBold",
+  },
+  itemList: {
+    gap: 10,
+  },
+  alertCard: {
+    padding: 14,
+    borderRadius: 14,
+    borderLeftWidth: 4,
+  },
+  overdueCard: {
+    padding: 14,
+    borderRadius: 14,
+    borderLeftWidth: 4,
+    gap: 12,
+  },
+  rowMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  entityIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoCol: {
+    flex: 1,
+  },
+  topMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  timeHeader: {
+    fontSize: 13,
+    fontFamily: "Outfit_600SemiBold",
+  },
+  relativePill: {
+    fontSize: 12,
+    fontFamily: "Outfit_400Regular",
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontFamily: "Outfit_500Medium",
+    marginBottom: 4,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  entityTag: {
+    fontSize: 12,
+    fontFamily: "Outfit_600SemiBold",
+  },
+  metaDot: {
+    fontSize: 12,
+  },
+  overdueText: {
+    fontSize: 12,
+    fontFamily: "Outfit_600SemiBold",
+  },
+  checklistProgressText: {
+    fontSize: 12,
+    fontFamily: "Outfit_400Regular",
+  },
+  habitStreakText: {
+    fontSize: 12,
+    fontFamily: "Outfit_400Regular",
+  },
+  recurrenceText: {
+    fontSize: 12,
+    fontFamily: "Outfit_400Regular",
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    paddingTop: 4,
+  },
+  smallButton: {
+    borderRadius: 8,
+  },
+  smallButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  smallButtonText: {
+    fontSize: 12,
+    fontFamily: "Outfit_600SemiBold",
   },
   emptyCard: {
-    padding: 32,
+    padding: 20,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
-    borderStyle: "dashed",
-    borderWidth: 1,
-    backgroundColor: "transparent",
-  },
-  emptyIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: "center",
-    justifyContent: "center",
+    gap: 6,
   },
   emptyTitle: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 14,
+    fontFamily: "Outfit_600SemiBold",
   },
   emptyDesc: {
     fontSize: 12,
+    fontFamily: "Outfit_400Regular",
     textAlign: "center",
-    lineHeight: 18,
-  },
-  logList: {
-    gap: 8,
+    lineHeight: 16,
   },
   logCard: {
-    padding: 14,
-    borderLeftWidth: 4,
-    gap: 4,
+    padding: 12,
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    marginBottom: 2,
   },
   logMetaRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
   },
   logBadgeRow: {
     flexDirection: "row",
@@ -924,79 +1064,82 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   logCategory: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
+    fontSize: 11,
+    fontFamily: "Outfit_700Bold",
+    letterSpacing: 0.5,
   },
   logTime: {
     fontSize: 11,
+    fontFamily: "Outfit_400Regular",
   },
   logTitle: {
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "Outfit_600SemiBold",
+    marginBottom: 2,
   },
   logBody: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: "Outfit_400Regular",
   },
-  alarmCard: {
-    padding: 12,
+  diagToggle: {
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  diagToggleContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
+    padding: 12,
   },
-  alarmIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  alarmInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  alarmTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  alarmTimeLabel: {
-    fontSize: 12,
-  },
-  troubleshootCard: {
-    padding: 16,
-    gap: 10,
-  },
-  troubleshootHeader: {
+  diagHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
+  diagToggleText: {
+    fontSize: 13,
+    fontFamily: "Outfit_500Medium",
+  },
+  troubleshootCard: {
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  troubleshootHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   troubleshootTitle: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 14,
+    fontFamily: "Outfit_600SemiBold",
   },
   troubleshootDesc: {
     fontSize: 12,
-    lineHeight: 18,
+    lineHeight: 17,
+    fontFamily: "Outfit_400Regular",
   },
   troubleshootButtons: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6,
   },
-  troubleshootButton: {
-    flex: 1,
-    height: 38,
-    borderRadius: 10,
+  diagActionBtn: {
     borderWidth: 1,
+    borderRadius: 8,
+  },
+  diagActionContent: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
-  troubleshootButtonText: {
+  diagActionText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Outfit_600SemiBold",
   },
 });

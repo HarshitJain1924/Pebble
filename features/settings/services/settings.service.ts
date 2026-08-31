@@ -132,6 +132,7 @@ export async function saveProfile(profile: UserProfile): Promise<void> {
 export function isCurrentlyInQuietHours(
   settings: Settings,
   targetHour: number,
+  targetMinute: number = 0,
 ): boolean {
   if (!settings?.quietHours?.enabled) return false;
 
@@ -139,9 +140,14 @@ export function isCurrentlyInQuietHours(
   if (startHour === undefined || endHour === undefined || startHour === endHour)
     return false;
 
-  if (startHour < endHour) {
-    return targetHour >= startHour && targetHour < endHour;
+  const targetMinutes = targetHour * 60 + targetMinute;
+  const startMinutes = startHour * 60;
+  const endMinutes = endHour * 60;
+
+  if (startMinutes < endMinutes) {
+    return targetMinutes >= startMinutes && targetMinutes < endMinutes;
   } else {
-    return targetHour >= startHour || targetHour < endHour;
+    // Overnight window (e.g. 22:00 -> 07:00)
+    return targetMinutes >= startMinutes || targetMinutes < endMinutes;
   }
 }
