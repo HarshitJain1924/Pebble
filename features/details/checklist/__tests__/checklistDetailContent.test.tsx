@@ -401,6 +401,62 @@ describe("ChecklistDetailContent", () => {
     expect(onBack).toHaveBeenCalledTimes(1);
     alertSpy.mockRestore();
   });
+
+  it("L: displays Schedule & Timing metadata in read-only details view", async () => {
+    const scheduledChecklist = {
+      ...baseChecklist,
+      schedule: {
+        date: "2026-09-15",
+        startTime: "10:00",
+        durationMinutes: 45,
+      },
+      reminder: {
+        enabled: true,
+        triggerAt: 1755000000000,
+      },
+      recurrence: {
+        frequency: "weekly",
+        interval: 1,
+        daysOfWeek: [1, 3],
+      },
+    };
+
+    const { renderer } = await renderContent(scheduledChecklist);
+    const strings = renderedStrings(renderer);
+
+    expect(strings).toContain("SCHEDULE & TIMING");
+    expect(strings).toContain("Schedule");
+    expect(strings).toContain("2026-09-15 at 10:00 (45m)");
+    expect(strings).toContain("Repeat");
+    expect(strings).toContain("Weekly (Mon, Wed)");
+  });
+
+  it("M: persists schedule and recurrence changes to the same checklist entity", async () => {
+    const { renderer } = await renderContent(baseChecklist);
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Edit checklist").props.onPress();
+    });
+
+    // In edit mode, title input is index 0
+    const titleInput = renderer.root.findAllByType(TextInput)[0];
+    await act(async () => {
+      titleInput.props.onChangeText("Weekly groceries updated");
+    });
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Save checklist").props.onPress();
+    });
+
+    expect(EntityCommandService.updateChecklist).toHaveBeenCalledWith(
+      "checklist-1",
+      "inbox",
+      expect.objectContaining({
+        title: "Weekly groceries updated",
+        items: baseChecklist.items,
+      }),
+    );
+  });
 });
 
 const renderContentWithNotFound = async (onBack: jest.Mock) => {

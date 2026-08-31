@@ -379,4 +379,251 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
     const restored = state.timelineItems.find((i: any) => i.id === checklist.id);
     expect(restored.timeLabel).toBe("11:00 AM");
   });
+
+  // =========================================================================
+  // Requirements A through O Tests
+  // =========================================================================
+
+  test("A & D: Free-time gap calculation respects scheduled Checklists and their duration", async () => {
+    // Scheduled checklist at 10:00 for 60m (10:00 - 11:00)
+    await EntityCommandService.createChecklist({
+      id: "cl-gap-test",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "Morning Routine",
+      items: [{ id: "it-1", title: "Step 1", completed: false }],
+      schedule: {
+        date: "2026-09-01",
+        startTime: "10:00",
+        durationMinutes: 60,
+      },
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-01");
+    });
+
+    // Gap before checklist (00:00 to 10:00 = 600 min)
+    const gapBefore = state.freeTimeGaps.find((g: any) => g.startMinutes === 0);
+    expect(gapBefore).toBeDefined();
+    expect(gapBefore.durationMinutes).toBe(600);
+
+    // Gap after checklist (11:00 = 660 min to 24:00 = 1440 min => 780 min)
+    const gapAfter = state.freeTimeGaps.find((g: any) => g.startMinutes === 660);
+    expect(gapAfter).toBeDefined();
+    expect(gapAfter.durationMinutes).toBe(780);
+  });
+
+  test("B & K: Unscheduled Checklists appear in pendingChecklists with preview items", async () => {
+    await EntityCommandService.createChecklist({
+      id: "cl-unscheduled-1",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "Shopping List",
+      items: [
+        { id: "it-1", title: "Apples", completed: false },
+        { id: "it-2", title: "Bananas", completed: false },
+        { id: "it-3", title: "Oranges", completed: false },
+      ],
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-01");
+    });
+
+    const pending = state.pendingChecklists.find((c: any) => c.id === "cl-unscheduled-1");
+    expect(pending).toBeDefined();
+    expect(pending.title).toBe("Shopping List");
+    expect(pending.items.length).toBe(3);
+    expect(pending.items[0].title).toBe("Apples");
+  });
+
+  test("C, I & J: Selecting unscheduled Checklist plans it into selected gap, preserving items and updating storage", async () => {
+    const cl = await EntityCommandService.createChecklist({
+      id: "cl-plan-test",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "Packing List",
+      items: [
+        { id: "it-1", title: "Passport", completed: true },
+        { id: "it-2", title: "Tickets", completed: false },
+      ],
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-01");
+    });
+
+    // Plan checklist at 14:30
+    await act(async () => {
+      const ok = await state.planChecklist(cl.id, { hour: 14, minute: 30 });
+      expect(ok).toBe(true);
+    });
+
+    const stored = await ChecklistRepository.getChecklist(cl.id, INBOX_WORKSPACE_ID);
+    expect(stored).toBeDefined();
+    expect(stored?.id).toBe("cl-plan-test");
+    expect(stored?.schedule?.date).toBe("2026-09-01");
+    expect(stored?.schedule?.startTime).toBe("14:30");
+    expect(stored?.schedule?.durationMinutes).toBe(45); // default 45m
+    expect(stored?.items.length).toBe(2);
+    expect(stored?.items[0].completed).toBe(true);
+    expect(stored?.items[1].completed).toBe(false);
+    expect(stored?.revision).toBeGreaterThan(1);
+  });
+
+  test("E, F, G & H: Planning checklist as All-Day places it in allDayItems and clears timed layout", async () => {
+    const cl = await EntityCommandService.createChecklist({
+      id: "cl-allday-plan",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "Maintenance Day",
+      items: [{ id: "it-1", title: "Check filters", completed: false }],
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-01");
+    });
+
+    // Plan as All-Day
+    await act(async () => {
+      const ok = await state.planChecklist(cl.id, { isAllDay: true });
+      expect(ok).toBe(true);
+    });
+
+    const stored = await ChecklistRepository.getChecklist(cl.id, INBOX_WORKSPACE_ID);
+    expect(stored?.schedule?.date).toBe("2026-09-01");
+    expect(stored?.schedule?.startTime).toBeUndefined();
+    expect(stored?.schedule?.durationMinutes).toBeUndefined();
+    expect(stored?.schedule?.allDay).toBe(true);
+
+    // Verify it is in allDayItems and NOT timedItemsWithLayout
+    expect(state.allDayItems.some((i: any) => i.id === cl.id)).toBe(true);
+    expect(state.timedItemsWithLayout.some((i: any) => i.id === cl.id)).toBe(false);
+
+    // Now re-plan as Timed (11:00)
+    await act(async () => {
+      const ok = await state.planChecklist(cl.id, { hour: 11, minute: 0 });
+      expect(ok).toBe(true);
+    });
+
+    // Verify it is in timedItemsWithLayout and NOT allDayItems
+    expect(state.timedItemsWithLayout.some((i: any) => i.id === cl.id)).toBe(true);
+    expect(state.allDayItems.some((i: any) => i.id === cl.id)).toBe(false);
+  });
+
+  test("N: Rescheduling a checklist to another date preserves sub-item completion states", async () => {
+    const cl = await EntityCommandService.createChecklist({
+      id: "cl-resched-preserve",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "Trip Packing",
+      items: [
+        { id: "it-1", title: "Shoes", completed: true },
+        { id: "it-2", title: "Coat", completed: false },
+      ],
+      schedule: {
+        date: "2026-09-01",
+        startTime: "10:00",
+        durationMinutes: 30,
+      },
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-02");
+    });
+
+    // Plan to 2026-09-02 at 15:00
+    await act(async () => {
+      await state.planChecklist(cl.id, { hour: 15, minute: 0, date: "2026-09-02" });
+    });
+
+    const stored = await ChecklistRepository.getChecklist(cl.id, INBOX_WORKSPACE_ID);
+    expect(stored?.schedule?.date).toBe("2026-09-02");
+    expect(stored?.schedule?.startTime).toBe("15:00");
+    expect(stored?.items[0].completed).toBe(true);
+    expect(stored?.items[1].completed).toBe(false);
+  });
+
+  test("O: Archiving a scheduled checklist removes it from Calendar", async () => {
+    const cl = await EntityCommandService.createChecklist({
+      id: "cl-archive-test",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "Archivable Checklist",
+      items: [{ id: "it-1", title: "Step", completed: false }],
+      schedule: {
+        date: "2026-09-01",
+        startTime: "12:00",
+      },
+      reminder: {
+        enabled: true,
+        triggerAt: 1788184800000,
+      },
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-01");
+    });
+
+    expect(state.timelineItems.some((i: any) => i.id === cl.id)).toBe(true);
+
+    // Archive checklist
+    await act(async () => {
+      await EntityCommandService.updateChecklist(cl.id, INBOX_WORKSPACE_ID, {
+        archivedAt: Date.now(),
+      });
+    });
+
+    expect(state.timelineItems.some((i: any) => i.id === cl.id)).toBe(false);
+    expect(state.pendingChecklists.some((c: any) => c.id === cl.id)).toBe(false);
+  });
 });

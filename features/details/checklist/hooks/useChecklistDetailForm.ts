@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 
 import type { Checklist, ChecklistItem } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 
 export interface ChecklistFormState {
   title: string;
@@ -10,6 +11,18 @@ export interface ChecklistFormState {
   items: ChecklistItem[];
   linkedCollectionIds: string[];
   newItemText: string;
+  scheduleDate: string;
+  startTime?: string;
+  durationMinutes?: number;
+  showDatePicker: boolean;
+  scheduleTimePickerVisible: boolean;
+  reminderDate?: string;
+  reminderTime?: { hour: number; minute: number };
+  timePickerVisible: boolean;
+  recurrenceType: string;
+  intervalVal: number;
+  recurrenceDays: number[];
+  recurrenceDayOfMonth: number;
 }
 
 const INITIAL_FORM: ChecklistFormState = {
@@ -19,20 +32,48 @@ const INITIAL_FORM: ChecklistFormState = {
   items: [],
   linkedCollectionIds: [],
   newItemText: "",
+  scheduleDate: "inbox",
+  startTime: undefined,
+  durationMinutes: undefined,
+  showDatePicker: false,
+  scheduleTimePickerVisible: false,
+  reminderDate: undefined,
+  reminderTime: undefined,
+  timePickerVisible: false,
+  recurrenceType: "none",
+  intervalVal: 1,
+  recurrenceDays: [],
+  recurrenceDayOfMonth: 1,
 };
 
 const newItemId = () =>
   `checklist-item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
 
 /**
+ * Compute the epoch timestamp for a reminder trigger from an hour/minute pair
+ * plus a target reminder date string (YYYY-MM-DD). When no concrete date is given,
+ * falls back to today in local time.
+ */
+export function computeTriggerEpoch(
+  hour: number,
+  minute: number,
+  dateStr?: string,
+): number {
+  if (dateStr && dateStr !== "inbox") {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      return new Date(y, m - 1, d, hour, minute, 0, 0).getTime();
+    }
+  }
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+}
+
+/**
  * Owns the Checklist Detail edit-form state group (title, description,
- * workspace, items, linked resources, add-item draft) plus the derived item
- * interactions: re-initializing from a loaded checklist (`reset`), partial
- * updates (`update`), adding/renaming/deleting items, reordering items, and
- * toggling linked resources.
- *
- * This is Checklist-specific: item ordering and editing semantics are owned
- * here so the shared Detail primitives stay entity-agnostic.
+ * workspace, items, linked resources, add-item draft, schedule, reminder, recurrence)
+ * plus the derived item interactions.
  */
 export function useChecklistDetailForm() {
   const [form, setForm] = useState<ChecklistFormState>(INITIAL_FORM);
@@ -42,6 +83,38 @@ export function useChecklistDetailForm() {
   }, []);
 
   const reset = useCallback((data: Checklist) => {
+    const rec = data.recurrence;
+    let reminderDate: string | undefined;
+    let reminderTime: ChecklistFormState["reminderTime"];
+    if (data.reminder?.triggerAt) {
+      const d = new Date(data.reminder.triggerAt);
+      reminderDate = dateKeyFromDate(d);
+      reminderTime = { hour: d.getHours(), minute: d.getMinutes() };
+    }
+
+    let durationMinutes = data.schedule?.durationMinutes;
+    if (durationMinutes === undefined && data.schedule?.startTime && data.schedule?.endTime) {
+      const [sh, sm] = data.schedule.startTime.split(":").map(Number);
+      const [eh, em] = data.schedule.endTime.split(":").map(Number);
+      if (!isNaN(sh) && !isNaN(sm) && !isNaN(eh) && !isNaN(em)) {
+        durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
+        if (durationMinutes <= 0) durationMinutes = 45;
+      }
+    }
+
+    let scheduleDate = data.schedule?.date || "inbox";
+    let recurrenceType = "none";
+    let intervalVal = 1;
+    let recurrenceDays: number[] = [];
+    let recurrenceDayOfMonth = 1;
+
+    if (rec) {
+      recurrenceType = rec.frequency || "none";
+      intervalVal = rec.interval || 1;
+      recurrenceDays = rec.daysOfWeek || [];
+      recurrenceDayOfMonth = rec.dayOfMonth || 1;
+    }
+
     setForm({
       title: data.title || "",
       description: data.description || "",
@@ -49,6 +122,18 @@ export function useChecklistDetailForm() {
       items: data.items || [],
       linkedCollectionIds: data.resourceIds || [],
       newItemText: "",
+      scheduleDate,
+      startTime: data.schedule?.startTime,
+      durationMinutes,
+      showDatePicker: false,
+      scheduleTimePickerVisible: false,
+      reminderDate,
+      reminderTime,
+      timePickerVisible: false,
+      recurrenceType,
+      intervalVal,
+      recurrenceDays,
+      recurrenceDayOfMonth,
     });
   }, []);
 
@@ -116,6 +201,16 @@ export function useChecklistDetailForm() {
     }));
   }, []);
 
+  const toggleDay = useCallback((day: number) => {
+    setForm((current) => {
+      const exists = current.recurrenceDays.includes(day);
+      const next = exists
+        ? current.recurrenceDays.filter((d) => d !== day)
+        : [...current.recurrenceDays, day];
+      return { ...current, recurrenceDays: next.sort((a, b) => a - b) };
+    });
+  }, []);
+
   return {
     form,
     update,
@@ -127,5 +222,6 @@ export function useChecklistDetailForm() {
     moveItemUp,
     moveItemDown,
     toggleResource,
+    toggleDay,
   };
 }

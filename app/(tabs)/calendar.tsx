@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  TouchableOpacity,
   View
 } from "react-native";
 import Animated, {
@@ -110,8 +111,9 @@ export default function CalendarScreen() {
   const [showFilter, setShowFilter] = useState<boolean>(false);
   const [quickSlotTask, setQuickSlotTask] = useState<any | null>(null);
   const [placeTaskTarget, setPlaceTaskTarget] = useState<{
-    hour: number;
-    minute: number;
+    hour?: number;
+    minute?: number;
+    isAllDay?: boolean;
   } | null>(null);
 
   // ─── Initial Viewport Anchoring ──────────────────────────────────
@@ -956,14 +958,57 @@ export default function CalendarScreen() {
           {/* Redesigned Planner Time-Block Section */}
           <View style={styles.plannerContainer}>
             {/* All Day / Anytime Section */}
-            {filteredAllDayItems.length > 0 && (
+            {(filteredAllDayItems.length > 0 || pendingTasks.length > 0 || pendingChecklists.length > 0) && (
               <View style={styles.allDaySection}>
-                <Text
-                  style={[styles.sectionSubtitle, { color: colors.textMuted }]}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
                 >
-                  ALL DAY
-                </Text>
-                <ScrollView
+                  <Text
+                    style={[styles.sectionSubtitle, { color: colors.textMuted }]}
+                  >
+                    ALL DAY
+                  </Text>
+                  {(pendingTasks.length > 0 || pendingChecklists.length > 0) && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(
+                          Haptics.ImpactFeedbackStyle.Light,
+                        ).catch(() => {});
+                        setPlaceTaskTarget({ isAllDay: true });
+                      }}
+                      hitSlop={8}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        paddingHorizontal: 8,
+                        paddingVertical: 2,
+                        borderRadius: 8,
+                        backgroundColor: isLight
+                          ? "#F1F5F9"
+                          : "rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <Feather name="plus" size={11} color={colors.primary} />
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: "700",
+                          color: colors.primary,
+                        }}
+                      >
+                        Plan All Day
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {filteredAllDayItems.length > 0 && (
+                  <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={{
@@ -1034,7 +1079,8 @@ export default function CalendarScreen() {
                       </GestureDetector>
                     );
                   })}
-                </ScrollView>
+                  </ScrollView>
+                )}
               </View>
             )}
 
@@ -1921,10 +1967,20 @@ export default function CalendarScreen() {
                           Haptics.notificationAsync(
                             Haptics.NotificationFeedbackType.Success,
                           ).catch(() => {});
-                          await planTask(quickSlotTask.id, {
-                            hour: gap.hour,
-                            minute: gap.minute,
-                          });
+                          const isChecklist =
+                            quickSlotTask?.type === "checklist" ||
+                            quickSlotTask?.items !== undefined;
+                          if (isChecklist) {
+                            await planChecklist(quickSlotTask.id, {
+                              hour: gap.hour,
+                              minute: gap.minute,
+                            });
+                          } else {
+                            await planTask(quickSlotTask.id, {
+                              hour: gap.hour,
+                              minute: gap.minute,
+                            });
+                          }
                           close();
                         }}
                         scaleTo={0.98}
@@ -2005,10 +2061,20 @@ export default function CalendarScreen() {
                         Haptics.notificationAsync(
                           Haptics.NotificationFeedbackType.Success,
                         ).catch(() => {});
-                        await planTask(quickSlotTask.id, {
-                          hour: preset.hour,
-                          minute: preset.minute,
-                        });
+                        const isChecklist =
+                          quickSlotTask?.type === "checklist" ||
+                          quickSlotTask?.items !== undefined;
+                        if (isChecklist) {
+                          await planChecklist(quickSlotTask.id, {
+                            hour: preset.hour,
+                            minute: preset.minute,
+                          });
+                        } else {
+                          await planTask(quickSlotTask.id, {
+                            hour: preset.hour,
+                            minute: preset.minute,
+                          });
+                        }
                         close();
                       }}
                       scaleTo={0.96}
@@ -2054,7 +2120,14 @@ export default function CalendarScreen() {
                   Haptics.notificationAsync(
                     Haptics.NotificationFeedbackType.Success,
                   ).catch(() => {});
-                  await planTask(quickSlotTask.id, { isAllDay: true });
+                  const isChecklist =
+                    quickSlotTask?.type === "checklist" ||
+                    quickSlotTask?.items !== undefined;
+                  if (isChecklist) {
+                    await planChecklist(quickSlotTask.id, { isAllDay: true });
+                  } else {
+                    await planTask(quickSlotTask.id, { isAllDay: true });
+                  }
                   close();
                 }}
                 scaleTo={0.98}
@@ -2100,7 +2173,7 @@ export default function CalendarScreen() {
         }}
       </AnimatedOverlay>
 
-      {/* ── TIMELINE-FIRST PLACE TASK SHEET ───────────────────────── */}
+      {/* ── TIMELINE-FIRST PLACE TASK & CHECKLIST SHEET ───────────────────────── */}
       <AnimatedOverlay
         visible={!!placeTaskTarget}
         onClose={() => setPlaceTaskTarget(null)}
@@ -2109,8 +2182,15 @@ export default function CalendarScreen() {
         {(close) => {
           if (!placeTaskTarget) return null;
           const targetTimeLabel =
-            formatReminderTime(placeTaskTarget.hour, placeTaskTarget.minute) ||
-            `${String(placeTaskTarget.hour).padStart(2, "0")}:${String(placeTaskTarget.minute).padStart(2, "0")}`;
+            placeTaskTarget.isAllDay
+              ? "All Day"
+              : (placeTaskTarget.hour !== undefined && placeTaskTarget.minute !== undefined
+                  ? formatReminderTime(placeTaskTarget.hour, placeTaskTarget.minute) ||
+                    `${String(placeTaskTarget.hour).padStart(2, "0")}:${String(placeTaskTarget.minute).padStart(2, "0")}`
+                  : "Timeline");
+
+          const hasUnplacedItems =
+            pendingTasks.length > 0 || pendingChecklists.length > 0;
 
           return (
             <View
@@ -2124,7 +2204,7 @@ export default function CalendarScreen() {
                 borderWidth: 1.5,
                 borderColor: colors.border,
                 gap: 14,
-                maxHeight: 520,
+                maxHeight: 540,
               }}
             >
               {/* Header */}
@@ -2147,7 +2227,9 @@ export default function CalendarScreen() {
                     }}
                     numberOfLines={1}
                   >
-                    Place at {targetTimeLabel}
+                    {placeTaskTarget.isAllDay
+                      ? "Plan for All Day"
+                      : `Place at ${targetTimeLabel}`}
                   </Text>
                   <Text
                     style={{
@@ -2157,7 +2239,7 @@ export default function CalendarScreen() {
                       marginTop: 2,
                     }}
                   >
-                    Select an unplaced task to schedule
+                    Select an unplaced task or checklist to schedule
                   </Text>
                 </View>
                 <Pressable
@@ -2175,8 +2257,8 @@ export default function CalendarScreen() {
                 </Pressable>
               </View>
 
-              {/* Task list or empty state */}
-              {pendingTasks.length === 0 ? (
+              {/* Items list or empty state */}
+              {!hasUnplacedItems ? (
                 <View
                   style={{
                     paddingVertical: 24,
@@ -2196,7 +2278,7 @@ export default function CalendarScreen() {
                       color: colors.text,
                     }}
                   >
-                    No Unplaced Tasks
+                    No Unplaced Items
                   </Text>
                   <Text
                     style={{
@@ -2205,119 +2287,263 @@ export default function CalendarScreen() {
                       textAlign: "center",
                     }}
                   >
-                    All tasks for this workspace are already scheduled.
+                    All tasks and checklists for this workspace are already scheduled.
                   </Text>
                 </View>
               ) : (
                 <ScrollView
-                  style={{ maxHeight: 320 }}
+                  style={{ maxHeight: 340 }}
                   showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8 }}
+                  contentContainerStyle={{ gap: 12 }}
                 >
-                  {pendingTasks.map((task) => {
-                    const taskDuration =
-                      task.schedule?.durationMinutes || 60;
-                    return (
-                      <PressableScale
-                        key={task.id}
-                        onPress={async () => {
-                          Haptics.notificationAsync(
-                            Haptics.NotificationFeedbackType.Success,
-                          ).catch(() => {});
-                          await planTask(task.id, {
-                            hour: placeTaskTarget.hour,
-                            minute: placeTaskTarget.minute,
-                          });
-                          close();
-                        }}
-                        scaleTo={0.98}
-                        contentStyle={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: 12,
-                          borderRadius: 14,
-                          backgroundColor: isLight
-                            ? "#F8FAFC"
-                            : "rgba(255,255,255,0.03)",
-                          borderWidth: 1,
-                          borderColor: colors.border,
+                  {/* Tasks Section */}
+                  {pendingTasks.length > 0 && (
+                    <View style={{ gap: 8 }}>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: "800",
+                          color: colors.textMuted,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          paddingHorizontal: 2,
                         }}
                       >
-                        <View
-                          style={{
-                            flex: 1,
-                            marginRight: 10,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 8,
-                          }}
-                        >
-                          <View
-                            style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: 4,
-                              backgroundColor:
-                                task.priority === "high"
-                                  ? "#EF4444"
-                                  : task.priority === "medium"
-                                    ? "#F59E0B"
-                                    : "#3B82F6",
+                        Tasks ({pendingTasks.length})
+                      </Text>
+                      {pendingTasks.map((task) => {
+                        const taskDuration =
+                          task.schedule?.durationMinutes || 60;
+                        return (
+                          <PressableScale
+                            key={task.id}
+                            onPress={async () => {
+                              Haptics.notificationAsync(
+                                Haptics.NotificationFeedbackType.Success,
+                              ).catch(() => {});
+                              await planTask(task.id, {
+                                hour: placeTaskTarget.hour,
+                                minute: placeTaskTarget.minute,
+                                isAllDay: placeTaskTarget.isAllDay,
+                              });
+                              close();
                             }}
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                fontWeight: "700",
-                                color: colors.text,
-                              }}
-                              numberOfLines={1}
-                            >
-                              {task.title}
-                            </Text>
-                            <Text
-                              style={{
-                                fontSize: 11,
-                                color: colors.textMuted,
-                                fontWeight: "500",
-                                marginTop: 1,
-                              }}
-                            >
-                              {taskDuration} min
-                            </Text>
-                          </View>
-                        </View>
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 4,
-                            backgroundColor: `${colors.primary}15`,
-                            paddingHorizontal: 10,
-                            paddingVertical: 5,
-                            borderRadius: 8,
-                          }}
-                        >
-                          <Feather
-                            name="plus"
-                            size={12}
-                            color={colors.primary}
-                          />
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              fontWeight: "800",
-                              color: colors.primary,
+                            scaleTo={0.98}
+                            contentStyle={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: 12,
+                              borderRadius: 14,
+                              backgroundColor: isLight
+                                ? "#F8FAFC"
+                                : "rgba(255,255,255,0.03)",
+                              borderWidth: 1,
+                              borderColor: colors.border,
                             }}
                           >
-                            Place
-                          </Text>
-                        </View>
-                      </PressableScale>
-                    );
-                  })}
+                            <View
+                              style={{
+                                flex: 1,
+                                marginRight: 10,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 4,
+                                  backgroundColor:
+                                    task.priority === "high"
+                                      ? "#EF4444"
+                                      : task.priority === "medium"
+                                        ? "#F59E0B"
+                                        : "#3B82F6",
+                                }}
+                              />
+                              <View style={{ flex: 1 }}>
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: "700",
+                                    color: colors.text,
+                                  }}
+                                  numberOfLines={1}
+                                >
+                                  {task.title}
+                                </Text>
+                                <Text
+                                  style={{
+                                    fontSize: 11,
+                                    color: colors.textMuted,
+                                    fontWeight: "500",
+                                    marginTop: 1,
+                                  }}
+                                >
+                                  {taskDuration} min
+                                </Text>
+                              </View>
+                            </View>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                                backgroundColor: `${colors.primary}15`,
+                                paddingHorizontal: 10,
+                                paddingVertical: 5,
+                                borderRadius: 8,
+                              }}
+                            >
+                              <Feather
+                                name="plus"
+                                size={12}
+                                color={colors.primary}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: "800",
+                                  color: colors.primary,
+                                }}
+                              >
+                                Place
+                              </Text>
+                            </View>
+                          </PressableScale>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Checklists Section */}
+                  {pendingChecklists.length > 0 && (
+                    <View style={{ gap: 8 }}>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: "800",
+                          color: colors.textMuted,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          paddingHorizontal: 2,
+                        }}
+                      >
+                        Checklists ({pendingChecklists.length})
+                      </Text>
+                      {pendingChecklists.map((checklist) => {
+                        const itemsSummary =
+                          checklist.items && checklist.items.length > 0
+                            ? checklist.items
+                                .slice(0, 3)
+                                .map((it) => it.title)
+                                .join(" · ")
+                            : "Empty checklist";
+                        const duration =
+                          checklist.schedule?.durationMinutes || 45;
+
+                        return (
+                          <PressableScale
+                            key={checklist.id}
+                            onPress={async () => {
+                              Haptics.notificationAsync(
+                                Haptics.NotificationFeedbackType.Success,
+                              ).catch(() => {});
+                              await planChecklist(checklist.id, {
+                                hour: placeTaskTarget.hour,
+                                minute: placeTaskTarget.minute,
+                                isAllDay: placeTaskTarget.isAllDay,
+                              });
+                              close();
+                            }}
+                            scaleTo={0.98}
+                            contentStyle={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: 12,
+                              borderRadius: 14,
+                              backgroundColor: isLight
+                                ? "#EFF6FF"
+                                : "rgba(59, 130, 246, 0.05)",
+                              borderWidth: 1,
+                              borderColor: isLight
+                                ? "#BFDBFE"
+                                : "rgba(59, 130, 246, 0.2)",
+                            }}
+                          >
+                            <View
+                              style={{
+                                flex: 1,
+                                marginRight: 10,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 10,
+                              }}
+                            >
+                              <Feather
+                                name="check-square"
+                                size={16}
+                                color="#3B82F6"
+                              />
+                              <View style={{ flex: 1 }}>
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: "700",
+                                    color: colors.text,
+                                  }}
+                                  numberOfLines={1}
+                                >
+                                  {checklist.title}
+                                </Text>
+                                <Text
+                                  style={{
+                                    fontSize: 11,
+                                    color: colors.textMuted,
+                                    fontWeight: "500",
+                                    marginTop: 1,
+                                  }}
+                                  numberOfLines={1}
+                                >
+                                  {itemsSummary} • {duration}m
+                                </Text>
+                              </View>
+                            </View>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                                backgroundColor: "rgba(59, 130, 246, 0.15)",
+                                paddingHorizontal: 10,
+                                paddingVertical: 5,
+                                borderRadius: 8,
+                              }}
+                            >
+                              <Feather
+                                name="plus"
+                                size={12}
+                                color="#3B82F6"
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: "800",
+                                  color: "#3B82F6",
+                                }}
+                              >
+                                Place
+                              </Text>
+                            </View>
+                          </PressableScale>
+                        );
+                      })}
+                    </View>
+                  )}
                 </ScrollView>
               )}
 

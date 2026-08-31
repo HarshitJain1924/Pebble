@@ -886,11 +886,20 @@ export function useCalendarState() {
           options.hour !== null &&
           !options.isAllDay
         ) {
-          updates = calculateRescheduledTask(
+          const rescheduled = calculateRescheduledTask(
             checklist as any,
             { hour: options.hour, minute: options.minute, date: selDate },
             selDate,
           );
+          const duration = checklist.schedule?.durationMinutes || 45;
+          updates = {
+            ...rescheduled,
+            schedule: {
+              ...(rescheduled.schedule || {}),
+              durationMinutes: duration,
+              allDay: undefined,
+            },
+          };
         } else if (options?.isAllDay) {
           updates = {
             schedule: {
@@ -898,6 +907,7 @@ export function useCalendarState() {
               date: selDate,
               startTime: undefined,
               endTime: undefined,
+              durationMinutes: undefined,
               allDay: true,
             },
           };
