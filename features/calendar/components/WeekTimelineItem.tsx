@@ -1,32 +1,18 @@
 import React from "react";
-import { View, StyleSheet } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import PressableScale from "@/shared/components/ui/PressableScale";
-import { getCalendarItemType } from "@/features/calendar/types";
+import { getCalendarItemType, CalendarTimelineItem } from "@/features/calendar/types";
 import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
 
 interface WeekTimelineItemProps {
-  item: {
-    id: string;
-    title: string;
-    type: string;
-    startHour?: number;
-    startMinute?: number;
-    durationMinutes: number;
-    completed?: boolean;
-    priority?: string;
-    streak?: number;
-    itemsCount?: number;
-    completedItemsCount?: number;
-    colIdx?: number;
-    totalCols?: number;
-    [key: string]: any;
-  };
+  item: CalendarTimelineItem;
   hourHeight?: number;
   colors: any;
   isLight: boolean;
   onOpenItem: (item: any) => void;
+  createPanGesture?: (item: any) => any;
 }
 
 function formatBlockTime(h: number, m: number): string {
@@ -51,6 +37,7 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
   colors,
   isLight,
   onOpenItem,
+  createPanGesture,
 }) => {
   const startMinutes = (item.startHour ?? 0) * 60 + (item.startMinute ?? 0);
   const top = (startMinutes / 60) * hourHeight;
@@ -72,20 +59,21 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
   const timeStr = formatBlockTime(item.startHour ?? 0, item.startMinute ?? 0);
   const durStr = formatDuration(item.durationMinutes || 30);
 
-  const totalItems = item.itemsCount ?? 0;
+  const totalItems = item.itemsCount ?? (Array.isArray(item.items) ? item.items.length : 0);
   const completedItems = item.completedItemsCount ?? 0;
   const checklistProgress = totalItems > 0 ? `${completedItems}/${totalItems}` : null;
 
-  // Render tiers
+  // Render tiers based on height
   const isVerySmall = height < 32;
   const isMedium = height >= 32 && height < 52;
   const isTall = height >= 52;
 
-  return (
-    <PressableScale
+  const gesture = createPanGesture ? createPanGesture(item) : null;
+
+  const cardContent = (
+    <Pressable
       onPress={() => onOpenItem(item)}
-      scaleTo={0.96}
-      contentStyle={[
+      style={({ pressed }) => [
         styles.card,
         isMultiCol
           ? {
@@ -102,7 +90,7 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
           backgroundColor: bg,
           borderLeftColor: accent,
           borderColor: isLight ? "rgba(0, 0, 0, 0.06)" : config.borderColor,
-          opacity: item.completed ? 0.55 : 1,
+          opacity: pressed ? 0.85 : item.completed ? 0.55 : 1,
         },
       ]}
     >
@@ -199,8 +187,14 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
           </>
         )}
       </View>
-    </PressableScale>
+    </Pressable>
   );
+
+  if (gesture) {
+    return <GestureDetector gesture={gesture}>{cardContent}</GestureDetector>;
+  }
+
+  return cardContent;
 });
 
 WeekTimelineItem.displayName = "WeekTimelineItem";

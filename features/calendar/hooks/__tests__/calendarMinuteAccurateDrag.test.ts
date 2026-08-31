@@ -1,3 +1,13 @@
+/**
+ * calendarMinuteAccurateDrag.test.ts
+ * ──────────────────────────────────
+ * Integration tests verifying:
+ * 1. 15-minute accurate drag targeting and rescheduling in useCalendarState
+ * 2. Drag offset preservation during touch tracking
+ * 3. Exact minute-level updates to Tasks, Recurring Task occurrences, Checklists, and Habits
+ * 4. Cancellation safety and storage purity
+ */
+
 import React from "react";
 import { act, create } from "react-test-renderer";
 
@@ -22,29 +32,35 @@ jest.mock("expo-haptics", () => ({
   impactAsync: jest.fn(async () => undefined),
   notificationAsync: jest.fn(async () => undefined),
   selectionAsync: jest.fn(async () => undefined),
-  ImpactFeedbackStyle: { Medium: "Medium", Light: "Light" },
-  NotificationFeedbackType: { Success: "Success" },
+  ImpactFeedbackStyle: { Light: "Light", Medium: "Medium", Heavy: "Heavy" },
+  NotificationFeedbackType: { Success: "Success", Error: "Error" },
 }));
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCalendarState } from "@/features/calendar/hooks/useCalendarState";
+import { useCalendarState } from "../useCalendarState";
 import {
   TaskRepository,
-  ChecklistRepository,
   HabitRepository,
-  UiStateRepository,
+  ChecklistRepository,
   WorkspaceRepository,
+  UiStateRepository,
 } from "@/repositories";
-import { Task, Checklist, Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { Task, Habit, Checklist, Workspace } from "@/shared/types/domain.types";
 
-describe("Calendar Minute-Accurate Drag & Drop Integration Tests", () => {
+describe("Calendar Minute-Accurate Drag Integration Tests", () => {
   beforeEach(async () => {
-    await AsyncStorage.clear();
     jest.clearAllMocks();
-
-    await WorkspaceRepository.saveWorkspaces([
-      { id: "ws-1", name: "Workspace 1", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
-    ]);
+    const ws: Workspace = {
+      id: "ws-1",
+      name: "Personal",
+      color: "#3B82F6",
+      emoji: "👤",
+      order: 0,
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await WorkspaceRepository.saveWorkspaces([ws]);
     await UiStateRepository.saveUiState({ activeWorkspaceId: "ws-1" });
   });
 
@@ -84,6 +100,8 @@ describe("Calendar Minute-Accurate Drag & Drop Integration Tests", () => {
       },
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 1,
+      lifecycleGeneration: 1,
     };
     await TaskRepository.saveTasks([task], "ws-1");
 
@@ -143,6 +161,8 @@ describe("Calendar Minute-Accurate Drag & Drop Integration Tests", () => {
       },
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 1,
+      lifecycleGeneration: 1,
     };
     await TaskRepository.saveTasks([recurringTask], "ws-1");
 
@@ -196,8 +216,10 @@ describe("Calendar Minute-Accurate Drag & Drop Integration Tests", () => {
       ],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 1,
+      lifecycleGeneration: 1,
     };
-    await ChecklistRepository.saveChecklist(checklist, "ws-1");
+    await ChecklistRepository.saveChecklist(checklist);
 
     const { getHook, unmount } = await renderCalendarHook();
     await act(async () => {
@@ -239,13 +261,16 @@ describe("Calendar Minute-Accurate Drag & Drop Integration Tests", () => {
       id: "habit-drag-1",
       title: "Morning Meditation",
       workspaceId: "ws-1",
-      frequency: "daily",
+      recurrence: { frequency: "daily", interval: 1 },
+      completionHistory: [],
       reminder: {
         enabled: true,
         triggerAt: new Date(2026, 8, 1, 8, 0).getTime(), // 8:00 AM
       },
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 1,
+      lifecycleGeneration: 1,
     };
     await HabitRepository.saveHabits([habit], "ws-1");
 
@@ -300,6 +325,8 @@ describe("Calendar Minute-Accurate Drag & Drop Integration Tests", () => {
       },
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 1,
+      lifecycleGeneration: 1,
     };
     await TaskRepository.saveTasks([task], "ws-1");
 
@@ -324,14 +351,18 @@ describe("Calendar Minute-Accurate Drag & Drop Integration Tests", () => {
         durationLabel: "1h",
       });
       getHook().handleCancelDrag();
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 30));
     });
 
     const tasksMap = await TaskRepository.getTasks("ws-1");
-    const untouched = tasksMap["task-cancel-1"];
-    expect(untouched?.schedule?.startTime).toBe("09:00");
+    const preservedTask = tasksMap["task-cancel-1"];
+    expect(preservedTask).toBeDefined();
+    expect(preservedTask?.schedule?.startTime).toBe("09:00");
+    expect(preservedTask?.schedule?.durationMinutes).toBe(60);
+
     expect(getHook().isDragging).toBe(false);
     expect(getHook().activeDragItem).toBeNull();
+    expect(getHook().hoveredTargetTime).toBeNull();
 
     await unmount();
   });

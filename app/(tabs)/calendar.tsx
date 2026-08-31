@@ -27,6 +27,7 @@ import {
   useCalendarState,
 } from "@/features/calendar/hooks/useCalendarState";
 import { CalendarViewMode, getCalendarItemType } from "@/features/calendar/types";
+import { formatWeekDayName } from "@/features/calendar/utils/weekTimelineGeometry";
 import { CalendarHeader } from "@/features/calendar/components/CalendarHeader";
 import { DayContextSummary } from "@/features/calendar/components/DayContextSummary";
 import { DayPlannerView } from "@/features/calendar/components/DayPlannerView";
@@ -69,11 +70,14 @@ export default function CalendarScreen() {
     dragY,
     monthGridRef,
     weekStripRef,
+    weekGridRef,
+    weekHorizontalScrollRef,
     timelineGridRef,
     scrollRef,
     scrollYRef,
     measureMonthGrid,
     measureWeekStrip,
+    measureWeekGrid,
     measureTimelineGrid,
     handlePrevMonth,
     handleNextMonth,
@@ -445,6 +449,16 @@ export default function CalendarScreen() {
                 setSelectedDate(date);
                 setPlaceTaskTarget({ isAllDay: true });
               }}
+              isDragging={isDragging}
+              hoveredDate={hoveredDate}
+              hoveredHour={hoveredHour}
+              hoveredMinute={hoveredMinute}
+              hoveredTargetTime={hoveredTargetTime}
+              activeDragItem={activeDragItem}
+              createPanGesture={createPanGesture}
+              weekGridRef={weekGridRef}
+              horizontalScrollRef={weekHorizontalScrollRef}
+              onLayoutWeekGrid={measureWeekGrid}
               colors={colors}
               isLight={isLight}
             />
@@ -496,7 +510,7 @@ export default function CalendarScreen() {
           >
             <Text style={styles.dragFloatingTime}>
               {hoveredTargetTime
-                ? `${hoveredTargetTime.timeRangeLabel} · ${hoveredTargetTime.durationLabel}`
+                ? `${(hoveredTargetTime as any).fullPreviewLabel || (hoveredDate ? `${formatWeekDayName(hoveredDate)} · ` : "") + hoveredTargetTime.timeRangeLabel} · ${hoveredTargetTime.durationLabel}`
                 : activeDragItem.timeLabel || "All Day"}
             </Text>
             <Text style={styles.dragFloatingTitle} numberOfLines={1}>
