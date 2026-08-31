@@ -26,7 +26,12 @@ import {
   getDateKey,
   useCalendarState,
 } from "@/features/calendar/hooks/useCalendarState";
-import { CalendarViewMode, getCalendarItemType } from "@/features/calendar/types";
+import {
+  CalendarTimelineItem,
+  CalendarViewContext,
+  CalendarViewMode,
+  getCalendarItemType,
+} from "@/features/calendar/types";
 import { formatWeekDayName } from "@/features/calendar/utils/weekTimelineGeometry";
 import { CalendarHeader } from "@/features/calendar/components/CalendarHeader";
 import { DayContextSummary } from "@/features/calendar/components/DayContextSummary";
@@ -110,6 +115,8 @@ export default function CalendarScreen() {
   const [showFilter, setShowFilter] = useState<boolean>(false);
   const [quickSlotTask, setQuickSlotTask] = useState<any | null>(null);
   const [popoverItem, setPopoverItem] = useState<any | null>(null);
+  const [popoverViewContext, setPopoverViewContext] =
+    useState<CalendarViewContext>("day");
   const [placeTaskTarget, setPlaceTaskTarget] =
     useState<CalendarPlanningTarget | null>(null);
 
@@ -156,10 +163,19 @@ export default function CalendarScreen() {
     return () => clearInterval(interval);
   }, [isViewingToday]);
 
-  const handleOpenItem = useCallback((item: any) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setPopoverItem(item);
-  }, []);
+  const handleOpenItem = useCallback(
+    (item: any, viewCtx?: CalendarViewContext) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      const resolvedContext =
+        viewCtx ||
+        (calendarViewMode === "timeline"
+          ? "day"
+          : (calendarViewMode as CalendarViewContext));
+      setPopoverViewContext(resolvedContext);
+      setPopoverItem(item);
+    },
+    [calendarViewMode],
+  );
 
   const handleOpenDetails = useCallback(
     (item: any) => {
@@ -424,7 +440,7 @@ export default function CalendarScreen() {
                 onPlaceAtTime={(hour, minute, gap) =>
                   setPlaceTaskTarget({ hour, minute, gap })
                 }
-                onOpenItem={handleOpenItem}
+                onOpenItem={(item) => handleOpenItem(item, "day")}
                 createPanGesture={createPanGesture}
                 colors={colors}
                 isLight={isLight}
@@ -444,7 +460,7 @@ export default function CalendarScreen() {
               allTodos={allTodos}
               allHabits={allHabits}
               allChecklists={allChecklists}
-              onOpenItem={handleOpenItem}
+              onOpenItem={(item) => handleOpenItem(item, "week")}
               onPlanAtDate={(date) => {
                 setSelectedDate(date);
                 setPlaceTaskTarget({ isAllDay: true });
@@ -480,7 +496,7 @@ export default function CalendarScreen() {
               allTodos={allTodos}
               allHabits={allHabits}
               allChecklists={allChecklists}
-              onOpenItem={handleOpenItem}
+              onOpenItem={(item) => handleOpenItem(item, "month")}
               onPlanAtDate={(date) => {
                 setSelectedDate(date);
                 setPlaceTaskTarget({ isAllDay: true });
@@ -567,6 +583,7 @@ export default function CalendarScreen() {
         visible={!!popoverItem}
         item={popoverItem}
         selectedDate={selectedDate}
+        viewContext={popoverViewContext}
         onClose={() => setPopoverItem(null)}
         onOpenDetails={handleOpenDetails}
         onToggleCompleteTask={handleToggleCompleteTask}

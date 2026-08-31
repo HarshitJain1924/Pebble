@@ -1,5 +1,7 @@
 export type CalendarViewMode = "month" | "week" | "timeline";
 
+export type CalendarViewContext = "day" | "week" | "month";
+
 export type CalendarEntityType = "task" | "habit" | "checklist";
 
 export type DragLifecycleState = "idle" | "dragging" | "dropping";

@@ -115,8 +115,8 @@ describe("CalendarItemPopover Unit Tests", () => {
     expect(textContents).toContain("5 day streak");
   });
 
-  // Test 3: Checklist Popover Renders Progress (2/5) and Item Previews
-  test("Checklist popover renders progress count (2/5) and item preview list", () => {
+  // Test 3: Checklist Popover in Week View Renders Progress (2 / 5 completed) and Item Previews
+  test("Checklist popover in Week view renders progress count (2 / 5 completed) and item preview list", () => {
     const onOpenDetails = jest.fn();
     const onClose = jest.fn();
 
@@ -127,6 +127,7 @@ describe("CalendarItemPopover Unit Tests", () => {
           visible={true}
           item={checklistItem}
           selectedDate="2026-09-01"
+          viewContext="week"
           onClose={onClose}
           onOpenDetails={onOpenDetails}
           colors={mockColors}
@@ -140,9 +141,63 @@ describe("CalendarItemPopover Unit Tests", () => {
 
     expect(textContents).toContain("Weekly Grocery Shopping");
     expect(textContents).toContain("CHECKLIST");
-    expect(textContents).toContain("2/5 items");
+    expect(textContents).toContain("2 / 5 completed");
     expect(textContents).toContain("Organic Whole Milk");
     expect(textContents).toContain("Sourdough Bread");
+  });
+
+  // Test 3b: Checklist Popover in Day & Month Views does NOT render progress UI
+  test("Checklist popover in Day and Month views does not render progress UI", () => {
+    const onOpenDetails = jest.fn();
+    const onClose = jest.fn();
+
+    let dayRoot: any;
+    act(() => {
+      dayRoot = create(
+        <CalendarItemPopover
+          visible={true}
+          item={checklistItem}
+          selectedDate="2026-09-01"
+          viewContext="day"
+          onClose={onClose}
+          onOpenDetails={onOpenDetails}
+          colors={mockColors}
+          isLight={true}
+        />
+      );
+    });
+
+    const dayTextNodes = dayRoot.root.findAllByType("Text" as any);
+    const dayTextContents = dayTextNodes.map((t: any) => t.props.children).flat();
+
+    expect(dayTextContents).toContain("Weekly Grocery Shopping");
+    expect(dayTextContents).toContain("CHECKLIST");
+    expect(dayTextContents).not.toContain("2 / 5 completed");
+    expect(dayTextContents).not.toContain("Progress");
+
+    let monthRoot: any;
+    act(() => {
+      monthRoot = create(
+        <CalendarItemPopover
+          visible={true}
+          item={checklistItem}
+          selectedDate="2026-09-01"
+          viewContext="month"
+          onClose={onClose}
+          onOpenDetails={onOpenDetails}
+          colors={mockColors}
+          isLight={true}
+        />
+      );
+    });
+
+    const monthTextNodes = monthRoot.root.findAllByType("Text" as any);
+    const monthTextContents = monthTextNodes.map((t: any) => t.props.children).flat();
+
+    expect(monthTextContents).toContain("Weekly Grocery Shopping");
+    expect(monthTextContents).toContain("CHECKLIST");
+    expect(monthTextContents).not.toContain("2 / 5 completed");
+    expect(monthTextContents).not.toContain("Progress");
   });
 
   // Test 4: Checklist Popover has ONE clear primary action [Open checklist] without duplicate [See details]

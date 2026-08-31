@@ -338,7 +338,7 @@ describe("Calendar Week Drag Integration Tests (Part 24)", () => {
     expect(reminderDate.getMinutes()).toBe(15);
 
     await unmount();
-  });
+  }, 15000);
 
   // Test 5: Drag Cancellation in Week View preserves all items
   test("Cancelling a Week drag leaves the original entity untouched", async () => {

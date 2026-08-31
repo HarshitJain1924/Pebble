@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import PressableScale from "@/shared/components/ui/PressableScale";
-import { getCalendarItemType } from "@/features/calendar/types";
+import { getCalendarItemType, CalendarViewContext } from "@/features/calendar/types";
 import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
 
 export interface CalendarPopoverItem {
@@ -31,6 +31,7 @@ interface CalendarItemPopoverProps {
   visible: boolean;
   item: CalendarPopoverItem | null;
   selectedDate: string;
+  viewContext?: CalendarViewContext;
   onClose: () => void;
   onOpenDetails: (item: CalendarPopoverItem) => void;
   onToggleCompleteTask?: (taskId: string, workspaceId?: string) => Promise<void> | void;
@@ -73,6 +74,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
   visible,
   item,
   selectedDate,
+  viewContext = "day",
   onClose,
   onOpenDetails,
   onToggleCompleteTask,
@@ -85,12 +87,12 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
   const type = getCalendarItemType(item);
   const config = getCalendarEntityPresentation(type, isLight);
   const isCompleted = !!item.completed;
+  const showProgress = viewContext === "week" && type === "checklist";
 
   // Metadata
   const timeFormatted = formatPopoverTime(item.startHour, item.startMinute, item.durationMinutes);
   const totalItems = item.itemsCount ?? item.items?.length ?? 0;
   const completedItems = item.completedItemsCount ?? item.items?.filter((i: any) => i.completed)?.length ?? 0;
-  const checklistProgress = totalItems > 0 ? `${completedItems}/${totalItems}` : null;
   const isHighPriority = item.priority === "high";
 
   return (
@@ -201,29 +203,46 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
               </View>
             )}
 
-            {/* Checklist Progress & Preview */}
-            {type === "checklist" && (
+            {/* Checklist Progress & Preview (Week View Only) */}
+            {showProgress && (
               <View style={styles.checklistSection}>
-                {checklistProgress && (
-                  <View style={styles.checklistProgressRow}>
-                    <Text style={[styles.checklistProgressLabel, { color: colors.textMuted }]}>
-                      Progress
-                    </Text>
-                    <View
-                      style={[
-                        styles.progressBadge,
-                        {
-                          backgroundColor: config.surface,
-                          borderColor: config.borderColor,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.progressBadgeText, { color: config.accent }]}>
-                        {`${checklistProgress} items`}
-                      </Text>
-                    </View>
-                  </View>
-                )}
+                <View style={styles.checklistProgressRow}>
+                  <Text style={[styles.checklistProgressLabel, { color: colors.textMuted }]}>
+                    Progress
+                  </Text>
+                  <Text style={[styles.progressCountText, { color: colors.text }]}>
+                    {`${completedItems} / ${totalItems} completed`}
+                  </Text>
+                </View>
+
+                {/* Compact visually meaningful progress bar */}
+                <View
+                  style={[
+                    styles.progressBarTrack,
+                    {
+                      backgroundColor: isLight
+                        ? "rgba(0,0,0,0.06)"
+                        : "rgba(255,255,255,0.08)",
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        width: `${
+                          totalItems > 0
+                            ? Math.min(100, Math.round((completedItems / totalItems) * 100))
+                            : 0
+                        }%`,
+                        backgroundColor:
+                          isCompleted || (totalItems > 0 && completedItems === totalItems)
+                            ? "#10B981"
+                            : config.accent,
+                      },
+                    ]}
+                  />
+                </View>
 
                 {item.items && item.items.length > 0 && (
                   <View style={styles.checklistPreviewBox}>
@@ -239,7 +258,9 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                             styles.previewItemText,
                             {
                               color: it.completed ? colors.textMuted : colors.text,
-                              textDecorationLine: it.completed ? "line-through" : "none",
+                              textDecorationLine: it.completed
+                                ? "line-through"
+                                : "none",
                             },
                           ]}
                           numberOfLines={1}
@@ -502,7 +523,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   checklistSection: {
-    gap: 6,
+    gap: 7,
+    marginTop: 2,
   },
   checklistProgressRow: {
     flexDirection: "row",
@@ -512,16 +534,22 @@ const styles = StyleSheet.create({
   checklistProgressLabel: {
     fontSize: 11,
     fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-  progressBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-    borderWidth: 1,
+  progressCountText: {
+    fontSize: 11.5,
+    fontWeight: "700",
   },
-  progressBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
+  progressBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    width: "100%",
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 3,
   },
   checklistPreviewBox: {
     gap: 4,

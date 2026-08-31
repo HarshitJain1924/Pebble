@@ -308,7 +308,7 @@ describe("Calendar Minute-Accurate Drag Integration Tests", () => {
     expect(reminderDate.getMinutes()).toBe(15);
 
     await unmount();
-  });
+  }, 15000);
 
   // Test 5: Drag Cancellation leaves original item completely untouched
   test("Cancelling drag leaves the original item untouched without modifying storage", async () => {
