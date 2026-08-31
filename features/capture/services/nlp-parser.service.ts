@@ -7,6 +7,7 @@ export type ParsedProductivityItem = {
   title: string;
   date?: string; // YYYY-MM-DD
   time?: string; // HH:MM
+  durationMinutes?: number;
   category?: "work" | "personal" | "health" | "learning" | "creative" | "focus";
   priority?: "high" | "medium" | "low";
   /** True when priority was explicitly expressed in the input (not the parser's default). */

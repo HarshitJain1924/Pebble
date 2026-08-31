@@ -167,7 +167,7 @@ describe("UnifiedCapture metadata chip integration invariants", () => {
 
   it("20. chips are contextual — parser defaults are never surfaced", () => {
     expect(source).toContain("parsedItem.priorityDetected && parsedItem.priority");
-    expect(source).toContain("parsedItem.type === \"task\" && (parsedItem.date || parsedItem.time)");
+    expect(source).toContain('(parsedItem.type === "task" || parsedItem.type === "checklist") && (parsedItem.date || parsedItem.time)');
     expect(source).toContain("getReminderShortLabel(parsedItem.reminderOffsetMinutes)");
   });
 

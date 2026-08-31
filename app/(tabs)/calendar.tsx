@@ -165,6 +165,18 @@ export default function CalendarScreen() {
     return "task";
   };
 
+  const handleOpenItem = (item: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const type = getItemType(item);
+    if (type === "checklist") {
+      router.push(`/checklist-details?id=${item.id}`);
+    } else {
+      router.push(
+        `/task-details?id=${item.id}&type=${type}&date=${selectedDate}`,
+      );
+    }
+  };
+
   const getDateIndicatorStats = (dateStr: string) => {
     if (!dateStr) return { tasks: 0, habits: 0, checklists: 0 };
     const dayTasks = allTodos.filter(
@@ -1029,14 +1041,7 @@ export default function CalendarScreen() {
                     return (
                       <GestureDetector key={item.id || idx} gesture={gesture}>
                         <Pressable
-                          onPress={() => {
-                            Haptics.impactAsync(
-                              Haptics.ImpactFeedbackStyle.Light,
-                            ).catch(() => {});
-                            router.push(
-                              `/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`,
-                            );
-                          }}
+                          onPress={() => handleOpenItem(item)}
                           style={[
                             styles.allDayCard,
                             {
@@ -1189,14 +1194,7 @@ export default function CalendarScreen() {
                   return (
                     <GestureDetector key={item.id || idx} gesture={gesture}>
                       <Pressable
-                        onPress={() => {
-                          Haptics.impactAsync(
-                            Haptics.ImpactFeedbackStyle.Light,
-                          ).catch(() => {});
-                          router.push(
-                            `/task-details?id=${item.id}&type=${item.type}&date=${selectedDate}`,
-                          );
-                        }}
+                        onPress={() => handleOpenItem(item)}
                         style={[
                           styles.timedBlockCard,
                           {

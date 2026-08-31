@@ -196,8 +196,8 @@ export function buildChecklist(
   const formattedStartTime = parsedTime
     ? `${String(parsedTime.hour).padStart(2, "0")}:${String(parsedTime.minute).padStart(2, "0")}`
     : undefined;
+  const hasSchedule = (!!item.date && item.date !== "inbox") || !!formattedStartTime;
   const isAllDay = !formattedStartTime && !!item.date && item.date !== "inbox";
-  const hasSchedule = !!item.date || !!formattedStartTime;
   const schedule = hasSchedule
     ? {
         date:
@@ -207,6 +207,7 @@ export function buildChecklist(
               ? getDateKey()
               : undefined,
         startTime: formattedStartTime,
+        durationMinutes: formattedStartTime ? (item.durationMinutes || 45) : undefined,
         allDay: isAllDay ? true : undefined,
       }
     : undefined;

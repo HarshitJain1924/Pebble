@@ -16,6 +16,13 @@ jest.mock("@/features/details/habit/HabitDetailContent", () => ({
     return null;
   },
 }));
+const mockChecklistDetailContent = jest.fn((_props: any) => null);
+jest.mock("@/features/details/checklist/ChecklistDetailContent", () => ({
+  ChecklistDetailContent: (props: any) => {
+    mockChecklistDetailContent(props);
+    return null;
+  },
+}));
 
 import React from "react";
 import { act, create } from "react-test-renderer";
@@ -155,11 +162,33 @@ describe("task-details route dispatch", () => {
     );
   });
 
+  it("routes type=checklist to ChecklistDetailContent with route params", async () => {
+    await renderRoute({ id: "cl-1", type: "checklist", workspaceId: "ws3" });
+    expect(mockChecklistDetailContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checklistId: "cl-1",
+      }),
+    );
+    expect(mockTaskDetailContent).not.toHaveBeenCalled();
+    expect(mockHabitDetailContent).not.toHaveBeenCalled();
+  });
+
+  it("infers checklist when type is omitted and the id starts with checklist- or cl-", async () => {
+    await renderRoute({ id: "cl-shopping-1" });
+    expect(mockChecklistDetailContent).toHaveBeenCalledWith(
+      expect.objectContaining({ checklistId: "cl-shopping-1" }),
+    );
+    expect(mockTaskDetailContent).not.toHaveBeenCalled();
+    expect(mockHabitDetailContent).not.toHaveBeenCalled();
+  });
+
   it("does not render both entity contents at once", async () => {
     await renderRoute({ id: "x1", type: "task" });
     await renderRoute({ id: "y1", type: "habit" });
+    await renderRoute({ id: "z1", type: "checklist" });
     // Each render dispatches to exactly one content implementation.
     expect(mockTaskDetailContent).toHaveBeenCalledTimes(1);
     expect(mockHabitDetailContent).toHaveBeenCalledTimes(1);
+    expect(mockChecklistDetailContent).toHaveBeenCalledTimes(1);
   });
 });

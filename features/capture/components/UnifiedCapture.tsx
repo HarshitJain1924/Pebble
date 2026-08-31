@@ -551,7 +551,7 @@ export default function UnifiedCapture({
       }
       if (userOverridesRef.current.date !== undefined) {
         parsed.date = userOverridesRef.current.date;
-      } else if (defaultDate && parsed.type === "task" && !parsed.date) {
+      } else if (defaultDate && (parsed.type === "task" || parsed.type === "checklist") && !parsed.date) {
         parsed.date = defaultDate;
       }
       if (userOverridesRef.current.priority) {
@@ -1642,7 +1642,7 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
   const chipsMap = new Map<string, ChipData>();
 
   // Date/time — only when actually detected (never a default).
-  if (parsedItem.type === "task" && (parsedItem.date || parsedItem.time)) {
+  if ((parsedItem.type === "task" || parsedItem.type === "checklist") && (parsedItem.date || parsedItem.time)) {
     chipsMap.set("date", {
       id: "date",
       icon: parsedItem.date ? "calendar" : "clock",
@@ -1697,7 +1697,7 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
 
   const taskOrder = ["date", "priority", "reminder", "recurrence"];
   const habitOrder = ["recurrence", "reminder", "priority"];
-  const checklistOrder = ["checklistItems"];
+  const checklistOrder = ["date", "checklistItems", "priority", "reminder", "recurrence"];
 
   let currentOrder: string[] = [];
   if (parsedItem.type === "task") currentOrder = taskOrder;
@@ -1731,10 +1731,10 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
     const ws = workspaces.find((w) => w.id === selectedWorkspaceId);
     pushField("workspace", "Workspace", ws ? `${ws.emoji ?? ""} ${ws.name}`.trim() || "Inbox" : "Inbox", "grid");
 
-    const isTaskLike = parsedItem.type === "task" || parsedItem.type === "habit";
+    const isTaskLike = parsedItem.type === "task" || parsedItem.type === "habit" || parsedItem.type === "checklist";
     const isList = parsedItem.type === "checklist";
 
-    if (isTaskLike || isList) {
+    if (isTaskLike) {
       const categoryKey = parsedItem.category;
       const catMeta = categoryKey ? CATEGORY_META[categoryKey] : undefined;
       pushField(
@@ -1751,9 +1751,6 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
         "flag",
         parsedItem.priority ? PRIORITY_META[parsedItem.priority].color : undefined,
       );
-    }
-
-    if (isTaskLike) {
       pushField("date", "Due date", parsedItem.date ? getFriendlyDateLabel(parsedItem.date) : "None", "calendar");
       pushField("time", "Time", parsedItem.time ? getFriendlyTimeLabel(parsedItem.time) : "None", "clock");
       pushField("reminder", "Reminder", getReminderLabel(parsedItem.reminderOffsetMinutes) || "None", "bell");
