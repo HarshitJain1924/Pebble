@@ -1,5 +1,6 @@
 import React from "react";
 import { View, ScrollView, Pressable, TouchableOpacity, StyleSheet } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { GestureDetector } from "react-native-gesture-handler";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -11,6 +12,7 @@ interface AllDaySectionProps {
     title: string;
     type: string;
     completed?: boolean;
+    items?: Array<{ title: string; completed?: boolean }>;
     [key: string]: any;
   }>;
   hasPendingItems: boolean;
@@ -40,7 +42,7 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
 
   return (
     <View style={styles.container}>
-      {/* Section header row */}
+      {/* Section Header Row */}
       <View style={styles.headerRow}>
         <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
           ALL DAY
@@ -52,15 +54,17 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
               onPlanAllDay();
             }}
             hitSlop={12}
+            style={styles.planButton}
           >
+            <Feather name="plus" size={12} color={colors.primary} />
             <Text style={[styles.planLink, { color: colors.primary }]}>
-              + Plan
+              Plan
             </Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Compact horizontal chips */}
+      {/* Horizontal Chips ScrollView */}
       {items.length > 0 && (
         <ScrollView
           horizontal
@@ -70,8 +74,12 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
           {items.map((item, idx) => {
             const gesture = createPanGesture(item);
             const type = getCalendarItemType(item);
-            const accent = item.completed ? colors.border : (ACCENT[type] ?? ACCENT.task);
+            const accent = item.completed ? colors.textMuted : (ACCENT[type] ?? ACCENT.task);
             const isHabit = item.type === "habit";
+            const itemCount =
+              type === "checklist" && item.items && item.items.length > 0
+                ? item.items.length
+                : null;
 
             return (
               <GestureDetector key={item.id || idx} gesture={gesture}>
@@ -80,18 +88,22 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
                   style={({ pressed }) => [
                     styles.chip,
                     {
-                      backgroundColor: isLight ? "#F8FAFC" : "rgba(255,255,255,0.05)",
-                      borderColor: isLight ? colors.border : "rgba(255,255,255,0.08)",
+                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255, 255, 255, 0.05)",
+                      borderColor: isLight ? "rgba(0,0,0,0.08)" : "rgba(255, 255, 255, 0.1)",
                       borderLeftColor: accent,
-                      opacity: pressed ? 0.75 : item.completed ? 0.45 : 1,
+                      opacity: pressed ? 0.8 : item.completed ? 0.5 : 1,
                     },
                   ]}
                 >
                   <Text
-                    style={[styles.chipText, { color: colors.text }]}
+                    style={[
+                      styles.chipText,
+                      { color: item.completed ? colors.textMuted : colors.text },
+                    ]}
                     numberOfLines={1}
                   >
                     {isHabit ? `⚡ ${item.title}` : item.title}
+                    {itemCount ? ` · ${itemCount}` : ""}
                   </Text>
                 </Pressable>
               </GestureDetector>
@@ -116,10 +128,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   sectionLabel: {
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 1.2,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
     textTransform: "uppercase",
+  },
+  planButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
   },
   planLink: {
     fontSize: 12,
@@ -127,19 +144,19 @@ const styles = StyleSheet.create({
   },
   chipsRow: {
     flexDirection: "row",
-    gap: 6,
+    gap: 8,
     paddingVertical: 2,
   },
   chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
     borderWidth: 1,
-    borderLeftWidth: 2,
+    borderLeftWidth: 3,
   },
   chipText: {
-    fontSize: 12,
-    fontWeight: "500",
-    maxWidth: 160,
+    fontSize: 13,
+    fontWeight: "600",
+    maxWidth: 180,
   },
 });

@@ -383,7 +383,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
                       backgroundColor: isSelected
                         ? colors.primary
                         : "transparent",
-                      borderWidth: isToday && !isSelected ? 1 : 0,
+                      borderWidth: isToday && !isSelected ? 1.5 : 0,
                       borderColor: colors.primary,
                     },
                   ]}
@@ -395,8 +395,8 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
                         : isToday
                           ? colors.primary
                           : colors.text,
-                      fontSize: 11,
-                      fontWeight: isSelected || isToday ? "800" : "500",
+                      fontSize: 13,
+                      fontWeight: isSelected || isToday ? "700" : "500",
                     }}
                   >
                     {day.dayNum}
@@ -483,8 +483,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 3,
     justifyContent: "center",
-    marginTop: 2,
+    marginTop: 3,
     alignItems: "center",
+    minHeight: 4,
   },
   indicatorDot: {
     width: 4,
@@ -494,47 +495,51 @@ const styles = StyleSheet.create({
   weekStripRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
   },
   weekDayPressable: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 2,
+    paddingVertical: 4,
+    minHeight: 48,
   },
   weekDayName: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
+    marginBottom: 4,
   },
   weekDayCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 4,
   },
   timelineStripRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
   },
   timelineDayPressable: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 1,
+    paddingVertical: 2,
+    minHeight: 44,
   },
   timelineDayInitial: {
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
+    marginBottom: 2,
   },
   timelineDayCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 2,
   },
 });

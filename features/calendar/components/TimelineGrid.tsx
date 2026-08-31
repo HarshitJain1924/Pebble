@@ -11,20 +11,11 @@ interface TimelineGridProps {
 
 const DEFAULT_HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-// Hours that get full "12 PM" style labels — others get condensed numeric label
-const MAJOR_HOURS = new Set([0, 6, 12, 18]);
-
-function formatHourLabel(hr: number): string {
+function formatTimelineHour(hr: number): string {
   if (hr === 0) return "12 AM";
   if (hr === 12) return "12 PM";
   if (hr < 12) return `${hr} AM`;
   return `${hr - 12} PM`;
-}
-
-function formatMinorLabel(hr: number): string {
-  if (hr === 0) return "12";
-  if (hr === 12) return "12";
-  return hr < 12 ? `${hr}` : `${hr - 12}`;
 }
 
 export const TimelineGrid: React.FC<TimelineGridProps> = React.memo(({
@@ -35,17 +26,20 @@ export const TimelineGrid: React.FC<TimelineGridProps> = React.memo(({
   return (
     <View style={styles.gridContainer}>
       {hoursRange.map((hr) => {
-        const isMajor = MAJOR_HOURS.has(hr);
-        const labelStr = isMajor ? formatHourLabel(hr) : formatMinorLabel(hr);
+        const labelStr = formatTimelineHour(hr);
+        const isNoonOrMidnight = hr === 0 || hr === 12;
 
         return (
           <View key={hr} style={styles.hourRow}>
-            {/* Hour label — right-aligned, pinned to top of row */}
+            {/* Hour label — right-aligned, pinned cleanly to top boundary */}
             <View style={styles.hourLabelCol}>
               <Text
                 style={[
-                  isMajor ? styles.majorLabel : styles.minorLabel,
-                  { color: isMajor ? colors.textMuted : colors.textMuted + "80" },
+                  styles.hourLabelText,
+                  {
+                    color: isNoonOrMidnight ? colors.text : colors.textMuted,
+                    fontWeight: isNoonOrMidnight ? "700" : "500",
+                  },
                 ]}
                 numberOfLines={1}
               >
@@ -53,7 +47,7 @@ export const TimelineGrid: React.FC<TimelineGridProps> = React.memo(({
               </Text>
             </View>
 
-            {/* Tappable grid cell — hairline top border */}
+            {/* Tappable grid line / cell */}
             <Pressable
               onPress={(e: GestureResponderEvent) => {
                 const locationY = e.nativeEvent.locationY;
@@ -66,10 +60,10 @@ export const TimelineGrid: React.FC<TimelineGridProps> = React.memo(({
               style={[
                 styles.hourLineCol,
                 {
-                  borderTopColor: isMajor
+                  borderTopColor: isNoonOrMidnight
                     ? colors.border
-                    : (colors.border + "60"),
-                  borderTopWidth: isMajor ? StyleSheet.hairlineWidth * 1.5 : StyleSheet.hairlineWidth,
+                    : `${colors.border}80`,
+                  borderTopWidth: StyleSheet.hairlineWidth,
                 },
               ]}
             />
@@ -93,22 +87,14 @@ const styles = StyleSheet.create({
   hourLabelCol: {
     width: 65,
     alignItems: "flex-end",
-    paddingRight: 10,
-    paddingTop: 0,
-    // Labels pin to top of cell — gives sense of time flowing downward
+    paddingRight: 12,
     justifyContent: "flex-start",
-    paddingVertical: 0,
-    marginTop: -6, // Offset so label aligns with the grid line, not below it
+    marginTop: -7, // Aligns center of text with the horizontal grid line
   },
-  majorLabel: {
-    fontSize: 10,
-    fontWeight: "600",
+  hourLabelText: {
+    fontSize: 11,
     textAlign: "right",
-  },
-  minorLabel: {
-    fontSize: 9,
-    fontWeight: "400",
-    textAlign: "right",
+    letterSpacing: 0.2,
   },
   hourLineCol: {
     flex: 1,

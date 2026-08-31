@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 
@@ -14,7 +15,7 @@ interface FreeTimeGapProps {
   onPlan: (hour: number, minute: number) => void;
 }
 
-const MIN_GAP_MINUTES = 30; // Only show planning affordance for meaningful gaps
+const MIN_GAP_MINUTES = 30;
 
 export const FreeTimeGap: React.FC<FreeTimeGapProps> = React.memo(({
   gap,
@@ -23,7 +24,6 @@ export const FreeTimeGap: React.FC<FreeTimeGapProps> = React.memo(({
   isLight,
   onPlan,
 }) => {
-  // Don't render the affordance for tiny gaps
   if (gap.durationMinutes < MIN_GAP_MINUTES) return null;
 
   const top = (gap.startMinutes / 60) * hourHeight;
@@ -38,35 +38,56 @@ export const FreeTimeGap: React.FC<FreeTimeGapProps> = React.memo(({
   const gapHour = Math.floor(gap.startMinutes / 60);
   const gapMin = gap.startMinutes % 60;
 
-  const mutedColor = colors.textMuted + "99"; // ~60% opacity
-  const actionColor = colors.primary;
-
   return (
     <Pressable
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         onPlan(gapHour, gapMin);
       }}
-      accessibilityLabel={`Plan in ${durationStr} available window`}
+      accessibilityLabel={`Plan in ${durationStr} available window at ${gapHour}:${gapMin < 10 ? "0" : ""}${gapMin}`}
       style={({ pressed }) => [
         styles.gapContainer,
         {
           top: top + 4,
-          height: Math.max(28, height - 8),
-          opacity: pressed ? 0.7 : 1,
+          height: Math.max(34, height - 8),
+          backgroundColor: isLight
+            ? "rgba(241, 245, 249, 0.6)"
+            : "rgba(255, 255, 255, 0.025)",
+          borderColor: isLight
+            ? "rgba(226, 232, 240, 0.8)"
+            : "rgba(255, 255, 255, 0.06)",
+          opacity: pressed ? 0.8 : 1,
         },
       ]}
     >
       <View style={styles.contentRow}>
-        {/* Duration label — muted, secondary */}
-        <Text style={[styles.durationText, { color: mutedColor }]} numberOfLines={1}>
-          {durationStr} free
-        </Text>
+        {/* Available Duration with subtle indicator */}
+        <View style={styles.durationWrapper}>
+          <View style={[styles.gapDot, { backgroundColor: colors.textMuted }]} />
+          <Text style={[styles.durationText, { color: colors.textMuted }]} numberOfLines={1}>
+            {durationStr} available
+          </Text>
+        </View>
 
-        {/* Plan action link — clearly tappable but visually light */}
-        <Text style={[styles.planLink, { color: actionColor }]} numberOfLines={1}>
-          + Plan something
-        </Text>
+        {/* Action Button Pill */}
+        <View
+          style={[
+            styles.planPill,
+            {
+              backgroundColor: isLight
+                ? "#FFFFFF"
+                : "rgba(255, 255, 255, 0.06)",
+              borderColor: isLight
+                ? colors.border
+                : "rgba(255, 255, 255, 0.1)",
+            },
+          ]}
+        >
+          <Feather name="plus" size={11} color={colors.primary} />
+          <Text style={[styles.planText, { color: colors.primary }]}>
+            Plan
+          </Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -79,20 +100,44 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
+    borderRadius: 8,
+    borderWidth: 1,
     justifyContent: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
   },
   contentRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 8,
+  },
+  durationWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+  },
+  gapDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    opacity: 0.7,
   },
   durationText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "500",
   },
-  planLink: {
-    fontSize: 11,
+  planPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  planText: {
+    fontSize: 12,
     fontWeight: "600",
   },
 });

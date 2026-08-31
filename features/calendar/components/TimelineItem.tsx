@@ -27,24 +27,25 @@ interface TimelineItemProps {
   createPanGesture: (item: any) => any;
 }
 
-// Accent colors per entity type — consistent with brand colors
+// Accent colors per entity type — solid, vibrant Pebble brand colors
 const ACCENT: Record<string, string> = {
   task: "#6366F1",      // Indigo
   habit: "#10B981",     // Emerald
   checklist: "#3B82F6", // Blue
 };
 
-// Near-neutral backgrounds — accent does the work
+// Tinted card surfaces for Light mode
 const CARD_BG_LIGHT: Record<string, string> = {
-  task:      "#F5F4FF",
-  habit:     "#F0FDF9",
+  task:      "#F4F3FF",
+  habit:     "#F0FDF4",
   checklist: "#EFF6FF",
 };
 
+// Tinted card surfaces for Dark mode
 const CARD_BG_DARK: Record<string, string> = {
-  task:      "rgba(99, 102, 241, 0.07)",
-  habit:     "rgba(16, 185, 129, 0.07)",
-  checklist: "rgba(59, 130, 246, 0.07)",
+  task:      "rgba(99, 102, 241, 0.13)",
+  habit:     "rgba(16, 185, 129, 0.13)",
+  checklist: "rgba(59, 130, 246, 0.13)",
 };
 
 const PRIORITY_DOT: Record<string, string> = {
@@ -68,15 +69,15 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   const leftPercent = item.colIdx * widthPercent;
 
   const type = getCalendarItemType(item);
-  const accent = item.completed ? "#9CA3AF" : (ACCENT[type] ?? ACCENT.task);
+  const accent = item.completed ? colors.textMuted : (ACCENT[type] ?? ACCENT.task);
 
   const cardBg = item.completed
-    ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.02)"
+    ? isLight ? "#F1F5F9" : "rgba(255, 255, 255, 0.03)"
     : isLight
       ? (CARD_BG_LIGHT[type] ?? CARD_BG_LIGHT.task)
       : (CARD_BG_DARK[type] ?? CARD_BG_DARK.task);
 
-  // Checklist item preview — up to 2 items, comma-separated
+  // Checklist item preview — up to 2 items, bullet/dot separated
   const checklistPreview =
     type === "checklist" && item.items && item.items.length > 0
       ? item.items
@@ -91,8 +92,8 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
       : null;
 
   const gesture = createPanGesture(item);
-  const isCompact = height < 52;
-  const isTall = height >= 72;
+  const isCompact = height < 50;
+  const isTall = height >= 68;
 
   return (
     <GestureDetector gesture={gesture}>
@@ -102,17 +103,18 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
           styles.card,
           {
             top,
-            height: Math.max(36, height - 2),
+            height: Math.max(38, height - 2),
             left: `${leftPercent}%`,
             width: `${widthPercent - 1}%`,
             backgroundColor: cardBg,
             borderLeftColor: accent,
-            opacity: pressed ? 0.85 : item.completed ? 0.5 : 1,
+            borderColor: isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.08)",
+            opacity: pressed ? 0.85 : item.completed ? 0.55 : 1,
           },
         ]}
       >
         <View style={styles.inner}>
-          {/* Title — hero text */}
+          {/* Primary Title */}
           <Text
             numberOfLines={isCompact ? 1 : isTall ? 2 : 1}
             style={[
@@ -125,23 +127,25 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
             {item.title}
           </Text>
 
-          {/* Time + duration — secondary below title */}
+          {/* Time & Duration Metadata */}
           {!isCompact && (
             <View style={styles.metaRow}>
-              {/* Priority dot (if high/low) */}
               {priorityDotColor && (
                 <View style={[styles.priorityDot, { backgroundColor: priorityDotColor }]} />
               )}
               <Text
-                style={[styles.metaText, { color: accent }]}
+                style={[
+                  styles.metaText,
+                  { color: item.completed ? colors.textMuted : accent },
+                ]}
                 numberOfLines={1}
               >
-                {item.timeLabel} · {item.durationMinutes}m
+                {item.timeLabel} · {item.durationMinutes} min
               </Text>
             </View>
           )}
 
-          {/* Checklist item preview */}
+          {/* Checklist Item Preview */}
           {isTall && checklistPreview && (
             <Text
               style={[styles.previewText, { color: colors.textMuted }]}
@@ -161,21 +165,23 @@ TimelineItem.displayName = "TimelineItem";
 const styles = StyleSheet.create({
   card: {
     position: "absolute",
-    borderLeftWidth: 2,
-    borderRadius: 6,
+    borderWidth: 1,
+    borderLeftWidth: 3.5,
+    borderRadius: 9,
     overflow: "hidden",
   },
   inner: {
     flex: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     justifyContent: "center",
-    gap: 2,
+    gap: 3,
   },
   title: {
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 16,
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+    lineHeight: 18,
   },
   metaRow: {
     flexDirection: "row",
@@ -183,17 +189,18 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   priorityDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   metaText: {
-    fontSize: 10,
-    fontWeight: "500",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.1,
   },
   previewText: {
-    fontSize: 10,
-    fontWeight: "400",
-    opacity: 0.8,
+    fontSize: 11,
+    fontWeight: "500",
+    opacity: 0.85,
   },
 });

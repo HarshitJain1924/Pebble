@@ -63,11 +63,11 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
               },
             ]}
           >
-            {/* Header */}
+            {/* Sheet Header */}
             <View
               style={[
                 styles.headerRow,
-                { borderBottomColor: colors.border + "40" },
+                { borderBottomColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)" },
               ]}
             >
               <View style={styles.headerTitleCol}>
@@ -101,12 +101,12 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
               </Pressable>
             </View>
 
-            {/* Items list or empty state */}
+            {/* Items List or Empty State */}
             {!hasUnplacedItems ? (
               <View style={styles.emptyContainer}>
                 <Feather
                   name="check-circle"
-                  size={24}
+                  size={28}
                   color={colors.success}
                 />
                 <Text
@@ -153,8 +153,12 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           }}
                           scaleTo={0.98}
                           contentStyle={[
-                            styles.itemCard,
-                            { borderBottomColor: colors.border },
+                            styles.itemRow,
+                            {
+                              borderBottomColor: isLight
+                                ? "rgba(0,0,0,0.05)"
+                                : "rgba(255,255,255,0.06)",
+                            },
                           ]}
                         >
                           <View style={styles.itemLeft}>
@@ -167,7 +171,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                                       ? "#EF4444"
                                       : task.priority === "medium"
                                         ? "#F59E0B"
-                                        : "#3B82F6",
+                                        : "#6366F1",
                                 },
                               ]}
                             />
@@ -193,7 +197,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           >
                             <Feather
                               name="plus"
-                              size={12}
+                              size={13}
                               color={colors.primary}
                             />
                             <Text
@@ -243,15 +247,20 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           }}
                           scaleTo={0.98}
                           contentStyle={[
-                            styles.itemCard,
-                            { borderBottomColor: colors.border },
+                            styles.itemRow,
+                            {
+                              borderBottomColor: isLight
+                                ? "rgba(0,0,0,0.05)"
+                                : "rgba(255,255,255,0.06)",
+                            },
                           ]}
                         >
                           <View style={styles.itemLeft}>
-                            <Feather
-                              name="check-square"
-                              size={16}
-                              color="#3B82F6"
+                            <View
+                              style={[
+                                styles.priorityDot,
+                                { backgroundColor: "#3B82F6" },
+                              ]}
                             />
                             <View style={styles.itemTextCol}>
                               <Text
@@ -264,7 +273,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                                 style={[styles.itemMeta, { color: colors.textMuted }]}
                                 numberOfLines={1}
                               >
-                                {itemsSummary} • {duration}m
+                                {itemsSummary} · {duration}m
                               </Text>
                             </View>
                           </View>
@@ -276,7 +285,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           >
                             <Feather
                               name="plus"
-                              size={12}
+                              size={13}
                               color="#3B82F6"
                             />
                             <Text
@@ -293,7 +302,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
               </ScrollView>
             )}
 
-            {/* Cancel button — plain text link */}
+            {/* Cancel Button */}
             <PressableScale
               onPress={close}
               scaleTo={0.97}
@@ -319,9 +328,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingHorizontal: 20,
     paddingBottom: Platform.OS === "ios" ? 36 : 24,
-    borderWidth: 1.5,
-    gap: 14,
-    maxHeight: 480,
+    borderWidth: 1,
+    gap: 12,
+    maxHeight: 500,
   },
   headerRow: {
     flexDirection: "row",
@@ -335,12 +344,12 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: "800",
+    fontSize: 18,
+    fontWeight: "700",
   },
   headerSubtitle: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "500",
     marginTop: 2,
   },
   closeButton: {
@@ -348,48 +357,51 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   emptyContainer: {
-    paddingVertical: 24,
+    paddingVertical: 32,
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   emptyTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
   },
   emptySubtitle: {
-    fontSize: 12,
+    fontSize: 13,
     textAlign: "center",
+    paddingHorizontal: 16,
   },
   scrollList: {
-    maxHeight: 340,
+    maxHeight: 320,
   },
   scrollContent: {
-    gap: 12,
+    gap: 16,
   },
   sectionGroup: {
-    gap: 8,
+    gap: 4,
   },
   sectionTitle: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
-    paddingHorizontal: 2,
+    letterSpacing: 0.8,
+    paddingHorizontal: 4,
+    marginBottom: 4,
   },
-  itemCard: {
+  itemRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 2,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 52,
   },
   itemLeft: {
     flex: 1,
-    marginRight: 10,
+    marginRight: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   priorityDot: {
     width: 8,
@@ -398,35 +410,36 @@ const styles = StyleSheet.create({
   },
   itemTextCol: {
     flex: 1,
+    gap: 2,
   },
   itemTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
   },
   itemMeta: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "500",
-    marginTop: 1,
   },
   placeButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: 8,
   },
   placeButtonText: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 12,
+    fontWeight: "700",
   },
   cancelButton: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 10,
+    marginTop: 4,
   },
   cancelButtonText: {
-    fontSize: 13,
-    fontWeight: "500",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

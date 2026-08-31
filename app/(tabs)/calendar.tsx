@@ -500,16 +500,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   iconButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
   },
   itemCountText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   dragFloatingCard: {
     borderRadius: 14,

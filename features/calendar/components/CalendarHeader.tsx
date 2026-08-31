@@ -36,35 +36,49 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   const monthName = MONTH_NAMES[d.getMonth()];
   const dayNum = d.getDate();
 
-  const contextLabel = isToday ? "Today" : `${monthName} ${dayNum}`;
-
   return (
     <View style={styles.headerRow}>
       <View style={styles.titleCol}>
-        {/* Weekday — primary */}
-        <Text style={[styles.weekday, { color: colors.text }]}>
-          {weekday}
-        </Text>
-        {/* Month + day — secondary */}
-        <Text style={[styles.monthDate, { color: colors.textMuted }]}>
-          {monthName} {dayNum}
-        </Text>
+        <View style={styles.dateLine}>
+          <Text style={[styles.primaryDate, { color: colors.text }]}>
+            {weekday}, {monthName} {dayNum}
+          </Text>
+          {isToday && (
+            <View
+              style={[
+                styles.todayBadge,
+                {
+                  backgroundColor: isLight
+                    ? `${colors.primary}15`
+                    : `${colors.primary}25`,
+                  borderColor: isLight
+                    ? `${colors.primary}30`
+                    : `${colors.primary}40`,
+                },
+              ]}
+            >
+              <Text style={[styles.todayBadgeText, { color: colors.primary }]}>
+                Today
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* View mode pill button */}
+      {/* View mode toggle pill */}
       <PressableScale
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           onToggleViewMode();
         }}
-        scaleTo={0.94}
+        scaleTo={0.95}
         contentStyle={[
           styles.viewToggleButton,
           {
             backgroundColor: isLight
-              ? "#F1F5F9"
+              ? "#FFFFFF"
               : "rgba(255,255,255,0.06)",
-            borderColor: isLight ? colors.border : "rgba(255,255,255,0.1)",
+            borderColor: isLight ? colors.border : "rgba(255,255,255,0.12)",
           },
         ]}
       >
@@ -80,36 +94,49 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingTop: 4,
-    paddingBottom: 8,
+    paddingBottom: 6,
   },
   titleCol: {
     flex: 1,
     paddingRight: 12,
   },
-  weekday: {
-    fontSize: 26,
+  dateLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  primaryDate: {
+    fontSize: 21,
     fontWeight: "700",
     letterSpacing: -0.3,
-    lineHeight: 30,
+    lineHeight: 26,
   },
-  monthDate: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginTop: 2,
+  todayBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  todayBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   viewToggleButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
-    marginTop: 4,
-    alignSelf: "flex-start",
+    alignItems: "center",
+    justifyContent: "center",
   },
   viewToggleLabel: {
     fontSize: 13,
     fontWeight: "600",
-    letterSpacing: 0.1,
+    letterSpacing: 0.2,
   },
 });

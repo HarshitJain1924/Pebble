@@ -36,17 +36,17 @@ export const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = React.m
       style={[styles.container, { top: topPos }]}
       pointerEvents="none"
     >
-      {/* Right-aligned time label — sits in the label column naturally */}
+      {/* Right-aligned time label */}
       <View style={styles.labelCol}>
         <Text style={styles.labelText} numberOfLines={1}>
           {label}
         </Text>
       </View>
 
-      {/* Small dot marker at the grid edge */}
+      {/* Circle dot marker at the timeline edge */}
       <View style={styles.dot} />
 
-      {/* Thin horizontal line across the timeline */}
+      {/* 1.5px horizontal red timeline rule */}
       <View style={styles.line} />
     </View>
   );
@@ -66,26 +66,27 @@ const styles = StyleSheet.create({
   labelCol: {
     width: 65,
     alignItems: "flex-end",
-    paddingRight: 8,
+    paddingRight: 10,
     justifyContent: "center",
   },
   labelText: {
-    fontSize: 10,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "700",
     color: RED,
     textAlign: "right",
+    letterSpacing: 0.1,
   },
   dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
     backgroundColor: RED,
-    marginLeft: -3,
+    marginLeft: -3.5,
   },
   line: {
     flex: 1,
-    height: 1,
+    height: 1.5,
     backgroundColor: RED,
-    opacity: 0.85,
+    opacity: 0.9,
   },
 });
