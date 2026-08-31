@@ -12,7 +12,11 @@ interface FreeTimeGapProps {
   hourHeight?: number;
   colors: any;
   isLight: boolean;
-  onPlan: (hour: number, minute: number) => void;
+  onPlan: (
+    hour: number,
+    minute: number,
+    gap?: { startMinutes: number; durationMinutes: number },
+  ) => void;
 }
 
 const MIN_GAP_MINUTES = 30;
@@ -42,7 +46,7 @@ export const FreeTimeGap: React.FC<FreeTimeGapProps> = React.memo(({
     <Pressable
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        onPlan(gapHour, gapMin);
+        onPlan(gapHour, gapMin, gap);
       }}
       accessibilityLabel={`Plan in ${durationStr} available window at ${gapHour}:${gapMin < 10 ? "0" : ""}${gapMin}`}
       style={({ pressed }) => [

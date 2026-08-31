@@ -32,10 +32,17 @@ import { DayContextSummary } from "@/features/calendar/components/DayContextSumm
 import { DayPlannerView } from "@/features/calendar/components/DayPlannerView";
 import { WeekHorizonView } from "@/features/calendar/components/WeekHorizonView";
 import { MonthOverviewView } from "@/features/calendar/components/MonthOverviewView";
-import { CalendarPlanningSheet } from "@/features/calendar/components/CalendarPlanningSheet";
+import {
+  CalendarPlanningSheet,
+  CalendarPlanningTarget,
+} from "@/features/calendar/components/CalendarPlanningSheet";
 import { QuickSlotSheet } from "@/features/calendar/components/QuickSlotSheet";
 import { QuickJumpSheet } from "@/features/calendar/components/QuickJumpSheet";
 import { CalendarFilterSheet } from "@/features/calendar/components/CalendarFilterSheet";
+import { CalendarItemPopover } from "@/features/calendar/components/CalendarItemPopover";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 
 export default function CalendarScreen() {
   const {
@@ -75,14 +82,17 @@ export default function CalendarScreen() {
     allDayItems,
     timedItemsWithLayout,
     calendarCells,
+    activeWorkspaceId,
     pendingTasks,
     pendingChecklists,
+    plannerHabits,
     freeTimeGaps,
     planTask,
     planChecklist,
+    planHabit,
   } = useCalendarState();
 
-  // ─── Filters & Sheet Visibility States ────────────────────────────
+  // ─── Filters, Popover & Sheet Visibility States ───────────────────
   const [activeFilters, setActiveFilters] = useState<string[]>([
     "task",
     "habit",
@@ -92,11 +102,9 @@ export default function CalendarScreen() {
   const [showQuickJump, setShowQuickJump] = useState<boolean>(false);
   const [showFilter, setShowFilter] = useState<boolean>(false);
   const [quickSlotTask, setQuickSlotTask] = useState<any | null>(null);
-  const [placeTaskTarget, setPlaceTaskTarget] = useState<{
-    hour?: number;
-    minute?: number;
-    isAllDay?: boolean;
-  } | null>(null);
+  const [popoverItem, setPopoverItem] = useState<any | null>(null);
+  const [placeTaskTarget, setPlaceTaskTarget] =
+    useState<CalendarPlanningTarget | null>(null);
 
   // ─── Initial Viewport Anchoring ──────────────────────────────────
   const hasInitialScrolledRef = useRef(false);
@@ -141,17 +149,79 @@ export default function CalendarScreen() {
     return () => clearInterval(interval);
   }, [isViewingToday]);
 
-  const handleOpenItem = (item: any) => {
+  const handleOpenItem = useCallback((item: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    const type = getCalendarItemType(item);
-    if (type === "checklist") {
-      router.push(`/checklist-details?id=${item.id}`);
-    } else {
-      router.push(
-        `/task-details?id=${item.id}&type=${type}&date=${selectedDate}`,
-      );
-    }
-  };
+    setPopoverItem(item);
+  }, []);
+
+  const handleOpenDetails = useCallback(
+    (item: any) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      const type = getCalendarItemType(item);
+      if (type === "checklist") {
+        router.push(`/checklist-details?id=${item.id}`);
+      } else {
+        router.push(
+          `/task-details?id=${item.id}&type=${type}&date=${selectedDate}`,
+        );
+      }
+    },
+    [router, selectedDate],
+  );
+
+  const handleToggleCompleteTask = useCallback(
+    async (taskId: string, workspaceId?: string) => {
+      try {
+        const task = allTodos.find((t) => t.id === taskId);
+        const isCompleted = isTaskCompleted(task);
+        const targetWs =
+          workspaceId ||
+          task?.workspaceId ||
+          activeWorkspaceId ||
+          INBOX_WORKSPACE_ID;
+
+        if (isCompleted) {
+          await EntityCommandService.uncompleteTask(taskId, targetWs, {
+            source: "calendar_popover",
+          });
+        } else {
+          await EntityCommandService.completeTask(taskId, targetWs, {
+            source: "calendar_popover",
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to toggle task completion from calendar popover", err);
+      }
+    },
+    [allTodos, activeWorkspaceId],
+  );
+
+  const handleToggleCompleteHabit = useCallback(
+    async (habitId: string, workspaceId?: string) => {
+      try {
+        const habit = allHabits.find((h) => h.id === habitId);
+        const isCompleted = isHabitCompletedToday(habit, selectedDate);
+        const targetWs =
+          workspaceId ||
+          habit?.workspaceId ||
+          activeWorkspaceId ||
+          INBOX_WORKSPACE_ID;
+
+        if (isCompleted) {
+          await EntityCommandService.uncompleteHabit(habitId, targetWs, {
+            source: "calendar_popover",
+          });
+        } else {
+          await EntityCommandService.completeHabit(habitId, targetWs, {
+            source: "calendar_popover",
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to toggle habit completion from calendar popover", err);
+      }
+    },
+    [allHabits, activeWorkspaceId, selectedDate],
+  );
 
   // ─── Filtered Items ──────────────────────────────────────────────
   const filteredAllDayItems = useMemo(() => {
@@ -339,7 +409,9 @@ export default function CalendarScreen() {
                 hoveredHour={hoveredHour}
                 activeDragItem={activeDragItem}
                 onPlanAllDay={() => setPlaceTaskTarget({ isAllDay: true })}
-                onPlaceAtTime={(hour, minute) => setPlaceTaskTarget({ hour, minute })}
+                onPlaceAtTime={(hour, minute, gap) =>
+                  setPlaceTaskTarget({ hour, minute, gap })
+                }
                 onOpenItem={handleOpenItem}
                 createPanGesture={createPanGesture}
                 colors={colors}
@@ -458,9 +530,23 @@ export default function CalendarScreen() {
         target={placeTaskTarget}
         pendingTasks={pendingTasks}
         pendingChecklists={pendingChecklists}
+        plannerHabits={plannerHabits}
         onClose={() => setPlaceTaskTarget(null)}
         onPlanTask={planTask}
         onPlanChecklist={planChecklist}
+        onPlanHabit={planHabit}
+        colors={colors}
+        isLight={isLight}
+      />
+
+      <CalendarItemPopover
+        visible={!!popoverItem}
+        item={popoverItem}
+        selectedDate={selectedDate}
+        onClose={() => setPopoverItem(null)}
+        onOpenDetails={handleOpenDetails}
+        onToggleCompleteTask={handleToggleCompleteTask}
+        onToggleCompleteHabit={handleToggleCompleteHabit}
         colors={colors}
         isLight={isLight}
       />

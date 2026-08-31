@@ -722,7 +722,13 @@ export function useCalendarState() {
   const planTask = useCallback(
     async (
       taskId: string,
-      options?: { hour?: number; minute?: number; isAllDay?: boolean; date?: string },
+      options?: {
+        hour?: number;
+        minute?: number;
+        durationMinutes?: number;
+        isAllDay?: boolean;
+        date?: string;
+      },
     ) => {
       try {
         const uiState = await UiStateRepository.getUiState();
@@ -745,11 +751,21 @@ export function useCalendarState() {
           options.hour !== null &&
           !options.isAllDay
         ) {
-          updates = calculateRescheduledTask(
+          const rescheduled = calculateRescheduledTask(
             task,
             { hour: options.hour, minute: options.minute, date: selDate },
             selDate,
           );
+          const duration =
+            options.durationMinutes ?? task.schedule?.durationMinutes ?? 60;
+          updates = {
+            ...rescheduled,
+            schedule: {
+              ...(rescheduled.schedule || {}),
+              durationMinutes: duration,
+              allDay: undefined,
+            },
+          };
         } else if (options?.isAllDay) {
           // Explicit user choice to place in All-Day / Anytime: clears time
           updates = {
@@ -790,7 +806,13 @@ export function useCalendarState() {
   const planChecklist = useCallback(
     async (
       checklistId: string,
-      options?: { hour?: number; minute?: number; isAllDay?: boolean; date?: string },
+      options?: {
+        hour?: number;
+        minute?: number;
+        durationMinutes?: number;
+        isAllDay?: boolean;
+        date?: string;
+      },
     ) => {
       try {
         const uiState = await UiStateRepository.getUiState();
@@ -818,7 +840,10 @@ export function useCalendarState() {
             { hour: options.hour, minute: options.minute, date: selDate },
             selDate,
           );
-          const duration = checklist.schedule?.durationMinutes || 45;
+          const duration =
+            options?.durationMinutes ??
+            checklist.schedule?.durationMinutes ??
+            45;
           updates = {
             ...rescheduled,
             schedule: {
@@ -834,7 +859,6 @@ export function useCalendarState() {
               date: selDate,
               startTime: undefined,
               endTime: undefined,
-              durationMinutes: undefined,
               allDay: true,
             },
           };
@@ -862,6 +886,67 @@ export function useCalendarState() {
       }
     },
     [activeWorkspaceId, allChecklists, loadDataFromStorage, selectedDate],
+  );
+
+  const planHabit = useCallback(
+    async (
+      habitId: string,
+      options?: {
+        hour?: number;
+        minute?: number;
+        isAllDay?: boolean;
+        date?: string;
+      },
+    ) => {
+      try {
+        const uiState = await UiStateRepository.getUiState();
+        const targetWs =
+          activeWorkspaceId || uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
+        const habit =
+          allHabits.find((h) => h.id === habitId) ||
+          (await HabitRepository.getHabit(habitId, targetWs));
+        if (!habit) return false;
+
+        const targetWorkspace = habit.workspaceId || targetWs;
+        const selDate = options?.date || selectedDate || getDateKey();
+        const {
+          EntityCommandService,
+        } = require("@/services/command/EntityCommandService");
+
+        const [year, monthVal, dayVal] = selDate.split("-").map(Number);
+        const hHour = options?.hour ?? 9;
+        const hMin = options?.minute ?? 0;
+        const triggerDate = new Date(
+          year,
+          monthVal - 1,
+          dayVal,
+          hHour,
+          hMin,
+          0,
+          0,
+        );
+
+        await EntityCommandService.updateHabit(
+          habit.id,
+          targetWorkspace,
+          {
+            reminder: {
+              ...(habit.reminder || { enabled: true }),
+              enabled: true,
+              triggerAt: triggerDate.getTime(),
+            },
+          },
+          { source: "daily_planner", skipEvents: false },
+        );
+
+        await loadDataFromStorage();
+        return true;
+      } catch (err) {
+        console.warn("Failed to plan habit in daily planner", err);
+        return false;
+      }
+    },
+    [activeWorkspaceId, allHabits, loadDataFromStorage, selectedDate],
   );
 
   const calendarCells = useMemo(() => {
@@ -1467,5 +1552,6 @@ export function useCalendarState() {
     freeTimeGaps,
     planTask,
     planChecklist,
+    planHabit,
   };
 }

@@ -20,7 +20,11 @@ interface DayPlannerViewProps {
   hoveredHour: number | null;
   activeDragItem: any;
   onPlanAllDay: () => void;
-  onPlaceAtTime: (hour: number, minute: number) => void;
+  onPlaceAtTime: (
+    hour: number,
+    minute: number,
+    gap?: { startMinutes: number; durationMinutes: number },
+  ) => void;
   onOpenItem: (item: any) => void;
   createPanGesture: (item: any) => any;
   colors: any;
