@@ -462,13 +462,21 @@ static async recycleChecklist(
 
 /**
    * Toggle a Checklist item completion state.
+   * If dateKey is provided and the checklist is recurring, updates occurrenceHistory[dateKey]
+   * to guarantee that master template items remain unmutated for other dates.
    */
   static async toggleChecklistItem(
     checklistId: string,
     itemId: string,
     workspaceId: string,
+    dateKeyOrOptions?: string | CreateEntityOptions,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Checklist; updated: Checklist } | null> {
+    const dateKey =
+      typeof dateKeyOrOptions === "string" ? dateKeyOrOptions : undefined;
+    const effectiveOptions =
+      typeof dateKeyOrOptions === "object" ? dateKeyOrOptions : options;
+
     const { withLock } = await import("@/shared/utils/mutex");
     const lockKey = `pebble:v1:checklists:${workspaceId}`;
 
@@ -478,26 +486,67 @@ static async recycleChecklist(
       if (!checklist) return null;
 
       const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
-      await assertLifecycleMutationAllowed("checklist", checklist, options);
+      await assertLifecycleMutationAllowed("checklist", checklist, effectiveOptions);
 
-      const nextItems = (checklist.items || []).map((i) =>
-        i.id === itemId ? { ...i, completed: !i.completed } : i
-      );
+      let updatedChecklist: Checklist;
 
-      const wasComplete = checklist.items && checklist.items.length > 0 && checklist.items.every(i => i.completed);
-      const isNowComplete = nextItems.length > 0 && nextItems.every(i => i.completed);
+      if (checklist.recurrence && dateKey) {
+        // Occurrence-isolated completion for recurring series
+        const currentRecord = checklist.occurrenceHistory?.[dateKey] || {};
+        const currentCompletedIds = currentRecord.completedItemIds || [];
+        const isItemCurrentlyCompleted = currentCompletedIds.includes(itemId);
 
-      const updatedChecklist: Checklist = {
-        ...checklist,
-        items: nextItems,
-        revision: (checklist.revision ?? 1) + 1,
-        lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
-        updatedAt: Date.now(),
-      };
+        const nextCompletedIds = isItemCurrentlyCompleted
+          ? currentCompletedIds.filter((id) => id !== itemId)
+          : [...currentCompletedIds, itemId];
 
-      if (isNowComplete && !wasComplete && !checklist.pebbleAwarded) {
-        updatedChecklist.pebbleAwarded = true;
-        await earnPebble("checklist", `checklist:${checklist.id}`);
+        const totalItems = checklist.items?.length || 0;
+        const allCompleted =
+          totalItems > 0 && nextCompletedIds.length >= totalItems;
+
+        updatedChecklist = {
+          ...checklist,
+          occurrenceHistory: {
+            ...checklist.occurrenceHistory,
+            [dateKey]: {
+              completedItemIds: nextCompletedIds,
+              completedAt: allCompleted ? Date.now() : undefined,
+            },
+          },
+          revision: (checklist.revision ?? 1) + 1,
+          lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
+          updatedAt: Date.now(),
+        };
+
+        if (allCompleted && !currentRecord.completedAt && !checklist.pebbleAwarded) {
+          updatedChecklist.pebbleAwarded = true;
+          await earnPebble("checklist", `checklist:${checklist.id}:${dateKey}`);
+        }
+      } else {
+        // Direct item completion for non-recurring checklists
+        const nextItems = (checklist.items || []).map((i) =>
+          i.id === itemId ? { ...i, completed: !i.completed } : i
+        );
+
+        const wasComplete =
+          checklist.items &&
+          checklist.items.length > 0 &&
+          checklist.items.every((i) => i.completed);
+        const isNowComplete =
+          nextItems.length > 0 && nextItems.every((i) => i.completed);
+
+        updatedChecklist = {
+          ...checklist,
+          items: nextItems,
+          revision: (checklist.revision ?? 1) + 1,
+          lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
+          updatedAt: Date.now(),
+        };
+
+        if (isNowComplete && !wasComplete && !checklist.pebbleAwarded) {
+          updatedChecklist.pebbleAwarded = true;
+          await earnPebble("checklist", `checklist:${checklist.id}`);
+        }
       }
 
       await ChecklistRepository.saveChecklistUnlocked(updatedChecklist);
@@ -507,11 +556,11 @@ static async recycleChecklist(
 
     if (!result) return null;
 
-    if (!options?.skipEvents) {
-      emitStateChange("checklists_changed", options?.source);
+    if (!effectiveOptions?.skipEvents) {
+      emitStateChange("checklists_changed", effectiveOptions?.source);
     }
 
-    if (!options?.skipAnalytics) {
+    if (!effectiveOptions?.skipAnalytics) {
       void recordDailyHistorySnapshot().catch(() => {});
     }
 
@@ -648,5 +697,111 @@ static async recycleChecklist(
     return checklist;
   }
 
+  /**
+   * Atomically creates a recurrence exception on a master Checklist and creates a detached
+   * non-recurring Checklist for the moved occurrence in a single atomic storage transaction.
+   */
+  static async rescheduleRecurringOccurrence(
+    masterChecklistId: string,
+    workspaceId: string,
+    occurrenceDate: string,
+    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null },
+    options?: CreateEntityOptions,
+  ): Promise<{ masterChecklist: Checklist; occurrenceChecklist: Checklist }> {
+    const { withLock } = await import("@/shared/utils/mutex");
+    const { generateId } = await import("@/shared/utils/id");
+    const { calculateRescheduledTask } = await import(
+      "@/services/scheduling/scheduling.service"
+    );
+    const key = `pebble:v1:checklists:${workspaceId}`;
 
+    const { updatedMaster, newCopy } = await withLock(key, async () => {
+      const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+      const master = checklistsMap[masterChecklistId];
+      if (!master) {
+        throw new Error(
+          `[ChecklistCommandHandler] rescheduleRecurringOccurrence failed: Checklist ${masterChecklistId} not found in workspace ${workspaceId}`,
+        );
+      }
+
+      if (!master.recurrence) {
+        throw new Error(
+          `[ChecklistCommandHandler] rescheduleRecurringOccurrence failed: Checklist ${masterChecklistId} is not a recurring checklist`,
+        );
+      }
+
+      // 1. Calculate new schedule for the dropped occurrence
+      const updates = calculateRescheduledTask(
+        master as any,
+        dropTarget,
+        occurrenceDate,
+      );
+
+      // 2. Add occurrence date to master's recurrenceExceptions (idempotent set)
+      const existingExceptions = master.recurrenceExceptions || [];
+      const updatedExceptions = existingExceptions.includes(occurrenceDate)
+        ? existingExceptions
+        : [...existingExceptions, occurrenceDate];
+
+      const updatedMaster: Checklist = {
+        ...master,
+        recurrenceExceptions: updatedExceptions,
+        updatedAt: Date.now(),
+      };
+
+      // 3. Construct detached non-recurring checklist
+      const targetDate = dropTarget.date || occurrenceDate;
+      const newChecklistId = generateId("checklist-");
+
+      // Carry forward occurrence completion items if any
+      const occurrenceCompletedIds =
+        master.occurrenceHistory?.[occurrenceDate]?.completedItemIds || [];
+
+      const newCopy: Checklist = {
+        ...master,
+        id: newChecklistId,
+        workspaceId,
+        recurrence: undefined, // Detached non-recurring copy
+        recurrenceExceptions: undefined,
+        occurrenceHistory: undefined,
+        items: (master.items || []).map((item) => ({
+          ...item,
+          completed: occurrenceCompletedIds.includes(item.id),
+        })),
+        schedule: {
+          ...master.schedule,
+          ...updates.schedule,
+          date: targetDate,
+        },
+        reminder: master.reminder
+          ? {
+              ...master.reminder,
+              notificationIds: undefined,
+            }
+          : undefined,
+        lifecycleGeneration: 1,
+        revision: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      // 4. Atomic Domain Persistence: write BOTH master and copy in a SINGLE partition write
+      await ChecklistRepository.saveChecklistsUnlocked(
+        [updatedMaster, newCopy],
+        workspaceId,
+      );
+
+      return { updatedMaster, newCopy };
+    });
+
+    if (!options?.skipEvents) {
+      emitStateChange("checklists_changed", options?.source);
+    }
+
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+
+    return { masterChecklist: updatedMaster, occurrenceChecklist: newCopy };
+  }
 }

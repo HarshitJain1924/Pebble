@@ -31,7 +31,11 @@ import {
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { Typography } from "@/shared/constants/typography";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
-import { isHabitCompletedToday, isTaskCompleted } from "@/shared/utils/domain-selectors";
+import {
+  isChecklistCompletedForDate,
+  isHabitCompletedToday,
+  isTaskCompleted,
+} from "@/shared/utils/domain-selectors";
 import * as Haptics from "expo-haptics";
 
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
@@ -50,6 +54,7 @@ export default function CalendarScreen() {
     setSelectedDate,
     allTodos,
     allHabits,
+    allChecklists,
     history,
     selectedHistory,
     lists,
@@ -61,9 +66,12 @@ export default function CalendarScreen() {
     activeDragItem,
     setActiveDragItem,
     hoveredDate,
+    setHoveredDate,
     hoveredHour,
+    setHoveredHour,
     dragX,
     dragY,
+    touchStartRef,
     monthGridRef,
     weekStripRef,
     timelineGridRef,
@@ -85,8 +93,10 @@ export default function CalendarScreen() {
     timedItemsWithLayout,
     calendarCells,
     pendingTasks,
+    pendingChecklists,
     freeTimeGaps,
     planTask,
+    planChecklist,
   } = useCalendarState();
 
   // ─── Filters & Custom States ──────────────────────────────────────
@@ -150,6 +160,7 @@ export default function CalendarScreen() {
   const getItemType = (item: any) => {
     if (item.type === "habit") return "habit";
     if (
+      item.type === "checklist" ||
       item.categoryId === "home" ||
       item.category === "home" ||
       (item.items && item.items.length > 0)
@@ -159,7 +170,7 @@ export default function CalendarScreen() {
   };
 
   const getDateIndicatorStats = (dateStr: string) => {
-    if (!dateStr) return { tasks: 0, habits: 0 };
+    if (!dateStr) return { tasks: 0, habits: 0, checklists: 0 };
     const dayTasks = allTodos.filter(
       (t) =>
         !t.archivedAt &&
@@ -169,11 +180,18 @@ export default function CalendarScreen() {
 
     const tasks = dayTasks.length;
 
-    const habits = allHabits.filter((h) =>
-      !h.archivedAt && isRecurringOccurrenceForDate(h, dateStr),
+    const habits = allHabits.filter(
+      (h) => !h.archivedAt && isRecurringOccurrenceForDate(h, dateStr),
     ).length;
 
-    return { tasks, habits };
+    const checklists = allChecklists.filter(
+      (c) =>
+        !c.archivedAt &&
+        !isChecklistCompletedForDate(c, dateStr) &&
+        isRecurringOccurrenceForDate(c, dateStr),
+    ).length;
+
+    return { tasks, habits, checklists };
   };
 
   // Custom Indicators Component
@@ -181,7 +199,8 @@ export default function CalendarScreen() {
     const stats = getDateIndicatorStats(dateStr);
     const hasAny =
       stats.tasks > 0 ||
-      stats.habits > 0;
+      stats.habits > 0 ||
+      stats.checklists > 0;
     if (!hasAny) return null;
 
     return (
@@ -211,6 +230,16 @@ export default function CalendarScreen() {
               height: 4,
               borderRadius: 2,
               backgroundColor: "#10B981",
+            }}
+          />
+        )}
+        {stats.checklists > 0 && (
+          <View
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: "#F59E0B",
             }}
           />
         )}
@@ -1403,7 +1432,7 @@ export default function CalendarScreen() {
                           ) - 1,
                         ),
                       ),
-                      left: -4,
+                      left: -65,
                       right: 0,
                       flexDirection: "row",
                       alignItems: "center",
@@ -1411,40 +1440,55 @@ export default function CalendarScreen() {
                     }}
                     pointerEvents="none"
                   >
+                    {/* Left Time Label (Aligned with hour labels in hourLabelCol) */}
+                    <View
+                      style={{
+                        width: 65,
+                        alignItems: "flex-end",
+                        paddingRight: 6,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <View
+                        style={{
+                          paddingHorizontal: 4,
+                          paddingVertical: 1.5,
+                          borderRadius: 4,
+                          backgroundColor: isLight
+                            ? "#FEE2E2"
+                            : "rgba(239, 68, 68, 0.25)",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 9,
+                            fontWeight: "800",
+                            color: "#EF4444",
+                            textAlign: "right",
+                            lineHeight: 11,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {formatCurrentTimeLabel(
+                            currentTime.hours,
+                            currentTime.minutes,
+                          )}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Center Dot Marker (At the grid line boundary) */}
                     <View
                       style={{
                         width: 8,
                         height: 8,
                         borderRadius: 4,
                         backgroundColor: "#EF4444",
+                        marginLeft: -4,
                       }}
                     />
-                    <View
-                      style={{
-                        paddingHorizontal: 5,
-                        paddingVertical: 1.5,
-                        borderRadius: 4,
-                        backgroundColor: isLight
-                          ? "#FEE2E2"
-                          : "rgba(239, 68, 68, 0.2)",
-                        marginLeft: 4,
-                        marginRight: 4,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: "800",
-                          color: "#EF4444",
-                          lineHeight: 12,
-                        }}
-                      >
-                        {formatCurrentTimeLabel(
-                          currentTime.hours,
-                          currentTime.minutes,
-                        )}
-                      </Text>
-                    </View>
+
+                    {/* Horizontal Red Line (Spanning the task timeline grid) */}
                     <View
                       style={{
                         flex: 1,

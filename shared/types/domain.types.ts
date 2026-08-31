@@ -120,6 +120,11 @@ export interface ChecklistItem {
   completedAt?: number;
 }
 
+export interface ChecklistOccurrenceRecord {
+  completedItemIds?: string[];
+  completedAt?: number;
+}
+
 export interface Checklist {
   id: string;
   workspaceId: string;
@@ -135,6 +140,13 @@ export interface Checklist {
   updatedAt: number;
   archivedAt?: number;
   pebbleAwarded?: boolean;
+
+  // ── Schedulable Checklist Extensions ──
+  schedule?: TaskSchedule;
+  recurrence?: RecurrenceRule;
+  recurrenceExceptions?: string[];
+  reminder?: Reminder;
+  occurrenceHistory?: Record<string, ChecklistOccurrenceRecord>;
 }
 
 /**

@@ -192,15 +192,47 @@ export function buildChecklist(
   const id = `checklist-${generateId()}`;
   const itemsArray = item.items || [];
 
+  const parsedTime = parseTimeString(item.time);
+  const formattedStartTime = parsedTime
+    ? `${String(parsedTime.hour).padStart(2, "0")}:${String(parsedTime.minute).padStart(2, "0")}`
+    : undefined;
+  const isAllDay = !formattedStartTime && !!item.date && item.date !== "inbox";
+  const hasSchedule = !!item.date || !!formattedStartTime;
+  const schedule = hasSchedule
+    ? {
+        date:
+          item.date && item.date !== "inbox"
+            ? item.date
+            : formattedStartTime
+              ? getDateKey()
+              : undefined,
+        startTime: formattedStartTime,
+        allDay: isAllDay ? true : undefined,
+      }
+    : undefined;
+
+  const persistedRecurrence = item.recurrence
+    ? buildRecurrenceRule(item.recurrence)
+    : undefined;
+
+  const triggerAt = computeTriggerAt(item);
+  const reminder = triggerAt
+    ? { enabled: true, triggerAt, notificationIds: undefined }
+    : undefined;
+
   return {
     id,
     workspaceId,
     title: item.title,
+    categoryId: item.category || undefined,
     items: itemsArray.map((title, index) => ({
       id: `${id}-item-${index}`,
       title,
       completed: false,
     })),
+    schedule,
+    recurrence: persistedRecurrence,
+    reminder,
     lifecycleGeneration: 1,
     revision: 1,
     createdAt: Date.now(),

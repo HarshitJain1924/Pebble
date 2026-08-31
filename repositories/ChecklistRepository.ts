@@ -58,6 +58,17 @@ export function normalizeChecklist(
     pebbleAwarded: rawChecklist.pebbleAwarded ? true : undefined,
     revision: rawChecklist.revision ?? 1,
     lifecycleGeneration: rawChecklist.lifecycleGeneration ?? 1,
+    schedule: rawChecklist.schedule ? { ...rawChecklist.schedule } : undefined,
+    recurrence: rawChecklist.recurrence ? { ...rawChecklist.recurrence } : undefined,
+    recurrenceExceptions: Array.isArray(rawChecklist.recurrenceExceptions)
+      ? [...rawChecklist.recurrenceExceptions]
+      : undefined,
+    reminder: rawChecklist.reminder ? { ...rawChecklist.reminder } : undefined,
+    occurrenceHistory:
+      rawChecklist.occurrenceHistory &&
+      typeof rawChecklist.occurrenceHistory === "object"
+        ? { ...rawChecklist.occurrenceHistory }
+        : undefined,
   };
 }
 

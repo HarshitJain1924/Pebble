@@ -91,6 +91,25 @@ export class EntityCommandService {
   }
 
   /**
+   * Atomically reschedules a single occurrence of a recurring Checklist.
+   */
+  static async rescheduleChecklistRecurringOccurrence(
+    masterChecklistId: string,
+    workspaceId: string,
+    occurrenceDate: string,
+    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null },
+    options?: CreateEntityOptions,
+  ): Promise<{ masterChecklist: Checklist; occurrenceChecklist: Checklist }> {
+    return ChecklistCommandHandler.rescheduleRecurringOccurrence(
+      masterChecklistId,
+      workspaceId,
+      occurrenceDate,
+      dropTarget,
+      options,
+    );
+  }
+
+  /**
    * Create and persist a Habit entity.
    */
   static async createHabit(
@@ -308,9 +327,10 @@ export class EntityCommandService {
     checklistId: string,
     itemId: string,
     workspaceId: string,
+    dateKeyOrOptions?: string | CreateEntityOptions,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Checklist; updated: Checklist } | null> {
-    return ChecklistCommandHandler.toggleChecklistItem(checklistId, itemId, workspaceId, options);
+    return ChecklistCommandHandler.toggleChecklistItem(checklistId, itemId, workspaceId, dateKeyOrOptions, options);
   }
 
   /**

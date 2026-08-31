@@ -303,3 +303,90 @@ export function getChecklistStats(checklist: Checklist) {
   };
 }
 
+/**
+ * Check if a checklist item is completed on a specific date.
+ * For recurring checklists, reads occurrenceHistory[dateKey].completedItemIds.
+ * For non-recurring checklists, reads the item's completed field.
+ */
+export function getChecklistItemCompletedForDate(
+  checklist: Checklist,
+  itemId: string,
+  dateKey?: string,
+): boolean {
+  if (checklist.recurrence && dateKey) {
+    const record = checklist.occurrenceHistory?.[dateKey];
+    if (record?.completedItemIds) {
+      return record.completedItemIds.includes(itemId);
+    }
+    return false;
+  }
+  const item = checklist.items?.find((i) => i.id === itemId);
+  return !!item?.completed;
+}
+
+/**
+ * Count of completed items for a checklist on a specific date.
+ */
+export function getChecklistCompletedItemsCountForDate(
+  checklist: Checklist,
+  dateKey: string,
+): number {
+  if (!checklist.items || checklist.items.length === 0) return 0;
+  if (checklist.recurrence && dateKey) {
+    const record = checklist.occurrenceHistory?.[dateKey];
+    if (record?.completedItemIds) {
+      return record.completedItemIds.filter((id) =>
+        checklist.items.some((i) => i.id === id),
+      ).length;
+    }
+    return 0;
+  }
+  return checklist.items.filter((i) => i.completed).length;
+}
+
+/**
+ * Check whether a checklist is fully completed on a specific date.
+ */
+export function isChecklistCompletedForDate(
+  checklist: Checklist,
+  dateKey: string,
+): boolean {
+  const total = checklist.items?.length || 0;
+  if (total === 0) return false;
+
+  if (checklist.recurrence && dateKey) {
+    const record = checklist.occurrenceHistory?.[dateKey];
+    if (record?.completedAt) return true;
+    const count = getChecklistCompletedItemsCountForDate(checklist, dateKey);
+    return count === total;
+  }
+
+  return checklist.items.every((i) => i.completed);
+}
+
+/**
+ * Detailed stats for a checklist on a specific date.
+ */
+export function getChecklistOccurrenceStats(
+  checklist: Checklist,
+  dateKey: string,
+) {
+  const total = checklist.items ? checklist.items.length : 0;
+  const completedCount = getChecklistCompletedItemsCountForDate(
+    checklist,
+    dateKey,
+  );
+  const remainingCount = Math.max(0, total - completedCount);
+  const completionPercentage =
+    total > 0 ? Math.round((completedCount / total) * 100) : 0;
+  const isCompleted = isChecklistCompletedForDate(checklist, dateKey);
+
+  return {
+    total,
+    completedCount,
+    remainingCount,
+    completionPercentage,
+    isCompleted,
+  };
+}
+
