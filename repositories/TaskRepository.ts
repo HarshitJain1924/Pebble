@@ -343,7 +343,7 @@ export class TaskRepository {
           existing.reminder?.triggerAt === expectedSnapshot.reminder?.triggerAt;
         
         const statusMatches = expectedSnapshot.status === undefined || existing.status === expectedSnapshot.status;
-        const archiveMatches = existing.archivedAt === expectedSnapshot.archivedAt;
+        const archiveMatches = (existing.archivedAt ?? null) === (expectedSnapshot.archivedAt ?? null);
         const updatedAtMatches = expectedSnapshot.updatedAt === undefined || existing.updatedAt === expectedSnapshot.updatedAt;
         const revisionMatches = expectedSnapshot.revision === undefined || existing.revision === expectedSnapshot.revision;
 

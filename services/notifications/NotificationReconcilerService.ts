@@ -15,46 +15,50 @@ import { Task, Habit, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domai
 import { isMatchingPhysicalNotification } from "@/services/notifications/notification-identity";
 
 export class NotificationReconcilerService {
-  private static inFlightReconcile: Promise<void> | null = null;
-  private static hasPendingReconcile: boolean = false;
+  private static inFlightPromise: Promise<void> | null = null;
+  private static pendingPromise: Promise<void> | null = null;
 
   /**
    * Reconciles the OS notification state against the current Domain state.
    * 
    * This is an idempotent, serialized pass that:
    * 1. Coalesces concurrent in-flight reconciliation passes into atomic runs.
-   * 2. Detects and cancels stale OS notifications (deleted/recycled/archived, or outdated triggers).
-   * 3. Detects and cancels duplicate OS notifications for the same logical intent.
-   * 4. Repairs missing `notificationIds` in Domain State if a perfect OS notification exists.
-   * 5. Detects active items missing required OS notifications and schedules them.
+   * 2. Guarantees callers arriving while a pass is running await the fresh pending pass.
+   * 3. Detects and cancels stale OS notifications (deleted/recycled/archived, or outdated triggers).
+   * 4. Detects and cancels duplicate OS notifications for the same logical intent.
+   * 5. Repairs missing `notificationIds` in Domain State if a perfect OS notification exists.
+   * 6. Detects active items missing required OS notifications and schedules them.
    * 
    * The Domain State is considered authoritative. Notification scheduling failures
    * do not crash the pass, they are logged and retried on the next run.
    */
   static async reconcileAll(): Promise<void> {
-    if (this.inFlightReconcile) {
-      this.hasPendingReconcile = true;
-      return this.inFlightReconcile;
+    if (this.inFlightPromise) {
+      if (!this.pendingPromise) {
+        this.pendingPromise = this.inFlightPromise
+          .catch(() => {})
+          .then(async () => {
+            this.pendingPromise = null;
+            await this.reconcileAll();
+          });
+      }
+      return this.pendingPromise;
     }
 
-    this.inFlightReconcile = (async () => {
+    this.inFlightPromise = (async () => {
       try {
         await this.performReconcileAll();
       } finally {
-        this.inFlightReconcile = null;
-        if (this.hasPendingReconcile) {
-          this.hasPendingReconcile = false;
-          void this.reconcileAll();
-        }
+        this.inFlightPromise = null;
       }
     })();
 
-    return this.inFlightReconcile;
+    return this.inFlightPromise;
   }
 
   static resetInFlightForTesting(): void {
-    this.inFlightReconcile = null;
-    this.hasPendingReconcile = false;
+    this.inFlightPromise = null;
+    this.pendingPromise = null;
   }
 
   private static async performReconcileAll(): Promise<void> {
@@ -259,8 +263,8 @@ export class NotificationReconcilerService {
                   revision: task.revision,
                 }
               );
-              if (updateResult === 'state_changed') {
-                // Domain state was modified concurrently! Cancel newly scheduled notifications to avoid zombies
+              if (updateResult === 'state_changed' || updateResult === 'not_found') {
+                // Domain state was modified concurrently or deleted! Cancel newly scheduled notifications to avoid zombies
                 if (updatedTask.reminder?.notificationIds?.length) {
                   await cancelReminderIds(updatedTask.reminder.notificationIds, { throwOnError: false });
                 }
@@ -337,7 +341,7 @@ export class NotificationReconcilerService {
                   revision: habit.revision,
                 }
               );
-              if (updateResult === 'state_changed') {
+              if (updateResult === 'state_changed' || updateResult === 'not_found') {
                 if (updatedHabit.reminder?.notificationIds?.length) {
                   await cancelReminderIds(updatedHabit.reminder.notificationIds, { throwOnError: false });
                 }
@@ -403,10 +407,11 @@ export class NotificationReconcilerService {
                 {
                   reminder: { enabled: checklist.reminder.enabled, triggerAt: checklist.reminder.triggerAt },
                   archivedAt: checklist.archivedAt ?? null,
+                  updatedAt: checklist.updatedAt,
                   revision: checklist.revision,
                 }
               );
-              if (updateResult === 'state_changed') {
+              if (updateResult === 'state_changed' || updateResult === 'not_found') {
                 if (updatedChecklist.reminder?.notificationIds?.length) {
                   await cancelReminderIds(updatedChecklist.reminder.notificationIds, { throwOnError: false });
                 }
@@ -429,6 +434,7 @@ export class NotificationReconcilerService {
                 {
                   reminder: { enabled: checklist.reminder.enabled, triggerAt: checklist.reminder.triggerAt },
                   archivedAt: checklist.archivedAt ?? null,
+                  updatedAt: checklist.updatedAt,
                   revision: checklist.revision,
                 }
               );

@@ -245,10 +245,11 @@ export class ChecklistRepository {
           existing.reminder?.enabled === expectedSnapshot.reminder?.enabled &&
           existing.reminder?.triggerAt === expectedSnapshot.reminder?.triggerAt;
 
-        const archiveMatches = existing.archivedAt === expectedSnapshot.archivedAt;
+        const archiveMatches = (existing.archivedAt ?? null) === (expectedSnapshot.archivedAt ?? null);
+        const updatedAtMatches = expectedSnapshot.updatedAt === undefined || existing.updatedAt === expectedSnapshot.updatedAt;
         const revisionMatches = expectedSnapshot.revision === undefined || existing.revision === expectedSnapshot.revision;
 
-        if (!reminderMatches || !archiveMatches || !revisionMatches) {
+        if (!reminderMatches || !archiveMatches || !updatedAtMatches || !revisionMatches) {
           return 'state_changed';
         }
       }
