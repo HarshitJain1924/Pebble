@@ -66,12 +66,7 @@ import {
 } from "@/services/events/state-events";
 import { useReminderState } from "@/services/scheduling/hooks/useReminderState";
 import { getNotificationLogs } from "@/services/scheduling/notifications-log";
-import {
-  rearmWebReminders,
-  rescheduleHabitReminders,
-  rescheduleTodoReminders,
-  scheduleReminderBatch,
-} from "@/services/scheduling/reminders.service";
+import { rearmWebReminders } from "@/services/scheduling/reminders.service";
 import {
   addToRecycleBin,
   getRecycleBinItems,

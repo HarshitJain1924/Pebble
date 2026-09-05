@@ -36,11 +36,6 @@ import {
   getDateKey,
   getRecurrenceLabel,
 } from "@/services/scheduling/recurrence.service";
-import {
-  cancelReminderIds,
-  scheduleReminderBatch,
-} from "@/services/scheduling/reminders.service";
-import { recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
 import { emitStateChange } from "@/services/events/state-events";
 import { CategoryChip } from "@/shared/components/design-system";
 import {
@@ -422,42 +417,6 @@ export function HabitDetailContent({
         delete updatedItem.reminderMinute;
         delete updatedItem.reminderDays;
         delete updatedItem.scheduledDate;
-
-        // Cancel previous notifications for Habits
-        await cancelReminderIds(item.reminder?.notificationIds);
-
-        // Schedule new notifications — from canonical reminder + recurrence
-        let notificationIds: string[] = [];
-
-        if (form.reminderTime) {
-          const scheduled = await scheduleReminderBatch({
-            kind: "habit",
-            itemId: item.id,
-            title: form.title.trim(),
-            category: form.category,
-            dailyTime: {
-              hour: form.reminderTime.hour,
-              minute: form.reminderTime.minute,
-            },
-            dailyDays:
-              form.recurrenceType === "weekly"
-                ? form.recurrenceDays
-                : undefined,
-            recurrence: recurrenceRuleToScheduler(
-              updatedRecurrence as RecurrenceRule,
-            ),
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-          });
-          notificationIds = scheduled.ids;
-        }
-
-        if (notificationIds.length > 0) {
-          updatedItem.reminder = {
-            ...(updatedItem.reminder || { enabled: true, triggerAt: 0 }),
-            notificationIds,
-          };
-        }
 
         savedItemForRefresh = { ...updatedItem, workspaceId: form.workspaceId };
 

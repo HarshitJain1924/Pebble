@@ -21,8 +21,6 @@ import { type Checklist, type Habit, type Resource, Task, INBOX_WORKSPACE_ID, MY
 
 import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 import { AppCard } from "@/shared/components/ui/AppCard";
-import { cancelReminderIds, scheduleReminderBatch } from "@/services/scheduling/reminders.service";
-import { recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
 import { getDateKey } from "@/services/scheduling/recurrence.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
@@ -128,35 +126,7 @@ export default function ArchiveScreen() {
         lastUpdated: getDateKey(),
       };
 
-      // Reschedule reminders from canonical `reminder.triggerAt`
-      let notificationIds: string[] = [];
-      if (item.reminder?.triggerAt) {
-        const d = new Date(item.reminder.triggerAt);
-        const scheduled = await scheduleReminderBatch({
-          kind: type === "task" ? "todo" : "habit",
-          itemId: item.id,
-          title: item.title,
-          category: item.categoryId || item.category || "work",
-          dailyTime: { hour: d.getHours(), minute: d.getMinutes() },
-          dailyDays: item.recurrence?.daysOfWeek,
-          recurrence: recurrenceRuleToScheduler(item.recurrence),
-          escalationMinutes: [120, 240],
-          channelId:
-            Platform.OS === "android"
-              ? isTask
-                ? "todo-reminders"
-                : "daily-habits"
-              : undefined,
-        });
-        notificationIds = scheduled.ids;
-      }
-      // Write notificationIds into canonical reminder (not top-level legacy)
-      if (notificationIds.length > 0) {
-        updatedItem.reminder = {
-          ...(updatedItem.reminder || { enabled: true, triggerAt: item.reminder?.triggerAt || 0 }),
-          notificationIds,
-        };
-      }
+
 
       // Write canonical schedule (no legacy fields)
       if (isTask) {
