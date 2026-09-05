@@ -162,7 +162,7 @@ describe("NotificationReconcilerService", () => {
     // Should NOT reschedule
     expect(rescheduleTodoReminders).not.toHaveBeenCalled();
     // Should REPAIR domain
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(task.id, task.workspaceId, ["os-valid"]);
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(task.id, task.workspaceId, ["os-valid"], expect.anything());
   });
 
   it("9. notificationIds stale but OS notification valid repairs domain", async () => {
@@ -177,7 +177,7 @@ describe("NotificationReconcilerService", () => {
     // Should NOT reschedule
     expect(rescheduleTodoReminders).not.toHaveBeenCalled();
     // Should REPAIR domain
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(task.id, task.workspaceId, ["os-actual"]);
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(task.id, task.workspaceId, ["os-actual"], expect.anything());
   });
 
   it("10. Schedule failure does not crash reconciliation", async () => {
@@ -218,6 +218,7 @@ describe("NotificationReconcilerService", () => {
           escalationLevel: 0,
           purpose: "reminder",
           logicalSignature: "todo:t1:reminder",
+          notificationScheduleKey: "once:1000:+0",
         },
       },
     };
@@ -230,11 +231,15 @@ describe("NotificationReconcilerService", () => {
     // Legacy duplicate should be cancelled
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-legacy"], { throwOnError: false });
     // Domain should be repaired to retain only the winning canonical notification ID
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t1", "ws-1", ["os-canonical"]);
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t1", "ws-1", ["os-canonical"], expect.anything());
   });
 
   it("13. Multi-day weekly recurring notifications are preserved as distinct slots and not cancelled as duplicates", async () => {
     const task = createMockTask("t-weekly", 1000, ["os-mon", "os-wed"]);
+    task.recurrence = { frequency: "weekly", interval: 1, daysOfWeek: [1, 3] };
+    const date = new Date(1000);
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    const timeStr = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     const monNotif = {
       identifier: "os-mon",
       content: {
@@ -245,6 +250,7 @@ describe("NotificationReconcilerService", () => {
           purpose: "reminder",
           logicalSignature: "todo:t-weekly:reminder",
           weekday: 2, // Monday
+          notificationScheduleKey: `weekly:w2:${timeStr}:+0`,
         },
       },
     };
@@ -258,6 +264,7 @@ describe("NotificationReconcilerService", () => {
           purpose: "reminder",
           logicalSignature: "todo:t-weekly:reminder",
           weekday: 4, // Wednesday
+          notificationScheduleKey: `weekly:w4:${timeStr}:+0`,
         },
       },
     };
@@ -298,6 +305,7 @@ describe("NotificationReconcilerService", () => {
           escalationLevel: 0,
           purpose: "reminder",
           logicalSignature: "habit:h-C:reminder",
+          notificationScheduleKey: "once:3000:+0",
         },
       },
     };
@@ -314,7 +322,7 @@ describe("NotificationReconcilerService", () => {
     expect(cancelReminderIds).not.toHaveBeenCalled();
     expect(rescheduleTodoReminders).toHaveBeenCalledWith(taskB);
     expect(rescheduleHabitReminders).not.toHaveBeenCalled();
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-B", "ws-1", []);
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-B", "ws-1", [], expect.anything());
   });
 
   it("15. Repeated reconciliation passes converge to a stable fixed-point with zero redundant writes", async () => {

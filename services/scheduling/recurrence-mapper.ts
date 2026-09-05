@@ -61,6 +61,7 @@ export function recurrenceRuleToScheduler(
   return {
     type,
     interval: rule.interval > 1 ? rule.interval : undefined,
+    ...(rule.unit ? { unit: rule.unit } : {}),
     days: rule.daysOfWeek?.length ? rule.daysOfWeek : undefined,
     dayOfMonth: rule.dayOfMonth,
   };

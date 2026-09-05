@@ -5,7 +5,11 @@ import { HabitRepository } from "@/repositories/HabitRepository";
 import * as Notifications from "expo-notifications";
 import { rescheduleTodoReminders, rescheduleHabitReminders, cancelReminderIds, scheduleReminderBatch } from "@/services/scheduling/reminders.service";
 import { Task, Habit } from "@/shared/types/domain.types";
-import { buildNotificationLogicalSignature, isMatchingNotificationSignature } from "../notification-identity";
+import {
+  buildNotificationLogicalSignature,
+  buildNotificationScheduleKey,
+  isMatchingNotificationSignature,
+} from "../notification-identity";
 
 jest.mock("@/repositories/WorkspaceRepository");
 jest.mock("@/repositories/TaskRepository");
@@ -175,6 +179,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
             escalationLevel: 0,
             purpose: "reminder",
             logicalSignature: buildNotificationLogicalSignature("todo", "task-A", "reminder"),
+            notificationScheduleKey: "once:1788100000000:+0",
           },
         },
       },
@@ -187,6 +192,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
             escalationLevel: 0,
             purpose: "reminder",
             logicalSignature: buildNotificationLogicalSignature("todo", "task-B", "reminder"),
+            notificationScheduleKey: "once:1788100000000:+0",
           },
         },
       },
@@ -219,6 +225,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
             escalationLevel: 0,
             purpose: "reminder",
             logicalSignature: buildNotificationLogicalSignature("todo", sharedId, "reminder"),
+            notificationScheduleKey: "once:1788100000000:+0",
           },
         },
       },
@@ -231,6 +238,12 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
             escalationLevel: 0,
             purpose: "reminder",
             logicalSignature: buildNotificationLogicalSignature("habit", sharedId, "reminder"),
+            notificationScheduleKey: buildNotificationScheduleKey({
+              type: "daily",
+              hour: new Date(identicalTime).getHours(),
+              minute: new Date(identicalTime).getMinutes(),
+              offsetMinutes: 0,
+            }),
           },
         },
       },
@@ -268,7 +281,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
 
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-old"], { throwOnError: false });
     expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("task-1", "ws-1", ["rescheduled-task-task-1"]);
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("task-1", "ws-1", ["rescheduled-task-task-1"], expect.anything());
   });
 
   it("7. Repeated reconciliation without duplicates: multi-pass idempotence", async () => {
@@ -285,6 +298,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
             escalationLevel: 0,
             purpose: "reminder",
             logicalSignature: buildNotificationLogicalSignature("todo", "task-1", "reminder"),
+            notificationScheduleKey: "once:1000:+0",
           },
         },
       },
@@ -336,7 +350,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
     await NotificationReconcilerService.reconcileAll();
 
     expect(rescheduleTodoReminders).toHaveBeenCalledWith(restoredTask);
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("task-restored", "ws-1", ["rescheduled-task-task-restored"]);
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("task-restored", "ws-1", ["rescheduled-task-task-restored"], expect.anything());
   });
 
   it("10. Legacy notification compatibility: legacy triggerAt-only notifications are safely matched and preserved", async () => {
@@ -400,6 +414,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
           escalationLevel: 0,
           purpose: "reminder",
           logicalSignature: "todo:t-safe:reminder",
+          notificationScheduleKey: "once:1000:+0",
           weekday: undefined,
         },
       },
@@ -423,6 +438,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
           escalationLevel: 0,
           purpose: "reminder",
           logicalSignature: "todo:t-domain-sync:reminder",
+          notificationScheduleKey: "once:1000:+0",
         },
       },
     };
@@ -433,7 +449,7 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
     await NotificationReconcilerService.reconcileAll();
 
     // Domain state should be updated to exact surviving OS notification
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-domain-sync", "ws-1", ["os-surviving-1"]);
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-domain-sync", "ws-1", ["os-surviving-1"], expect.anything());
   });
 
   describe("14. Purpose matching enforcement in isMatchingNotificationSignature", () => {

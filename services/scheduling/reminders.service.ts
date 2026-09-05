@@ -4,7 +4,11 @@ import type { Task, Habit, Checklist } from "@/shared/types/domain.types";
 import { getNotificationPayload } from "@/services/scheduling/notification-routes";
 import { DAY_MS } from "@/services/storage/storage.service";
 import { type SchedulerRecurrence, recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
-import { type NotificationPurpose, buildNotificationLogicalSignature } from "@/services/notifications/notification-identity";
+import {
+  type NotificationPurpose,
+  buildNotificationLogicalSignature,
+  buildNotificationScheduleKey,
+} from "@/services/notifications/notification-identity";
 
 export type ReminderKind = "todo" | "habit" | "checklist";
 
@@ -34,6 +38,8 @@ export type ReminderScheduleOptions = {
   recurrence?: SchedulerRecurrence;
   purpose?: NotificationPurpose;
   workspaceId?: string;
+  anchorTimestamp?: number;
+  anchorDate?: Date;
 };
 
 export type ScheduledReminderBatch = {
@@ -55,12 +61,25 @@ const DEFAULT_ESCALATION_MINUTES = [120, 240];
 // we register the loop under a stable key and return `web-interval-<key>`
 // immediately; cancelReminderIds() resolves the key through this registry and
 // clears both the pending initial timeout and (once created) the interval.
-type WebReminderLoop = {
+export type WebReminderLoop = {
   timeoutId: ReturnType<typeof setTimeout>;
   intervalId: ReturnType<typeof setInterval> | null;
+  logicalSignature?: string;
+  notificationScheduleKey?: string;
+  itemId?: string;
+  kind?: ReminderKind;
+  escalationLevel?: number;
 };
 const webReminderLoops = new Map<string, WebReminderLoop>();
 let webReminderLoopSeq = 0;
+
+export function getWebReminderLoops(): Map<string, WebReminderLoop> {
+  return webReminderLoops;
+}
+
+export function clearWebReminderLoops(): void {
+  webReminderLoops.clear();
+}
 
 async function loadNotifications() {
   return import("expo-notifications");
@@ -168,6 +187,7 @@ function buildNotificationData(
   escalationLevel: number,
   purpose: NotificationPurpose = escalationLevel > 0 ? "escalation" : "reminder",
   workspaceId?: string,
+  notificationScheduleKey?: string,
 ) {
   const logicalSignature = buildNotificationLogicalSignature(kind, itemId, purpose);
   return {
@@ -176,6 +196,7 @@ function buildNotificationData(
     escalationLevel,
     logicalSignature,
     purpose,
+    ...(notificationScheduleKey ? { notificationScheduleKey } : {}),
     ...(workspaceId ? { workspaceId } : {}),
   };
 }
@@ -215,6 +236,13 @@ function scheduleWebReminderLoop(
   body: string,
   initialDelay: number,
   repeatMs: number,
+  metadata?: {
+    logicalSignature?: string;
+    notificationScheduleKey?: string;
+    itemId?: string;
+    kind?: ReminderKind;
+    escalationLevel?: number;
+  }
 ): { loopId: string; timeoutId: ReturnType<typeof setTimeout> } {
   const loopKey = `loop-${++webReminderLoopSeq}`;
   const timeoutId = setTimeout(() => {
@@ -231,7 +259,7 @@ function scheduleWebReminderLoop(
       clearInterval(intervalId);
     }
   }, initialDelay);
-  webReminderLoops.set(loopKey, { timeoutId, intervalId: null });
+  webReminderLoops.set(loopKey, { timeoutId, intervalId: null, ...metadata });
   return { loopId: `web-interval-${loopKey}`, timeoutId };
 }
 
@@ -391,9 +419,14 @@ export async function scheduleReminderBatch(
     // fallback if service isn't initialized yet
   }
 
-  const offsets = options.recurrence?.type === "interval" ? [0] : [0, ...escalationMinutes];
+  const offsets = [0, ...escalationMinutes];
   const ids: string[] = [];
   const isWeb = Platform.OS === "web";
+  const baseAnchor =
+    options.anchorTimestamp ??
+    options.anchorDate?.getTime() ??
+    options.oneTimeAt?.getTime() ??
+    (options.dailyTime ? new Date().setHours(options.dailyTime.hour, options.dailyTime.minute, 0, 0) : Date.now());
 
   for (const [index, offset] of offsets.entries()) {
     const body = getNotificationBody(
@@ -402,15 +435,22 @@ export async function scheduleReminderBatch(
       index,
     );
     const purpose = index === 0 ? (options.purpose || "reminder") : "escalation";
-    const data = buildNotificationData(
-      options.kind,
-      options.itemId,
-      index,
-      purpose,
-      options.workspaceId,
-    );
 
     if (options.oneTimeAt) {
+      const scheduleKey = buildNotificationScheduleKey({
+        type: "once",
+        triggerAt: options.oneTimeAt.getTime(),
+        offsetMinutes: offset,
+      });
+      const data = buildNotificationData(
+        options.kind,
+        options.itemId,
+        index,
+        purpose,
+        options.workspaceId,
+        scheduleKey,
+      );
+
       const triggerDate = new Date(
         options.oneTimeAt.getTime() + offset * 60 * 1000,
       );
@@ -426,15 +466,27 @@ export async function scheduleReminderBatch(
       if (isWeb) {
         const canNotify = await ensureWebPermission();
 
+        const loopKey = `timeout-${++webReminderLoopSeq}`;
         const timeoutId = setTimeout(() => {
+          webReminderLoops.delete(loopKey);
           if (canNotify) {
-            notifyFallback("Task reminder", body);
+            notifyFallback(getNotificationTitle(options.kind), body);
             return;
           }
-          notifyFallback("Task reminder", body);
+          notifyFallback(getNotificationTitle(options.kind), body);
         }, delay);
 
-        ids.push(`web-timeout-${String(timeoutId)}`);
+        webReminderLoops.set(loopKey, {
+          timeoutId,
+          intervalId: null,
+          logicalSignature: data.logicalSignature,
+          notificationScheduleKey: scheduleKey,
+          itemId: options.itemId,
+          kind: options.kind,
+          escalationLevel: index,
+        });
+
+        ids.push(`web-interval-${loopKey}`);
         continue;
       }
 
@@ -452,6 +504,7 @@ export async function scheduleReminderBatch(
         triggerDate: triggerDate.toISOString(),
         triggerTimestamp: triggerDate.getTime(),
         channelId: resolvedChannelId,
+        notificationScheduleKey: scheduleKey,
       });
 
       const notificationId = await Notifications.scheduleNotificationAsync({
@@ -473,15 +526,48 @@ export async function scheduleReminderBatch(
           ? (options.recurrence.interval || 1) * 3600
           : (options.recurrence.interval || 1) * 86400;
 
+        const scheduleKey = buildNotificationScheduleKey({
+          type: "interval",
+          interval: options.recurrence.interval || 1,
+          unit: options.recurrence.unit || "days",
+          anchor: baseAnchor,
+          offsetMinutes: offset,
+        });
+        const data = buildNotificationData(
+          options.kind,
+          options.itemId,
+          index,
+          purpose,
+          options.workspaceId,
+          scheduleKey,
+        );
+
         if (isWeb) {
+          const intervalMs = seconds * 1000;
+          const targetTime = baseAnchor + offset * 60 * 1000;
+          const now = Date.now();
+          let nextTrigger = targetTime;
+          if (nextTrigger <= now) {
+            const passed = now - nextTrigger;
+            const cycles = Math.floor(passed / intervalMs) + 1;
+            nextTrigger += cycles * intervalMs;
+          }
+          const initialDelay = Math.max(0, nextTrigger - now);
+
           const { loopId, timeoutId } = scheduleWebReminderLoop(
-            "Interval reminder",
+            getNotificationTitle(options.kind),
             body,
-            seconds * 1000,
-            seconds * 1000,
+            initialDelay,
+            intervalMs,
+            {
+              logicalSignature: data.logicalSignature,
+              notificationScheduleKey: scheduleKey,
+              itemId: options.itemId,
+              kind: options.kind,
+              escalationLevel: index,
+            }
           );
           ids.push(loopId);
-          ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
 
@@ -499,6 +585,7 @@ export async function scheduleReminderBatch(
           title: options.title,
           seconds,
           channelId: resolvedChannelId,
+          notificationScheduleKey: scheduleKey,
         });
 
         const notificationId = await Notifications.scheduleNotificationAsync({
@@ -532,6 +619,21 @@ export async function scheduleReminderBatch(
       const Notifications = await loadNotifications();
 
       if (options.recurrence.type === "daily") {
+        const scheduleKey = buildNotificationScheduleKey({
+          type: "daily",
+          hour: options.dailyTime.hour,
+          minute: options.dailyTime.minute,
+          offsetMinutes: offset,
+        });
+        const data = buildNotificationData(
+          options.kind,
+          options.itemId,
+          index,
+          purpose,
+          options.workspaceId,
+          scheduleKey,
+        );
+
         if (isWeb) {
           const nextTrigger = getNextOccurrenceDate(adjusted.hour, adjusted.minute);
           const initialDelay = nextTrigger.getTime() - Date.now();
@@ -540,9 +642,15 @@ export async function scheduleReminderBatch(
             body,
             initialDelay,
             DAY_MS,
+            {
+              logicalSignature: data.logicalSignature,
+              notificationScheduleKey: scheduleKey,
+              itemId: options.itemId,
+              kind: options.kind,
+              escalationLevel: index,
+            }
           );
           ids.push(loopId);
-          ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
 
@@ -560,6 +668,7 @@ export async function scheduleReminderBatch(
           hour: adjusted.hour,
           minute: adjusted.minute,
           channelId: resolvedChannelId,
+          notificationScheduleKey: scheduleKey,
         });
 
         const notificationId = await Notifications.scheduleNotificationAsync({
@@ -583,6 +692,23 @@ export async function scheduleReminderBatch(
               : [new Date().getDay()]);
 
         for (const weekday of targetDays) {
+          const platformWeekday = Math.min(Math.max(1 + weekday, 1), 7);
+          const scheduleKey = buildNotificationScheduleKey({
+            type: "weekly",
+            weekday: platformWeekday,
+            hour: options.dailyTime.hour,
+            minute: options.dailyTime.minute,
+            offsetMinutes: offset,
+          });
+          const data = buildNotificationData(
+            options.kind,
+            options.itemId,
+            index,
+            purpose,
+            options.workspaceId,
+            scheduleKey,
+          );
+
           if (isWeb) {
             const nextTrigger = getNextOccurrenceForWeekday(weekday, adjusted.hour, adjusted.minute);
             const initialDelay = nextTrigger.getTime() - Date.now();
@@ -591,13 +717,18 @@ export async function scheduleReminderBatch(
               body,
               initialDelay,
               7 * DAY_MS,
+              {
+                logicalSignature: data.logicalSignature,
+                notificationScheduleKey: scheduleKey,
+                itemId: options.itemId,
+                kind: options.kind,
+                escalationLevel: index,
+              }
             );
             ids.push(loopId);
-            ids.push(`web-timeout-${String(timeoutId)}`);
             continue;
           }
 
-          const platformWeekday = Math.min(Math.max(1 + weekday, 1), 7);
           const triggerObj: any = {
             type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
             weekday: platformWeekday,
@@ -614,6 +745,7 @@ export async function scheduleReminderBatch(
             hour: adjusted.hour,
             minute: adjusted.minute,
             channelId: resolvedChannelId,
+            notificationScheduleKey: scheduleKey,
           });
 
           const notifData = {
@@ -637,7 +769,22 @@ export async function scheduleReminderBatch(
 
       if (options.recurrence.type === "monthly") {
         const dayOfMonth = options.recurrence.dayOfMonth || 1;
-        
+        const scheduleKey = buildNotificationScheduleKey({
+          type: "monthly",
+          dayOfMonth,
+          hour: options.dailyTime.hour,
+          minute: options.dailyTime.minute,
+          offsetMinutes: offset,
+        });
+        const data = buildNotificationData(
+          options.kind,
+          options.itemId,
+          index,
+          purpose,
+          options.workspaceId,
+          scheduleKey,
+        );
+
         if (isWeb) {
           const timeoutId = setTimeout(() => {
             notifyFallback("Monthly reminder", body);
@@ -662,6 +809,7 @@ export async function scheduleReminderBatch(
           hour: adjusted.hour,
           minute: adjusted.minute,
           channelId: resolvedChannelId,
+          notificationScheduleKey: scheduleKey,
         });
 
         const notificationId = await Notifications.scheduleNotificationAsync({
@@ -696,6 +844,23 @@ export async function scheduleReminderBatch(
     // If the caller provided explicit weekdays, schedule each weekday separately.
     if (options.dailyDays && options.dailyDays.length > 0) {
       for (const weekday of options.dailyDays) {
+        const platformWeekday = Math.min(Math.max(1 + weekday, 1), 7);
+        const scheduleKey = buildNotificationScheduleKey({
+          type: "weekly",
+          weekday: platformWeekday,
+          hour: options.dailyTime.hour,
+          minute: options.dailyTime.minute,
+          offsetMinutes: offset,
+        });
+        const data = buildNotificationData(
+          options.kind,
+          options.itemId,
+          index,
+          purpose,
+          options.workspaceId,
+          scheduleKey,
+        );
+
         if (isWeb) {
           const canNotify = await ensureWebPermission();
           const nextTrigger = getNextOccurrenceForWeekday(
@@ -710,15 +875,20 @@ export async function scheduleReminderBatch(
             body,
             initialDelay,
             7 * DAY_MS,
+            {
+              logicalSignature: data.logicalSignature,
+              notificationScheduleKey: scheduleKey,
+              itemId: options.itemId,
+              kind: options.kind,
+              escalationLevel: index,
+            }
           );
 
           ids.push(loopId);
-          ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
 
         const Notifications = await loadNotifications();
-        const platformWeekday = Math.min(Math.max(1 + weekday, 1), 7);
         const triggerObj: any = {
           type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
           weekday: platformWeekday,
@@ -735,13 +905,19 @@ export async function scheduleReminderBatch(
           hour: adjusted.hour,
           minute: adjusted.minute,
           channelId: resolvedChannelId,
+          notificationScheduleKey: scheduleKey,
         });
+
+        const notifData = {
+          ...data,
+          weekday: platformWeekday,
+        };
 
         const notificationId = await Notifications.scheduleNotificationAsync({
           content: {
             title: getNotificationTitle(options.kind),
             body,
-            data,
+            data: notifData,
           },
           trigger: triggerObj as any,
         });
@@ -752,6 +928,21 @@ export async function scheduleReminderBatch(
     }
 
     // Fallback: daily every day
+    const scheduleKey = buildNotificationScheduleKey({
+      type: "daily",
+      hour: options.dailyTime.hour,
+      minute: options.dailyTime.minute,
+      offsetMinutes: offset,
+    });
+    const data = buildNotificationData(
+      options.kind,
+      options.itemId,
+      index,
+      purpose,
+      options.workspaceId,
+      scheduleKey,
+    );
+
     if (isWeb) {
       const canNotify = await ensureWebPermission();
       const nextTrigger = getNextOccurrenceDate(adjusted.hour, adjusted.minute);
@@ -762,10 +953,16 @@ export async function scheduleReminderBatch(
         body,
         initialDelay,
         DAY_MS,
+        {
+          logicalSignature: data.logicalSignature,
+          notificationScheduleKey: scheduleKey,
+          itemId: options.itemId,
+          kind: options.kind,
+          escalationLevel: index,
+        }
       );
 
       ids.push(loopId);
-      ids.push(`web-timeout-${String(timeoutId)}`);
       continue;
     }
 
@@ -784,6 +981,7 @@ export async function scheduleReminderBatch(
       hour: adjusted.hour,
       minute: adjusted.minute,
       channelId: resolvedChannelId,
+      notificationScheduleKey: scheduleKey,
     });
 
     const notificationId = await Notifications.scheduleNotificationAsync({
@@ -845,6 +1043,8 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
           workspaceId: todo.workspaceId,
+          anchorTimestamp: todo.reminder.triggerAt,
+          anchorDate: triggerDate,
         });
         return {
           ...todo,
@@ -865,6 +1065,8 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
         workspaceId: todo.workspaceId,
+        anchorTimestamp: todo.reminder.triggerAt,
+        anchorDate: triggerDate,
       });
       return {
         ...todo,
@@ -924,6 +1126,8 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "daily-habits" : undefined,
           workspaceId: habit.workspaceId,
+          anchorTimestamp: habit.reminder.triggerAt,
+          anchorDate: triggerDate,
         });
         return {
           ...habit,
@@ -944,6 +1148,8 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "daily-habits" : undefined,
         workspaceId: habit.workspaceId,
+        anchorTimestamp: habit.reminder.triggerAt,
+        anchorDate: triggerDate,
       });
       return {
         ...habit,
@@ -1001,6 +1207,8 @@ export async function rescheduleChecklistReminders(
           channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
           context: { title: checklist.title, remainingCount: totalCount - completedCount, totalCount },
           workspaceId: checklist.workspaceId,
+          anchorTimestamp: checklist.reminder.triggerAt,
+          anchorDate: triggerDate,
         });
         return {
           ...checklist,
@@ -1023,6 +1231,8 @@ export async function rescheduleChecklistReminders(
         channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
         context: { title: checklist.title, remainingCount: totalCount - completedCount, totalCount },
         workspaceId: checklist.workspaceId,
+        anchorTimestamp: checklist.reminder.triggerAt,
+        anchorDate: triggerDate,
       });
       return {
         ...checklist,

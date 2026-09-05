@@ -2,10 +2,17 @@ import { WorkspaceRepository } from "@/repositories/WorkspaceRepository";
 import { TaskRepository } from "@/repositories/TaskRepository";
 import { HabitRepository } from "@/repositories/HabitRepository";
 import { ChecklistRepository } from "@/repositories/ChecklistRepository";
-import { rescheduleTodoReminders, rescheduleHabitReminders, rescheduleChecklistReminders, cancelReminderIds } from "@/services/scheduling/reminders.service";
+import { Platform } from "react-native";
+import {
+  rescheduleTodoReminders,
+  rescheduleHabitReminders,
+  rescheduleChecklistReminders,
+  cancelReminderIds,
+  getWebReminderLoops,
+} from "@/services/scheduling/reminders.service";
 import * as Notifications from "expo-notifications";
 import { Task, Habit, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { isMatchingNotificationSignature } from "@/services/notifications/notification-identity";
+import { isMatchingPhysicalNotification } from "@/services/notifications/notification-identity";
 
 export class NotificationReconcilerService {
   /**
@@ -22,9 +29,28 @@ export class NotificationReconcilerService {
    */
   static async reconcileAll(): Promise<void> {
     try {
-      if (typeof Notifications.getAllScheduledNotificationsAsync !== "function") return;
+      const allOsNotifications: Array<{ identifier: string; content?: { data?: any }; trigger?: any }> = [];
 
-      const allOsNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      if (Platform.OS === "web") {
+        for (const [loopKey, loop] of getWebReminderLoops().entries()) {
+          const data = {
+            type: loop.kind,
+            itemId: loop.itemId,
+            escalationLevel: loop.escalationLevel ?? 0,
+            purpose: loop.escalationLevel && loop.escalationLevel > 0 ? "escalation" : "reminder",
+            logicalSignature: loop.logicalSignature,
+            notificationScheduleKey: loop.notificationScheduleKey,
+          };
+          allOsNotifications.push({
+            identifier: `web-interval-${loopKey}`,
+            content: { data },
+          });
+        }
+      } else {
+        if (typeof Notifications.getAllScheduledNotificationsAsync !== "function") return;
+        const nativeNotifs = await Notifications.getAllScheduledNotificationsAsync();
+        allOsNotifications.push(...nativeNotifs);
+      }
       
       const workspaces = await WorkspaceRepository.getWorkspaces();
       const activeWorkspaces = workspaces.filter(w => !w.archivedAt);
@@ -65,6 +91,7 @@ export class NotificationReconcilerService {
       const notificationsByLogicalInstance = new Map<string, string[]>();
       const validNotifications = new Set<string>();
       const notificationsToCancel = new Set<string>();
+      const staleNotifications = new Set<string>();
 
       for (const osNotif of allOsNotifications) {
         const data = osNotif.content?.data as any;
@@ -81,23 +108,24 @@ export class NotificationReconcilerService {
         if (!itemId || !logicalSignature) {
           // Malformed payload for our type, cancel it.
           notificationsToCancel.add(id);
+          staleNotifications.add(id);
           continue;
         }
 
         let isMatch = false;
         if (data.type === "todo") {
           const task = activeTasks.get(itemId);
-          if (task && isMatchingNotificationSignature(data, task, "todo")) {
+          if (task && isMatchingPhysicalNotification(data, task, "todo")) {
             isMatch = true;
           }
         } else if (data.type === "habit") {
           const habit = activeHabits.get(itemId);
-          if (habit && isMatchingNotificationSignature(data, habit, "habit")) {
+          if (habit && isMatchingPhysicalNotification(data, habit, "habit")) {
             isMatch = true;
           }
         } else if (data.type === "checklist") {
           const checklist = activeChecklists.get(itemId);
-          if (checklist && isMatchingNotificationSignature(data, checklist, "checklist")) {
+          if (checklist && isMatchingPhysicalNotification(data, checklist, "checklist")) {
             isMatch = true;
           }
         }
@@ -105,10 +133,12 @@ export class NotificationReconcilerService {
         if (!isMatch) {
           // Stale notification (entity deleted/completed/archived, or trigger time changed)
           notificationsToCancel.add(id);
+          staleNotifications.add(id);
           continue;
         }
 
         const isCanonical = typeof logicalSignature === "string" && logicalSignature.startsWith(`${data.type}:${itemId}:`);
+        const hasScheduleKey = Boolean(data?.notificationScheduleKey);
         const triggerWeekday = data?.weekday ?? (osNotif.trigger as any)?.weekday;
         // A single physical notification slot is uniquely defined by: entityType + itemId + escalationLevel + (weekday if present)
         const instanceKey = `${data.type}:${itemId}:${escalationLevel}${triggerWeekday !== undefined ? `:w${triggerWeekday}` : ""}`;
@@ -120,10 +150,19 @@ export class NotificationReconcilerService {
         } else {
           const currentPrimaryId = existingSlot[0];
           const currentPrimaryNotif = allOsNotifications.find(n => n.identifier === currentPrimaryId);
-          const currentPrimarySig = (currentPrimaryNotif?.content?.data as any)?.logicalSignature;
+          const currentPrimaryData = currentPrimaryNotif?.content?.data as any;
+          const currentPrimarySig = currentPrimaryData?.logicalSignature;
           const currentIsCanonical = typeof currentPrimarySig === "string" && currentPrimarySig.startsWith(`${data.type}:${itemId}:`);
+          const currentHasScheduleKey = Boolean(currentPrimaryData?.notificationScheduleKey);
 
-          if (!currentIsCanonical && isCanonical) {
+          if (!currentHasScheduleKey && hasScheduleKey) {
+            // Upgrade! Prefer notification with explicit schedule key over legacy notification
+            validNotifications.delete(currentPrimaryId);
+            notificationsToCancel.add(currentPrimaryId);
+
+            existingSlot[0] = id;
+            validNotifications.add(id);
+          } else if (!currentIsCanonical && isCanonical) {
             // Upgrade! Prefer canonical entity-owned notification over legacy timestamp notification
             validNotifications.delete(currentPrimaryId);
             notificationsToCancel.add(currentPrimaryId);
@@ -158,11 +197,42 @@ export class NotificationReconcilerService {
                  (osNotif.content?.data as any)?.type === "todo";
         });
 
-        if (retainedOsIds.length === 0) {
-          // Completely missing from OS, MUST RESCHEDULE
+        const hasPrimaryNotification = retainedOsIds.some(id => {
+          const osNotif = allOsNotifications.find(n => n.identifier === id);
+          const notifData = osNotif?.content?.data as any;
+          return !notifData?.escalationLevel || notifData.escalationLevel === 0;
+        });
+
+        const hadStaleNotification = (task.reminder.notificationIds || []).some(id => staleNotifications.has(id));
+
+        if (retainedOsIds.length === 0 || !hasPrimaryNotification || hadStaleNotification) {
+          // Missing primary notification, completely missing, or had stale notifications cancelled:
+          // clean up any orphan IDs and cleanly reschedule the complete notification set
+          if (retainedOsIds.length > 0) {
+            await cancelReminderIds(retainedOsIds, { throwOnError: false });
+          }
           try {
             const updatedTask = await rescheduleTodoReminders(task);
-            await TaskRepository.updateNotificationIds(updatedTask.id, updatedTask.workspaceId, updatedTask.reminder?.notificationIds);
+            if (updatedTask) {
+              const updateResult = await TaskRepository.updateNotificationIds(
+                updatedTask.id,
+                updatedTask.workspaceId,
+                updatedTask.reminder?.notificationIds,
+                {
+                  reminder: { enabled: task.reminder.enabled, triggerAt: task.reminder.triggerAt },
+                  status: task.status,
+                  archivedAt: task.archivedAt ?? null,
+                  updatedAt: task.updatedAt,
+                  revision: task.revision,
+                }
+              );
+              if (updateResult === 'state_changed') {
+                // Domain state was modified concurrently! Cancel newly scheduled notifications to avoid zombies
+                if (updatedTask.reminder?.notificationIds?.length) {
+                  await cancelReminderIds(updatedTask.reminder.notificationIds, { throwOnError: false });
+                }
+              }
+            }
           } catch (e) {
             console.warn(`[NotificationReconcilerService] Failed to reschedule missing task reminder for ${task.id}`, e);
           }
@@ -179,7 +249,18 @@ export class NotificationReconcilerService {
             // Repair domain state to match the truth of the OS!
             // Do NOT call rescheduleTodoReminders which would create duplicates.
             try {
-              await TaskRepository.updateNotificationIds(task.id, task.workspaceId, retainedOsIds);
+              await TaskRepository.updateNotificationIds(
+                task.id,
+                task.workspaceId,
+                retainedOsIds,
+                {
+                  reminder: { enabled: task.reminder.enabled, triggerAt: task.reminder.triggerAt },
+                  status: task.status,
+                  archivedAt: task.archivedAt ?? null,
+                  updatedAt: task.updatedAt,
+                  revision: task.revision,
+                }
+              );
             } catch (e) {
               console.warn(`[NotificationReconcilerService] Failed to repair domain notificationIds for ${task.id}`, e);
             }
@@ -197,10 +278,38 @@ export class NotificationReconcilerService {
                  (osNotif.content?.data as any)?.type === "habit";
         });
 
-        if (retainedOsIds.length === 0) {
+        const hasPrimaryNotification = retainedOsIds.some(id => {
+          const osNotif = allOsNotifications.find(n => n.identifier === id);
+          const notifData = osNotif?.content?.data as any;
+          return !notifData?.escalationLevel || notifData.escalationLevel === 0;
+        });
+
+        const hadStaleNotification = (habit.reminder.notificationIds || []).some(id => staleNotifications.has(id));
+
+        if (retainedOsIds.length === 0 || !hasPrimaryNotification || hadStaleNotification) {
+          if (retainedOsIds.length > 0) {
+            await cancelReminderIds(retainedOsIds, { throwOnError: false });
+          }
           try {
             const updatedHabit = await rescheduleHabitReminders(habit);
-            await HabitRepository.updateNotificationIds(updatedHabit.id, updatedHabit.workspaceId, updatedHabit.reminder?.notificationIds);
+            if (updatedHabit) {
+              const updateResult = await HabitRepository.updateNotificationIds(
+                updatedHabit.id,
+                updatedHabit.workspaceId,
+                updatedHabit.reminder?.notificationIds,
+                {
+                  reminder: { enabled: habit.reminder.enabled, triggerAt: habit.reminder.triggerAt },
+                  archivedAt: habit.archivedAt ?? null,
+                  updatedAt: habit.updatedAt,
+                  revision: habit.revision,
+                }
+              );
+              if (updateResult === 'state_changed') {
+                if (updatedHabit.reminder?.notificationIds?.length) {
+                  await cancelReminderIds(updatedHabit.reminder.notificationIds, { throwOnError: false });
+                }
+              }
+            }
           } catch (e) {
             console.warn(`[NotificationReconcilerService] Failed to reschedule missing habit reminder for ${habit.id}`, e);
           }
@@ -211,7 +320,17 @@ export class NotificationReconcilerService {
           
           if (isDomainMismatched) {
             try {
-              await HabitRepository.updateNotificationIds(habit.id, habit.workspaceId, retainedOsIds);
+              await HabitRepository.updateNotificationIds(
+                habit.id,
+                habit.workspaceId,
+                retainedOsIds,
+                {
+                  reminder: { enabled: habit.reminder.enabled, triggerAt: habit.reminder.triggerAt },
+                  archivedAt: habit.archivedAt ?? null,
+                  updatedAt: habit.updatedAt,
+                  revision: habit.revision,
+                }
+              );
             } catch (e) {
               console.warn(`[NotificationReconcilerService] Failed to repair domain notificationIds for ${habit.id}`, e);
             }
@@ -229,10 +348,37 @@ export class NotificationReconcilerService {
                  (osNotif.content?.data as any)?.type === "checklist";
         });
 
-        if (retainedOsIds.length === 0) {
+        const hasPrimaryNotification = retainedOsIds.some(id => {
+          const osNotif = allOsNotifications.find(n => n.identifier === id);
+          const notifData = osNotif?.content?.data as any;
+          return !notifData?.escalationLevel || notifData.escalationLevel === 0;
+        });
+
+        const hadStaleChecklistNotif = (checklist.reminder.notificationIds || []).some(id => staleNotifications.has(id));
+
+        if (retainedOsIds.length === 0 || !hasPrimaryNotification || hadStaleChecklistNotif) {
+          if (retainedOsIds.length > 0) {
+            await cancelReminderIds(retainedOsIds, { throwOnError: false });
+          }
           try {
             const updatedChecklist = await rescheduleChecklistReminders(checklist);
-            await ChecklistRepository.updateNotificationIds(updatedChecklist.id, updatedChecklist.workspaceId, updatedChecklist.reminder?.notificationIds);
+            if (updatedChecklist) {
+              const updateResult = await ChecklistRepository.updateNotificationIds(
+                updatedChecklist.id,
+                updatedChecklist.workspaceId,
+                updatedChecklist.reminder?.notificationIds,
+                {
+                  reminder: { enabled: checklist.reminder.enabled, triggerAt: checklist.reminder.triggerAt },
+                  archivedAt: checklist.archivedAt ?? null,
+                  revision: checklist.revision,
+                }
+              );
+              if (updateResult === 'state_changed') {
+                if (updatedChecklist.reminder?.notificationIds?.length) {
+                  await cancelReminderIds(updatedChecklist.reminder.notificationIds, { throwOnError: false });
+                }
+              }
+            }
           } catch (e) {
             console.warn(`[NotificationReconcilerService] Failed to reschedule missing checklist reminder for ${checklist.id}`, e);
           }
@@ -243,7 +389,16 @@ export class NotificationReconcilerService {
           
           if (isDomainMismatched) {
             try {
-              await ChecklistRepository.updateNotificationIds(checklist.id, checklist.workspaceId, retainedOsIds);
+              await ChecklistRepository.updateNotificationIds(
+                checklist.id,
+                checklist.workspaceId,
+                retainedOsIds,
+                {
+                  reminder: { enabled: checklist.reminder.enabled, triggerAt: checklist.reminder.triggerAt },
+                  archivedAt: checklist.archivedAt ?? null,
+                  revision: checklist.revision,
+                }
+              );
             } catch (e) {
               console.warn(`[NotificationReconcilerService] Failed to repair domain notificationIds for ${checklist.id}`, e);
             }

@@ -171,6 +171,7 @@ describe("Checklist Notification Hardening & First-Class Identity", () => {
               itemId: "chk-active",
               logicalSignature: "checklist:chk-active:reminder",
               escalationLevel: 0,
+              notificationScheduleKey: "once:1788200000000:+0",
             },
           },
         },
@@ -243,6 +244,7 @@ describe("Checklist Notification Hardening & First-Class Identity", () => {
         "chk-needs-schedule",
         "ws-1",
         ["new-scheduled-id"],
+        expect.anything(),
       );
     });
   });
