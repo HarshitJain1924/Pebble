@@ -9,6 +9,7 @@ import {
   buildNotificationLogicalSignature,
   buildNotificationScheduleKey,
 } from "@/services/notifications/notification-identity";
+import { getNextIntervalOccurrenceEpoch } from "@/services/scheduling/recurrence.service";
 
 export type ReminderKind = "todo" | "habit" | "checklist";
 
@@ -275,7 +276,14 @@ export async function cancelReminderIds(
     await Promise.all(
       ids.map(async (id) => {
         if (id.startsWith("web-timeout-")) {
-          clearTimeout(Number(id.replace("web-timeout-", "")));
+          const seq = id.replace("web-timeout-", "");
+          const loopKey = `timeout-${seq}`;
+          const loop = webReminderLoops.get(loopKey);
+          if (loop) {
+            clearTimeout(loop.timeoutId);
+            webReminderLoops.delete(loopKey);
+          }
+          clearTimeout(Number(seq));
           return;
         }
 
@@ -466,7 +474,8 @@ export async function scheduleReminderBatch(
       if (isWeb) {
         const canNotify = await ensureWebPermission();
 
-        const loopKey = `timeout-${++webReminderLoopSeq}`;
+        const seq = ++webReminderLoopSeq;
+        const loopKey = `timeout-${seq}`;
         const timeoutId = setTimeout(() => {
           webReminderLoops.delete(loopKey);
           if (canNotify) {
@@ -486,7 +495,7 @@ export async function scheduleReminderBatch(
           escalationLevel: index,
         });
 
-        ids.push(`web-interval-${loopKey}`);
+        ids.push(`web-timeout-${seq}`);
         continue;
       }
 
@@ -522,14 +531,14 @@ export async function scheduleReminderBatch(
 
     if (options.recurrence) {
       if (options.recurrence.type === "interval") {
-        const seconds = options.recurrence.unit === "hours"
-          ? (options.recurrence.interval || 1) * 3600
-          : (options.recurrence.interval || 1) * 86400;
+        const interval = options.recurrence.interval || 1;
+        const unit = options.recurrence.unit || "days";
+        const seconds = unit === "hours" ? interval * 3600 : interval * 86400;
 
         const scheduleKey = buildNotificationScheduleKey({
           type: "interval",
-          interval: options.recurrence.interval || 1,
-          unit: options.recurrence.unit || "days",
+          interval,
+          unit,
           anchor: baseAnchor,
           offsetMinutes: offset,
         });
@@ -542,17 +551,23 @@ export async function scheduleReminderBatch(
           scheduleKey,
         );
 
+        const nextTrigger = getNextIntervalOccurrenceEpoch(
+          baseAnchor,
+          interval,
+          unit,
+          offset,
+          Date.now(),
+        );
+        const triggerDate = new Date(nextTrigger);
+
+        if (settings && isCurrentlyInQuietHours && isCurrentlyInQuietHours(settings, triggerDate.getHours(), triggerDate.getMinutes())) {
+          console.log(`[scheduleReminderBatch] Skipping offset ${offset} for interval because it falls inside Quiet Hours.`);
+          continue;
+        }
+
         if (isWeb) {
           const intervalMs = seconds * 1000;
-          const targetTime = baseAnchor + offset * 60 * 1000;
-          const now = Date.now();
-          let nextTrigger = targetTime;
-          if (nextTrigger <= now) {
-            const passed = now - nextTrigger;
-            const cycles = Math.floor(passed / intervalMs) + 1;
-            nextTrigger += cycles * intervalMs;
-          }
-          const initialDelay = Math.max(0, nextTrigger - now);
+          const initialDelay = Math.max(0, nextTrigger - Date.now());
 
           const { loopId, timeoutId } = scheduleWebReminderLoop(
             getNotificationTitle(options.kind),
@@ -568,22 +583,23 @@ export async function scheduleReminderBatch(
             }
           );
           ids.push(loopId);
+          ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
 
         const Notifications = await loadNotifications();
         const triggerObj: any = {
-          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          seconds,
-          repeats: true,
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: triggerDate,
           channelId: resolvedChannelId,
         };
 
-        console.log("[scheduleReminderBatch] [Native Interval] Scheduling request:", {
+        console.log("[scheduleReminderBatch] [Native Interval Date] Scheduling request:", {
           kind: options.kind,
           itemId: options.itemId,
           title: options.title,
-          seconds,
+          triggerDate: triggerDate.toISOString(),
+          triggerTimestamp: triggerDate.getTime(),
           channelId: resolvedChannelId,
           notificationScheduleKey: scheduleKey,
         });
@@ -596,7 +612,7 @@ export async function scheduleReminderBatch(
           },
           trigger: triggerObj,
         });
-        console.log("[scheduleReminderBatch] [Native Interval] Expo Notification Scheduled. ID:", notificationId);
+        console.log("[scheduleReminderBatch] [Native Interval Date] Expo Notification Scheduled. ID:", notificationId);
         ids.push(notificationId);
         continue;
       }
@@ -651,6 +667,7 @@ export async function scheduleReminderBatch(
             }
           );
           ids.push(loopId);
+          ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
 
@@ -885,6 +902,7 @@ export async function scheduleReminderBatch(
           );
 
           ids.push(loopId);
+          ids.push(`web-timeout-${String(timeoutId)}`);
           continue;
         }
 
@@ -963,6 +981,7 @@ export async function scheduleReminderBatch(
       );
 
       ids.push(loopId);
+      ids.push(`web-timeout-${String(timeoutId)}`);
       continue;
     }
 

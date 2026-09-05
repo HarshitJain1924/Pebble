@@ -23,7 +23,10 @@ import {
   getTodayDateKey,
   parseDateKey,
 } from "@/shared/utils/date-key";
-import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import {
+  isRecurringOccurrenceForDate,
+  getNextIntervalOccurrenceEpoch,
+} from "@/services/scheduling/recurrence.service";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 
 /**
@@ -45,6 +48,16 @@ export class AlertCenterService {
     initialTriggerAt: number,
     startOffsetDays: number = 0,
   ): number | null {
+    const recurrence = item.recurrence;
+    const freq = recurrence?.frequency || (recurrence as any)?.type;
+    if (freq === "custom" || freq === "interval" || recurrence?.unit === "hours") {
+      const interval = recurrence?.interval || 1;
+      const unit = recurrence?.unit || (recurrence as any)?.unit || "days";
+      const now = Date.now();
+      const minTime = startOffsetDays > 0 ? now + startOffsetDays * 24 * 60 * 60 * 1000 : now;
+      return getNextIntervalOccurrenceEpoch(initialTriggerAt, interval, unit, 0, minTime);
+    }
+
     const triggerDate = new Date(initialTriggerAt);
     const hour = triggerDate.getHours();
     const minute = triggerDate.getMinutes();

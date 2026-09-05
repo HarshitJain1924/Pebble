@@ -318,3 +318,34 @@ export function getRecurrenceLabel(
       return null;
   }
 }
+
+/**
+ * Calculates the next upcoming occurrence timestamp for an anchored interval recurrence.
+ *
+ * Invariants:
+ * - Anchored: All occurrences align with the grid: `anchor + offsetMinutes + k * stepMs`.
+ * - Strictly in the future: If the target anchor time has passed, steps forward by full interval cycles.
+ * - Deterministic: Given the same anchor, interval, unit, offset, and reference time (now),
+ *   produces the identical epoch timestamp across Native OS, Web, Alert Center, and Reconciler.
+ */
+export function getNextIntervalOccurrenceEpoch(
+  anchor: number,
+  interval: number,
+  unit: "hours" | "days" | string = "hours",
+  offsetMinutes: number = 0,
+  now: number = Date.now(),
+): number {
+  const stepMs =
+    unit === "hours"
+      ? (interval || 1) * 60 * 60 * 1000
+      : (interval || 1) * 24 * 60 * 60 * 1000;
+
+  const targetTime = anchor + offsetMinutes * 60 * 1000;
+  if (targetTime > now) {
+    return targetTime;
+  }
+
+  const passed = now - targetTime;
+  const cycles = Math.floor(passed / stepMs) + 1;
+  return targetTime + cycles * stepMs;
+}

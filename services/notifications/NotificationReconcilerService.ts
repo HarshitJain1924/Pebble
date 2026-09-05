@@ -41,8 +41,11 @@ export class NotificationReconcilerService {
             logicalSignature: loop.logicalSignature,
             notificationScheduleKey: loop.notificationScheduleKey,
           };
+          const identifier = loopKey.startsWith("timeout-")
+            ? `web-timeout-${loopKey.replace("timeout-", "")}`
+            : `web-interval-${loopKey}`;
           allOsNotifications.push({
-            identifier: `web-interval-${loopKey}`,
+            identifier,
             content: { data },
           });
         }
