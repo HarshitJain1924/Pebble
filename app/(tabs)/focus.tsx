@@ -73,8 +73,6 @@ export default function FocusScreen() {
               colors={colors}
               sessionTime={state.sessionTime}
               totalSessionTime={state.totalSessionTime}
-              focusedTaskId={state.focusedTaskId}
-              todoList={state.todoList}
               swRunning={state.swRunning}
               swTime={state.swTime}
               showCustomInput={state.showCustomInput}

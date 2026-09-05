@@ -16,8 +16,6 @@ interface TimerCockpitProps {
   colors: any;
   sessionTime: number;
   totalSessionTime: number;
-  focusedTaskId: string | null;
-  todoList: any[];
   swRunning: boolean;
   swTime: number;
   showCustomInput: boolean;
@@ -47,8 +45,6 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
   colors,
   sessionTime,
   totalSessionTime,
-  focusedTaskId,
-  todoList,
   swRunning,
   swTime,
   showCustomInput,
@@ -78,7 +74,6 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
   };
 
   const progress = totalSessionTime > 0 ? (totalSessionTime - sessionTime) / totalSessionTime : 0;
-  const linkedTaskTitle = focusedTaskId ? todoList.find((t) => t.id === focusedTaskId)?.title : null;
 
   return (
     <AppCard style={styles.timerCard}>
@@ -118,14 +113,6 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 ? "Break Active"
                 : "Break Paused"}
             </Text>
-            {linkedTaskTitle && pomodoroMode === "work" && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4, maxWidth: 180 }}>
-                <Feather name="target" size={14} color={colors.primary} />
-                <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: "600", color: colors.textMuted }}>
-                  {linkedTaskTitle}
-                </Text>
-              </View>
-            )}
           </View>
         </View>
       ) : (
