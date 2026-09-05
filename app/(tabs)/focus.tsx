@@ -52,6 +52,18 @@ export default function FocusScreen() {
             {/* Mode Selector */}
             <ModeSelector mode={state.mode} setMode={state.setMode} colors={colors} />
 
+            {/* Focus Target Card */}
+            {state.mode === "pomodoro" && state.pomodoroMode === "work" && (
+              <FocusTargetCard
+                focusedTaskId={state.focusedTaskId}
+                todoList={state.todoList}
+                habitList={state.habitList}
+                onLinkPress={() => state.setShowTaskPicker(true)}
+                onUnlinkPress={() => state.setFocusedTaskId(null)}
+                colors={colors}
+              />
+            )}
+
             {/* Timer Cockpit */}
             <TimerCockpit
               mode={state.mode}
@@ -83,18 +95,6 @@ export default function FocusScreen() {
               setSessionTime={state.setSessionTime}
               setTotalSessionTime={state.setTotalSessionTime}
             />
-
-            {/* Focus Target Card */}
-            {state.mode === "pomodoro" && state.pomodoroMode === "work" && (
-              <FocusTargetCard
-                focusedTaskId={state.focusedTaskId}
-                todoList={state.todoList}
-                habitList={state.habitList}
-                onLinkPress={() => state.setShowTaskPicker(true)}
-                onUnlinkPress={() => state.setFocusedTaskId(null)}
-                colors={colors}
-              />
-            )}
 
             {/* Laps List */}
             {state.mode === "stopwatch" && state.swLaps.length > 0 && (
