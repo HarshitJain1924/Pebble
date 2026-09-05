@@ -154,7 +154,7 @@ describe("Checklist Notification Hardening & First-Class Identity", () => {
         reminder: {
           enabled: true,
           triggerAt: 1788200000000,
-          notificationIds: ["os-chk-1"],
+          notificationIds: ["os-chk-1", "os-chk-2", "os-chk-3"],
         },
       };
 
@@ -172,6 +172,30 @@ describe("Checklist Notification Hardening & First-Class Identity", () => {
               logicalSignature: "checklist:chk-active:reminder",
               escalationLevel: 0,
               notificationScheduleKey: "once:1788200000000:+0",
+            },
+          },
+        },
+        {
+          identifier: "os-chk-2",
+          content: {
+            data: {
+              type: "checklist",
+              itemId: "chk-active",
+              logicalSignature: "checklist:chk-active:escalation",
+              escalationLevel: 1,
+              notificationScheduleKey: "once:1788200000000:+120",
+            },
+          },
+        },
+        {
+          identifier: "os-chk-3",
+          content: {
+            data: {
+              type: "checklist",
+              itemId: "chk-active",
+              logicalSignature: "checklist:chk-active:escalation",
+              escalationLevel: 2,
+              notificationScheduleKey: "once:1788200000000:+240",
             },
           },
         },

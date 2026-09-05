@@ -117,22 +117,31 @@ describe("System Write Semantics", () => {
     };
     mockStorage[`pebble:v1:tasks:ws-1`] = JSON.stringify({ "task-heal": task });
 
-    // Mock the OS having the notification correctly
+    // Mock the OS having the complete notification batch correctly
+    const triggerAt = task.reminder.triggerAt;
     (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([
       {
         identifier: "os-heal-id-1",
-        content: { data: { type: "todo", itemId: "task-heal", logicalSignature: task.reminder.triggerAt.toString() } }
+        content: { data: { type: "todo", itemId: "task-heal", purpose: "reminder", logicalSignature: "todo:task-heal:reminder", notificationScheduleKey: `once:${triggerAt}:+0`, escalationLevel: 0 } }
+      },
+      {
+        identifier: "os-heal-id-2",
+        content: { data: { type: "todo", itemId: "task-heal", purpose: "escalation", logicalSignature: "todo:task-heal:escalation", notificationScheduleKey: `once:${triggerAt}:+120`, escalationLevel: 1 } }
+      },
+      {
+        identifier: "os-heal-id-3",
+        content: { data: { type: "todo", itemId: "task-heal", purpose: "escalation", logicalSignature: "todo:task-heal:escalation", notificationScheduleKey: `once:${triggerAt}:+240`, escalationLevel: 2 } }
       }
     ]);
 
-    // Run reconciliation - it should detect the domain state is missing the ID and repair it
+    // Run reconciliation - it should detect the domain state is missing the IDs and repair it
     await NotificationReconcilerService.reconcileAll();
 
     const raw = mockStorage[`pebble:v1:tasks:ws-1`];
     const parsed = JSON.parse(raw)["task-heal"];
     
-    // The domain state should be repaired
-    expect(parsed.reminder.notificationIds).toEqual(["os-heal-id-1"]);
+    // The domain state should be repaired to the full OS notification set
+    expect(parsed.reminder.notificationIds).toEqual(["os-heal-id-1", "os-heal-id-2", "os-heal-id-3"]);
     
     // BUT the updatedAt MUST remain unchanged because it was a system operation!
     expect(parsed.updatedAt).toBe(originalTime);

@@ -41,7 +41,14 @@ export type ReminderScheduleOptions = {
   workspaceId?: string;
   anchorTimestamp?: number;
   anchorDate?: Date;
+  targetScheduleKeys?: string[];
 };
+
+export interface RescheduleReminderOptions {
+  targetScheduleKeys?: string[];
+  cancelExisting?: boolean;
+  retainedNotificationIds?: string[];
+}
 
 export type ScheduledReminderBatch = {
   primaryId?: string;
@@ -450,6 +457,9 @@ export async function scheduleReminderBatch(
         triggerAt: options.oneTimeAt.getTime(),
         offsetMinutes: offset,
       });
+      if (options.targetScheduleKeys && !options.targetScheduleKeys.includes(scheduleKey)) {
+        continue;
+      }
       const data = buildNotificationData(
         options.kind,
         options.itemId,
@@ -542,6 +552,9 @@ export async function scheduleReminderBatch(
           anchor: baseAnchor,
           offsetMinutes: offset,
         });
+        if (options.targetScheduleKeys && !options.targetScheduleKeys.includes(scheduleKey)) {
+          continue;
+        }
         const data = buildNotificationData(
           options.kind,
           options.itemId,
@@ -641,6 +654,9 @@ export async function scheduleReminderBatch(
           minute: options.dailyTime.minute,
           offsetMinutes: offset,
         });
+        if (options.targetScheduleKeys && !options.targetScheduleKeys.includes(scheduleKey)) {
+          continue;
+        }
         const data = buildNotificationData(
           options.kind,
           options.itemId,
@@ -717,6 +733,9 @@ export async function scheduleReminderBatch(
             minute: options.dailyTime.minute,
             offsetMinutes: offset,
           });
+          if (options.targetScheduleKeys && !options.targetScheduleKeys.includes(scheduleKey)) {
+            continue;
+          }
           const data = buildNotificationData(
             options.kind,
             options.itemId,
@@ -793,6 +812,9 @@ export async function scheduleReminderBatch(
           minute: options.dailyTime.minute,
           offsetMinutes: offset,
         });
+        if (options.targetScheduleKeys && !options.targetScheduleKeys.includes(scheduleKey)) {
+          continue;
+        }
         const data = buildNotificationData(
           options.kind,
           options.itemId,
@@ -869,6 +891,9 @@ export async function scheduleReminderBatch(
           minute: options.dailyTime.minute,
           offsetMinutes: offset,
         });
+        if (options.targetScheduleKeys && !options.targetScheduleKeys.includes(scheduleKey)) {
+          continue;
+        }
         const data = buildNotificationData(
           options.kind,
           options.itemId,
@@ -952,6 +977,9 @@ export async function scheduleReminderBatch(
       minute: options.dailyTime.minute,
       offsetMinutes: offset,
     });
+    if (options.targetScheduleKeys && !options.targetScheduleKeys.includes(scheduleKey)) {
+      continue;
+    }
     const data = buildNotificationData(
       options.kind,
       options.itemId,
@@ -1029,17 +1057,18 @@ export function hasNotificationPayload(data: unknown) {
   return Boolean(getNotificationPayload(data));
 }
 
-export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
+export async function rescheduleTodoReminders(
+  todo: Task,
+  options?: RescheduleReminderOptions
+): Promise<Task> {
   try {
     if (
       todo.reminder &&
       todo.reminder.enabled &&
       (todo.reminder.triggerAt > Date.now() || todo.recurrence)
     ) {
-      // Cancel any previously scheduled notifications first so re-scheduling
-      // never accumulates duplicate timers (exactly one active schedule per
-      // reminder instance, even across reloads).
-      if (todo.reminder.notificationIds?.length) {
+      const shouldCancelExisting = options?.cancelExisting ?? (options?.targetScheduleKeys ? false : true);
+      if (shouldCancelExisting && todo.reminder.notificationIds?.length) {
         await cancelReminderIds(todo.reminder.notificationIds);
       }
 
@@ -1047,9 +1076,6 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
       const hour = triggerDate.getHours();
       const minute = triggerDate.getMinutes();
 
-      // If the task has recurrence, schedule as recurring (dailyTime + recurrence)
-      // instead of one-time. This preserves recurring reminder semantics so
-      // rescheduled notifications repeat according to the original recurrence rule.
       if (todo.recurrence) {
         const batch = await scheduleReminderBatch({
           kind: "todo",
@@ -1064,12 +1090,17 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
           workspaceId: todo.workspaceId,
           anchorTimestamp: todo.reminder.triggerAt,
           anchorDate: triggerDate,
+          targetScheduleKeys: options?.targetScheduleKeys,
         });
+        const existingIds = shouldCancelExisting
+          ? []
+          : (options?.retainedNotificationIds ?? (todo.reminder.notificationIds || []));
+        const combinedIds = Array.from(new Set([...existingIds, ...batch.ids]));
         return {
           ...todo,
           reminder: {
             ...todo.reminder,
-            notificationIds: batch.ids,
+            notificationIds: combinedIds,
           },
         };
       }
@@ -1086,12 +1117,17 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
         workspaceId: todo.workspaceId,
         anchorTimestamp: todo.reminder.triggerAt,
         anchorDate: triggerDate,
+        targetScheduleKeys: options?.targetScheduleKeys,
       });
+      const existingIds = shouldCancelExisting
+        ? []
+        : (options?.retainedNotificationIds ?? (todo.reminder.notificationIds || []));
+      const combinedIds = Array.from(new Set([...existingIds, ...batch.ids]));
       return {
         ...todo,
         reminder: {
           ...todo.reminder,
-          notificationIds: batch.ids,
+          notificationIds: combinedIds,
         },
       };
     } else if (todo.reminder?.notificationIds?.length) {
@@ -1111,17 +1147,18 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
   }
 }
 
-export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
+export async function rescheduleHabitReminders(
+  habit: Habit,
+  options?: RescheduleReminderOptions
+): Promise<Habit> {
   try {
     if (
       habit.reminder &&
       habit.reminder.enabled &&
       (habit.reminder.triggerAt > Date.now() || habit.recurrence)
     ) {
-      // Cancel any previously scheduled notifications first so re-scheduling
-      // never accumulates duplicate timers (exactly one active schedule per
-      // reminder instance, even across reloads).
-      if (habit.reminder.notificationIds?.length) {
+      const shouldCancelExisting = options?.cancelExisting ?? (options?.targetScheduleKeys ? false : true);
+      if (shouldCancelExisting && habit.reminder.notificationIds?.length) {
         await cancelReminderIds(habit.reminder.notificationIds);
       }
 
@@ -1129,10 +1166,6 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
       const hour = triggerDate.getHours();
       const minute = triggerDate.getMinutes();
 
-      // If the habit has recurrence, schedule as recurring (dailyTime + recurrence)
-      // instead of one-time. This preserves recurring reminder semantics so
-      // rescheduled notifications repeat daily/weekly/monthly according to
-      // the original recurrence rule, rather than firing once and stopping.
       if (habit.recurrence) {
         const batch = await scheduleReminderBatch({
           kind: "habit",
@@ -1147,12 +1180,17 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
           workspaceId: habit.workspaceId,
           anchorTimestamp: habit.reminder.triggerAt,
           anchorDate: triggerDate,
+          targetScheduleKeys: options?.targetScheduleKeys,
         });
+        const existingIds = shouldCancelExisting
+          ? []
+          : (options?.retainedNotificationIds ?? (habit.reminder.notificationIds || []));
+        const combinedIds = Array.from(new Set([...existingIds, ...batch.ids]));
         return {
           ...habit,
           reminder: {
             ...habit.reminder,
-            notificationIds: batch.ids,
+            notificationIds: combinedIds,
           },
         };
       }
@@ -1169,12 +1207,17 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
         workspaceId: habit.workspaceId,
         anchorTimestamp: habit.reminder.triggerAt,
         anchorDate: triggerDate,
+        targetScheduleKeys: options?.targetScheduleKeys,
       });
+      const existingIds = shouldCancelExisting
+        ? []
+        : (options?.retainedNotificationIds ?? (habit.reminder.notificationIds || []));
+      const combinedIds = Array.from(new Set([...existingIds, ...batch.ids]));
       return {
         ...habit,
         reminder: {
           ...habit.reminder,
-          notificationIds: batch.ids,
+          notificationIds: combinedIds,
         },
       };
     } else if (habit.reminder?.notificationIds?.length) {
@@ -1196,6 +1239,7 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
 
 export async function rescheduleChecklistReminders(
   checklist: Checklist,
+  options?: RescheduleReminderOptions
 ): Promise<Checklist> {
   try {
     if (
@@ -1203,7 +1247,8 @@ export async function rescheduleChecklistReminders(
       checklist.reminder.enabled &&
       (checklist.reminder.triggerAt > Date.now() || checklist.recurrence)
     ) {
-      if (checklist.reminder.notificationIds?.length) {
+      const shouldCancelExisting = options?.cancelExisting ?? (options?.targetScheduleKeys ? false : true);
+      if (shouldCancelExisting && checklist.reminder.notificationIds?.length) {
         await cancelReminderIds(checklist.reminder.notificationIds);
       }
 
@@ -1228,12 +1273,17 @@ export async function rescheduleChecklistReminders(
           workspaceId: checklist.workspaceId,
           anchorTimestamp: checklist.reminder.triggerAt,
           anchorDate: triggerDate,
+          targetScheduleKeys: options?.targetScheduleKeys,
         });
+        const existingIds = shouldCancelExisting
+          ? []
+          : (options?.retainedNotificationIds ?? (checklist.reminder.notificationIds || []));
+        const combinedIds = Array.from(new Set([...existingIds, ...batch.ids]));
         return {
           ...checklist,
           reminder: {
             ...checklist.reminder,
-            notificationIds: batch.ids,
+            notificationIds: combinedIds,
           },
         };
       }
@@ -1252,12 +1302,17 @@ export async function rescheduleChecklistReminders(
         workspaceId: checklist.workspaceId,
         anchorTimestamp: checklist.reminder.triggerAt,
         anchorDate: triggerDate,
+        targetScheduleKeys: options?.targetScheduleKeys,
       });
+      const existingIds = shouldCancelExisting
+        ? []
+        : (options?.retainedNotificationIds ?? (checklist.reminder.notificationIds || []));
+      const combinedIds = Array.from(new Set([...existingIds, ...batch.ids]));
       return {
         ...checklist,
         reminder: {
           ...checklist.reminder,
-          notificationIds: batch.ids,
+          notificationIds: combinedIds,
         },
       };
     } else if (checklist.reminder?.notificationIds?.length) {

@@ -264,17 +264,35 @@ describe("Native Interval Re-Arming and Zero-Drift Lifecycle Proof", () => {
     });
 
     it("app restarted before next occurrence: restart at 10:20 preserves existing 11:00 without rescheduling", async () => {
-      const task = createIntervalTask("task-restart-early", anchor0900, 2, "hours", ["os-valid-1100"]);
+      const task = createIntervalTask("task-restart-early", anchor0900, 2, "hours", [
+        "os-valid-1100",
+        "os-valid-1100-esc1",
+        "os-valid-1100-esc2",
+      ]);
       (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-restart-early": task });
       (TaskRepository.updateNotificationIds as jest.Mock).mockResolvedValue("success");
 
-      // 11:00 notification is already validly scheduled in OS
-      const scheduleKey = buildNotificationScheduleKey({
+      // 11:00 batch is already validly scheduled in OS
+      const scheduleKey0 = buildNotificationScheduleKey({
         type: "interval",
         interval: 2,
         unit: "hours",
         anchor: anchor0900,
         offsetMinutes: 0,
+      });
+      const scheduleKey1 = buildNotificationScheduleKey({
+        type: "interval",
+        interval: 2,
+        unit: "hours",
+        anchor: anchor0900,
+        offsetMinutes: 120,
+      });
+      const scheduleKey2 = buildNotificationScheduleKey({
+        type: "interval",
+        interval: 2,
+        unit: "hours",
+        anchor: anchor0900,
+        offsetMinutes: 240,
       });
 
       osScheduledStore = [
@@ -287,12 +305,46 @@ describe("Native Interval Re-Arming and Zero-Drift Lifecycle Proof", () => {
               escalationLevel: 0,
               purpose: "reminder",
               logicalSignature: buildNotificationLogicalSignature("todo", "task-restart-early", "reminder"),
-              notificationScheduleKey: scheduleKey,
+              notificationScheduleKey: scheduleKey0,
             },
           },
           trigger: {
             type: "date",
             date: new Date(anchor1100),
+          },
+        },
+        {
+          identifier: "os-valid-1100-esc1",
+          content: {
+            data: {
+              type: "todo",
+              itemId: "task-restart-early",
+              escalationLevel: 1,
+              purpose: "escalation",
+              logicalSignature: buildNotificationLogicalSignature("todo", "task-restart-early", "escalation"),
+              notificationScheduleKey: scheduleKey1,
+            },
+          },
+          trigger: {
+            type: "date",
+            date: new Date(anchor1100 + 120 * 60 * 1000),
+          },
+        },
+        {
+          identifier: "os-valid-1100-esc2",
+          content: {
+            data: {
+              type: "todo",
+              itemId: "task-restart-early",
+              escalationLevel: 2,
+              purpose: "escalation",
+              logicalSignature: buildNotificationLogicalSignature("todo", "task-restart-early", "escalation"),
+              notificationScheduleKey: scheduleKey2,
+            },
+          },
+          trigger: {
+            type: "date",
+            date: new Date(anchor1100 + 240 * 60 * 1000),
           },
         },
       ];
@@ -303,9 +355,13 @@ describe("Native Interval Re-Arming and Zero-Drift Lifecycle Proof", () => {
 
       await NotificationReconcilerService.reconcileAll();
 
-      // Exactly the existing notification is preserved, NOT rescheduled, NOT cancelled
-      expect(osScheduledStore).toHaveLength(1);
-      expect(osScheduledStore[0].identifier).toBe("os-valid-1100");
+      // Exactly the existing notifications are preserved, NOT rescheduled, NOT cancelled
+      expect(osScheduledStore).toHaveLength(3);
+      expect(osScheduledStore.map(n => n.identifier)).toEqual([
+        "os-valid-1100",
+        "os-valid-1100-esc1",
+        "os-valid-1100-esc2",
+      ]);
       expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
       expect(Notifications.cancelScheduledNotificationAsync).not.toHaveBeenCalled();
     });

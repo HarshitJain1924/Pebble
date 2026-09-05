@@ -151,6 +151,45 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
     updatedAt: 1000,
   });
 
+  const createMockTaskOsBatch = (task: Task) => {
+    const triggerAt = task.reminder!.triggerAt;
+    return [0, 120, 240].map((offset, idx) => ({
+      identifier: `os-${task.id}-${idx}`,
+      content: {
+        data: {
+          type: "todo",
+          itemId: task.id,
+          escalationLevel: idx,
+          purpose: idx === 0 ? "reminder" : "escalation",
+          logicalSignature: buildNotificationLogicalSignature("todo", task.id, idx === 0 ? "reminder" : "escalation"),
+          notificationScheduleKey: `once:${triggerAt}:+${offset}`,
+        },
+      },
+    }));
+  };
+
+  const createMockIntervalOsBatch = (task: Task, interval: number, unit: string, anchor: number) => {
+    return [0, 120, 240].map((offset, idx) => ({
+      identifier: `os-${task.id}-${idx}`,
+      content: {
+        data: {
+          type: "todo",
+          itemId: task.id,
+          escalationLevel: idx,
+          purpose: idx === 0 ? "reminder" : "escalation",
+          logicalSignature: buildNotificationLogicalSignature("todo", task.id, idx === 0 ? "reminder" : "escalation"),
+          notificationScheduleKey: buildNotificationScheduleKey({
+            type: "interval",
+            interval,
+            unit,
+            anchor,
+            offsetMinutes: offset,
+          }),
+        },
+      },
+    }));
+  };
+
   // ───────────────────────────────────────────────────────────────────────────
   // 1. Same entity + same purpose + changed trigger → old notification rejected
   // ───────────────────────────────────────────────────────────────────────────
@@ -193,25 +232,13 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
   // ───────────────────────────────────────────────────────────────────────────
   it("2. Same entity + same purpose + unchanged trigger → notification retained", async () => {
     const triggerAt = 1788107200000;
-    const task = createMockTask("task-1", triggerAt, ["os-current-10am"]);
+    const task = createMockTask("task-1", triggerAt);
+    const osBatch = createMockTaskOsBatch(task);
+    task.reminder!.notificationIds = osBatch.map(n => n.identifier);
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-1": task });
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue(osBatch);
 
-    const osNotifValid = {
-      identifier: "os-current-10am",
-      content: {
-        data: {
-          type: "todo",
-          itemId: "task-1",
-          escalationLevel: 0,
-          purpose: "reminder",
-          logicalSignature: buildNotificationLogicalSignature("todo", "task-1", "reminder"),
-          notificationScheduleKey: `once:${triggerAt}:+0`,
-        },
-      },
-    };
-    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([osNotifValid]);
-
-    expect(isMatchingPhysicalNotification(osNotifValid.content.data, task, "todo", "reminder")).toBe(true);
+    expect(isMatchingPhysicalNotification(osBatch[0].content.data, task, "todo", "reminder")).toBe(true);
 
     await NotificationReconcilerService.reconcileAll();
 
@@ -343,8 +370,12 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
 
     // The stale escalation must be cancelled
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-escalation-stale"], { throwOnError: false });
-    // And since escalation is missing, reconciler reschedules missing notifications
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+    // And since escalation is missing, reconciler reschedules missing notification slots via targeted repair
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task, {
+      targetScheduleKeys: [`once:${triggerAt}:+120`, `once:${triggerAt}:+240`],
+      cancelExisting: false,
+      retainedNotificationIds: ["os-primary-valid"],
+    });
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -352,33 +383,22 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
   // ───────────────────────────────────────────────────────────────────────────
   it("6. Domain notification IDs contain only current physical IDs", async () => {
     const triggerAt = 1788107200000;
-    // Task currently holds a stale ID "os-dead" in its domain state alongside the valid one
-    const task = createMockTask("task-1", triggerAt, ["os-valid", "os-dead"]);
+    // Task currently holds a stale ID "os-dead" in its domain state alongside the valid ones
+    const task = createMockTask("task-1", triggerAt);
+    const osValidBatch = createMockTaskOsBatch(task);
+    task.reminder!.notificationIds = [...osValidBatch.map(n => n.identifier), "os-dead"];
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-1": task });
 
-    const osValid = {
-      identifier: "os-valid",
-      content: {
-        data: {
-          type: "todo",
-          itemId: "task-1",
-          escalationLevel: 0,
-          purpose: "reminder",
-          logicalSignature: buildNotificationLogicalSignature("todo", "task-1", "reminder"),
-          notificationScheduleKey: `once:${triggerAt}:+0`,
-        },
-      },
-    };
-    // Only osValid exists in OS
-    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([osValid]);
+    // Only valid batch exists in OS
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue(osValidBatch);
 
     await NotificationReconcilerService.reconcileAll();
 
-    // Domain IDs must be repaired to strictly ["os-valid"]
+    // Domain IDs must be repaired to strictly the valid batch
     expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(
       "task-1",
       "ws-1",
-      ["os-valid"],
+      osValidBatch.map(n => n.identifier),
       expect.anything()
     );
   });
@@ -426,7 +446,9 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
   // ───────────────────────────────────────────────────────────────────────────
   it("8. Reminder replacement (08:00 → 10:00 → 12:00) cannot resurrect earlier generations", async () => {
     const time12pm = 1788114400000;
-    const task = createMockTask("task-1", time12pm, ["os-12pm"]);
+    const task = createMockTask("task-1", time12pm);
+    const os12pmBatch = createMockTaskOsBatch(task);
+    task.reminder!.notificationIds = os12pmBatch.map(n => n.identifier);
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-1": task });
 
     // OS contains lingering notifications from 08:00 and 10:00 alongside 12:00
@@ -456,24 +478,11 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
         },
       },
     };
-    const os12pm = {
-      identifier: "os-12pm",
-      content: {
-        data: {
-          type: "todo",
-          itemId: "task-1",
-          escalationLevel: 0,
-          purpose: "reminder",
-          logicalSignature: buildNotificationLogicalSignature("todo", "task-1", "reminder"),
-          notificationScheduleKey: `once:${time12pm}:+0`,
-        },
-      },
-    };
 
     (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([
       os8am,
       os10am,
-      os12pm,
+      ...os12pmBatch,
     ]);
 
     await NotificationReconcilerService.reconcileAll();
@@ -534,7 +543,11 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       await NotificationReconcilerService.reconcileAll();
 
       expect(cancelReminderIds).not.toHaveBeenCalled();
-      expect(rescheduleTodoReminders).not.toHaveBeenCalled();
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task, {
+        targetScheduleKeys: [`once:${triggerAt}:+120`, `once:${triggerAt}:+240`],
+        cancelExisting: false,
+        retainedNotificationIds: ["os-legacy-valid"],
+      });
     });
 
     it("10b. Legacy notification with stale trigger timestamp is rejected and upgraded", async () => {
@@ -787,34 +800,13 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
 
     // 2. 2 hours @ 09:00 → 2 hours @ 09:00 (notification retained)
     it("13b. 2 hours @ 09:00 -> 2 hours @ 09:00: notification retained without rescheduling", async () => {
-      const task = createIntervalTask("task-int-1", anchor9am, 2, ["os-int-9am"]);
+      const task = createIntervalTask("task-int-1", anchor9am, 2);
+      const osBatch = createMockIntervalOsBatch(task, 2, "hours", anchor9am);
+      task.reminder!.notificationIds = osBatch.map(n => n.identifier);
       (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-int-1": task });
+      (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue(osBatch);
 
-      const currentKey = buildNotificationScheduleKey({
-        type: "interval",
-        interval: 2,
-        unit: "hours",
-        anchor: anchor9am,
-        offsetMinutes: 0,
-      });
-
-      const osNotifValid = {
-        identifier: "os-int-9am",
-        content: {
-          data: {
-            type: "todo",
-            itemId: "task-int-1",
-            escalationLevel: 0,
-            purpose: "reminder",
-            logicalSignature: buildNotificationLogicalSignature("todo", "task-int-1", "reminder"),
-            notificationScheduleKey: currentKey,
-          },
-        },
-      };
-
-      (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([osNotifValid]);
-
-      expect(isMatchingPhysicalNotification(osNotifValid.content.data, task, "todo", "reminder")).toBe(true);
+      expect(isMatchingPhysicalNotification(osBatch[0].content.data, task, "todo", "reminder")).toBe(true);
 
       await NotificationReconcilerService.reconcileAll();
 
@@ -880,7 +872,14 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       await NotificationReconcilerService.reconcileAll();
 
       expect(cancelReminderIds).toHaveBeenCalledWith(["os-int-esc-old"], { throwOnError: false });
-      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task, {
+        targetScheduleKeys: [
+          buildNotificationScheduleKey({ type: "interval", interval: 2, unit: "hours", anchor: anchor9am, offsetMinutes: 120 }),
+          buildNotificationScheduleKey({ type: "interval", interval: 2, unit: "hours", anchor: anchor9am, offsetMinutes: 240 }),
+        ],
+        cancelExisting: false,
+        retainedNotificationIds: ["os-int-prim"],
+      });
     });
 
     // 4. Interval configuration changes (e.g. 2h -> 4h): old notification rejected
@@ -924,12 +923,13 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
 
     // 5. Rapid interval changes: 09:00 -> 11:00 -> 13:00 (no earlier generation survives)
     it("13e. Rapid interval changes (09:00 -> 11:00 -> 13:00): no earlier generation survives", async () => {
-      const task = createIntervalTask("task-int-1", anchor1pm, 2, ["os-1pm"]);
+      const task = createIntervalTask("task-int-1", anchor1pm, 2);
+      const os1pmBatch = createMockIntervalOsBatch(task, 2, "hours", anchor1pm);
+      task.reminder!.notificationIds = os1pmBatch.map(n => n.identifier);
       (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-int-1": task });
 
       const key9am = buildNotificationScheduleKey({ type: "interval", interval: 2, unit: "hours", anchor: anchor9am, offsetMinutes: 0 });
       const key11am = buildNotificationScheduleKey({ type: "interval", interval: 2, unit: "hours", anchor: anchor11am, offsetMinutes: 0 });
-      const key1pm = buildNotificationScheduleKey({ type: "interval", interval: 2, unit: "hours", anchor: anchor1pm, offsetMinutes: 0 });
 
       const os9am = {
         identifier: "os-9am",
@@ -959,21 +959,7 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
         },
       };
 
-      const os1pm = {
-        identifier: "os-1pm",
-        content: {
-          data: {
-            type: "todo",
-            itemId: "task-int-1",
-            escalationLevel: 0,
-            purpose: "reminder",
-            logicalSignature: buildNotificationLogicalSignature("todo", "task-int-1", "reminder"),
-            notificationScheduleKey: key1pm,
-          },
-        },
-      };
-
-      (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([os9am, os11am, os1pm]);
+      (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([os9am, os11am, ...os1pmBatch]);
 
       await NotificationReconcilerService.reconcileAll();
 
@@ -1058,7 +1044,7 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
             workspaceId: t.workspaceId,
             title: t.title,
             oneTimeAt: new Date(t.reminder!.triggerAt),
-            escalationMinutes: [120],
+            escalationMinutes: [120, 240],
           });
           return {
             ...t,

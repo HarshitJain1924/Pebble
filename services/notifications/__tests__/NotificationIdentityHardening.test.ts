@@ -107,6 +107,47 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
     updatedAt: 1,
   });
 
+  const createMockTaskOsBatch = (task: Task) => {
+    const triggerAt = task.reminder!.triggerAt;
+    return [0, 120, 240].map((offset, idx) => ({
+      identifier: `os-${task.id}-${idx}`,
+      content: {
+        data: {
+          type: "todo",
+          itemId: task.id,
+          escalationLevel: idx,
+          purpose: idx === 0 ? "reminder" : "escalation",
+          logicalSignature: buildNotificationLogicalSignature("todo", task.id, idx === 0 ? "reminder" : "escalation"),
+          notificationScheduleKey: `once:${triggerAt}:+${offset}`,
+        },
+      },
+    }));
+  };
+
+  const createMockHabitOsBatch = (habit: Habit) => {
+    const triggerAt = habit.reminder!.triggerAt;
+    const hour = new Date(triggerAt).getHours();
+    const minute = new Date(triggerAt).getMinutes();
+    return [0, 120, 240].map((offset, idx) => ({
+      identifier: `os-${habit.id}-${idx}`,
+      content: {
+        data: {
+          type: "habit",
+          itemId: habit.id,
+          escalationLevel: idx,
+          purpose: idx === 0 ? "reminder" : "escalation",
+          logicalSignature: buildNotificationLogicalSignature("habit", habit.id, idx === 0 ? "reminder" : "escalation"),
+          notificationScheduleKey: buildNotificationScheduleKey({
+            type: "daily",
+            hour,
+            minute,
+            offsetMinutes: offset,
+          }),
+        },
+      },
+    }));
+  };
+
   it("1. Deterministic signature generation: entity-owned, type-safe, immutable across title & triggerAt changes", () => {
     const sig1 = buildNotificationLogicalSignature("todo", "task-100", "reminder");
     const sig2 = buildNotificationLogicalSignature("habit", "habit-200", "reminder");
@@ -161,44 +202,18 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
 
   it("4. Two tasks with identical triggerAt values produce distinct signatures and never collide", async () => {
     const identicalTime = 1788100000000;
-    const taskA = createMockTask("task-A", identicalTime, ["os-task-A"]);
-    const taskB = createMockTask("task-B", identicalTime, ["os-task-B"]);
+    const taskA = createMockTask("task-A", identicalTime);
+    const taskB = createMockTask("task-B", identicalTime);
+    const notifsA = createMockTaskOsBatch(taskA);
+    const notifsB = createMockTaskOsBatch(taskB);
+    taskA.reminder!.notificationIds = notifsA.map(n => n.identifier);
+    taskB.reminder!.notificationIds = notifsB.map(n => n.identifier);
 
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({
       "task-A": taskA,
       "task-B": taskB,
     });
-
-    const osNotifs = [
-      {
-        identifier: "os-task-A",
-        content: {
-          data: {
-            type: "todo",
-            itemId: "task-A",
-            escalationLevel: 0,
-            purpose: "reminder",
-            logicalSignature: buildNotificationLogicalSignature("todo", "task-A", "reminder"),
-            notificationScheduleKey: "once:1788100000000:+0",
-          },
-        },
-      },
-      {
-        identifier: "os-task-B",
-        content: {
-          data: {
-            type: "todo",
-            itemId: "task-B",
-            escalationLevel: 0,
-            purpose: "reminder",
-            logicalSignature: buildNotificationLogicalSignature("todo", "task-B", "reminder"),
-            notificationScheduleKey: "once:1788100000000:+0",
-          },
-        },
-      },
-    ];
-
-    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue(osNotifs);
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([...notifsA, ...notifsB]);
 
     await NotificationReconcilerService.reconcileAll();
 
@@ -209,47 +224,16 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
   it("5. Task vs Habit with identical triggerAt and identical ID are distinguished and never collide", async () => {
     const identicalTime = 1788100000000;
     const sharedId = "shared-entity-id";
-    const task = createMockTask(sharedId, identicalTime, ["os-task-shared"]);
-    const habit = createMockHabit(sharedId, identicalTime, ["os-habit-shared"]);
+    const task = createMockTask(sharedId, identicalTime);
+    const habit = createMockHabit(sharedId, identicalTime);
+    const taskNotifs = createMockTaskOsBatch(task);
+    const habitNotifs = createMockHabitOsBatch(habit);
+    task.reminder!.notificationIds = taskNotifs.map(n => n.identifier);
+    habit.reminder!.notificationIds = habitNotifs.map(n => n.identifier);
 
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ [sharedId]: task });
     (HabitRepository.getHabits as jest.Mock).mockResolvedValue({ [sharedId]: habit });
-
-    const osNotifs = [
-      {
-        identifier: "os-task-shared",
-        content: {
-          data: {
-            type: "todo",
-            itemId: sharedId,
-            escalationLevel: 0,
-            purpose: "reminder",
-            logicalSignature: buildNotificationLogicalSignature("todo", sharedId, "reminder"),
-            notificationScheduleKey: "once:1788100000000:+0",
-          },
-        },
-      },
-      {
-        identifier: "os-habit-shared",
-        content: {
-          data: {
-            type: "habit",
-            itemId: sharedId,
-            escalationLevel: 0,
-            purpose: "reminder",
-            logicalSignature: buildNotificationLogicalSignature("habit", sharedId, "reminder"),
-            notificationScheduleKey: buildNotificationScheduleKey({
-              type: "daily",
-              hour: new Date(identicalTime).getHours(),
-              minute: new Date(identicalTime).getMinutes(),
-              offsetMinutes: 0,
-            }),
-          },
-        },
-      },
-    ];
-
-    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue(osNotifs);
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([...taskNotifs, ...habitNotifs]);
 
     await NotificationReconcilerService.reconcileAll();
 
@@ -285,25 +269,10 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
   });
 
   it("7. Repeated reconciliation without duplicates: multi-pass idempotence", async () => {
-    const task = createMockTask("task-1", 1000, ["os-1"]);
+    const task = createMockTask("task-1", 1000);
+    const osNotifs = createMockTaskOsBatch(task);
+    task.reminder!.notificationIds = osNotifs.map(n => n.identifier);
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-1": task });
-
-    const osNotifs = [
-      {
-        identifier: "os-1",
-        content: {
-          data: {
-            type: "todo",
-            itemId: "task-1",
-            escalationLevel: 0,
-            purpose: "reminder",
-            logicalSignature: buildNotificationLogicalSignature("todo", "task-1", "reminder"),
-            notificationScheduleKey: "once:1000:+0",
-          },
-        },
-      },
-    ];
-
     (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue(osNotifs);
 
     // Run 3 consecutive reconciliation passes
@@ -374,8 +343,14 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
 
     await NotificationReconcilerService.reconcileAll();
 
+    // Primary legacy notification must be preserved, not cancelled
     expect(cancelReminderIds).not.toHaveBeenCalled();
-    expect(rescheduleTodoReminders).not.toHaveBeenCalled();
+    // But missing escalation slots must be scheduled via targeted repair
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task, {
+      targetScheduleKeys: [`once:${triggerAt}:+120`, `once:${triggerAt}:+240`],
+      cancelExisting: false,
+      retainedNotificationIds: ["os-legacy-1"],
+    });
   });
 
   it("11. Legacy notification compatibility: outdated legacy notifications (trigger changed) are cancelled and upgraded", async () => {
@@ -429,27 +404,20 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
 
   it("13. Domain notificationIds exactly match surviving OS notifications after duplicate pruning", async () => {
     const task = createMockTask("t-domain-sync", 1000, ["stale-1", "stale-2"]);
-    const validNotif = {
-      identifier: "os-surviving-1",
-      content: {
-        data: {
-          type: "todo",
-          itemId: "t-domain-sync",
-          escalationLevel: 0,
-          purpose: "reminder",
-          logicalSignature: "todo:t-domain-sync:reminder",
-          notificationScheduleKey: "once:1000:+0",
-        },
-      },
-    };
+    const survivingNotifs = createMockTaskOsBatch(task);
 
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "t-domain-sync": task });
-    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue([validNotif]);
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValue(survivingNotifs);
 
     await NotificationReconcilerService.reconcileAll();
 
     // Domain state should be updated to exact surviving OS notification
-    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-domain-sync", "ws-1", ["os-surviving-1"], expect.anything());
+    expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith(
+      "t-domain-sync",
+      "ws-1",
+      survivingNotifs.map(n => n.identifier),
+      expect.anything()
+    );
   });
 
   describe("14. Purpose matching enforcement in isMatchingNotificationSignature", () => {
