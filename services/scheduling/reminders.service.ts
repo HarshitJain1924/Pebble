@@ -873,6 +873,15 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
           notificationIds: batch.ids,
         },
       };
+    } else if (todo.reminder?.notificationIds?.length) {
+      await cancelReminderIds(todo.reminder.notificationIds);
+      return {
+        ...todo,
+        reminder: {
+          ...todo.reminder,
+          notificationIds: undefined,
+        },
+      };
     }
     return todo;
   } catch (e) {
@@ -941,6 +950,15 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
         reminder: {
           ...habit.reminder,
           notificationIds: batch.ids,
+        },
+      };
+    } else if (habit.reminder?.notificationIds?.length) {
+      await cancelReminderIds(habit.reminder.notificationIds);
+      return {
+        ...habit,
+        reminder: {
+          ...habit.reminder,
+          notificationIds: undefined,
         },
       };
     }

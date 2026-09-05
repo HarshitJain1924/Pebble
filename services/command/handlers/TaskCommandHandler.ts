@@ -1165,6 +1165,10 @@ static async reorderTasks(
 
       const needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || statusChanged || scheduleChanged || archivedChanged;
 
+      if ((updatedTask as any).reminder === null) {
+        updatedTask.reminder = undefined;
+      }
+
       if (needsReminderUpdate && updatedTask.reminder && updatedTask.reminder.notificationIds) {
         updatedTask.reminder = { ...updatedTask.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
       }

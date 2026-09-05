@@ -54,8 +54,16 @@ export function normalizeScheduleReminder<T extends SchedulableEntity>(
 
   const isScheduleTimeOrDateChanged = newTime !== oldTime || newDate !== oldDate;
 
-  // If schedule time and date didn't change and reminder is already set, keep as-is
-  if (!isScheduleTimeOrDateChanged && existing.reminder?.triggerAt) {
+  // If schedule time and date didn't change, keep existing reminder state as-is
+  if (!isScheduleTimeOrDateChanged) {
+    return updates;
+  }
+
+  // If the entity was already scheduled with a start time and had NO active reminder
+  // (e.g. reminder was explicitly cancelled or removed), rescheduling must NOT resurrect a reminder.
+  // Default reminder generation is strictly reserved for unscheduled entities (!oldTime && newTime)
+  // being planned for the first time.
+  if (oldTime && !existing.reminder?.triggerAt) {
     return updates;
   }
 

@@ -235,6 +235,26 @@ export class EntityCommandService {
     return HabitCommandHandler.updateHabit(habitId, workspaceId, updates, options);
   }
 
+  /**
+   * Explicitly cancel an entity's scheduled reminder.
+   * Cancels scheduled OS notifications and clears reminder domain state.
+   */
+  static async cancelReminder(
+    entityType: "task" | "todo" | "habit" | "checklist",
+    entityId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Task | Habit | Checklist> {
+    if (entityType === "task" || entityType === "todo") {
+      return this.updateTask(entityId, workspaceId, { reminder: undefined }, options);
+    } else if (entityType === "habit") {
+      return this.updateHabit(entityId, workspaceId, { reminder: undefined }, options);
+    } else if (entityType === "checklist") {
+      return this.updateChecklist(entityId, workspaceId, { reminder: undefined }, options);
+    }
+    throw new Error(`Unsupported entityType: ${entityType}`);
+  }
+
   // ─── BATCH: BULK COMPLETE / ARCHIVE ──────────────────────────────────────────
   // Bulk variants of the single-item commands so the Tasks screen bulk-select
   // actions produce the same lifecycle side effects (pebble rewards, reminder

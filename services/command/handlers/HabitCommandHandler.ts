@@ -713,6 +713,10 @@ static async recycleHabit(
 
       needsReminderUpdate = titleChanged || categoryChanged || recurrenceChanged || reminderChanged || scheduleChanged || archivedChanged;
 
+      if ((mergedHabit as any).reminder === null) {
+        mergedHabit.reminder = undefined;
+      }
+
       if (needsReminderUpdate && mergedHabit.reminder && mergedHabit.reminder.notificationIds) {
         mergedHabit.reminder = { ...mergedHabit.reminder, notificationIds: undefined }; // Strip so reconciler uses fresh IDs
       }

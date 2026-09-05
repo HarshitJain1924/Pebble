@@ -171,6 +171,10 @@ static async moveChecklist(
         updatedAt: Date.now(),
       };
 
+      if ((merged as any).reminder === null) {
+        merged.reminder = undefined;
+      }
+
       if (needsReminderUpdate && merged.reminder && merged.reminder.notificationIds) {
         merged.reminder = { ...merged.reminder, notificationIds: undefined };
       }
