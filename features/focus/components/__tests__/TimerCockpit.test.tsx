@@ -1,4 +1,5 @@
 import React from "react";
+import { Text } from "react-native";
 import { act, create } from "react-test-renderer";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
@@ -109,5 +110,79 @@ describe("TimerCockpit Component", () => {
     expect(texts).toContain("Break Paused");
     expect(texts).toContain("Start Break");
     expect(texts).toContain("Short Break (5m)");
+  });
+
+  it("4. Hides presets when Pomodoro is actively running", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(<TimerCockpit {...baseProps} isActive={true} />);
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+
+    expect(texts).toContain("25:00");
+    expect(texts).toContain("Focusing");
+    expect(texts).toContain("Pause");
+    // Presets should be hidden when active
+    expect(texts).not.toContain("15m");
+    expect(texts).not.toContain("25m");
+    expect(texts).not.toContain("45m");
+    expect(texts).not.toContain("Custom");
+  });
+
+  it("5. Renders custom duration adjuster when showCustomInput is true", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TimerCockpit
+          {...baseProps}
+          showCustomInput={true}
+          customMinutes={35}
+          customMinsText="35"
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+
+    expect(texts).toContain("Custom");
+    expect(texts).toContain("mins");
+    const inputs = root.findAllByType("TextInput" as any);
+    expect(inputs.length).toBeGreaterThan(0);
+    expect(inputs[0].props.value).toBe("35");
+  });
+
+  it("6. Renders compact ProgressRing dimensions (< 200px) instead of legacy 230px", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(<TimerCockpit {...baseProps} />);
+    });
+
+    const root = renderer.root;
+    // Find ProgressRing component
+    const ring = root.findByProps({ showText: false });
+    expect(ring).toBeDefined();
+    expect(ring.props.size).toBeLessThanOrEqual(180);
+    expect(ring.props.strokeWidth).toBeLessThanOrEqual(8);
+  });
+
+  it("7. Renders targetSlot inside the unified session card when provided", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TimerCockpit
+          {...baseProps}
+          targetSlot={<Text>Mock Target Slot</Text>}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+    expect(texts).toContain("Mock Target Slot");
+    expect(texts).toContain("25:00");
+    expect(texts).toContain("Start Focus");
   });
 });

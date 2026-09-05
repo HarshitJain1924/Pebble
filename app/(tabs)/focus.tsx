@@ -52,20 +52,20 @@ export default function FocusScreen() {
             {/* Mode Selector */}
             <ModeSelector mode={state.mode} setMode={state.setMode} colors={colors} />
 
-            {/* Focus Target Card */}
-            {state.mode === "pomodoro" && state.pomodoroMode === "work" && (
-              <FocusTargetCard
-                focusedTaskId={state.focusedTaskId}
-                todoList={state.todoList}
-                habitList={state.habitList}
-                onLinkPress={() => state.setShowTaskPicker(true)}
-                onUnlinkPress={() => state.setFocusedTaskId(null)}
-                colors={colors}
-              />
-            )}
-
-            {/* Timer Cockpit */}
+            {/* Unified Focus Session Workspace */}
             <TimerCockpit
+              targetSlot={
+                state.mode === "pomodoro" && state.pomodoroMode === "work" ? (
+                  <FocusTargetCard
+                    focusedTaskId={state.focusedTaskId}
+                    todoList={state.todoList}
+                    habitList={state.habitList}
+                    onLinkPress={() => state.setShowTaskPicker(true)}
+                    onUnlinkPress={() => state.setFocusedTaskId(null)}
+                    colors={colors}
+                  />
+                ) : undefined
+              }
               mode={state.mode}
               pomodoroMode={state.pomodoroMode}
               isActive={state.isActive}

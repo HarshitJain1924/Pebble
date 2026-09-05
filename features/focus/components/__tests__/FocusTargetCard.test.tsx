@@ -50,7 +50,6 @@ describe("FocusTargetCard Component", () => {
     // Header prompt
     const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
     expect(texts).toContain("What are you focusing on?");
-    expect(texts).toContain("Choose a task or habit for this session");
     expect(texts).toContain("Choose a task or habit");
 
     // Action button exists and calls onLinkPress
@@ -83,8 +82,7 @@ describe("FocusTargetCard Component", () => {
 
     const root = renderer.root;
     const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
-    expect(texts).toContain("What are you focusing on?");
-    expect(texts).toContain("Linked Task");
+    expect(texts).toContain("Focus target");
     expect(texts).toContain("Write Architecture Spec");
     expect(texts).toContain("Task");
     expect(texts).toContain("Change");
@@ -126,8 +124,7 @@ describe("FocusTargetCard Component", () => {
 
     const root = renderer.root;
     const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
-    expect(texts).toContain("What are you focusing on?");
-    expect(texts).toContain("Linked Habit");
+    expect(texts).toContain("Focus target");
     expect(texts).toContain("Daily Reading");
     expect(texts).toContain("Habit");
     expect(texts).toContain("💔 RECOVERY ACTIVE (10M)");

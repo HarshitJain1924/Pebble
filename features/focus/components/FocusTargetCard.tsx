@@ -2,7 +2,6 @@ import React from "react";
 import { View, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { AppCard } from "@/shared/components/ui/AppCard";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { Spacing } from "@/shared/constants/spacing";
 
@@ -30,117 +29,143 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
   const title = linkedTask ? linkedTask.title : (linkedHabit ? linkedHabit.title : "Selected Target");
   const isRecovery = isHabit && !!linkedHabit.previousStreak && linkedHabit.previousStreak > 0;
 
-  return (
-    <AppCard style={styles.taskCard}>
-      <View style={styles.headerRow}>
-        <View style={styles.titleContainer}>
-          <Text style={[styles.taskCardTitle, { color: colors.text }]}>
-            What are you focusing on?
-          </Text>
-          <Text style={{ fontSize: 13, color: colors.textMuted }}>
-            {focusedTaskId
-              ? isHabit
-                ? "Linked Habit"
-                : "Linked Task"
-              : "Choose a task or habit for this session"}
-          </Text>
-        </View>
-        {focusedTaskId && (
-          <View style={styles.headerActions}>
-            <PressableScale
-              onPress={onLinkPress}
-              haptic
-              style={[styles.changeBtn, { backgroundColor: `${colors.primary}15` }]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
-            >
-              <Text style={{ fontSize: 12, fontWeight: "700", color: colors.primary }}>
-                Change
-              </Text>
-            </PressableScale>
-            <PressableScale
-              onPress={onUnlinkPress}
-              haptic
-              style={styles.unlinkBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
-            >
-              <Feather name="x" size={16} color={colors.textMuted} />
-            </PressableScale>
-          </View>
-        )}
-      </View>
-
-      <View style={[styles.divider, { backgroundColor: colors.border || "rgba(255, 255, 255, 0.05)" }]} />
-
-      {focusedTaskId ? (
+  if (!focusedTaskId) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={[styles.emptyLabel, { color: colors.textMuted }]}>
+          What are you focusing on?
+        </Text>
         <PressableScale
           onPress={onLinkPress}
           haptic
-          style={styles.linkedRow}
+          style={[
+            styles.selectTargetBtn,
+            {
+              backgroundColor: `${colors.primary}0D`,
+              borderColor: `${colors.primary}33`,
+            },
+          ]}
         >
-          <View
-            style={[
-              styles.iconWrap,
-              { backgroundColor: isHabit ? "rgba(245, 158, 11, 0.12)" : `${colors.primary}18` },
-            ]}
-          >
-            <Feather
-              name={isHabit ? "activity" : "target"}
-              size={18}
-              color={isHabit ? "#F59E0B" : colors.primary}
-            />
-          </View>
-          <View style={styles.targetInfo}>
-            <Text numberOfLines={1} style={[styles.targetTitle, { color: colors.text }]}>
-              {title}
-            </Text>
-            <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "500" }}>
-              {isHabit ? "Habit" : "Task"}
-            </Text>
-          </View>
-          {isRecovery && (
-            <View style={styles.recoveryBadge}>
-              <Text style={styles.recoveryText}>
-                💔 RECOVERY ACTIVE (10M)
-              </Text>
-            </View>
-          )}
-        </PressableScale>
-      ) : (
-        <PressableScale
-          onPress={onLinkPress}
-          haptic
-          style={[styles.selectTaskBtn, { borderColor: `${colors.primary}44` }]}
-        >
-          <Feather name="plus-circle" size={18} color={colors.primary} />
-          <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 14 }}>
+          <Feather name="plus-circle" size={15} color={colors.primary} />
+          <Text style={[styles.selectTargetText, { color: colors.primary }]}>
             Choose a task or habit
           </Text>
         </PressableScale>
-      )}
-    </AppCard>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.targetContainer}>
+      <View style={styles.targetHeaderRow}>
+        <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
+          Focus target
+        </Text>
+        <View style={styles.targetActions}>
+          <PressableScale
+            onPress={onLinkPress}
+            haptic
+            style={[styles.changeBtn, { backgroundColor: `${colors.primary}14` }]}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+          >
+            <Text style={[styles.changeBtnText, { color: colors.primary }]}>
+              Change
+            </Text>
+          </PressableScale>
+          <PressableScale
+            onPress={onUnlinkPress}
+            haptic
+            style={styles.unlinkBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+          >
+            <Feather name="x" size={15} color={colors.textMuted} />
+          </PressableScale>
+        </View>
+      </View>
+
+      <PressableScale
+        onPress={onLinkPress}
+        haptic
+        style={styles.targetDetailRow}
+      >
+        <View
+          style={[
+            styles.iconBadge,
+            { backgroundColor: isHabit ? "rgba(245, 158, 11, 0.12)" : `${colors.primary}16` },
+          ]}
+        >
+          <Feather
+            name={isHabit ? "activity" : "target"}
+            size={16}
+            color={isHabit ? "#F59E0B" : colors.primary}
+          />
+        </View>
+
+        <View style={styles.titleInfo}>
+          <Text numberOfLines={1} style={[styles.targetTitle, { color: colors.text }]}>
+            {title}
+          </Text>
+          <View style={styles.metaRow}>
+            <Text style={[styles.typeLabel, { color: colors.textMuted }]}>
+              {isHabit ? "Habit" : "Task"}
+            </Text>
+            {isRecovery && (
+              <View style={styles.recoveryBadge}>
+                <Text style={styles.recoveryText}>💔 RECOVERY ACTIVE (10M)</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </PressableScale>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  taskCard: {
-    padding: Spacing.lg,
-    gap: 12,
+  emptyContainer: {
     width: "100%",
+    gap: 8,
+    alignItems: "center",
+    paddingVertical: 2,
   },
-  headerRow: {
+  emptyLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  selectTargetBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    width: "100%",
+    minHeight: 40,
+  },
+  selectTargetText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  targetContainer: {
+    width: "100%",
+    gap: 6,
+    paddingVertical: 2,
+  },
+  targetHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  titleContainer: {
-    gap: 2,
-    flex: 1,
-  },
-  taskCardTitle: {
-    fontSize: 16,
+  sectionLabel: {
+    fontSize: 11,
     fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
-  headerActions: {
+  targetActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -151,29 +176,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: "center",
     alignItems: "center",
+    minHeight: 28,
+  },
+  changeBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   unlinkBtn: {
     padding: 6,
     justifyContent: "center",
     alignItems: "center",
+    minHeight: 28,
   },
-  divider: {
-    height: 1,
-  },
-  linkedRow: {
+  targetDetailRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 2,
+    gap: 10,
+    width: "100%",
   },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  iconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-  targetInfo: {
+  titleInfo: {
     flex: 1,
     gap: 2,
   },
@@ -181,11 +209,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  typeLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
   recoveryBadge: {
     backgroundColor: "rgba(239, 68, 68, 0.12)",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
     borderColor: "rgba(239, 68, 68, 0.25)",
     borderWidth: 1,
   },
@@ -193,16 +230,5 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     color: "#EF4444",
-  },
-  selectTaskBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    minHeight: 48,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderRadius: 12,
   },
 });

@@ -91,7 +91,7 @@ jest.mock("@/features/focus/components/MusicPlayerModal", () => ({
 import FocusScreen from "@/app/(tabs)/focus";
 
 describe("FocusScreen Information Hierarchy", () => {
-  it("establishes FocusTargetCard BEFORE TimerCockpit in Pomodoro work mode", () => {
+  it("integrates FocusTargetCard inside TimerCockpit in Pomodoro work mode", () => {
     mockFocusState.mode = "pomodoro";
     mockFocusState.pomodoroMode = "work";
 
@@ -101,31 +101,31 @@ describe("FocusScreen Information Hierarchy", () => {
     });
 
     const root = renderer.root;
-    // Find all rendered component instances in order
+    // Find all rendered component instances
     const header = root.findByType("FocusHeader" as any);
     const modeSelector = root.findByType("ModeSelector" as any);
-    const targetCard = root.findByType("FocusTargetCard" as any);
     const timerCockpit = root.findByType("TimerCockpit" as any);
     const statsCard = root.findByType("FocusStatsCard" as any);
 
     expect(header).toBeDefined();
     expect(modeSelector).toBeDefined();
-    expect(targetCard).toBeDefined();
     expect(timerCockpit).toBeDefined();
     expect(statsCard).toBeDefined();
 
-    // Verify ordering in ScrollView children
+    // Verify unified structure: FocusTargetCard is passed to TimerCockpit via targetSlot
+    expect(timerCockpit.props.targetSlot).toBeDefined();
+    expect(timerCockpit.props.targetSlot.type).toBe("FocusTargetCard");
+
+    // Verify ordering in ScrollView direct children
     const scrollView = root.findByType(ScrollView);
     const children = React.Children.toArray(scrollView.props.children).filter(Boolean) as any[];
     const componentNames = children.map((c: any) => c.type);
 
-    const targetIndex = componentNames.indexOf("FocusTargetCard");
     const timerIndex = componentNames.indexOf("TimerCockpit");
+    const statsIndex = componentNames.indexOf("FocusStatsCard");
 
-    expect(targetIndex).toBeGreaterThan(-1);
     expect(timerIndex).toBeGreaterThan(-1);
-    // FocusTargetCard MUST appear BEFORE TimerCockpit
-    expect(targetIndex).toBeLessThan(timerIndex);
+    expect(statsIndex).toBeGreaterThan(timerIndex);
   });
 
   it("omits FocusTargetCard in Stopwatch mode while keeping TimerCockpit and Stats intact", () => {
@@ -142,6 +142,7 @@ describe("FocusScreen Information Hierarchy", () => {
 
     const timerCockpit = root.findByType("TimerCockpit" as any);
     expect(timerCockpit).toBeDefined();
+    expect(timerCockpit.props.targetSlot).toBeUndefined();
 
     const statsCard = root.findByType("FocusStatsCard" as any);
     expect(statsCard).toBeDefined();

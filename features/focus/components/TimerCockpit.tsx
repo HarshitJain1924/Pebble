@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { AppTextInput as TextInput, AppText as Text } from "@/shared/components/ui/AppText";
 import { AppCard } from "@/shared/components/ui/AppCard";
@@ -9,6 +9,7 @@ import { Spacing } from "@/shared/constants/spacing";
 import { Typography } from "@/shared/constants/typography";
 
 interface TimerCockpitProps {
+  targetSlot?: React.ReactNode;
   mode: "pomodoro" | "stopwatch";
   pomodoroMode: "work" | "break";
   isActive: boolean;
@@ -38,6 +39,7 @@ interface TimerCockpitProps {
 }
 
 export const TimerCockpit: React.FC<TimerCockpitProps> = ({
+  targetSlot,
   mode,
   pomodoroMode,
   isActive,
@@ -65,6 +67,14 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
   setSessionTime,
   setTotalSessionTime,
 }) => {
+  const { height: windowHeight = 800 } = useWindowDimensions() ?? {};
+  const isCompact = windowHeight > 0 && windowHeight < 700;
+
+  const ringSize = isCompact ? 160 : 180;
+  const glowSize = isCompact ? 140 : 160;
+  const strokeWidth = isCompact ? 7 : 8;
+  const timerFontSize = isCompact ? 34 : 38;
+
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
       .toString()
@@ -77,12 +87,20 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
 
   return (
     <AppCard style={styles.timerCard}>
+      {targetSlot && (
+        <View style={styles.targetSlotWrap}>
+          {targetSlot}
+          <View style={[styles.targetDivider, { backgroundColor: colors.border }]} />
+        </View>
+      )}
+
+      {/* Timer / Progress Ring */}
       {mode === "pomodoro" ? (
-        <View style={styles.timerRingWrap}>
+        <View style={[styles.timerRingWrap, { width: ringSize, height: ringSize }]}>
           {glowEnabled && (
             <FloatingGlow
               color={pomodoroMode === "work" ? (isActive ? colors.warning : colors.primary) : colors.success}
-              size={210}
+              size={glowSize}
               opacity={isActive ? 0.15 : 0.08}
               pulseSpeed={isActive ? 4000 : 7500}
               style={StyleSheet.absoluteFillObject}
@@ -90,13 +108,13 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
           )}
           <ProgressRing
             progress={progress}
-            size={230}
-            strokeWidth={11}
+            size={ringSize}
+            strokeWidth={strokeWidth}
             showText={false}
             color={pomodoroMode === "work" ? colors.primary : colors.success}
           />
           <View style={styles.timerContent}>
-            <Text style={[styles.timerDigits, { color: colors.text }]}>
+            <Text style={[styles.timerDigits, { fontSize: timerFontSize, color: colors.text }]}>
               {formatTime(sessionTime)}
             </Text>
             <Text
@@ -116,11 +134,11 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
           </View>
         </View>
       ) : (
-        <View style={styles.timerRingWrap}>
+        <View style={[styles.timerRingWrap, { width: ringSize, height: ringSize }]}>
           {glowEnabled && (
             <FloatingGlow
               color={swRunning ? colors.primary : colors.textMuted}
-              size={210}
+              size={glowSize}
               opacity={swRunning ? 0.15 : 0.08}
               pulseSpeed={swRunning ? 4000 : 7500}
               style={StyleSheet.absoluteFillObject}
@@ -128,148 +146,18 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
           )}
           <ProgressRing
             progress={1}
-            size={230}
-            strokeWidth={11}
+            size={ringSize}
+            strokeWidth={strokeWidth}
             showText={false}
             color={swRunning ? colors.primary : colors.border}
           />
           <View style={styles.timerContent}>
-            <Text style={[styles.timerDigits, { color: colors.text }]}>
+            <Text style={[styles.timerDigits, { fontSize: timerFontSize, color: colors.text }]}>
               {formatTime(swTime)}
             </Text>
             <Text style={[styles.timerSub, { color: colors.textMuted }]}>
               {swRunning ? "Running" : "Paused"}
             </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Work presets */}
-      {mode === "pomodoro" && pomodoroMode === "work" && !isActive && (
-        <View style={{ gap: 12, alignItems: "center" }}>
-          <View style={styles.presetsRow}>
-            {[15, 25, 45].map((mins) => {
-              const isSelected = !showCustomInput && totalSessionTime === mins * 60;
-              return (
-                <Pressable
-                  key={mins}
-                  onPress={() => selectDuration(mins)}
-                  style={[
-                    styles.presetBtn,
-                    {
-                      backgroundColor: isSelected ? `${colors.primary}22` : colors.cardLight,
-                      borderColor: isSelected ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: isSelected ? colors.primary : colors.text,
-                      fontWeight: "600",
-                    }}
-                  >
-                    {mins}m
-                  </Text>
-                </Pressable>
-              );
-            })}
-            <Pressable
-              onPress={selectCustomDuration}
-              style={[
-                styles.presetBtn,
-                {
-                  backgroundColor: showCustomInput ? `${colors.primary}22` : colors.cardLight,
-                  borderColor: showCustomInput ? colors.primary : colors.border,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: showCustomInput ? colors.primary : colors.text,
-                  fontWeight: "600",
-                }}
-              >
-                Custom
-              </Text>
-            </Pressable>
-          </View>
-
-          {showCustomInput && (
-            <View style={styles.customAdjusterRow}>
-              <Pressable
-                onPress={() => adjustCustomMinutes(-5)}
-                style={[
-                  styles.adjustBtn,
-                  {
-                    backgroundColor: colors.cardLight,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <Feather name="minus" size={16} color={colors.text} />
-              </Pressable>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <TextInput
-                  value={customMinsText}
-                  onChangeText={handleCustomMinutesChange}
-                  onBlur={handleCustomMinutesSubmitOrBlur}
-                  onSubmitEditing={handleCustomMinutesSubmitOrBlur}
-                  keyboardType="number-pad"
-                  maxLength={3}
-                  style={[styles.customAdjusterInput, { color: colors.text, borderColor: colors.border }]}
-                />
-                <Text style={{ color: colors.textMuted, fontWeight: "600" }}>mins</Text>
-              </View>
-              <Pressable
-                onPress={() => adjustCustomMinutes(5)}
-                style={[
-                  styles.adjustBtn,
-                  {
-                    backgroundColor: colors.cardLight,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <Feather name="plus" size={16} color={colors.text} />
-              </Pressable>
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* Break presets */}
-      {mode === "pomodoro" && pomodoroMode === "break" && !isActive && (
-        <View style={{ gap: 12, alignItems: "center" }}>
-          <View style={styles.presetsRow}>
-            {[5, 15].map((mins) => {
-              const isSelected = totalSessionTime === mins * 60;
-              return (
-                <Pressable
-                  key={mins}
-                  onPress={() => {
-                    setSessionTime(mins * 60);
-                    setTotalSessionTime(mins * 60);
-                    setBreakType(mins === 5 ? "short" : "long");
-                  }}
-                  style={[
-                    styles.presetBtn,
-                    {
-                      backgroundColor: isSelected ? `${colors.success}22` : colors.cardLight,
-                      borderColor: isSelected ? colors.success : colors.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: isSelected ? colors.success : colors.text,
-                      fontWeight: "600",
-                    }}
-                  >
-                    {mins === 5 ? "Short Break (5m)" : "Long Break (15m)"}
-                  </Text>
-                </Pressable>
-              );
-            })}
           </View>
         </View>
       )}
@@ -284,14 +172,14 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               { backgroundColor: pomodoroMode === "work" ? colors.primary : colors.success },
             ]}
           >
-            <Feather name={isActive ? "pause" : "play"} size={20} color="#ffffff" />
+            <Feather name={isActive ? "pause" : "play"} size={18} color="#ffffff" />
             <Text style={styles.mainBtnText}>
               {isActive ? "Pause" : pomodoroMode === "work" ? "Start Focus" : "Start Break"}
             </Text>
           </Pressable>
         ) : (
           <Pressable onPress={swStartPause} style={[styles.mainBtn, { backgroundColor: colors.primary }]}>
-            <Feather name={swRunning ? "pause" : "play"} size={20} color="#ffffff" />
+            <Feather name={swRunning ? "pause" : "play"} size={18} color="#ffffff" />
             <Text style={styles.mainBtnText}>{swRunning ? "Pause" : "Start"}</Text>
           </Pressable>
         )}
@@ -307,8 +195,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               },
             ]}
           >
-            <Feather name="rotate-ccw" size={16} color={colors.text} />
-            <Text style={{ color: colors.text, fontWeight: "600" }}>Reset</Text>
+            <Feather name="rotate-ccw" size={15} color={colors.text} />
+            <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>Reset</Text>
           </Pressable>
         ) : (
           <Pressable
@@ -321,13 +209,151 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               },
             ]}
           >
-            <Feather name={swRunning ? "clock" : "rotate-ccw"} size={16} color={colors.text} />
-            <Text style={{ color: colors.text, fontWeight: "600" }}>
+            <Feather name={swRunning ? "clock" : "rotate-ccw"} size={15} color={colors.text} />
+            <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>
               {swRunning ? "Lap" : "Reset"}
             </Text>
           </Pressable>
         )}
       </View>
+
+      {/* Work presets */}
+      {mode === "pomodoro" && pomodoroMode === "work" && !isActive && (
+        <View style={{ gap: 10, alignItems: "center", width: "100%" }}>
+          <View style={styles.presetsRow}>
+            {[15, 25, 45].map((mins) => {
+              const isSelected = !showCustomInput && totalSessionTime === mins * 60;
+              return (
+                <Pressable
+                  key={mins}
+                  onPress={() => selectDuration(mins)}
+                  hitSlop={6}
+                  style={[
+                    styles.presetBtn,
+                    {
+                      backgroundColor: isSelected ? `${colors.primary}22` : colors.cardLight,
+                      borderColor: isSelected ? colors.primary : colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: isSelected ? colors.primary : colors.text,
+                      fontWeight: "600",
+                      fontSize: 13,
+                    }}
+                  >
+                    {mins}m
+                  </Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              onPress={selectCustomDuration}
+              hitSlop={6}
+              style={[
+                styles.presetBtn,
+                {
+                  backgroundColor: showCustomInput ? `${colors.primary}22` : colors.cardLight,
+                  borderColor: showCustomInput ? colors.primary : colors.border,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: showCustomInput ? colors.primary : colors.text,
+                  fontWeight: "600",
+                  fontSize: 13,
+                }}
+              >
+                Custom
+              </Text>
+            </Pressable>
+          </View>
+
+          {showCustomInput && (
+            <View style={styles.customAdjusterRow}>
+              <Pressable
+                onPress={() => adjustCustomMinutes(-5)}
+                hitSlop={6}
+                style={[
+                  styles.adjustBtn,
+                  {
+                    backgroundColor: colors.cardLight,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Feather name="minus" size={15} color={colors.text} />
+              </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <TextInput
+                  value={customMinsText}
+                  onChangeText={handleCustomMinutesChange}
+                  onBlur={handleCustomMinutesSubmitOrBlur}
+                  onSubmitEditing={handleCustomMinutesSubmitOrBlur}
+                  keyboardType="number-pad"
+                  maxLength={3}
+                  style={[styles.customAdjusterInput, { color: colors.text, borderColor: colors.border }]}
+                />
+                <Text style={{ color: colors.textMuted, fontWeight: "600", fontSize: 13 }}>mins</Text>
+              </View>
+              <Pressable
+                onPress={() => adjustCustomMinutes(5)}
+                hitSlop={6}
+                style={[
+                  styles.adjustBtn,
+                  {
+                    backgroundColor: colors.cardLight,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Feather name="plus" size={15} color={colors.text} />
+              </Pressable>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Break presets */}
+      {mode === "pomodoro" && pomodoroMode === "break" && !isActive && (
+        <View style={{ gap: 10, alignItems: "center", width: "100%" }}>
+          <View style={styles.presetsRow}>
+            {[5, 15].map((mins) => {
+              const isSelected = totalSessionTime === mins * 60;
+              return (
+                <Pressable
+                  key={mins}
+                  onPress={() => {
+                    setSessionTime(mins * 60);
+                    setTotalSessionTime(mins * 60);
+                    setBreakType(mins === 5 ? "short" : "long");
+                  }}
+                  hitSlop={6}
+                  style={[
+                    styles.presetBtn,
+                    {
+                      backgroundColor: isSelected ? `${colors.success}22` : colors.cardLight,
+                      borderColor: isSelected ? colors.success : colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: isSelected ? colors.success : colors.text,
+                      fontWeight: "600",
+                      fontSize: 13,
+                    }}
+                  >
+                    {mins === 5 ? "Short Break (5m)" : "Long Break (15m)"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
     </AppCard>
   );
 };
@@ -336,12 +362,21 @@ const styles = StyleSheet.create({
   timerCard: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.ux,
-    gap: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
+  targetSlotWrap: {
+    width: "100%",
+    gap: Spacing.sm,
+    paddingBottom: Spacing.xs,
+  },
+  targetDivider: {
+    height: 1,
+    width: "100%",
+    opacity: 0.5,
   },
   timerRingWrap: {
-    width: 230,
-    height: 230,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -352,54 +387,19 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   timerDigits: {
-    fontSize: 48,
     fontWeight: "800",
+    letterSpacing: -0.5,
   },
   timerSub: {
-    fontSize: Typography.sizes.sm,
+    fontSize: Typography.sizes.xs,
     fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: 1.5,
   },
-  presetsRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  presetBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  customAdjusterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    marginTop: 4,
-  },
-  adjustBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  customAdjusterInput: {
-    fontSize: 16,
-    fontWeight: "700",
-    minWidth: 60,
-    textAlign: "center",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
   controlsRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
     width: "100%",
-    paddingHorizontal: Spacing.md,
   },
   mainBtn: {
     flex: 2,
@@ -407,8 +407,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 14,
-    borderRadius: 18,
+    paddingVertical: 12,
+    borderRadius: 14,
+    minHeight: 44,
   },
   mainBtnText: {
     color: "#ffffff",
@@ -421,8 +422,46 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingVertical: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 44,
+  },
+  presetsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+  },
+  presetBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 34,
+  },
+  customAdjusterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 2,
+  },
+  adjustBtn: {
+    width: 36,
+    height: 36,
     borderRadius: 18,
     borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  customAdjusterInput: {
+    fontSize: 15,
+    fontWeight: "700",
+    minWidth: 56,
+    textAlign: "center",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
   },
 });
