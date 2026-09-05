@@ -45,9 +45,32 @@ export function isMatchingNotificationSignature(
     return false;
   }
 
-  // 1. Canonical entity-owned signature match (for specific purpose or inferred purpose)
-  const effectivePurpose = purpose || data.purpose || (typeof data.escalationLevel === "number" && data.escalationLevel > 0 ? "escalation" : "reminder");
-  const canonicalSignature = buildNotificationLogicalSignature(expectedKind, entity.id, effectivePurpose);
+  // 1. Explicit purpose requested by caller: enforce exact purpose matching.
+  if (purpose !== undefined) {
+    if (data.purpose && data.purpose !== purpose) {
+      return false;
+    }
+
+    const expectedSignature = buildNotificationLogicalSignature(expectedKind, entity.id, purpose);
+    if (data.logicalSignature === expectedSignature) {
+      return true;
+    }
+
+    // Legacy triggerAt signature compatibility: legacy notifications are primary reminders
+    if (
+      purpose === "reminder" &&
+      (!data.escalationLevel || data.escalationLevel === 0) &&
+      data.logicalSignature === entity.reminder.triggerAt.toString()
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // 2. Broad lookup (no purpose specified by caller): preserve existing compatibility behavior.
+  const inferredPurpose = data.purpose || (typeof data.escalationLevel === "number" && data.escalationLevel > 0 ? "escalation" : "reminder");
+  const canonicalSignature = buildNotificationLogicalSignature(expectedKind, entity.id, inferredPurpose);
   if (data.logicalSignature === canonicalSignature) {
     return true;
   }
@@ -62,7 +85,7 @@ export function isMatchingNotificationSignature(
     return true;
   }
 
-  // 2. Legacy triggerAt signature compatibility (ONLY recognized for existing notifications, never generated)
+  // Legacy triggerAt signature compatibility (ONLY recognized for existing notifications, never generated)
   if (data.logicalSignature === entity.reminder.triggerAt.toString()) {
     return true;
   }

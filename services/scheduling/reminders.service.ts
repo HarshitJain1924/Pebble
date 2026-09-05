@@ -33,6 +33,7 @@ export type ReminderScheduleOptions = {
   /** Only accepts the scheduler's internal recurrence format. */
   recurrence?: SchedulerRecurrence;
   purpose?: NotificationPurpose;
+  workspaceId?: string;
 };
 
 export type ScheduledReminderBatch = {
@@ -166,6 +167,7 @@ function buildNotificationData(
   itemId: string,
   escalationLevel: number,
   purpose: NotificationPurpose = escalationLevel > 0 ? "escalation" : "reminder",
+  workspaceId?: string,
 ) {
   const logicalSignature = buildNotificationLogicalSignature(kind, itemId, purpose);
   return {
@@ -174,6 +176,7 @@ function buildNotificationData(
     escalationLevel,
     logicalSignature,
     purpose,
+    ...(workspaceId ? { workspaceId } : {}),
   };
 }
 
@@ -404,6 +407,7 @@ export async function scheduleReminderBatch(
       options.itemId,
       index,
       purpose,
+      options.workspaceId,
     );
 
     if (options.oneTimeAt) {
@@ -840,6 +844,7 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
           recurrence: recurrenceRuleToScheduler(todo.recurrence),
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+          workspaceId: todo.workspaceId,
         });
         return {
           ...todo,
@@ -859,6 +864,7 @@ export async function rescheduleTodoReminders(todo: Task): Promise<Task> {
         category: todo.categoryId,
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+        workspaceId: todo.workspaceId,
       });
       return {
         ...todo,
@@ -908,6 +914,7 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
           recurrence: recurrenceRuleToScheduler(habit.recurrence),
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+          workspaceId: habit.workspaceId,
         });
         return {
           ...habit,
@@ -927,6 +934,7 @@ export async function rescheduleHabitReminders(habit: Habit): Promise<Habit> {
         category: habit.categoryId,
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "daily-habits" : undefined,
+        workspaceId: habit.workspaceId,
       });
       return {
         ...habit,
@@ -974,6 +982,7 @@ export async function rescheduleChecklistReminders(
           escalationMinutes: [120, 240],
           channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
           context: { title: checklist.title, remainingCount: totalCount - completedCount, totalCount },
+          workspaceId: checklist.workspaceId,
         });
         return {
           ...checklist,
@@ -995,6 +1004,7 @@ export async function rescheduleChecklistReminders(
         escalationMinutes: [120, 240],
         channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
         context: { title: checklist.title, remainingCount: totalCount - completedCount, totalCount },
+        workspaceId: checklist.workspaceId,
       });
       return {
         ...checklist,
@@ -1045,4 +1055,20 @@ export async function rearmWebReminders(todos: Task[]): Promise<Task[]> {
   }
   return rearmed;
 }
+
+/**
+ * Snoozes a reminder for an entity (Task, Habit, or Checklist) via the canonical
+ * EntityCommandService pipeline, updating domain state, canceling previous OS notifications,
+ * and scheduling a new notification batch.
+ */
+export async function snoozeReminder(
+  kind: ReminderKind | "task",
+  itemId: string,
+  workspaceId?: string,
+  minutes: number = 5,
+) {
+  const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+  return EntityCommandService.snoozeReminder(kind, itemId, workspaceId, minutes);
+}
+
 

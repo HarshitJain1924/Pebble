@@ -435,4 +435,63 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
     // Domain state should be updated to exact surviving OS notification
     expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-domain-sync", "ws-1", ["os-surviving-1"]);
   });
+
+  describe("14. Purpose matching enforcement in isMatchingNotificationSignature", () => {
+    const task = createMockTask("task-purpose-test", 1788100000000);
+    const reminderPayload = {
+      type: "todo",
+      itemId: "task-purpose-test",
+      logicalSignature: "todo:task-purpose-test:reminder",
+      purpose: "reminder",
+      escalationLevel: 0,
+    };
+    const escalationPayload = {
+      type: "todo",
+      itemId: "task-purpose-test",
+      logicalSignature: "todo:task-purpose-test:escalation",
+      purpose: "escalation",
+      escalationLevel: 1,
+    };
+    const legacyPayload = {
+      type: "todo",
+      itemId: "task-purpose-test",
+      logicalSignature: "1788100000000",
+    };
+
+    it("reminder does not match escalation when 'reminder' is requested", () => {
+      expect(isMatchingNotificationSignature(escalationPayload, task, "todo", "reminder")).toBe(false);
+    });
+
+    it("escalation does not match reminder when 'escalation' is requested", () => {
+      expect(isMatchingNotificationSignature(reminderPayload, task, "todo", "escalation")).toBe(false);
+    });
+
+    it("correct-purpose notifications match expected purpose", () => {
+      expect(isMatchingNotificationSignature(reminderPayload, task, "todo", "reminder")).toBe(true);
+      expect(isMatchingNotificationSignature(escalationPayload, task, "todo", "escalation")).toBe(true);
+    });
+
+    it("kind and item identity still enforce boundaries when purpose matches", () => {
+      // Mismatched kind
+      expect(isMatchingNotificationSignature(reminderPayload, task, "habit", "reminder")).toBe(false);
+      expect(isMatchingNotificationSignature(escalationPayload, task, "checklist", "escalation")).toBe(false);
+
+      // Mismatched item ID
+      const otherTask = createMockTask("task-other", 1788100000000);
+      expect(isMatchingNotificationSignature(reminderPayload, otherTask, "todo", "reminder")).toBe(false);
+    });
+
+    it("legacy-compatible notifications match 'reminder' but not 'escalation'", () => {
+      // Legacy notification represents primary reminder
+      expect(isMatchingNotificationSignature(legacyPayload, task, "todo", "reminder")).toBe(true);
+      // Legacy notification must NOT match escalation
+      expect(isMatchingNotificationSignature(legacyPayload, task, "todo", "escalation")).toBe(false);
+    });
+
+    it("callers that omit purpose retain broad lookup behavior (reminder, escalation, and legacy all match)", () => {
+      expect(isMatchingNotificationSignature(reminderPayload, task, "todo")).toBe(true);
+      expect(isMatchingNotificationSignature(escalationPayload, task, "todo")).toBe(true);
+      expect(isMatchingNotificationSignature(legacyPayload, task, "todo")).toBe(true);
+    });
+  });
 });

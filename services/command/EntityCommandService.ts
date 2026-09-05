@@ -660,4 +660,105 @@ export class EntityCommandService {
   ): Promise<void> {
     return WorkspaceCommandHandler.reorderWorkspaces(orderedWorkspaces, options);
   }
+
+  /**
+   * Snoozes an active reminder for a Task, Habit, or Checklist by a specified duration (default: 5 minutes).
+   *
+   * Authoritative flow:
+   * 1. Resolves workspaceId if not provided by locating the entity across active workspaces.
+   * 2. Calculates new triggerAt = Date.now() + minutes * 60 * 1000.
+   * 3. Dispatches canonical update command (updateTask / updateHabit / updateChecklist), which:
+   *    - Persists updated reminder.triggerAt to domain storage under partition lock
+   *    - Cancels previously scheduled OS notifications and old escalations
+   *    - Schedules the new snoozed notification batch with fresh escalations
+   *    - Persists the new OS notificationIds to domain storage
+   */
+  static async snoozeReminder(
+    entityType: "todo" | "task" | "habit" | "checklist",
+    itemId: string,
+    workspaceId?: string,
+    minutes: number = 5,
+  ): Promise<{ success: boolean; triggerAt?: number; entity?: Task | Habit | Checklist }> {
+    const { TaskRepository } = await import("@/repositories/TaskRepository");
+    const { HabitRepository } = await import("@/repositories/HabitRepository");
+    const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+    const { WorkspaceRepository } = await import("@/repositories/WorkspaceRepository");
+    const { MY_PEBBLES_WORKSPACE_ID } = await import("@/shared/types/domain.types");
+
+    let targetWorkspaceId = workspaceId;
+
+    if (!targetWorkspaceId) {
+      const workspaces = await WorkspaceRepository.getWorkspaces();
+      const activeWorkspaces = workspaces.filter((w) => !w.archivedAt);
+      const candidateWorkspaceIds = Array.from(
+        new Set([
+          INBOX_WORKSPACE_ID,
+          MY_PEBBLES_WORKSPACE_ID,
+          ...activeWorkspaces.map((w) => w.id),
+        ]),
+      );
+
+      for (const wsId of candidateWorkspaceIds) {
+        if (entityType === "todo" || entityType === "task") {
+          const found = await TaskRepository.getTask(itemId, wsId);
+          if (found) {
+            targetWorkspaceId = wsId;
+            break;
+          }
+        } else if (entityType === "habit") {
+          const found = await HabitRepository.getHabit(itemId, wsId);
+          if (found) {
+            targetWorkspaceId = wsId;
+            break;
+          }
+        } else if (entityType === "checklist") {
+          const found = await ChecklistRepository.getChecklist(itemId, wsId);
+          if (found) {
+            targetWorkspaceId = wsId;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!targetWorkspaceId) {
+      console.warn(`[EntityCommandService.snoozeReminder] Unable to locate ${entityType}:${itemId} in any workspace`);
+      return { success: false };
+    }
+
+    const triggerAt = Date.now() + minutes * 60 * 1000;
+
+    try {
+      if (entityType === "todo" || entityType === "task") {
+        const entity = await this.updateTask(itemId, targetWorkspaceId, {
+          reminder: {
+            enabled: true,
+            triggerAt,
+          },
+        });
+        return { success: true, triggerAt, entity };
+      } else if (entityType === "habit") {
+        const entity = await this.updateHabit(itemId, targetWorkspaceId, {
+          reminder: {
+            enabled: true,
+            triggerAt,
+          },
+        });
+        return { success: true, triggerAt, entity };
+      } else if (entityType === "checklist") {
+        const entity = await this.updateChecklist(itemId, targetWorkspaceId, {
+          reminder: {
+            enabled: true,
+            triggerAt,
+          },
+        });
+        return { success: true, triggerAt, entity };
+      }
+    } catch (e) {
+      console.warn(`[EntityCommandService.snoozeReminder] Failed to snooze ${entityType}:${itemId}`, e);
+      return { success: false };
+    }
+
+    return { success: false };
+  }
 }

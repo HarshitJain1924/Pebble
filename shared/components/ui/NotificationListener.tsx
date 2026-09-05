@@ -103,22 +103,25 @@ export default function NotificationListener() {
               duration: 6000,
               onSnooze: async () => {
                 try {
-                  // schedule a quick snooze 5 minutes later, preserving entity data
-                  // so tapping the snoozed notification routes correctly.
-                  const Notifications = await import("expo-notifications");
-                  await Notifications.scheduleNotificationAsync({
-                    content: {
-                      title: title || "Snoozed",
-                      body: body || "Reminder",
-                      data: data ? { ...data, snoozed: true } : undefined,
-                    },
-                    trigger: {
-                      seconds: 60 * 5,
-                      channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-                    } as any,
-                  });
+                  if (data && typeof data === "object") {
+                    const payload = data as Record<string, any>;
+                    const itemId = payload.itemId;
+                    const type = payload.type;
+                    const workspaceId = payload.workspaceId;
+                    if (itemId && type) {
+                      const { EntityCommandService } = await import(
+                        "@/services/command/EntityCommandService"
+                      );
+                      await EntityCommandService.snoozeReminder(
+                        type,
+                        itemId,
+                        workspaceId,
+                        5,
+                      );
+                    }
+                  }
                 } catch (e) {
-                  // ignore
+                  console.warn("[NotificationListener] Failed to snooze reminder", e);
                 }
               },
             });

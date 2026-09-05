@@ -433,4 +433,219 @@ describe("AlertCenterService Canonical Projection", () => {
       expect(route).toBe("/task-details?id=habit-123&type=habit");
     });
   });
+
+  describe("5. Recurring Occurrence Calculation & Boundary Verification", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("verifies daily recurrence advances to next day when today reminder passed", () => {
+      jest.useFakeTimers();
+      const dt = new Date(2026, 5, 10, 10, 0, 0, 0); // 2026-06-10 10:00:00
+      jest.setSystemTime(dt);
+
+      const initialTrigger = new Date(2026, 5, 1, 9, 0, 0, 0).getTime();
+      const task: Task = {
+        id: "t-daily",
+        workspaceId: "ws-1",
+        title: "Daily Standup",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 5, 1).getTime(),
+        updatedAt: new Date(2026, 5, 1).getTime(),
+        schedule: { date: "2026-06-01" },
+        recurrence: { frequency: "daily", interval: 1 },
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      const next = AlertCenterService.getNextRecurringOccurrenceEpoch(task, initialTrigger, 0);
+      const expected = new Date(2026, 5, 11, 9, 0, 0, 0).getTime();
+      expect(next).toBe(expected);
+    });
+
+    it("verifies weekly recurrence correctly targets the next weekday", () => {
+      jest.useFakeTimers();
+      const dt = new Date(2026, 5, 10, 10, 0, 0, 0); // Wednesday 2026-06-10 10:00:00
+      jest.setSystemTime(dt);
+
+      const initialTrigger = new Date(2026, 5, 1, 9, 0, 0, 0).getTime();
+      const task: Task = {
+        id: "t-weekly",
+        workspaceId: "ws-1",
+        title: "Friday Review",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 5, 1).getTime(),
+        updatedAt: new Date(2026, 5, 1).getTime(),
+        schedule: { date: "2026-06-01" },
+        recurrence: { frequency: "weekly", daysOfWeek: [5], interval: 1 }, // Friday
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      const next = AlertCenterService.getNextRecurringOccurrenceEpoch(task, initialTrigger, 0);
+      const expected = new Date(2026, 5, 12, 9, 0, 0, 0).getTime(); // Friday 2026-06-12 09:00:00
+      expect(next).toBe(expected);
+    });
+
+    it("verifies today occurrence before reminder time returns today", () => {
+      jest.useFakeTimers();
+      const dt = new Date(2026, 5, 10, 8, 0, 0, 0); // 2026-06-10 08:00:00 (before 09:00)
+      jest.setSystemTime(dt);
+
+      const initialTrigger = new Date(2026, 5, 1, 9, 0, 0, 0).getTime();
+      const task: Task = {
+        id: "t-today-before",
+        workspaceId: "ws-1",
+        title: "Daily Standup",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 5, 1).getTime(),
+        updatedAt: new Date(2026, 5, 1).getTime(),
+        schedule: { date: "2026-06-01" },
+        recurrence: { frequency: "daily", interval: 1 },
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      const next = AlertCenterService.getNextRecurringOccurrenceEpoch(task, initialTrigger, 0);
+      const expected = new Date(2026, 5, 10, 9, 0, 0, 0).getTime();
+      expect(next).toBe(expected);
+    });
+
+    it("verifies today occurrence after reminder time advances to tomorrow", () => {
+      jest.useFakeTimers();
+      const dt = new Date(2026, 5, 10, 10, 0, 0, 0); // 2026-06-10 10:00:00 (after 09:00)
+      jest.setSystemTime(dt);
+
+      const initialTrigger = new Date(2026, 5, 1, 9, 0, 0, 0).getTime();
+      const task: Task = {
+        id: "t-today-after",
+        workspaceId: "ws-1",
+        title: "Daily Standup",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 5, 1).getTime(),
+        updatedAt: new Date(2026, 5, 1).getTime(),
+        schedule: { date: "2026-06-01" },
+        recurrence: { frequency: "daily", interval: 1 },
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      const next = AlertCenterService.getNextRecurringOccurrenceEpoch(task, initialTrigger, 0);
+      const expected = new Date(2026, 5, 11, 9, 0, 0, 0).getTime();
+      expect(next).toBe(expected);
+    });
+
+    it("verifies completed-today habit advances to tomorrow even before reminder time", () => {
+      jest.useFakeTimers();
+      const dt = new Date(2026, 5, 10, 8, 0, 0, 0); // 2026-06-10 08:00:00 (before 09:00 reminder)
+      jest.setSystemTime(dt);
+
+      const initialTrigger = new Date(2026, 5, 1, 9, 0, 0, 0).getTime();
+      const habit: Habit = {
+        id: "h-completed-today",
+        workspaceId: "ws-1",
+        title: "Morning Jog",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 5, 1).getTime(),
+        updatedAt: new Date(2026, 5, 1).getTime(),
+        recurrence: { frequency: "daily", interval: 1 },
+        completionHistory: [{ date: "2026-06-10", completedAt: Date.now() }],
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      // startOffsetDays = 1 for completed-today habit
+      const next = AlertCenterService.getNextRecurringOccurrenceEpoch(habit, initialTrigger, 1);
+      const expected = new Date(2026, 5, 11, 9, 0, 0, 0).getTime();
+      expect(next).toBe(expected);
+    });
+
+    it("verifies next occurrence across month and year boundaries", () => {
+      jest.useFakeTimers();
+      const dt = new Date(2026, 11, 31, 20, 0, 0, 0); // 2026-12-31 20:00:00
+      jest.setSystemTime(dt);
+
+      const initialTrigger = new Date(2026, 11, 1, 9, 0, 0, 0).getTime();
+      const task: Task = {
+        id: "t-year-boundary",
+        workspaceId: "ws-1",
+        title: "New Year Eve Task",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 11, 1).getTime(),
+        updatedAt: new Date(2026, 11, 1).getTime(),
+        schedule: { date: "2026-12-01" },
+        recurrence: { frequency: "daily", interval: 1 },
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      const next = AlertCenterService.getNextRecurringOccurrenceEpoch(task, initialTrigger, 0);
+      const expected = new Date(2027, 0, 1, 9, 0, 0, 0).getTime(); // 2027-01-01 09:00:00
+      expect(next).toBe(expected);
+    });
+
+    it("verifies returns null when no matching occurrence exists within scan window", () => {
+      jest.useFakeTimers();
+      const dt = new Date(2026, 5, 10, 10, 0, 0, 0);
+      jest.setSystemTime(dt);
+
+      const initialTrigger = new Date(2026, 5, 1, 9, 0, 0, 0).getTime();
+      const expiredTask: Task = {
+        id: "t-expired",
+        workspaceId: "ws-1",
+        title: "Expired Recurrence Task",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 5, 1).getTime(),
+        updatedAt: new Date(2026, 5, 1).getTime(),
+        schedule: { date: "2026-06-01" },
+        recurrence: { frequency: "daily", interval: 1, endDate: "2026-06-05" }, // Ended 5 days ago
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      const next = AlertCenterService.getNextRecurringOccurrenceEpoch(expiredTask, initialTrigger, 0);
+      expect(next).toBeNull();
+    });
+
+    it("excludes expired recurring tasks from Alert Center projection", async () => {
+      jest.useFakeTimers();
+      const now = new Date(2026, 5, 10, 10, 0, 0, 0).getTime();
+      jest.setSystemTime(now);
+
+      const initialTrigger = new Date(2026, 5, 1, 9, 0, 0, 0).getTime();
+      const expiredTask: Task = {
+        id: "task-expired-rec",
+        workspaceId: "ws-1",
+        title: "Expired Daily Task",
+        status: "todo",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: new Date(2026, 5, 1).getTime(),
+        updatedAt: new Date(2026, 5, 1).getTime(),
+        schedule: { date: "2026-06-01" },
+        recurrence: { frequency: "daily", interval: 1, endDate: "2026-06-05" },
+        reminder: { enabled: true, triggerAt: initialTrigger },
+      };
+
+      (TaskRepository.getTasks as jest.Mock).mockResolvedValue({ "task-expired-rec": expiredTask });
+      (HabitRepository.getHabits as jest.Mock).mockResolvedValue({});
+      (ChecklistRepository.getChecklists as jest.Mock).mockResolvedValue({});
+
+      const data = await AlertCenterService.getAlertCenterData();
+      expect(data.all.length).toBe(0);
+    });
+  });
 });

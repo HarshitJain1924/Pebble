@@ -44,7 +44,7 @@ export class AlertCenterService {
     item: Task | Habit | Checklist,
     initialTriggerAt: number,
     startOffsetDays: number = 0,
-  ): number {
+  ): number | null {
     const triggerDate = new Date(initialTriggerAt);
     const hour = triggerDate.getHours();
     const minute = triggerDate.getMinutes();
@@ -73,11 +73,8 @@ export class AlertCenterService {
       }
     }
 
-    // Fallback: tomorrow (or next day) at target time
-    const fallback = new Date();
-    fallback.setDate(fallback.getDate() + scanStart);
-    fallback.setHours(hour, minute, 0, 0);
-    return fallback.getTime();
+    // No matching occurrence found within the scan window
+    return null;
   }
 
   /**
@@ -189,10 +186,12 @@ export class AlertCenterService {
         let effectiveTriggerAt = task.reminder.triggerAt;
 
         if (isRecurring && task.reminder.triggerAt < now) {
-          effectiveTriggerAt = this.getNextRecurringOccurrenceEpoch(
+          const nextOccurrence = this.getNextRecurringOccurrenceEpoch(
             task,
             task.reminder.triggerAt,
           );
+          if (nextOccurrence === null) continue;
+          effectiveTriggerAt = nextOccurrence;
         }
 
         let status: NotificationStatus = "scheduled";
@@ -245,6 +244,8 @@ export class AlertCenterService {
           ? this.getNextRecurringOccurrenceEpoch(habit, habit.reminder.triggerAt, 1)
           : this.getNextRecurringOccurrenceEpoch(habit, habit.reminder.triggerAt, 0);
 
+        if (nextTriggerAt === null) continue;
+
         // For habits, even if past today's alarm, it's a recurring daily commitment
         // not a missed single-shot task. If completed today, scheduled for next cycle.
         const status: NotificationStatus = "scheduled";
@@ -288,10 +289,12 @@ export class AlertCenterService {
 
         let effectiveTriggerAt = checklist.reminder.triggerAt;
         if (isRecurring && checklist.reminder.triggerAt < now) {
-          effectiveTriggerAt = this.getNextRecurringOccurrenceEpoch(
+          const nextOccurrence = this.getNextRecurringOccurrenceEpoch(
             checklist,
             checklist.reminder.triggerAt,
           );
+          if (nextOccurrence === null) continue;
+          effectiveTriggerAt = nextOccurrence;
         }
 
         let status: NotificationStatus = "scheduled";

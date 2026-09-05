@@ -4,6 +4,7 @@ export interface NotificationPayload {
   type: "todo" | "task" | "habit" | "checklist";
   itemId: string;
   escalationLevel?: number;
+  workspaceId?: string;
 }
 
 /**
@@ -18,6 +19,7 @@ export function getNotificationPayload(data: unknown): NotificationPayload | nul
     type: d.type,
     itemId: d.itemId,
     escalationLevel: typeof d.escalationLevel === "number" ? d.escalationLevel : 0,
+    workspaceId: typeof d.workspaceId === "string" ? d.workspaceId : undefined,
   };
 }
 
