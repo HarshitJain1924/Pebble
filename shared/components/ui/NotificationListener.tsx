@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Platform } from "react-native";
+import { Platform, AppState } from "react-native";
 
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { getNotificationRoute } from "@/services/scheduling/notification-routes";
@@ -14,6 +14,23 @@ export default function NotificationListener() {
     let active = true;
     let subscription: { remove: () => void } | undefined;
     let receivedSubscription: { remove: () => void } | undefined;
+
+    const triggerReconcile = () => {
+      try {
+        const {
+          NotificationReconcilerService,
+        } = require("@/services/notifications/NotificationReconcilerService");
+        void NotificationReconcilerService.reconcileAll();
+      } catch (e) {
+        // Tolerant
+      }
+    };
+
+    const appStateSub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        triggerReconcile();
+      }
+    });
 
     const openNotificationTarget = (
       response: {
@@ -65,6 +82,7 @@ export default function NotificationListener() {
         void Notifications.getLastNotificationResponseAsync().then(
           (response) => {
             if (!response) return;
+            triggerReconcile();
             const route = getNotificationRoute(
               response.notification.request.content.data,
             );
@@ -74,6 +92,7 @@ export default function NotificationListener() {
         subscription = Notifications.addNotificationResponseReceivedListener(
           (response) => {
             if (!response) return;
+            triggerReconcile();
             const route = getNotificationRoute(
               response.notification.request.content.data,
             );
@@ -95,6 +114,9 @@ export default function NotificationListener() {
                 data?.itemId,
               );
             } catch {}
+
+            // Re-arm next anchored occurrence if a recurring reminder fired in the foreground
+            triggerReconcile();
 
             // Show in-app banner with snooze action
             showBanner({
@@ -134,6 +156,7 @@ export default function NotificationListener() {
 
     return () => {
       active = false;
+      appStateSub.remove();
       subscription?.remove();
       receivedSubscription?.remove();
     };
