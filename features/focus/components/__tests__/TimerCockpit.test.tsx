@@ -185,4 +185,28 @@ describe("TimerCockpit Component", () => {
     expect(texts).toContain("25:00");
     expect(texts).toContain("Start Focus");
   });
+
+  it("8. Hides break presets and displays Break Active when break is actively running", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TimerCockpit
+          {...baseProps}
+          pomodoroMode="break"
+          sessionTime={300}
+          totalSessionTime={300}
+          isActive={true}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+    expect(texts).toContain("05:00");
+    expect(texts).toContain("Break Active");
+    expect(texts).toContain("Pause");
+    // Break presets should be hidden when active
+    expect(texts).not.toContain("Short Break (5m)");
+    expect(texts).not.toContain("Long Break (15m)");
+  });
 });

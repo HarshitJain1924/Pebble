@@ -100,10 +100,10 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
         <View style={[styles.timerRingWrap, { width: ringSize, height: ringSize }]}>
           {glowEnabled && (
             <FloatingGlow
-              color={pomodoroMode === "work" ? (isActive ? colors.warning : colors.primary) : colors.success}
+              color={pomodoroMode === "work" ? colors.primary : colors.success}
               size={glowSize}
-              opacity={isActive ? 0.12 : 0.05}
-              pulseSpeed={isActive ? 4000 : 7500}
+              opacity={isActive ? 0.15 : 0.04}
+              pulseSpeed={isActive ? 3500 : 8000}
               style={StyleSheet.absoluteFillObject}
             />
           )}
@@ -113,15 +113,34 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             strokeWidth={strokeWidth}
             showText={false}
             color={pomodoroMode === "work" ? colors.primary : colors.success}
+            trackColor={colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)"}
           />
           <View style={styles.timerContent}>
-            <Text style={[styles.timerDigits, { fontSize: timerFontSize, color: colors.text }]}>
+            <Text
+              style={[
+                styles.timerDigits,
+                {
+                  fontSize: timerFontSize,
+                  color: colors.text,
+                  opacity: isActive ? 1 : 0.88,
+                },
+              ]}
+            >
               {formatTime(sessionTime)}
             </Text>
             <Text
               style={[
                 styles.timerSub,
-                { color: pomodoroMode === "work" ? colors.textMuted : colors.success },
+                {
+                  color:
+                    pomodoroMode === "work"
+                      ? isActive
+                        ? colors.primary
+                        : colors.textMuted
+                      : isActive
+                      ? colors.success
+                      : colors.textMuted,
+                },
               ]}
             >
               {pomodoroMode === "work"
@@ -140,8 +159,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             <FloatingGlow
               color={swRunning ? colors.primary : colors.textMuted}
               size={glowSize}
-              opacity={swRunning ? 0.12 : 0.05}
-              pulseSpeed={swRunning ? 4000 : 7500}
+              opacity={swRunning ? 0.15 : 0.04}
+              pulseSpeed={swRunning ? 3500 : 8000}
               style={StyleSheet.absoluteFillObject}
             />
           )}
@@ -151,12 +170,27 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             strokeWidth={strokeWidth}
             showText={false}
             color={swRunning ? colors.primary : colors.border}
+            trackColor={colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)"}
           />
           <View style={styles.timerContent}>
-            <Text style={[styles.timerDigits, { fontSize: timerFontSize, color: colors.text }]}>
+            <Text
+              style={[
+                styles.timerDigits,
+                {
+                  fontSize: timerFontSize,
+                  color: colors.text,
+                  opacity: swRunning ? 1 : 0.88,
+                },
+              ]}
+            >
               {formatTime(swTime)}
             </Text>
-            <Text style={[styles.timerSub, { color: colors.textMuted }]}>
+            <Text
+              style={[
+                styles.timerSub,
+                { color: swRunning ? colors.primary : colors.textMuted },
+              ]}
+            >
               {swRunning ? "Running" : "Paused"}
             </Text>
           </View>
