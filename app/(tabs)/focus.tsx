@@ -1,5 +1,5 @@
 import React from "react";
-import { Platform, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, SafeAreaView, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -23,6 +23,8 @@ export default function FocusScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const insets = useSafeAreaInsets();
+  const { height: windowHeight = 800 } = useWindowDimensions() ?? {};
+  const isCompact = windowHeight > 0 && windowHeight < 700;
 
   const state = useFocusState();
 
@@ -38,7 +40,10 @@ export default function FocusScreen() {
     <ScreenSwipeWrapper prevRoute="/" nextRoute="/tasks" hideMesh={!state.glowEnabled}>
       <SafeAreaView style={[styles.safeArea, { backgroundColor: "transparent" }]}>
         <Animated.View entering={FadeInDown.duration(450).springify()} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={[styles.scrollContent, isCompact && styles.scrollContentCompact]}
+            showsVerticalScrollIndicator={false}
+          >
             {/* Header */}
             <FocusHeader
               colors={colors}
@@ -196,21 +201,29 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 16,
-    paddingBottom: 110,
+    paddingTop: 12,
+    gap: 12,
+    paddingBottom: 100,
+  },
+  scrollContentCompact: {
+    paddingTop: 8,
+    gap: 10,
+    paddingBottom: 80,
   },
   lapsCard: {
-    padding: 16,
-    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
   },
   divider: {
     height: 1,
-    opacity: 0.2,
+    opacity: 0.15,
   },
   lapRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
 });

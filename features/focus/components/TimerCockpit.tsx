@@ -72,7 +72,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
 
   const ringSize = isCompact ? 160 : 180;
   const glowSize = isCompact ? 140 : 160;
-  const strokeWidth = isCompact ? 7 : 8;
+  const strokeWidth = isCompact ? 6 : 7;
   const timerFontSize = isCompact ? 34 : 38;
 
   const formatTime = (secs: number) => {
@@ -102,7 +102,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             <FloatingGlow
               color={pomodoroMode === "work" ? (isActive ? colors.warning : colors.primary) : colors.success}
               size={glowSize}
-              opacity={isActive ? 0.16 : 0.08}
+              opacity={isActive ? 0.12 : 0.05}
               pulseSpeed={isActive ? 4000 : 7500}
               style={StyleSheet.absoluteFillObject}
             />
@@ -140,7 +140,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             <FloatingGlow
               color={swRunning ? colors.primary : colors.textMuted}
               size={glowSize}
-              opacity={swRunning ? 0.16 : 0.08}
+              opacity={swRunning ? 0.12 : 0.05}
               pulseSpeed={swRunning ? 4000 : 7500}
               style={StyleSheet.absoluteFillObject}
             />
@@ -172,12 +172,12 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               styles.primaryBtn,
               {
                 backgroundColor: pomodoroMode === "work" ? colors.primary : colors.success,
-                opacity: pressed ? 0.92 : 1,
+                opacity: pressed ? 0.9 : 1,
                 transform: [{ scale: pressed ? 0.98 : 1 }],
               },
             ]}
           >
-            <Feather name={isActive ? "pause" : "play"} size={18} color="#ffffff" />
+            <Feather name={isActive ? "pause" : "play"} size={16} color="#ffffff" />
             <Text style={styles.primaryBtnText}>
               {isActive ? "Pause" : pomodoroMode === "work" ? "Start Focus" : "Start Break"}
             </Text>
@@ -189,12 +189,12 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               styles.primaryBtn,
               {
                 backgroundColor: colors.primary,
-                opacity: pressed ? 0.92 : 1,
+                opacity: pressed ? 0.9 : 1,
                 transform: [{ scale: pressed ? 0.98 : 1 }],
               },
             ]}
           >
-            <Feather name={swRunning ? "pause" : "play"} size={18} color="#ffffff" />
+            <Feather name={swRunning ? "pause" : "play"} size={16} color="#ffffff" />
             <Text style={styles.primaryBtnText}>{swRunning ? "Pause" : "Start"}</Text>
           </Pressable>
         )}
@@ -215,20 +215,20 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                     styles.presetBtn,
                     {
                       backgroundColor: isSelected
-                        ? `${colors.primary}1E`
-                        : colors.cardLight || "rgba(255, 255, 255, 0.04)",
+                        ? `${colors.primary}18`
+                        : "transparent",
                       borderColor: isSelected
-                        ? colors.primary
-                        : colors.border || "rgba(255, 255, 255, 0.08)",
-                      opacity: pressed ? 0.85 : 1,
+                        ? `${colors.primary}55`
+                        : colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)",
+                      opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                 >
                   <Text
                     style={{
                       color: isSelected ? colors.primary : colors.textMuted,
-                      fontWeight: isSelected ? "700" : "600",
-                      fontSize: 13,
+                      fontWeight: isSelected ? "700" : "500",
+                      fontSize: 12,
                     }}
                   >
                     {mins}m
@@ -243,20 +243,20 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 styles.presetBtn,
                 {
                   backgroundColor: showCustomInput
-                    ? `${colors.primary}1E`
-                    : colors.cardLight || "rgba(255, 255, 255, 0.04)",
+                    ? `${colors.primary}18`
+                    : "transparent",
                   borderColor: showCustomInput
-                    ? colors.primary
-                    : colors.border || "rgba(255, 255, 255, 0.08)",
-                  opacity: pressed ? 0.85 : 1,
+                    ? `${colors.primary}55`
+                    : colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)",
+                  opacity: pressed ? 0.75 : 1,
                 },
               ]}
             >
               <Text
                 style={{
                   color: showCustomInput ? colors.primary : colors.textMuted,
-                  fontWeight: showCustomInput ? "700" : "600",
-                  fontSize: 13,
+                  fontWeight: showCustomInput ? "700" : "500",
+                  fontSize: 12,
                 }}
               >
                 Custom
@@ -278,7 +278,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                   },
                 ]}
               >
-                <Feather name="minus" size={15} color={colors.text} />
+                <Feather name="minus" size={14} color={colors.text} />
               </Pressable>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <TextInput
@@ -297,7 +297,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                     },
                   ]}
                 />
-                <Text style={{ color: colors.textMuted, fontWeight: "600", fontSize: 13 }}>mins</Text>
+                <Text style={{ color: colors.textMuted, fontWeight: "600", fontSize: 12 }}>mins</Text>
               </View>
               <Pressable
                 onPress={() => adjustCustomMinutes(5)}
@@ -311,7 +311,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                   },
                 ]}
               >
-                <Feather name="plus" size={15} color={colors.text} />
+                <Feather name="plus" size={14} color={colors.text} />
               </Pressable>
             </View>
           )}
@@ -336,20 +336,20 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                     styles.presetBtn,
                     {
                       backgroundColor: isSelected
-                        ? `${colors.success}1E`
-                        : colors.cardLight || "rgba(255, 255, 255, 0.04)",
+                        ? `${colors.success}18`
+                        : "transparent",
                       borderColor: isSelected
-                        ? colors.success
-                        : colors.border || "rgba(255, 255, 255, 0.08)",
-                      opacity: pressed ? 0.85 : 1,
+                        ? `${colors.success}55`
+                        : colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)",
+                      opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                 >
                   <Text
                     style={{
                       color: isSelected ? colors.success : colors.textMuted,
-                      fontWeight: isSelected ? "700" : "600",
-                      fontSize: 13,
+                      fontWeight: isSelected ? "700" : "500",
+                      fontSize: 12,
                     }}
                   >
                     {mins === 5 ? "Short Break (5m)" : "Long Break (15m)"}
@@ -405,14 +405,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 24,
     borderWidth: 1,
-    paddingVertical: 20,
+    paddingVertical: 18,
     paddingHorizontal: 20,
-    gap: 16,
+    gap: 14,
   },
   timerCardCompact: {
     paddingVertical: 14,
     paddingHorizontal: 16,
-    gap: 12,
+    gap: 10,
   },
   targetSlotWrap: {
     width: "100%",
@@ -421,13 +421,13 @@ const styles = StyleSheet.create({
   targetDivider: {
     height: 1,
     width: "100%",
-    opacity: 0.35,
-    marginTop: 10,
+    opacity: 0.2,
+    marginTop: 8,
   },
   timerRingWrap: {
     justifyContent: "center",
     alignItems: "center",
-    marginVertical: 4,
+    marginVertical: 2,
   },
   timerContent: {
     position: "absolute",
@@ -437,14 +437,14 @@ const styles = StyleSheet.create({
   },
   timerDigits: {
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
     fontVariant: ["tabular-nums"],
   },
   timerSub: {
-    fontSize: Typography.sizes.xs,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "600",
     textTransform: "uppercase",
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
   },
   primaryActionWrap: {
     width: "100%",
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    minHeight: 48,
+    minHeight: 46,
     borderRadius: 14,
   },
   primaryBtnText: {
@@ -467,42 +467,43 @@ const styles = StyleSheet.create({
   durationSection: {
     width: "100%",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
+    marginTop: -2,
   },
   presetsRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
   },
   presetBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
     borderWidth: 1,
-    minHeight: 34,
+    minHeight: 30,
     alignItems: "center",
     justifyContent: "center",
   },
   customAdjusterRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     marginTop: 2,
   },
   adjustBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   customAdjusterInput: {
-    fontSize: 15,
-    fontWeight: "700",
-    minWidth: 54,
-    height: 34,
+    fontSize: 14,
+    fontWeight: "600",
+    minWidth: 50,
+    height: 30,
     textAlign: "center",
     borderWidth: 1,
     borderRadius: 8,
@@ -513,21 +514,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 2,
+    paddingTop: 0,
   },
   secondaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    minHeight: 32,
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    minHeight: 28,
   },
   secondaryBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "500",
     letterSpacing: 0.2,
   },
 });

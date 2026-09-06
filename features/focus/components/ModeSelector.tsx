@@ -10,46 +10,58 @@ interface ModeSelectorProps {
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, colors }) => {
   return (
-    <View style={styles.container}>
-      <Pressable onPress={() => setMode("pomodoro")} style={styles.pressable}>
-        <View
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: colors.cardLight || "rgba(255, 255, 255, 0.04)",
+          borderColor: colors.border || "rgba(255, 255, 255, 0.08)",
+        },
+      ]}
+    >
+      <Pressable
+        onPress={() => setMode("pomodoro")}
+        hitSlop={4}
+        style={[
+          styles.modePill,
+          {
+            backgroundColor: mode === "pomodoro" ? colors.primary : "transparent",
+          },
+        ]}
+      >
+        <Text
           style={[
-            styles.modePill,
+            styles.modeText,
             {
-              backgroundColor: mode === "pomodoro" ? colors.primary : colors.card,
-              borderColor: mode === "pomodoro" ? colors.primary : colors.border,
+              color: mode === "pomodoro" ? "#ffffff" : colors.textMuted,
+              fontWeight: mode === "pomodoro" ? "700" : "600",
             },
           ]}
         >
-          <Text
-            style={{
-              color: mode === "pomodoro" ? "#fff" : colors.text,
-              fontWeight: "700",
-            }}
-          >
-            Pomodoro
-          </Text>
-        </View>
+          Pomodoro
+        </Text>
       </Pressable>
-      <Pressable onPress={() => setMode("stopwatch")} style={styles.pressable}>
-        <View
+      <Pressable
+        onPress={() => setMode("stopwatch")}
+        hitSlop={4}
+        style={[
+          styles.modePill,
+          {
+            backgroundColor: mode === "stopwatch" ? colors.primary : "transparent",
+          },
+        ]}
+      >
+        <Text
           style={[
-            styles.modePill,
+            styles.modeText,
             {
-              backgroundColor: mode === "stopwatch" ? colors.primary : colors.card,
-              borderColor: mode === "stopwatch" ? colors.primary : colors.border,
+              color: mode === "stopwatch" ? "#ffffff" : colors.textMuted,
+              fontWeight: mode === "stopwatch" ? "700" : "600",
             },
           ]}
         >
-          <Text
-            style={{
-              color: mode === "stopwatch" ? "#fff" : colors.text,
-              fontWeight: "700",
-            }}
-          >
-            Stopwatch
-          </Text>
-        </View>
+          Stopwatch
+        </Text>
       </Pressable>
     </View>
   );
@@ -58,17 +70,21 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, color
 const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
-    gap: 8,
-    marginTop: 6,
-    marginBottom: 6,
-  },
-  pressable: {
-    flex: 1,
+    alignSelf: "center",
+    borderRadius: 12,
+    padding: 3,
+    borderWidth: 1,
+    gap: 2,
   },
   modePill: {
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 16,
+    borderRadius: 9,
     alignItems: "center",
-    borderWidth: 1,
+    justifyContent: "center",
+  },
+  modeText: {
+    fontSize: 12,
+    letterSpacing: 0.2,
   },
 });

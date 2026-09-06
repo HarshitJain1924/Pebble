@@ -21,11 +21,17 @@ export const FocusStatsCard: React.FC<FocusStatsCardProps> = ({
   colors,
 }) => {
   return (
-    <AppCard style={styles.statsCard}>
-      <Text style={[styles.statsTitle, { color: colors.text }]}>
-        {"Today's Stats"}
+    <AppCard
+      style={[
+        styles.statsCard,
+        {
+          borderColor: colors.border || "rgba(255, 255, 255, 0.06)",
+        },
+      ]}
+    >
+      <Text style={[styles.statsTitle, { color: colors.textMuted }]}>
+        {"TODAY'S STATS"}
       </Text>
-      <View style={[styles.divider, { backgroundColor: colors.border || "rgba(255, 255, 255, 0.05)" }]} />
 
       <View style={styles.statsGrid}>
         <View style={styles.statRow}>
@@ -72,33 +78,36 @@ export const FocusStatsCard: React.FC<FocusStatsCardProps> = ({
 
 const styles = StyleSheet.create({
   statsCard: {
-    padding: Spacing.lg,
-    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    opacity: 0.9,
   },
   statsTitle: {
-    fontSize: Typography.sizes.md,
+    fontSize: 10,
     fontWeight: "700",
-  },
-  divider: {
-    height: 1,
+    letterSpacing: 1.2,
   },
   statsGrid: {
-    gap: 12,
+    gap: 8,
   },
   statRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    gap: 8,
   },
   statCell: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   statLabel: {
-    fontSize: Typography.sizes.xs,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "500",
   },
   statVal: {
-    fontSize: Typography.sizes.md,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });
