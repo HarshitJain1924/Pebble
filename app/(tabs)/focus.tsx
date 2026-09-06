@@ -18,6 +18,7 @@ import { TaskPickerModal } from "@/features/focus/components/TaskPickerModal";
 import { MusicPlayerModal } from "@/features/focus/components/MusicPlayerModal";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 
 export default function FocusScreen() {
   const colorScheme = useColorScheme();
@@ -27,6 +28,32 @@ export default function FocusScreen() {
   const isCompact = windowHeight > 0 && windowHeight < 700;
 
   const state = useFocusState();
+
+  // Atmospheric background layer state resolution for the Focus session workspace
+  const isPomodoroWorkActive = state.mode === "pomodoro" && state.pomodoroMode === "work" && state.isActive;
+  const isBreakActive = state.mode === "pomodoro" && state.pomodoroMode === "break" && state.isActive;
+  const isBreak = state.mode === "pomodoro" && state.pomodoroMode === "break";
+  const isStopwatch = state.mode === "stopwatch";
+
+  let atmosphereColor = colors.primary;
+  let atmosphereOpacity = 0.07;
+  let atmospherePulseSpeed = 9000;
+
+  if (isPomodoroWorkActive) {
+    atmosphereColor = colors.primary;
+    atmosphereOpacity = 0.16;
+    atmospherePulseSpeed = 7000;
+  } else if (isBreak) {
+    atmosphereColor = colors.success;
+    atmosphereOpacity = isBreakActive ? 0.13 : 0.06;
+    atmospherePulseSpeed = isBreakActive ? 7000 : 9000;
+  } else if (isStopwatch) {
+    atmosphereColor = colors.primary;
+    atmosphereOpacity = state.swRunning ? 0.12 : 0.06;
+    atmospherePulseSpeed = state.swRunning ? 7000 : 9000;
+  }
+
+  const atmosphereSize = isCompact ? 360 : 420;
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -40,6 +67,26 @@ export default function FocusScreen() {
     <ScreenSwipeWrapper prevRoute="/" nextRoute="/tasks" hideMesh={!state.glowEnabled}>
       <SafeAreaView style={[styles.safeArea, { backgroundColor: "transparent" }]}>
         <Animated.View entering={FadeInDown.duration(450).springify()} style={{ flex: 1 }}>
+          {/* Atmospheric background treatment centered behind Focus workspace */}
+          {state.glowEnabled && (
+            <View style={styles.atmosphereWrapper} pointerEvents="none">
+              <FloatingGlow
+                id="focus_workspace_atmosphere"
+                color={atmosphereColor}
+                size={atmosphereSize}
+                opacity={atmosphereOpacity}
+                pulseSpeed={atmospherePulseSpeed}
+                pulseRange={0.12}
+                style={[
+                  styles.atmosphereGlow,
+                  {
+                    top: isCompact ? 75 : 95,
+                  },
+                ]}
+              />
+            </View>
+          )}
+
           <ScrollView
             contentContainerStyle={[styles.scrollContent, isCompact && styles.scrollContentCompact]}
             showsVerticalScrollIndicator={false}
@@ -225,5 +272,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     paddingVertical: 6,
+  },
+  atmosphereWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    zIndex: 0,
+  },
+  atmosphereGlow: {
+    position: "absolute",
   },
 });

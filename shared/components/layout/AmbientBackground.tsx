@@ -140,6 +140,7 @@ type FloatingGlowProps = {
   pulseSpeed?: number;
   pulseRange?: number;
   style?: any;
+  id?: string;
 };
 
 export function FloatingGlow({
@@ -149,11 +150,13 @@ export function FloatingGlow({
   pulseSpeed = 6000,
   pulseRange = 0.18,
   style,
+  id,
 }: FloatingGlowProps) {
   const scale = useSharedValue(1);
   const breathOpacity = useSharedValue(opacity);
 
   useEffect(() => {
+    breathOpacity.value = withTiming(opacity, { duration: 600 });
     scale.value = withRepeat(
       withSequence(
         withTiming(1 + pulseRange, { duration: pulseSpeed, easing: Easing.inOut(Easing.ease) }),
@@ -165,13 +168,13 @@ export function FloatingGlow({
 
     breathOpacity.value = withRepeat(
       withSequence(
-        withTiming(opacity * 1.3, { duration: pulseSpeed - 500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(opacity * 0.7, { duration: pulseSpeed - 500, easing: Easing.inOut(Easing.ease) })
+        withTiming(opacity * 1.3, { duration: Math.max(1000, pulseSpeed - 500), easing: Easing.inOut(Easing.ease) }),
+        withTiming(opacity * 0.7, { duration: Math.max(1000, pulseSpeed - 500), easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       true
     );
-  }, []);
+  }, [opacity, pulseSpeed, pulseRange]);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -180,7 +183,7 @@ export function FloatingGlow({
     };
   });
 
-  const uniqueId = `glow_${color.replace(/[^a-zA-Z0-9]/g, "")}_${size}`;
+  const uniqueId = id || `glow_${color.replace(/[^a-zA-Z0-9]/g, "")}_${size}`;
 
   return (
     <Animated.View

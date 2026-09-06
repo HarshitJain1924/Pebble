@@ -5,6 +5,7 @@ import { AppTextInput as TextInput, AppText as Text } from "@/shared/components/
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Spacing } from "@/shared/constants/spacing";
 import { Typography } from "@/shared/constants/typography";
 
@@ -71,10 +72,56 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
   const isCompact = windowHeight > 0 && windowHeight < 700;
   const isImmersiveWork = mode === "pomodoro" && pomodoroMode === "work" && isActive;
 
+  const colorScheme = useColorScheme() ?? "dark";
+  const isDark = colorScheme !== "light";
+  const isBreakMode = mode === "pomodoro" && pomodoroMode === "break";
+
+  // Editorial Session Surface Palette
+  const surfaceBg = isDark
+    ? isBreakMode
+      ? "#132320" // Restful dark emerald for break
+      : isImmersiveWork
+      ? "#1D1B35" // Focused midnight violet for active work
+      : "#18172A" // Rich midnight violet/indigo for ready work/stopwatch
+    : isBreakMode
+    ? "#EDF8F4" // Fresh pastel mint for break in light mode
+    : isImmersiveWork
+    ? "#ECE9FD" // Soft focused lavender for active work in light mode
+    : "#F2EFFE"; // Soft periwinkle/lavender for ready work/stopwatch in light mode
+
+  const surfaceBorder = isDark
+    ? isBreakMode
+      ? "rgba(16, 185, 129, 0.25)"
+      : isImmersiveWork
+      ? "rgba(99, 102, 241, 0.35)"
+      : "rgba(99, 102, 241, 0.2)"
+    : isBreakMode
+    ? "rgba(5, 150, 105, 0.2)"
+    : isImmersiveWork
+    ? "rgba(79, 70, 229, 0.28)"
+    : "rgba(79, 70, 229, 0.18)";
+
+  // Timer Tonal Cushion (circular grounding backing behind the ring)
+  const timerPodBg = isDark
+    ? isBreakMode
+      ? "rgba(16, 185, 129, 0.08)"
+      : "rgba(99, 102, 241, 0.08)"
+    : isBreakMode
+    ? "rgba(5, 150, 105, 0.06)"
+    : "rgba(79, 70, 229, 0.06)";
+
+  const timerPodBorder = isDark
+    ? isBreakMode
+      ? "rgba(16, 185, 129, 0.14)"
+      : "rgba(99, 102, 241, 0.14)"
+    : isBreakMode
+    ? "rgba(5, 150, 105, 0.1)"
+    : "rgba(79, 70, 229, 0.1)";
+
   const ringSize = isCompact ? 160 : 180;
   const glowSize = isImmersiveWork ? (isCompact ? 150 : 175) : (isCompact ? 140 : 160);
   const strokeWidth = isImmersiveWork ? (isCompact ? 7 : 8) : (isCompact ? 6 : 7);
-  const timerFontSize = isCompact ? 34 : 38;
+  const timerFontSize = isCompact ? 36 : 42;
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -87,7 +134,16 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
   const progress = totalSessionTime > 0 ? (totalSessionTime - sessionTime) / totalSessionTime : 0;
 
   return (
-    <AppCard style={[styles.timerCard, isCompact && styles.timerCardCompact]}>
+    <AppCard
+      style={[
+        styles.timerCard,
+        {
+          backgroundColor: surfaceBg,
+          borderColor: surfaceBorder,
+        },
+        isCompact && styles.timerCardCompact,
+      ]}
+    >
       {/* 1. FOCUS TARGET */}
       {targetSlot && (
         <View style={styles.targetSlotWrap}>
@@ -96,17 +152,34 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             style={[
               styles.targetDivider,
               {
-                backgroundColor: colors.border || "rgba(255, 255, 255, 0.08)",
-                opacity: isImmersiveWork ? 0.15 : 0.2,
+                backgroundColor: isBreakMode
+                  ? isDark
+                    ? "rgba(16, 185, 129, 0.2)"
+                    : "rgba(5, 150, 105, 0.15)"
+                  : isDark
+                  ? "rgba(99, 102, 241, 0.2)"
+                  : "rgba(79, 70, 229, 0.15)",
+                opacity: isImmersiveWork ? 0.35 : 0.6,
               },
             ]}
           />
         </View>
       )}
 
-      {/* 2. TIMER (VISUAL CENTER) */}
+      {/* 2. TIMER (VISUAL CENTER WITH TONAL CUSHION POD) */}
       {mode === "pomodoro" ? (
-        <View style={[styles.timerRingWrap, { width: ringSize, height: ringSize }]}>
+        <View
+          style={[
+            styles.timerRingWrap,
+            {
+              width: ringSize,
+              height: ringSize,
+              backgroundColor: timerPodBg,
+              borderColor: timerPodBorder,
+              borderRadius: ringSize / 2,
+            },
+          ]}
+        >
           {glowEnabled && (
             <FloatingGlow
               color={pomodoroMode === "work" ? colors.primary : colors.success}
@@ -124,8 +197,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             color={pomodoroMode === "work" ? colors.primary : colors.success}
             trackColor={
               isImmersiveWork
-                ? (colors.border ? `${colors.border}33` : "rgba(255, 255, 255, 0.04)")
-                : (colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)")
+                ? (colors.border ? `${colors.border}22` : "rgba(255, 255, 255, 0.04)")
+                : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)")
             }
           />
           <View style={styles.timerContent}>
@@ -135,7 +208,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 {
                   fontSize: timerFontSize,
                   color: colors.text,
-                  opacity: isActive ? 1 : 0.88,
+                  opacity: isActive ? 1 : 0.9,
                 },
               ]}
             >
@@ -167,7 +240,18 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
           </View>
         </View>
       ) : (
-        <View style={[styles.timerRingWrap, { width: ringSize, height: ringSize }]}>
+        <View
+          style={[
+            styles.timerRingWrap,
+            {
+              width: ringSize,
+              height: ringSize,
+              backgroundColor: timerPodBg,
+              borderColor: timerPodBorder,
+              borderRadius: ringSize / 2,
+            },
+          ]}
+        >
           {glowEnabled && (
             <FloatingGlow
               color={swRunning ? colors.primary : colors.textMuted}
@@ -183,7 +267,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             strokeWidth={strokeWidth}
             showText={false}
             color={swRunning ? colors.primary : colors.border}
-            trackColor={colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)"}
+            trackColor={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"}
           />
           <View style={styles.timerContent}>
             <Text
@@ -192,7 +276,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 {
                   fontSize: timerFontSize,
                   color: colors.text,
-                  opacity: swRunning ? 1 : 0.88,
+                  opacity: swRunning ? 1 : 0.9,
                 },
               ]}
             >
@@ -219,6 +303,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               styles.primaryBtn,
               {
                 backgroundColor: pomodoroMode === "work" ? colors.primary : colors.success,
+                shadowColor: pomodoroMode === "work" ? colors.primary : colors.success,
                 opacity: pressed ? 0.9 : 1,
                 transform: [{ scale: pressed ? 0.98 : 1 }],
               },
@@ -236,6 +321,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               styles.primaryBtn,
               {
                 backgroundColor: colors.primary,
+                shadowColor: colors.primary,
                 opacity: pressed ? 0.9 : 1,
                 transform: [{ scale: pressed ? 0.98 : 1 }],
               },
@@ -247,7 +333,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
         )}
       </View>
 
-      {/* 4. DURATION OPTIONS (BENEATH PRIMARY ACTION) */}
+      {/* 4. DURATION OPTIONS (INTENTIONAL TACTILE PILL PRESETS) */}
       {mode === "pomodoro" && pomodoroMode === "work" && !isActive && (
         <View style={styles.durationSection}>
           <View style={styles.presetsRow}>
@@ -262,20 +348,24 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                     styles.presetBtn,
                     {
                       backgroundColor: isSelected
-                        ? `${colors.primary}18`
-                        : "transparent",
+                        ? colors.primary
+                        : isDark
+                        ? "rgba(255, 255, 255, 0.05)"
+                        : "rgba(0, 0, 0, 0.04)",
                       borderColor: isSelected
-                        ? `${colors.primary}55`
-                        : colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)",
+                        ? colors.primary
+                        : isDark
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : "rgba(0, 0, 0, 0.06)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                 >
                   <Text
                     style={{
-                      color: isSelected ? colors.primary : colors.textMuted,
-                      fontWeight: isSelected ? "700" : "500",
-                      fontSize: 12,
+                      color: isSelected ? "#ffffff" : colors.textMuted,
+                      fontWeight: isSelected ? "700" : "600",
+                      fontSize: 13,
                     }}
                   >
                     {mins}m
@@ -290,20 +380,24 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 styles.presetBtn,
                 {
                   backgroundColor: showCustomInput
-                    ? `${colors.primary}18`
-                    : "transparent",
+                    ? colors.primary
+                    : isDark
+                    ? "rgba(255, 255, 255, 0.05)"
+                    : "rgba(0, 0, 0, 0.04)",
                   borderColor: showCustomInput
-                    ? `${colors.primary}55`
-                    : colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)",
+                    ? colors.primary
+                    : isDark
+                    ? "rgba(255, 255, 255, 0.08)"
+                    : "rgba(0, 0, 0, 0.06)",
                   opacity: pressed ? 0.75 : 1,
                 },
               ]}
             >
               <Text
                 style={{
-                  color: showCustomInput ? colors.primary : colors.textMuted,
-                  fontWeight: showCustomInput ? "700" : "500",
-                  fontSize: 12,
+                  color: showCustomInput ? "#ffffff" : colors.textMuted,
+                  fontWeight: showCustomInput ? "700" : "600",
+                  fontSize: 13,
                 }}
               >
                 Custom
@@ -383,20 +477,24 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                     styles.presetBtn,
                     {
                       backgroundColor: isSelected
-                        ? `${colors.success}18`
-                        : "transparent",
+                        ? colors.success
+                        : isDark
+                        ? "rgba(255, 255, 255, 0.05)"
+                        : "rgba(0, 0, 0, 0.04)",
                       borderColor: isSelected
-                        ? `${colors.success}55`
-                        : colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)",
+                        ? colors.success
+                        : isDark
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : "rgba(0, 0, 0, 0.06)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                 >
                   <Text
                     style={{
-                      color: isSelected ? colors.success : colors.textMuted,
-                      fontWeight: isSelected ? "700" : "500",
-                      fontSize: 12,
+                      color: isSelected ? "#ffffff" : colors.textMuted,
+                      fontWeight: isSelected ? "700" : "600",
+                      fontSize: 13,
                     }}
                   >
                     {mins === 5 ? "Short Break (5m)" : "Long Break (15m)"}
@@ -450,16 +548,16 @@ const styles = StyleSheet.create({
   timerCard: {
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingVertical: 18,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    paddingVertical: 20,
     paddingHorizontal: 20,
-    gap: 14,
+    gap: 16,
   },
   timerCardCompact: {
     paddingVertical: 14,
     paddingHorizontal: 16,
-    gap: 10,
+    gap: 12,
   },
   targetSlotWrap: {
     width: "100%",
@@ -468,13 +566,13 @@ const styles = StyleSheet.create({
   targetDivider: {
     height: 1,
     width: "100%",
-    opacity: 0.2,
     marginTop: 8,
   },
   timerRingWrap: {
     justifyContent: "center",
     alignItems: "center",
-    marginVertical: 2,
+    marginVertical: 4,
+    borderWidth: 1,
   },
   timerContent: {
     position: "absolute",
@@ -484,14 +582,14 @@ const styles = StyleSheet.create({
   },
   timerDigits: {
     fontWeight: "800",
-    letterSpacing: -0.8,
+    letterSpacing: -1,
     fontVariant: ["tabular-nums"],
   },
   timerSub: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
   },
   primaryActionWrap: {
     width: "100%",
@@ -502,8 +600,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    minHeight: 46,
-    borderRadius: 14,
+    minHeight: 48,
+    borderRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 3,
   },
   primaryBtnText: {
     color: "#ffffff",
@@ -524,11 +626,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   presetBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 12,
     borderWidth: 1,
-    minHeight: 30,
+    minHeight: 32,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -539,21 +641,21 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   adjustBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   customAdjusterInput: {
     fontSize: 14,
-    fontWeight: "600",
-    minWidth: 50,
-    height: 30,
+    fontWeight: "700",
+    minWidth: 54,
+    height: 32,
     textAlign: "center",
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingVertical: 2,
     paddingHorizontal: 6,
   },
@@ -570,7 +672,7 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingVertical: 4,
     paddingHorizontal: 12,
-    borderRadius: 6,
+    borderRadius: 8,
     minHeight: 28,
   },
   secondaryBtnText: {
