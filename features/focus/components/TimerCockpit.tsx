@@ -69,10 +69,11 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
 }) => {
   const { height: windowHeight = 800 } = useWindowDimensions() ?? {};
   const isCompact = windowHeight > 0 && windowHeight < 700;
+  const isImmersiveWork = mode === "pomodoro" && pomodoroMode === "work" && isActive;
 
   const ringSize = isCompact ? 160 : 180;
-  const glowSize = isCompact ? 140 : 160;
-  const strokeWidth = isCompact ? 6 : 7;
+  const glowSize = isImmersiveWork ? (isCompact ? 150 : 175) : (isCompact ? 140 : 160);
+  const strokeWidth = isImmersiveWork ? (isCompact ? 7 : 8) : (isCompact ? 6 : 7);
   const timerFontSize = isCompact ? 34 : 38;
 
   const formatTime = (secs: number) => {
@@ -91,7 +92,15 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
       {targetSlot && (
         <View style={styles.targetSlotWrap}>
           {targetSlot}
-          <View style={[styles.targetDivider, { backgroundColor: colors.border || "rgba(255, 255, 255, 0.08)" }]} />
+          <View
+            style={[
+              styles.targetDivider,
+              {
+                backgroundColor: colors.border || "rgba(255, 255, 255, 0.08)",
+                opacity: isImmersiveWork ? 0.15 : 0.2,
+              },
+            ]}
+          />
         </View>
       )}
 
@@ -102,8 +111,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             <FloatingGlow
               color={pomodoroMode === "work" ? colors.primary : colors.success}
               size={glowSize}
-              opacity={isActive ? 0.15 : 0.04}
-              pulseSpeed={isActive ? 3500 : 8000}
+              opacity={isImmersiveWork ? 0.18 : (isActive ? 0.15 : 0.04)}
+              pulseSpeed={isImmersiveWork ? 3000 : (isActive ? 3500 : 8000)}
               style={StyleSheet.absoluteFillObject}
             />
           )}
@@ -113,7 +122,11 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             strokeWidth={strokeWidth}
             showText={false}
             color={pomodoroMode === "work" ? colors.primary : colors.success}
-            trackColor={colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)"}
+            trackColor={
+              isImmersiveWork
+                ? (colors.border ? `${colors.border}33` : "rgba(255, 255, 255, 0.04)")
+                : (colors.border ? `${colors.border}44` : "rgba(255, 255, 255, 0.06)")
+            }
           />
           <View style={styles.timerContent}>
             <Text

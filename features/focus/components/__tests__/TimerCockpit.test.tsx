@@ -209,4 +209,36 @@ describe("TimerCockpit Component", () => {
     expect(texts).not.toContain("Short Break (5m)");
     expect(texts).not.toContain("Long Break (15m)");
   });
+
+  it("9. Active Pomodoro retains targetSlot and Pause action while in immersive focus", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TimerCockpit
+          {...baseProps}
+          isActive={true}
+          targetSlot={<Text>Active Linked Task</Text>}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+    expect(texts).toContain("Active Linked Task");
+    expect(texts).toContain("Focusing");
+    expect(texts).toContain("Pause");
+    expect(texts).not.toContain("15m");
+    expect(texts).not.toContain("25m");
+  });
+
+  it("10. Active Pomodoro renders a stronger progress arc (strokeWidth 8) while remaining within bounds", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(<TimerCockpit {...baseProps} isActive={true} />);
+    });
+
+    const root = renderer.root;
+    const ring = root.findByProps({ showText: false });
+    expect(ring.props.strokeWidth).toBe(8);
+  });
 });
