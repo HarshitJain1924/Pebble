@@ -68,7 +68,6 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
           styles.modePill,
           {
             backgroundColor: !isBreak ? colors.primary : "transparent",
-            shadowColor: !isBreak ? colors.primary : "transparent",
             opacity: pressed ? 0.88 : 1,
             transform: [{ scale: pressed ? 0.97 : 1 }],
           },
@@ -94,7 +93,6 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
           styles.modePill,
           {
             backgroundColor: isBreak ? breakActiveBg : "transparent",
-            shadowColor: isBreak ? breakActiveBg : "transparent",
             opacity: pressed ? 0.88 : 1,
             transform: [{ scale: pressed ? 0.97 : 1 }],
           },
@@ -133,10 +131,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
   },
   modeText: {
     fontSize: 13,

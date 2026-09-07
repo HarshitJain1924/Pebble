@@ -757,10 +757,12 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 20,
     gap: 16,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 4,
+    // Flat minimal surface: depth comes from the tonal fill, the hairline
+    // top-light border, and the ring glow — not from drop shadows.
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   timerCardCompact: {
     paddingVertical: 16,
@@ -833,10 +835,11 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     paddingVertical: 14,
     paddingHorizontal: 36,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    elevation: 4,
+    // A soft tinted glow, not a hard shadow — keeps the CTA vivid but flat.
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    elevation: 2,
   },
   primaryBtnText: {
     color: "#ffffff",

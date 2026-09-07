@@ -1,6 +1,14 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { View, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+  Easing,
+} from "react-native-reanimated";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
@@ -19,6 +27,40 @@ interface AmbientSoundBarProps {
   colors: any;
   customTracks?: any[];
 }
+
+// Single equalizer bar: slow, gentle rise and fall while audio plays.
+const EQBar: React.FC<{ color: string; duration: number }> = ({ color, duration }) => {
+  const height = useSharedValue(4);
+
+  useEffect(() => {
+    height.value = withRepeat(
+      withSequence(
+        withTiming(10, { duration, easing: Easing.inOut(Easing.ease) }),
+        withTiming(4, { duration, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
+  }, [duration, height]);
+
+  const barStyle = useAnimatedStyle(() => ({
+    height: height.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[styles.eqBar, { backgroundColor: color }, barStyle]}
+    />
+  );
+};
+
+const NowPlayingBars: React.FC<{ color: string }> = ({ color }) => (
+  <View style={styles.eqRow}>
+    <EQBar color={color} duration={360} />
+    <EQBar color={color} duration={520} />
+    <EQBar color={color} duration={430} />
+  </View>
+);
 
 export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
   isActive,
@@ -41,8 +83,14 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
   const isSilent = !selectedSoundId || selectedSoundId === "none";
   const soundTitle = isSilent ? "Off" : soundItem?.title || "Off";
 
-  const surfaceBg = isDark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.65)";
-  const surfaceBorder = isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)";
+  // Deep indigo glass — matches the cockpit's violet-tinted surface instead of
+  // reading as a pure black slab over the violet mesh background.
+  const surfaceBg = isDark
+    ? "rgba(31, 31, 53, 0.72)"
+    : "rgba(245, 246, 255, 0.8)";
+  const surfaceBorder = isDark
+    ? "rgba(129, 140, 248, 0.16)"
+    : "rgba(79, 70, 229, 0.12)";
 
   // 1. INACTIVE / READY STATE — COMPACT UTILITY ROW
   if (!isActive) {
@@ -56,6 +104,10 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           {
             backgroundColor: surfaceBg,
             borderColor: surfaceBorder,
+            borderTopColor: isDark
+              ? "rgba(255, 255, 255, 0.12)"
+              : "rgba(255, 255, 255, 0.8)",
+            borderBottomColor: isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(0, 0, 0, 0.08)",
           },
         ]}
       >
@@ -104,10 +156,14 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         {
           backgroundColor: surfaceBg,
           borderColor: surfaceBorder,
+          borderTopColor: isDark
+            ? "rgba(255, 255, 255, 0.12)"
+            : "rgba(255, 255, 255, 0.8)",
+          borderBottomColor: isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(0, 0, 0, 0.08)",
         },
       ]}
     >
-      {/* Top row: Track identity + volume toggle */}
+      {/* Top row: Track identity + now-playing signal + volume toggle */}
       <View style={styles.activeTopRow}>
         <PressableScale
           onPress={onOpenPlayer}
@@ -140,6 +196,9 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           >
             {isSilent ? "Ambient Sound · Off" : soundTitle}
           </Text>
+          {!isSilent && isPlaying && (
+            <NowPlayingBars color={colors.primary || "#6366F1"} />
+          )}
           <Feather name="chevron-right" size={13} color={colors.textMuted} />
         </PressableScale>
 
@@ -161,13 +220,13 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         >
           <Feather
             name={isMuted ? "volume-x" : "volume-2"}
-            size={13}
+            size={14}
             color={isMuted ? colors.error || "#EF4444" : colors.textMuted}
           />
         </PressableScale>
       </View>
 
-      {/* Subtle micro track indicator */}
+      {/* Hairline separator between identity and transport */}
       <View
         style={[
           styles.trackDivider,
@@ -177,21 +236,9 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
               : "rgba(0, 0, 0, 0.05)",
           },
         ]}
-      >
-        {!isSilent && isPlaying && (
-          <View
-            style={[
-              styles.trackFill,
-              {
-                backgroundColor: colors.primary,
-                opacity: 0.6,
-              },
-            ]}
-          />
-        )}
-      </View>
+      />
 
-      {/* Supporting mini transport controls */}
+      {/* Transport: prev / prominent play / next */}
       <View style={styles.transportRow}>
         <PressableScale
           onPress={onPrevTrack}
@@ -200,7 +247,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           contentStyle={styles.iconCenter}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Feather name="skip-back" size={14} color={colors.textMuted} />
+          <Feather name="skip-back" size={15} color={colors.textMuted} />
         </PressableScale>
 
         <PressableScale
@@ -209,8 +256,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           style={[
             styles.transportPlayBtn,
             {
-              backgroundColor: `${colors.primary}18`,
-              borderColor: `${colors.primary}33`,
+              backgroundColor: colors.primary || "#6366F1",
             },
           ]}
           contentStyle={styles.iconCenter}
@@ -218,8 +264,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         >
           <Feather
             name={isPlaying ? "pause" : "play"}
-            size={13}
-            color={colors.primary}
+            size={15}
+            color="#ffffff"
           />
         </PressableScale>
 
@@ -230,7 +276,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           contentStyle={styles.iconCenter}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Feather name="skip-forward" size={14} color={colors.textMuted} />
+          <Feather name="skip-forward" size={15} color={colors.textMuted} />
         </PressableScale>
       </View>
     </View>
@@ -282,9 +328,9 @@ const styles = StyleSheet.create({
     width: "100%",
     borderRadius: 18,
     borderWidth: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 14,
-    gap: 8,
+    gap: 10,
   },
   activeTopRow: {
     flexDirection: "row",
@@ -313,47 +359,55 @@ const styles = StyleSheet.create({
     maxWidth: 200,
     flexShrink: 1,
   },
+  eqRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    height: 12,
+    marginLeft: 1,
+  },
+  eqBar: {
+    width: 3,
+    borderRadius: 1.5,
+  },
   iconCenter: {
     alignItems: "center",
     justifyContent: "center",
   },
   volumeBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   trackDivider: {
-    height: 2,
+    height: 1,
     width: "100%",
-    borderRadius: 1,
-    overflow: "hidden",
-  },
-  trackFill: {
-    width: "45%",
-    height: "100%",
     borderRadius: 1,
   },
   transportRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 22,
+    gap: 26,
     paddingTop: 1,
   },
   transportBtn: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
   },
   transportPlayBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 2,
   },
 });
