@@ -69,6 +69,7 @@ function blendSurface(baseHex: string, accentHex: string, opacity: number): stri
 
 interface TimerCockpitProps {
   targetSlot?: React.ReactNode;
+  targetTitle?: string;
   mode: "pomodoro" | "stopwatch";
   pomodoroMode: "work" | "break";
   isActive: boolean;
@@ -95,10 +96,13 @@ interface TimerCockpitProps {
   setBreakType: (val: "short" | "long") => void;
   setSessionTime: (val: number) => void;
   setTotalSessionTime: (val: number) => void;
+  onStartBreak?: () => void;
+  setPomodoroMode?: (val: "work" | "break") => void;
 }
 
 export const TimerCockpit: React.FC<TimerCockpitProps> = ({
   targetSlot,
+  targetTitle,
   mode,
   pomodoroMode,
   isActive,
@@ -125,6 +129,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
   setBreakType,
   setSessionTime,
   setTotalSessionTime,
+  onStartBreak,
+  setPomodoroMode,
 }) => {
   const { height: windowHeight = 800 } = useWindowDimensions() ?? {};
   const isCompact = windowHeight > 0 && windowHeight < 700;
@@ -186,7 +192,18 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
     return `${m}:${s}`;
   };
 
-  const progress = totalSessionTime > 0 ? (totalSessionTime - sessionTime) / totalSessionTime : 0;
+  const isCompleted =
+    mode === "pomodoro" &&
+    pomodoroMode === "work" &&
+    !isActive &&
+    sessionTime === 0 &&
+    totalSessionTime > 0;
+
+  const progress = isCompleted
+    ? 1
+    : totalSessionTime > 0
+    ? (totalSessionTime - sessionTime) / totalSessionTime
+    : 0;
 
   return (
     <AppCard
@@ -225,9 +242,15 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
         >
           {glowEnabled && (
             <FloatingGlow
-              color={pomodoroMode === "work" ? colors.primary : colors.success}
+              color={
+                isCompleted
+                  ? colors.success || activeColors.success
+                  : pomodoroMode === "work"
+                  ? colors.primary
+                  : colors.success
+              }
               size={glowSize}
-              opacity={isImmersiveWork ? 0.18 : (isActive ? 0.15 : 0.04)}
+              opacity={isImmersiveWork ? 0.18 : (isActive || isCompleted ? 0.15 : 0.04)}
               pulseSpeed={isImmersiveWork ? 3000 : (isActive ? 3500 : 8000)}
               style={StyleSheet.absoluteFillObject}
             />
@@ -237,7 +260,13 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             size={ringSize}
             strokeWidth={strokeWidth}
             showText={false}
-            color={pomodoroMode === "work" ? activeColors.primary : activeColors.success}
+            color={
+              isCompleted
+                ? activeColors.success || colors.success || "#10B981"
+                : pomodoroMode === "work"
+                ? activeColors.primary
+                : activeColors.success
+            }
             trackColor={
               isImmersiveWork
                 ? (activeColors.border ? `${activeColors.border}22` : "rgba(255, 255, 255, 0.04)")
@@ -245,41 +274,72 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             }
           />
           <View style={styles.timerContent}>
-            <Text
-              style={[
-                styles.timerDigits,
-                {
-                  fontSize: timerFontSize,
-                  color: colors.text,
-                  opacity: isActive ? 1 : 0.9,
-                },
-              ]}
-            >
-              {formatTime(sessionTime)}
-            </Text>
-            <Text
-              style={[
-                styles.timerSub,
-                {
-                  color:
-                    pomodoroMode === "work"
-                      ? isActive
-                        ? colors.primary
-                        : colors.textMuted
-                      : isActive
-                      ? colors.success
-                      : colors.textMuted,
-                },
-              ]}
-            >
-              {pomodoroMode === "work"
-                ? isActive
-                  ? "Focusing"
-                  : "Paused"
-                : isActive
-                ? "Break Active"
-                : "Break Paused"}
-            </Text>
+            {isCompleted ? (
+              <View style={styles.completedContent}>
+                <Feather
+                  name="check-circle"
+                  size={isCompact ? 26 : 32}
+                  color={colors.success || activeColors.success || "#10B981"}
+                />
+                <Text
+                  style={[
+                    styles.completedTitle,
+                    { color: colors.success || activeColors.success || "#10B981" },
+                  ]}
+                >
+                  FOCUS COMPLETE
+                </Text>
+                <Text style={[styles.completedSub, { color: colors.textMuted }]}>
+                  {`${Math.round(totalSessionTime / 60)} min focused`}
+                </Text>
+                {targetTitle ? (
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.completedTarget, { color: colors.text }]}
+                  >
+                    {targetTitle}
+                  </Text>
+                ) : null}
+              </View>
+            ) : (
+              <>
+                <Text
+                  style={[
+                    styles.timerDigits,
+                    {
+                      fontSize: timerFontSize,
+                      color: colors.text,
+                      opacity: isActive ? 1 : 0.9,
+                    },
+                  ]}
+                >
+                  {formatTime(sessionTime)}
+                </Text>
+                <Text
+                  style={[
+                    styles.timerSub,
+                    {
+                      color:
+                        pomodoroMode === "work"
+                          ? isActive
+                            ? colors.primary
+                            : colors.textMuted
+                          : isActive
+                          ? colors.success
+                          : colors.textMuted,
+                    },
+                  ]}
+                >
+                  {pomodoroMode === "work"
+                    ? isActive
+                      ? "Focusing"
+                      : "Paused"
+                    : isActive
+                    ? "Break Active"
+                    : "Break Paused"}
+                </Text>
+              </>
+            )}
           </View>
         </View>
       ) : (
@@ -341,28 +401,10 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
       )}
 
       {/* 3. PRIMARY CONTROL (PROMINENT BENEATH TIMER) */}
-      <View style={styles.primaryActionWrap}>
-        {mode === "pomodoro" ? (
+      {isCompleted ? (
+        <View style={styles.completedActionsWrap}>
           <Pressable
-            onPress={handleStartPause}
-            style={({ pressed }) => [
-              styles.primaryBtn,
-              {
-                backgroundColor: pomodoroMode === "work" ? colors.primary : colors.success,
-                shadowColor: pomodoroMode === "work" ? colors.primary : colors.success,
-                opacity: pressed ? 0.9 : 1,
-                transform: [{ scale: pressed ? 0.98 : 1 }],
-              },
-            ]}
-          >
-            <Feather name={isActive ? "pause" : "play"} size={16} color="#ffffff" />
-            <Text style={styles.primaryBtnText}>
-              {isActive ? "Pause" : pomodoroMode === "work" ? "Start Focus" : "Start Break"}
-            </Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={swStartPause}
+            onPress={handleReset}
             style={({ pressed }) => [
               styles.primaryBtn,
               {
@@ -373,14 +415,114 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               },
             ]}
           >
-            <Feather name={swRunning ? "pause" : "play"} size={16} color="#ffffff" />
-            <Text style={styles.primaryBtnText}>{swRunning ? "Pause" : "Start"}</Text>
+            <Feather name="rotate-ccw" size={16} color="#ffffff" />
+            <Text style={styles.primaryBtnText}>Start next session</Text>
           </Pressable>
-        )}
-      </View>
+          <Pressable
+            onPress={() => {
+              if (onStartBreak) {
+                onStartBreak();
+              } else {
+                setPomodoroMode?.("break");
+                setBreakType("short");
+                setSessionTime(5 * 60);
+                setTotalSessionTime(5 * 60);
+              }
+            }}
+            style={({ pressed }) => [
+              styles.completedBreakBtn,
+              {
+                backgroundColor: isDark
+                  ? "rgba(16, 185, 129, 0.12)"
+                  : "rgba(16, 185, 129, 0.1)",
+                borderColor: isDark
+                  ? "rgba(16, 185, 129, 0.3)"
+                  : "rgba(16, 185, 129, 0.25)",
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Feather
+              name="coffee"
+              size={15}
+              color={colors.success || activeColors.success || "#10B981"}
+            />
+            <Text
+              style={[
+                styles.completedBreakText,
+                { color: colors.success || activeColors.success || "#10B981" },
+              ]}
+            >
+              Take a break
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.primaryActionWrap}>
+          {mode === "pomodoro" ? (
+            <Pressable
+              onPress={handleStartPause}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                {
+                  backgroundColor: pomodoroMode === "work" ? colors.primary : colors.success,
+                  shadowColor: pomodoroMode === "work" ? colors.primary : colors.success,
+                  opacity: pressed ? 0.9 : 1,
+                  transform: [{ scale: pressed ? 0.98 : 1 }],
+                },
+              ]}
+            >
+              <Feather name={isActive ? "pause" : "play"} size={16} color="#ffffff" />
+              <Text style={styles.primaryBtnText}>
+                {isActive ? "Pause" : pomodoroMode === "work" ? "Start Focus" : "Start Break"}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={swStartPause}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                {
+                  backgroundColor: colors.primary,
+                  shadowColor: colors.primary,
+                  opacity: pressed ? 0.9 : 1,
+                  transform: [{ scale: pressed ? 0.98 : 1 }],
+                },
+              ]}
+            >
+              <Feather name={swRunning ? "pause" : "play"} size={16} color="#ffffff" />
+              <Text style={styles.primaryBtnText}>{swRunning ? "Pause" : "Start"}</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {/* 3.1 ACTIVE WORK SEMANTIC ANCHOR */}
+      {isImmersiveWork && (
+        <View style={styles.activeSessionMetaRow}>
+          <View
+            style={[
+              styles.metaAnchorBadge,
+              {
+                backgroundColor: isDark
+                  ? "rgba(255, 255, 255, 0.05)"
+                  : "rgba(0, 0, 0, 0.04)",
+                borderColor: isDark
+                  ? "rgba(255, 255, 255, 0.08)"
+                  : "rgba(0, 0, 0, 0.06)",
+              },
+            ]}
+          >
+            <Feather name="clock" size={12} color={colors.primary} />
+            <Text style={[styles.metaAnchorText, { color: colors.textMuted }]}>
+              {Math.max(1, Math.ceil(sessionTime / 60))} min remaining
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* 4. DURATION OPTIONS (INTENTIONAL TACTILE PILL PRESETS) */}
-      {mode === "pomodoro" && pomodoroMode === "work" && !isActive && (
+      {mode === "pomodoro" && pomodoroMode === "work" && !isActive && !isCompleted && (
         <View style={styles.durationSection}>
           <View style={styles.presetsRow}>
             {[15, 25, 45].map((mins) => {
@@ -553,39 +695,41 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
       )}
 
       {/* 5. SECONDARY INFORMATION / ACTIONS (SUBTLE FOOTER AREA) */}
-      <View style={styles.secondaryArea}>
-        {mode === "pomodoro" ? (
-          <Pressable
-            onPress={handleReset}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.secondaryBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <Feather name="rotate-ccw" size={13} color={colors.textMuted} />
-            <Text style={[styles.secondaryBtnText, { color: colors.textMuted }]}>Reset</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={swRunning ? swLap : swReset}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.secondaryBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <Feather
-              name={swRunning ? "clock" : "rotate-ccw"}
-              size={13}
-              color={colors.textMuted}
-            />
-            <Text style={[styles.secondaryBtnText, { color: colors.textMuted }]}>
-              {swRunning ? "Lap" : "Reset"}
-            </Text>
-          </Pressable>
-        )}
-      </View>
+      {!isCompleted && (
+        <View style={styles.secondaryArea}>
+          {mode === "pomodoro" ? (
+            <Pressable
+              onPress={handleReset}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.secondaryBtn,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Feather name="rotate-ccw" size={13} color={colors.textMuted} />
+              <Text style={[styles.secondaryBtnText, { color: colors.textMuted }]}>Reset</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={swRunning ? swLap : swReset}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.secondaryBtn,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Feather
+                name={swRunning ? "clock" : "rotate-ccw"}
+                size={13}
+                color={colors.textMuted}
+              />
+              <Text style={[styles.secondaryBtnText, { color: colors.textMuted }]}>
+                {swRunning ? "Lap" : "Reset"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
     </AppCard>
   );
 };
@@ -640,6 +784,28 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 1.4,
   },
+  completedContent: {
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+  },
+  completedTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  completedSub: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  completedTarget: {
+    fontSize: 12,
+    fontWeight: "600",
+    maxWidth: 130,
+    marginTop: 2,
+  },
   primaryActionWrap: {
     width: "100%",
   },
@@ -663,6 +829,45 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
     letterSpacing: 0.3,
+  },
+  completedActionsWrap: {
+    width: "100%",
+    gap: 8,
+  },
+  completedBreakBtn: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  completedBreakText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  activeSessionMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: -8,
+  },
+  metaAnchorBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  metaAnchorText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   durationSection: {
     width: "100%",

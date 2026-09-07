@@ -1,9 +1,8 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AppCard } from "@/shared/components/ui/AppCard";
-import { Spacing } from "@/shared/constants/spacing";
-import { Typography } from "@/shared/constants/typography";
 
 interface FocusStatsCardProps {
   completedToday: number;
@@ -29,24 +28,33 @@ export const FocusStatsCard: React.FC<FocusStatsCardProps> = ({
         },
       ]}
     >
-      <Text style={[styles.statsTitle, { color: colors.textMuted }]}>
-        {"TODAY'S STATS"}
-      </Text>
+      <View style={styles.headerRow}>
+        <Feather name="bar-chart-2" size={11} color={colors.textMuted} />
+        <Text style={[styles.statsTitle, { color: colors.textMuted }]}>
+          {"TODAY'S STATS"}
+        </Text>
+      </View>
 
       <View style={styles.statsGrid}>
         <View style={styles.statRow}>
           <View style={styles.statCell}>
-            <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-              Completed
-            </Text>
+            <View style={styles.labelRow}>
+              <Feather name="check-circle" size={11} color={colors.primary} />
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                Completed
+              </Text>
+            </View>
             <Text style={[styles.statVal, { color: colors.text }]}>
               {completedToday} Sessions
             </Text>
           </View>
           <View style={styles.statCell}>
-            <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-              Focus Time
-            </Text>
+            <View style={styles.labelRow}>
+              <Feather name="clock" size={11} color={colors.primary} />
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                Focus Time
+              </Text>
+            </View>
             <Text style={[styles.statVal, { color: colors.text }]}>
               {totalFocusTime} mins
             </Text>
@@ -55,17 +63,23 @@ export const FocusStatsCard: React.FC<FocusStatsCardProps> = ({
 
         <View style={styles.statRow}>
           <View style={styles.statCell}>
-            <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-              Avg Length
-            </Text>
+            <View style={styles.labelRow}>
+              <Feather name="trending-up" size={11} color={colors.primary} />
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                Avg Length
+              </Text>
+            </View>
             <Text style={[styles.statVal, { color: colors.text }]}>
               {averageSessionLength} mins
             </Text>
           </View>
           <View style={styles.statCell}>
-            <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-              Longest
-            </Text>
+            <View style={styles.labelRow}>
+              <Feather name="award" size={11} color={colors.primary} />
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                Longest
+              </Text>
+            </View>
             <Text style={[styles.statVal, { color: colors.text }]}>
               {longestSession} mins
             </Text>
@@ -82,8 +96,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 20,
     borderWidth: 1,
-    gap: 8,
-    opacity: 0.85,
+    gap: 10,
+    opacity: 0.9,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   statsTitle: {
     fontSize: 10,
@@ -91,23 +110,29 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   statsGrid: {
-    gap: 8,
+    gap: 10,
   },
   statRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 8,
+    gap: 12,
   },
   statCell: {
     flex: 1,
-    gap: 2,
+    gap: 3,
+  },
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   statLabel: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   statVal: {
     fontSize: 13,
     fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
 });

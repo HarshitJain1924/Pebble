@@ -260,4 +260,37 @@ describe("TimerCockpit Component", () => {
     expect(ring).toBeDefined();
     expect(ring.props.progress).toBe(0);
   });
+
+  it("12. Renders completed state with visual completion anchor and next actions", () => {
+    const handleReset = jest.fn();
+    const onStartBreak = jest.fn();
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TimerCockpit
+          {...baseProps}
+          sessionTime={0}
+          totalSessionTime={1500}
+          targetTitle="Finish Portfolio"
+          handleReset={handleReset}
+          onStartBreak={onStartBreak}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+    expect(texts).toContain("FOCUS COMPLETE");
+    expect(texts).toContain("25 min focused");
+    expect(texts).toContain("Finish Portfolio");
+    expect(texts).toContain("Start next session");
+    expect(texts).toContain("Take a break");
+
+    const icons = root.findAll((node: any) => node.props && typeof node.props.name === "string");
+    const iconNames = icons.map((icon: any) => icon.props.name);
+    expect(iconNames).toContain("check-circle");
+    expect(iconNames).toContain("rotate-ccw");
+    expect(iconNames).toContain("coffee");
+  });
 });

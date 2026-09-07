@@ -13,6 +13,7 @@ import { FocusHeader } from "@/features/focus/components/FocusHeader";
 import { ModeSelector } from "@/features/focus/components/ModeSelector";
 import { TimerCockpit } from "@/features/focus/components/TimerCockpit";
 import { FocusTargetCard } from "@/features/focus/components/FocusTargetCard";
+import { AmbientSoundBar } from "@/features/focus/components/AmbientSoundBar";
 import { FocusStatsCard } from "@/features/focus/components/FocusStatsCard";
 import { TaskPickerModal } from "@/features/focus/components/TaskPickerModal";
 import { MusicPlayerModal } from "@/features/focus/components/MusicPlayerModal";
@@ -28,6 +29,11 @@ export default function FocusScreen() {
   const isCompact = windowHeight > 0 && windowHeight < 700;
 
   const state = useFocusState();
+
+  const targetTitle = state.focusedTaskId
+    ? state.todoList.find((t) => t.id === state.focusedTaskId)?.title ||
+      state.habitList.find((h) => h.id === state.focusedTaskId)?.title
+    : undefined;
 
   // Atmospheric background layer state resolution for the Focus session workspace
   const isPomodoroWorkActive = state.mode === "pomodoro" && state.pomodoroMode === "work" && state.isActive;
@@ -118,6 +124,7 @@ export default function FocusScreen() {
                   />
                 ) : undefined
               }
+              targetTitle={targetTitle}
               mode={state.mode}
               pomodoroMode={state.pomodoroMode}
               isActive={state.isActive}
@@ -144,6 +151,22 @@ export default function FocusScreen() {
               setBreakType={state.setBreakType}
               setSessionTime={state.setSessionTime}
               setTotalSessionTime={state.setTotalSessionTime}
+              onStartBreak={state.transitionToBreak}
+            />
+
+            {/* Supporting Ambient Sound Utility */}
+            <AmbientSoundBar
+              isActive={state.isActive || state.swRunning}
+              selectedSoundId={state.selectedSoundId}
+              isMuted={state.isMuted}
+              onToggleMute={(muted) => state.setIsMuted(muted)}
+              onPrevTrack={state.handlePrevTrack}
+              onNextTrack={state.handleNextTrack}
+              onTogglePlay={state.mode === "pomodoro" ? state.handleStartPause : state.swStartPause}
+              isPlaying={state.isPlaying}
+              onOpenPlayer={() => state.setShowMusicPlayer(true)}
+              colors={colors}
+              customTracks={state.customTracks}
             />
 
             {/* Laps List */}

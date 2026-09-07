@@ -44,9 +44,19 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
           },
         ]}
       >
-        <Text style={[styles.emptyLabel, { color: colors.textMuted }]}>
-          What are you focusing on?
-        </Text>
+        <View style={styles.emptyHeaderRow}>
+          <View
+            style={[
+              styles.targetIconCircle,
+              { backgroundColor: `${colors.primary}18` },
+            ]}
+          >
+            <Feather name="target" size={13} color={colors.primary} />
+          </View>
+          <Text style={[styles.emptyLabel, { color: colors.textMuted }]}>
+            What are you focusing on?
+          </Text>
+        </View>
         <PressableScale
           onPress={onLinkPress}
           haptic
@@ -78,9 +88,12 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
       ]}
     >
       <View style={styles.targetHeaderRow}>
-        <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
-          Focus target
-        </Text>
+        <View style={styles.targetHeaderTitleGroup}>
+          <Feather name="target" size={12} color={colors.primary} />
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
+            Focus target
+          </Text>
+        </View>
         <View style={styles.targetActions}>
           <PressableScale
             onPress={onLinkPress}
@@ -118,7 +131,7 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
           ]}
         >
           <Feather
-            name={isHabit ? "activity" : "target"}
+            name={isHabit ? "repeat" : "check-square"}
             size={16}
             color={isHabit ? "#F59E0B" : colors.primary}
           />
@@ -129,8 +142,17 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
             {title}
           </Text>
           <View style={styles.metaRow}>
+            <Feather
+              name={isHabit ? "repeat" : "check-square"}
+              size={11}
+              color={colors.textMuted}
+            />
             <Text style={[styles.typeLabel, { color: colors.textMuted }]}>
               {isHabit ? "Habit" : "Task"}
+            </Text>
+            <Text style={[styles.metaDot, { color: colors.textMuted }]}>·</Text>
+            <Text style={[styles.metaTimeframe, { color: colors.textMuted }]}>
+              {isHabit ? "Daily" : "Today"}
             </Text>
             {isRecovery && (
               <View style={styles.recoveryBadge}>
@@ -153,6 +175,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 8,
     alignItems: "center",
+  },
+  emptyHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  targetIconCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyLabel: {
     fontSize: 13,
@@ -187,6 +221,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  targetHeaderTitleGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   sectionLabel: {
     fontSize: 11,
@@ -244,9 +283,17 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
   },
   typeLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  metaDot: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  metaTimeframe: {
     fontSize: 12,
     fontWeight: "500",
   },

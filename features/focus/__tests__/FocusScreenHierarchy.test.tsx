@@ -81,6 +81,9 @@ jest.mock("@/features/focus/components/TimerCockpit", () => ({
 jest.mock("@/features/focus/components/FocusStatsCard", () => ({
   FocusStatsCard: "FocusStatsCard",
 }));
+jest.mock("@/features/focus/components/AmbientSoundBar", () => ({
+  AmbientSoundBar: "AmbientSoundBar",
+}));
 jest.mock("@/features/focus/components/TaskPickerModal", () => ({
   TaskPickerModal: "TaskPickerModal",
 }));
@@ -105,11 +108,13 @@ describe("FocusScreen Information Hierarchy", () => {
     const header = root.findByType("FocusHeader" as any);
     const modeSelector = root.findByType("ModeSelector" as any);
     const timerCockpit = root.findByType("TimerCockpit" as any);
+    const ambientSoundBar = root.findByType("AmbientSoundBar" as any);
     const statsCard = root.findByType("FocusStatsCard" as any);
 
     expect(header).toBeDefined();
     expect(modeSelector).toBeDefined();
     expect(timerCockpit).toBeDefined();
+    expect(ambientSoundBar).toBeDefined();
     expect(statsCard).toBeDefined();
 
     // Verify unified structure: FocusTargetCard is passed to TimerCockpit via targetSlot
@@ -122,10 +127,12 @@ describe("FocusScreen Information Hierarchy", () => {
     const componentNames = children.map((c: any) => c.type);
 
     const timerIndex = componentNames.indexOf("TimerCockpit");
+    const ambientIndex = componentNames.indexOf("AmbientSoundBar");
     const statsIndex = componentNames.indexOf("FocusStatsCard");
 
     expect(timerIndex).toBeGreaterThan(-1);
-    expect(statsIndex).toBeGreaterThan(timerIndex);
+    expect(ambientIndex).toBeGreaterThan(timerIndex);
+    expect(statsIndex).toBeGreaterThan(ambientIndex);
   });
 
   it("omits FocusTargetCard in Stopwatch mode while keeping TimerCockpit and Stats intact", () => {
