@@ -60,7 +60,8 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
         <PressableScale
           onPress={onLinkPress}
           haptic
-          style={[
+          style={styles.selectTargetWrapper}
+          contentStyle={[
             styles.selectTargetBtn,
             {
               backgroundColor: isDark ? `${colors.primary}18` : `${colors.primary}10`,
@@ -122,7 +123,8 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
       <PressableScale
         onPress={onLinkPress}
         haptic
-        style={styles.targetDetailRow}
+        style={styles.targetDetailWrapper}
+        contentStyle={styles.targetDetailRow}
       >
         <View
           style={[
@@ -193,6 +195,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.1,
   },
+  selectTargetWrapper: {
+    width: "100%",
+  },
   selectTargetBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -256,6 +261,9 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     justifyContent: "center",
     alignItems: "center",
+  },
+  targetDetailWrapper: {
+    width: "100%",
   },
   targetDetailRow: {
     flexDirection: "row",

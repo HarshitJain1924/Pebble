@@ -50,7 +50,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
       <PressableScale
         onPress={onOpenPlayer}
         haptic
-        style={[
+        style={styles.barWrapper}
+        contentStyle={[
           styles.inactiveBar,
           {
             backgroundColor: surfaceBg,
@@ -111,7 +112,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         <PressableScale
           onPress={onOpenPlayer}
           haptic
-          style={styles.activeTrackGroup}
+          style={styles.activeTrackGroupWrapper}
+          contentStyle={styles.activeTrackGroup}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
           <View
@@ -154,6 +156,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
                 : "rgba(0, 0, 0, 0.04)",
             },
           ]}
+          contentStyle={styles.iconCenter}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Feather
@@ -194,6 +197,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           onPress={onPrevTrack}
           haptic
           style={styles.transportBtn}
+          contentStyle={styles.iconCenter}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Feather name="skip-back" size={14} color={colors.textMuted} />
@@ -209,6 +213,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
               borderColor: `${colors.primary}33`,
             },
           ]}
+          contentStyle={styles.iconCenter}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
           <Feather
@@ -222,6 +227,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           onPress={onNextTrack}
           haptic
           style={styles.transportBtn}
+          contentStyle={styles.iconCenter}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Feather name="skip-forward" size={14} color={colors.textMuted} />
@@ -232,6 +238,9 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
 };
 
 const styles = StyleSheet.create({
+  barWrapper: {
+    width: "100%",
+  },
   inactiveBar: {
     width: "100%",
     flexDirection: "row",
@@ -282,12 +291,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  activeTrackGroupWrapper: {
+    flex: 1,
+    marginRight: 8,
+  },
   activeTrackGroup: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    flex: 1,
-    marginRight: 8,
   },
   miniIconBadge: {
     width: 24,
@@ -300,6 +311,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     maxWidth: 200,
+    flexShrink: 1,
+  },
+  iconCenter: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   volumeBtn: {
     width: 26,
