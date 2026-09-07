@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 interface ModeSelectorProps {
   mode: "pomodoro" | "stopwatch";
@@ -9,23 +10,29 @@ interface ModeSelectorProps {
 }
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, colors }) => {
+  const colorScheme = useColorScheme() ?? "dark";
+  const isDark = colorScheme !== "light";
+
   return (
     <View
       style={[
         styles.container,
         {
-          backgroundColor: colors.cardLight || "rgba(255, 255, 255, 0.04)",
-          borderColor: colors.border || "rgba(255, 255, 255, 0.08)",
+          backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+          borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
         },
       ]}
     >
       <Pressable
         onPress={() => setMode("pomodoro")}
-        hitSlop={4}
-        style={[
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        style={({ pressed }) => [
           styles.modePill,
           {
             backgroundColor: mode === "pomodoro" ? colors.primary : "transparent",
+            shadowColor: mode === "pomodoro" ? colors.primary : "transparent",
+            opacity: pressed ? 0.88 : 1,
+            transform: [{ scale: pressed ? 0.97 : 1 }],
           },
         ]}
       >
@@ -43,11 +50,14 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, color
       </Pressable>
       <Pressable
         onPress={() => setMode("stopwatch")}
-        hitSlop={4}
-        style={[
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        style={({ pressed }) => [
           styles.modePill,
           {
             backgroundColor: mode === "stopwatch" ? colors.primary : "transparent",
+            shadowColor: mode === "stopwatch" ? colors.primary : "transparent",
+            opacity: pressed ? 0.88 : 1,
+            transform: [{ scale: pressed ? 0.97 : 1 }],
           },
         ]}
       >
@@ -71,20 +81,26 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignSelf: "center",
-    borderRadius: 12,
-    padding: 3,
+    borderRadius: 16,
+    padding: 4,
     borderWidth: 1,
-    gap: 2,
+    gap: 3,
+    marginBottom: -4,
+    zIndex: 2,
   },
   modePill: {
-    paddingVertical: 5,
-    paddingHorizontal: 16,
-    borderRadius: 9,
+    paddingVertical: 7,
+    paddingHorizontal: 20,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
   modeText: {
-    fontSize: 12,
+    fontSize: 13,
     letterSpacing: 0.2,
   },
 });

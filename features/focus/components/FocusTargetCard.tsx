@@ -3,6 +3,7 @@ import { View, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Spacing } from "@/shared/constants/spacing";
 
 interface FocusTargetCardProps {
@@ -22,6 +23,9 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
   onUnlinkPress,
   colors,
 }) => {
+  const colorScheme = useColorScheme() ?? "dark";
+  const isDark = colorScheme !== "light";
+
   const linkedTask = focusedTaskId ? todoList.find((t) => t.id === focusedTaskId) : null;
   const linkedHabit = focusedTaskId ? habitList.find((h) => h.id === focusedTaskId) : null;
 
@@ -31,7 +35,15 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
 
   if (!focusedTaskId) {
     return (
-      <View style={styles.emptyContainer}>
+      <View
+        style={[
+          styles.emptyContainer,
+          {
+            backgroundColor: isDark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.65)",
+            borderColor: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
+          },
+        ]}
+      >
         <Text style={[styles.emptyLabel, { color: colors.textMuted }]}>
           What are you focusing on?
         </Text>
@@ -41,7 +53,7 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
           style={[
             styles.selectTargetBtn,
             {
-              backgroundColor: `${colors.primary}0D`,
+              backgroundColor: isDark ? `${colors.primary}18` : `${colors.primary}10`,
               borderColor: `${colors.primary}33`,
             },
           ]}
@@ -56,7 +68,15 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
   }
 
   return (
-    <View style={styles.targetContainer}>
+    <View
+      style={[
+        styles.targetContainer,
+        {
+          backgroundColor: isDark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.65)",
+          borderColor: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
+        },
+      ]}
+    >
       <View style={styles.targetHeaderRow}>
         <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
           Focus target
@@ -65,7 +85,7 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
           <PressableScale
             onPress={onLinkPress}
             haptic
-            style={[styles.changeBtn, { backgroundColor: `${colors.primary}14` }]}
+            style={[styles.changeBtn, { backgroundColor: `${colors.primary}16` }]}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
           >
             <Text style={[styles.changeBtnText, { color: colors.primary }]}>
@@ -75,10 +95,13 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
           <PressableScale
             onPress={onUnlinkPress}
             haptic
-            style={styles.unlinkBtn}
+            style={[
+              styles.unlinkBtn,
+              { backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.04)" },
+            ]}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
           >
-            <Feather name="x" size={15} color={colors.textMuted} />
+            <Feather name="x" size={14} color={colors.textMuted} />
           </PressableScale>
         </View>
       </View>
@@ -91,7 +114,7 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
         <View
           style={[
             styles.iconBadge,
-            { backgroundColor: isHabit ? "rgba(245, 158, 11, 0.12)" : `${colors.primary}16` },
+            { backgroundColor: isHabit ? "rgba(245, 158, 11, 0.14)" : `${colors.primary}18` },
           ]}
         >
           <Feather
@@ -124,45 +147,50 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
 const styles = StyleSheet.create({
   emptyContainer: {
     width: "100%",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
     gap: 8,
     alignItems: "center",
-    paddingVertical: 2,
   },
   emptyLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
+    letterSpacing: 0.1,
   },
   selectTargetBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     borderWidth: 1,
-    borderStyle: "dashed",
     width: "100%",
-    minHeight: 36,
+    minHeight: 40,
   },
   selectTargetText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
   },
   targetContainer: {
     width: "100%",
-    gap: 4,
-    paddingVertical: 0,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
   },
   targetHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 2,
   },
   sectionLabel: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
@@ -172,33 +200,35 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   changeBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
     justifyContent: "center",
     alignItems: "center",
-    minHeight: 24,
+    minHeight: 26,
   },
   changeBtnText: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
   },
   unlinkBtn: {
-    padding: 4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     justifyContent: "center",
     alignItems: "center",
-    minHeight: 24,
   },
   targetDetailRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
     width: "100%",
+    paddingTop: 2,
   },
   iconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -207,8 +237,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   targetTitle: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 20,
   },
   metaRow: {
     flexDirection: "row",
@@ -216,14 +247,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   typeLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "500",
   },
   recoveryBadge: {
     backgroundColor: "rgba(239, 68, 68, 0.12)",
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 5,
+    borderRadius: 6,
     borderColor: "rgba(239, 68, 68, 0.25)",
     borderWidth: 1,
   },

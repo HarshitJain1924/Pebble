@@ -78,12 +78,12 @@ export const FocusStatsCard: React.FC<FocusStatsCardProps> = ({
 
 const styles = StyleSheet.create({
   statsCard: {
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     gap: 8,
-    opacity: 0.9,
+    opacity: 0.85,
   },
   statsTitle: {
     fontSize: 10,

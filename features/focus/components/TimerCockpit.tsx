@@ -118,10 +118,10 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
     ? "rgba(5, 150, 105, 0.1)"
     : "rgba(79, 70, 229, 0.1)";
 
-  const ringSize = isCompact ? 160 : 180;
+  const ringSize = isCompact ? 160 : 176;
   const glowSize = isImmersiveWork ? (isCompact ? 150 : 175) : (isCompact ? 140 : 160);
   const strokeWidth = isImmersiveWork ? (isCompact ? 7 : 8) : (isCompact ? 6 : 7);
-  const timerFontSize = isCompact ? 36 : 42;
+  const timerFontSize = isCompact ? 38 : 44;
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -140,6 +140,9 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
         {
           backgroundColor: surfaceBg,
           borderColor: surfaceBorder,
+          borderTopColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(255, 255, 255, 0.8)",
+          borderBottomColor: isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(0, 0, 0, 0.08)",
+          shadowColor: colors.primary || "#4F46E5",
         },
         isCompact && styles.timerCardCompact,
       ]}
@@ -148,21 +151,6 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
       {targetSlot && (
         <View style={styles.targetSlotWrap}>
           {targetSlot}
-          <View
-            style={[
-              styles.targetDivider,
-              {
-                backgroundColor: isBreakMode
-                  ? isDark
-                    ? "rgba(16, 185, 129, 0.2)"
-                    : "rgba(5, 150, 105, 0.15)"
-                  : isDark
-                  ? "rgba(99, 102, 241, 0.2)"
-                  : "rgba(79, 70, 229, 0.15)",
-                opacity: isImmersiveWork ? 0.35 : 0.6,
-              },
-            ]}
-          />
         </View>
       )}
 
@@ -548,25 +536,28 @@ const styles = StyleSheet.create({
   timerCard: {
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 28,
-    borderWidth: 1.5,
-    paddingVertical: 20,
+    borderRadius: 32,
+    borderWidth: 1,
+    paddingVertical: 22,
     paddingHorizontal: 20,
-    gap: 16,
+    gap: 18,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 4,
   },
   timerCardCompact: {
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 16,
-    gap: 12,
+    gap: 14,
   },
   targetSlotWrap: {
     width: "100%",
     paddingBottom: 2,
   },
   targetDivider: {
-    height: 1,
+    height: 0,
     width: "100%",
-    marginTop: 8,
   },
   timerRingWrap: {
     justifyContent: "center",
@@ -600,18 +591,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    minHeight: 48,
-    borderRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    elevation: 3,
+    minHeight: 52,
+    borderRadius: 26,
+    paddingVertical: 14,
+    paddingHorizontal: 36,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    elevation: 4,
   },
   primaryBtnText: {
     color: "#ffffff",
     fontWeight: "700",
-    fontSize: 15,
-    letterSpacing: 0.2,
+    fontSize: 16,
+    letterSpacing: 0.3,
   },
   durationSection: {
     width: "100%",
@@ -623,14 +616,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
   },
   presetBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 14,
     borderWidth: 1,
-    minHeight: 32,
+    minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -641,21 +634,21 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   adjustBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   customAdjusterInput: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
-    minWidth: 54,
-    height: 32,
+    minWidth: 58,
+    height: 36,
     textAlign: "center",
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     paddingVertical: 2,
     paddingHorizontal: 6,
   },
@@ -663,17 +656,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 0,
+    paddingTop: 2,
   },
   secondaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    minHeight: 28,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    minHeight: 30,
   },
   secondaryBtnText: {
     fontSize: 12,
