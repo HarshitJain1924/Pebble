@@ -32,7 +32,7 @@ import { ZenModeModal } from "@/features/today/components/ZenModeModal";
 import { useTodayActions } from "@/features/today/hooks/useTodayActions";
 import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
-import { AppHeader } from "@/shared/components/ui/AppHeader";
+import { PebbleCircadianHeader } from "@/features/today/components/PebbleCircadianHeader";
 import type { Checklist } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
@@ -394,17 +394,24 @@ export function TodayScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: 160 }]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
-          <AppHeader
+          {/* Circadian Scenic Pebble Art Header */}
+          <PebbleCircadianHeader
             kicker={getGreetingTime()}
-            title={profile ? profile.name : "User"}
+            title={profile?.name}
+            subtitle="Small steps. A calmer you."
             profile={profile}
-            nextReminder={nextReminder !== null ? String(nextReminder) : null}
             hasUnreadNotifs={hasUnreadNotifs}
             streak={mainStreak}
             showSearch={true}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
+            colors={colors}
+            colorScheme={colorScheme}
+            style={{
+              marginHorizontal: -16,
+              marginTop: -20,
+              marginBottom: -4,
+            }}
           />
 
           {/* Glassmorphic Swipeable Progress Cards (Today & Monthly) */}

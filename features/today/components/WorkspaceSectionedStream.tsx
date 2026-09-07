@@ -358,20 +358,20 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
 
                 if (item.type === "task") {
                   const todo = item.original;
-                  let subtitle = "TODAY";
+                  let subtitle = "Today";
                   if (isTaskCompleted(todo)) {
-                    subtitle = "COMPLETED";
+                    subtitle = "Completed";
                   } else if (item.isOverdue) {
                     const dateKey = getTodoDateKey(todo);
-                    subtitle = `OVERDUE • ${getOverdueLabel(dateKey).toUpperCase()}`;
+                    subtitle = `Overdue • ${getOverdueLabel(dateKey)}`;
                   } else if (todo.recurrence?.frequency) {
-                    subtitle = `RECURS • ${todo.recurrence.frequency.toUpperCase()}`;
+                    subtitle = `Recurs • ${todo.recurrence.frequency.charAt(0).toUpperCase() + todo.recurrence.frequency.slice(1)}`;
                   } else if (todo.reminder?.triggerAt !== undefined) {
                     const d = new Date(todo.reminder.triggerAt);
                     const ampm = d.getHours() >= 12 ? "PM" : "AM";
                     const displayHour = d.getHours() % 12 || 12;
                     const displayMinute = String(d.getMinutes()).padStart(2, "0");
-                    subtitle = `TODAY • ${displayHour}:${displayMinute} ${ampm}`;
+                    subtitle = `Today • ${displayHour}:${displayMinute} ${ampm}`;
                   }
 
                   const isCompleted = isTaskCompleted(todo);
@@ -438,22 +438,56 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             >
                               {todo.title}
                             </Text>
-                            <StatusBadge
-                              status={
-                                isCompleted
-                                  ? "completed"
-                                  : item.isOverdue
-                                  ? "overdue"
-                                  : "today"
-                              }
-                              text={subtitle}
-                            />
+                            <Text
+                              style={[
+                                styles.itemSubtitleText,
+                                {
+                                  color: item.isOverdue && !isCompleted
+                                    ? colors.error
+                                    : colors.textMuted,
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {subtitle}
+                            </Text>
                           </View>
 
-                          <CategoryChip
-                            category={todo.categoryId}
-                            size="sm"
-                          />
+                          <View style={styles.rowRightWrap}>
+                            {todo.priority === "high" && (
+                              <View
+                                style={[
+                                  styles.metaBadgePill,
+                                  {
+                                    backgroundColor:
+                                      colorScheme === "light"
+                                        ? "#FEE2E2"
+                                        : "rgba(239, 68, 68, 0.18)",
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.metaBadgeText,
+                                    {
+                                      color:
+                                        colorScheme === "light"
+                                          ? "#DC2626"
+                                          : "#F87171",
+                                    },
+                                  ]}
+                                >
+                                  High
+                                </Text>
+                              </View>
+                            )}
+                            <Feather
+                              name="chevron-right"
+                              size={14}
+                              color={colors.textMuted}
+                              style={{ opacity: 0.6 }}
+                            />
+                          </View>
                         </PressableScale>
                       </View>
                       {!isLast && (
@@ -477,12 +511,12 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
 
                   let subtitle = "";
                   if (isCompletedHabit) {
-                    subtitle = "COMPLETED";
+                    subtitle = "Completed";
                   } else {
                     const detail = habit.description
-                      ? habit.description.toUpperCase()
-                      : `🔥 ${currentStreak} DAY STREAK`;
-                    subtitle = `DAY ${currentStreak + 1} • ${detail}`;
+                      ? habit.description
+                      : `${currentStreak} day streak`;
+                    subtitle = `Day ${currentStreak + 1} • ${detail}`;
                   }
 
                   return (
@@ -543,16 +577,50 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             >
                               {habit.title}
                             </Text>
-                            <StatusBadge
-                              status={isCompletedHabit ? "completed" : "active"}
-                              text={subtitle}
-                            />
+                            <Text
+                              style={[
+                                styles.itemSubtitleText,
+                                { color: colors.textMuted },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {subtitle}
+                            </Text>
                           </View>
 
-                          <CategoryChip
-                            category={habit.categoryId}
-                            size="sm"
-                          />
+                          <View style={styles.rowRightWrap}>
+                            <View
+                              style={[
+                                styles.metaBadgePill,
+                                {
+                                  backgroundColor:
+                                    colorScheme === "light"
+                                      ? "#DCFCE7"
+                                      : "rgba(34, 197, 94, 0.18)",
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.metaBadgeText,
+                                  {
+                                    color:
+                                      colorScheme === "light"
+                                        ? "#15803D"
+                                        : "#4ADE80",
+                                  },
+                                ]}
+                              >
+                                Habit
+                              </Text>
+                            </View>
+                            <Feather
+                              name="chevron-right"
+                              size={14}
+                              color={colors.textMuted}
+                              style={{ opacity: 0.6 }}
+                            />
+                          </View>
                         </PressableScale>
                       </View>
                       {!isLast && (
@@ -574,8 +642,8 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   const contentAction = getRowContentAction("checklist", checklist.id);
                   const remaining = item.totalCount - item.completedCount;
                   const subtitle = item.completed
-                    ? "COMPLETED"
-                    : `${item.completedCount} OF ${item.totalCount} ITEMS • ${remaining} LEFT`;
+                    ? "Completed"
+                    : `${item.completedCount} of ${item.totalCount} items • ${remaining} left`;
 
                   return (
                     <View key={item.key}>
@@ -633,25 +701,61 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                               style={[
                                 styles.itemTitleText,
                                 {
-                                  color: colors.text,
-                                  fontWeight: "600",
+                                  color: item.completed
+                                    ? colors.textMuted
+                                    : colors.text,
+                                  textDecorationLine: item.completed
+                                    ? "line-through"
+                                    : "none",
                                 },
                               ]}
                               numberOfLines={1}
                             >
                               {checklist.title}
                             </Text>
-                            <StatusBadge
-                              status={item.completed ? "completed" : "active"}
-                              text={subtitle}
-                            />
+                            <Text
+                              style={[
+                                styles.itemSubtitleText,
+                                { color: colors.textMuted },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {subtitle}
+                            </Text>
                           </View>
 
-                          <Feather
-                            name={isExpanded ? "chevron-up" : "chevron-down"}
-                            size={16}
-                            color={colors.textMuted}
-                          />
+                          <View style={styles.rowRightWrap}>
+                            <View
+                              style={[
+                                styles.metaBadgePill,
+                                {
+                                  backgroundColor:
+                                    colorScheme === "light"
+                                      ? "#F3E8FF"
+                                      : "rgba(168, 85, 247, 0.18)",
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.metaBadgeText,
+                                  {
+                                    color:
+                                      colorScheme === "light"
+                                        ? "#7E22CE"
+                                        : "#C084FC",
+                                  },
+                                ]}
+                              >
+                                Checklist
+                              </Text>
+                            </View>
+                            <Feather
+                              name={isExpanded ? "chevron-up" : "chevron-down"}
+                              size={15}
+                              color={colors.textMuted}
+                            />
+                          </View>
                         </PressableScale>
                       </View>
 
@@ -914,6 +1018,29 @@ const styles = StyleSheet.create({
   itemTitleText: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  itemSubtitleText: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 1,
+  },
+  rowRightWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginLeft: 8,
+  },
+  metaBadgePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  metaBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   itemDivider: {
     height: 1,

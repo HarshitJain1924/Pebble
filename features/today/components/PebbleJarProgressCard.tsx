@@ -277,46 +277,93 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
             style={{
               width: INNER_TEXT_WIDTH,
               paddingLeft: 16,
-              paddingRight: 8,
-              paddingVertical: 14,
+              paddingRight: 10,
+              paddingVertical: 12,
               justifyContent: "center",
               height: "100%",
             }}
           >
-            <View style={{ gap: 4 }}>
-              <Text
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: "700",
+                    color: colors.primary,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                  }}
+                >
+                  Today's Progress
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "600",
+                    color: colors.textMuted,
+                  }}
+                >
+                  {displayPercent}%
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "baseline", marginVertical: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 22,
+                    fontWeight: "800",
+                    color: colors.text,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  {completedCount}{" "}
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "500",
+                      color: colors.textMuted,
+                    }}
+                  >
+                    / {totalCount || 1}
+                  </Text>
+                </Text>
+              </View>
+
+              {/* Sleek Progress Bar Track */}
+              <View
                 style={{
-                  fontSize: 10,
-                  fontWeight: "800",
-                  color: colors.primary,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
+                  height: 5,
+                  borderRadius: 2.5,
+                  backgroundColor:
+                    colorScheme === "light"
+                      ? "#E5E7EB"
+                      : "rgba(255,255,255,0.08)",
+                  width: "92%",
+                  marginVertical: 3,
+                  overflow: "hidden",
                 }}
               >
-                Today's Pebble Jar
-              </Text>
+                <View
+                  style={{
+                    height: "100%",
+                    borderRadius: 2.5,
+                    backgroundColor: colors.primary,
+                    width: `${Math.min(100, displayPercent)}%`,
+                  }}
+                />
+              </View>
+
               <Text
                 style={{
-                  fontSize: 15,
-                  fontWeight: "800",
-                  color: colors.text,
+                  fontSize: 11,
+                  color: colors.textMuted,
+                  fontWeight: "500",
                 }}
                 numberOfLines={1}
               >
-                {todayPebbleCount > 0
-                  ? `${todayPebbleCount} of 15 pebbles dropped today`
-                  : "No pebbles dropped today"}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.textMuted,
-                }}
-                numberOfLines={2}
-              >
-                {todayPebbleCount > 0
-                  ? `${Math.min(100, Math.round((todayPebbleCount / 15) * 100))}% of daily jar filled`
-                  : "Complete tasks, habits, checklists or focus to earn pebbles!"}
+                {completedCount >= totalCount && totalCount > 0
+                  ? "All clear! You did incredible today."
+                  : "You're building a better tomorrow."}
               </Text>
             </View>
           </View>
@@ -326,40 +373,89 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
             style={{
               width: INNER_TEXT_WIDTH,
               paddingLeft: 16,
-              paddingRight: 8,
-              paddingVertical: 14,
+              paddingRight: 10,
+              paddingVertical: 12,
               justifyContent: "center",
               height: "100%",
             }}
           >
-            <View style={{ gap: 4 }}>
-              <Text
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: "700",
+                    color: "#F59E0B",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                  }}
+                >
+                  Monthly Sanctuary
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "600",
+                    color: colors.textMuted,
+                  }}
+                >
+                  {monthlyPebblesCount}%
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "baseline", marginVertical: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 22,
+                    fontWeight: "800",
+                    color: colors.text,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  {monthlyPebblesCount}{" "}
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "500",
+                      color: colors.textMuted,
+                    }}
+                  >
+                    / 100
+                  </Text>
+                </Text>
+              </View>
+
+              {/* Sleek Progress Bar Track */}
+              <View
                 style={{
-                  fontSize: 10,
-                  fontWeight: "800",
-                  color: "#F59E0B",
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
+                  height: 5,
+                  borderRadius: 2.5,
+                  backgroundColor:
+                    colorScheme === "light"
+                      ? "#E5E7EB"
+                      : "rgba(255,255,255,0.08)",
+                  width: "92%",
+                  marginVertical: 3,
+                  overflow: "hidden",
                 }}
               >
-                Monthly Sanctuary
-              </Text>
+                <View
+                  style={{
+                    height: "100%",
+                    borderRadius: 2.5,
+                    backgroundColor: "#F59E0B",
+                    width: `${Math.min(100, monthlyPebblesCount)}%`,
+                  }}
+                />
+              </View>
+
               <Text
                 style={{
-                  fontSize: 15,
-                  fontWeight: "800",
-                  color: colors.text,
+                  fontSize: 11,
+                  color: colors.textMuted,
+                  fontWeight: "500",
                 }}
                 numberOfLines={1}
-              >
-                {monthlyPebblesCount} of 100 pebbles
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.textMuted,
-                }}
-                numberOfLines={2}
               >
                 {milestoneInfo
                   ? `Stage ${milestoneInfo.stage} • ${milestoneInfo.name}`
