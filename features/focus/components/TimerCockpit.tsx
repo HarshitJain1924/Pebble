@@ -154,7 +154,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
         </View>
       )}
 
-      {/* 2. TIMER (VISUAL CENTER WITH TONAL CUSHION POD) */}
+      {/* 2. CIRCULAR TIMER WITH DISCRETE PEBBLE PROGRESS */}
       {mode === "pomodoro" ? (
         <View
           style={[
@@ -188,6 +188,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 ? (colors.border ? `${colors.border}22` : "rgba(255, 255, 255, 0.04)")
                 : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)")
             }
+            variant="pebbles"
           />
           <View style={styles.timerContent}>
             <Text
@@ -256,6 +257,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             showText={false}
             color={swRunning ? colors.primary : colors.border}
             trackColor={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"}
+            variant="pebbles"
           />
           <View style={styles.timerContent}>
             <Text
