@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { AppTextInput as TextInput, AppText as Text } from "@/shared/components/ui/AppText";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { ProgressRing } from "@/shared/components/ui/ProgressRing";
+import { PebbleProgressRing } from "@/shared/components/ui/PebbleProgressRing";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Colors } from "@/shared/constants/theme";
@@ -231,18 +232,17 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               style={StyleSheet.absoluteFillObject}
             />
           )}
-          <ProgressRing
+          <PebbleProgressRing
             progress={progress}
             size={ringSize}
             strokeWidth={strokeWidth}
             showText={false}
-            color={pomodoroMode === "work" ? colors.primary : colors.success}
+            color={pomodoroMode === "work" ? activeColors.primary : activeColors.success}
             trackColor={
               isImmersiveWork
-                ? (colors.border ? `${colors.border}22` : "rgba(255, 255, 255, 0.04)")
+                ? (activeColors.border ? `${activeColors.border}22` : "rgba(255, 255, 255, 0.04)")
                 : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)")
             }
-            variant="pebbles"
           />
           <View style={styles.timerContent}>
             <Text
@@ -305,13 +305,15 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             />
           )}
           <ProgressRing
-            progress={1}
+            progress={0}
             size={ringSize}
             strokeWidth={strokeWidth}
             showText={false}
-            color={swRunning ? colors.primary : colors.border}
-            trackColor={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"}
-            variant="pebbles"
+            trackColor={
+              swRunning
+                ? (isDark ? `${activeColors.primary}33` : `${activeColors.primary}25`)
+                : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)")
+            }
           />
           <View style={styles.timerContent}>
             <Text

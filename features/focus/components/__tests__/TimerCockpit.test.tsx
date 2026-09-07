@@ -241,4 +241,23 @@ describe("TimerCockpit Component", () => {
     const ring = root.findByProps({ showText: false });
     expect(ring.props.strokeWidth).toBe(8);
   });
+
+  it("11. Stopwatch renders neutral ring track without completion percentage (progress = 0)", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TimerCockpit
+          {...baseProps}
+          mode="stopwatch"
+          swTime={90}
+          swRunning={true}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const ring = root.findByProps({ showText: false });
+    expect(ring).toBeDefined();
+    expect(ring.props.progress).toBe(0);
+  });
 });
