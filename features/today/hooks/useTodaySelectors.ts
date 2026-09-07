@@ -93,14 +93,16 @@ export function buildActiveContexts({
       contextMap[fId] = { tasks: [], habits: [], checklists: [] };
     contextMap[fId].tasks.push(t);
   });
-  overdueTasks.forEach((t) => {
-    const fId = resolveWorkspaceId(t);
-    if (!contextMap[fId])
-      contextMap[fId] = { tasks: [], habits: [], checklists: [] };
-    if (!contextMap[fId].tasks.some((existing) => existing.id === t.id)) {
-      contextMap[fId].tasks.push(t);
-    }
-  });
+  if (activeFilter === "overdue") {
+    overdueTasks.forEach((t) => {
+      const fId = resolveWorkspaceId(t);
+      if (!contextMap[fId])
+        contextMap[fId] = { tasks: [], habits: [], checklists: [] };
+      if (!contextMap[fId].tasks.some((existing) => existing.id === t.id)) {
+        contextMap[fId].tasks.push(t);
+      }
+    });
+  }
 
   activeHabits.forEach((h) => {
     const fId = resolveWorkspaceId(h);

@@ -21,14 +21,13 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { ContinueWorkspaceCard } from "@/features/today/components/ContinueWorkspaceCard";
 import { DashboardFilterBar } from "@/features/today/components/DashboardFilterBar";
 import { PebbleJarProgressCard } from "@/features/today/components/PebbleJarProgressCard";
 import { PebbleSanctuaryModal } from "@/features/today/components/PebbleSanctuaryModal";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
 import { ReviewMyDayModal } from "@/features/today/components/ReviewMyDayModal";
 import { StreakBanner } from "@/features/today/components/StreakBanner";
-import { WorkspaceContextCarousel } from "@/features/today/components/WorkspaceContextCarousel";
+import { WorkspaceSectionedStream } from "@/features/today/components/WorkspaceSectionedStream";
 import { ZenModeModal } from "@/features/today/components/ZenModeModal";
 import { useTodayActions } from "@/features/today/hooks/useTodayActions";
 import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
@@ -163,7 +162,6 @@ export function TodayScreen() {
   const [allChecklistsLocal, setAllChecklistsLocal] = useState<
     Record<string, Checklist[]>
   >({});
-  const [activeCardIndex, setActiveCardIndex] = useState(0);
   const jarFillAnim = useSharedValue(0);
   const cardScrollX = useSharedValue(0);
   const breathScale = useSharedValue(1);
@@ -437,18 +435,6 @@ export function TodayScreen() {
             colorScheme={colorScheme ?? "dark"}
           />
 
-          {/* Continue Working In Recommendation Card */}
-          <ContinueWorkspaceCard
-            continueWorkspace={continueWorkspace}
-            onPressWorkspace={(workspaceId) =>
-              router.push({
-                pathname: "/tasks",
-                params: { workspaceId },
-              } as any)
-            }
-            colors={colors}
-          />
-
           {/* Global Filter Row */}
           <DashboardFilterBar
             activeFilter={activeFilter}
@@ -459,17 +445,14 @@ export function TodayScreen() {
             colors={colors}
           />
 
-          {/* Swipeable Today Contexts Carousel */}
-          <WorkspaceContextCarousel
+          {/* Workspace-Grouped Today Execution Stream */}
+          <WorkspaceSectionedStream
             activeContexts={activeContexts}
             colors={colors}
             colorScheme={colorScheme}
             allCollections={allResources}
             expandedChecklistIds={expandedChecklistIds}
             setExpandedChecklistIds={setExpandedChecklistIds}
-            activeCardIndex={activeCardIndex}
-            setActiveCardIndex={setActiveCardIndex}
-            parentScrollRef={parentScrollRef}
             router={router}
             completeTodoFromDashboard={completeTodoFromDashboard}
             completeHabitFromDashboard={completeHabitFromDashboard}
