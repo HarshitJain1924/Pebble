@@ -109,7 +109,7 @@ describe("TimerCockpit Component", () => {
     expect(texts).toContain("05:00");
     expect(texts).toContain("Break Paused");
     expect(texts).toContain("Start Break");
-    expect(texts).toContain("Short Break (5m)");
+    expect(texts).toContain("5m");
   });
 
   it("4. Hides presets when Pomodoro is actively running", () => {
@@ -206,8 +206,8 @@ describe("TimerCockpit Component", () => {
     expect(texts).toContain("Break Active");
     expect(texts).toContain("Pause");
     // Break presets should be hidden when active
-    expect(texts).not.toContain("Short Break (5m)");
-    expect(texts).not.toContain("Long Break (15m)");
+    expect(texts).not.toContain("5m");
+    expect(texts).not.toContain("15m");
   });
 
   it("9. Active Pomodoro retains targetSlot and Pause action while in immersive focus", () => {

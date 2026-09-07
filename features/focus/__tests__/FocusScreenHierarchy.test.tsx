@@ -78,9 +78,6 @@ jest.mock("@/features/focus/components/FocusTargetCard", () => ({
 jest.mock("@/features/focus/components/TimerCockpit", () => ({
   TimerCockpit: "TimerCockpit",
 }));
-jest.mock("@/features/focus/components/FocusStatsCard", () => ({
-  FocusStatsCard: "FocusStatsCard",
-}));
 jest.mock("@/features/focus/components/AmbientSoundBar", () => ({
   AmbientSoundBar: "AmbientSoundBar",
 }));
@@ -109,13 +106,11 @@ describe("FocusScreen Information Hierarchy", () => {
     const modeSelector = root.findByType("ModeSelector" as any);
     const timerCockpit = root.findByType("TimerCockpit" as any);
     const ambientSoundBar = root.findByType("AmbientSoundBar" as any);
-    const statsCard = root.findByType("FocusStatsCard" as any);
 
     expect(header).toBeDefined();
     expect(modeSelector).toBeDefined();
     expect(timerCockpit).toBeDefined();
     expect(ambientSoundBar).toBeDefined();
-    expect(statsCard).toBeDefined();
 
     // Verify unified structure: FocusTargetCard is passed to TimerCockpit via targetSlot
     expect(timerCockpit.props.targetSlot).toBeDefined();
@@ -128,15 +123,14 @@ describe("FocusScreen Information Hierarchy", () => {
 
     const timerIndex = componentNames.indexOf("TimerCockpit");
     const ambientIndex = componentNames.indexOf("AmbientSoundBar");
-    const statsIndex = componentNames.indexOf("FocusStatsCard");
 
     expect(timerIndex).toBeGreaterThan(-1);
     expect(ambientIndex).toBeGreaterThan(timerIndex);
-    expect(statsIndex).toBeGreaterThan(ambientIndex);
   });
 
-  it("omits FocusTargetCard in Stopwatch mode while keeping TimerCockpit and Stats intact", () => {
-    mockFocusState.mode = "stopwatch";
+  it("omits FocusTargetCard in break mode while keeping TimerCockpit intact", () => {
+    mockFocusState.mode = "pomodoro";
+    mockFocusState.pomodoroMode = "break";
 
     let renderer: any;
     act(() => {
@@ -150,8 +144,5 @@ describe("FocusScreen Information Hierarchy", () => {
     const timerCockpit = root.findByType("TimerCockpit" as any);
     expect(timerCockpit).toBeDefined();
     expect(timerCockpit.props.targetSlot).toBeUndefined();
-
-    const statsCard = root.findByType("FocusStatsCard" as any);
-    expect(statsCard).toBeDefined();
   });
 });

@@ -6,6 +6,8 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { MONTH_NAMES, getDateKey } from "@/features/calendar/hooks/useCalendarState";
 import { CalendarViewMode } from "@/features/calendar/types";
 
+import { Typography } from "@/shared/constants/typography";
+
 interface CalendarHeaderProps {
   calendarViewMode: CalendarViewMode;
   selectedDate: string;
@@ -32,7 +34,6 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   onOpenQuickJump,
 }) => {
   const d = new Date(selectedDate);
-  const isToday = selectedDate === getDateKey();
 
   const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
   const monthName = MONTH_NAMES[d.getMonth()];
@@ -54,12 +55,12 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
       ? `${startMonth} ${startOfWeek.getDate()} – ${endOfWeek.getDate()}, ${startOfWeek.getFullYear()}`
       : `${startMonth} ${startOfWeek.getDate()} – ${endMonth} ${endOfWeek.getDate()}, ${endOfWeek.getFullYear()}`;
 
-  const headerTitle =
+  const subtitle =
     calendarViewMode === "timeline"
-      ? `${weekday}, ${monthName} ${dayNum}`
+      ? `${weekday}, ${monthName} ${dayNum} · Daily schedule`
       : calendarViewMode === "week"
-        ? weekRangeText
-        : `${MONTH_NAMES[month.month]} ${month.year}`;
+      ? `${weekRangeText} · Weekly horizon`
+      : "Plan your days, own your time.";
 
   const handleDatePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -74,33 +75,18 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
     <View style={styles.headerRow}>
       <Pressable
         onPress={handleDatePress}
-        style={styles.titleCol}
-        accessibilityLabel={`Header: ${headerTitle}. Tap to jump to another date.`}
+        style={styles.header}
+        accessibilityLabel={`Header: Calendar. Tap to jump to another date.`}
       >
-        <View style={styles.dateLine}>
-          <Text style={[styles.primaryDate, { color: colors.text }]}>
-            {headerTitle}
-          </Text>
-          {calendarViewMode === "timeline" && isToday && (
-            <View
-              style={[
-                styles.todayBadge,
-                {
-                  backgroundColor: isLight
-                    ? `${colors.primary}15`
-                    : `${colors.primary}25`,
-                  borderColor: isLight
-                    ? `${colors.primary}30`
-                    : `${colors.primary}40`,
-                },
-              ]}
-            >
-              <Text style={[styles.todayBadgeText, { color: colors.primary }]}>
-                Today
-              </Text>
-            </View>
-          )}
-        </View>
+        <Text style={[styles.kicker, { color: colors.primary }]}>
+          SCHEDULE
+        </Text>
+        <Text style={[styles.title, { color: colors.text }]}>
+          Calendar
+        </Text>
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          {subtitle}
+        </Text>
       </Pressable>
 
       {/* View mode toggle pill */}
@@ -136,37 +122,27 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 2,
   },
-  titleCol: {
+  header: {
+    gap: 4,
     flex: 1,
     paddingRight: 12,
   },
-  dateLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  primaryDate: {
-    fontSize: 20,
+  kicker: {
+    fontSize: Typography.sizes.xs,
+    letterSpacing: 2,
     fontWeight: "700",
-    letterSpacing: -0.3,
-    lineHeight: 25,
   },
-  todayBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  todayBadgeText: {
-    fontSize: 11,
+  title: {
+    fontSize: Typography.sizes.display,
     fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    lineHeight: 38,
+  },
+  subtitle: {
+    fontSize: Typography.sizes.sm,
   },
   viewToggleButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 16,
     borderWidth: 1,
     alignItems: "center",
@@ -174,7 +150,7 @@ const styles = StyleSheet.create({
   },
   viewToggleLabel: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     letterSpacing: 0.2,
   },
 });

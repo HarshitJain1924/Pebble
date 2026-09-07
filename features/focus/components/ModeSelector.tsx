@@ -4,14 +4,52 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 interface ModeSelectorProps {
-  mode: "pomodoro" | "stopwatch";
-  setMode: (mode: "pomodoro" | "stopwatch") => void;
+  mode?: "pomodoro" | "stopwatch";
+  setMode?: (mode: "pomodoro" | "stopwatch") => void;
+  pomodoroMode?: "work" | "break";
+  setPomodoroMode?: (mode: "work" | "break") => void;
+  onSelectFocus?: () => void;
+  onSelectPomodoro?: () => void;
+  onSelectBreak?: () => void;
   colors: any;
 }
 
-export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, colors }) => {
+export const ModeSelector: React.FC<ModeSelectorProps> = ({
+  mode = "pomodoro",
+  setMode,
+  pomodoroMode = "work",
+  setPomodoroMode,
+  onSelectFocus,
+  onSelectPomodoro,
+  onSelectBreak,
+  colors,
+}) => {
   const colorScheme = useColorScheme() ?? "dark";
   const isDark = colorScheme !== "light";
+
+  const isBreak = pomodoroMode === "break";
+
+  const handleFocusPress = () => {
+    if (onSelectFocus) {
+      onSelectFocus();
+    } else if (onSelectPomodoro) {
+      onSelectPomodoro();
+    } else {
+      setMode?.("pomodoro");
+      setPomodoroMode?.("work");
+    }
+  };
+
+  const handleBreakPress = () => {
+    if (onSelectBreak) {
+      onSelectBreak();
+    } else {
+      setMode?.("pomodoro");
+      setPomodoroMode?.("break");
+    }
+  };
+
+  const breakActiveBg = colors.success || "#10B981";
 
   return (
     <View
@@ -24,13 +62,13 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, color
       ]}
     >
       <Pressable
-        onPress={() => setMode("pomodoro")}
-        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        onPress={handleFocusPress}
+        hitSlop={{ top: 6, bottom: 6, left: 8, right: 4 }}
         style={({ pressed }) => [
           styles.modePill,
           {
-            backgroundColor: mode === "pomodoro" ? colors.primary : "transparent",
-            shadowColor: mode === "pomodoro" ? colors.primary : "transparent",
+            backgroundColor: !isBreak ? colors.primary : "transparent",
+            shadowColor: !isBreak ? colors.primary : "transparent",
             opacity: pressed ? 0.88 : 1,
             transform: [{ scale: pressed ? 0.97 : 1 }],
           },
@@ -40,22 +78,23 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, color
           style={[
             styles.modeText,
             {
-              color: mode === "pomodoro" ? "#ffffff" : colors.textMuted,
-              fontWeight: mode === "pomodoro" ? "700" : "600",
+              color: !isBreak ? "#ffffff" : colors.textMuted,
+              fontWeight: !isBreak ? "700" : "600",
             },
           ]}
         >
-          Pomodoro
+          Focus
         </Text>
       </Pressable>
+
       <Pressable
-        onPress={() => setMode("stopwatch")}
-        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        onPress={handleBreakPress}
+        hitSlop={{ top: 6, bottom: 6, left: 4, right: 8 }}
         style={({ pressed }) => [
           styles.modePill,
           {
-            backgroundColor: mode === "stopwatch" ? colors.primary : "transparent",
-            shadowColor: mode === "stopwatch" ? colors.primary : "transparent",
+            backgroundColor: isBreak ? breakActiveBg : "transparent",
+            shadowColor: isBreak ? breakActiveBg : "transparent",
             opacity: pressed ? 0.88 : 1,
             transform: [{ scale: pressed ? 0.97 : 1 }],
           },
@@ -65,12 +104,12 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode, color
           style={[
             styles.modeText,
             {
-              color: mode === "stopwatch" ? "#ffffff" : colors.textMuted,
-              fontWeight: mode === "stopwatch" ? "700" : "600",
+              color: isBreak ? "#ffffff" : colors.textMuted,
+              fontWeight: isBreak ? "700" : "600",
             },
           ]}
         >
-          Stopwatch
+          Break
         </Text>
       </Pressable>
     </View>
@@ -84,13 +123,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 4,
     borderWidth: 1,
-    gap: 3,
+    gap: 4,
     marginBottom: -4,
     zIndex: 2,
   },
   modePill: {
     paddingVertical: 7,
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",

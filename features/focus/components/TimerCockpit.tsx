@@ -556,7 +556,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                       fontSize: 13,
                     }}
                   >
-                    {mins}m
+                    {`${mins}m`}
                   </Text>
                 </Pressable>
               );
@@ -650,7 +650,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
       {mode === "pomodoro" && pomodoroMode === "break" && !isActive && (
         <View style={styles.durationSection}>
           <View style={styles.presetsRow}>
-            {[5, 15].map((mins) => {
+            {[5, 10, 15].map((mins) => {
               const isSelected = totalSessionTime === mins * 60;
               return (
                 <Pressable
@@ -685,7 +685,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                       fontSize: 13,
                     }}
                   >
-                    {mins === 5 ? "Short Break (5m)" : "Long Break (15m)"}
+                    {`${mins}m`}
                   </Text>
                 </Pressable>
               );
@@ -698,17 +698,31 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
       {!isCompleted && (
         <View style={styles.secondaryArea}>
           {mode === "pomodoro" ? (
-            <Pressable
-              onPress={handleReset}
-              hitSlop={8}
-              style={({ pressed }) => [
-                styles.secondaryBtn,
-                { opacity: pressed ? 0.6 : 1 },
-              ]}
-            >
-              <Feather name="rotate-ccw" size={13} color={colors.textMuted} />
-              <Text style={[styles.secondaryBtnText, { color: colors.textMuted }]}>Reset</Text>
-            </Pressable>
+            sessionTime !== totalSessionTime ? (
+              <Pressable
+                onPress={handleReset}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.secondaryBtn,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Feather name="rotate-ccw" size={13} color={colors.textMuted} />
+                <Text style={[styles.secondaryBtnText, { color: colors.textMuted }]}>Reset</Text>
+              </Pressable>
+            ) : pomodoroMode === "work" ? (
+              <View style={styles.rewardHintRow}>
+                <Text style={[styles.rewardHintText, { color: colors.textMuted }]}>
+                  Complete to collect <Text style={{ color: colors.primary, fontWeight: "700" }}>+1 Pebble</Text> 🪨
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.rewardHintRow}>
+                <Text style={[styles.rewardHintText, { color: colors.textMuted }]}>
+                  Take a breather before your next focus
+                </Text>
+              </View>
+            )
           ) : (
             <Pressable
               onPress={swRunning ? swLap : swReset}
@@ -740,9 +754,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 32,
     borderWidth: 1,
-    paddingVertical: 22,
+    paddingVertical: 20,
     paddingHorizontal: 20,
-    gap: 18,
+    gap: 16,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
     shadowRadius: 20,
@@ -764,7 +778,7 @@ const styles = StyleSheet.create({
   timerRingWrap: {
     justifyContent: "center",
     alignItems: "center",
-    marginVertical: 4,
+    marginVertical: 6,
     borderWidth: 1,
   },
   timerContent: {
@@ -932,6 +946,17 @@ const styles = StyleSheet.create({
     minHeight: 30,
   },
   secondaryBtnText: {
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: 0.2,
+  },
+  rewardHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
+  },
+  rewardHintText: {
     fontSize: 12,
     fontWeight: "500",
     letterSpacing: 0.2,

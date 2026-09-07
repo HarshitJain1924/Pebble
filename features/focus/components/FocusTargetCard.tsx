@@ -35,15 +35,7 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
 
   if (!focusedTaskId) {
     return (
-      <View
-        style={[
-          styles.emptyContainer,
-          {
-            backgroundColor: isDark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.65)",
-            borderColor: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
-          },
-        ]}
-      >
+      <View style={styles.emptyContainer}>
         <View style={styles.emptyHeaderRow}>
           <View
             style={[
@@ -64,8 +56,8 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
           contentStyle={[
             styles.selectTargetBtn,
             {
-              backgroundColor: isDark ? `${colors.primary}18` : `${colors.primary}10`,
-              borderColor: `${colors.primary}33`,
+              backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+              borderColor: isDark ? "rgba(255, 255, 255, 0.09)" : "rgba(0, 0, 0, 0.08)",
             },
           ]}
         >
@@ -83,8 +75,8 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
       style={[
         styles.targetContainer,
         {
-          backgroundColor: isDark ? "rgba(0, 0, 0, 0.22)" : "rgba(255, 255, 255, 0.65)",
-          borderColor: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
+          backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.03)",
+          borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
         },
       ]}
     >
@@ -171,10 +163,8 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
 const styles = StyleSheet.create({
   emptyContainer: {
     width: "100%",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    borderWidth: 1,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
     gap: 8,
     alignItems: "center",
   },
@@ -203,12 +193,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 9,
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     width: "100%",
-    minHeight: 40,
+    minHeight: 44,
   },
   selectTargetText: {
     fontSize: 13,
@@ -216,9 +206,9 @@ const styles = StyleSheet.create({
   },
   targetContainer: {
     width: "100%",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     borderWidth: 1,
     gap: 8,
   },

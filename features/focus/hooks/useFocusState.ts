@@ -999,6 +999,8 @@ export function useFocusState() {
   };
 
   const transitionToBreak = () => {
+    if (mode === "pomodoro" && pomodoroMode === "break") return;
+    setMode("pomodoro");
     setPomodoroMode("break");
     const duration = breakType === "short" ? 5 * 60 : 15 * 60;
     setSessionTime(duration);
@@ -1007,6 +1009,29 @@ export function useFocusState() {
     elapsedBeforeStartRef.current = 0;
     loggedMinutesInCurrentSessionRef.current = 0;
     setIsActive(false);
+    emitStateChange("focus_changed", "useFocusState");
+  };
+
+  const transitionToWork = () => {
+    if (mode === "pomodoro" && pomodoroMode === "work") return;
+    setMode("pomodoro");
+    setPomodoroMode("work");
+    const duration = showCustomInput ? customMinutes * 60 : 25 * 60;
+    setSessionTime(duration);
+    setTotalSessionTime(duration);
+    totalSessionTimeRef.current = duration;
+    elapsedBeforeStartRef.current = 0;
+    loggedMinutesInCurrentSessionRef.current = 0;
+    setIsActive(false);
+    emitStateChange("focus_changed", "useFocusState");
+  };
+
+  const transitionToStopwatch = () => {
+    if (mode === "stopwatch") return;
+    if (isActive) {
+      setIsActive(false);
+    }
+    setMode("stopwatch");
     emitStateChange("focus_changed", "useFocusState");
   };
 
@@ -1276,6 +1301,8 @@ export function useFocusState() {
     handleCustomMinutesSubmitOrBlur,
     toggleGlow,
     transitionToBreak,
+    transitionToWork,
+    transitionToStopwatch,
     completeLinkedTask,
   };
 }
