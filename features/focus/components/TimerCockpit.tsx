@@ -6,8 +6,65 @@ import { AppCard } from "@/shared/components/ui/AppCard";
 import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { Spacing } from "@/shared/constants/spacing";
-import { Typography } from "@/shared/constants/typography";
+import { Colors } from "@/shared/constants/theme";
+
+/**
+ * Safely converts a hex or rgb/rgba color string to rgba with the specified alpha.
+ */
+function toRgba(color: string, alpha: number): string {
+  if (!color) return `rgba(0, 0, 0, ${alpha})`;
+  if (color.startsWith("rgba(") || color.startsWith("rgb(")) return color;
+  const clean = color.replace("#", "");
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (clean.length >= 6) {
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return color;
+}
+
+/**
+ * Blends an accent color over a base surface color with the specified opacity.
+ * Generates solid editorial surface colors adhering to the theme system.
+ */
+function blendSurface(baseHex: string, accentHex: string, opacity: number): string {
+  if (!baseHex || !accentHex) return baseHex || accentHex || "#1C1C21";
+  const parse = (hex: string) => {
+    const clean = hex.replace("#", "");
+    if (clean.length === 3) {
+      return [
+        parseInt(clean[0] + clean[0], 16),
+        parseInt(clean[1] + clean[1], 16),
+        parseInt(clean[2] + clean[2], 16),
+      ];
+    }
+    if (clean.length >= 6) {
+      return [
+        parseInt(clean.slice(0, 2), 16),
+        parseInt(clean.slice(2, 4), 16),
+        parseInt(clean.slice(4, 6), 16),
+      ];
+    }
+    return [0, 0, 0];
+  };
+
+  const [r1, g1, b1] = parse(baseHex);
+  const [r2, g2, b2] = parse(accentHex);
+
+  const r = Math.round(r1 * (1 - opacity) + r2 * opacity);
+  const g = Math.round(g1 * (1 - opacity) + g2 * opacity);
+  const b = Math.round(b1 * (1 - opacity) + b2 * opacity);
+
+  const toHex = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
 
 interface TimerCockpitProps {
   targetSlot?: React.ReactNode;
@@ -74,49 +131,46 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
 
   const colorScheme = useColorScheme() ?? "dark";
   const isDark = colorScheme !== "light";
+  const theme = Colors[colorScheme] ?? Colors.dark;
+  const activeColors = { ...theme, ...colors };
   const isBreakMode = mode === "pomodoro" && pomodoroMode === "break";
 
-  // Editorial Session Surface Palette
+  const accentColor = isBreakMode
+    ? activeColors.success || theme.success
+    : activeColors.primary || theme.primary;
+
+  // Editorial Session Surface Palette derived from theme tokens
+  const baseSurface = isDark
+    ? activeColors.background || theme.background || "#121215"
+    : activeColors.card || theme.card || "#FFFFFF";
+
   const surfaceBg = isDark
     ? isBreakMode
-      ? "#132320" // Restful dark emerald for break
+      ? blendSurface(baseSurface, activeColors.success || theme.success, 0.1) // Restful dark emerald for break
       : isImmersiveWork
-      ? "#1D1B35" // Focused midnight violet for active work
-      : "#18172A" // Rich midnight violet/indigo for ready work/stopwatch
+      ? blendSurface(baseSurface, activeColors.primary || theme.primary, 0.13) // Focused midnight violet for active work
+      : blendSurface(baseSurface, activeColors.primary || theme.primary, 0.08) // Rich midnight violet/indigo for ready work/stopwatch
     : isBreakMode
-    ? "#EDF8F4" // Fresh pastel mint for break in light mode
+    ? blendSurface(baseSurface, activeColors.success || theme.success, 0.06) // Fresh pastel mint for break in light mode
     : isImmersiveWork
-    ? "#ECE9FD" // Soft focused lavender for active work in light mode
-    : "#F2EFFE"; // Soft periwinkle/lavender for ready work/stopwatch in light mode
+    ? blendSurface(baseSurface, activeColors.primary || theme.primary, 0.09) // Soft focused lavender for active work in light mode
+    : blendSurface(baseSurface, activeColors.primary || theme.primary, 0.05); // Soft periwinkle/lavender for ready work/stopwatch in light mode
 
   const surfaceBorder = isDark
-    ? isBreakMode
-      ? "rgba(16, 185, 129, 0.25)"
-      : isImmersiveWork
-      ? "rgba(99, 102, 241, 0.35)"
-      : "rgba(99, 102, 241, 0.2)"
-    : isBreakMode
-    ? "rgba(5, 150, 105, 0.2)"
+    ? isImmersiveWork
+      ? toRgba(accentColor, 0.35)
+      : isBreakMode
+      ? toRgba(accentColor, 0.25)
+      : toRgba(accentColor, 0.2)
     : isImmersiveWork
-    ? "rgba(79, 70, 229, 0.28)"
-    : "rgba(79, 70, 229, 0.18)";
+    ? toRgba(accentColor, 0.28)
+    : isBreakMode
+    ? toRgba(accentColor, 0.2)
+    : toRgba(accentColor, 0.18);
 
   // Timer Tonal Cushion (circular grounding backing behind the ring)
-  const timerPodBg = isDark
-    ? isBreakMode
-      ? "rgba(16, 185, 129, 0.08)"
-      : "rgba(99, 102, 241, 0.08)"
-    : isBreakMode
-    ? "rgba(5, 150, 105, 0.06)"
-    : "rgba(79, 70, 229, 0.06)";
-
-  const timerPodBorder = isDark
-    ? isBreakMode
-      ? "rgba(16, 185, 129, 0.14)"
-      : "rgba(99, 102, 241, 0.14)"
-    : isBreakMode
-    ? "rgba(5, 150, 105, 0.1)"
-    : "rgba(79, 70, 229, 0.1)";
+  const timerPodBg = toRgba(accentColor, isDark ? 0.08 : 0.06);
+  const timerPodBorder = toRgba(accentColor, isDark ? 0.14 : 0.1);
 
   const ringSize = isCompact ? 160 : 176;
   const glowSize = isImmersiveWork ? (isCompact ? 150 : 175) : (isCompact ? 140 : 160);
@@ -142,7 +196,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
           borderColor: surfaceBorder,
           borderTopColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(255, 255, 255, 0.8)",
           borderBottomColor: isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(0, 0, 0, 0.08)",
-          shadowColor: colors.primary || "#4F46E5",
+          shadowColor: activeColors.primary || theme.primary,
         },
         isCompact && styles.timerCardCompact,
       ]}

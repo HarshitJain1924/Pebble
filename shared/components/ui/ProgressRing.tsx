@@ -105,6 +105,22 @@ const ActivePebble: React.FC<ActivePebbleProps> = React.memo(
   }
 );
 
+/**
+ * Computes the number of active pebble units around the ring for a given progress and count.
+ * Clamps progress to [0, 1] and safely handles non-positive counts.
+ */
+export function getActivePebbleCount(progress: number, count: number): number {
+  if (!Number.isFinite(count) || count <= 0) {
+    return 0;
+  }
+  if (Number.isNaN(progress)) {
+    return 0;
+  }
+  const clampedProgress = Math.min(Math.max(progress, 0), 1);
+  const rawCount = Math.floor(clampedProgress * count + 0.0001);
+  return Math.max(0, Math.min(count, rawCount));
+}
+
 export const ProgressRing: React.FC<ProgressRingProps> = ({
   progress,
   size = 120,
@@ -140,8 +156,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
 
   // 24 discrete units: deterministic percentage mapping (0% -> 0, 25% -> 6, 50% -> 12, 75% -> 18, 100% -> 24)
   const count = pebbleCount || 24;
-  const clampedProgress = Math.min(Math.max(progress, 0), 1);
-  const activeCount = Math.min(count, Math.floor(clampedProgress * count + 0.0001));
+  const activeCount = getActivePebbleCount(progress, count);
 
   // Inactive base dots remain small, subtle, and understated
   const inactiveRadius = Math.max(2, strokeWidth * 0.3);
@@ -152,6 +167,9 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
     trackColor || (isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.08)");
 
   const pebbleUnits = useMemo(() => {
+    if (variant !== "pebbles") {
+      return [];
+    }
     const units = [];
     const step = (2 * Math.PI) / count;
     for (let i = 0; i < count; i++) {
@@ -177,7 +195,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
       });
     }
     return units;
-  }, [count, radius, size, scaleMultiplier]);
+  }, [variant, count, radius, size, scaleMultiplier]);
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>
