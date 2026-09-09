@@ -652,9 +652,45 @@ export class BackupService {
       kvPairsToSet.push(["pebble:v1:system_event_log", "[]"]);
     }
 
+    // Validate and stage relationships
     if (parsed.relationships && parsed.relationships.length > 0) {
+      const validEntityIds = new Set<string>();
+      if (parsed.tasks) parsed.tasks.forEach((t: any) => validEntityIds.add(t.id));
+      if (parsed.habits) parsed.habits.forEach((h: any) => validEntityIds.add(h.id));
+      if (parsed.checklists) parsed.checklists.forEach((c: any) => validEntityIds.add(c.id));
+      if (parsed.resources) parsed.resources.forEach((r: any) => validEntityIds.add(r.id));
+      if (parsed.focusSessions) parsed.focusSessions.forEach((s: any) => validEntityIds.add(s.id));
+
       const relMap: Record<string, Relationship> = {};
-      parsed.relationships.forEach((r: Relationship) => (relMap[r.id] = r));
+      const seenSignatures = new Set<string>();
+
+      for (const r of parsed.relationships as Relationship[]) {
+        if (!r.source?.id || !r.target?.id) continue;
+        // Drop dangling relationships pointing to entities not in the backup
+        if (!validEntityIds.has(r.source.id) || !validEntityIds.has(r.target.id)) {
+          continue;
+        }
+
+        // Canonicalize undirected "related"
+        let normSource = r.source;
+        let normTarget = r.target;
+        if (r.relationType === "related" && r.source.id > r.target.id) {
+          normSource = r.target;
+          normTarget = r.source;
+        }
+
+        const signature = `${r.relationType}:${normSource.id}:${normTarget.id}`;
+        if (seenSignatures.has(signature)) {
+          continue;
+        }
+        seenSignatures.add(signature);
+
+        relMap[r.id] = {
+          ...r,
+          source: normSource,
+          target: normTarget,
+        };
+      }
       kvPairsToSet.push(["pebble:v1:relationships", JSON.stringify(relMap)]);
     } else {
       kvPairsToSet.push(["pebble:v1:relationships", "{}"]);
@@ -835,6 +871,21 @@ export class BackupService {
       );
     }
 
+    // Reset GraphRepository cache and reconcile relationship graph
+    try {
+      const { GraphRepository } = await import("@/repositories/GraphRepository");
+      GraphRepository.resetCache();
+      const { GraphReconcilerService } = await import(
+        "@/services/storage/GraphReconcilerService"
+      );
+      await GraphReconcilerService.reconcileAll();
+    } catch (e) {
+      console.warn(
+        "[BackupService] Failed to reconcile graph after restore.",
+        e,
+      );
+    }
+
     // Emit state changes across all domains
     try {
       const { emitStateChange } = await import("@/services/events/state-events");
@@ -847,6 +898,7 @@ export class BackupService {
       emitStateChange("profile_changed", "backup_service");
       emitStateChange("pebbles_changed", "backup_service");
       emitStateChange("focus_changed", "backup_service");
+      emitStateChange("graph_changed", "backup_service");
     } catch (e) {
       console.warn(
         "[BackupService] Failed to emit state events after restore.",
@@ -942,6 +994,7 @@ export class BackupService {
       emitStateChange("profile_changed", "clear_all_data");
       emitStateChange("pebbles_changed", "clear_all_data");
       emitStateChange("focus_changed", "clear_all_data");
+      emitStateChange("graph_changed", "clear_all_data");
     } catch (e) {
       console.warn(
         "[BackupService] Failed to emit events during clearAllData",

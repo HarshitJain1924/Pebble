@@ -5,9 +5,18 @@ import { ChecklistCommandHandler } from "./handlers/ChecklistCommandHandler";
 import { ResourceCommandHandler } from "./handlers/ResourceCommandHandler";
 import { SystemCommandHandler } from "./handlers/SystemCommandHandler";
 import { ConversionCommandHandler } from "./handlers/ConversionCommandHandler";
+import { GraphCommandHandler } from "./handlers/GraphCommandHandler";
 import { CreateEntityOptions } from "./types/command.types";
 import type { ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
-import { type Task, type Habit, type Checklist, type Resource, type Workspace, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import {
+  type Task,
+  type Habit,
+  type Checklist,
+  type Resource,
+  type Workspace,
+  type Relationship,
+  INBOX_WORKSPACE_ID,
+} from "@/shared/types/domain.types";
 
 /**
  * EntityCommandService
@@ -780,5 +789,81 @@ export class EntityCommandService {
     }
 
     return { success: false };
+  }
+
+  // ── Graph & Relationship Operations ──
+
+  static async createRelationship(
+    input: Omit<Relationship, "id" | "createdAt"> & {
+      id?: string;
+      createdAt?: number;
+    },
+    options?: CreateEntityOptions,
+  ): Promise<Relationship> {
+    return GraphCommandHandler.createRelationship(input, options);
+  }
+
+  static async deleteRelationship(
+    id: string,
+    options?: CreateEntityOptions,
+  ): Promise<boolean> {
+    return GraphCommandHandler.deleteRelationship(id, options);
+  }
+
+  static async deleteRelationshipsForEntities(
+    entityIds: string[],
+    options?: CreateEntityOptions,
+  ): Promise<number> {
+    return GraphCommandHandler.deleteRelationshipsForEntities(entityIds, options);
+  }
+
+  static async getRelated(itemId: string): Promise<Relationship[]> {
+    return GraphCommandHandler.getRelated(itemId);
+  }
+
+  static async getBacklinks(itemId: string): Promise<Relationship[]> {
+    return GraphCommandHandler.getBacklinks(itemId);
+  }
+
+  static async getForwardLinks(itemId: string): Promise<Relationship[]> {
+    return GraphCommandHandler.getForwardLinks(itemId);
+  }
+
+  static async getAllRelationships(): Promise<Relationship[]> {
+    return GraphCommandHandler.getAllRelationships();
+  }
+
+  // ── Permanent Deletions ──
+
+  static async deleteTask(
+    taskId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return TaskCommandHandler.permanentlyDeleteTask(taskId, workspaceId, options);
+  }
+
+  static async deleteHabit(
+    habitId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return HabitCommandHandler.permanentlyDeleteHabit(habitId, workspaceId, options);
+  }
+
+  static async deleteChecklist(
+    checklistId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return ChecklistCommandHandler.permanentlyDeleteChecklist(checklistId, workspaceId, options);
+  }
+
+  static async deleteResource(
+    resourceId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return ResourceCommandHandler.permanentlyDeleteResource(resourceId, workspaceId, options);
   }
 }

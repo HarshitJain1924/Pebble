@@ -35,17 +35,33 @@ export class GraphRepository {
     this.loaded = false;
   }
 
-  private static async ensureLoaded() {
-    if (this.loaded) return;
-    try {
-      const raw = await AsyncStorage.getItem(this.RELATIONSHIPS_KEY);
-      this.relationships = raw ? JSON.parse(raw) : {};
-      this.rebuildIndex();
-      this.loaded = true;
-    } catch (e) {
-      console.error("Failed to load relationships", e);
-      throw e;
+  private static normalizeRelationship(rel: Relationship): Relationship {
+    if (rel.relationType === "related" && rel.source.id > rel.target.id) {
+      return {
+        ...rel,
+        source: rel.target,
+        target: rel.source,
+      };
     }
+    return rel;
+  }
+
+  private static findMatchingEdge(candidate: Relationship): Relationship | undefined {
+    const isUndirected = candidate.relationType === "related";
+    for (const rel of Object.values(this.relationships)) {
+      if (rel.relationType !== candidate.relationType) continue;
+      if (rel.source.id === candidate.source.id && rel.target.id === candidate.target.id) {
+        return rel;
+      }
+      if (
+        isUndirected &&
+        rel.source.id === candidate.target.id &&
+        rel.target.id === candidate.source.id
+      ) {
+        return rel;
+      }
+    }
+    return undefined;
   }
 
   private static rebuildIndex() {
@@ -64,87 +80,200 @@ export class GraphRepository {
     this.index = { sourceIndex: sourceIdx, targetIndex: targetIdx };
   }
 
-  static async saveRelationship(rel: Relationship): Promise<void> {
-    return withLock(this.RELATIONSHIPS_KEY, async () => {
-      await this.ensureLoaded();
-      this.relationships[rel.id] = rel;
+  /**
+   * Internal unlocked loader. Assumes caller holds lock or is in a single-threaded context.
+   */
+  static async ensureLoadedUnlocked(): Promise<void> {
+    if (this.loaded) return;
+    try {
+      const raw = await AsyncStorage.getItem(this.RELATIONSHIPS_KEY);
+      this.relationships = raw ? JSON.parse(raw) : {};
       this.rebuildIndex();
+      this.loaded = true;
+    } catch (e) {
+      console.error("[GraphRepository] Failed to load relationships", e);
+      throw e;
+    }
+  }
+
+  static async saveRelationshipUnlocked(rawRel: Relationship): Promise<Relationship> {
+    await this.ensureLoadedUnlocked();
+    const rel = this.normalizeRelationship(rawRel);
+
+    const existing = this.findMatchingEdge(rel);
+    if (existing) {
+      // If endpoints match logically, update generation metadata if provided, otherwise idempotent return
+      let needsUpdate = false;
+      if (
+        rel.source.lifecycleGeneration !== undefined &&
+        existing.source.lifecycleGeneration !== rel.source.lifecycleGeneration
+      ) {
+        existing.source.lifecycleGeneration = rel.source.lifecycleGeneration;
+        needsUpdate = true;
+      }
+      if (
+        rel.target.lifecycleGeneration !== undefined &&
+        existing.target.lifecycleGeneration !== rel.target.lifecycleGeneration
+      ) {
+        existing.target.lifecycleGeneration = rel.target.lifecycleGeneration;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        const snapshot = { ...this.relationships };
+        this.relationships[existing.id] = existing;
+        this.rebuildIndex();
+        try {
+          await AsyncStorage.setItem(
+            this.RELATIONSHIPS_KEY,
+            JSON.stringify(this.relationships),
+          );
+        } catch (e) {
+          this.relationships = snapshot;
+          this.rebuildIndex();
+          throw e;
+        }
+      }
+      return existing;
+    }
+
+    const snapshot = { ...this.relationships };
+    this.relationships[rel.id] = rel;
+    this.rebuildIndex();
+
+    try {
       await AsyncStorage.setItem(
         this.RELATIONSHIPS_KEY,
         JSON.stringify(this.relationships),
       );
-    });
+      return rel;
+    } catch (e) {
+      this.relationships = snapshot;
+      this.rebuildIndex();
+      throw e;
+    }
   }
 
-  static async deleteRelationship(id: string): Promise<void> {
-    return withLock(this.RELATIONSHIPS_KEY, async () => {
-      await this.ensureLoaded();
-      if (this.relationships[id]) {
+  static async deleteRelationshipUnlocked(id: string): Promise<boolean> {
+    await this.ensureLoadedUnlocked();
+    if (!this.relationships[id]) {
+      return false;
+    }
+
+    const snapshot = { ...this.relationships };
+    delete this.relationships[id];
+    this.rebuildIndex();
+
+    try {
+      await AsyncStorage.setItem(
+        this.RELATIONSHIPS_KEY,
+        JSON.stringify(this.relationships),
+      );
+      return true;
+    } catch (e) {
+      this.relationships = snapshot;
+      this.rebuildIndex();
+      throw e;
+    }
+  }
+
+  static async deleteRelationshipsForEntitiesUnlocked(entityIds: string[]): Promise<number> {
+    if (!entityIds.length) return 0;
+    await this.ensureLoadedUnlocked();
+    const idsSet = new Set(entityIds);
+    const snapshot = { ...this.relationships };
+    let removedCount = 0;
+
+    for (const id of Object.keys(this.relationships)) {
+      const rel = this.relationships[id];
+      if (idsSet.has(rel.source.id) || idsSet.has(rel.target.id)) {
         delete this.relationships[id];
-        this.rebuildIndex();
+        removedCount++;
+      }
+    }
+
+    if (removedCount > 0) {
+      this.rebuildIndex();
+      try {
         await AsyncStorage.setItem(
           this.RELATIONSHIPS_KEY,
           JSON.stringify(this.relationships),
         );
+      } catch (e) {
+        this.relationships = snapshot;
+        this.rebuildIndex();
+        throw e;
       }
+    }
+
+    return removedCount;
+  }
+
+  static async getBacklinksUnlocked(itemId: string): Promise<Relationship[]> {
+    await this.ensureLoadedUnlocked();
+    const relIds = this.index.targetIndex[itemId] || [];
+    return relIds.map((id) => this.relationships[id]).filter(Boolean);
+  }
+
+  static async getForwardLinksUnlocked(itemId: string): Promise<Relationship[]> {
+    await this.ensureLoadedUnlocked();
+    const relIds = this.index.sourceIndex[itemId] || [];
+    return relIds.map((id) => this.relationships[id]).filter(Boolean);
+  }
+
+  static async getRelatedUnlocked(itemId: string): Promise<Relationship[]> {
+    await this.ensureLoadedUnlocked();
+    const back = this.index.targetIndex[itemId] || [];
+    const forward = this.index.sourceIndex[itemId] || [];
+    const union = Array.from(new Set([...back, ...forward]));
+    return union.map((id) => this.relationships[id]).filter(Boolean);
+  }
+
+  static async getAllRelationshipsUnlocked(): Promise<Relationship[]> {
+    await this.ensureLoadedUnlocked();
+    return Object.values(this.relationships);
+  }
+
+  static async saveRelationship(rel: Relationship): Promise<Relationship> {
+    return withLock(this.RELATIONSHIPS_KEY, async () => {
+      return this.saveRelationshipUnlocked(rel);
     });
   }
 
-  static async deleteRelationshipsForEntities(entityIds: string[]): Promise<void> {
-    if (!entityIds.length) return;
+  static async deleteRelationship(id: string): Promise<boolean> {
     return withLock(this.RELATIONSHIPS_KEY, async () => {
-      await this.ensureLoaded();
-      const idsSet = new Set(entityIds);
-      let changed = false;
-      
-      for (const id of Object.keys(this.relationships)) {
-        const rel = this.relationships[id];
-        if (idsSet.has(rel.source.id) || idsSet.has(rel.target.id)) {
-          delete this.relationships[id];
-          changed = true;
-        }
-      }
-      
-      if (changed) {
-        this.rebuildIndex();
-        await AsyncStorage.setItem(
-          this.RELATIONSHIPS_KEY,
-          JSON.stringify(this.relationships),
-        );
-      }
+      return this.deleteRelationshipUnlocked(id);
+    });
+  }
+
+  static async deleteRelationshipsForEntities(entityIds: string[]): Promise<number> {
+    if (!entityIds.length) return 0;
+    return withLock(this.RELATIONSHIPS_KEY, async () => {
+      return this.deleteRelationshipsForEntitiesUnlocked(entityIds);
     });
   }
 
   static async getBacklinks(itemId: string): Promise<Relationship[]> {
     return withLock(this.RELATIONSHIPS_KEY, async () => {
-      await this.ensureLoaded();
-      const relIds = this.index.targetIndex[itemId] || [];
-      return relIds.map((id) => this.relationships[id]).filter(Boolean);
+      return this.getBacklinksUnlocked(itemId);
     });
   }
 
   static async getForwardLinks(itemId: string): Promise<Relationship[]> {
     return withLock(this.RELATIONSHIPS_KEY, async () => {
-      await this.ensureLoaded();
-      const relIds = this.index.sourceIndex[itemId] || [];
-      return relIds.map((id) => this.relationships[id]).filter(Boolean);
+      return this.getForwardLinksUnlocked(itemId);
     });
   }
 
   static async getRelated(itemId: string): Promise<Relationship[]> {
     return withLock(this.RELATIONSHIPS_KEY, async () => {
-      await this.ensureLoaded();
-      const back = this.index.targetIndex[itemId] || [];
-      const forward = this.index.sourceIndex[itemId] || [];
-      const union = Array.from(new Set([...back, ...forward]));
-      return union.map((id) => this.relationships[id]).filter(Boolean);
+      return this.getRelatedUnlocked(itemId);
     });
   }
 
   static async getAllRelationships(): Promise<Relationship[]> {
     return withLock(this.RELATIONSHIPS_KEY, async () => {
-      await this.ensureLoaded();
-      return Object.values(this.relationships);
+      return this.getAllRelationshipsUnlocked();
     });
   }
 

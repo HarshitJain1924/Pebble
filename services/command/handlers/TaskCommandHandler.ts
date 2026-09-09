@@ -555,10 +555,11 @@ static async reorderTasks(
         deletedAt: Date.now(),
       });
 
-      // 3. Remove from active storage and recycle bin
+      // 3. Remove from active storage, recycle bin, and graph relationships
       await TaskRepository.deleteTaskUnlocked(taskId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
       await RecycleBinRepository.removeRecycleBinItems([taskId], { throwOnError: true });
+      await GraphRepository.deleteRelationshipsForEntitiesUnlocked([taskId]);
 
       return task;
     });

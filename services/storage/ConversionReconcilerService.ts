@@ -40,9 +40,10 @@ export class ConversionReconcilerService {
     const habitsKey = this.getPartitionKey("habit", isHabitToTask ? op.sourceWorkspaceId : op.targetWorkspaceId);
     const tasksKey = this.getPartitionKey("task", isHabitToTask ? op.targetWorkspaceId : op.sourceWorkspaceId);
     const journalKey = "pebble:v1:conversion_journal";
+    const relKey = "pebble:v1:relationships";
 
     // 2. Alphabetical sort to prevent ABBA deadlocks
-    const sortedKeys = [journalKey, habitsKey, tasksKey].sort();
+    const sortedKeys = [journalKey, habitsKey, tasksKey, relKey].sort();
 
     await withLocks(sortedKeys, async () => {
       if (isHabitToTask) {
@@ -118,6 +119,27 @@ export class ConversionReconcilerService {
       const verifyHabitsMap = await HabitRepository.getHabits(op.sourceWorkspaceId);
       if (verifyHabitsMap[op.sourceId]) {
         throw new Error(`[ConversionReconciler] Durable write verification failed: Source Habit ${op.sourceId} still exists.`);
+      }
+
+      // Transfer graph relationships from source Habit to target Task
+      const { GraphRepository } = await import("@/repositories/GraphRepository");
+      await GraphRepository.ensureLoadedUnlocked();
+      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
+      for (const rel of relationships) {
+        let changed = false;
+        let s = rel.source;
+        let t = rel.target;
+        if (s.id === op.sourceId && s.type === "habit") {
+          s = { id: op.targetId, type: "task", lifecycleGeneration: task.lifecycleGeneration };
+          changed = true;
+        }
+        if (t.id === op.sourceId && t.type === "habit") {
+          t = { id: op.targetId, type: "task", lifecycleGeneration: task.lifecycleGeneration };
+          changed = true;
+        }
+        if (changed) {
+          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
+        }
       }
 
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
@@ -201,6 +223,27 @@ export class ConversionReconcilerService {
       const verifyTasksMap = await TaskRepository.getTasks(op.sourceWorkspaceId);
       if (verifyTasksMap[op.sourceId]) {
         throw new Error(`[ConversionReconciler] Durable write verification failed: Source Task ${op.sourceId} still exists.`);
+      }
+
+      // Transfer graph relationships from source Task to target Habit
+      const { GraphRepository } = await import("@/repositories/GraphRepository");
+      await GraphRepository.ensureLoadedUnlocked();
+      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
+      for (const rel of relationships) {
+        let changed = false;
+        let s = rel.source;
+        let t = rel.target;
+        if (s.id === op.sourceId && s.type === "task") {
+          s = { id: op.targetId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
+          changed = true;
+        }
+        if (t.id === op.sourceId && t.type === "task") {
+          t = { id: op.targetId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
+          changed = true;
+        }
+        if (changed) {
+          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
+        }
       }
 
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);

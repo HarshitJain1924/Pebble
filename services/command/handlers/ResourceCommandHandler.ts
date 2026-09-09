@@ -331,10 +331,11 @@ export class ResourceCommandHandler {
         deletedAt: Date.now(),
       });
 
-      // 2. Remove from active storage and recycle bin
+      // 2. Remove from active storage, recycle bin, and graph relationships
       await ResourceRepository.deleteResourceUnlocked(resourceId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
       await RecycleBinRepository.removeRecycleBinItems([resourceId], { throwOnError: true });
+      await GraphRepository.deleteRelationshipsForEntitiesUnlocked([resourceId]);
     });
 
     if (!options?.skipEvents) emitStateChange("resources_changed", options?.source);

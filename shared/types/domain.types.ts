@@ -259,8 +259,8 @@ export interface UiState {
  */
 export interface Relationship {
   id: string;
-  source: { id: string; type: string };
-  target: { id: string; type: string };
+  source: { id: string; type: string; lifecycleGeneration?: number };
+  target: { id: string; type: string; lifecycleGeneration?: number };
   relationType:
     | "supports"
     | "references"

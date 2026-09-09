@@ -413,10 +413,11 @@ static async moveChecklist(
         deletedAt: Date.now(),
       });
 
-      // 2. Remove from active storage and recycle bin
+      // 2. Remove from active storage, recycle bin, and graph relationships
       await ChecklistRepository.deleteChecklistUnlocked(checklistId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
       await RecycleBinRepository.removeRecycleBinItems([checklistId], { throwOnError: true });
+      await GraphRepository.deleteRelationshipsForEntitiesUnlocked([checklistId]);
 
       return checklist;
     });

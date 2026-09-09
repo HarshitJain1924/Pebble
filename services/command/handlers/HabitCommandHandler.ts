@@ -183,10 +183,11 @@ export class HabitCommandHandler {
         deletedAt: Date.now(),
       });
 
-      // 2. Remove from active storage and recycle bin
+      // 2. Remove from active storage, recycle bin, and graph relationships
       await HabitRepository.deleteHabitUnlocked(habitId, workspaceId);
       const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
       await RecycleBinRepository.removeRecycleBinItems([habitId], { throwOnError: true });
+      await GraphRepository.deleteRelationshipsForEntitiesUnlocked([habitId]);
       
       return habit;
     });

@@ -1,7 +1,8 @@
 import {
   TaskRepository,
   HabitRepository,
-  ConversionJournalRepository
+  ConversionJournalRepository,
+  GraphRepository,
 } from "@/repositories";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 import { emitStateChange } from "@/services/events/state-events";
@@ -34,7 +35,8 @@ export class ConversionCommandHandler {
     const journalLock = "pebble:v1:conversion_journal";
     const taskLock = `pebble:v1:tasks:${targetWorkspaceId}`;
     const habitLock = `pebble:v1:habits:${targetWorkspaceId}`;
-    const locks = [journalLock, habitLock, taskLock].sort(); // Deterministic ABBA prevention
+    const relLock = "pebble:v1:relationships";
+    const locks = [journalLock, habitLock, taskLock, relLock].sort(); // Deterministic ABBA prevention
 
     let createdTask: Task | undefined;
     let oldNotificationIds: string[] | undefined;
@@ -69,6 +71,7 @@ export class ConversionCommandHandler {
         updatedAt: Date.now(),
         lifecycleGeneration: 1,
         revision: 1,
+        resourceIds: habit.resourceIds ? [...habit.resourceIds] : undefined,
         reminder: habit.reminder
           ? {
               enabled: habit.reminder.enabled,
@@ -110,6 +113,26 @@ export class ConversionCommandHandler {
 
       // D. Remove Source (Habit)
       await HabitRepository.deleteHabitUnlocked(habitId, targetWorkspaceId);
+
+      // Transfer graph relationships from source Habit to target Task
+      await GraphRepository.ensureLoadedUnlocked();
+      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
+      for (const rel of relationships) {
+        let changed = false;
+        let s = rel.source;
+        let t = rel.target;
+        if (s.id === habitId && s.type === "habit") {
+          s = { id: newTaskId, type: "task", lifecycleGeneration: newTask.lifecycleGeneration };
+          changed = true;
+        }
+        if (t.id === habitId && t.type === "habit") {
+          t = { id: newTaskId, type: "task", lifecycleGeneration: newTask.lifecycleGeneration };
+          changed = true;
+        }
+        if (changed) {
+          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
+        }
+      }
 
       // E. Clear Journal
       await ConversionJournalRepository.removeOperationUnlocked(operationId);
@@ -186,7 +209,8 @@ export class ConversionCommandHandler {
     const journalLock = "pebble:v1:conversion_journal";
     const taskLock = `pebble:v1:tasks:${targetWorkspaceId}`;
     const habitLock = `pebble:v1:habits:${targetWorkspaceId}`;
-    const locks = [journalLock, habitLock, taskLock].sort();
+    const relLock = "pebble:v1:relationships";
+    const locks = [journalLock, habitLock, taskLock, relLock].sort();
 
     let createdHabit: Habit | undefined;
     let oldNotificationIds: string[] | undefined;
@@ -263,6 +287,26 @@ export class ConversionCommandHandler {
 
       // D. Remove Source (Task)
       await TaskRepository.deleteTaskUnlocked(taskId, targetWorkspaceId);
+
+      // Transfer graph relationships from source Task to target Habit
+      await GraphRepository.ensureLoadedUnlocked();
+      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
+      for (const rel of relationships) {
+        let changed = false;
+        let s = rel.source;
+        let t = rel.target;
+        if (s.id === taskId && s.type === "task") {
+          s = { id: habitId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
+          changed = true;
+        }
+        if (t.id === taskId && t.type === "task") {
+          t = { id: habitId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
+          changed = true;
+        }
+        if (changed) {
+          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
+        }
+      }
 
       // E. Clear Journal
       await ConversionJournalRepository.removeOperationUnlocked(operationId);
