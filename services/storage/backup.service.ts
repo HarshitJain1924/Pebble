@@ -35,17 +35,12 @@ import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { withLock } from "@/shared/utils/mutex";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
+import {
+  isPebbleOwnedKey,
+  RESTORE_INTENT_KEY,
+} from "./storage-keys";
 
-export const PEBBLE_STORAGE_PREFIXES = [
-  "pebble:",
-  "todoapp:",
-  "@pebble_",
-  "PEBBLE_",
-];
-
-export function isPebbleOwnedKey(key: string): boolean {
-  return PEBBLE_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix));
-}
+export { isPebbleOwnedKey, RESTORE_INTENT_KEY };
 
 export interface AppBackup {
   version: number;
@@ -246,7 +241,7 @@ export class BackupService {
    * Recovers from an interrupted restore process.
    */
   static async recoverInterruptedRestore(): Promise<void> {
-    const intentRaw = await AsyncStorage.getItem("pebble:v1:backup_restore_intent");
+    const intentRaw = await AsyncStorage.getItem(RESTORE_INTENT_KEY);
     if (!intentRaw) return;
 
     console.warn("[BackupService] Interrupted restore detected. Recovering...");
@@ -265,7 +260,7 @@ export class BackupService {
 
         await this._acquireRestoreLocks(rawLockKeys, async () => {
           // RE-VALIDATE INTENT AFTER ACQUIRING LOCKS to prevent stale intent race
-          const currentIntentRaw = await AsyncStorage.getItem("pebble:v1:backup_restore_intent");
+          const currentIntentRaw = await AsyncStorage.getItem(RESTORE_INTENT_KEY);
           if (currentIntentRaw !== intentRaw) {
             console.warn("[BackupService] Interrupted restore intent changed or was removed while waiting for locks. Aborting stale recovery.");
             return;
@@ -276,7 +271,7 @@ export class BackupService {
           GraphRepository.resetCache();
           
           // Remove intent safely inside the lock
-          await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
+          await AsyncStorage.removeItem(RESTORE_INTENT_KEY);
         });
       } else {
         // If it was malformed, remove it
@@ -300,8 +295,7 @@ export class BackupService {
 
     if (
       parsed.version === undefined ||
-      parsed.workspaces === undefined ||
-      !Array.isArray(parsed.workspaces)
+      parsed.workspaces === undefined
     ) {
       throw new Error("Invalid backup format: missing version or core data.");
     }
@@ -312,8 +306,13 @@ export class BackupService {
       );
     }
 
-    // Validate section structures if present
-    const arraySections = [
+    if (typeof parsed.timestamp !== "number" || isNaN(parsed.timestamp)) {
+      throw new Error("Invalid backup format: 'timestamp' must be a valid number.");
+    }
+
+    // Required core array sections in v1 backups
+    const requiredArraySections = [
+      ["workspaces", parsed.workspaces],
       ["tasks", parsed.tasks],
       ["habits", parsed.habits],
       ["checklists", parsed.checklists],
@@ -322,32 +321,49 @@ export class BackupService {
       ["focusSessions", parsed.focusSessions],
       ["relationships", parsed.relationships],
       ["systemEvents", parsed.systemEvents],
-      ["gratitudeHistory", parsed.gratitudeHistory],
     ] as const;
 
-    for (const [sectionName, value] of arraySections) {
-      if (value !== undefined && !Array.isArray(value)) {
+    for (const [sectionName, value] of requiredArraySections) {
+      if (!Array.isArray(value)) {
         throw new Error(
           `Invalid backup format: '${sectionName}' must be an array.`,
         );
       }
     }
 
-    const objectSections = [
+    // Required core object sections in v1 backups
+    const requiredObjectSections = [
       ["settings", parsed.settings],
       ["profile", parsed.profile],
-      ["uiState", parsed.uiState],
     ] as const;
 
-    for (const [sectionName, value] of objectSections) {
+    for (const [sectionName, value] of requiredObjectSections) {
       if (
-        value !== undefined &&
-        (typeof value !== "object" || value === null || Array.isArray(value))
+        typeof value !== "object" ||
+        value === null ||
+        Array.isArray(value)
       ) {
         throw new Error(
           `Invalid backup format: '${sectionName}' must be an object.`,
         );
       }
+    }
+
+    // Optional backward-compatible extension sections
+    if (
+      parsed.uiState !== undefined &&
+      (typeof parsed.uiState !== "object" ||
+        parsed.uiState === null ||
+        Array.isArray(parsed.uiState))
+    ) {
+      throw new Error("Invalid backup format: 'uiState' must be an object.");
+    }
+
+    if (
+      parsed.gratitudeHistory !== undefined &&
+      !Array.isArray(parsed.gratitudeHistory)
+    ) {
+      throw new Error("Invalid backup format: 'gratitudeHistory' must be an array.");
     }
 
     // Validate workspaces
@@ -668,6 +684,7 @@ export class BackupService {
       themeCache: parsed.uiState?.themeCache || restoredTheme,
     };
     kvPairsToSet.push(["pebble:v1:ui_state", JSON.stringify(stagedUiState)]);
+    kvPairsToSet.push(["todoapp:onboarding_completed", "true"]);
 
     // Stage Gratitude History (if provided)
     if (parsed.gratitudeHistory && Array.isArray(parsed.gratitudeHistory)) {
@@ -681,7 +698,7 @@ export class BackupService {
       // Snapshot Current State
       const allKeys = await AsyncStorage.getAllKeys();
       const keysToRemove = allKeys.filter((key) => {
-        return key.startsWith("pebble:") && key !== "pebble:v1:backup_restore_intent";
+        return isPebbleOwnedKey(key) && key !== RESTORE_INTENT_KEY;
       });
 
       // Determine all keys that will be involved (either read, removed, or set)
@@ -703,7 +720,7 @@ export class BackupService {
         // Refresh keysToRemove inside the lock in case new keys were created while waiting
         const lockedKeys = await AsyncStorage.getAllKeys();
         const finalKeysToRemove = lockedKeys.filter((key) =>
-          key.startsWith("pebble:") && key !== "pebble:v1:backup_restore_intent",
+          isPebbleOwnedKey(key) && key !== RESTORE_INTENT_KEY,
         );
 
         // Verify that every key in finalKeysToRemove was actually locked in rawLockKeys.
@@ -743,7 +760,7 @@ export class BackupService {
         try {
           // Write durable intent BEFORE modifying anything
           await AsyncStorage.setItem(
-            "pebble:v1:backup_restore_intent",
+            RESTORE_INTENT_KEY,
             JSON.stringify({
               keysToRemove: finalKeysToRemove,
               kvPairsToSet: kvPairsToSet,
@@ -755,7 +772,7 @@ export class BackupService {
           await AsyncStorage.multiSet(kvPairsToSet);
 
           // Remove intent
-          await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
+          await AsyncStorage.removeItem(RESTORE_INTENT_KEY);
 
           // Explicitly reset cache immediately after domain commit, while still under lock
           GraphRepository.resetCache();
@@ -767,7 +784,7 @@ export class BackupService {
           try {
             await AsyncStorage.multiRemove(newlySetKeys);
             await AsyncStorage.multiSet(validRollbackData);
-            await AsyncStorage.removeItem("pebble:v1:backup_restore_intent");
+            await AsyncStorage.removeItem(RESTORE_INTENT_KEY);
           } catch (rollbackError) {
             console.error(
               "[BackupService] CRITICAL: Rollback failed!",

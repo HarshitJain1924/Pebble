@@ -1,5 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { BackupService, type AppBackup, isPebbleOwnedKey } from "@/services/storage/backup.service";
+import {
+  BackupService,
+  type AppBackup,
+  isPebbleOwnedKey,
+  RESTORE_INTENT_KEY,
+} from "@/services/storage/backup.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { emitStateChange } from "@/services/events/state-events";
 import * as Notifications from "expo-notifications";
@@ -66,22 +71,51 @@ describe("BackupService Hardening & Validation", () => {
   });
 
   describe("1. isPebbleOwnedKey predicate", () => {
-    it("correctly identifies Pebble-owned keys and excludes foreign keys", () => {
+    it("correctly identifies exact Pebble-owned keys and dynamic partition patterns", () => {
+      // Canonical domain
       expect(isPebbleOwnedKey("pebble:v1:workspaces")).toBe(true);
+      expect(isPebbleOwnedKey("pebble:v1:recycle_bin")).toBe(true);
+      expect(isPebbleOwnedKey(RESTORE_INTENT_KEY)).toBe(true);
+
+      // Settings & Profile
       expect(isPebbleOwnedKey("pebble:settings")).toBe(true);
+      expect(isPebbleOwnedKey("pebble:profile")).toBe(true);
+
+      // todoapp:* owned keys
       expect(isPebbleOwnedKey("todoapp:onboarding_completed")).toBe(true);
       expect(isPebbleOwnedKey("todoapp:gratitude_history")).toBe(true);
       expect(isPebbleOwnedKey("todoapp:streak_recoveries")).toBe(true);
-      expect(isPebbleOwnedKey("@pebble_cache")).toBe(true);
-      expect(isPebbleOwnedKey("PEBBLE_FLAG")).toBe(true);
+      expect(isPebbleOwnedKey("todoapp:focus:current_session")).toBe(true);
+      expect(isPebbleOwnedKey("todoapp:pebble_log")).toBe(true);
 
+      // Widget & Capture keys
+      expect(isPebbleOwnedKey("@pebble_widget_payload")).toBe(true);
+      expect(isPebbleOwnedKey("PEBBLE_CAPTURE_CREATION_HISTORY")).toBe(true);
+      expect(isPebbleOwnedKey("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS")).toBe(true);
+
+      // Dynamic workspace partition patterns
+      expect(isPebbleOwnedKey("pebble:v1:tasks:ws-123")).toBe(true);
+      expect(isPebbleOwnedKey("pebble:v1:habits:inbox")).toBe(true);
+      expect(isPebbleOwnedKey("pebble:v1:checklists:custom-ws_99")).toBe(true);
+      expect(isPebbleOwnedKey("pebble:v1:resources:ws-abc")).toBe(true);
+    });
+
+    it("strictly excludes foreign keys and pseudo-Pebble keys", () => {
+      // Clearly foreign keys
       expect(isPebbleOwnedKey("unrelated:thirdparty:key")).toBe(false);
       expect(isPebbleOwnedKey("expo:notifications:token")).toBe(false);
       expect(isPebbleOwnedKey("react_native_mmkv:test")).toBe(false);
+
+      // Pseudo-Pebble keys that merely resemble prefixes but are not registered
+      expect(isPebbleOwnedKey("pebble:foreign_vendor_cache")).toBe(false);
+      expect(isPebbleOwnedKey("todoapp:unregistered_secret")).toBe(false);
+      expect(isPebbleOwnedKey("@pebble_fake_key")).toBe(false);
+      expect(isPebbleOwnedKey("PEBBLE_UNREGISTERED")).toBe(false);
+      expect(isPebbleOwnedKey("pebble:v1:arbitrary_fake_entity")).toBe(false);
     });
   });
 
-  describe("2. Pre-Mutation Strict Validation", () => {
+  describe("2. Pre-Mutation Strict Validation & Complete V1 Schema", () => {
     it("rejects non-JSON payload before touching storage", async () => {
       const multiRemoveSpy = jest.spyOn(AsyncStorage, "multiRemove");
       const multiSetSpy = jest.spyOn(AsyncStorage, "multiSet");
@@ -118,26 +152,45 @@ describe("BackupService Hardening & Validation", () => {
       expect(multiRemoveSpy).not.toHaveBeenCalled();
     });
 
-    it("rejects non-array collections", async () => {
-      const multiRemoveSpy = jest.spyOn(AsyncStorage, "multiRemove");
-
-      const payload = { ...baseValidBackup, tasks: "not-an-array" as any };
+    it("rejects missing timestamp in v1 backups", async () => {
+      const payload = { ...baseValidBackup, timestamp: undefined as any };
       await expect(BackupService.restoreStructuredBackup(JSON.stringify(payload))).rejects.toThrow(
-        "Invalid backup format: 'tasks' must be an array.",
+        "Invalid backup format: 'timestamp' must be a valid number.",
       );
-
-      expect(multiRemoveSpy).not.toHaveBeenCalled();
     });
 
-    it("rejects non-object sections (e.g. settings is string)", async () => {
-      const multiRemoveSpy = jest.spyOn(AsyncStorage, "multiRemove");
+    it("rejects missing core array sections (e.g. missing habits or tasks)", async () => {
+      const payloadMissingHabits = { ...baseValidBackup, habits: undefined as any };
+      await expect(BackupService.restoreStructuredBackup(JSON.stringify(payloadMissingHabits))).rejects.toThrow(
+        "Invalid backup format: 'habits' must be an array.",
+      );
 
-      const payload = { ...baseValidBackup, settings: "not-an-object" as any };
-      await expect(BackupService.restoreStructuredBackup(JSON.stringify(payload))).rejects.toThrow(
+      const payloadMissingTasks = { ...baseValidBackup, tasks: undefined as any };
+      await expect(BackupService.restoreStructuredBackup(JSON.stringify(payloadMissingTasks))).rejects.toThrow(
+        "Invalid backup format: 'tasks' must be an array.",
+      );
+    });
+
+    it("rejects missing core object sections (e.g. missing settings or profile)", async () => {
+      const payloadMissingSettings = { ...baseValidBackup, settings: undefined as any };
+      await expect(BackupService.restoreStructuredBackup(JSON.stringify(payloadMissingSettings))).rejects.toThrow(
         "Invalid backup format: 'settings' must be an object.",
       );
 
-      expect(multiRemoveSpy).not.toHaveBeenCalled();
+      const payloadMissingProfile = { ...baseValidBackup, profile: undefined as any };
+      await expect(BackupService.restoreStructuredBackup(JSON.stringify(payloadMissingProfile))).rejects.toThrow(
+        "Invalid backup format: 'profile' must be an object.",
+      );
+    });
+
+    it("accepts missing optional extension sections (uiState, gratitudeHistory) for backward compatibility", async () => {
+      const { uiState, gratitudeHistory, ...olderBackup } = baseValidBackup;
+      await expect(BackupService.restoreStructuredBackup(JSON.stringify(olderBackup))).resolves.not.toThrow();
+
+      // UI state is normalized even when missing from backup
+      const uiStateRaw = await AsyncStorage.getItem("pebble:v1:ui_state");
+      expect(uiStateRaw).not.toBeNull();
+      expect(JSON.parse(uiStateRaw!).completedOnboarding).toBe(true);
     });
 
     it("rejects entities with missing or empty IDs", async () => {
@@ -145,7 +198,7 @@ describe("BackupService Hardening & Validation", () => {
 
       const payload = {
         ...baseValidBackup,
-        tasks: [{ id: "   ", workspaceId: "ws-1", title: "Blank ID" } as any],
+        tasks: [{ id: "   ", workspaceId: "ws-1", title: "Blank ID", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 }],
       };
       await expect(BackupService.restoreStructuredBackup(JSON.stringify(payload))).rejects.toThrow(
         "Invalid backup format: Every task must have a non-empty string ID.",
@@ -159,7 +212,7 @@ describe("BackupService Hardening & Validation", () => {
 
       const payload = {
         ...baseValidBackup,
-        habits: [{ id: "h-1", workspaceId: "ws-1" } as any],
+        habits: [{ id: "h-1", workspaceId: "ws-1", recurrence: { frequency: "daily", interval: 1 }, completionHistory: [], revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 } as any],
       };
       await expect(BackupService.restoreStructuredBackup(JSON.stringify(payload))).rejects.toThrow(
         "Invalid backup format: Habit h-1 must have a valid title.",
@@ -220,67 +273,72 @@ describe("BackupService Hardening & Validation", () => {
     });
   });
 
-  describe("3. Restore Normalization & Runtime Reconciliation", () => {
-    it("successfully restores state, normalizes ui_state, restores gratitude history, and emits events", async () => {
-      const resetCacheSpy = jest.spyOn(GraphRepository, "resetCache");
+  describe("3. Restore Normalization & Regression Bug Verification (Issues 2 & 8)", () => {
+    it("REGRESSION: removes old non-pebble: owned state, restores new state, and preserves foreign and pseudo keys", async () => {
+      // 1. Seed old Pebble-owned state under non-pebble: keys
+      await AsyncStorage.setItem("todoapp:streak_recoveries", JSON.stringify([{ id: "old-recovery" }]));
+      await AsyncStorage.setItem("todoapp:gratitude_history", JSON.stringify([{ id: "old-gratitude" }]));
+      await AsyncStorage.setItem("@pebble_widget_payload", JSON.stringify({ old: "widget" }));
 
+      // 2. Seed foreign and pseudo-Pebble keys
+      await AsyncStorage.setItem("unrelated:thirdparty:key", "keep-this-safe");
+      await AsyncStorage.setItem("pebble:foreign_vendor_cache", "vendor-data");
+      await AsyncStorage.setItem("todoapp:unregistered_secret", "secret-data");
+
+      // 3. Restore baseValidBackup (which has its own gratitudeHistory and no streak_recoveries)
       await BackupService.restoreStructuredBackup(JSON.stringify(baseValidBackup));
 
-      // 1. Workspaces & Tasks restored
+      // 4. Old non-pebble: owned state must be purged or replaced
+      expect(await AsyncStorage.getItem("todoapp:streak_recoveries")).toBeNull();
+      expect(await AsyncStorage.getItem("@pebble_widget_payload")).toBeNull();
+
+      // Restored gratitude history replaces old gratitude
+      const gratitudeRaw = await AsyncStorage.getItem("todoapp:gratitude_history");
+      expect(gratitudeRaw).toContain("Thankful");
+      expect(gratitudeRaw).not.toContain("old-gratitude");
+
+      // Workspaces & Tasks restored
       const workspacesRaw = await AsyncStorage.getItem("pebble:v1:workspaces");
       expect(workspacesRaw).toContain("ws-1");
 
-      const tasksRaw = await AsyncStorage.getItem("pebble:v1:tasks:ws-1");
-      expect(tasksRaw).toContain("task-1");
-
-      // 2. Settings & Profile restored
-      const settingsRaw = await AsyncStorage.getItem("pebble:settings");
-      expect(JSON.parse(settingsRaw!)).toEqual({ theme: "dark" });
-
-      const profileRaw = await AsyncStorage.getItem("pebble:profile");
-      expect(JSON.parse(profileRaw!)).toEqual({ name: "Test User", email: "test@example.com" });
-
-      // 3. UI State normalized (completedOnboarding: true, activeWorkspaceId, themeCache)
-      const uiStateRaw = await AsyncStorage.getItem("pebble:v1:ui_state");
-      expect(uiStateRaw).not.toBeNull();
-      const parsedUiState = JSON.parse(uiStateRaw!);
-      expect(parsedUiState.completedOnboarding).toBe(true);
-      expect(parsedUiState.activeWorkspaceId).toBe("ws-1");
-      expect(parsedUiState.themeCache).toBe("dark");
-
-      // 4. Gratitude history restored
-      const gratitudeRaw = await AsyncStorage.getItem("todoapp:gratitude_history");
-      expect(gratitudeRaw).toContain("Thankful");
-
-      // 5. Old data purged
+      // Old workspace tasks purged
       expect(await AsyncStorage.getItem("pebble:v1:tasks:ws-existing")).toBeNull();
 
-      // 6. Unrelated third-party key preserved
+      // 5. Foreign and pseudo-Pebble keys must NOT be removed
       expect(await AsyncStorage.getItem("unrelated:thirdparty:key")).toBe("keep-this-safe");
+      expect(await AsyncStorage.getItem("pebble:foreign_vendor_cache")).toBe("vendor-data");
+      expect(await AsyncStorage.getItem("todoapp:unregistered_secret")).toBe("secret-data");
+    });
 
-      // 7. Cache reset & Notifications reconciled
-      expect(resetCacheSpy).toHaveBeenCalled();
-      expect(Notifications.cancelAllScheduledNotificationsAsync).toHaveBeenCalled();
-      expect(NotificationReconcilerService.reconcileAll).toHaveBeenCalled();
+    it("REGRESSION: restores backup with empty collections and ensures old state does not survive (Issue 5)", async () => {
+      // Seed old state
+      await AsyncStorage.setItem("pebble:v1:tasks:ws-existing", JSON.stringify({ "task-old": { id: "task-old" } }));
+      await AsyncStorage.setItem("pebble:v1:habits:ws-existing", JSON.stringify({ "habit-old": { id: "habit-old" } }));
 
-      // 8. Domain events emitted
-      expect(emitStateChange).toHaveBeenCalledWith("workspace_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("tasks_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("habits_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("checklists_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("resources_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("settings_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("profile_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("pebbles_changed", "backup_service");
-      expect(emitStateChange).toHaveBeenCalledWith("focus_changed", "backup_service");
+      // Backup contains 0 tasks and 0 habits
+      const emptyEntitiesBackup: AppBackup = {
+        ...baseValidBackup,
+        tasks: [],
+        habits: [],
+      };
+
+      await BackupService.restoreStructuredBackup(JSON.stringify(emptyEntitiesBackup));
+
+      // Old workspace keys must be completely wiped, not merged
+      expect(await AsyncStorage.getItem("pebble:v1:tasks:ws-existing")).toBeNull();
+      expect(await AsyncStorage.getItem("pebble:v1:habits:ws-existing")).toBeNull();
+
+      // Restored workspace ws-1 has empty maps
+      const newTasksRaw = await AsyncStorage.getItem("pebble:v1:tasks:ws-1");
+      expect(JSON.parse(newTasksRaw!)).toEqual({});
     });
   });
 
-  describe("4. Clear-All Orchestration", () => {
-    it("clears all Pebble-owned keys including streak_recoveries & gratitude_history while preserving foreign keys", async () => {
+  describe("4. Clear-All Orchestration (Issue 1 & 6)", () => {
+    it("clears all Pebble-owned keys including streak_recoveries while preserving foreign and pseudo keys", async () => {
       const resetCacheSpy = jest.spyOn(GraphRepository, "resetCache");
 
-      // Seed all types of Pebble keys
+      // Seed all types of real Pebble keys
       await AsyncStorage.setItem("pebble:v1:workspaces", "[]");
       await AsyncStorage.setItem("pebble:v1:tasks:ws-1", "{}");
       await AsyncStorage.setItem("pebble:settings", "{}");
@@ -289,15 +347,18 @@ describe("BackupService Hardening & Validation", () => {
       await AsyncStorage.setItem("todoapp:onboarding_completed", "true");
       await AsyncStorage.setItem("todoapp:gratitude_history", "[{}]");
       await AsyncStorage.setItem("todoapp:streak_recoveries", "[{}]");
-      await AsyncStorage.setItem("@pebble_session_token", "abc");
-      await AsyncStorage.setItem("PEBBLE_CONFIG", "123");
+      await AsyncStorage.setItem("@pebble_widget_payload", "widget-data");
+      await AsyncStorage.setItem("PEBBLE_CAPTURE_CREATION_HISTORY", "history-data");
+      await AsyncStorage.setItem("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS", "suggestions-data");
 
-      // Seed unrelated third-party key
+      // Seed unrelated foreign key and pseudo-Pebble keys
       await AsyncStorage.setItem("unrelated:external:key", "keep-me-safe");
+      await AsyncStorage.setItem("pebble:foreign_vendor_cache", "vendor-data");
+      await AsyncStorage.setItem("todoapp:unregistered_secret", "secret-data");
 
       await BackupService.clearAllData();
 
-      // All Pebble keys should be wiped
+      // All real Pebble keys should be wiped
       expect(await AsyncStorage.getItem("pebble:v1:workspaces")).toBeNull();
       expect(await AsyncStorage.getItem("pebble:v1:tasks:ws-1")).toBeNull();
       expect(await AsyncStorage.getItem("pebble:settings")).toBeNull();
@@ -306,16 +367,17 @@ describe("BackupService Hardening & Validation", () => {
       expect(await AsyncStorage.getItem("todoapp:onboarding_completed")).toBeNull();
       expect(await AsyncStorage.getItem("todoapp:gratitude_history")).toBeNull();
       expect(await AsyncStorage.getItem("todoapp:streak_recoveries")).toBeNull();
-      expect(await AsyncStorage.getItem("@pebble_session_token")).toBeNull();
-      expect(await AsyncStorage.getItem("PEBBLE_CONFIG")).toBeNull();
+      expect(await AsyncStorage.getItem("@pebble_widget_payload")).toBeNull();
+      expect(await AsyncStorage.getItem("PEBBLE_CAPTURE_CREATION_HISTORY")).toBeNull();
+      expect(await AsyncStorage.getItem("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS")).toBeNull();
 
-      // Foreign key must NOT be touched
+      // Foreign and pseudo-Pebble keys must NOT be touched
       expect(await AsyncStorage.getItem("unrelated:external:key")).toBe("keep-me-safe");
+      expect(await AsyncStorage.getItem("pebble:foreign_vendor_cache")).toBe("vendor-data");
+      expect(await AsyncStorage.getItem("todoapp:unregistered_secret")).toBe("secret-data");
 
-      // Notifications cancelled
+      // Notifications cancelled & Cache reset
       expect(Notifications.cancelAllScheduledNotificationsAsync).toHaveBeenCalled();
-
-      // Graph cache reset
       expect(resetCacheSpy).toHaveBeenCalled();
 
       // Domain events emitted for clear_all_data

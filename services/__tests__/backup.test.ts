@@ -57,8 +57,18 @@ describe("Backup System Verification", () => {
   it("should restore correct workspace data during import", async () => {
     const backupString = JSON.stringify({
       version: 1,
-      workspaces: [{ id: "ws-99" }],
-      tasks: [{ id: "task-99", title: "Task 99", workspaceId: "ws-99" }]
+      timestamp: Date.now(),
+      workspaces: [{ id: "ws-99", name: "WS 99", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 }],
+      tasks: [{ id: "task-99", title: "Task 99", workspaceId: "ws-99", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 }],
+      habits: [],
+      checklists: [],
+      resources: [],
+      recycleBin: [],
+      focusSessions: [],
+      relationships: [],
+      systemEvents: [],
+      settings: {},
+      profile: {},
     });
 
     await BackupService.restoreStructuredBackup(backupString);
@@ -92,6 +102,7 @@ describe("Backup System Verification", () => {
   it("import restores every entity type into canonical storage", async () => {
     const backupString = JSON.stringify({
       version: 1,
+      timestamp: Date.now(),
       workspaces: [{ id: "ws-imp", name: "Imported", createdAt: 1, updatedAt: 1 }],
       tasks: [{ id: "task-imp", workspaceId: "ws-imp", title: "T", status: "todo", priority: "none", createdAt: 1, updatedAt: 1 }],
       habits: [{ id: "habit-imp", workspaceId: "ws-imp", title: "H", recurrence: { frequency: "daily", interval: 1 }, completionHistory: [], createdAt: 1, updatedAt: 1 }],
@@ -101,6 +112,8 @@ describe("Backup System Verification", () => {
       focusSessions: [],
       relationships: [],
       systemEvents: [],
+      settings: {},
+      profile: {},
     });
 
     await BackupService.restoreStructuredBackup(backupString);
@@ -133,6 +146,7 @@ describe("Backup System Verification", () => {
   it("import never writes data into obsolete storage keys", async () => {
     await BackupService.restoreStructuredBackup(JSON.stringify({
       version: 1,
+      timestamp: Date.now(),
       workspaces: [{ id: "ws-ok", name: "OK", createdAt: 1, updatedAt: 1 }],
       tasks: [{ id: "task-ok", workspaceId: "ws-ok", title: "OK", status: "todo", priority: "none", createdAt: 1, updatedAt: 1 }],
       habits: [{ id: "habit-ok", workspaceId: "ws-ok", title: "H", recurrence: { frequency: "daily", interval: 1 }, completionHistory: [], createdAt: 1, updatedAt: 1 }],
@@ -142,6 +156,8 @@ describe("Backup System Verification", () => {
       focusSessions: [],
       relationships: [],
       systemEvents: [],
+      settings: {},
+      profile: {},
     }));
 
     const allKeys = await AsyncStorage.getAllKeys();

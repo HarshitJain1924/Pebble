@@ -24,8 +24,8 @@ const backup = (): AppBackup => ({
   focusSessions: [{ id: "focus-a", startedAt: 1, endedAt: 2 } as any],
   relationships: [{ sourceId: "task-a", targetId: "resource-a", type: "uses" } as any],
   systemEvents: [{ id: "event-a", type: "test", timestamp: 1 } as any],
-  settings: undefined,
-  profile: undefined,
+  settings: {},
+  profile: {},
 });
 
 beforeEach(async () => {
