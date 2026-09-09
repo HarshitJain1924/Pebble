@@ -44,6 +44,7 @@ export async function scheduleCreationNotifications(
         oneTimeAt: new Date(triggerAt),
         category,
         channelId,
+        lifecycleGeneration: item.lifecycleGeneration,
       });
       return batch.ids;
     }
@@ -66,6 +67,7 @@ export async function scheduleCreationNotifications(
         kind === "habit"
           ? { title: item.title, streak: 0 }
           : { title: item.title, remainingCount: 1, totalCount: 1 },
+      lifecycleGeneration: item.lifecycleGeneration,
     });
     return scheduled.ids;
   } catch (e) {

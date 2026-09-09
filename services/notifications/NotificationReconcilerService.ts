@@ -347,7 +347,28 @@ export class NotificationReconcilerService {
         if (!task.reminder?.enabled || !task.reminder?.triggerAt) continue;
 
         const expectedKeys = getExpectedNotificationScheduleKeys(task, effectiveEscalationMinutes);
-        if (expectedKeys.size === 0) continue;
+        if (expectedKeys.size === 0) {
+          if (task.reminder.notificationIds?.length) {
+            try {
+              await TaskRepository.updateNotificationIds(
+                task.id,
+                task.workspaceId,
+                [],
+                {
+                  reminder: { enabled: task.reminder.enabled, triggerAt: task.reminder.triggerAt },
+                  status: task.status,
+                  archivedAt: task.archivedAt ?? null,
+                  updatedAt: task.updatedAt,
+                  revision: task.revision,
+                  lifecycleGeneration: task.lifecycleGeneration,
+                }
+              );
+            } catch (e) {
+              console.warn(`[NotificationReconcilerService] Failed to clear expired task notificationIds for ${task.id}`, e);
+            }
+          }
+          continue;
+        }
 
         // Settings policy: which of the expected slots are currently allowed?
         const allowedKeys = computeAllowedScheduleKeys(settings, task.categoryId, "todo", expectedKeys);
@@ -412,6 +433,7 @@ export class NotificationReconcilerService {
                 archivedAt: task.archivedAt ?? null,
                 updatedAt: task.updatedAt,
                 revision: task.revision,
+                lifecycleGeneration: task.lifecycleGeneration,
               }
             );
           } catch (e) {
@@ -437,6 +459,7 @@ export class NotificationReconcilerService {
                   archivedAt: task.archivedAt ?? null,
                   updatedAt: task.updatedAt,
                   revision: task.revision,
+                  lifecycleGeneration: task.lifecycleGeneration,
                 }
               );
               if (updateResult === 'state_changed' || updateResult === 'not_found') {
@@ -470,6 +493,7 @@ export class NotificationReconcilerService {
                   archivedAt: task.archivedAt ?? null,
                   updatedAt: task.updatedAt,
                   revision: task.revision,
+                  lifecycleGeneration: task.lifecycleGeneration,
                 }
               );
               if (updateResult === 'state_changed' || updateResult === 'not_found') {
@@ -502,6 +526,7 @@ export class NotificationReconcilerService {
                   archivedAt: task.archivedAt ?? null,
                   updatedAt: task.updatedAt,
                   revision: task.revision,
+                  lifecycleGeneration: task.lifecycleGeneration,
                 }
               );
             } catch (e) {
@@ -515,7 +540,27 @@ export class NotificationReconcilerService {
         if (!habit.reminder?.enabled || !habit.reminder?.triggerAt) continue;
 
         const expectedKeys = getExpectedNotificationScheduleKeys(habit, effectiveEscalationMinutes);
-        if (expectedKeys.size === 0) continue;
+        if (expectedKeys.size === 0) {
+          if (habit.reminder.notificationIds?.length) {
+            try {
+              await HabitRepository.updateNotificationIds(
+                habit.id,
+                habit.workspaceId,
+                [],
+                {
+                  reminder: { enabled: habit.reminder.enabled, triggerAt: habit.reminder.triggerAt },
+                  archivedAt: habit.archivedAt ?? null,
+                  updatedAt: habit.updatedAt,
+                  revision: habit.revision,
+                  lifecycleGeneration: habit.lifecycleGeneration,
+                }
+              );
+            } catch (e) {
+              console.warn(`[NotificationReconcilerService] Failed to clear expired habit notificationIds for ${habit.id}`, e);
+            }
+          }
+          continue;
+        }
 
         const allowedKeys = computeAllowedScheduleKeys(settings, habit.categoryId, "habit", expectedKeys);
 
@@ -571,6 +616,7 @@ export class NotificationReconcilerService {
                 archivedAt: habit.archivedAt ?? null,
                 updatedAt: habit.updatedAt,
                 revision: habit.revision,
+                lifecycleGeneration: habit.lifecycleGeneration,
               }
             );
           } catch (e) {
@@ -595,6 +641,7 @@ export class NotificationReconcilerService {
                   archivedAt: habit.archivedAt ?? null,
                   updatedAt: habit.updatedAt,
                   revision: habit.revision,
+                  lifecycleGeneration: habit.lifecycleGeneration,
                 }
               );
               if (updateResult === 'state_changed' || updateResult === 'not_found') {
@@ -627,6 +674,7 @@ export class NotificationReconcilerService {
                   archivedAt: habit.archivedAt ?? null,
                   updatedAt: habit.updatedAt,
                   revision: habit.revision,
+                  lifecycleGeneration: habit.lifecycleGeneration,
                 }
               );
               if (updateResult === 'state_changed' || updateResult === 'not_found') {
@@ -654,6 +702,7 @@ export class NotificationReconcilerService {
                   archivedAt: habit.archivedAt ?? null,
                   updatedAt: habit.updatedAt,
                   revision: habit.revision,
+                  lifecycleGeneration: habit.lifecycleGeneration,
                 }
               );
             } catch (e) {
@@ -667,7 +716,27 @@ export class NotificationReconcilerService {
         if (!checklist.reminder?.enabled || !checklist.reminder?.triggerAt) continue;
 
         const expectedKeys = getExpectedNotificationScheduleKeys(checklist, effectiveEscalationMinutes);
-        if (expectedKeys.size === 0) continue;
+        if (expectedKeys.size === 0) {
+          if (checklist.reminder.notificationIds?.length) {
+            try {
+              await ChecklistRepository.updateNotificationIds(
+                checklist.id,
+                checklist.workspaceId,
+                [],
+                {
+                  reminder: { enabled: checklist.reminder.enabled, triggerAt: checklist.reminder.triggerAt },
+                  archivedAt: checklist.archivedAt ?? null,
+                  updatedAt: checklist.updatedAt,
+                  revision: checklist.revision,
+                  lifecycleGeneration: checklist.lifecycleGeneration,
+                }
+              );
+            } catch (e) {
+              console.warn(`[NotificationReconcilerService] Failed to clear expired checklist notificationIds for ${checklist.id}`, e);
+            }
+          }
+          continue;
+        }
 
         const allowedKeys = computeAllowedScheduleKeys(settings, checklist.categoryId, "checklist", expectedKeys);
 
@@ -723,6 +792,7 @@ export class NotificationReconcilerService {
                 archivedAt: checklist.archivedAt ?? null,
                 updatedAt: checklist.updatedAt,
                 revision: checklist.revision,
+                lifecycleGeneration: checklist.lifecycleGeneration,
               }
             );
           } catch (e) {
@@ -747,6 +817,7 @@ export class NotificationReconcilerService {
                   archivedAt: checklist.archivedAt ?? null,
                   updatedAt: checklist.updatedAt,
                   revision: checklist.revision,
+                  lifecycleGeneration: checklist.lifecycleGeneration,
                 }
               );
               if (updateResult === 'state_changed' || updateResult === 'not_found') {
@@ -779,6 +850,7 @@ export class NotificationReconcilerService {
                   archivedAt: checklist.archivedAt ?? null,
                   updatedAt: checklist.updatedAt,
                   revision: checklist.revision,
+                  lifecycleGeneration: checklist.lifecycleGeneration,
                 }
               );
               if (updateResult === 'state_changed' || updateResult === 'not_found') {
@@ -806,6 +878,7 @@ export class NotificationReconcilerService {
                   archivedAt: checklist.archivedAt ?? null,
                   updatedAt: checklist.updatedAt,
                   revision: checklist.revision,
+                  lifecycleGeneration: checklist.lifecycleGeneration,
                 }
               );
             } catch (e) {

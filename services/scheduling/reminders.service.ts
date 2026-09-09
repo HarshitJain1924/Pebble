@@ -42,12 +42,14 @@ export type ReminderScheduleOptions = {
   anchorTimestamp?: number;
   anchorDate?: Date;
   targetScheduleKeys?: string[];
+  lifecycleGeneration?: number;
 };
 
 export interface RescheduleReminderOptions {
   targetScheduleKeys?: string[];
   cancelExisting?: boolean;
   retainedNotificationIds?: string[];
+  lifecycleGeneration?: number;
 }
 
 export type ScheduledReminderBatch = {
@@ -77,6 +79,7 @@ export type WebReminderLoop = {
   itemId?: string;
   kind?: ReminderKind;
   escalationLevel?: number;
+  lifecycleGeneration?: number;
 };
 const webReminderLoops = new Map<string, WebReminderLoop>();
 let webReminderLoopSeq = 0;
@@ -86,6 +89,10 @@ export function getWebReminderLoops(): Map<string, WebReminderLoop> {
 }
 
 export function clearWebReminderLoops(): void {
+  for (const loop of webReminderLoops.values()) {
+    if (loop.timeoutId) clearTimeout(loop.timeoutId);
+    if (loop.intervalId) clearInterval(loop.intervalId);
+  }
   webReminderLoops.clear();
 }
 
@@ -196,6 +203,7 @@ function buildNotificationData(
   purpose: NotificationPurpose = escalationLevel > 0 ? "escalation" : "reminder",
   workspaceId?: string,
   notificationScheduleKey?: string,
+  lifecycleGeneration?: number,
 ) {
   const logicalSignature = buildNotificationLogicalSignature(kind, itemId, purpose);
   return {
@@ -206,6 +214,7 @@ function buildNotificationData(
     purpose,
     ...(notificationScheduleKey ? { notificationScheduleKey } : {}),
     ...(workspaceId ? { workspaceId } : {}),
+    ...(lifecycleGeneration !== undefined ? { lifecycleGeneration } : {}),
   };
 }
 
@@ -250,6 +259,7 @@ function scheduleWebReminderLoop(
     itemId?: string;
     kind?: ReminderKind;
     escalationLevel?: number;
+    lifecycleGeneration?: number;
   }
 ): { loopId: string; timeoutId: ReturnType<typeof setTimeout> } {
   const loopKey = `loop-${++webReminderLoopSeq}`;
@@ -476,6 +486,7 @@ export async function scheduleReminderBatch(
         purpose,
         options.workspaceId,
         scheduleKey,
+        options.lifecycleGeneration,
       );
 
       const triggerDate = new Date(
@@ -512,6 +523,7 @@ export async function scheduleReminderBatch(
           itemId: options.itemId,
           kind: options.kind,
           escalationLevel: index,
+          lifecycleGeneration: options.lifecycleGeneration,
         });
 
         ids.push(`web-timeout-${seq}`);
@@ -571,6 +583,7 @@ export async function scheduleReminderBatch(
           purpose,
           options.workspaceId,
           scheduleKey,
+          options.lifecycleGeneration,
         );
 
         const nextTrigger = getNextIntervalOccurrenceEpoch(
@@ -602,6 +615,7 @@ export async function scheduleReminderBatch(
               itemId: options.itemId,
               kind: options.kind,
               escalationLevel: index,
+              lifecycleGeneration: options.lifecycleGeneration,
             }
           );
           ids.push(loopId);
@@ -673,6 +687,7 @@ export async function scheduleReminderBatch(
           purpose,
           options.workspaceId,
           scheduleKey,
+          options.lifecycleGeneration,
         );
 
         if (isWeb) {
@@ -689,6 +704,7 @@ export async function scheduleReminderBatch(
               itemId: options.itemId,
               kind: options.kind,
               escalationLevel: index,
+              lifecycleGeneration: options.lifecycleGeneration,
             }
           );
           ids.push(loopId);
@@ -752,6 +768,7 @@ export async function scheduleReminderBatch(
             purpose,
             options.workspaceId,
             scheduleKey,
+            options.lifecycleGeneration,
           );
 
           if (isWeb) {
@@ -768,6 +785,7 @@ export async function scheduleReminderBatch(
                 itemId: options.itemId,
                 kind: options.kind,
                 escalationLevel: index,
+                lifecycleGeneration: options.lifecycleGeneration,
               }
             );
             ids.push(loopId);
@@ -831,6 +849,7 @@ export async function scheduleReminderBatch(
           purpose,
           options.workspaceId,
           scheduleKey,
+          options.lifecycleGeneration,
         );
 
         if (isWeb) {
@@ -910,6 +929,7 @@ export async function scheduleReminderBatch(
           purpose,
           options.workspaceId,
           scheduleKey,
+          options.lifecycleGeneration,
         );
 
         if (isWeb) {
@@ -932,6 +952,7 @@ export async function scheduleReminderBatch(
               itemId: options.itemId,
               kind: options.kind,
               escalationLevel: index,
+              lifecycleGeneration: options.lifecycleGeneration,
             }
           );
 
@@ -996,6 +1017,7 @@ export async function scheduleReminderBatch(
       purpose,
       options.workspaceId,
       scheduleKey,
+      options.lifecycleGeneration,
     );
 
     if (isWeb) {
@@ -1014,6 +1036,7 @@ export async function scheduleReminderBatch(
           itemId: options.itemId,
           kind: options.kind,
           escalationLevel: index,
+          lifecycleGeneration: options.lifecycleGeneration,
         }
       );
 
@@ -1100,6 +1123,7 @@ export async function rescheduleTodoReminders(
           anchorTimestamp: todo.reminder.triggerAt,
           anchorDate: triggerDate,
           targetScheduleKeys: options?.targetScheduleKeys,
+          lifecycleGeneration: options?.lifecycleGeneration ?? todo.lifecycleGeneration,
         });
         const existingIds = shouldCancelExisting
           ? []
@@ -1127,6 +1151,7 @@ export async function rescheduleTodoReminders(
         anchorTimestamp: todo.reminder.triggerAt,
         anchorDate: triggerDate,
         targetScheduleKeys: options?.targetScheduleKeys,
+        lifecycleGeneration: options?.lifecycleGeneration ?? todo.lifecycleGeneration,
       });
       const existingIds = shouldCancelExisting
         ? []
@@ -1190,6 +1215,7 @@ export async function rescheduleHabitReminders(
           anchorTimestamp: habit.reminder.triggerAt,
           anchorDate: triggerDate,
           targetScheduleKeys: options?.targetScheduleKeys,
+          lifecycleGeneration: options?.lifecycleGeneration ?? habit.lifecycleGeneration,
         });
         const existingIds = shouldCancelExisting
           ? []
@@ -1217,6 +1243,7 @@ export async function rescheduleHabitReminders(
         anchorTimestamp: habit.reminder.triggerAt,
         anchorDate: triggerDate,
         targetScheduleKeys: options?.targetScheduleKeys,
+        lifecycleGeneration: options?.lifecycleGeneration ?? habit.lifecycleGeneration,
       });
       const existingIds = shouldCancelExisting
         ? []
@@ -1283,6 +1310,7 @@ export async function rescheduleChecklistReminders(
           anchorTimestamp: checklist.reminder.triggerAt,
           anchorDate: triggerDate,
           targetScheduleKeys: options?.targetScheduleKeys,
+          lifecycleGeneration: options?.lifecycleGeneration ?? checklist.lifecycleGeneration,
         });
         const existingIds = shouldCancelExisting
           ? []
@@ -1312,6 +1340,7 @@ export async function rescheduleChecklistReminders(
         anchorTimestamp: checklist.reminder.triggerAt,
         anchorDate: triggerDate,
         targetScheduleKeys: options?.targetScheduleKeys,
+        lifecycleGeneration: options?.lifecycleGeneration ?? checklist.lifecycleGeneration,
       });
       const existingIds = shouldCancelExisting
         ? []

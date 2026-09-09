@@ -331,7 +331,8 @@ export function getExpectedNotificationScheduleKeys(
     reminder?: { enabled?: boolean; triggerAt?: number };
     recurrence?: RecurrenceRule | null;
   },
-  escalationMinutes: number[] = [120, 240]
+  escalationMinutes: number[] = [120, 240],
+  now: number = Date.now(),
 ): Set<string> {
   const keys = new Set<string>();
 
@@ -433,12 +434,23 @@ export function isMatchingNotificationOwnership(
     logicalSignature?: string;
     purpose?: string;
     escalationLevel?: number;
+    lifecycleGeneration?: number;
   } | undefined,
-  entity: { id: string; reminder?: { enabled?: boolean; triggerAt?: number } },
+  entity: { id: string; reminder?: { enabled?: boolean; triggerAt?: number }; lifecycleGeneration?: number },
   expectedKind: NotificationKind,
   purpose?: NotificationPurpose
 ): boolean {
   if (!data || data.type !== expectedKind || data.itemId !== entity.id) {
+    return false;
+  }
+
+  // If both payload and entity specify lifecycleGeneration, enforce strict equality.
+  // Lingering notifications from older generations cannot match a re-created entity.
+  if (
+    data.lifecycleGeneration !== undefined &&
+    entity.lifecycleGeneration !== undefined &&
+    data.lifecycleGeneration !== entity.lifecycleGeneration
+  ) {
     return false;
   }
 
@@ -562,11 +574,13 @@ export function isMatchingPhysicalNotification(
     escalationLevel?: number;
     notificationScheduleKey?: string;
     weekday?: number;
+    lifecycleGeneration?: number;
   } | undefined,
   entity: {
     id: string;
     reminder?: { enabled?: boolean; triggerAt?: number };
     recurrence?: RecurrenceRule | null;
+    lifecycleGeneration?: number;
   },
   expectedKind: NotificationKind,
   purpose?: NotificationPurpose

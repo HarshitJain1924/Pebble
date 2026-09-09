@@ -808,6 +808,8 @@ export class BackupService {
 
     // Attempt OS Notification flush AFTER successful domain commit.
     try {
+      const { clearWebReminderLoops } = await import("@/services/scheduling/reminders.service");
+      clearWebReminderLoops();
       if (
         typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
       ) {
@@ -912,8 +914,10 @@ export class BackupService {
       }
     }
 
-    // Cancel all scheduled notifications
+    // Cancel all scheduled notifications and web reminder loops
     try {
+      const { clearWebReminderLoops } = await import("@/services/scheduling/reminders.service");
+      clearWebReminderLoops();
       if (
         typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
       ) {

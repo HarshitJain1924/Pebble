@@ -324,6 +324,7 @@ export class TaskRepository {
       archivedAt?: number | null;
       updatedAt?: number;
       revision?: number;
+      lifecycleGeneration?: number;
     }
   ): Promise<'updated' | 'not_found' | 'state_changed'> {
     this.validateId(id, "updateNotificationIds");
@@ -346,8 +347,11 @@ export class TaskRepository {
         const archiveMatches = (existing.archivedAt ?? null) === (expectedSnapshot.archivedAt ?? null);
         const updatedAtMatches = expectedSnapshot.updatedAt === undefined || existing.updatedAt === expectedSnapshot.updatedAt;
         const revisionMatches = expectedSnapshot.revision === undefined || existing.revision === expectedSnapshot.revision;
+        const lifecycleMatches =
+          expectedSnapshot.lifecycleGeneration === undefined ||
+          existing.lifecycleGeneration === expectedSnapshot.lifecycleGeneration;
 
-        if (!reminderMatches || !statusMatches || !archiveMatches || !updatedAtMatches || !revisionMatches) {
+        if (!reminderMatches || !statusMatches || !archiveMatches || !updatedAtMatches || !revisionMatches || !lifecycleMatches) {
           return 'state_changed';
         }
       }

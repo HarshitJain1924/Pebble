@@ -201,6 +201,11 @@ static async reorderWorkspaces(
       emitStateChange("workspace_mode_changed", options?.source);
     }
 
+    // 8. Reconcile notifications for restored workspace entities
+    void import("@/services/notifications/NotificationReconcilerService")
+      .then(({ NotificationReconcilerService }) => NotificationReconcilerService.reconcileAll())
+      .catch((err) => console.warn("[restoreWorkspace] Notification reconciliation failed", err));
+
     return workspace;
     });
   }
@@ -364,6 +369,11 @@ static async reorderWorkspaces(
           for (const habit of habits) {
             if (habit.reminder?.notificationIds) {
               notificationIdsToCancel.push(...habit.reminder.notificationIds);
+            }
+          }
+          for (const checklist of checklists) {
+            if (checklist.reminder?.notificationIds) {
+              notificationIdsToCancel.push(...checklist.reminder.notificationIds);
             }
           }
           if (notificationIdsToCancel.length > 0) {
