@@ -234,6 +234,45 @@ export class GraphRepository {
     return Object.values(this.relationships);
   }
 
+  /**
+   * Replaces all relationships in canonical storage under an already-held graph lock.
+   * Updates in-memory state, rebuilds indexes, persists to AsyncStorage, and rolls back on failure.
+   */
+  static async replaceRelationshipsUnlocked(
+    records: Record<string, Relationship> | Relationship[]
+  ): Promise<void> {
+    const nextRelationships: Record<string, Relationship> = Array.isArray(records)
+      ? records.reduce<Record<string, Relationship>>((acc, rel) => {
+          acc[rel.id] = rel;
+          return acc;
+        }, {})
+      : { ...records };
+
+    const snapshot = { ...this.relationships };
+    this.relationships = nextRelationships;
+    this.rebuildIndex();
+    this.loaded = true;
+
+    try {
+      await AsyncStorage.setItem(
+        this.RELATIONSHIPS_KEY,
+        JSON.stringify(this.relationships)
+      );
+    } catch (e) {
+      this.relationships = snapshot;
+      this.rebuildIndex();
+      throw e;
+    }
+  }
+
+  static async replaceRelationships(
+    records: Record<string, Relationship> | Relationship[]
+  ): Promise<void> {
+    return withLock(this.RELATIONSHIPS_KEY, async () => {
+      return this.replaceRelationshipsUnlocked(records);
+    });
+  }
+
   static async saveRelationship(rel: Relationship): Promise<Relationship> {
     return withLock(this.RELATIONSHIPS_KEY, async () => {
       return this.saveRelationshipUnlocked(rel);

@@ -7,11 +7,25 @@
  * 1. Prunes dangling edges where source or target entity no longer exists.
  * 2. Prunes stale edges where source or target lifecycleGeneration mismatches the active entity.
  * 3. Normalizes and deduplicates duplicate edges (both directed and undirected).
- * 4. Cleans dangling resourceIds on active tasks, habits, and checklists.
+ * 4. Cleans dangling resourceIds on active tasks, habits, and checklists via targeted repository writes.
  * 5. Emits "graph_changed" event only when changes are committed.
+ *
+ * Consistency Model:
+ * 1. Read-phase: Active entities and current graph edges are loaded.
+ * 2. Relationship Cleanup & Persistence:
+ *    - Validated and normalized graph edges are committed via GraphRepository.replaceRelationshipsUnlocked().
+ *    - In-memory repository cache is kept coherent and rolled back if persistence throws.
+ *    - Events ("graph_changed") are emitted ONLY after successful relationship commit.
+ * 3. Entity Resource Link Cleanup:
+ *    - Invalid resource references on tasks, habits, and checklists are cleaned via targeted repository writes
+ *      (updateResourceIds), preserving updatedAt, revision, and lifecycleGeneration.
+ *    - Concurrent user edits are protected using expectedSnapshot matching; if state changed, fresh state
+ *      is retrieved before reapplying the filter.
+ * 4. Idempotent Convergence:
+ *    - Operations are not distributed ACID transactions. If interrupted or failed midway, subsequent
+ *      reconciliation runs converge to the same clean graph and entity state without data loss or corruption.
  */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import {
   TaskRepository,
@@ -107,7 +121,7 @@ export class GraphReconcilerService {
       const focusSessions = await GraphRepository.getFocusSessions();
       const activeFocusIds = new Set(focusSessions.map((s) => s.id));
 
-      // 2. Load relationships
+      // 2. Load relationships via canonical repository
       await GraphRepository.ensureLoadedUnlocked();
       const currentRelationships =
         await GraphRepository.getAllRelationshipsUnlocked();
@@ -217,32 +231,55 @@ export class GraphReconcilerService {
         validEdges[updatedRel.id] = updatedRel;
       }
 
-      // 3. Persist cleaned graph if modifications occurred
+      // 3. Persist cleaned graph via canonical GraphRepository boundary
       if (graphChanged) {
-        await AsyncStorage.setItem(
-          this.RELATIONSHIPS_KEY,
-          JSON.stringify(validEdges),
-        );
-        GraphRepository.resetCache();
-        await GraphRepository.ensureLoadedUnlocked();
+        await GraphRepository.replaceRelationshipsUnlocked(validEdges);
         emitStateChange("graph_changed", "graph_reconciler");
       }
 
-      // 4. Clean dangling resourceIds on active tasks, habits, and checklists
+      // 4. Clean dangling resourceIds via targeted repository writes,
+      // preserving updatedAt, revision, and lifecycleGeneration.
       for (const t of allTasks) {
         if (t.resourceIds && t.resourceIds.length > 0) {
           const filtered = t.resourceIds.filter((rid) =>
             activeResourceIds.has(rid),
           );
           if (filtered.length !== t.resourceIds.length) {
-            const cleaned: Task = {
-              ...t,
-              resourceIds: filtered,
-              updatedAt: Date.now(),
-            };
-            await TaskRepository.saveTaskUnlocked(cleaned);
-            report.cleanedResourceIds +=
-              t.resourceIds.length - filtered.length;
+            let res = await TaskRepository.updateResourceIds(
+              t.id,
+              t.workspaceId,
+              filtered,
+              {
+                updatedAt: t.updatedAt,
+                revision: t.revision,
+                lifecycleGeneration: t.lifecycleGeneration,
+              }
+            );
+            if (res === "state_changed") {
+              // Concurrency protection: re-fetch fresh task to not overwrite concurrent edits
+              const fresh = await TaskRepository.getTask(t.id, t.workspaceId);
+              if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
+                const freshFiltered = fresh.resourceIds.filter((rid) =>
+                  activeResourceIds.has(rid),
+                );
+                if (freshFiltered.length !== fresh.resourceIds.length) {
+                  res = await TaskRepository.updateResourceIds(
+                    fresh.id,
+                    fresh.workspaceId,
+                    freshFiltered,
+                    {
+                      updatedAt: fresh.updatedAt,
+                      revision: fresh.revision,
+                      lifecycleGeneration: fresh.lifecycleGeneration,
+                    }
+                  );
+                }
+              }
+            }
+            if (res === "updated") {
+              report.cleanedResourceIds +=
+                t.resourceIds.length - filtered.length;
+            }
           }
         }
       }
@@ -253,14 +290,41 @@ export class GraphReconcilerService {
             activeResourceIds.has(rid),
           );
           if (filtered.length !== h.resourceIds.length) {
-            const cleaned: Habit = {
-              ...h,
-              resourceIds: filtered,
-              updatedAt: Date.now(),
-            };
-            await HabitRepository.saveHabitUnlocked(cleaned);
-            report.cleanedResourceIds +=
-              h.resourceIds.length - filtered.length;
+            let res = await HabitRepository.updateResourceIds(
+              h.id,
+              h.workspaceId,
+              filtered,
+              {
+                updatedAt: h.updatedAt,
+                revision: h.revision,
+                lifecycleGeneration: h.lifecycleGeneration,
+              }
+            );
+            if (res === "state_changed") {
+              // Concurrency protection: re-fetch fresh habit to not overwrite concurrent edits
+              const fresh = await HabitRepository.getHabit(h.id, h.workspaceId);
+              if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
+                const freshFiltered = fresh.resourceIds.filter((rid) =>
+                  activeResourceIds.has(rid),
+                );
+                if (freshFiltered.length !== fresh.resourceIds.length) {
+                  res = await HabitRepository.updateResourceIds(
+                    fresh.id,
+                    fresh.workspaceId,
+                    freshFiltered,
+                    {
+                      updatedAt: fresh.updatedAt,
+                      revision: fresh.revision,
+                      lifecycleGeneration: fresh.lifecycleGeneration,
+                    }
+                  );
+                }
+              }
+            }
+            if (res === "updated") {
+              report.cleanedResourceIds +=
+                h.resourceIds.length - filtered.length;
+            }
           }
         }
       }
@@ -271,14 +335,41 @@ export class GraphReconcilerService {
             activeResourceIds.has(rid),
           );
           if (filtered.length !== c.resourceIds.length) {
-            const cleaned: Checklist = {
-              ...c,
-              resourceIds: filtered,
-              updatedAt: Date.now(),
-            };
-            await ChecklistRepository.saveChecklistUnlocked(cleaned);
-            report.cleanedResourceIds +=
-              c.resourceIds.length - filtered.length;
+            let res = await ChecklistRepository.updateResourceIds(
+              c.id,
+              c.workspaceId,
+              filtered,
+              {
+                updatedAt: c.updatedAt,
+                revision: c.revision,
+                lifecycleGeneration: c.lifecycleGeneration,
+              }
+            );
+            if (res === "state_changed") {
+              // Concurrency protection: re-fetch fresh checklist to not overwrite concurrent edits
+              const fresh = await ChecklistRepository.getChecklist(c.id, c.workspaceId);
+              if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
+                const freshFiltered = fresh.resourceIds.filter((rid) =>
+                  activeResourceIds.has(rid),
+                );
+                if (freshFiltered.length !== fresh.resourceIds.length) {
+                  res = await ChecklistRepository.updateResourceIds(
+                    fresh.id,
+                    fresh.workspaceId,
+                    freshFiltered,
+                    {
+                      updatedAt: fresh.updatedAt,
+                      revision: fresh.revision,
+                      lifecycleGeneration: fresh.lifecycleGeneration,
+                    }
+                  );
+                }
+              }
+            }
+            if (res === "updated") {
+              report.cleanedResourceIds +=
+                c.resourceIds.length - filtered.length;
+            }
           }
         }
       }

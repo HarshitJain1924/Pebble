@@ -411,7 +411,7 @@ describe("Phase 8 — Relationship & Graph Integrity Suite", () => {
     // 1. Valid task & resource
     const liveTask = createTask("t-live");
     liveTask.resourceIds = ["r-live", "r-dead"];
-    await TaskRepository.saveTask(liveTask);
+    const savedLiveTask = await TaskRepository.saveTask(liveTask);
     await ResourceRepository.saveResource(createResource("r-live"));
 
     // 2. Persist relationships directly into storage including dangling edges
@@ -461,6 +461,9 @@ describe("Phase 8 — Relationship & Graph Integrity Suite", () => {
 
     const updatedTask = (await TaskRepository.getTasks("ws-graph-a"))["t-live"];
     expect(updatedTask.resourceIds).toEqual(["r-live"]);
+    expect(updatedTask.updatedAt).toBe(savedLiveTask.updatedAt);
+    expect(updatedTask.revision).toBe(savedLiveTask.revision);
+    expect(updatedTask.lifecycleGeneration).toBe(savedLiveTask.lifecycleGeneration);
 
     // Second reconciliation run: zero churn / idempotent convergence
     const report2 = await GraphReconcilerService.reconcileAll();
@@ -537,21 +540,24 @@ describe("Phase 8 — Relationship & Graph Integrity Suite", () => {
     await TaskRepository.saveTask(createTask("task-1"));
     await ResourceRepository.saveResource(createResource("res-1"));
 
-    const setItemSpy = jest.spyOn(AsyncStorage, "setItem");
-    setItemSpy.mockRejectedValueOnce(new Error("Disk failure"));
+    const originalSetItem = AsyncStorage.setItem;
+    AsyncStorage.setItem = jest.fn().mockRejectedValueOnce(new Error("Disk failure"));
 
-    await expect(
-      EntityCommandService.createRelationship({
-        id: "rel-fail",
-        source: { id: "task-1", type: "task" },
-        target: { id: "res-1", type: "resource" },
-        relationType: "references",
-      }),
-    ).rejects.toThrow("Disk failure");
+    try {
+      await expect(
+        EntityCommandService.createRelationship({
+          id: "rel-fail",
+          source: { id: "task-1", type: "task" },
+          target: { id: "res-1", type: "resource" },
+          relationType: "references",
+        }),
+      ).rejects.toThrow("Disk failure");
 
-    // In-memory cache must not contain rel-fail
-    expect(await EntityCommandService.getAllRelationships()).toHaveLength(0);
-    setItemSpy.mockRestore();
+      // In-memory cache must not contain rel-fail
+      expect(await EntityCommandService.getAllRelationships()).toHaveLength(0);
+    } finally {
+      AsyncStorage.setItem = originalSetItem;
+    }
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -613,5 +619,271 @@ describe("Phase 8 — Relationship & Graph Integrity Suite", () => {
     expect(report.prunedDangling).toBe(1);
 
     expect(await EntityCommandService.getAllRelationships()).toHaveLength(0);
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // 21. Targeted resource-ID cleanup preserves timestamps & metadata across tasks, habits, and checklists
+  // ─────────────────────────────────────────────────────────────
+  it("21. Targeted resource-ID cleanup preserves updatedAt, revision, and lifecycleGeneration on task, habit, and checklist", async () => {
+    const task = createTask("t-target-1");
+    task.resourceIds = ["r-dead-1"];
+    task.lifecycleGeneration = 2;
+    const savedTask = await TaskRepository.saveTask(task);
+
+    const habit = createHabit("h-target-1");
+    habit.resourceIds = ["r-dead-2"];
+    habit.lifecycleGeneration = 3;
+    const savedHabit = await HabitRepository.saveHabit(habit);
+
+    const checklist = createChecklist("c-target-1");
+    checklist.resourceIds = ["r-dead-3"];
+    checklist.lifecycleGeneration = 1;
+    await ChecklistRepository.saveChecklist(checklist);
+    const savedChecklist = (await ChecklistRepository.getChecklists("ws-graph-a"))["c-target-1"];
+
+    const report = await GraphReconcilerService.reconcileAll();
+    expect(report.cleanedResourceIds).toBe(3);
+
+    const afterTask = (await TaskRepository.getTasks("ws-graph-a"))["t-target-1"];
+    expect(afterTask.resourceIds).toBeUndefined();
+    expect(afterTask.updatedAt).toBe(savedTask.updatedAt);
+    expect(afterTask.revision).toBe(savedTask.revision);
+    expect(afterTask.lifecycleGeneration).toBe(savedTask.lifecycleGeneration);
+    expect(afterTask.title).toBe(task.title);
+
+    const afterHabit = (await HabitRepository.getHabits("ws-graph-a"))["h-target-1"];
+    expect(afterHabit.resourceIds).toBeUndefined();
+    expect(afterHabit.updatedAt).toBe(savedHabit.updatedAt);
+    expect(afterHabit.revision).toBe(savedHabit.revision);
+    expect(afterHabit.lifecycleGeneration).toBe(savedHabit.lifecycleGeneration);
+    expect(afterHabit.title).toBe(habit.title);
+
+    const afterChecklist = (await ChecklistRepository.getChecklists("ws-graph-a"))["c-target-1"];
+    expect(afterChecklist.resourceIds).toBeUndefined();
+    expect(afterChecklist.updatedAt).toBe(savedChecklist.updatedAt);
+    expect(afterChecklist.revision).toBe(savedChecklist.revision);
+    expect(afterChecklist.lifecycleGeneration).toBe(savedChecklist.lifecycleGeneration);
+    expect(afterChecklist.title).toBe(checklist.title);
+
+    // Repeated run is completely idempotent
+    const report2 = await GraphReconcilerService.reconcileAll();
+    expect(report2.cleanedResourceIds).toBe(0);
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 22. Reconciliation does not overwrite concurrent user edits
+  // ─────────────────────────────────────────────────────────────
+  it("22. Reconciliation does not overwrite concurrent user edits during resource-link cleanup", async () => {
+    const task = createTask("t-concurrent-edit");
+    task.resourceIds = ["r-dead"];
+    task.title = "Original Title";
+    await TaskRepository.saveTask(task);
+
+    const originalUpdate = TaskRepository.updateResourceIds;
+    let userEditApplied = false;
+
+    TaskRepository.updateResourceIds = jest.fn().mockImplementation(
+      async (id, wsId, rids, snapshot) => {
+        if (!userEditApplied && id === "t-concurrent-edit") {
+          userEditApplied = true;
+          // Concurrent user edit modifies title, status, and bumps revision
+          await EntityCommandService.updateTask(
+            id,
+            wsId,
+            { title: "User Updated Title", status: "completed" },
+            { skipEvents: true, skipAnalytics: true }
+          );
+        }
+        return originalUpdate.call(TaskRepository, id, wsId, rids, snapshot);
+      }
+    );
+
+    try {
+      const report = await GraphReconcilerService.reconcileAll();
+      expect(report.cleanedResourceIds).toBe(1);
+
+      const finalTask = (await TaskRepository.getTasks("ws-graph-a"))["t-concurrent-edit"];
+      // The user's concurrent edit MUST be preserved!
+      expect(finalTask.title).toBe("User Updated Title");
+      expect(finalTask.status).toBe("completed");
+      expect(finalTask.revision).toBe(2);
+      // Dead resourceId must still be cleaned!
+      expect(finalTask.resourceIds).toBeUndefined();
+    } finally {
+      TaskRepository.updateResourceIds = originalUpdate;
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 23. Reconciliation x concurrent resource-link mutation
+  // ─────────────────────────────────────────────────────────────
+  it("23. Concurrent resource-link mutation is preserved when reconciliation cleans dead links", async () => {
+    await ResourceRepository.saveResource(createResource("r-valid-live"));
+    const task = createTask("t-link-race");
+    task.resourceIds = ["r-dead-link"];
+    await TaskRepository.saveTask(task);
+
+    const originalUpdate = TaskRepository.updateResourceIds;
+    let linkedNewResource = false;
+
+    TaskRepository.updateResourceIds = jest.fn().mockImplementation(
+      async (id, wsId, rids, snapshot) => {
+        if (!linkedNewResource && id === "t-link-race") {
+          linkedNewResource = true;
+          // Concurrent user links a newly created valid resource
+          await EntityCommandService.updateTask(
+            id,
+            wsId,
+            { resourceIds: ["r-dead-link", "r-valid-live"] },
+            { skipEvents: true, skipAnalytics: true }
+          );
+        }
+        return originalUpdate.call(TaskRepository, id, wsId, rids, snapshot);
+      }
+    );
+
+    try {
+      const report = await GraphReconcilerService.reconcileAll();
+      expect(report.cleanedResourceIds).toBe(1);
+
+      const finalTask = (await TaskRepository.getTasks("ws-graph-a"))["t-link-race"];
+      // r-valid-live must be preserved, and r-dead-link removed!
+      expect(finalTask.resourceIds).toEqual(["r-valid-live"]);
+    } finally {
+      TaskRepository.updateResourceIds = originalUpdate;
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 24. Canonical GraphRepository reconciliation persistence & rollback
+  // ─────────────────────────────────────────────────────────────
+  it("24. Canonical GraphRepository.replaceRelationshipsUnlocked persists and rolls back on failure", async () => {
+    await TaskRepository.saveTask(createTask("task-roll"));
+    await ResourceRepository.saveResource(createResource("res-roll"));
+
+    const initialRel: Relationship = {
+      id: "rel-initial",
+      source: { id: "task-roll", type: "task" },
+      target: { id: "res-roll", type: "resource" },
+      relationType: "references",
+      createdAt: 1000,
+    };
+    await GraphRepository.saveRelationship(initialRel);
+    expect(await GraphRepository.getAllRelationships()).toHaveLength(1);
+
+    const originalSetItem = AsyncStorage.setItem;
+    AsyncStorage.setItem = jest.fn().mockRejectedValueOnce(new Error("Disk full"));
+
+    try {
+      await expect(
+        GraphRepository.replaceRelationships([
+          {
+            id: "rel-corrupt",
+            source: { id: "task-roll", type: "task" },
+            target: { id: "res-roll", type: "resource" },
+            relationType: "related",
+            createdAt: 2000,
+          },
+        ])
+      ).rejects.toThrow("Disk full");
+
+      // In-memory cache must roll back to initial state
+      const afterRels = await GraphRepository.getAllRelationships();
+      expect(afterRels).toHaveLength(1);
+      expect(afterRels[0].id).toBe("rel-initial");
+    } finally {
+      AsyncStorage.setItem = originalSetItem;
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 25. Two simultaneous reconciliations converge deterministically
+  // ─────────────────────────────────────────────────────────────
+  it("25. Two simultaneous reconciliations converge without deadlocks or duplicate edges", async () => {
+    const task = createTask("t-simul");
+    task.resourceIds = ["r-dead-a", "r-dead-b"];
+    await TaskRepository.saveTask(task);
+
+    const rels: Record<string, Relationship> = {
+      "rel-dangling": {
+        id: "rel-dangling",
+        source: { id: "t-simul", type: "task" },
+        target: { id: "nonexistent", type: "resource" },
+        relationType: "references",
+        createdAt: 1000,
+      },
+    };
+    await AsyncStorage.setItem("pebble:v1:relationships", JSON.stringify(rels));
+    GraphRepository.resetCache();
+
+    // Run two simultaneous reconciliations
+    const [rep1, rep2] = await Promise.all([
+      GraphReconcilerService.reconcileAll(),
+      GraphReconcilerService.reconcileAll(),
+    ]);
+
+    // One will clean it, the other will find zero churn
+    expect(rep1.prunedDangling + rep2.prunedDangling).toBe(1);
+    expect(rep1.cleanedResourceIds + rep2.cleanedResourceIds).toBe(2);
+
+    expect(await EntityCommandService.getAllRelationships()).toHaveLength(0);
+    const finalTask = (await TaskRepository.getTasks("ws-graph-a"))["t-simul"];
+    expect(finalTask.resourceIds).toBeUndefined();
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 26. Reconciliation x concurrent relationship mutation
+  // ─────────────────────────────────────────────────────────────
+  it("26. Concurrent relationship mutation and reconciliation serialize safely without edge loss", async () => {
+    await TaskRepository.saveTask(createTask("task-conc-rel"));
+    await ResourceRepository.saveResource(createResource("res-conc-rel"));
+
+    const [relResult] = await Promise.all([
+      EntityCommandService.createRelationship({
+        id: "rel-concurrent-safe",
+        source: { id: "task-conc-rel", type: "task" },
+        target: { id: "res-conc-rel", type: "resource" },
+        relationType: "references",
+      }),
+      GraphReconcilerService.reconcileAll(),
+    ]);
+
+    expect(relResult.id).toBe("rel-concurrent-safe");
+    const allRels = await EntityCommandService.getAllRelationships();
+    expect(allRels).toHaveLength(1);
+    expect(allRels[0].id).toBe("rel-concurrent-safe");
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 27. Cache consistency across success, failure, and resetCache
+  // ─────────────────────────────────────────────────────────────
+  it("27. GraphRepository cache consistency across success, failure, and resetCache", async () => {
+    await TaskRepository.saveTask(createTask("t-cache"));
+    await ResourceRepository.saveResource(createResource("r-cache"));
+
+    const rel: Relationship = {
+      id: "rel-cache-1",
+      source: { id: "t-cache", type: "task" },
+      target: { id: "r-cache", type: "resource" },
+      relationType: "references",
+      createdAt: 1000,
+    };
+
+    await GraphRepository.saveRelationship(rel);
+    // In-memory matches
+    expect(await GraphRepository.getAllRelationships()).toHaveLength(1);
+
+    // Reset cache and reload
+    GraphRepository.resetCache();
+    expect(await GraphRepository.getAllRelationships()).toHaveLength(1);
+
+    // Invalidate via replaceRelationships
+    await GraphRepository.replaceRelationships([]);
+    expect(await GraphRepository.getAllRelationships()).toHaveLength(0);
+
+    // Verify disk also has 0
+    GraphRepository.resetCache();
+    expect(await GraphRepository.getAllRelationships()).toHaveLength(0);
   });
 });

@@ -370,6 +370,57 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Performs a targeted update to the resourceIds array without incrementing revision
+   * or touching the updatedAt timestamp.
+   * Protects against concurrent user mutations via optional expectedSnapshot.
+   */
+  static async updateResourceIds(
+    id: string,
+    workspaceId: string,
+    resourceIds?: string[],
+    expectedSnapshot?: {
+      updatedAt?: number;
+      revision?: number;
+      lifecycleGeneration?: number;
+    }
+  ): Promise<'updated' | 'not_found' | 'state_changed'> {
+    this.validateId(id, "updateResourceIds");
+    const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getTasksKey(targetWorkspaceId);
+
+    return await withLock(key, async () => {
+      const records = await this.getTasks(targetWorkspaceId);
+      const existing = records[id];
+      if (!existing) {
+        return 'not_found';
+      }
+
+      if (expectedSnapshot) {
+        const updatedAtMatches =
+          expectedSnapshot.updatedAt === undefined ||
+          existing.updatedAt === expectedSnapshot.updatedAt;
+        const revisionMatches =
+          expectedSnapshot.revision === undefined ||
+          existing.revision === expectedSnapshot.revision;
+        const lifecycleMatches =
+          expectedSnapshot.lifecycleGeneration === undefined ||
+          existing.lifecycleGeneration === expectedSnapshot.lifecycleGeneration;
+
+        if (!updatedAtMatches || !revisionMatches || !lifecycleMatches) {
+          return 'state_changed';
+        }
+      }
+
+      // Preserve ALL fields exactly, only modify resourceIds
+      existing.resourceIds = resourceIds && resourceIds.length > 0 ? resourceIds : undefined;
+
+      records[id] = existing;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+      return 'updated';
+    });
+  }
+
   static async deleteTask(id: string, workspaceId: string): Promise<void> {
     const key = this.getTasksKey(workspaceId);
     await withLock(key, async () => {
