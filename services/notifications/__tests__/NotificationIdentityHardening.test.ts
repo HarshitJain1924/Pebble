@@ -264,7 +264,10 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
     await NotificationReconcilerService.reconcileAll();
 
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-old"], { throwOnError: false });
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("task-1", "ws-1", ["rescheduled-task-task-1"], expect.anything());
   });
 
@@ -318,7 +321,10 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
 
     await NotificationReconcilerService.reconcileAll();
 
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(restoredTask);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      restoredTask,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("task-restored", "ws-1", ["rescheduled-task-task-restored"], expect.anything());
   });
 
@@ -375,7 +381,10 @@ describe("Fix #28: Audit Notification Slot Identity & Deduplication", () => {
     await NotificationReconcilerService.reconcileAll();
 
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-legacy-outdated"], { throwOnError: false });
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
   });
 
   it("12. Missing / null / undefined weekday metadata fails safely without crashing and forms valid slot", async () => {

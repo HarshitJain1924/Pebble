@@ -160,6 +160,7 @@ export default function SettingsScreen() {
     };
     await saveSettings(next);
     setSettings(next);
+    emitStateChange("settings_changed");
   };
 
   const updateTheme = async (themeVal: "dark" | "light" | "system") => {
@@ -182,6 +183,7 @@ export default function SettingsScreen() {
     };
     await saveSettings(next);
     setSettings(next);
+    emitStateChange("settings_changed");
   };
 
   const updateMascotToggle = async (enabled: boolean) => {

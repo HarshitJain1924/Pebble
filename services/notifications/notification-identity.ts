@@ -1,5 +1,6 @@
 import type { RecurrenceRule } from "@/shared/types/domain.types";
 import { recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
+import { getNextIntervalOccurrenceEpoch } from "@/services/scheduling/recurrence.service";
 
 export type NotificationKind = "todo" | "task" | "habit" | "checklist";
 export type NotificationPurpose = "reminder" | "escalation" | string;
@@ -76,6 +77,158 @@ export function buildNotificationScheduleKey(options: NotificationScheduleOption
       return `interval:${options.interval}:${options.unit}:${anchorStr}:+${offset}`;
     }
   }
+}
+
+export interface ParsedNotificationScheduleKey {
+  type: NotificationScheduleType;
+  offsetMinutes: number;
+  triggerAt?: number;
+  hour?: number;
+  minute?: number;
+  weekday?: number;
+  dayOfMonth?: number;
+  interval?: number;
+  unit?: string;
+  anchorEpoch?: number;
+}
+
+/**
+ * Parses a deterministic schedule key back into its structural fields.
+ *
+ * Formats (see `buildNotificationScheduleKey`):
+ * - once:      `once:<triggerAt>:+<offset>`
+ * - daily:     `daily:<HH>:<mm>:+<offset>`
+ * - weekly:    `weekly:w<weekday>:<HH>:<mm>:+<offset>`
+ * - monthly:   `monthly:d<dayOfMonth>:<HH>:<mm>:+<offset>`
+ * - interval:  `interval:<interval>:<unit>:<anchorIso>:+<offset>`
+ *
+ * Interval anchors are ISO strings containing colons, so the interval format is
+ * matched greedily from the right (anchor runs up to the final `:+offset`).
+ */
+export function parseNotificationScheduleKey(
+  key: string,
+): ParsedNotificationScheduleKey | null {
+  if (typeof key !== "string") return null;
+
+  const once = key.match(/^once:(\d+):\+(\d+)$/);
+  if (once) {
+    return {
+      type: "once",
+      triggerAt: Number(once[1]),
+      offsetMinutes: Number(once[2]),
+    };
+  }
+
+  const daily = key.match(/^daily:(\d{1,2}):(\d{1,2}):\+(\d+)$/);
+  if (daily) {
+    return {
+      type: "daily",
+      hour: Number(daily[1]),
+      minute: Number(daily[2]),
+      offsetMinutes: Number(daily[3]),
+    };
+  }
+
+  const weekly = key.match(/^weekly:w(\d{1,2}):(\d{1,2}):(\d{1,2}):\+(\d+)$/);
+  if (weekly) {
+    return {
+      type: "weekly",
+      weekday: Number(weekly[1]),
+      hour: Number(weekly[2]),
+      minute: Number(weekly[3]),
+      offsetMinutes: Number(weekly[4]),
+    };
+  }
+
+  const monthly = key.match(/^monthly:d(\d{1,2}):(\d{1,2}):(\d{1,2}):\+(\d+)$/);
+  if (monthly) {
+    return {
+      type: "monthly",
+      dayOfMonth: Number(monthly[1]),
+      hour: Number(monthly[2]),
+      minute: Number(monthly[3]),
+      offsetMinutes: Number(monthly[4]),
+    };
+  }
+
+  const interval = key.match(/^interval:(\d+):([a-z]+):(.+):\+(\d+)$/);
+  if (interval) {
+    const anchorEpoch = Number(new Date(interval[3]).getTime());
+    if (!Number.isFinite(anchorEpoch)) return null;
+    return {
+      type: "interval",
+      interval: Number(interval[1]),
+      unit: interval[2],
+      anchorEpoch,
+      offsetMinutes: Number(interval[4]),
+    };
+  }
+
+  return null;
+}
+
+function addOffsetToClock(
+  hour: number,
+  minute: number,
+  offsetMinutes: number,
+): { hour: number; minute: number } {
+  const base = new Date(2020, 0, 1, hour, minute, 0, 0);
+  base.setMinutes(base.getMinutes() + offsetMinutes);
+  return { hour: base.getHours(), minute: base.getMinutes() };
+}
+
+/**
+ * Computes the local wall-clock fire time (hour/minute) of a physical
+ * notification from its deterministic schedule key.
+ *
+ * Used to answer "does this scheduled notification fire inside the current
+ * quiet-hours window?" — matching the same per-offset clock check that
+ * `scheduleReminderBatch` applies when the notification is created.
+ *
+ * Returns null when the key cannot be parsed or the fire time cannot be
+ * determined (callers must then treat the notification as not blocked).
+ */
+export function getNotificationFireClock(
+  scheduleKey: string,
+): { hour: number; minute: number } | null {
+  const parsed = parseNotificationScheduleKey(scheduleKey);
+  if (!parsed) return null;
+
+  if (parsed.type === "once" && parsed.triggerAt !== undefined) {
+    const fire = new Date(
+      parsed.triggerAt + parsed.offsetMinutes * 60 * 1000,
+    );
+    return { hour: fire.getHours(), minute: fire.getMinutes() };
+  }
+
+  if (
+    (parsed.type === "daily" ||
+      parsed.type === "weekly" ||
+      parsed.type === "monthly") &&
+    parsed.hour !== undefined &&
+    parsed.minute !== undefined
+  ) {
+    return addOffsetToClock(parsed.hour, parsed.minute, parsed.offsetMinutes);
+  }
+
+  if (
+    parsed.type === "interval" &&
+    parsed.interval !== undefined &&
+    parsed.unit !== undefined &&
+    parsed.anchorEpoch !== undefined
+  ) {
+    const next = getNextIntervalOccurrenceEpoch(
+      parsed.anchorEpoch,
+      parsed.interval,
+      parsed.unit,
+      parsed.offsetMinutes,
+      Date.now(),
+    );
+    const fire = new Date(next);
+    return { hour: fire.getHours(), minute: fire.getMinutes() };
+  }
+
+  return null;
 }
 
 /**

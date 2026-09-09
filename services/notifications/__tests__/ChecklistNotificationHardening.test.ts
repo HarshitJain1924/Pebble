@@ -263,7 +263,10 @@ describe("Checklist Notification Hardening & First-Class Identity", () => {
 
       await NotificationReconcilerService.reconcileAll();
 
-      expect(rescheduleChecklistReminders).toHaveBeenCalledWith(activeChecklist);
+      expect(rescheduleChecklistReminders).toHaveBeenCalledWith(
+        activeChecklist,
+        expect.objectContaining({ cancelExisting: true }),
+      );
       expect(ChecklistRepository.updateNotificationIds).toHaveBeenCalledWith(
         "chk-needs-schedule",
         "ws-1",

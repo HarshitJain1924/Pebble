@@ -224,7 +224,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
     // Stale notification must be cancelled
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-old-8am"], { throwOnError: false });
     // Current notification must be scheduled for 10:00
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -277,7 +280,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
     await NotificationReconcilerService.reconcileAll();
 
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-old-habit"], { throwOnError: false });
-    expect(rescheduleHabitReminders).toHaveBeenCalledWith(habit);
+    expect(rescheduleHabitReminders).toHaveBeenCalledWith(
+      habit,
+      expect.objectContaining({ cancelExisting: true }),
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -323,7 +329,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
     await NotificationReconcilerService.reconcileAll();
 
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-primary-old", "os-escalation-old"], { throwOnError: false });
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -510,7 +519,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
     await NotificationReconcilerService.reconcileAll();
 
     // Reconciler attempted to reschedule
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     // When updateNotificationIds detected concurrent mutation ('state_changed'),
     // it immediately cancelled the speculative notifications it just scheduled!
     expect(cancelReminderIds).toHaveBeenCalledWith(["new-task-notif-task-concurrent"], { throwOnError: false });
@@ -574,7 +586,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       await NotificationReconcilerService.reconcileAll();
 
       expect(cancelReminderIds).toHaveBeenCalledWith(["os-legacy-stale"], { throwOnError: false });
-      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     });
 
     it("10c. Legacy notification lacking both scheduleKey and timestamp is cancelled and upgraded", async () => {
@@ -602,7 +617,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       await NotificationReconcilerService.reconcileAll();
 
       expect(cancelReminderIds).toHaveBeenCalledWith(["os-legacy-bare"], { throwOnError: false });
-      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     });
   });
 
@@ -671,9 +689,18 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       { throwOnError: false }
     );
     // All three are rescheduled
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
-    expect(rescheduleHabitReminders).toHaveBeenCalledWith(habit);
-    expect(rescheduleChecklistReminders).toHaveBeenCalledWith(checklist);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
+    expect(rescheduleHabitReminders).toHaveBeenCalledWith(
+      habit,
+      expect.objectContaining({ cancelExisting: true }),
+    );
+    expect(rescheduleChecklistReminders).toHaveBeenCalledWith(
+      checklist,
+      expect.objectContaining({ cancelExisting: true }),
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -795,7 +822,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       await NotificationReconcilerService.reconcileAll();
 
       expect(cancelReminderIds).toHaveBeenCalledWith(["os-int-9am"], { throwOnError: false });
-      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     });
 
     // 2. 2 hours @ 09:00 → 2 hours @ 09:00 (notification retained)
@@ -918,7 +948,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       await NotificationReconcilerService.reconcileAll();
 
       expect(cancelReminderIds).toHaveBeenCalledWith(["os-int-2h"], { throwOnError: false });
-      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     });
 
     // 5. Rapid interval changes: 09:00 -> 11:00 -> 13:00 (no earlier generation survives)
@@ -979,7 +1012,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
 
       await NotificationReconcilerService.reconcileAll();
 
-      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
       expect(cancelReminderIds).toHaveBeenCalledWith(["new-task-notif-task-int-mut"], { throwOnError: false });
     });
 
@@ -1012,9 +1048,18 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
       await NotificationReconcilerService.reconcileAll();
 
       expect(cancelReminderIds).toHaveBeenCalledWith(["os-t-stale", "os-h-stale", "os-c-stale"], { throwOnError: false });
-      expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
-      expect(rescheduleHabitReminders).toHaveBeenCalledWith(habit);
-      expect(rescheduleChecklistReminders).toHaveBeenCalledWith(checklist);
+      expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
+      expect(rescheduleHabitReminders).toHaveBeenCalledWith(
+      habit,
+      expect.objectContaining({ cancelExisting: true }),
+    );
+      expect(rescheduleChecklistReminders).toHaveBeenCalledWith(
+      checklist,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     });
   });
 
@@ -1059,7 +1104,10 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
         await NotificationReconcilerService.reconcileAll();
 
         // Reconciler must detect missing timer and reschedule it
-        expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+        expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
         // Runtime loop must now exist in memory
         const loopCountAfterFirstPass = getWebReminderLoops().size;
         expect(loopCountAfterFirstPass).toBeGreaterThan(0);

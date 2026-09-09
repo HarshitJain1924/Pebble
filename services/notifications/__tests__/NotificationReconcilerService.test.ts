@@ -114,7 +114,10 @@ describe("NotificationReconcilerService", () => {
     
     await NotificationReconcilerService.reconcileAll();
     
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     expect(TaskRepository.updateNotificationIds).toHaveBeenCalled();
   });
 
@@ -159,7 +162,10 @@ describe("NotificationReconcilerService", () => {
     await NotificationReconcilerService.reconcileAll();
     
     expect(cancelReminderIds).toHaveBeenCalledWith(["os-1"], { throwOnError: false });
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(task); // Reschedules missing 2000
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ cancelExisting: true }),
+    ); // Reschedules missing 2000
   });
 
   it("5. Deleted entity notification removed", async () => {
@@ -407,7 +413,10 @@ describe("NotificationReconcilerService", () => {
     // h-C is valid -> no reschedule, no cancel
     // t-B is missing in OS -> rescheduled independently
     expect(cancelReminderIds).not.toHaveBeenCalled();
-    expect(rescheduleTodoReminders).toHaveBeenCalledWith(taskB);
+    expect(rescheduleTodoReminders).toHaveBeenCalledWith(
+      taskB,
+      expect.objectContaining({ cancelExisting: true }),
+    );
     expect(rescheduleHabitReminders).not.toHaveBeenCalled();
     expect(TaskRepository.updateNotificationIds).toHaveBeenCalledWith("t-B", "ws-1", [], expect.anything());
   });

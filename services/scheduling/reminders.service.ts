@@ -391,7 +391,7 @@ export async function cancelAllScheduledNotifications(): Promise<void> {
 export async function scheduleReminderBatch(
   options: ReminderScheduleOptions,
 ): Promise<ScheduledReminderBatch> {
-  const escalationMinutes = options.escalationMinutes !== undefined
+  const callerEscalationMinutes = options.escalationMinutes !== undefined
     ? options.escalationMinutes
     : DEFAULT_ESCALATION_MINUTES;
 
@@ -403,13 +403,22 @@ export async function scheduleReminderBatch(
         : "todo-reminders"
       : undefined);
 
-  // Integrate settings checks (Quiet Hours and Category subscriptions)
+  // Integrate settings checks (Quiet Hours, Category subscriptions, Escalation gate)
   let settings: any = null;
   let isCurrentlyInQuietHours: any = null;
+  let escalationMinutes = callerEscalationMinutes;
   try {
     const settingsService = require("@/features/settings/services/settings.service");
     isCurrentlyInQuietHours = settingsService.isCurrentlyInQuietHours;
     settings = await settingsService.getSettings();
+
+    // Escalation notifications are only scheduled when escalationEnabled is true.
+    // The primary reminder is unaffected. Caller-supplied escalationMinutes are
+    // still respected when escalation is enabled; an empty caller array keeps
+    // meaning "primary only".
+    if (settings && settings.escalationEnabled === false) {
+      escalationMinutes = [];
+    }
 
     // 1. Check if category is subscribed
     const categoryKey = options.category || options.kind;

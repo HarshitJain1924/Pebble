@@ -16,7 +16,79 @@ import {
   isMatchingPhysicalNotification,
   getExpectedNotificationScheduleKeys,
   getExpectedScheduleKeyForSlot,
+  getNotificationFireClock,
 } from "@/services/notifications/notification-identity";
+import {
+  getSettings,
+  isCurrentlyInQuietHours,
+} from "@/features/settings/services/settings.service";
+
+const DEFAULT_ESCALATION_MINUTES = [120, 240];
+
+/**
+ * Computes the escalation offsets that Settings currently allow. Escalations
+ * are scheduled ONLY when `escalationEnabled === true`; otherwise the primary
+ * reminder remains and no escalation slots exist.
+ */
+function getEffectiveEscalationMinutes(settings: any): number[] {
+  return settings && settings.escalationEnabled === false
+    ? []
+    : DEFAULT_ESCALATION_MINUTES;
+}
+
+/**
+ * Category subscription policy. Mirrors `scheduleReminderBatch`: an entity's
+ * category key is `categoryId` when present, otherwise its kind
+ * (`todo`/`habit`/`checklist`).
+ */
+function isCategoryBlocked(
+  settings: any,
+  entityCategoryId: string | undefined,
+  kind: string,
+): boolean {
+  if (!settings?.categories) return false;
+  const categoryKey = entityCategoryId || kind;
+  return settings.categories[categoryKey] === false;
+}
+
+/**
+ * Quiet-hours policy for a single physical notification slot. A slot is
+ * blocked when its deterministic schedule key proves it fires inside the
+ * current quiet-hours window (same per-offset clock check that
+ * `scheduleReminderBatch` applies at scheduling time). When the fire time
+ * cannot be determined the notification is treated as NOT blocked — never
+ * guess and cancel a valid reminder.
+ */
+function isSlotBlockedByQuietHours(settings: any, scheduleKey: string): boolean {
+  if (!settings?.quietHours?.enabled) return false;
+  if (typeof isCurrentlyInQuietHours !== "function") return false;
+  const clock = getNotificationFireClock(scheduleKey);
+  if (!clock) return false;
+  return isCurrentlyInQuietHours(settings, clock.hour, clock.minute);
+}
+
+/**
+ * Computes the set of physical schedule slots that are currently allowed for
+ * an entity under the active Settings. An empty result means every slot is
+ * blocked (category off, or every fire time inside quiet hours).
+ */
+function computeAllowedScheduleKeys(
+  settings: any,
+  entityCategoryId: string | undefined,
+  kind: string,
+  expectedKeys: Set<string>,
+): Set<string> {
+  if (isCategoryBlocked(settings, entityCategoryId, kind)) {
+    return new Set<string>();
+  }
+  const allowed = new Set<string>();
+  for (const key of expectedKeys) {
+    if (!isSlotBlockedByQuietHours(settings, key)) {
+      allowed.add(key);
+    }
+  }
+  return allowed;
+}
 
 export class NotificationReconcilerService {
   private static inFlightPromise: Promise<void> | null = null;
@@ -32,6 +104,9 @@ export class NotificationReconcilerService {
    * 4. Detects and cancels duplicate OS notifications for the same logical intent.
    * 5. Repairs missing `notificationIds` in Domain State if a perfect OS notification exists.
    * 6. Detects active items missing required OS notifications and schedules them.
+   * 7. Applies the current Settings policy (escalationEnabled, quietHours,
+   *    category subscriptions) to already-scheduled notifications: blocked
+   *    slots are cancelled, allowed slots are repaired/rescheduled.
    * 
    * The Domain State is considered authoritative. Notification scheduling failures
    * do not crash the pass, they are logged and retried on the next run.
@@ -65,8 +140,33 @@ export class NotificationReconcilerService {
     this.pendingPromise = null;
   }
 
+  /**
+   * Settings-driven reconciliation entry point. Makes currently scheduled
+   * notifications agree with the current Settings (escalationEnabled,
+   * quietHours, category subscriptions) using the same serialized, idempotent
+   * pipeline as startup reconciliation — safe to run repeatedly, and safe to
+   * run concurrently with entity-level reconciliation.
+   */
+  static async reconcileScheduledNotificationsForSettings(): Promise<void> {
+    return this.reconcileAll();
+  }
+
   private static async performReconcileAll(): Promise<void> {
     try {
+      // Load the current Settings once per pass. Failures fall back to the
+      // permissive default (escalations on, quiet hours off, no category
+      // blocking) so a settings read problem never corrupts scheduling.
+      let settings: any = null;
+      try {
+        settings = await getSettings();
+      } catch (e) {
+        console.warn(
+          "[NotificationReconcilerService] Failed to load settings for reconciliation; applying default policy.",
+          e,
+        );
+      }
+      const effectiveEscalationMinutes = getEffectiveEscalationMinutes(settings);
+
       const allOsNotifications: Array<{ identifier: string; content?: { data?: any }; trigger?: any }> = [];
 
       if (Platform.OS === "web") {
@@ -230,14 +330,41 @@ export class NotificationReconcilerService {
       for (const task of Array.from(activeTasks.values())) {
         if (!task.reminder?.enabled || !task.reminder?.triggerAt) continue;
 
-        const expectedKeys = getExpectedNotificationScheduleKeys(task, [120, 240]);
+        const expectedKeys = getExpectedNotificationScheduleKeys(task, effectiveEscalationMinutes);
         if (expectedKeys.size === 0) continue;
 
-        const retainedOsNotifs = allOsNotifications.filter(osNotif => {
-          if (!validNotifications.has(osNotif.identifier)) return false;
+        // Settings policy: which of the expected slots are currently allowed?
+        const allowedKeys = computeAllowedScheduleKeys(settings, task.categoryId, "todo", expectedKeys);
+
+        // Partition this entity's valid OS notifications into settings-allowed
+        // (retained) and settings-blocked (to cancel).
+        const blockedBySettingsIds: string[] = [];
+        const retainedOsNotifs: typeof allOsNotifications = [];
+        for (const osNotif of allOsNotifications) {
+          if (!validNotifications.has(osNotif.identifier)) continue;
           const notifData = osNotif.content?.data as any;
-          return notifData?.itemId === task.id && notifData?.type === "todo";
-        });
+          if (notifData?.itemId !== task.id || notifData?.type !== "todo") continue;
+          const triggerWeekday = notifData?.weekday ?? (osNotif.trigger as any)?.weekday;
+          const slotKey = notifData?.notificationScheduleKey ||
+            getExpectedScheduleKeyForSlot(task, notifData?.escalationLevel ?? 0, triggerWeekday);
+          if (slotKey && allowedKeys.has(slotKey)) {
+            retainedOsNotifs.push(osNotif);
+          } else if (slotKey) {
+            // Physically valid but blocked by the current Settings.
+            blockedBySettingsIds.push(osNotif.identifier);
+          } else {
+            // Legacy notification without a derivable slot: keep it.
+            retainedOsNotifs.push(osNotif);
+          }
+        }
+
+        if (blockedBySettingsIds.length > 0) {
+          try {
+            await cancelReminderIds(blockedBySettingsIds, { throwOnError: false });
+          } catch (e) {
+            console.warn(`[NotificationReconcilerService] Failed to cancel settings-blocked task notifications for ${task.id}`, e);
+          }
+        }
 
         const retainedOsIds = retainedOsNotifs.map(n => n.identifier);
 
@@ -252,11 +379,37 @@ export class NotificationReconcilerService {
           }
         }
 
-        const missingKeys = Array.from(expectedKeys).filter(key => !retainedKeys.has(key));
+        const missingKeys = Array.from(allowedKeys).filter(key => !retainedKeys.has(key));
+
+        if (allowedKeys.size === 0) {
+          // Current Settings block every slot of this entity (category off, or
+          // every fire time inside quiet hours). Cancellations above removed the
+          // OS notifications; clear stale domain ids so future passes converge.
+          try {
+            await TaskRepository.updateNotificationIds(
+              task.id,
+              task.workspaceId,
+              [],
+              {
+                reminder: { enabled: task.reminder.enabled, triggerAt: task.reminder.triggerAt },
+                status: task.status,
+                archivedAt: task.archivedAt ?? null,
+                updatedAt: task.updatedAt,
+                revision: task.revision,
+              }
+            );
+          } catch (e) {
+            console.warn(`[NotificationReconcilerService] Failed to clear blocked task notificationIds for ${task.id}`, e);
+          }
+          continue;
+        }
 
         if (retainedOsIds.length === 0) {
           try {
-            const updatedTask = await rescheduleTodoReminders(task);
+            const updatedTask = await rescheduleTodoReminders(task, {
+              targetScheduleKeys: Array.from(allowedKeys),
+              cancelExisting: true,
+            });
             if (updatedTask) {
               const updateResult = await TaskRepository.updateNotificationIds(
                 updatedTask.id,
@@ -345,14 +498,36 @@ export class NotificationReconcilerService {
       for (const habit of Array.from(activeHabits.values())) {
         if (!habit.reminder?.enabled || !habit.reminder?.triggerAt) continue;
 
-        const expectedKeys = getExpectedNotificationScheduleKeys(habit, [120, 240]);
+        const expectedKeys = getExpectedNotificationScheduleKeys(habit, effectiveEscalationMinutes);
         if (expectedKeys.size === 0) continue;
 
-        const retainedOsNotifs = allOsNotifications.filter(osNotif => {
-          if (!validNotifications.has(osNotif.identifier)) return false;
+        const allowedKeys = computeAllowedScheduleKeys(settings, habit.categoryId, "habit", expectedKeys);
+
+        const blockedBySettingsIds: string[] = [];
+        const retainedOsNotifs: typeof allOsNotifications = [];
+        for (const osNotif of allOsNotifications) {
+          if (!validNotifications.has(osNotif.identifier)) continue;
           const notifData = osNotif.content?.data as any;
-          return notifData?.itemId === habit.id && notifData?.type === "habit";
-        });
+          if (notifData?.itemId !== habit.id || notifData?.type !== "habit") continue;
+          const triggerWeekday = notifData?.weekday ?? (osNotif.trigger as any)?.weekday;
+          const slotKey = notifData?.notificationScheduleKey ||
+            getExpectedScheduleKeyForSlot(habit, notifData?.escalationLevel ?? 0, triggerWeekday);
+          if (slotKey && allowedKeys.has(slotKey)) {
+            retainedOsNotifs.push(osNotif);
+          } else if (slotKey) {
+            blockedBySettingsIds.push(osNotif.identifier);
+          } else {
+            retainedOsNotifs.push(osNotif);
+          }
+        }
+
+        if (blockedBySettingsIds.length > 0) {
+          try {
+            await cancelReminderIds(blockedBySettingsIds, { throwOnError: false });
+          } catch (e) {
+            console.warn(`[NotificationReconcilerService] Failed to cancel settings-blocked habit notifications for ${habit.id}`, e);
+          }
+        }
 
         const retainedOsIds = retainedOsNotifs.map(n => n.identifier);
 
@@ -367,11 +542,33 @@ export class NotificationReconcilerService {
           }
         }
 
-        const missingKeys = Array.from(expectedKeys).filter(key => !retainedKeys.has(key));
+        const missingKeys = Array.from(allowedKeys).filter(key => !retainedKeys.has(key));
+
+        if (allowedKeys.size === 0) {
+          try {
+            await HabitRepository.updateNotificationIds(
+              habit.id,
+              habit.workspaceId,
+              [],
+              {
+                reminder: { enabled: habit.reminder.enabled, triggerAt: habit.reminder.triggerAt },
+                archivedAt: habit.archivedAt ?? null,
+                updatedAt: habit.updatedAt,
+                revision: habit.revision,
+              }
+            );
+          } catch (e) {
+            console.warn(`[NotificationReconcilerService] Failed to clear blocked habit notificationIds for ${habit.id}`, e);
+          }
+          continue;
+        }
 
         if (retainedOsIds.length === 0) {
           try {
-            const updatedHabit = await rescheduleHabitReminders(habit);
+            const updatedHabit = await rescheduleHabitReminders(habit, {
+              targetScheduleKeys: Array.from(allowedKeys),
+              cancelExisting: true,
+            });
             if (updatedHabit) {
               const updateResult = await HabitRepository.updateNotificationIds(
                 updatedHabit.id,
@@ -453,14 +650,36 @@ export class NotificationReconcilerService {
       for (const checklist of Array.from(activeChecklists.values())) {
         if (!checklist.reminder?.enabled || !checklist.reminder?.triggerAt) continue;
 
-        const expectedKeys = getExpectedNotificationScheduleKeys(checklist, [120, 240]);
+        const expectedKeys = getExpectedNotificationScheduleKeys(checklist, effectiveEscalationMinutes);
         if (expectedKeys.size === 0) continue;
 
-        const retainedOsNotifs = allOsNotifications.filter(osNotif => {
-          if (!validNotifications.has(osNotif.identifier)) return false;
+        const allowedKeys = computeAllowedScheduleKeys(settings, checklist.categoryId, "checklist", expectedKeys);
+
+        const blockedBySettingsIds: string[] = [];
+        const retainedOsNotifs: typeof allOsNotifications = [];
+        for (const osNotif of allOsNotifications) {
+          if (!validNotifications.has(osNotif.identifier)) continue;
           const notifData = osNotif.content?.data as any;
-          return notifData?.itemId === checklist.id && notifData?.type === "checklist";
-        });
+          if (notifData?.itemId !== checklist.id || notifData?.type !== "checklist") continue;
+          const triggerWeekday = notifData?.weekday ?? (osNotif.trigger as any)?.weekday;
+          const slotKey = notifData?.notificationScheduleKey ||
+            getExpectedScheduleKeyForSlot(checklist, notifData?.escalationLevel ?? 0, triggerWeekday);
+          if (slotKey && allowedKeys.has(slotKey)) {
+            retainedOsNotifs.push(osNotif);
+          } else if (slotKey) {
+            blockedBySettingsIds.push(osNotif.identifier);
+          } else {
+            retainedOsNotifs.push(osNotif);
+          }
+        }
+
+        if (blockedBySettingsIds.length > 0) {
+          try {
+            await cancelReminderIds(blockedBySettingsIds, { throwOnError: false });
+          } catch (e) {
+            console.warn(`[NotificationReconcilerService] Failed to cancel settings-blocked checklist notifications for ${checklist.id}`, e);
+          }
+        }
 
         const retainedOsIds = retainedOsNotifs.map(n => n.identifier);
 
@@ -475,11 +694,33 @@ export class NotificationReconcilerService {
           }
         }
 
-        const missingKeys = Array.from(expectedKeys).filter(key => !retainedKeys.has(key));
+        const missingKeys = Array.from(allowedKeys).filter(key => !retainedKeys.has(key));
+
+        if (allowedKeys.size === 0) {
+          try {
+            await ChecklistRepository.updateNotificationIds(
+              checklist.id,
+              checklist.workspaceId,
+              [],
+              {
+                reminder: { enabled: checklist.reminder.enabled, triggerAt: checklist.reminder.triggerAt },
+                archivedAt: checklist.archivedAt ?? null,
+                updatedAt: checklist.updatedAt,
+                revision: checklist.revision,
+              }
+            );
+          } catch (e) {
+            console.warn(`[NotificationReconcilerService] Failed to clear blocked checklist notificationIds for ${checklist.id}`, e);
+          }
+          continue;
+        }
 
         if (retainedOsIds.length === 0) {
           try {
-            const updatedChecklist = await rescheduleChecklistReminders(checklist);
+            const updatedChecklist = await rescheduleChecklistReminders(checklist, {
+              targetScheduleKeys: Array.from(allowedKeys),
+              cancelExisting: true,
+            });
             if (updatedChecklist) {
               const updateResult = await ChecklistRepository.updateNotificationIds(
                 updatedChecklist.id,
