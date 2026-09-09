@@ -10,9 +10,12 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { normalizeHabitsForToday } from "@/features/habits/services/habit.service";
 import { isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
-import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
-import { getPebbleCounts } from "@/features/profile/services/pebble.service";
-import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
+import { parseDateKey, getTodayDateKey } from "@/shared/utils/date-key";
+import {
+  getPebbleCounts,
+  getGemsBalance,
+} from "@/features/profile/services/pebble.service";
+import { getAllHistory } from "@/services/analytics/productivity-history.service";
 import {
     getLevelInfo,
     getProfile,
@@ -20,7 +23,6 @@ import {
     type UserProfile,
 } from "@/features/settings/services/settings.service";
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
-import { normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import {
     TaskRepository,
     HabitRepository,
@@ -55,10 +57,6 @@ const enteringAnim = (delay = 0, duration = 450) => {
   return FadeInDown.delay(delay).duration(duration);
 };
 
-const triggerMediumHaptic = () => {
-  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-};
-
 export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -91,7 +89,6 @@ export default function ProfileScreen() {
     focus: 0,
     checklist: 0,
   });
-  const [pebbleBalance, setPebbleBalance] = useState<number>(0);
   const [gemsBalance, setGemsBalance] = useState<number>(0);
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -117,7 +114,6 @@ export default function ProfileScreen() {
       let totalCompletedHabits = 0;
       let streak = 0;
       let bestStreak = 0;
-      let todayPebblesCount = 0;
 
       const allTasksRaw: any[] = [];
       const allHabitsRaw: any[] = [];
@@ -136,12 +132,6 @@ export default function ProfileScreen() {
 
       totalTasks += tasks.length;
       totalCompletedTodos += tasks.filter((task) => task.status === "completed").length;
-      todayPebblesCount += tasks.filter(
-        (task) =>
-          task.status === "completed" &&
-          task.completedAt &&
-          dateKeyFromDate(new Date(task.completedAt)) === todayKey,
-      ).length;
 
       const habits = normalizeHabitsForToday(rawHabits);
       totalCompletedHabits += habits.filter(
@@ -157,17 +147,15 @@ export default function ProfileScreen() {
         ...habits.map((habit) => getHabitBestStreak(habit)),
         bestStreak,
       );
-      todayPebblesCount += habits.filter(
-        (habit) => isHabitCompletedToday(habit),
-      ).length;
 
-      // 4. Calculate Average Productivity Score (last 3 months)
+      // 4. Calculate Average Productivity Score (last 3 months / 90 days),
+      // matching the Analytics screen's window so both surfaces agree.
       const now = new Date();
-      const history = await getHistoryForMonth(
-        now.getFullYear(),
-        now.getMonth(),
+      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const last3MonthsHistory = (await getAllHistory()).filter(
+        (h) => parseDateKey(h.date) >= ninetyDaysAgo,
       );
-      const scores = history.map((h) => h.score);
+      const scores = last3MonthsHistory.map((h) => h.score);
       const avgScore =
         scores.length > 0
           ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
@@ -217,6 +205,7 @@ export default function ProfileScreen() {
       const pebbleStats = await getPebbleCounts();
       setLifetimePebbles(pebbleStats.lifetime);
       setMonthlyPebbles(pebbleStats.monthly);
+      setPebblesToday(pebbleStats.today ?? 0);
       setLifetimeTypes(
         pebbleStats.lifetimeTypes || { task: 0, habit: 0, focus: 0, checklist: 0 },
       );
@@ -232,8 +221,6 @@ export default function ProfileScreen() {
         completionRate,
       });
 
-      // Calculate pebbles earned today
-      const { getGemsBalance } = require("@/features/profile/services/pebble.service");
       const balance = await getGemsBalance();
       setGemsBalance(balance);
     } catch (err) {
@@ -295,13 +282,6 @@ export default function ProfileScreen() {
   // Pebble progression and Crow stage/speech bubble calculations
   const totalPebbles = lifetimePebbles;
   const levelInfo = getLevelInfo(totalPebbles);
-
-  let crowStage: "beginner" | "advanced" | "power" = "beginner";
-  if (totalPebbles >= 101) {
-    crowStage = "power";
-  } else if (totalPebbles >= 26) {
-    crowStage = "advanced";
-  }
 
   const milestoneInfo = (() => {
     if (totalPebbles <= 10) {
@@ -552,6 +532,11 @@ export default function ProfileScreen() {
                 </Pressable>
               </View>
             </View>
+
+            {/* Dynamic status line — today's pebbles / streak momentum */}
+            <Text style={[styles.heroStatusText, { color: colors.textMuted }]}>
+              {dynamicStatus}
+            </Text>
 
             {/* Pebble progression centerpiece (Redesigned Premium Layout) */}
             <View
@@ -1490,6 +1475,13 @@ const styles = StyleSheet.create({
   profileInfo: {
     flex: 1,
     gap: 2,
+  },
+  heroStatusText: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    marginTop: 10,
+    marginBottom: -4,
   },
   nameText: {
     fontSize: 20,

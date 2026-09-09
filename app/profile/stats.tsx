@@ -18,8 +18,8 @@ import { AppCard } from "@/shared/components/ui/AppCard";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
-import { getProfile } from "@/features/settings/services/settings.service";
-import { getHistoryForMonth } from "@/services/analytics/productivity-history.service";
+import { addStateListener } from "@/services/events/state-events";
+import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 import {
   WorkspaceRepository,
   TaskRepository,
@@ -204,14 +204,14 @@ export default function StatsScreen() {
           ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
           : 0;
 
-      // Query Focus stats
+      // Query Focus stats. Session count is lifetime/profile-level and comes
+      // from the canonical pebble log (lifetimeTypes.focus); `completedToday`
+      // is a daily-reset counter and must not be used for this metric.
       const rawFocus = await AsyncStorage.getItem("todoapp:focus:stats");
-      let focusSessions = 0;
       let focusTime = 0;
       if (rawFocus) {
         try {
           const parsed = JSON.parse(rawFocus);
-          focusSessions = parsed.completedToday ?? 0;
           focusTime = parsed.totalFocusTime ?? 0;
         } catch {}
       }
@@ -225,7 +225,6 @@ export default function StatsScreen() {
           ? 100
           : 0;
 
-      const { getPebbleCounts } = require("@/features/profile/services/pebble.service");
       const pebbleCounts = await getPebbleCounts();
 
       setStats({
@@ -234,7 +233,7 @@ export default function StatsScreen() {
         activeStreak: Math.max(pebbleCounts.streak, streak),
         bestStreak: Math.max(pebbleCounts.bestStreak, bestStreak),
         avgScore: avgScore,
-        focusSessions,
+        focusSessions: pebbleCounts.lifetimeTypes?.focus ?? 0,
         focusTime,
         completionRate,
         mostProductiveWorkspace,
@@ -285,6 +284,14 @@ export default function StatsScreen() {
 
   useEffect(() => {
     loadData();
+  }, [loadData]);
+
+  // Keep profile-level focus stats coherent when pebbles change elsewhere
+  // (focus sessions award pebbles, which emit pebbles_changed).
+  useEffect(() => {
+    return addStateListener("pebbles_changed", () => {
+      loadData();
+    });
   }, [loadData]);
 
   if (loading) {

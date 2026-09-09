@@ -1,4 +1,7 @@
-import { type UserProfile } from "@/features/settings/services/settings.service";
+import {
+  getProfile,
+  type UserProfile,
+} from "@/features/settings/services/settings.service";
 import { addStateListener } from "@/services/events/state-events";
 import {
   getDashboardFilters,
@@ -105,7 +108,6 @@ export function TodayScreen() {
     focus: 0,
     checklist: 0,
   });
-  const [pebbleBalance, setPebbleBalance] = useState<number>(0);
   const [gemsBalance, setGemsBalance] = useState<number>(0);
   const [monthlyTypes, setMonthlyTypes] = useState<{
     task: number;
@@ -132,7 +134,6 @@ export function TodayScreen() {
   const [fallingPebbleType, setFallingPebbleType] = useState<
     "task" | "habit" | "focus" | "checklist" | undefined
   >(undefined);
-  const [weeklyStatus, setWeeklyStatus] = useState<any[]>([]);
   const [pebbleJarModalVisible, setPebbleJarModalVisible] = useState(false);
   const [isZenModeActive, setIsZenModeActive] = useState(false);
   const [isReviewModalVisible, setIsReviewModalVisible] = useState(false);
@@ -240,6 +241,15 @@ export function TodayScreen() {
     allHabits: pendingHabits.concat(completedHabits),
   });
 
+  const loadProfile = useCallback(async () => {
+    try {
+      const userProfile = await getProfile();
+      setProfile(userProfile);
+    } catch (e) {
+      console.warn("Failed to load profile", e);
+    }
+  }, []);
+
   const loadPebbleStats = useCallback(async () => {
     try {
       const counts = await getPebbleCounts();
@@ -249,7 +259,6 @@ export function TodayScreen() {
       setTodayTypes(counts.todayTypes ?? { task: 0, habit: 0, focus: 0, checklist: 0 });
       setMonthlyTypes(counts.monthlyTypes);
       setLifetimeTypes(counts.lifetimeTypes);
-      setWeeklyStatus(counts.weeklyStatus);
 
       const gems = await getGemsBalance();
       setGemsBalance(gems);
@@ -261,8 +270,9 @@ export function TodayScreen() {
   useFocusEffect(
     useCallback(() => {
       loadDashboardData();
+      void loadProfile();
       void loadPebbleStats();
-    }, [loadDashboardData, loadPebbleStats]),
+    }, [loadDashboardData, loadProfile, loadPebbleStats]),
   );
 
   // Synchronize dashboard state immediately when tasks/habits/profile are modified in other tabs/modals
@@ -278,6 +288,7 @@ export function TodayScreen() {
 
     const unsubscribeProfile = addStateListener("profile_changed", () => {
       void loadDashboardData();
+      void loadProfile();
     });
 
     const unsubscribePebbles = addStateListener("pebbles_changed", () => {
@@ -311,7 +322,7 @@ export function TodayScreen() {
       unsubscribeZen();
       unsubscribeReview();
     };
-  }, [loadDashboardData]);
+  }, [loadDashboardData, loadProfile]);
 
   // Load dashboard filters from storage and listen to changes from bottom tab drawer
   useEffect(() => {
