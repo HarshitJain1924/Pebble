@@ -13,8 +13,12 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const HISTORY_STORAGE_KEY = "pebble:history";
-export const PROFILE_STORAGE_KEY = "pebble:profile";
-export const SETTINGS_STORAGE_KEY = "pebble:settings";
+// Settings/Profile keys are owned by their repositories; re-exported here for
+// existing import sites (e.g. the Clear All Data console). Imported directly
+// from the repository files (not the repositories index) so tests that mock
+// "@/repositories" wholesale still load this module.
+export { PROFILE_STORAGE_KEY } from "@/repositories/UserProfileRepository";
+export { SETTINGS_STORAGE_KEY } from "@/repositories/SettingsRepository";
 export const NOTIF_LOG_STORAGE_KEY = "pebble:notifications:log";
 export const RECYCLE_BIN_STORAGE_KEY = "pebble:recycle_bin";
 

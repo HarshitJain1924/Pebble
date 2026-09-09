@@ -1,51 +1,13 @@
-import type { Habit, Task, Settings, UserProfile } from "@/shared/types/domain.types";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { PROFILE_STORAGE_KEY, SETTINGS_STORAGE_KEY } from "@/services/storage/storage.service";
+import type { Settings, UserProfile } from "@/shared/types/domain.types";
 import { UiStateRepository } from "@/repositories";
-import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
+import {
+  SettingsRepository,
+  type SettingsPatch,
+} from "@/repositories/SettingsRepository";
+import { UserProfileRepository } from "@/repositories/UserProfileRepository";
 
 export type AppSettings = Settings;
 export type { UserProfile };
-
-const DEFAULT_SETTINGS: Settings = {
-  theme: "dark",
-  quietHours: {
-    enabled: false,
-    startHour: 22,
-    endHour: 7,
-  },
-  categories: {
-    work: true,
-    personal: true,
-    health: true,
-    learning: true,
-    creative: true,
-    focus: true,
-    habit: true,
-  },
-  escalationEnabled: true,
-  showDuration: true,
-  showRepeat: true,
-  showReminder: true,
-  showTags: true,
-  showNotes: true,
-  showMascot: true,
-  editorRowOrder: [
-    "date",
-    "workspace",
-    "priority",
-    "reminder",
-    "repeat",
-    "duration",
-    "tags",
-  ],
-};
-
-const DEFAULT_PROFILE: UserProfile = {
-  name: "User",
-  email: "local@me",
-  avatar: "👨‍💻",
-};
 
 export function getLevelInfo(totalPebbles: number) {
   const STAGES = [
@@ -94,40 +56,44 @@ export function getLevelInfo(totalPebbles: number) {
 }
 
 export async function getSettings(): Promise<Settings> {
-  try {
-    const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw);
-    return { ...DEFAULT_SETTINGS, ...parsed };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+  return SettingsRepository.getSettings();
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
-  await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-  await UiStateRepository.saveUiState({ themeCache: settings.theme === "system" ? "dark" : settings.theme });
+  await SettingsRepository.saveSettings(settings);
+  await UiStateRepository.saveUiState({
+    themeCache: settings.theme === "system" ? "dark" : settings.theme,
+  });
+}
+
+export async function updateSettings(patch: SettingsPatch): Promise<Settings> {
+  const next = await SettingsRepository.updateSettings(patch);
+  await UiStateRepository.saveUiState({
+    themeCache: next.theme === "system" ? "dark" : next.theme,
+  });
+  return next;
 }
 
 export async function getProfile(): Promise<UserProfile> {
-  try {
-    const raw = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
-    if (!raw) return DEFAULT_PROFILE;
-    const parsed = JSON.parse(raw);
-    return { ...DEFAULT_PROFILE, ...parsed };
-  } catch {
-    return DEFAULT_PROFILE;
-  }
+  return UserProfileRepository.getProfile();
 }
 
 export async function saveProfile(profile: UserProfile): Promise<void> {
-  await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  await UserProfileRepository.saveProfile(profile);
   if (profile.name !== "") {
     await UiStateRepository.saveUiState({ completedOnboarding: true });
   }
 }
 
-
+export async function updateProfile(
+  patch: Partial<UserProfile>,
+): Promise<UserProfile> {
+  const next = await UserProfileRepository.updateProfile(patch);
+  if (next.name !== "") {
+    await UiStateRepository.saveUiState({ completedOnboarding: true });
+  }
+  return next;
+}
 
 export function isCurrentlyInQuietHours(
   settings: Settings,

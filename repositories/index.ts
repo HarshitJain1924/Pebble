@@ -6,6 +6,14 @@ export { GraphRepository } from "./GraphRepository";
 export { RecycleBinRepository } from "./RecycleBinRepository";
 export { ResourceRepository } from "./ResourceRepository";
 export { UiStateRepository } from "./UiStateRepository";
+export {
+  SettingsRepository,
+  SETTINGS_STORAGE_KEY,
+} from "./SettingsRepository";
+export {
+  UserProfileRepository,
+  PROFILE_STORAGE_KEY,
+} from "./UserProfileRepository";
 export { clearRepositoryStorage } from "@/services/storage/storage-utils";
 export { ConversionJournalRepository } from "./ConversionJournalRepository";
 export { MoveJournalRepository } from "./MoveJournalRepository";
