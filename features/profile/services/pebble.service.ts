@@ -11,6 +11,7 @@ export interface PebbleLogEntry {
   type: PebbleType;
   timestamp: number;
   rewardId?: string;
+  bonusGemAwarded?: boolean;
 }
 
 export interface SpendLogEntry {
@@ -42,8 +43,10 @@ export interface PebbleReconciliationReport {
   deduplicatedPebbles: number;
   repairedBonus: boolean;
   repairedSpent: boolean;
+  recoveredStreaksRestored: number;
   logCount: number;
   currentGemsBalance: number;
+  inconsistencies: string[];
 }
 
 // ── Canonical Storage Keys ──────────────────────────────────────────
@@ -72,10 +75,16 @@ export async function earnPebbleUnlocked(
     }
   }
 
-  // Idempotency check: if rewardId is provided and already recorded, no-op
+  // Idempotency & Conflict check: if rewardId is provided
   if (rewardId) {
-    const alreadyRewarded = log.some((entry) => entry.rewardId === rewardId);
-    if (alreadyRewarded) {
+    const existing = log.find((entry) => entry.rewardId === rewardId);
+    if (existing) {
+      if (existing.type !== type) {
+        console.warn(
+          `Conflicting rewardId type: "${rewardId}" was already recorded as type "${existing.type}", cannot re-award as type "${type}"`
+        );
+        return { success: false, changed: false };
+      }
       return { success: true, changed: false };
     }
   }
@@ -93,11 +102,32 @@ export async function earnPebbleUnlocked(
   }
 
   const isFirstPebbleToday = todayPebbles.length === 0;
-  log.push({ type, timestamp: Date.now(), rewardId });
+  const newEntry: PebbleLogEntry = {
+    type,
+    timestamp: Date.now(),
+    rewardId,
+    bonusGemAwarded: isFirstPebbleToday,
+  };
+
+  const prevLogRaw = raw;
+  log.push(newEntry);
   await AsyncStorage.setItem(PEBBLE_LOG_KEY, JSON.stringify(log));
 
   if (isFirstPebbleToday) {
-    await earnBonusGemUnlocked(1);
+    try {
+      await earnBonusGemUnlocked(1);
+    } catch (bonusErr) {
+      // Second write failed! Rollback first write synchronously
+      log.pop();
+      try {
+        if (prevLogRaw !== null) {
+          await AsyncStorage.setItem(PEBBLE_LOG_KEY, prevLogRaw);
+        } else {
+          await AsyncStorage.removeItem(PEBBLE_LOG_KEY);
+        }
+      } catch {}
+      throw bonusErr;
+    }
   }
 
   return { success: true, changed: true };
@@ -133,6 +163,7 @@ export async function reversePebbleRewardUnlocked(
   });
   const wasOnlyPebbleToday = pebblesOnSameDay.length === 1;
 
+  const prevLogRaw = raw;
   log.splice(idx, 1);
   await AsyncStorage.setItem(PEBBLE_LOG_KEY, JSON.stringify(log));
 
@@ -144,7 +175,13 @@ export async function reversePebbleRewardUnlocked(
       if (currentBonus > 0) {
         await AsyncStorage.setItem(GEMS_BONUS_KEY, String(currentBonus - 1));
       }
-    } catch {}
+    } catch (bonusErr) {
+      // Second write failed! Rollback first write synchronously
+      try {
+        await AsyncStorage.setItem(PEBBLE_LOG_KEY, prevLogRaw);
+      } catch {}
+      throw bonusErr;
+    }
   }
 
   return true;
@@ -160,16 +197,30 @@ export async function spendGemsUnlocked(
   amount: number = 1,
   options?: { spendId?: string }
 ): Promise<{ success: boolean; changed: boolean }> {
-  // Idempotency: if spendId is provided and already recorded, no-op
+  if (typeof amount !== "number" || isNaN(amount) || amount <= 0) {
+    return { success: false, changed: false };
+  }
+
+  let spendLog: SpendLogEntry[] = [];
+  const rawSpent = await AsyncStorage.getItem(PEBBLE_SPENT_KEY);
+  if (rawSpent) {
+    try {
+      const parsed = JSON.parse(rawSpent);
+      if (Array.isArray(parsed)) spendLog = parsed;
+    } catch {}
+  }
+
+  // Idempotency & Conflict check: if spendId is provided
   if (options?.spendId) {
-    const rawSpent = await AsyncStorage.getItem(PEBBLE_SPENT_KEY);
-    if (rawSpent) {
-      try {
-        const parsed = JSON.parse(rawSpent);
-        if (Array.isArray(parsed) && parsed.some((e: any) => e.spendId === options.spendId)) {
-          return { success: true, changed: false };
-        }
-      } catch {}
+    const existing = spendLog.find((e) => e.spendId === options.spendId);
+    if (existing) {
+      if (existing.amount !== amount) {
+        console.warn(
+          `Conflicting spendId replay: "${options.spendId}" was previously recorded for ${existing.amount} gems, cannot spend ${amount} gems`
+        );
+        return { success: false, changed: false };
+      }
+      return { success: true, changed: false };
     }
   }
 
@@ -179,24 +230,24 @@ export async function spendGemsUnlocked(
   }
 
   const spentRaw = await AsyncStorage.getItem(GEMS_SPENT_KEY);
-  const spent = spentRaw ? parseInt(spentRaw, 10) || 0 : 0;
-  await AsyncStorage.setItem(GEMS_SPENT_KEY, String(spent + amount));
+  const prevSpent = spentRaw ? parseInt(spentRaw, 10) || 0 : 0;
+  await AsyncStorage.setItem(GEMS_SPENT_KEY, String(prevSpent + amount));
 
   if (options?.spendId) {
     try {
-      const rawSpent = await AsyncStorage.getItem(PEBBLE_SPENT_KEY);
-      let spendLog: SpendLogEntry[] = [];
-      if (rawSpent) {
-        const parsed = JSON.parse(rawSpent);
-        if (Array.isArray(parsed)) spendLog = parsed;
-      }
       spendLog.push({
         spendId: options.spendId,
         amount,
         timestamp: Date.now(),
       });
       await AsyncStorage.setItem(PEBBLE_SPENT_KEY, JSON.stringify(spendLog));
-    } catch {}
+    } catch (spendLogErr) {
+      // Second write failed! Rollback GEMS_SPENT_KEY synchronously
+      try {
+        await AsyncStorage.setItem(GEMS_SPENT_KEY, String(prevSpent));
+      } catch {}
+      throw spendLogErr;
+    }
   }
 
   return { success: true, changed: true };
@@ -309,7 +360,26 @@ export async function recoverMainStreakUnlocked(
   }
 
   recoveredDates.push(brokenDate);
-  await AsyncStorage.setItem(STREAK_RECOVERIES_KEY, JSON.stringify(recoveredDates));
+  try {
+    await AsyncStorage.setItem(STREAK_RECOVERIES_KEY, JSON.stringify(recoveredDates));
+  } catch (recErr) {
+    // Second write failed! Rollback gem spend so user is NOT charged without recovery
+    try {
+      const spentRaw = await AsyncStorage.getItem(GEMS_SPENT_KEY);
+      const currentSpent = spentRaw ? parseInt(spentRaw, 10) || 0 : 0;
+      if (currentSpent > 0) {
+        await AsyncStorage.setItem(GEMS_SPENT_KEY, String(currentSpent - 1));
+      }
+      const rawSpent = await AsyncStorage.getItem(PEBBLE_SPENT_KEY);
+      if (rawSpent) {
+        const parsed: SpendLogEntry[] = JSON.parse(rawSpent);
+        const filtered = parsed.filter((e) => e.spendId !== spendId);
+        await AsyncStorage.setItem(PEBBLE_SPENT_KEY, JSON.stringify(filtered));
+      }
+    } catch {}
+    throw recErr;
+  }
+
   return true;
 }
 
@@ -317,6 +387,8 @@ export async function reconcilePebbleAccountingUnlocked(): Promise<PebbleReconci
   let deduplicatedCount = 0;
   let repairedBonus = false;
   let repairedSpent = false;
+  let recoveredStreaksRestored = 0;
+  const inconsistencies: string[] = [];
 
   const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
   let log: PebbleLogEntry[] = [];
@@ -328,10 +400,11 @@ export async function reconcilePebbleAccountingUnlocked(): Promise<PebbleReconci
       }
     } catch {
       log = [];
+      inconsistencies.push("Failed to parse PEBBLE_LOG_KEY; initialized to empty");
     }
   }
 
-  // Deduplicate entries with identical rewardId, keeping the earliest timestamp
+  // 1. Deduplicate entries with identical rewardId, keeping the earliest timestamp
   if (log.length > 0) {
     const seenRewardIds = new Set<string>();
     const sanitizedLog: PebbleLogEntry[] = [];
@@ -353,24 +426,98 @@ export async function reconcilePebbleAccountingUnlocked(): Promise<PebbleReconci
     }
   }
 
-  // Sanitize bonus gems counter
+  // 2. Recover any paid streak recoveries in PEBBLE_SPENT_KEY missing from STREAK_RECOVERIES_KEY
+  const rawSpent = await AsyncStorage.getItem(PEBBLE_SPENT_KEY);
+  let spendLog: SpendLogEntry[] = [];
+  if (rawSpent) {
+    try {
+      const parsed = JSON.parse(rawSpent);
+      if (Array.isArray(parsed)) spendLog = parsed;
+    } catch {
+      inconsistencies.push("Failed to parse PEBBLE_SPENT_KEY");
+    }
+  }
+
+  const recoveriesRaw = await AsyncStorage.getItem(STREAK_RECOVERIES_KEY);
+  let recoveredDates: string[] = [];
+  if (recoveriesRaw) {
+    try {
+      const parsed = JSON.parse(recoveriesRaw);
+      if (Array.isArray(parsed)) recoveredDates = parsed;
+    } catch {
+      inconsistencies.push("Failed to parse STREAK_RECOVERIES_KEY");
+    }
+  }
+
+  const paidRecoveryDates = spendLog
+    .filter((s) => s.spendId.startsWith("recovery:"))
+    .map((s) => s.spendId.replace("recovery:", ""));
+
+  let recoveriesChanged = false;
+  for (const dateStr of paidRecoveryDates) {
+    if (!recoveredDates.includes(dateStr)) {
+      recoveredDates.push(dateStr);
+      recoveredStreaksRestored++;
+      recoveriesChanged = true;
+    }
+  }
+  if (recoveriesChanged) {
+    await AsyncStorage.setItem(STREAK_RECOVERIES_KEY, JSON.stringify(recoveredDates));
+  }
+
+  // 3. Conservative, non-lossy bonus gems check:
+  // Count unique active days in log as verifiable minimum earned bonus gems
+  const uniqueDays = new Set<string>();
+  log.forEach((entry) => {
+    const d = new Date(entry.timestamp);
+    uniqueDays.add(dateKeyFromDate(d));
+  });
+  const minVerifiableBonus = uniqueDays.size;
+
   const bonusRaw = await AsyncStorage.getItem(GEMS_BONUS_KEY);
   if (bonusRaw !== null) {
     const bonusVal = parseInt(bonusRaw, 10);
     if (isNaN(bonusVal) || bonusVal < 0) {
-      await AsyncStorage.setItem(GEMS_BONUS_KEY, "0");
+      // Corrupted string or negative: repair to minimum verifiable earned bonus
+      await AsyncStorage.setItem(GEMS_BONUS_KEY, String(minVerifiableBonus));
+      repairedBonus = true;
+      inconsistencies.push(
+        `Corrupted gems_bonus (${bonusRaw}); repaired to verifiable floor ${minVerifiableBonus}`
+      );
+    } else if (bonusVal < minVerifiableBonus) {
+      // Positive, but drifted below verifiable active days: repair upwards
+      await AsyncStorage.setItem(GEMS_BONUS_KEY, String(minVerifiableBonus));
       repairedBonus = true;
     }
+    // If bonusVal >= minVerifiableBonus, preserve it! Do NOT erase manual/milestone bonus gems!
+  } else if (minVerifiableBonus > 0) {
+    await AsyncStorage.setItem(GEMS_BONUS_KEY, String(minVerifiableBonus));
+    repairedBonus = true;
   }
 
-  // Sanitize spent gems counter
+  // 4. Conservative, non-lossy spent gems check:
+  // Sum all amounts in spendLog as verifiable minimum spent gems
+  const minVerifiableSpent = spendLog.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
   const spentRaw = await AsyncStorage.getItem(GEMS_SPENT_KEY);
   if (spentRaw !== null) {
     const spentVal = parseInt(spentRaw, 10);
     if (isNaN(spentVal) || spentVal < 0) {
-      await AsyncStorage.setItem(GEMS_SPENT_KEY, "0");
+      // Corrupted string or negative: repair to minimum verifiable spent
+      await AsyncStorage.setItem(GEMS_SPENT_KEY, String(minVerifiableSpent));
+      repairedSpent = true;
+      inconsistencies.push(
+        `Corrupted gems_spent (${spentRaw}); repaired to verifiable floor ${minVerifiableSpent}`
+      );
+    } else if (spentVal < minVerifiableSpent) {
+      // Positive, but drifted below recorded spend ledger: repair upwards
+      await AsyncStorage.setItem(GEMS_SPENT_KEY, String(minVerifiableSpent));
       repairedSpent = true;
     }
+    // If spentVal >= minVerifiableSpent, preserve it!
+  } else if (minVerifiableSpent > 0) {
+    await AsyncStorage.setItem(GEMS_SPENT_KEY, String(minVerifiableSpent));
+    repairedSpent = true;
   }
 
   const currentGemsBalance = await getGemsBalanceUnlocked();
@@ -379,8 +526,10 @@ export async function reconcilePebbleAccountingUnlocked(): Promise<PebbleReconci
     deduplicatedPebbles: deduplicatedCount,
     repairedBonus,
     repairedSpent,
+    recoveredStreaksRestored,
     logCount: log.length,
     currentGemsBalance,
+    inconsistencies,
   };
 }
 
@@ -572,8 +721,22 @@ export async function getPebbleBalance(): Promise<number> {
   return getGemsBalance();
 }
 
-export async function spendPebbles(amount: number): Promise<boolean> {
-  return spendGems(1);
+/**
+ * Legacy compatibility wrapper for spending.
+ * In Pebble v1, Pebbles are an accrual/gamification metric (capped at 15/day, 45 Pebbles = 1 Gem).
+ * Gems are the spendable currency.
+ * Historical callers specified amounts in legacy pebble units, where 10 legacy pebbles represented 1 Gem.
+ * This wrapper converts legacy pebble amounts to Gems: Math.max(1, Math.floor(amount / 10)).
+ */
+export async function spendPebbles(
+  amount: number,
+  options?: { spendId?: string }
+): Promise<boolean> {
+  if (typeof amount !== "number" || isNaN(amount) || amount <= 0) {
+    return false;
+  }
+  const gemAmount = amount === 10 ? 1 : Math.max(1, Math.floor(amount / 10));
+  return spendGems(gemAmount, options);
 }
 
 export async function getGemsBalance(): Promise<number> {
@@ -633,7 +796,12 @@ export async function recoverMainStreak(
 export async function reconcilePebbleAccounting(): Promise<PebbleReconciliationReport> {
   return withLock(PEBBLE_ECONOMY_LOCK, async () => {
     const report = await reconcilePebbleAccountingUnlocked();
-    if (report.deduplicatedPebbles > 0 || report.repairedBonus || report.repairedSpent) {
+    if (
+      report.deduplicatedPebbles > 0 ||
+      report.repairedBonus ||
+      report.repairedSpent ||
+      report.recoveredStreaksRestored > 0
+    ) {
       emitStateChange("pebbles_changed", "pebble_service");
     }
     return report;

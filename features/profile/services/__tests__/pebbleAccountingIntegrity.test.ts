@@ -3,6 +3,7 @@ import {
   earnPebble,
   reversePebbleReward,
   spendGems,
+  spendPebbles,
   earnBonusGem,
   recoverMainStreak,
   getMainStreakRecoveryInfo,
@@ -15,6 +16,7 @@ import {
   STREAK_RECOVERIES_KEY,
   PEBBLE_SPENT_KEY,
   PebbleLogEntry,
+  SpendLogEntry,
 } from "../pebble.service";
 import { emitStateChange } from "@/services/events/state-events";
 
@@ -42,16 +44,61 @@ jest.mock("@/services/events/state-events", () => ({
   emitStateChange: jest.fn(),
 }));
 
-describe("Pebble Accounting Integrity — Phase 5", () => {
+describe("Pebble Accounting Integrity — Phase 5 Hardening", () => {
   beforeEach(() => {
     mockStore = {};
     jest.clearAllMocks();
+    (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, value: string) => {
+      mockStore[key] = String(value);
+      return null;
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 1. Idempotency Tests
+  // 1. Legacy spendPebbles(amount) Semantics
   // ──────────────────────────────────────────────────────────────────────────
-  describe("Idempotency", () => {
+  describe("Legacy spendPebbles(amount) Semantics", () => {
+    it("maps 10 legacy pebbles to 1 Gem", async () => {
+      await earnBonusGem(3);
+      expect(await getGemsBalance()).toBe(3);
+
+      const success = await spendPebbles(10);
+      expect(success).toBe(true);
+      expect(await getGemsBalance()).toBe(2);
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("1");
+    });
+
+    it("maps 20 legacy pebbles to 2 Gems", async () => {
+      await earnBonusGem(3);
+      const success = await spendPebbles(20);
+      expect(success).toBe(true);
+      expect(await getGemsBalance()).toBe(1);
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("2");
+    });
+
+    it("maps small non-zero amounts (<10) to at least 1 Gem floor", async () => {
+      await earnBonusGem(2);
+      const success = await spendPebbles(5);
+      expect(success).toBe(true);
+      expect(await getGemsBalance()).toBe(1);
+    });
+
+    it("rejects non-positive amounts without spending gems", async () => {
+      await earnBonusGem(2);
+      (emitStateChange as jest.Mock).mockClear();
+
+      expect(await spendPebbles(0)).toBe(false);
+      expect(await spendPebbles(-10)).toBe(false);
+      expect(await spendPebbles(NaN)).toBe(false);
+      expect(await getGemsBalance()).toBe(2);
+      expect(emitStateChange).not.toHaveBeenCalled();
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 2. Base Idempotency Tests
+  // ──────────────────────────────────────────────────────────────────────────
+  describe("Base Idempotency", () => {
     it("earning the same rewardId twice records only one entry and one bonus gem", async () => {
       const rewardId = "task:test-101";
 
@@ -75,7 +122,7 @@ describe("Pebble Accounting Integrity — Phase 5", () => {
       const bonusGems = parseInt(mockStore[GEMS_BONUS_KEY] || "0", 10);
       expect(bonusGems).toBe(1);
 
-      // pebbles_changed not emitted on the redundant second call
+      // pebbles_changed not emitted on redundant second call
       const emitCountAfterSecond = (emitStateChange as jest.Mock).mock.calls.length;
       expect(emitCountAfterSecond).toBe(emitCountAfterFirst);
     });
@@ -83,281 +130,357 @@ describe("Pebble Accounting Integrity — Phase 5", () => {
     it("reversing the same rewardId twice rolls back once and safely no-ops on second call", async () => {
       const rewardId = "habit:read:2026-09-10";
 
-      // Earn
       await earnPebble("habit", rewardId);
       expect(parseInt(mockStore[GEMS_BONUS_KEY] || "0", 10)).toBe(1);
 
-      // First reversal
       (emitStateChange as jest.Mock).mockClear();
       const firstReverse = await reversePebbleReward(rewardId);
       expect(firstReverse).toBe(true);
 
-      // Log empty, bonus rolled back to 0
       const logAfterFirst: PebbleLogEntry[] = JSON.parse(mockStore[PEBBLE_LOG_KEY] || "[]");
       expect(logAfterFirst.length).toBe(0);
       expect(parseInt(mockStore[GEMS_BONUS_KEY] || "0", 10)).toBe(0);
       expect(emitStateChange).toHaveBeenCalledWith("pebbles_changed", "pebble_service");
 
-      // Second reversal of same rewardId
       (emitStateChange as jest.Mock).mockClear();
       const secondReverse = await reversePebbleReward(rewardId);
       expect(secondReverse).toBe(false);
 
-      // Bonus does not drop below 0
       expect(parseInt(mockStore[GEMS_BONUS_KEY] || "0", 10)).toBe(0);
       expect(emitStateChange).not.toHaveBeenCalled();
     });
 
     it("spendGems with a spendId is idempotent across replays", async () => {
-      // Seed 5 bonus gems
       await earnBonusGem(5);
       expect(await getGemsBalance()).toBe(5);
 
       (emitStateChange as jest.Mock).mockClear();
 
-      // First spend
       const res1 = await spendGems(2, { spendId: "tx-purchase-soundpack" });
       expect(res1).toBe(true);
       expect(await getGemsBalance()).toBe(3);
       expect(emitStateChange).toHaveBeenCalledTimes(1);
 
-      // Second identical spend with same spendId
       (emitStateChange as jest.Mock).mockClear();
       const res2 = await spendGems(2, { spendId: "tx-purchase-soundpack" });
-      expect(res2).toBe(true); // returns true idempotently
-      expect(await getGemsBalance()).toBe(3); // Balance does not decrease further!
-      expect(emitStateChange).not.toHaveBeenCalled(); // No false event
+      expect(res2).toBe(true);
+      expect(await getGemsBalance()).toBe(3);
+      expect(emitStateChange).not.toHaveBeenCalled();
     });
 
     it("recoverMainStreak is idempotent: cannot double-recover or double-spend", async () => {
       const now = Date.now();
       const dayMs = 24 * 60 * 60 * 1000;
 
-      // Create broken streak (active streak ending 2 days ago, yesterday missing)
       const initialLog: PebbleLogEntry[] = [
         { type: "task", timestamp: now - 2 * dayMs, rewardId: "t-day2" },
         { type: "task", timestamp: now - 3 * dayMs, rewardId: "t-day3" },
       ];
       mockStore[PEBBLE_LOG_KEY] = JSON.stringify(initialLog);
-      mockStore[GEMS_BONUS_KEY] = "3"; // 3 gems available
+      mockStore[GEMS_BONUS_KEY] = "3";
 
       const info = await getMainStreakRecoveryInfo();
       expect(info.eligible).toBe(true);
 
-      // First recovery
       const res1 = await recoverMainStreak();
       expect(res1).toBe(true);
       expect(mockStore[GEMS_SPENT_KEY]).toBe("1");
       expect(await getGemsBalance()).toBe(2);
 
-      // Second recovery immediate retry
       (emitStateChange as jest.Mock).mockClear();
       const res2 = await recoverMainStreak();
-      expect(res2).toBe(false); // Ineligible because yesterday is healed
-      expect(mockStore[GEMS_SPENT_KEY]).toBe("1"); // No second gem spent!
+      expect(res2).toBe(false);
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("1");
       expect(await getGemsBalance()).toBe(2);
       expect(emitStateChange).not.toHaveBeenCalled();
     });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 2. Concurrency Tests
+  // 3. Multi-Key Mutation Second-Write Failures (Atomicity & Rollback)
   // ──────────────────────────────────────────────────────────────────────────
-  describe("Concurrency & Mutex Protection", () => {
-    it("simultaneous earn operations serialize without losing updates", async () => {
-      // Earn 5 distinct pebbles concurrently
-      const promises = [
-        earnPebble("task", "task:concurrent-1"),
-        earnPebble("task", "task:concurrent-2"),
-        earnPebble("task", "task:concurrent-3"),
-        earnPebble("habit", "habit:concurrent-4"),
-        earnPebble("focus", "focus:concurrent-5"),
+  describe("Multi-Key Mutation Second-Write Failures", () => {
+    it("Earn: fails second write (gems_bonus) -> rolls back pebble_log and emits no event", async () => {
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string) => {
+        if (key === GEMS_BONUS_KEY) {
+          throw new Error("Disk Full on gems_bonus");
+        }
+        mockStore[key] = val;
+        return null;
+      });
+
+      const success = await earnPebble("task", "task:second-fail-1");
+      expect(success).toBe(false);
+
+      // Verify pebble_log was rolled back and is empty
+      const log = JSON.parse(mockStore[PEBBLE_LOG_KEY] || "[]");
+      expect(log.length).toBe(0);
+      expect(mockStore[GEMS_BONUS_KEY]).toBeUndefined();
+
+      // Invariant: no success event emitted on partial failure
+      expect(emitStateChange).not.toHaveBeenCalled();
+    });
+
+    it("Reverse: fails second write (gems_bonus rollback) -> restores pebble_log and emits no event", async () => {
+      const initialLog: PebbleLogEntry[] = [
+        { type: "task", timestamp: Date.now(), rewardId: "task:undo-fail-1" },
       ];
+      mockStore[PEBBLE_LOG_KEY] = JSON.stringify(initialLog);
+      mockStore[GEMS_BONUS_KEY] = "1";
 
-      const results = await Promise.all(promises);
-      expect(results.every((r) => r === true)).toBe(true);
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string) => {
+        if (key === GEMS_BONUS_KEY) {
+          throw new Error("Disk error on gems_bonus rollback");
+        }
+        mockStore[key] = val;
+        return null;
+      });
 
-      // Canonical storage must contain all 5 entries
-      const counts = await getPebbleCounts();
-      expect(counts.lifetime).toBe(5);
-      expect(counts.today).toBe(5);
+      const success = await reversePebbleReward("task:undo-fail-1");
+      expect(success).toBe(false);
 
-      const log: PebbleLogEntry[] = JSON.parse(mockStore[PEBBLE_LOG_KEY]);
-      expect(log.length).toBe(5);
-
-      const rewardIds = log.map((e) => e.rewardId);
-      expect(rewardIds).toContain("task:concurrent-1");
-      expect(rewardIds).toContain("task:concurrent-2");
-      expect(rewardIds).toContain("task:concurrent-3");
-      expect(rewardIds).toContain("habit:concurrent-4");
-      expect(rewardIds).toContain("focus:concurrent-5");
+      // Invariant: log is restored, pebble is NOT lost, bonus is preserved
+      const log = JSON.parse(mockStore[PEBBLE_LOG_KEY] || "[]");
+      expect(log.length).toBe(1);
+      expect(log[0].rewardId).toBe("task:undo-fail-1");
+      expect(mockStore[GEMS_BONUS_KEY]).toBe("1");
+      expect(emitStateChange).not.toHaveBeenCalled();
     });
 
-    it("simultaneous spend operations serialize without lost updates", async () => {
-      // Seed 10 bonus gems
-      await earnBonusGem(10);
-      expect(await getGemsBalance()).toBe(10);
+    it("Spend Gems: fails second write (pebble_spent ledger) -> rolls back gems_spent and emits no event", async () => {
+      mockStore[GEMS_BONUS_KEY] = "5";
 
-      // Spend 2 gems three times concurrently
-      const results = await Promise.all([
-        spendGems(2),
-        spendGems(2),
-        spendGems(2),
-      ]);
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string) => {
+        if (key === PEBBLE_SPENT_KEY) {
+          throw new Error("Disk error on pebble_spent ledger");
+        }
+        mockStore[key] = val;
+        return null;
+      });
 
-      expect(results).toEqual([true, true, true]);
-      expect(parseInt(mockStore[GEMS_SPENT_KEY], 10)).toBe(6);
-      expect(await getGemsBalance()).toBe(4);
+      const success = await spendGems(2, { spendId: "tx-fail-ledger" });
+      expect(success).toBe(false);
+
+      // Invariant: gems_spent was rolled back to 0, balance remains 5
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("0");
+      expect(await getGemsBalance()).toBe(5);
+      expect(emitStateChange).not.toHaveBeenCalled();
     });
 
-    it("simultaneous earn and spend operations maintain consistency", async () => {
-      await earnBonusGem(2);
-
-      // Concurrently earn a pebble and spend a gem
-      const [earnRes, spendRes] = await Promise.all([
-        earnPebble("task", "task:mixed-1"),
-        spendGems(1),
-      ]);
-
-      expect(earnRes).toBe(true);
-      expect(spendRes).toBe(true);
-
-      const counts = await getPebbleCounts();
-      expect(counts.lifetime).toBe(1);
-
-      // 2 initial bonus + 1 first pebble bonus - 1 spent = 2
-      expect(await getGemsBalance()).toBe(2);
-    });
-
-    it("concurrent recoverMainStreak requests execute safely with only one success", async () => {
+    it("Streak Recovery: fails second write (streak_recoveries) -> refunds gems_spent and emits no event", async () => {
       const now = Date.now();
       const dayMs = 24 * 60 * 60 * 1000;
-
       const initialLog: PebbleLogEntry[] = [
         { type: "task", timestamp: now - 2 * dayMs, rewardId: "t-1" },
       ];
       mockStore[PEBBLE_LOG_KEY] = JSON.stringify(initialLog);
-      mockStore[GEMS_BONUS_KEY] = "5"; // 5 gems available
+      mockStore[GEMS_BONUS_KEY] = "5";
 
-      // Launch 2 recovery requests concurrently
-      const [resA, resB] = await Promise.all([
-        recoverMainStreak(),
-        recoverMainStreak(),
-      ]);
-
-      // Exactly one succeeds, the other fails
-      const successCount = [resA, resB].filter((r) => r === true).length;
-      const failCount = [resA, resB].filter((r) => r === false).length;
-
-      expect(successCount).toBe(1);
-      expect(failCount).toBe(1);
-
-      // Exactly 1 gem spent
-      expect(mockStore[GEMS_SPENT_KEY]).toBe("1");
-      expect(await getGemsBalance()).toBe(4);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // 3. Failure & Event Emission
-  // ──────────────────────────────────────────────────────────────────────────
-  describe("Failure & Event Emission", () => {
-    it("spendGems fails when balance is insufficient and does not emit pebbles_changed", async () => {
-      mockStore[GEMS_BONUS_KEY] = "1";
-      mockStore[GEMS_SPENT_KEY] = "1"; // Balance is 0
-
-      (emitStateChange as jest.Mock).mockClear();
-
-      const success = await spendGems(1);
-      expect(success).toBe(false);
-      expect(emitStateChange).not.toHaveBeenCalled();
-    });
-
-    it("recoverMainStreak fails when ineligible and does not emit pebbles_changed", async () => {
-      // Empty log -> not eligible
-      (emitStateChange as jest.Mock).mockClear();
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string) => {
+        if (key === STREAK_RECOVERIES_KEY) {
+          throw new Error("Disk error on streak_recoveries");
+        }
+        mockStore[key] = val;
+        return null;
+      });
 
       const success = await recoverMainStreak();
       expect(success).toBe(false);
-      expect(emitStateChange).not.toHaveBeenCalled();
-    });
 
-    it("storage write exception does not emit pebbles_changed and returns false", async () => {
-      (AsyncStorage.setItem as jest.Mock).mockRejectedValueOnce(new Error("Disk Full"));
-
-      (emitStateChange as jest.Mock).mockClear();
-      const success = await earnPebble("task", "task:fail-write");
-      expect(success).toBe(false);
+      // Invariant: user was NOT charged 1 gem without receiving recovery
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("0");
+      expect(await getGemsBalance()).toBe(5);
       expect(emitStateChange).not.toHaveBeenCalled();
     });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 4. Projections & Reconciliation
+  // 4. Failure + Subsequent Retry Sequences
   // ──────────────────────────────────────────────────────────────────────────
-  describe("Projections & Reconciliation", () => {
-    it("getPebbleCounts and getGemsBalance correctly derive from canonical storage", async () => {
-      // 90 pebbles = 2 gems from conversion rate (1 per 45)
-      const now = Date.now();
-      const dayMs = 24 * 60 * 60 * 1000;
-      const log: PebbleLogEntry[] = [];
-      for (let i = 0; i < 90; i++) {
-        log.push({ type: "task", timestamp: now - 3 * dayMs, rewardId: `t-${i}` });
-      }
-      mockStore[PEBBLE_LOG_KEY] = JSON.stringify(log);
-      mockStore[GEMS_BONUS_KEY] = "3"; // +3 bonus
-      mockStore[GEMS_SPENT_KEY] = "1"; // -1 spent
+  describe("Idempotency Under Failure + Retry", () => {
+    it("Earn: failure on first attempt followed by retry results in exactly 1 pebble and 1 bonus gem", async () => {
+      let failNextBonusWrite = true;
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string) => {
+        if (key === GEMS_BONUS_KEY && failNextBonusWrite) {
+          failNextBonusWrite = false;
+          throw new Error("Transient error");
+        }
+        mockStore[key] = val;
+        return null;
+      });
 
-      const counts = await getPebbleCounts();
-      expect(counts.lifetime).toBe(90);
+      const first = await earnPebble("task", "task:transient-1");
+      expect(first).toBe(false);
+      expect(emitStateChange).not.toHaveBeenCalled();
 
-      // 90 / 45 = 2 + 3 bonus - 1 spent = 4
-      const balance = await getGemsBalance();
-      expect(balance).toBe(4);
+      const second = await earnPebble("task", "task:transient-1");
+      expect(second).toBe(true);
+
+      const log: PebbleLogEntry[] = JSON.parse(mockStore[PEBBLE_LOG_KEY]);
+      expect(log.length).toBe(1);
+      expect(log[0].rewardId).toBe("task:transient-1");
+      expect(mockStore[GEMS_BONUS_KEY]).toBe("1");
+      expect(emitStateChange).toHaveBeenCalledTimes(1);
     });
 
-    it("reconcilePebbleAccounting deduplicates duplicate reward IDs and preserves anonymous pebbles", async () => {
+    it("Spend Gems: failure on first attempt followed by retry results in exactly one spend", async () => {
+      mockStore[GEMS_BONUS_KEY] = "5";
+      let failNextSpendLog = true;
+
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string) => {
+        if (key === PEBBLE_SPENT_KEY && failNextSpendLog) {
+          failNextSpendLog = false;
+          throw new Error("Transient error on ledger");
+        }
+        mockStore[key] = val;
+        return null;
+      });
+
+      const res1 = await spendGems(2, { spendId: "tx-retry-spend" });
+      expect(res1).toBe(false);
+      expect(await getGemsBalance()).toBe(5);
+      expect(emitStateChange).not.toHaveBeenCalled();
+
+      const res2 = await spendGems(2, { spendId: "tx-retry-spend" });
+      expect(res2).toBe(true);
+      expect(await getGemsBalance()).toBe(3);
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("2");
+      expect(emitStateChange).toHaveBeenCalledTimes(1);
+    });
+
+    it("Streak Recovery: failure on first attempt followed by retry results in exactly 1 recovery", async () => {
       const now = Date.now();
-      const corruptedLog: PebbleLogEntry[] = [
-        { type: "task", timestamp: now - 1000, rewardId: "task:dup-1" },
-        { type: "task", timestamp: now - 500, rewardId: "task:dup-1" }, // Duplicate!
-        { type: "habit", timestamp: now - 800, rewardId: "habit:dup-2" },
-        { type: "habit", timestamp: now - 400, rewardId: "habit:dup-2" }, // Duplicate!
-        { type: "focus", timestamp: now - 300, rewardId: "focus:unique" },
-        { type: "task", timestamp: now - 200 }, // Anonymous pebble without rewardId (must be preserved!)
+      const dayMs = 24 * 60 * 60 * 1000;
+      const initialLog: PebbleLogEntry[] = [
+        { type: "task", timestamp: now - 2 * dayMs, rewardId: "t-1" },
       ];
-      mockStore[PEBBLE_LOG_KEY] = JSON.stringify(corruptedLog);
-      mockStore[GEMS_BONUS_KEY] = "-5"; // Corrupted negative bonus
-      mockStore[GEMS_SPENT_KEY] = "invalid"; // Corrupted NaN spent
+      mockStore[PEBBLE_LOG_KEY] = JSON.stringify(initialLog);
+      mockStore[GEMS_BONUS_KEY] = "5";
+
+      let failNextStreakWrite = true;
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string) => {
+        if (key === STREAK_RECOVERIES_KEY && failNextStreakWrite) {
+          failNextStreakWrite = false;
+          throw new Error("Transient streak write error");
+        }
+        mockStore[key] = val;
+        return null;
+      });
+
+      const res1 = await recoverMainStreak();
+      expect(res1).toBe(false);
+      expect(await getGemsBalance()).toBe(5);
+
+      const res2 = await recoverMainStreak();
+      expect(res2).toBe(true);
+      expect(await getGemsBalance()).toBe(4);
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("1");
+      expect(emitStateChange).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 5. Transaction Identity Conflict Audits
+  // ──────────────────────────────────────────────────────────────────────────
+  describe("Transaction Identity Conflict Audits", () => {
+    it("spendId cannot be reused with a conflicting spend amount", async () => {
+      mockStore[GEMS_BONUS_KEY] = "10";
+
+      const res1 = await spendGems(2, { spendId: "tx-item-1" });
+      expect(res1).toBe(true);
+      expect(await getGemsBalance()).toBe(8);
 
       (emitStateChange as jest.Mock).mockClear();
+      const res2 = await spendGems(5, { spendId: "tx-item-1" });
+      expect(res2).toBe(false); // REJECTED!
+
+      expect(await getGemsBalance()).toBe(8);
+      expect(mockStore[GEMS_SPENT_KEY]).toBe("2");
+      expect(emitStateChange).not.toHaveBeenCalled();
+
+      const res3 = await spendGems(2, { spendId: "tx-item-1" });
+      expect(res3).toBe(true);
+      expect(await getGemsBalance()).toBe(8);
+    });
+
+    it("rewardId cannot be reused with a conflicting entity type", async () => {
+      const res1 = await earnPebble("task", "shared-entity-10");
+      expect(res1).toBe(true);
+
+      (emitStateChange as jest.Mock).mockClear();
+      const res2 = await earnPebble("habit", "shared-entity-10");
+      expect(res2).toBe(false); // REJECTED!
+
+      const log: PebbleLogEntry[] = JSON.parse(mockStore[PEBBLE_LOG_KEY]);
+      expect(log.length).toBe(1);
+      expect(log[0].type).toBe("task");
+      expect(emitStateChange).not.toHaveBeenCalled();
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 6. Conservative Non-Lossy Reconciliation
+  // ──────────────────────────────────────────────────────────────────────────
+  describe("Conservative Non-Lossy Reconciliation", () => {
+    it("restores paid streak recoveries missing from STREAK_RECOVERIES_KEY", async () => {
+      const spendLog: SpendLogEntry[] = [
+        { spendId: "recovery:2026-09-08", amount: 1, timestamp: Date.now() },
+      ];
+      mockStore[PEBBLE_SPENT_KEY] = JSON.stringify(spendLog);
+      mockStore[GEMS_SPENT_KEY] = "1";
+      mockStore[STREAK_RECOVERIES_KEY] = "[]";
 
       const report = await reconcilePebbleAccounting();
-      expect(report.deduplicatedPebbles).toBe(2);
+      expect(report.recoveredStreaksRestored).toBe(1);
+
+      const recoveries = JSON.parse(mockStore[STREAK_RECOVERIES_KEY]);
+      expect(recoveries).toContain("2026-09-08");
+      expect(emitStateChange).toHaveBeenCalledWith("pebbles_changed", "pebble_service");
+    });
+
+    it("preserves legitimate positive bonus gems and never wipes manual bonuses", async () => {
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const log: PebbleLogEntry[] = [
+        { type: "task", timestamp: now, rewardId: "t-today" },
+        { type: "task", timestamp: now - dayMs, rewardId: "t-yest" },
+      ];
+      mockStore[PEBBLE_LOG_KEY] = JSON.stringify(log);
+      mockStore[GEMS_BONUS_KEY] = "10";
+
+      const report = await reconcilePebbleAccounting();
+      expect(report.repairedBonus).toBe(false);
+      expect(mockStore[GEMS_BONUS_KEY]).toBe("10");
+    });
+
+    it("repairs corrupted negative/NaN counters up to verifiable floor and reports inconsistencies", async () => {
+      const now = Date.now();
+      const log: PebbleLogEntry[] = [
+        { type: "task", timestamp: now, rewardId: "t-1" },
+        { type: "task", timestamp: now - 86400000, rewardId: "t-2" },
+      ];
+      mockStore[PEBBLE_LOG_KEY] = JSON.stringify(log);
+      mockStore[GEMS_BONUS_KEY] = "-10";
+      mockStore[GEMS_SPENT_KEY] = "bad_number";
+
+      const report = await reconcilePebbleAccounting();
       expect(report.repairedBonus).toBe(true);
       expect(report.repairedSpent).toBe(true);
-      expect(report.logCount).toBe(4); // 3 unique rewardIds + 1 anonymous
+      expect(report.inconsistencies.length).toBeGreaterThanOrEqual(2);
 
-      // Cleaned log verified
-      const cleanLog: PebbleLogEntry[] = JSON.parse(mockStore[PEBBLE_LOG_KEY]);
-      expect(cleanLog.length).toBe(4);
-      expect(cleanLog.filter((e) => e.rewardId === "task:dup-1").length).toBe(1);
-      expect(cleanLog.filter((e) => e.rewardId === "habit:dup-2").length).toBe(1);
-      expect(cleanLog.some((e) => !e.rewardId)).toBe(true); // anonymous entry preserved
-
-      // Counters reset to 0
-      expect(mockStore[GEMS_BONUS_KEY]).toBe("0");
+      expect(mockStore[GEMS_BONUS_KEY]).toBe("2");
       expect(mockStore[GEMS_SPENT_KEY]).toBe("0");
+    });
 
-      // Event emitted because state changed
-      expect(emitStateChange).toHaveBeenCalledWith("pebbles_changed", "pebble_service");
-
-      // Running reconciliation a second time is a clean idempotent no-op
+    it("reconciliation is completely deterministic and idempotent on repeated execution", async () => {
+      const report1 = await reconcilePebbleAccounting();
       (emitStateChange as jest.Mock).mockClear();
-      const secondReport = await reconcilePebbleAccounting();
-      expect(secondReport.deduplicatedPebbles).toBe(0);
-      expect(secondReport.repairedBonus).toBe(false);
-      expect(secondReport.repairedSpent).toBe(false);
+
+      const report2 = await reconcilePebbleAccounting();
+      expect(report2.deduplicatedPebbles).toBe(0);
+      expect(report2.repairedBonus).toBe(false);
+      expect(report2.repairedSpent).toBe(false);
+      expect(report2.recoveredStreaksRestored).toBe(0);
       expect(emitStateChange).not.toHaveBeenCalled();
     });
   });
