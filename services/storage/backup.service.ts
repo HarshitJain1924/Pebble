@@ -8,6 +8,7 @@ import {
   HabitRepository,
   ResourceRepository,
   TaskRepository,
+  UiStateRepository,
   WorkspaceRepository,
 } from "@/repositories";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
@@ -15,6 +16,10 @@ import { RecycleBinRepository } from "@/repositories/RecycleBinRepository";
 import { ConversionJournalRepository } from "@/repositories/ConversionJournalRepository";
 import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import {
+  getGratitudeHistory,
+  GRATITUDE_HISTORY_STORAGE_KEY,
+} from "@/services/storage/storage.service";
 import {
   INBOX_WORKSPACE_ID,
   type Checklist,
@@ -31,6 +36,17 @@ import { withLock } from "@/shared/utils/mutex";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 
+export const PEBBLE_STORAGE_PREFIXES = [
+  "pebble:",
+  "todoapp:",
+  "@pebble_",
+  "PEBBLE_",
+];
+
+export function isPebbleOwnedKey(key: string): boolean {
+  return PEBBLE_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
 export interface AppBackup {
   version: number;
   timestamp: number;
@@ -45,6 +61,8 @@ export interface AppBackup {
   systemEvents: SystemEventLog[];
   settings: any;
   profile: any;
+  uiState?: any;
+  gratitudeHistory?: any[];
 }
 
 export class BackupService {
@@ -125,13 +143,11 @@ export class BackupService {
         const recycleBin = await RecycleBinRepository.getRecycleBinItems();
         const focusSessions = await GraphRepository.getFocusSessions();
         const systemEvents = await GraphRepository.getSystemEvents();
-
-        const relsRaw = await AsyncStorage.getItem("pebble:v1:relationships");
-        const relationshipsMap = relsRaw ? JSON.parse(relsRaw) : {};
-        const relationships = Object.values(relationshipsMap) as Relationship[];
-
+        const relationships = await GraphRepository.getAllRelationships();
         const settings = await getSettings();
         const profile = await getProfile();
+        const uiState = await UiStateRepository.getUiState();
+        const gratitudeHistory = await getGratitudeHistory();
 
         const stripNotificationIds = <
           T extends { reminder?: { notificationIds?: string[] } },
@@ -177,6 +193,8 @@ export class BackupService {
           systemEvents,
           settings,
           profile,
+          uiState,
+          gratitudeHistory,
         };
 
         backupJson = JSON.stringify(backup, null, 2);
@@ -271,25 +289,18 @@ export class BackupService {
   }
 
   /**
-   * Restores application state from a structured JSON backup.
+   * Validates an incoming parsed backup payload strictly before any mutations or lock acquisitions.
+   * Throws an Error with a descriptive message if the backup is malformed, has an unsupported version,
+   * contains invalid entity shapes, or has broken cross-entity references.
    */
-  static async restoreStructuredBackup(jsonString: string): Promise<void> {
-    await this.recoverInterruptedRestore();
-
-    // Reconcile pending moves BEFORE taking a snapshot or locks, to ensure active storage is clean.
-    await MoveReconcilerService.reconcileAll();
-    await ConversionReconcilerService.reconcileAll();
-
-    let parsed: Partial<AppBackup>;
-    try {
-      parsed = JSON.parse(jsonString) as Partial<AppBackup>;
-    } catch (e) {
-      throw new Error("Invalid backup format: Not valid JSON.");
+  static validateBackupPayload(parsed: any): void {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Invalid backup format: Root must be an object.");
     }
 
     if (
-      !parsed.version ||
-      !parsed.workspaces ||
+      parsed.version === undefined ||
+      parsed.workspaces === undefined ||
       !Array.isArray(parsed.workspaces)
     ) {
       throw new Error("Invalid backup format: missing version or core data.");
@@ -301,9 +312,266 @@ export class BackupService {
       );
     }
 
+    // Validate section structures if present
+    const arraySections = [
+      ["tasks", parsed.tasks],
+      ["habits", parsed.habits],
+      ["checklists", parsed.checklists],
+      ["resources", parsed.resources],
+      ["recycleBin", parsed.recycleBin],
+      ["focusSessions", parsed.focusSessions],
+      ["relationships", parsed.relationships],
+      ["systemEvents", parsed.systemEvents],
+      ["gratitudeHistory", parsed.gratitudeHistory],
+    ] as const;
+
+    for (const [sectionName, value] of arraySections) {
+      if (value !== undefined && !Array.isArray(value)) {
+        throw new Error(
+          `Invalid backup format: '${sectionName}' must be an array.`,
+        );
+      }
+    }
+
+    const objectSections = [
+      ["settings", parsed.settings],
+      ["profile", parsed.profile],
+      ["uiState", parsed.uiState],
+    ] as const;
+
+    for (const [sectionName, value] of objectSections) {
+      if (
+        value !== undefined &&
+        (typeof value !== "object" || value === null || Array.isArray(value))
+      ) {
+        throw new Error(
+          `Invalid backup format: '${sectionName}' must be an object.`,
+        );
+      }
+    }
+
+    // Validate workspaces
+    for (const ws of parsed.workspaces) {
+      if (
+        !ws ||
+        typeof ws !== "object" ||
+        typeof ws.id !== "string" ||
+        !ws.id.trim()
+      ) {
+        throw new Error(
+          "Invalid backup format: Every workspace must have a non-empty string ID.",
+        );
+      }
+    }
+
+    const validWorkspaceIds = new Set([
+      INBOX_WORKSPACE_ID,
+      ...parsed.workspaces.map((w: any) => w.id),
+    ]);
+
+    // Validate tasks
+    if (parsed.tasks) {
+      for (const t of parsed.tasks) {
+        if (
+          !t ||
+          typeof t !== "object" ||
+          typeof t.id !== "string" ||
+          !t.id.trim()
+        ) {
+          throw new Error(
+            "Invalid backup format: Every task must have a non-empty string ID.",
+          );
+        }
+        if (typeof t.title !== "string") {
+          throw new Error(
+            `Invalid backup format: Task ${t.id} must have a valid title.`,
+          );
+        }
+        if (t.workspaceId && !validWorkspaceIds.has(t.workspaceId)) {
+          throw new Error(
+            `Invalid reference: Task ${t.id} references non-existent workspace ${t.workspaceId}.`,
+          );
+        }
+      }
+    }
+
+    // Validate habits
+    if (parsed.habits) {
+      for (const h of parsed.habits) {
+        if (
+          !h ||
+          typeof h !== "object" ||
+          typeof h.id !== "string" ||
+          !h.id.trim()
+        ) {
+          throw new Error(
+            "Invalid backup format: Every habit must have a non-empty string ID.",
+          );
+        }
+        if (typeof h.title !== "string") {
+          throw new Error(
+            `Invalid backup format: Habit ${h.id} must have a valid title.`,
+          );
+        }
+        if (h.workspaceId && !validWorkspaceIds.has(h.workspaceId)) {
+          throw new Error(
+            `Invalid reference: Habit ${h.id} references non-existent workspace ${h.workspaceId}.`,
+          );
+        }
+      }
+    }
+
+    // Validate checklists
+    if (parsed.checklists) {
+      for (const c of parsed.checklists) {
+        if (
+          !c ||
+          typeof c !== "object" ||
+          typeof c.id !== "string" ||
+          !c.id.trim()
+        ) {
+          throw new Error(
+            "Invalid backup format: Every checklist must have a non-empty string ID.",
+          );
+        }
+        if (typeof c.title !== "string") {
+          throw new Error(
+            `Invalid backup format: Checklist ${c.id} must have a valid title.`,
+          );
+        }
+        if (c.items !== undefined && !Array.isArray(c.items)) {
+          throw new Error(
+            `Invalid backup format: Checklist ${c.id} items must be an array.`,
+          );
+        }
+        if (c.workspaceId && !validWorkspaceIds.has(c.workspaceId)) {
+          throw new Error(
+            `Invalid reference: Checklist ${c.id} references non-existent workspace ${c.workspaceId}.`,
+          );
+        }
+      }
+    }
+
+    // Validate resources
+    if (parsed.resources) {
+      for (const r of parsed.resources) {
+        if (
+          !r ||
+          typeof r !== "object" ||
+          typeof r.id !== "string" ||
+          !r.id.trim()
+        ) {
+          throw new Error(
+            "Invalid backup format: Every resource must have a non-empty string ID.",
+          );
+        }
+        if (typeof r.title !== "string") {
+          throw new Error(
+            `Invalid backup format: Resource ${r.id} must have a valid title.`,
+          );
+        }
+        if (r.workspaceId && !validWorkspaceIds.has(r.workspaceId)) {
+          throw new Error(
+            `Invalid reference: Resource ${r.id} references non-existent workspace ${r.workspaceId}.`,
+          );
+        }
+      }
+    }
+
+    // Validate recycle bin items
+    if (parsed.recycleBin) {
+      for (const item of parsed.recycleBin) {
+        if (
+          !item ||
+          typeof item !== "object" ||
+          typeof item.id !== "string" ||
+          !item.id.trim()
+        ) {
+          throw new Error(
+            "Invalid backup format: Every recycle bin item must have a valid ID.",
+          );
+        }
+      }
+    }
+
+    // Validate settings if present
+    if (parsed.settings) {
+      if (
+        parsed.settings.theme !== undefined &&
+        !["dark", "light", "system"].includes(parsed.settings.theme)
+      ) {
+        throw new Error(
+          "Invalid backup format: Settings theme must be 'dark', 'light', or 'system'.",
+        );
+      }
+      if (
+        parsed.settings.quietHours !== undefined &&
+        (typeof parsed.settings.quietHours !== "object" ||
+          parsed.settings.quietHours === null ||
+          Array.isArray(parsed.settings.quietHours))
+      ) {
+        throw new Error(
+          "Invalid backup format: Settings quietHours must be an object.",
+        );
+      }
+      if (
+        parsed.settings.categories !== undefined &&
+        (typeof parsed.settings.categories !== "object" ||
+          parsed.settings.categories === null ||
+          Array.isArray(parsed.settings.categories))
+      ) {
+        throw new Error(
+          "Invalid backup format: Settings categories must be an object.",
+        );
+      }
+    }
+
+    // Validate profile if present
+    if (parsed.profile) {
+      if (
+        parsed.profile.name !== undefined &&
+        typeof parsed.profile.name !== "string"
+      ) {
+        throw new Error("Invalid backup format: Profile name must be a string.");
+      }
+      if (
+        parsed.profile.email !== undefined &&
+        typeof parsed.profile.email !== "string"
+      ) {
+        throw new Error("Invalid backup format: Profile email must be a string.");
+      }
+    }
+  }
+
+  /**
+   * Restores application state from a structured JSON backup.
+   */
+  static async restoreStructuredBackup(jsonString: string): Promise<void> {
+    if (typeof jsonString !== "string" || !jsonString.trim()) {
+      throw new Error("Invalid backup format: Not valid JSON.");
+    }
+
+    let parsed: Partial<AppBackup>;
+    try {
+      parsed = JSON.parse(jsonString) as Partial<AppBackup>;
+    } catch {
+      throw new Error("Invalid backup format: Not valid JSON.");
+    }
+
+    // STRICT VALIDATION BEFORE MUTATION:
+    // Any malformed data, unsupported version, or broken reference fails here,
+    // before any locks are acquired and before existing state is touched.
+    this.validateBackupPayload(parsed);
+
+    await this.recoverInterruptedRestore();
+
+    // Reconcile pending moves BEFORE taking a snapshot or locks, to ensure active storage is clean.
+    await MoveReconcilerService.reconcileAll();
+    await ConversionReconcilerService.reconcileAll();
+
     const workspaceIds = new Set([
       INBOX_WORKSPACE_ID,
-      ...parsed.workspaces.map((w: Workspace) => w.id),
+      ...parsed.workspaces!.map((w: Workspace) => w.id),
     ]);
     const kvPairsToSet: [string, string][] = [];
 
@@ -382,6 +650,33 @@ export class BackupService {
     if (parsed.profile)
       kvPairsToSet.push(["pebble:profile", JSON.stringify(parsed.profile)]);
 
+    // Stage UiState
+    const defaultActiveWsId =
+      parsed.workspaces && parsed.workspaces.length > 0
+        ? parsed.workspaces[0].id
+        : INBOX_WORKSPACE_ID;
+    const restoredTheme =
+      parsed.settings?.theme === "light"
+        ? "light"
+        : "dark";
+    const stagedUiState = {
+      activeWorkspaceId:
+        parsed.uiState?.activeWorkspaceId !== undefined
+          ? parsed.uiState.activeWorkspaceId
+          : defaultActiveWsId,
+      completedOnboarding: true,
+      themeCache: parsed.uiState?.themeCache || restoredTheme,
+    };
+    kvPairsToSet.push(["pebble:v1:ui_state", JSON.stringify(stagedUiState)]);
+
+    // Stage Gratitude History (if provided)
+    if (parsed.gratitudeHistory && Array.isArray(parsed.gratitudeHistory)) {
+      kvPairsToSet.push([
+        GRATITUDE_HISTORY_STORAGE_KEY,
+        JSON.stringify(parsed.gratitudeHistory),
+      ]);
+    }
+
     while (true) {
       // Snapshot Current State
       const allKeys = await AsyncStorage.getAllKeys();
@@ -447,10 +742,13 @@ export class BackupService {
 
         try {
           // Write durable intent BEFORE modifying anything
-          await AsyncStorage.setItem("pebble:v1:backup_restore_intent", JSON.stringify({
-            keysToRemove: finalKeysToRemove,
-            kvPairsToSet: kvPairsToSet
-          }));
+          await AsyncStorage.setItem(
+            "pebble:v1:backup_restore_intent",
+            JSON.stringify({
+              keysToRemove: finalKeysToRemove,
+              kvPairsToSet: kvPairsToSet,
+            }),
+          );
 
           // Execute Atomic Write (Domain Commit Point)
           await AsyncStorage.multiRemove(finalKeysToRemove);
@@ -486,9 +784,6 @@ export class BackupService {
     }
 
     // Attempt OS Notification flush AFTER successful domain commit.
-    // Pre-restore notifications MUST NOT survive, as they may share item IDs
-    // but have entirely different schedules in the incoming backup.
-    // If this fails, the reconciler will eventually repair it, but we MUST NOT roll back domain state.
     try {
       if (
         typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
@@ -498,6 +793,131 @@ export class BackupService {
     } catch (e) {
       console.warn(
         "[BackupService] Failed to flush OS notifications after successful restore.",
+        e,
+      );
+    }
+
+    // Reconcile OS notifications for restored entities
+    try {
+      const { NotificationReconcilerService } = await import(
+        "@/services/notifications/NotificationReconcilerService"
+      );
+      await NotificationReconcilerService.reconcileAll();
+    } catch (e) {
+      console.warn(
+        "[BackupService] Failed to reconcile notifications after restore.",
+        e,
+      );
+    }
+
+    // Emit state changes across all domains
+    try {
+      const { emitStateChange } = await import("@/services/events/state-events");
+      emitStateChange("workspace_changed", "backup_service");
+      emitStateChange("tasks_changed", "backup_service");
+      emitStateChange("habits_changed", "backup_service");
+      emitStateChange("checklists_changed", "backup_service");
+      emitStateChange("resources_changed", "backup_service");
+      emitStateChange("settings_changed", "backup_service");
+      emitStateChange("profile_changed", "backup_service");
+      emitStateChange("pebbles_changed", "backup_service");
+      emitStateChange("focus_changed", "backup_service");
+    } catch (e) {
+      console.warn(
+        "[BackupService] Failed to emit state events after restore.",
+        e,
+      );
+    }
+  }
+
+  /**
+   * Orchestrates a complete, safe wipe of all application-owned persistent state.
+   * Acquires hierarchical locks over all affected keys, removes all Pebble-owned data,
+   * cancels OS notifications, resets in-memory caches, and emits all state refresh events.
+   */
+  static async clearAllData(): Promise<void> {
+    try {
+      await MoveReconcilerService.reconcileAll();
+      await ConversionReconcilerService.reconcileAll();
+    } catch (e) {
+      console.warn(
+        "[BackupService] Failed to reconcile journals before clearAllData",
+        e,
+      );
+    }
+
+    while (true) {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const keysToRemove = allKeys.filter(isPebbleOwnedKey);
+
+      const requiredLocks = [
+        "pebble:v1:conversion_journal",
+        "pebble:v1:move_journal",
+        "pebble:v1:recycle_bin",
+        "pebble:v1:workspaces",
+        "pebble:settings",
+        "pebble:profile",
+        "pebble:v1:ui_state",
+      ];
+      const rawLockKeys = Array.from(
+        new Set([...keysToRemove, ...requiredLocks]),
+      );
+
+      let retry = false;
+
+      await this._acquireRestoreLocks(rawLockKeys, async () => {
+        const lockedKeys = await AsyncStorage.getAllKeys();
+        const finalKeysToRemove = lockedKeys.filter(isPebbleOwnedKey);
+
+        const rawLockSet = new Set(rawLockKeys);
+        const hasUnlockedKeys = finalKeysToRemove.some((k) => !rawLockSet.has(k));
+
+        if (hasUnlockedKeys) {
+          retry = true;
+          return;
+        }
+
+        if (finalKeysToRemove.length > 0) {
+          await AsyncStorage.multiRemove(finalKeysToRemove);
+        }
+
+        GraphRepository.resetCache();
+      });
+
+      if (!retry) {
+        break;
+      }
+    }
+
+    // Cancel all scheduled notifications
+    try {
+      if (
+        typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
+      ) {
+        await Notifications.cancelAllScheduledNotificationsAsync();
+      }
+    } catch (e) {
+      console.warn(
+        "[BackupService] Failed to cancel OS notifications during clearAllData",
+        e,
+      );
+    }
+
+    // Emit all state refresh events
+    try {
+      const { emitStateChange } = await import("@/services/events/state-events");
+      emitStateChange("workspace_changed", "clear_all_data");
+      emitStateChange("tasks_changed", "clear_all_data");
+      emitStateChange("habits_changed", "clear_all_data");
+      emitStateChange("checklists_changed", "clear_all_data");
+      emitStateChange("resources_changed", "clear_all_data");
+      emitStateChange("settings_changed", "clear_all_data");
+      emitStateChange("profile_changed", "clear_all_data");
+      emitStateChange("pebbles_changed", "clear_all_data");
+      emitStateChange("focus_changed", "clear_all_data");
+    } catch (e) {
+      console.warn(
+        "[BackupService] Failed to emit events during clearAllData",
         e,
       );
     }

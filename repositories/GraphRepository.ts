@@ -141,6 +141,13 @@ export class GraphRepository {
     });
   }
 
+  static async getAllRelationships(): Promise<Relationship[]> {
+    return withLock(this.RELATIONSHIPS_KEY, async () => {
+      await this.ensureLoaded();
+      return Object.values(this.relationships);
+    });
+  }
+
   // Focus Sessions
   static async saveFocusSession(session: any): Promise<void> {
     return withLock(this.FOCUS_SESSIONS_KEY, async () => {

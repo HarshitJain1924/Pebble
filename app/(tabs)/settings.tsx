@@ -7,14 +7,6 @@ import {
 import { Colors } from "@/shared/constants/theme";
 import { emitThemeChange, useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
-  GEMS_BONUS_KEY,
-  GEMS_SPENT_KEY,
-  PEBBLE_LOG_KEY,
-  PEBBLE_SPENT_KEY,
-} from "@/features/profile/services/pebble.service";
-import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/features/capture/services/quick-suggestions.service";
-import { cancelAllScheduledNotifications } from "@/services/scheduling/reminders.service";
-import {
   AppSettings,
   getProfile,
   getSettings,
@@ -23,22 +15,8 @@ import {
   UserProfile,
 } from "@/features/settings/services/settings.service";
 import { emitStateChange } from "@/services/events/state-events";
-import {
-  CHECKLISTS_STORAGE_KEY,
-  COLLECTIONS_STORAGE_KEY,
-  DASHBOARD_FILTER_STORAGE_KEY,
-  DASHBOARD_PRIORITY_STORAGE_KEY,
-  HISTORY_STORAGE_KEY,
-  NOTIF_LOG_STORAGE_KEY,
-  PROFILE_STORAGE_KEY,
-  RECYCLE_BIN_STORAGE_KEY,
-  SETTINGS_STORAGE_KEY,
-} from "@/services/storage/storage.service";
-import { clearRepositoryStorage } from "@/repositories";
-import { WIDGET_PAYLOAD_KEY } from "@/services/analytics/widget-data.service";
 import { BackupService } from "@/services/storage/backup.service";
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
@@ -211,47 +189,7 @@ export default function SettingsScreen() {
           onPress: async () => {
             setLoading(true);
             try {
-              await Promise.all([
-                clearRepositoryStorage(),
-                AsyncStorage.removeItem(HISTORY_STORAGE_KEY),
-                AsyncStorage.removeItem(PROFILE_STORAGE_KEY),
-                AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
-                AsyncStorage.removeItem("pebble:schema_version"),
-                AsyncStorage.removeItem("todoapp:onboarding_completed"),
-                AsyncStorage.removeItem("pebble:workspace:history"),
-                AsyncStorage.removeItem("PEBBLE_CAPTURE_CREATION_HISTORY"),
-                AsyncStorage.removeItem("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS"),
-                AsyncStorage.removeItem(RECYCLE_BIN_STORAGE_KEY),
-                AsyncStorage.removeItem(NOTIF_LOG_STORAGE_KEY),
-                AsyncStorage.removeItem(PEBBLE_LOG_KEY),
-                AsyncStorage.removeItem(QUICK_SUGGESTIONS_SEEN_KEY),
-                AsyncStorage.removeItem(WIDGET_PAYLOAD_KEY),
-                AsyncStorage.removeItem(DASHBOARD_FILTER_STORAGE_KEY),
-                AsyncStorage.removeItem(DASHBOARD_PRIORITY_STORAGE_KEY),
-                AsyncStorage.removeItem("todoapp:focus:stats"),
-                AsyncStorage.removeItem(GEMS_BONUS_KEY),
-                AsyncStorage.removeItem(GEMS_SPENT_KEY),
-                AsyncStorage.removeItem(PEBBLE_SPENT_KEY),
-                AsyncStorage.removeItem("todoapp:focus:current_session"),
-                AsyncStorage.removeItem("todoapp:focus:current_stopwatch"),
-                AsyncStorage.removeItem("todoapp:focus:liked_sound_ids"),
-                AsyncStorage.removeItem("todoapp:focus:custom_tracks"),
-                AsyncStorage.removeItem("todoapp:focus:selected_sound_id"),
-                AsyncStorage.removeItem("todoapp:focus:sound_volume"),
-                AsyncStorage.removeItem("todoapp:focus:is_muted"),
-                AsyncStorage.removeItem("todoapp:focus:is_shuffle"),
-                AsyncStorage.removeItem("todoapp:focus:is_repeat"),
-                AsyncStorage.removeItem("todoapp:focus:glow_enabled"),
-                AsyncStorage.removeItem("todoapp:mascot:dismissed"),
-                AsyncStorage.removeItem("pebble:vault"),
-                AsyncStorage.removeItem(COLLECTIONS_STORAGE_KEY),
-                AsyncStorage.removeItem(CHECKLISTS_STORAGE_KEY),
-                cancelAllScheduledNotifications(),
-              ]);
-              emitStateChange("tasks_changed");
-              emitStateChange("habits_changed");
-              emitStateChange("pebbles_changed");
-              emitStateChange("resources_changed");
+              await BackupService.clearAllData();
               await loadSettingsData();
               Alert.alert(
                 "Storage Wiped",
@@ -304,14 +242,6 @@ export default function SettingsScreen() {
       setImportModalVisible(false);
       setImportDataString("");
       await loadSettingsData();
-
-      // Emit changes to all screens to load restored state
-      emitStateChange("tasks_changed");
-      emitStateChange("habits_changed");
-      emitStateChange("checklists_changed");
-      emitStateChange("resources_changed");
-      emitStateChange("workspace_changed");
-      emitStateChange("profile_changed");
 
       Alert.alert(
         "Success",

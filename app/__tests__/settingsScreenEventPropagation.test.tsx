@@ -87,6 +87,7 @@ jest.mock("@/services/storage/backup.service", () => ({
   BackupService: {
     generateStructuredBackup: jest.fn(),
     restoreStructuredBackup: jest.fn(),
+    clearAllData: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
