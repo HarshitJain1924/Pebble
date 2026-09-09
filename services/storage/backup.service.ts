@@ -675,16 +675,22 @@ export class BackupService {
       parsed.settings?.theme === "light"
         ? "light"
         : "dark";
+    const isCompletedOnboarding =
+      parsed.uiState?.completedOnboarding !== undefined
+        ? !!parsed.uiState.completedOnboarding
+        : true;
     const stagedUiState = {
       activeWorkspaceId:
         parsed.uiState?.activeWorkspaceId !== undefined
           ? parsed.uiState.activeWorkspaceId
           : defaultActiveWsId,
-      completedOnboarding: true,
+      completedOnboarding: isCompletedOnboarding,
       themeCache: parsed.uiState?.themeCache || restoredTheme,
     };
     kvPairsToSet.push(["pebble:v1:ui_state", JSON.stringify(stagedUiState)]);
-    kvPairsToSet.push(["todoapp:onboarding_completed", "true"]);
+    if (isCompletedOnboarding) {
+      kvPairsToSet.push(["todoapp:onboarding_completed", "true"]);
+    }
 
     // Stage Gratitude History (if provided)
     if (parsed.gratitudeHistory && Array.isArray(parsed.gratitudeHistory)) {

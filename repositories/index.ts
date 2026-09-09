@@ -18,3 +18,8 @@ export { clearRepositoryStorage } from "@/services/storage/storage-utils";
 export { ConversionJournalRepository } from "./ConversionJournalRepository";
 export { MoveJournalRepository } from "./MoveJournalRepository";
 export { TombstoneRepository } from "./TombstoneRepository";
+export {
+  OnboardingRepository,
+  ONBOARDING_COMPLETED_KEY,
+  type OnboardingState,
+} from "./OnboardingRepository";

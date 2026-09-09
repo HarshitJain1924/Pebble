@@ -13,6 +13,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { OnboardingService } from "@/services/onboarding/onboarding.service";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -769,8 +770,13 @@ export default function OnboardingScreen() {
   };
 
   const completeOnboarding = async () => {
-    await AsyncStorage.setItem("todoapp:onboarding_completed", "true");
-    router.replace("/(tabs)");
+    try {
+      await OnboardingService.completeOnboarding();
+    } catch (e) {
+      console.warn("[OnboardingScreen] Error completing onboarding:", e);
+    } finally {
+      router.replace("/(tabs)");
+    }
   };
 
   const handleScroll = (event: any) => {

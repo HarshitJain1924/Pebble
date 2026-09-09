@@ -27,6 +27,7 @@ import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService"
 import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import { BackupService } from "@/services/storage/backup.service";
 import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
+import { OnboardingService } from "@/services/onboarding/onboarding.service";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -82,14 +83,12 @@ export default function RootLayout() {
           console.warn("[RootLayout] Failed to run NotificationReconcilerService", e);
         }
 
-        const completed = await AsyncStorage.getItem(
-          "todoapp:onboarding_completed",
-        );
+        const completed = await OnboardingService.isOnboardingCompleted();
         const inOnboarding = segments[0] === "onboarding";
 
-        if (completed !== "true" && !inOnboarding) {
+        if (!completed && !inOnboarding) {
           router.replace("/onboarding");
-        } else if (completed === "true" && inOnboarding) {
+        } else if (completed && inOnboarding) {
           router.replace("/(tabs)");
         }
       } catch (error) {
