@@ -11,7 +11,8 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
@@ -348,7 +349,7 @@ export function TodayScreen() {
 
   const getGreetingTime = () => {
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return "Good morning";
+    if (hour >= 4 && hour < 12) return "Good morning";
     if (hour >= 12 && hour < 17) return "Good afternoon";
     if (hour >= 17 && hour < 21) return "Good evening";
     return "Late night";
@@ -382,16 +383,23 @@ export function TodayScreen() {
   });
 
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: colors.background }]}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar
+        style={colorScheme === "dark" ? "light" : "dark"}
+        translucent
+        backgroundColor="transparent"
+      />
       <Animated.View
         entering={FadeInDown.duration(400).springify()}
         style={{ flex: 1 }}
       >
         <ScrollView
           ref={parentScrollRef}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: 160 }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: 0, paddingBottom: 160 },
+          ]}
+          contentInsetAdjustmentBehavior="never"
           showsVerticalScrollIndicator={false}
         >
           {/* Circadian Scenic Pebble Art Header */}
@@ -408,8 +416,6 @@ export function TodayScreen() {
             colors={colors}
             colorScheme={colorScheme}
             style={{
-              marginHorizontal: -16,
-              marginTop: -20,
               marginBottom: -4,
             }}
           />
@@ -523,7 +529,7 @@ export function TodayScreen() {
           onComplete={() => handlePebbleAnimationComplete(pebble.id)}
         />
       ))}
-    </SafeAreaView>
+    </View>
   );
 }
 

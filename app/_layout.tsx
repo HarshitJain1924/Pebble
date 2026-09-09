@@ -143,7 +143,7 @@ export default function RootLayout() {
             </Stack>
             {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
             <NotificationListener />
-            <StatusBar style="auto" />
+            <StatusBar style="auto" translucent backgroundColor="transparent" />
           </UndoProvider>
         </BottomSheetModalProvider>
       </ThemeProvider>

@@ -1,20 +1,28 @@
+import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   Image,
+  Platform,
   Pressable,
+  StatusBar as RNStatusBar,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import Animated, { FadeInRight, FadeOutRight } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
-import { AppText as Text, AppTextInput as TextInput } from "@/shared/components/ui/AppText";
 import { RenderAvatar } from "@/features/profile/components/RenderAvatar";
+import {
+  AppText as Text,
+  AppTextInput as TextInput,
+} from "@/shared/components/ui/AppText";
 import { type ThemeColors } from "@/shared/constants/theme";
 
-const MORNING_ART = require("@/assets/images/today/pebble_morning.jpg");
+const MORNING_LIGHT_ART = require("@/assets/images/today/pebble_morning_light.jpg");
+const MORNING_DARK_ART = require("@/assets/images/today/pebble_morning_dark.jpg");
 const AFTERNOON_ART = require("@/assets/images/today/pebble_afternoon.jpg");
 const NIGHT_ART = require("@/assets/images/today/pebble_night.jpg");
 
@@ -22,7 +30,7 @@ export type CircadianPeriod = "morning" | "afternoon" | "night";
 
 export const getCircadianPeriod = (date = new Date()): CircadianPeriod => {
   const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return "morning";
+  if (hour >= 4 && hour < 12) return "morning";
   if (hour >= 12 && hour < 18) return "afternoon";
   return "night";
 };
@@ -38,7 +46,22 @@ export const getGreetingForPeriod = (period: CircadianPeriod): string => {
   }
 };
 
+export const getCircadianArtSource = (
+  period: CircadianPeriod,
+  isDark = false,
+) => {
+  switch (period) {
+    case "morning":
+      return isDark ? MORNING_DARK_ART : MORNING_LIGHT_ART;
+    case "afternoon":
+      return AFTERNOON_ART;
+    case "night":
+      return NIGHT_ART;
+  }
+};
+
 export interface PebbleCircadianHeaderProps {
+  forcePeriod?: CircadianPeriod;
   kicker?: string;
   title?: string;
   subtitle?: string;
@@ -55,6 +78,7 @@ export interface PebbleCircadianHeaderProps {
 }
 
 export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
+  forcePeriod,
   kicker,
   title,
   subtitle = "Small steps. A calmer you.",
@@ -70,72 +94,117 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
   style,
 }) => {
   const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [isSearching, setIsSearching] = useState(false);
   const isDark = colorScheme === "dark";
 
-  const period = getCircadianPeriod();
-  const artSource =
-    isDark && period === "night"
-      ? NIGHT_ART
-      : period === "morning"
-      ? MORNING_ART
-      : period === "afternoon"
-      ? AFTERNOON_ART
-      : NIGHT_ART;
+  const period = forcePeriod || getCircadianPeriod();
+  const artSource = getCircadianArtSource(period, isDark);
 
-  const displayKicker = kicker || getGreetingForPeriod(period);
-  const rawName = profile?.name?.trim() || "Harshit";
-  const displayName = rawName.includes("🌿") ? rawName : `${rawName} 🌿`;
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === "android" ? RNStatusBar.currentHeight || 28 : 20,
+  );
+  const totalHeaderHeight = 180 + topInset;
+
+  const displayKicker = kicker
+    ? kicker.endsWith(",")
+      ? kicker
+      : `${kicker},`
+    : getGreetingForPeriod(period);
+
+  const displayName =
+    (title && title.trim()) || (profile?.name && profile.name.trim()) || "User";
 
   return (
-    <View style={[styles.container, style]}>
-      {/* Background Scenic Art */}
+    <View
+      style={[
+        styles.container,
+        {
+          width: screenWidth,
+          height: totalHeaderHeight,
+          marginLeft: -16,
+          marginRight: -16,
+        },
+        style,
+      ]}
+    >
+      {/* Background Scenic Art extending full bleed under status bar & camera */}
       <Image
         source={artSource}
-        style={styles.backgroundImage}
+        style={[
+          styles.backgroundImage,
+          {
+            width: screenWidth,
+            height: totalHeaderHeight,
+          },
+        ]}
         resizeMode="cover"
         accessibilityLabel={`Pebble ${period} scenic artwork`}
       />
 
-      {/* Dark Mode Scrim to ensure crisp contrast on light text */}
-      {isDark && (
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: "rgba(10, 13, 18, 0.4)" },
-          ]}
-          pointerEvents="none"
-        />
-      )}
-
-      {/* SVG Gradient Fade into Canvas Background */}
+      {/* SVG Gradient Fade seamlessly melting the artwork into colors.background */}
       <Svg
         style={StyleSheet.absoluteFill}
-        width="100%"
-        height="100%"
+        width={screenWidth}
+        height={totalHeaderHeight}
         pointerEvents="none"
       >
         <Defs>
+          {/* Subtle top vignette for front camera punch-hole and status bar readability */}
+          <LinearGradient id="circadianTopVignette" x1="0" y1="0" x2="0" y2="1">
+            <Stop
+              offset="0%"
+              stopColor="#000000"
+              stopOpacity={isDark ? "0.32" : "0.15"}
+            />
+            <Stop offset="100%" stopColor="#000000" stopOpacity="0" />
+          </LinearGradient>
+          {/* Bottom fade into background */}
           <LinearGradient id="circadianFade" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0%" stopColor={colors.background} stopOpacity="0" />
+            <Stop offset="35%" stopColor={colors.background} stopOpacity="0" />
             <Stop
-              offset="50%"
+              offset="60%"
               stopColor={colors.background}
-              stopOpacity={isDark ? "0.3" : "0.15"}
+              stopOpacity={isDark ? "0.35" : "0.2"}
             />
             <Stop
               offset="80%"
               stopColor={colors.background}
-              stopOpacity={isDark ? "0.85" : "0.75"}
+              stopOpacity={isDark ? "0.8" : "0.7"}
             />
             <Stop offset="100%" stopColor={colors.background} stopOpacity="1" />
           </LinearGradient>
         </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#circadianFade)" />
+        {/* Top Vignette behind status bar & camera punch-hole */}
+        <Rect
+          x="0"
+          y="0"
+          width={screenWidth}
+          height={topInset + 12}
+          fill="url(#circadianTopVignette)"
+        />
+        {/* Bottom Fade */}
+        <Rect
+          x="0"
+          y="0"
+          width={screenWidth}
+          height={totalHeaderHeight}
+          fill="url(#circadianFade)"
+        />
       </Svg>
 
-      {/* Header Controls & Titles */}
-      <View style={styles.contentWrap}>
+      {/* Header Controls & Titles safely padded below the front camera and status bar */}
+      <View
+        style={[
+          styles.contentWrap,
+          {
+            paddingTop: topInset + 8,
+          },
+        ]}
+      >
         {isSearching ? (
           <Animated.View
             entering={FadeInRight.duration(200)}
@@ -144,8 +213,8 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
               styles.searchContainer,
               {
                 backgroundColor: isDark
-                  ? "rgba(28, 28, 33, 0.85)"
-                  : "rgba(255, 255, 255, 0.9)",
+                  ? "rgba(28, 28, 33, 0.9)"
+                  : "rgba(255, 255, 255, 0.95)",
                 borderColor: colors.border,
               },
             ]}
@@ -183,7 +252,12 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                 style={[
                   styles.kickerText,
                   {
-                    color: isDark ? "rgba(228, 228, 231, 0.75)" : "#4B5563",
+                    color: isDark ? "rgba(228, 228, 231, 0.9)" : "#4B5563",
+                    textShadowColor: isDark
+                      ? "rgba(0, 0, 0, 0.85)"
+                      : "transparent",
+                    textShadowOffset: { width: 0, height: 1 },
+                    textShadowRadius: 3,
                   },
                 ]}
               >
@@ -195,21 +269,26 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                   {
                     color: colors.text,
                     textShadowColor: isDark
-                      ? "rgba(0,0,0,0.6)"
-                      : "rgba(255,255,255,0.8)",
+                      ? "rgba(0, 0, 0, 0.9)"
+                      : "rgba(255, 255, 255, 0.9)",
                     textShadowOffset: { width: 0, height: 1 },
-                    textShadowRadius: 2,
+                    textShadowRadius: 3,
                   },
                 ]}
                 numberOfLines={1}
               >
-                {title || displayName}
+                {displayName}
               </Text>
               <Text
                 style={[
                   styles.subtitleText,
                   {
-                    color: isDark ? "rgba(228, 228, 231, 0.65)" : "#6B7280",
+                    color: isDark ? "rgba(228, 228, 231, 0.8)" : "#6B7280",
+                    textShadowColor: isDark
+                      ? "rgba(0, 0, 0, 0.85)"
+                      : "transparent",
+                    textShadowOffset: { width: 0, height: 1 },
+                    textShadowRadius: 3,
                   },
                 ]}
                 numberOfLines={1}
@@ -227,10 +306,10 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                     styles.circleActionButton,
                     {
                       backgroundColor: isDark
-                        ? "rgba(255, 255, 255, 0.12)"
+                        ? "rgba(20, 20, 25, 0.65)"
                         : "rgba(255, 255, 255, 0.85)",
                       borderColor: isDark
-                        ? "rgba(255, 255, 255, 0.15)"
+                        ? "rgba(255, 255, 255, 0.18)"
                         : "rgba(0, 0, 0, 0.08)",
                       opacity: pressed ? 0.75 : 1,
                     },
@@ -270,7 +349,7 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                   styles.avatarWrapper,
                   {
                     borderColor: isDark
-                      ? "rgba(255, 255, 255, 0.2)"
+                      ? "rgba(255, 255, 255, 0.25)"
                       : "rgba(0, 0, 0, 0.1)",
                     opacity: pressed ? 0.8 : 1,
                   },
@@ -296,19 +375,14 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    width: "100%",
-    height: 180,
     position: "relative",
     overflow: "hidden",
     justifyContent: "flex-end",
   },
   backgroundImage: {
     position: "absolute",
-    top: -20,
+    top: 0,
     left: 0,
-    right: 0,
-    width: "100%",
-    height: 220,
   },
   contentWrap: {
     paddingHorizontal: 16,
