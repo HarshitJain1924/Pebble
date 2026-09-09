@@ -10,6 +10,7 @@ import {
 import * as remindersService from "@/services/scheduling/reminders.service";
 import type { Habit, Task, Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { emitStateChange } from "@/services/events/state-events";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
@@ -298,6 +299,90 @@ describe("escalation toggle reconciliation", () => {
     const notifs = osNotifsFor("task-esc2");
     expect(notifs).toHaveLength(3);
     expect(notifs.map((n) => n.content.data.escalationLevel).sort()).toEqual([0, 1, 2]);
+  });
+});
+
+async function flushAsync(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+describe("settings_changed wiring & concurrency", () => {
+  it("settings_changed reaches the notification reconciliation layer via the registered hook", async () => {
+    const spy = jest
+      .spyOn(
+        NotificationReconcilerService,
+        "reconcileScheduledNotificationsForSettings",
+      )
+      .mockResolvedValue(undefined);
+    const unsubscribe =
+      NotificationReconcilerService.registerSettingsChangeReconciliation();
+    try {
+      emitStateChange("settings_changed");
+      await flushAsync();
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+      unsubscribe();
+    }
+  });
+
+  it("emitting settings_changed reconciles already-scheduled notifications (end-to-end)", async () => {
+    const triggerAt = futureAtLocalHour(10).getTime();
+    await scheduleTaskWithEscalations("task-event", "work", triggerAt);
+    expect(osNotifsFor("task-event")).toHaveLength(3);
+
+    await SettingsRepository.saveSettings({
+      ...DEFAULT_SETTINGS,
+      escalationEnabled: false,
+    });
+
+    const unsubscribe =
+      NotificationReconcilerService.registerSettingsChangeReconciliation();
+    try {
+      emitStateChange("settings_changed");
+      await flushAsync();
+
+      const notifs = osNotifsFor("task-event");
+      expect(notifs).toHaveLength(1);
+      expect(notifs[0].content.data.escalationLevel).toBe(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("unsubscribing the settings hook stops future reconciliation", async () => {
+    const spy = jest
+      .spyOn(
+        NotificationReconcilerService,
+        "reconcileScheduledNotificationsForSettings",
+      )
+      .mockResolvedValue(undefined);
+    const unsubscribe =
+      NotificationReconcilerService.registerSettingsChangeReconciliation();
+    unsubscribe();
+    try {
+      emitStateChange("settings_changed");
+      await flushAsync();
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("concurrent overlapping settings reconciliations do not duplicate notifications", async () => {
+    const triggerAt = futureAtLocalHour(10).getTime();
+    await scheduleTaskWithEscalations("task-conc", "work", triggerAt);
+
+    await Promise.all([
+      NotificationReconcilerService.reconcileScheduledNotificationsForSettings(),
+      NotificationReconcilerService.reconcileScheduledNotificationsForSettings(),
+    ]);
+
+    expect(osNotifsFor("task-conc")).toHaveLength(3);
+    const task = await TaskRepository.getTask("task-conc", INBOX_WORKSPACE_ID);
+    expect(task?.reminder?.notificationIds?.length).toBe(3);
   });
 });
 

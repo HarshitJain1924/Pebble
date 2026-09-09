@@ -27,7 +27,6 @@ import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService"
 import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import { BackupService } from "@/services/storage/backup.service";
 import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
-import { addStateListener } from "@/services/events/state-events";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -56,12 +55,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     // Settings changes (quiet-hours window, category subscriptions, escalation
-    // gate) must also re-align already-scheduled notifications. The reconciler
-    // is idempotent and serialized, so repeated events converge to one correct
-    // schedule instead of duplicating reminders.
-    return addStateListener("settings_changed", () => {
-      void NotificationReconcilerService.reconcileScheduledNotificationsForSettings();
-    });
+    // gate) must also re-align already-scheduled notifications. The hook is
+    // owned by the notification layer itself (idempotent + serialized).
+    return NotificationReconcilerService.registerSettingsChangeReconciliation();
   }, []);
 
   useEffect(() => {

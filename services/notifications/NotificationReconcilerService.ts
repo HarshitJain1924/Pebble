@@ -22,6 +22,7 @@ import {
   getSettings,
   isCurrentlyInQuietHours,
 } from "@/features/settings/services/settings.service";
+import { addStateListener } from "@/services/events/state-events";
 
 const DEFAULT_ESCALATION_MINUTES = [120, 240];
 
@@ -149,6 +150,21 @@ export class NotificationReconcilerService {
    */
   static async reconcileScheduledNotificationsForSettings(): Promise<void> {
     return this.reconcileAll();
+  }
+
+  /**
+   * Registers the settings-driven reconciliation hook on the global
+   * `settings_changed` event. The notification layer owns reacting to Settings
+   * changes — individual screens never reschedule notifications themselves.
+   *
+   * Returns an unsubscribe function; called once from the app root.
+   * Reconciliation is serialized and idempotent, so rapid repeated events
+   * converge to one correct scheduled state instead of duplicating reminders.
+   */
+  static registerSettingsChangeReconciliation(): () => void {
+    return addStateListener("settings_changed", () => {
+      void this.reconcileScheduledNotificationsForSettings();
+    });
   }
 
   private static async performReconcileAll(): Promise<void> {
