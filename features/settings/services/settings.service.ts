@@ -1,5 +1,5 @@
 import type { Settings, UserProfile } from "@/shared/types/domain.types";
-import { OnboardingRepository, UiStateRepository } from "@/repositories";
+import { UiStateRepository } from "@/repositories";
 import {
   SettingsRepository,
   type SettingsPatch,
@@ -80,18 +80,12 @@ export async function getProfile(): Promise<UserProfile> {
 
 export async function saveProfile(profile: UserProfile): Promise<void> {
   await UserProfileRepository.saveProfile(profile);
-  if (profile.name !== "") {
-    await OnboardingRepository.setOnboardingCompleted(true);
-  }
 }
 
 export async function updateProfile(
   patch: Partial<UserProfile>,
 ): Promise<UserProfile> {
   const next = await UserProfileRepository.updateProfile(patch);
-  if (next.name !== "") {
-    await OnboardingRepository.setOnboardingCompleted(true);
-  }
   return next;
 }
 

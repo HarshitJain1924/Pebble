@@ -85,7 +85,7 @@ describe("settings.service persistence delegation", () => {
       });
     });
 
-    it("saveProfile persists through the repository and flags completedOnboarding", async () => {
+    it("saveProfile persists through the repository and does NOT complete onboarding", async () => {
       await saveProfile({
         name: "Ada",
         email: "ada@example.com",
@@ -98,13 +98,15 @@ describe("settings.service persistence delegation", () => {
       expect(persisted.name).toBe("Ada");
       expect(persisted.avatar).toBe("🚀");
 
-      const uiState = JSON.parse((await storage.getItem(UI_STATE_KEY))!);
-      expect(uiState.completedOnboarding).toBe(true);
+      const uiStateRaw = await storage.getItem(UI_STATE_KEY);
+      if (uiStateRaw) {
+        const uiState = JSON.parse(uiStateRaw);
+        expect(uiState.completedOnboarding).toBe(false);
+      }
     });
 
-    it("saveProfile with an empty name does not touch onboarding state", async () => {
-      await saveProfile({ name: "", email: "", avatar: "" });
-
+    it("updateProfile does NOT complete onboarding", async () => {
+      await updateProfile({ name: "Ada Updated" });
       const uiStateRaw = await storage.getItem(UI_STATE_KEY);
       if (uiStateRaw) {
         const uiState = JSON.parse(uiStateRaw);

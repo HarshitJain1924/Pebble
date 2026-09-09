@@ -7,12 +7,12 @@ import {
   SafeAreaView,
   Platform,
   Image,
+  Alert,
   useWindowDimensions,
 } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { OnboardingService } from "@/services/onboarding/onboarding.service";
 import Animated, {
   FadeIn,
@@ -771,11 +771,21 @@ export default function OnboardingScreen() {
 
   const completeOnboarding = async () => {
     try {
-      await OnboardingService.completeOnboarding();
+      const res = await OnboardingService.completeOnboarding();
+      if (res.success) {
+        router.replace("/(tabs)");
+      } else {
+        Alert.alert(
+          "Setup Incomplete",
+          "Could not finish onboarding setup. Please try again.",
+        );
+      }
     } catch (e) {
       console.warn("[OnboardingScreen] Error completing onboarding:", e);
-    } finally {
-      router.replace("/(tabs)");
+      Alert.alert(
+        "Setup Error",
+        "An error occurred while finishing setup. Please try again.",
+      );
     }
   };
 

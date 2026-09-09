@@ -41,6 +41,10 @@ import {
   INBOX_WORKSPACE_ID,
   MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
+import {
+  saveProfile,
+  updateProfile,
+} from "@/features/settings/services/settings.service";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
@@ -383,5 +387,132 @@ describe("Onboarding & First-Run State Integrity (Phase 6)", () => {
     const secondRes = await OnboardingService.completeOnboarding();
     expect(secondRes.changed).toBe(false);
     expect(emitStateChange).not.toHaveBeenCalled();
+  });
+
+  // ── Issue 1: Navigation contract on onboarding completion ──
+  describe("Issue 1: Navigation contract on onboarding completion", () => {
+    test("Failed completion does not navigate into the app and leaves onboarding incomplete", async () => {
+      const mockRouterReplace = jest.fn();
+      jest.spyOn(OnboardingService, "completeOnboarding").mockRejectedValueOnce(new Error("Setup explosion"));
+
+      // Simulate completion flow in UI (app/onboarding.tsx)
+      let navigated = false;
+      try {
+        const res = await OnboardingService.completeOnboarding();
+        if (res.success) {
+          mockRouterReplace("/(tabs)");
+          navigated = true;
+        }
+      } catch (e) {
+        // Handled cleanly in UI
+      }
+
+      expect(navigated).toBe(false);
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(false);
+    });
+
+    test("Successful completion navigates into the app", async () => {
+      const mockRouterReplace = jest.fn();
+      const res = await OnboardingService.completeOnboarding();
+      if (res.success) {
+        mockRouterReplace("/(tabs)");
+      }
+
+      expect(mockRouterReplace).toHaveBeenCalledWith("/(tabs)");
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(true);
+    });
+  });
+
+  // ── Issue 2: Persistence Consistency & Atomicity ──
+  describe("Issue 2: Persistence Consistency & Atomicity", () => {
+    test("Canonical write succeeds while legacy mirror fails -> canonical state completed, getOnboardingState returns true", async () => {
+      const defaultSetItem = (AsyncStorage.setItem as jest.Mock).getMockImplementation();
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, val: string, callback?: any) => {
+        if (key === ONBOARDING_COMPLETED_KEY) {
+          throw new Error("Mirror write failed");
+        }
+        return (AsyncStorage as any).multiSet([[key, val]], callback);
+      });
+
+      await expect(OnboardingRepository.setOnboardingCompleted(true)).resolves.not.toThrow();
+
+      (AsyncStorage.setItem as jest.Mock).mockImplementation(defaultSetItem);
+
+      const state = await OnboardingRepository.getOnboardingState();
+      expect(state.completed).toBe(true);
+
+      const uiState = await UiStateRepository.getUiState();
+      expect(uiState.completedOnboarding).toBe(true);
+    });
+
+    test("Canonical write failure throws and leaves onboarding incomplete", async () => {
+      await OnboardingRepository.resetOnboarding();
+      const saveSpy = jest.spyOn(UiStateRepository, "saveUiState").mockRejectedValueOnce(new Error("Canonical write failed"));
+
+      await expect(OnboardingRepository.setOnboardingCompleted(true)).rejects.toThrow("Canonical write failed");
+
+      saveSpy.mockRestore();
+
+      const state = await OnboardingRepository.getOnboardingState();
+      expect(state.completed).toBe(false);
+    });
+
+    test("Legacy key contains stale 'true' while canonical state is 'false' -> getOnboardingState returns false", async () => {
+      await UiStateRepository.saveUiState({ completedOnboarding: false });
+      await AsyncStorage.setItem(ONBOARDING_COMPLETED_KEY, "true");
+
+      const state = await OnboardingRepository.getOnboardingState();
+      expect(state.completed).toBe(false);
+    });
+
+    test("Legacy key contains stale 'false' while canonical state is 'true' -> getOnboardingState returns true", async () => {
+      await UiStateRepository.saveUiState({ completedOnboarding: true });
+      await AsyncStorage.setItem(ONBOARDING_COMPLETED_KEY, "false");
+
+      const state = await OnboardingRepository.getOnboardingState();
+      expect(state.completed).toBe(true);
+    });
+  });
+
+  // ── Issue 3: Profile Isolation ──
+  describe("Issue 3: Profile Isolation", () => {
+    test("Saving a named profile does NOT mark onboarding complete", async () => {
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(false);
+
+      await saveProfile({
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        avatar: "👩‍💻",
+      });
+
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(false);
+      const uiState = await UiStateRepository.getUiState();
+      expect(uiState.completedOnboarding).toBe(false);
+      expect(await AsyncStorage.getItem(ONBOARDING_COMPLETED_KEY)).toBeNull();
+    });
+
+    test("Updating a named profile does NOT mark onboarding complete", async () => {
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(false);
+
+      await updateProfile({ name: "Grace Hopper" });
+
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(false);
+      const uiState = await UiStateRepository.getUiState();
+      expect(uiState.completedOnboarding).toBe(false);
+      expect(await AsyncStorage.getItem(ONBOARDING_COMPLETED_KEY)).toBeNull();
+    });
+
+    test("Explicit OnboardingService.completeOnboarding() DOES mark onboarding complete", async () => {
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(false);
+
+      const res = await OnboardingService.completeOnboarding();
+      expect(res.success).toBe(true);
+      expect(res.changed).toBe(true);
+
+      expect(await OnboardingService.isOnboardingCompleted()).toBe(true);
+      const uiState = await UiStateRepository.getUiState();
+      expect(uiState.completedOnboarding).toBe(true);
+    });
   });
 });
