@@ -48,12 +48,13 @@ export interface GraphReconciliationReport {
 
 export class GraphReconcilerService {
   private static readonly RELATIONSHIPS_KEY = "pebble:v1:relationships";
+  private static readonly RECONCILER_LOCK = "pebble:v1:graph_reconciler_running";
 
   /**
    * Reconciles all relationship edges against active domain storage.
    */
   static async reconcileAll(): Promise<GraphReconciliationReport> {
-    return withLock(this.RELATIONSHIPS_KEY, async () => {
+    return withLock(this.RECONCILER_LOCK, async () => {
       const report: GraphReconciliationReport = {
         checked: 0,
         prunedDangling: 0,
@@ -62,66 +63,70 @@ export class GraphReconcilerService {
         cleanedResourceIds: 0,
       };
 
-      // 1. Build authoritative registry of active entities
-      const workspaces = await WorkspaceRepository.getWorkspaces();
-      const activeEntities = new Map<
-        string,
-        { type: string; lifecycleGeneration: number; workspaceId: string }
-      >();
-      const activeResourceIds = new Set<string>();
+    // 1. Build authoritative registry of active entities
+    const workspaces = await WorkspaceRepository.getWorkspaces();
+    const activeEntities = new Map<
+      string,
+      { type: string; lifecycleGeneration: number; workspaceId: string }
+    >();
+    const activeResourceIdsByWorkspace = new Map<string, Set<string>>();
 
-      const allTasks: Task[] = [];
-      const allHabits: Habit[] = [];
-      const allChecklists: Checklist[] = [];
+    const allTasks: Task[] = [];
+    const allHabits: Habit[] = [];
+    const allChecklists: Checklist[] = [];
 
-      for (const ws of workspaces) {
-        const [tasksMap, habitsMap, checklistsMap, resourcesMap] =
-          await Promise.all([
-            TaskRepository.getTasks(ws.id),
-            HabitRepository.getHabits(ws.id),
-            ChecklistRepository.getChecklists(ws.id),
-            ResourceRepository.getResources(ws.id),
-          ]);
+    for (const ws of workspaces) {
+      const [tasksMap, habitsMap, checklistsMap, resourcesMap] =
+        await Promise.all([
+          TaskRepository.getTasks(ws.id),
+          HabitRepository.getHabits(ws.id),
+          ChecklistRepository.getChecklists(ws.id),
+          ResourceRepository.getResources(ws.id),
+        ]);
 
-        for (const t of Object.values(tasksMap)) {
-          allTasks.push(t);
-          activeEntities.set(t.id, {
-            type: "task",
-            lifecycleGeneration: t.lifecycleGeneration ?? 1,
-            workspaceId: ws.id,
-          });
-        }
-        for (const h of Object.values(habitsMap)) {
-          allHabits.push(h);
-          activeEntities.set(h.id, {
-            type: "habit",
-            lifecycleGeneration: h.lifecycleGeneration ?? 1,
-            workspaceId: ws.id,
-          });
-        }
-        for (const c of Object.values(checklistsMap)) {
-          allChecklists.push(c);
-          activeEntities.set(c.id, {
-            type: "checklist",
-            lifecycleGeneration: c.lifecycleGeneration ?? 1,
-            workspaceId: ws.id,
-          });
-        }
-        for (const r of Object.values(resourcesMap)) {
-          activeResourceIds.add(r.id);
-          activeEntities.set(r.id, {
-            type: "resource",
-            lifecycleGeneration: r.lifecycleGeneration ?? 1,
-            workspaceId: ws.id,
-          });
-        }
+      for (const t of Object.values(tasksMap)) {
+        allTasks.push(t);
+        activeEntities.set(t.id, {
+          type: "task",
+          lifecycleGeneration: t.lifecycleGeneration ?? 1,
+          workspaceId: ws.id,
+        });
+      }
+      for (const h of Object.values(habitsMap)) {
+        allHabits.push(h);
+        activeEntities.set(h.id, {
+          type: "habit",
+          lifecycleGeneration: h.lifecycleGeneration ?? 1,
+          workspaceId: ws.id,
+        });
+      }
+      for (const c of Object.values(checklistsMap)) {
+        allChecklists.push(c);
+        activeEntities.set(c.id, {
+          type: "checklist",
+          lifecycleGeneration: c.lifecycleGeneration ?? 1,
+          workspaceId: ws.id,
+        });
       }
 
-      // Add FocusSessions
-      const focusSessions = await GraphRepository.getFocusSessions();
-      const activeFocusIds = new Set(focusSessions.map((s) => s.id));
+      const wsResSet = new Set<string>();
+      for (const r of Object.values(resourcesMap)) {
+        wsResSet.add(r.id);
+        activeEntities.set(r.id, {
+          type: "resource",
+          lifecycleGeneration: r.lifecycleGeneration ?? 1,
+          workspaceId: ws.id,
+        });
+      }
+      activeResourceIdsByWorkspace.set(ws.id, wsResSet);
+    }
 
-      // 2. Load relationships via canonical repository
+    // Add FocusSessions
+    const focusSessions = await GraphRepository.getFocusSessions();
+    const activeFocusIds = new Set(focusSessions.map((s) => s.id));
+
+    // Phase 1: Relationship graph reconciliation under RELATIONSHIPS_KEY
+    await withLock(this.RELATIONSHIPS_KEY, async () => {
       await GraphRepository.ensureLoadedUnlocked();
       const currentRelationships =
         await GraphRepository.getAllRelationshipsUnlocked();
@@ -135,6 +140,7 @@ export class GraphReconcilerService {
         // Validate source
         let sourceValid = false;
         let sourceGen: number | undefined;
+        let sourceWs: string | undefined;
 
         if (rel.source.type === "focus") {
           sourceValid = activeFocusIds.has(rel.source.id);
@@ -147,6 +153,7 @@ export class GraphReconcilerService {
             ) {
               sourceValid = true;
               sourceGen = entity.lifecycleGeneration;
+              sourceWs = entity.workspaceId;
             }
           }
         }
@@ -160,6 +167,7 @@ export class GraphReconcilerService {
         // Validate target
         let targetValid = false;
         let targetGen: number | undefined;
+        let targetWs: string | undefined;
 
         if (rel.target.type === "focus") {
           targetValid = activeFocusIds.has(rel.target.id);
@@ -172,11 +180,19 @@ export class GraphReconcilerService {
             ) {
               targetValid = true;
               targetGen = entity.lifecycleGeneration;
+              targetWs = entity.workspaceId;
             }
           }
         }
 
         if (!targetValid) {
+          report.prunedDangling++;
+          graphChanged = true;
+          continue;
+        }
+
+        // Cross-workspace edge rejection: if both endpoints belong to workspaces and workspaces differ, prune
+        if (sourceWs && targetWs && sourceWs !== targetWs) {
           report.prunedDangling++;
           graphChanged = true;
           continue;
@@ -231,148 +247,152 @@ export class GraphReconcilerService {
         validEdges[updatedRel.id] = updatedRel;
       }
 
-      // 3. Persist cleaned graph via canonical GraphRepository boundary
+      // Persist cleaned graph via canonical GraphRepository boundary
       if (graphChanged) {
         await GraphRepository.replaceRelationshipsUnlocked(validEdges);
         emitStateChange("graph_changed", "graph_reconciler");
       }
+    });
 
-      // 4. Clean dangling resourceIds via targeted repository writes,
-      // preserving updatedAt, revision, and lifecycleGeneration.
-      for (const t of allTasks) {
-        if (t.resourceIds && t.resourceIds.length > 0) {
-          const filtered = t.resourceIds.filter((rid) =>
-            activeResourceIds.has(rid),
+    // Phase 2: Clean dangling & cross-workspace resourceIds via targeted repository writes,
+    // executed OUTSIDE the relationships lock to prevent ABBA deadlocks with workspace/entity locks.
+    for (const t of allTasks) {
+      if (t.resourceIds && t.resourceIds.length > 0) {
+        const validResources =
+          activeResourceIdsByWorkspace.get(t.workspaceId) || new Set<string>();
+        const filtered = t.resourceIds.filter((rid) =>
+          validResources.has(rid),
+        );
+        if (filtered.length !== t.resourceIds.length) {
+          let res = await TaskRepository.updateResourceIds(
+            t.id,
+            t.workspaceId,
+            filtered,
+            {
+              updatedAt: t.updatedAt,
+              revision: t.revision,
+              lifecycleGeneration: t.lifecycleGeneration,
+            }
           );
-          if (filtered.length !== t.resourceIds.length) {
-            let res = await TaskRepository.updateResourceIds(
-              t.id,
-              t.workspaceId,
-              filtered,
-              {
-                updatedAt: t.updatedAt,
-                revision: t.revision,
-                lifecycleGeneration: t.lifecycleGeneration,
-              }
-            );
-            if (res === "state_changed") {
-              // Concurrency protection: re-fetch fresh task to not overwrite concurrent edits
-              const fresh = await TaskRepository.getTask(t.id, t.workspaceId);
-              if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
-                const freshFiltered = fresh.resourceIds.filter((rid) =>
-                  activeResourceIds.has(rid),
+          if (res === "state_changed") {
+            const fresh = await TaskRepository.getTask(t.id, t.workspaceId);
+            if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
+              const freshFiltered = fresh.resourceIds.filter((rid) =>
+                validResources.has(rid),
+              );
+              if (freshFiltered.length !== fresh.resourceIds.length) {
+                res = await TaskRepository.updateResourceIds(
+                  fresh.id,
+                  fresh.workspaceId,
+                  freshFiltered,
+                  {
+                    updatedAt: fresh.updatedAt,
+                    revision: fresh.revision,
+                    lifecycleGeneration: fresh.lifecycleGeneration,
+                  }
                 );
-                if (freshFiltered.length !== fresh.resourceIds.length) {
-                  res = await TaskRepository.updateResourceIds(
-                    fresh.id,
-                    fresh.workspaceId,
-                    freshFiltered,
-                    {
-                      updatedAt: fresh.updatedAt,
-                      revision: fresh.revision,
-                      lifecycleGeneration: fresh.lifecycleGeneration,
-                    }
-                  );
-                }
               }
             }
-            if (res === "updated") {
-              report.cleanedResourceIds +=
-                t.resourceIds.length - filtered.length;
-            }
+          }
+          if (res === "updated") {
+            report.cleanedResourceIds +=
+              t.resourceIds.length - filtered.length;
           }
         }
       }
+    }
 
-      for (const h of allHabits) {
-        if (h.resourceIds && h.resourceIds.length > 0) {
-          const filtered = h.resourceIds.filter((rid) =>
-            activeResourceIds.has(rid),
+    for (const h of allHabits) {
+      if (h.resourceIds && h.resourceIds.length > 0) {
+        const validResources =
+          activeResourceIdsByWorkspace.get(h.workspaceId) || new Set<string>();
+        const filtered = h.resourceIds.filter((rid) =>
+          validResources.has(rid),
+        );
+        if (filtered.length !== h.resourceIds.length) {
+          let res = await HabitRepository.updateResourceIds(
+            h.id,
+            h.workspaceId,
+            filtered,
+            {
+              updatedAt: h.updatedAt,
+              revision: h.revision,
+              lifecycleGeneration: h.lifecycleGeneration,
+            }
           );
-          if (filtered.length !== h.resourceIds.length) {
-            let res = await HabitRepository.updateResourceIds(
-              h.id,
-              h.workspaceId,
-              filtered,
-              {
-                updatedAt: h.updatedAt,
-                revision: h.revision,
-                lifecycleGeneration: h.lifecycleGeneration,
-              }
-            );
-            if (res === "state_changed") {
-              // Concurrency protection: re-fetch fresh habit to not overwrite concurrent edits
-              const fresh = await HabitRepository.getHabit(h.id, h.workspaceId);
-              if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
-                const freshFiltered = fresh.resourceIds.filter((rid) =>
-                  activeResourceIds.has(rid),
+          if (res === "state_changed") {
+            const fresh = await HabitRepository.getHabit(h.id, h.workspaceId);
+            if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
+              const freshFiltered = fresh.resourceIds.filter((rid) =>
+                validResources.has(rid),
+              );
+              if (freshFiltered.length !== fresh.resourceIds.length) {
+                res = await HabitRepository.updateResourceIds(
+                  fresh.id,
+                  fresh.workspaceId,
+                  freshFiltered,
+                  {
+                    updatedAt: fresh.updatedAt,
+                    revision: fresh.revision,
+                    lifecycleGeneration: fresh.lifecycleGeneration,
+                  }
                 );
-                if (freshFiltered.length !== fresh.resourceIds.length) {
-                  res = await HabitRepository.updateResourceIds(
-                    fresh.id,
-                    fresh.workspaceId,
-                    freshFiltered,
-                    {
-                      updatedAt: fresh.updatedAt,
-                      revision: fresh.revision,
-                      lifecycleGeneration: fresh.lifecycleGeneration,
-                    }
-                  );
-                }
               }
             }
-            if (res === "updated") {
-              report.cleanedResourceIds +=
-                h.resourceIds.length - filtered.length;
-            }
+          }
+          if (res === "updated") {
+            report.cleanedResourceIds +=
+              h.resourceIds.length - filtered.length;
           }
         }
       }
+    }
 
-      for (const c of allChecklists) {
-        if (c.resourceIds && c.resourceIds.length > 0) {
-          const filtered = c.resourceIds.filter((rid) =>
-            activeResourceIds.has(rid),
+    for (const c of allChecklists) {
+      if (c.resourceIds && c.resourceIds.length > 0) {
+        const validResources =
+          activeResourceIdsByWorkspace.get(c.workspaceId) || new Set<string>();
+        const filtered = c.resourceIds.filter((rid) =>
+          validResources.has(rid),
+        );
+        if (filtered.length !== c.resourceIds.length) {
+          let res = await ChecklistRepository.updateResourceIds(
+            c.id,
+            c.workspaceId,
+            filtered,
+            {
+              updatedAt: c.updatedAt,
+              revision: c.revision,
+              lifecycleGeneration: c.lifecycleGeneration,
+            }
           );
-          if (filtered.length !== c.resourceIds.length) {
-            let res = await ChecklistRepository.updateResourceIds(
-              c.id,
-              c.workspaceId,
-              filtered,
-              {
-                updatedAt: c.updatedAt,
-                revision: c.revision,
-                lifecycleGeneration: c.lifecycleGeneration,
-              }
-            );
-            if (res === "state_changed") {
-              // Concurrency protection: re-fetch fresh checklist to not overwrite concurrent edits
-              const fresh = await ChecklistRepository.getChecklist(c.id, c.workspaceId);
-              if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
-                const freshFiltered = fresh.resourceIds.filter((rid) =>
-                  activeResourceIds.has(rid),
+          if (res === "state_changed") {
+            const fresh = await ChecklistRepository.getChecklist(c.id, c.workspaceId);
+            if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
+              const freshFiltered = fresh.resourceIds.filter((rid) =>
+                validResources.has(rid),
+              );
+              if (freshFiltered.length !== fresh.resourceIds.length) {
+                res = await ChecklistRepository.updateResourceIds(
+                  fresh.id,
+                  fresh.workspaceId,
+                  freshFiltered,
+                  {
+                    updatedAt: fresh.updatedAt,
+                    revision: fresh.revision,
+                    lifecycleGeneration: fresh.lifecycleGeneration,
+                  }
                 );
-                if (freshFiltered.length !== fresh.resourceIds.length) {
-                  res = await ChecklistRepository.updateResourceIds(
-                    fresh.id,
-                    fresh.workspaceId,
-                    freshFiltered,
-                    {
-                      updatedAt: fresh.updatedAt,
-                      revision: fresh.revision,
-                      lifecycleGeneration: fresh.lifecycleGeneration,
-                    }
-                  );
-                }
               }
             }
-            if (res === "updated") {
-              report.cleanedResourceIds +=
-                c.resourceIds.length - filtered.length;
-            }
+          }
+          if (res === "updated") {
+            report.cleanedResourceIds +=
+              c.resourceIds.length - filtered.length;
           }
         }
       }
+    }
 
       return report;
     });

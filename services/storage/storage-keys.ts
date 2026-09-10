@@ -24,6 +24,7 @@ export const PEBBLE_EXACT_OWNED_KEYS = new Set<string>([
   "pebble:v1:conversion_journal",
   "pebble:v1:conversion_journal_seq",
   "pebble:v1:reconciler_running",
+  "pebble:v1:graph_reconciler_running",
   RESTORE_INTENT_KEY,
 
   // 2. Settings & Profile

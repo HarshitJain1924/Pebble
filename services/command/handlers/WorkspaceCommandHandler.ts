@@ -282,115 +282,112 @@ static async reorderWorkspaces(
         `pebble:v1:resources:${workspaceId}`,
         `ws_lifecycle_${workspaceId}`
       ];
+      let allEntityIds: string[] = [];
+      let notificationIdsToCancel: string[] = [];
+
       await withLocks(locks, async () => {
         // 1. Fetch complete workspace snapshot
         const workspaces = await WorkspaceRepository.getWorkspaces();
-      const workspace = workspaces.find((w) => w.id === workspaceId);
-      if (!workspace) {
-        console.error("Workspace not found! Available workspaces:", workspaces, "Looking for:", workspaceId);
-        throw new Error("Workspace not found");
-      }
-
-      const { TaskRepository } = await import("@/repositories/TaskRepository");
-      const { HabitRepository } = await import("@/repositories/HabitRepository");
-      const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
-      const { ResourceRepository } = await import("@/repositories/ResourceRepository");
-      const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
-      const { cancelReminderIds } = await import("@/services/scheduling/reminders.service");
-
-      const todosMap = await TaskRepository.getTasks(workspaceId);
-      const habitsMap = await HabitRepository.getHabits(workspaceId);
-      const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
-      const resourcesMap = await ResourceRepository.getResources(workspaceId);
-
-      const todos = Object.values(todosMap);
-      const habits = Object.values(habitsMap);
-      const checklists = Object.values(checklistsMap);
-      const resources = Object.values(resourcesMap);
-
-      // 3. Add to Recycle Bin (Safe operation first)
-      await RecycleBinRepository.addToRecycleBin(
-        "workspace",
-        {
-          list: workspace,
-          todos,
-          habits,
-          checklists,
-          resources,
-        },
-        "Workspaces",
-        { throwOnError: true }
-      );
-
-      // 4. Delete Workspace record FIRST (Commit Point)
-      // This MUST happen before partition cleanup. If partition cleanup happens first 
-      // and metadata deletion fails, a subsequent retry will overwrite the safe Recycle Bin backup 
-      // with empty partitions, causing permanent data loss.
-      await WorkspaceRepository.deleteWorkspace(workspaceId, { throwOnError: true });
-
-      // 5. Remove active partitions securely inside the lock boundary.
-      // We use a transactional multiRemove. If it fails, the partitions are orphaned on disk,
-      // which is benign because they are inaccessible and will be safely overwritten if resurrected.
-      const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
-      try {
-        await AsyncStorage.multiRemove([
-          `pebble:v1:tasks:${workspaceId}`,
-          `pebble:v1:habits:${workspaceId}`,
-          `pebble:v1:checklists:${workspaceId}`,
-          `pebble:v1:resources:${workspaceId}`
-        ]);
-      } catch (e) {
-        console.warn(`[EntityCommandService] Failed to clean up partitions for workspace ${workspaceId}`, e);
-        // We DO NOT throw here. The workspace metadata is already deleted. Throwing would abort the cleanup
-        // of related entities (graph, notifications) and leave the system in a worse state.
-      }
-
-      // 6. Async Cleanup (Fire and forget)
-      const cleanup = async () => {
-        try {
-          // 6a. Delete graph relationships
-          const allEntityIds = [
-            ...todos.map(t => t.id),
-            ...habits.map(h => h.id),
-            ...checklists.map(c => c.id),
-            ...resources.map(r => r.id),
-          ];
-          if (allEntityIds.length > 0) {
-            await GraphRepository.deleteRelationshipsForEntities(allEntityIds);
-          }
-
-          // 6b. Cancel notifications
-          const notificationIdsToCancel: string[] = [];
-          for (const todo of todos) {
-            if (todo.reminder?.notificationIds) {
-              notificationIdsToCancel.push(...todo.reminder.notificationIds);
-            }
-          }
-          for (const habit of habits) {
-            if (habit.reminder?.notificationIds) {
-              notificationIdsToCancel.push(...habit.reminder.notificationIds);
-            }
-          }
-          for (const checklist of checklists) {
-            if (checklist.reminder?.notificationIds) {
-              notificationIdsToCancel.push(...checklist.reminder.notificationIds);
-            }
-          }
-          if (notificationIdsToCancel.length > 0) {
-            await cancelReminderIds(notificationIdsToCancel, { throwOnError: false });
-          }
-        } catch (e) {
-          console.warn(`[EntityCommandService] Async cleanup failed after deleting Workspace ${workspaceId}`, e);
-          throw new Error("Workspace deleted, but some related data could not be fully cleaned up.");
+        const workspace = workspaces.find((w) => w.id === workspaceId);
+        if (!workspace) {
+          console.error("Workspace not found! Available workspaces:", workspaces, "Looking for:", workspaceId);
+          throw new Error("Workspace not found");
         }
-      };
 
-      await cleanup();
+        const { TaskRepository } = await import("@/repositories/TaskRepository");
+        const { HabitRepository } = await import("@/repositories/HabitRepository");
+        const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+        const { ResourceRepository } = await import("@/repositories/ResourceRepository");
+        const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
 
-      // 6. Emit event
+        const todosMap = await TaskRepository.getTasks(workspaceId);
+        const habitsMap = await HabitRepository.getHabits(workspaceId);
+        const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
+        const resourcesMap = await ResourceRepository.getResources(workspaceId);
+
+        const todos = Object.values(todosMap);
+        const habits = Object.values(habitsMap);
+        const checklists = Object.values(checklistsMap);
+        const resources = Object.values(resourcesMap);
+
+        allEntityIds = [
+          ...todos.map(t => t.id),
+          ...habits.map(h => h.id),
+          ...checklists.map(c => c.id),
+          ...resources.map(r => r.id),
+        ];
+
+        for (const todo of todos) {
+          if (todo.reminder?.notificationIds) {
+            notificationIdsToCancel.push(...todo.reminder.notificationIds);
+          }
+        }
+        for (const habit of habits) {
+          if (habit.reminder?.notificationIds) {
+            notificationIdsToCancel.push(...habit.reminder.notificationIds);
+          }
+        }
+        for (const checklist of checklists) {
+          if (checklist.reminder?.notificationIds) {
+            notificationIdsToCancel.push(...checklist.reminder.notificationIds);
+          }
+        }
+
+        // 3. Add to Recycle Bin (Safe operation first)
+        await RecycleBinRepository.addToRecycleBin(
+          "workspace",
+          {
+            list: workspace,
+            todos,
+            habits,
+            checklists,
+            resources,
+          },
+          "Workspaces",
+          { throwOnError: true }
+        );
+
+        // 4. Delete Workspace record FIRST (Commit Point)
+        // This MUST happen before partition cleanup. If partition cleanup happens first 
+        // and metadata deletion fails, a subsequent retry will overwrite the safe Recycle Bin backup 
+        // with empty partitions, causing permanent data loss.
+        await WorkspaceRepository.deleteWorkspace(workspaceId, { throwOnError: true });
+
+        // 5. Remove active partitions securely inside the lock boundary.
+        // We use a transactional multiRemove. If it fails, the partitions are orphaned on disk,
+        // which is benign because they are inaccessible and will be safely overwritten if resurrected.
+        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+        try {
+          await AsyncStorage.multiRemove([
+            `pebble:v1:tasks:${workspaceId}`,
+            `pebble:v1:habits:${workspaceId}`,
+            `pebble:v1:checklists:${workspaceId}`,
+            `pebble:v1:resources:${workspaceId}`
+          ]);
+        } catch (e) {
+          console.warn(`[EntityCommandService] Failed to clean up partitions for workspace ${workspaceId}`, e);
+          // We DO NOT throw here. The workspace metadata is already deleted. Throwing would abort the cleanup
+          // of related entities (graph, notifications) and leave the system in a worse state.
+        }
+      });
+
+      // 6. Secondary cleanup (executed OUTSIDE the partition locks to prevent ABBA deadlocks with GraphRepository)
+      try {
+        if (allEntityIds.length > 0) {
+          await GraphRepository.deleteRelationshipsForEntities(allEntityIds);
+        }
+
+        if (notificationIdsToCancel.length > 0) {
+          await cancelReminderIds(notificationIdsToCancel, { throwOnError: false });
+        }
+      } catch (e) {
+        console.warn(`[EntityCommandService] Async cleanup failed after deleting Workspace ${workspaceId}`, e);
+        throw new Error("Workspace deleted, but some related data could not be fully cleaned up.");
+      }
+
+      // 7. Emit events
       emitStateChange("workspace_changed", "tasks_screen");
       void recordDailyHistorySnapshot().catch(() => {});
-      });
     } catch (e) {
       console.warn("Failed to delete workspace", e);
       throw e;
