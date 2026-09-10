@@ -98,9 +98,10 @@ Implemented in `WorkspaceCommandHandler.ts`.
 - **Restoration**: Unwraps the snapshot and best-effort restores the partitions to their original keys.
 
 ## 11. Backup/Restore Architecture
-Implemented in `BackupService.ts`.
+Implemented in `BackupService.ts` and `export.service.ts`.
 - **Integrity**: Restore operations perform domain writes inside a `try/catch` block. However, if the domain commit fails, the rollback relies exclusively on JS-memory operations (a `multiRemove` followed by a `multiSet` of original state). This rollback is NOT a durable ACID transaction, meaning a crash during the rollback window will leave the application state corrupted or empty.
 - **Isolation**: Native OS operations (like cancelling notifications) are executed *after* the domain commit. Native OS exceptions will not roll back successful domain persistence.
+- **Manual Data Export**: Implemented in `export.service.ts` and surfaced in Settings (`app/(tabs)/settings.tsx`). Generates an authoritative full backup using `BackupService.generateStructuredBackup()`, writes a temporary cache file with a deterministic filename (`pebble-backup-YYYY-MM-DD.json`), and presents the native platform share/save sheet (`expo-sharing` with `Share.share` fallback). The operation is strictly read-only with respect to Pebble's stored state, guards against concurrent exports, handles user cancellation gracefully without error alerts, and keeps all exported data under direct user control with zero external server upload or cloud sync.
 
 ## 12. Task/Habit Revision Semantics
 Implemented in `TaskRepository.ts` and `HabitRepository.ts`.
@@ -174,9 +175,9 @@ permission.
 - `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
 ## 19. Current Test-Suite Status
-- **Total Tests**: 1839 passing
-- **Total Suites**: 202 passing
-- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, resource hostile concurrency, resource reference concurrency audit, and Move Journal removal durability audit).
+- **Total Tests**: 1849 passing
+- **Total Suites**: 203 passing
+- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, resource hostile concurrency, resource reference concurrency audit, Move Journal removal durability audit, and UI/UX Phase 1 manual data export suite).
 
 ## 20. Explicit List of Verified Integrity Mechanisms
 - **Monotonic Revisions**: `TaskRepository.ts` (lines 140+).

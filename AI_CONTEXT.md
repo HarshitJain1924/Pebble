@@ -75,6 +75,7 @@ The current canonical terminology established by the codebase:
 3. **Mascot Companion**: Responsive crow mascot that recommends actions and provides visual feedback.
 4. **Alarms & Reminders**: Local reminders using `expo-notifications`.
 5. **Resources**: Save passive reference items (links, notes, images) nested inside workspaces.
+6. **Manual Data Export**: User-facing export flow in Settings that generates a full local backup JSON via authoritative `BackupService` and presents the platform-native share/save sheet (`expo-sharing`).
 
 ---
 

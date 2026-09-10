@@ -14,6 +14,7 @@ import {
   saveSettings,
   UserProfile,
 } from "@/features/settings/services/settings.service";
+import { exportBackupFile } from "@/features/settings/services/export.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { BackupService } from "@/services/storage/backup.service";
 import { Feather } from "@expo/vector-icons";
@@ -50,10 +51,9 @@ export default function SettingsScreen() {
   const [email, setEmail] = useState("");
   const [avatar, setAvatar] = useState("👨‍💻");
 
-  // Modals for import/export
-  const [exportModalVisible, setExportModalVisible] = useState(false);
+  // Modals and export state
+  const [isExporting, setIsExporting] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
-  const [exportDataString, setExportDataString] = useState("");
   const [importDataString, setImportDataString] = useState("");
 
   const loadSettingsData = useCallback(async () => {
@@ -216,16 +216,19 @@ export default function SettingsScreen() {
 
   // C. Export Backup
   const exportBackup = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
     try {
-      setLoading(true);
-      const backupString = await BackupService.generateStructuredBackup();
-      setExportDataString(backupString);
-      setExportModalVisible(true);
-    } catch (e) {
-      console.warn(e);
-      Alert.alert("Error", "Could not compile data backup.");
+      await exportBackupFile();
+      // On success or user cancellation, the native platform UI communicates destination.
+    } catch (e: any) {
+      console.warn("Export failed:", e);
+      Alert.alert(
+        "Export Failed",
+        e?.message || "Could not generate or export data backup. Please try again.",
+      );
     } finally {
-      setLoading(false);
+      setIsExporting(false);
     }
   };
 
@@ -900,7 +903,7 @@ export default function SettingsScreen() {
         <Animated.View entering={FadeInDown.delay(200).duration(450)}>
           <AppCard style={styles.sectionCard}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Storage & Data Engineering
+              Export your data
             </Text>
             <Text
               style={[
@@ -908,27 +911,62 @@ export default function SettingsScreen() {
                 { color: colors.textMuted, marginBottom: 12 },
               ]}
             >
-              Manage underlying JSON datastores, backup archives, or reset the
-              app to a fresh install state.
+              Save a copy of your Pebble data outside this device.
+            </Text>
+
+            <View style={{ marginBottom: 16 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={isExporting ? "Preparing backup…" : "Export Backup"}
+                accessibilityHint="Save a copy of your Pebble data outside this device"
+                accessibilityState={{ disabled: isExporting, busy: isExporting }}
+                disabled={isExporting}
+                hitSlop={4}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  {
+                    backgroundColor: colors.primary,
+                    opacity: isExporting ? 0.6 : pressed ? 0.85 : 1,
+                  },
+                ]}
+                onPress={exportBackup}
+              >
+                {isExporting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Feather name="share-2" size={14} color="#FFFFFF" />
+                )}
+                <Text style={styles.buttonText}>
+                  {isExporting ? "Preparing backup…" : "Export Backup"}
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={[styles.divider, { marginBottom: 16 }]} />
+
+            <Text
+              style={[
+                styles.toggleTitle,
+                { color: colors.text, marginBottom: 4 },
+              ]}
+            >
+              Storage & Data Management
+            </Text>
+            <Text
+              style={[
+                styles.toggleDesc,
+                { color: colors.textMuted, marginBottom: 12 },
+              ]}
+            >
+              Restore previous backups or reset the app to a fresh install state.
             </Text>
 
             <View style={styles.dataButtonsGrid}>
               <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { borderColor: colors.text, opacity: pressed ? 0.8 : 1 },
-                ]}
-                onPress={exportBackup}
-              >
-                <Feather name="share-2" size={14} color={colors.text} />
-                <Text
-                  style={[styles.secondaryButtonText, { color: colors.text }]}
-                >
-                  Export Backup
-                </Text>
-              </Pressable>
-
-              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Restore Backup"
+                accessibilityHint="Restore your data from a backup archive"
+                hitSlop={4}
                 style={({ pressed }) => [
                   styles.secondaryButton,
                   { borderColor: colors.text, opacity: pressed ? 0.8 : 1 },
@@ -944,6 +982,10 @@ export default function SettingsScreen() {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear All Data"
+                accessibilityHint="Permanently wipe local storage and reset to default empty state"
+                hitSlop={4}
                 style={({ pressed }) => [
                   styles.secondaryButton,
                   { borderColor: colors.error, opacity: pressed ? 0.8 : 1 },
@@ -962,60 +1004,6 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* --- BACKUP MODALS --- */}
-
-        {/* Export Data Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={exportModalVisible}
-          onRequestClose={() => setExportModalVisible(false)}
-        >
-          <View style={styles.modalCenteredView}>
-            <View
-              style={[
-                styles.modalView,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>
-                  JSON Backup Archive
-                </Text>
-                <Pressable
-                  onPress={() => setExportModalVisible(false)}
-                  hitSlop={10}
-                >
-                  <Feather name="x" size={20} color={colors.text} />
-                </Pressable>
-              </View>
-              <Text
-                style={[
-                  styles.toggleDesc,
-                  { color: colors.textMuted, marginBottom: 12 },
-                ]}
-              >
-                Copy the text payload below to backup your complete local-first
-                states.
-              </Text>
-              <ScrollView
-                style={[styles.modalScrollView, { backgroundColor: "#000000" }]}
-              >
-                <Text style={[styles.codeText, { color: colors.success }]}>
-                  {exportDataString}
-                </Text>
-              </ScrollView>
-              <Pressable
-                style={[
-                  styles.primaryButton,
-                  { backgroundColor: colors.primary, marginTop: 12 },
-                ]}
-                onPress={() => setExportModalVisible(false)}
-              >
-                <Text style={styles.buttonText}>Done</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
 
         {/* Import Data Modal */}
         <Modal
@@ -1329,15 +1317,6 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 16,
     fontWeight: "800",
-  },
-  modalScrollView: {
-    borderRadius: 10,
-    padding: 10,
-    maxHeight: 300,
-  },
-  codeText: {
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 11,
   },
   modalTextInput: {
     height: 200,
