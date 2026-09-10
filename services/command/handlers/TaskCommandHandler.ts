@@ -601,7 +601,13 @@ static async reorderTasks(
 
     await this.recycleTasks(
       completedTasks.map((t) => ({ taskId: t.id, workspaceId })),
-      { source: options?.source || "clear_completed" },
+      {
+        source: options?.source || "clear_completed",
+        // Re-validate the selection predicate against the FRESH under-lock
+        // read inside recycleTasks: a task un-completed (or otherwise changed)
+        // after this unlocked snapshot must never be recycled by a stale clear.
+        filter: (t) => t.status === "completed" || !!t.completedAt,
+      },
     );
   }
 
@@ -618,6 +624,14 @@ static async reorderTasks(
       skipEvents?: boolean;
       skipAnalytics?: boolean;
       source?: string;
+      /**
+       * Optional predicate re-validated against the FRESH under-lock read.
+       * Callers that selected tasks from an earlier snapshot (e.g.
+       * clearCompletedTasks) must pass their selection predicate here so a
+       * concurrent mutation that landed between selection and lock commit can
+       * never be silently overwritten by a stale destructive operation.
+       */
+      filter?: (task: Task) => boolean;
     }
   ): Promise<{ recycledCount: number }> {
     // Call through the class reference: destructuring the static methods off the
@@ -653,6 +667,12 @@ static async reorderTasks(
         for (const taskId of taskIds) {
           const task = activeTasks[taskId];
           if (task) {
+            // Presence check + predicate re-check happen atomically under the
+            // partition lock, so a stale caller snapshot cannot recycle an
+            // entity that no longer qualifies at commit time.
+            if (options?.filter && !options.filter(task)) {
+              continue;
+            }
             validTasks.push(task);
           }
         }

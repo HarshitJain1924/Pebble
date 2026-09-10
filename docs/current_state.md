@@ -107,6 +107,12 @@ Implemented in `TaskRepository.ts` and `HabitRepository.ts`.
 - **Invariant**: `newRevision = (persistedRevision || 0) + 1`
 - During bulk writes, the authoritative revision is dynamically derived from the *current persisted state*, rejecting stale client memory states.
 
+### Bulk destructive selections re-validate under the lock
+`clearCompletedTasks` selects completed tasks from a snapshot, but the selection
+predicate is re-applied to the **fresh under-lock read** inside `recycleTasks`
+(optional `filter` option). A task un-completed (or otherwise changed) between
+selection and lock commit is never recycled by the stale clear.
+
 ## 13. Notification Persistence & Reconciliation
 Implemented in `NotificationReconcilerService.ts` and `reminders.service.ts`.
 - **Source of Truth**: The domain entity (`task.reminder.triggerAt`) is the sole source of truth.

@@ -51,6 +51,11 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Fix**: `GraphReconcilerService.reconcileAll()` was only invoked during backup restore. It is now part of the startup recovery sequence, running after restore/move/conversion/recycle-bin steps and before notification reconciliation, so dangling/stale relationship edges self-heal on every launch.
 - **Verification**: `services/startup/__tests__/startupRecovery.test.ts`, `RelationshipGraphIntegrity.test.ts` (15/18/19/20/21/22), `CrossDomainIntegrity.test.ts`.
 
+### 10. clearCompletedTasks Stale-Selection Race
+- **Affected Code**: `services/command/handlers/TaskCommandHandler.ts` (`clearCompletedTasks` / `recycleTasks`)
+- **Current Fix**: `clearCompletedTasks` selected completed tasks from an unlocked snapshot, and `recycleTasks`' under-lock re-read did not re-validate the completed predicate — a concurrent `updateTask` (e.g. un-completing the task) landing between selection and lock commit could be silently recycled by the stale clear. `recycleTasks` now accepts an optional `filter` predicate that is applied to the fresh under-lock read; `clearCompletedTasks` passes the completed predicate, so presence + predicate are validated atomically under the partition lock. Lock acquisition order is unchanged (partition → move-journal → recycle-bin), so no new ABBA risk.
+- **Verification**: `services/command/__tests__/clearCompleted.test.ts` (stale-snapshot guard, move, concurrent-recycle, idempotency, and MoveReconciler recovery scenarios).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.

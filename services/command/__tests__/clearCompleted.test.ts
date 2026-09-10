@@ -174,6 +174,143 @@ describe("clearCompletedTasks data integrity", () => {
     expect(Object.keys(active).sort()).toEqual(["open-1", "open-2"]);
   });
 
+  /**
+   * Runs `interleave` immediately after the FIRST TaskRepository.getTasks
+   * call resolves — modeling a concurrent user mutation committing between
+   * clear's unlocked selection read and its locked re-read.
+   */
+  function interleaveAfterSelection(interleave: () => Promise<void>): void {
+    const originalGetTasks = TaskRepository.getTasks.bind(TaskRepository);
+    let armed = true;
+    jest
+      .spyOn(TaskRepository, "getTasks")
+      .mockImplementation(async (wsId: string) => {
+        const result = await originalGetTasks(wsId);
+        if (armed) {
+          armed = false;
+          await interleave();
+        }
+        return result;
+      });
+  }
+
+  it("A: does not recycle a task un-completed after selection (stale snapshot guard)", async () => {
+    await TaskRepository.saveTask(completedTask("done-1"));
+
+    // User un-completes the task between clear's selection read and its
+    // locked re-read. A stale clear must NOT recycle the newer state.
+    interleaveAfterSelection(async () => {
+      await EntityCommandService.updateTask(
+        "done-1",
+        "ws-1",
+        { status: "todo", completedAt: undefined },
+        { skipEvents: true, skipAnalytics: true },
+      );
+    });
+
+    await EntityCommandService.clearCompletedTasks("ws-1");
+
+    const active = await TaskRepository.getTasks("ws-1");
+    expect(active["done-1"]).toBeDefined();
+    expect(active["done-1"].status).toBe("todo");
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    expect(bin.some((b) => b.entityId === "done-1")).toBe(false);
+  });
+
+  it("B: does not delete a task moved to another workspace after selection", async () => {
+    await WorkspaceRepository.saveWorkspace({
+      id: "ws-2",
+      name: "WS2",
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await TaskRepository.saveTask(completedTask("done-1"));
+
+    // Task moves ws-1 -> ws-2 between clear's selection read and its locked
+    // re-read; the clear must not delete it from either workspace.
+    interleaveAfterSelection(async () => {
+      await EntityCommandService.moveTask(
+        "done-1",
+        "ws-1",
+        "ws-2",
+        { skipEvents: true, skipAnalytics: true },
+      );
+    });
+
+    await EntityCommandService.clearCompletedTasks("ws-1");
+
+    const ws1 = await TaskRepository.getTasks("ws-1");
+    expect(ws1["done-1"]).toBeUndefined();
+
+    const ws2 = await TaskRepository.getTasks("ws-2");
+    expect(ws2["done-1"]).toBeDefined();
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    expect(bin.some((b) => b.entityId === "done-1")).toBe(false);
+  });
+
+  it("C: does not duplicate bin entries when the task is concurrently recycled", async () => {
+    await TaskRepository.saveTask(completedTask("done-1"));
+
+    // Another command recycles the task before clear's locked re-read.
+    interleaveAfterSelection(async () => {
+      await EntityCommandService.recycleTask(
+        "done-1",
+        "ws-1",
+        "",
+        { skipEvents: true, skipAnalytics: true },
+      );
+    });
+
+    await EntityCommandService.clearCompletedTasks("ws-1");
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    expect(bin.filter((b) => b.entityId === "done-1")).toHaveLength(1);
+
+    const active = await TaskRepository.getTasks("ws-1");
+    expect(active["done-1"]).toBeUndefined();
+  });
+
+  it("D: is idempotent — a repeated clear never duplicates bin entries", async () => {
+    await TaskRepository.saveTask(completedTask("done-1"));
+
+    await EntityCommandService.clearCompletedTasks("ws-1");
+    await EntityCommandService.clearCompletedTasks("ws-1");
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    expect(bin.filter((b) => b.entityId === "done-1")).toHaveLength(1);
+
+    const active = await TaskRepository.getTasks("ws-1");
+    expect(Object.keys(active)).toEqual([]);
+  });
+
+  it("E: recovers via MoveReconciler when active deletion fails after the bin snapshot", async () => {
+    await TaskRepository.saveTask(completedTask("done-1"));
+    jest
+      .spyOn(TaskRepository, "deleteTasksUnlocked")
+      .mockRejectedValueOnce(new Error("injected delete failure"));
+
+    await expect(
+      EntityCommandService.clearCompletedTasks("ws-1"),
+    ).rejects.toThrow("injected delete failure");
+
+    // The journal retains the recycle intent; the reconciler completes the
+    // recycle idempotently (bin snapshot already exists -> ghost removed).
+    const { MoveReconcilerService } = await import(
+      "@/services/storage/MoveReconcilerService"
+    );
+    await MoveReconcilerService.reconcileAll();
+
+    const active = await TaskRepository.getTasks("ws-1");
+    expect(active["done-1"]).toBeUndefined();
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    expect(bin.filter((b) => b.entityId === "done-1")).toHaveLength(1);
+  });
+
   it("does not corrupt state when an entity is missing or already recycled", async () => {
     // done-1 exists and is completed; done-ghost is referenced in the request
     // but does not exist in the repository (e.g. stale UI). done-2 is already
