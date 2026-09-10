@@ -275,10 +275,16 @@ export class GraphReconcilerService {
             }
           );
           if (res === "state_changed") {
-            const fresh = await TaskRepository.getTask(t.id, t.workspaceId);
+            const [fresh, freshResourcesMap] = await Promise.all([
+              TaskRepository.getTask(t.id, t.workspaceId),
+              ResourceRepository.getResources(t.workspaceId),
+            ]);
+            const freshValidResources = new Set(Object.keys(freshResourcesMap));
+            activeResourceIdsByWorkspace.set(t.workspaceId, freshValidResources);
+
             if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
               const freshFiltered = fresh.resourceIds.filter((rid) =>
-                validResources.has(rid),
+                freshValidResources.has(rid),
               );
               if (freshFiltered.length !== fresh.resourceIds.length) {
                 res = await TaskRepository.updateResourceIds(
@@ -321,10 +327,16 @@ export class GraphReconcilerService {
             }
           );
           if (res === "state_changed") {
-            const fresh = await HabitRepository.getHabit(h.id, h.workspaceId);
+            const [fresh, freshResourcesMap] = await Promise.all([
+              HabitRepository.getHabit(h.id, h.workspaceId),
+              ResourceRepository.getResources(h.workspaceId),
+            ]);
+            const freshValidResources = new Set(Object.keys(freshResourcesMap));
+            activeResourceIdsByWorkspace.set(h.workspaceId, freshValidResources);
+
             if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
               const freshFiltered = fresh.resourceIds.filter((rid) =>
-                validResources.has(rid),
+                freshValidResources.has(rid),
               );
               if (freshFiltered.length !== fresh.resourceIds.length) {
                 res = await HabitRepository.updateResourceIds(
@@ -367,10 +379,16 @@ export class GraphReconcilerService {
             }
           );
           if (res === "state_changed") {
-            const fresh = await ChecklistRepository.getChecklist(c.id, c.workspaceId);
+            const [fresh, freshResourcesMap] = await Promise.all([
+              ChecklistRepository.getChecklist(c.id, c.workspaceId),
+              ResourceRepository.getResources(c.workspaceId),
+            ]);
+            const freshValidResources = new Set(Object.keys(freshResourcesMap));
+            activeResourceIdsByWorkspace.set(c.workspaceId, freshValidResources);
+
             if (fresh && fresh.resourceIds && fresh.resourceIds.length > 0) {
               const freshFiltered = fresh.resourceIds.filter((rid) =>
-                validResources.has(rid),
+                freshValidResources.has(rid),
               );
               if (freshFiltered.length !== fresh.resourceIds.length) {
                 res = await ChecklistRepository.updateResourceIds(
