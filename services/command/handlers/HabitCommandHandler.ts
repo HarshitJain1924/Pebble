@@ -645,13 +645,27 @@ static async recycleHabit(
   ): Promise<Habit[]> {
     const updated: Habit[] = [];
     for (const item of items) {
-      const result = await this.completeHabit(item.habitId, item.workspaceId, {
-        source: options?.source,
-        skipEvents: true,
-        skipAnalytics: true,
-      });
-      if (result) updated.push(result.updated);
+      // Per-item failure isolation: a concurrent move/delete/lifecycle conflict
+      // on ONE selected habit must not abort the whole batch. Each item is an
+      // independent locked RMW with its own date-guard, so the committed subset
+      // remains correct and a retry converges (already-completed items skip).
+      try {
+        const result = await this.completeHabit(item.habitId, item.workspaceId, {
+          source: options?.source,
+          skipEvents: true,
+          skipAnalytics: true,
+        });
+        if (result) updated.push(result.updated);
+      } catch (e) {
+        console.warn(
+          `[EntityCommandService] Failed to complete habit ${item.habitId} during bulk completion:`,
+          e,
+        );
+      }
     }
+    // Emit for the actually-committed subset (including already-completed
+    // habits), even when some items failed, so events never misrepresent
+    // committed state.
     if (updated.length > 0) {
       if (!options?.skipAnalytics) {
         void recordDailyHistorySnapshot().catch(() => {});

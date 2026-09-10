@@ -113,6 +113,9 @@ predicate is re-applied to the **fresh under-lock read** inside `recycleTasks`
 (optional `filter` option). A task un-completed (or otherwise changed) between
 selection and lock commit is never recycled by the stale clear.
 
+### Bulk Habit completion is failure-isolated
+Bulk Habit completion is per-item failure-isolated; a failure affecting one selected Habit does not roll back or prevent independent selected Habits from being processed, and committed changes still trigger aggregate state notification. (Does not claim transactional/atomic batch semantics).
+
 ## 13. Notification Persistence & Reconciliation
 Implemented in `NotificationReconcilerService.ts` and `reminders.service.ts`.
 - **Source of Truth**: The domain entity (`task.reminder.triggerAt`) is the sole source of truth.
@@ -165,9 +168,9 @@ permission.
 - `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
 ## 19. Current Test-Suite Status
-- **Total Tests**: 1796 passing
-- **Total Suites**: 196 passing
-- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, and cross-domain integrity suites).
+- **Total Tests**: 1810 passing
+- **Total Suites**: 198 passing
+- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, and bulk habit completion failure isolation).
 
 ## 20. Explicit List of Verified Integrity Mechanisms
 - **Monotonic Revisions**: `TaskRepository.ts` (lines 140+).

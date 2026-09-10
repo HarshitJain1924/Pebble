@@ -56,6 +56,11 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Fix**: `clearCompletedTasks` selected completed tasks from an unlocked snapshot, and `recycleTasks`' under-lock re-read did not re-validate the completed predicate — a concurrent `updateTask` (e.g. un-completing the task) landing between selection and lock commit could be silently recycled by the stale clear. `recycleTasks` now accepts an optional `filter` predicate that is applied to the fresh under-lock read; `clearCompletedTasks` passes the completed predicate, so presence + predicate are validated atomically under the partition lock. Lock acquisition order is unchanged (partition → move-journal → recycle-bin), so no new ABBA risk.
 - **Verification**: `services/command/__tests__/clearCompleted.test.ts` (stale-snapshot guard, move, concurrent-recycle, idempotency, and MoveReconciler recovery scenarios).
 
+### 11. Bulk Habit Completion Failure Isolation
+- **Affected Code**: `services/command/handlers/HabitCommandHandler.ts` (`completeHabits`)
+- **Current Fix**: Bulk Habit completion is per-item failure-isolated; a failure affecting one selected Habit does not roll back or prevent independent selected Habits from being processed, and committed changes still trigger aggregate state notification. (Does not claim transactional/atomic batch semantics).
+- **Verification**: `services/command/__tests__/completeHabitsConcurrency.test.ts` (hostile concurrency, concurrent move/recycle, mid-batch failure isolation, and idempotency scenarios).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
