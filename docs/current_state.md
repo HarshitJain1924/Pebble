@@ -174,9 +174,9 @@ permission.
 - `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
 ## 19. Current Test-Suite Status
-- **Total Tests**: 1834 passing
-- **Total Suites**: 201 passing
-- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, resource hostile concurrency, and resource reference concurrency audit).
+- **Total Tests**: 1839 passing
+- **Total Suites**: 202 passing
+- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, resource hostile concurrency, resource reference concurrency audit, and Move Journal removal durability audit).
 
 ## 20. Explicit List of Verified Integrity Mechanisms
 - **Monotonic Revisions**: `TaskRepository.ts` (lines 140+).

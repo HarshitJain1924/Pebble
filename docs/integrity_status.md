@@ -76,17 +76,22 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Fix**: When `updateResourceIds` rejects a stale snapshot due to concurrent user mutation (`res === "state_changed"`), the reconciler refreshes both the entity AND the active workspace resources (`ResourceRepository.getResources(workspaceId)`). This prevents newly created resources added concurrently from being falsely identified as invalid and stripped. Targeted updates preserve `revision`, `updatedAt`, and `lifecycleGeneration`, while entity deletion/move/recycle cleanly rejects with `'not_found'` or `'state_changed'`, preventing ghost resurrection.
 - **Verification**: `services/storage/__tests__/GraphReconcilerResourceIdsRace.test.ts` (T1/T2/T3 interleaving, newly added reference preservation, user unlinking, metadata preservation, concurrent deletion/ghost prevention, habit parity, checklist parity).
 
+### 15. Move Journal Removal Durability & Idempotent Crash Recovery
+- **Affected Code**: `repositories/MoveJournalRepository.ts`, `services/storage/MoveReconcilerService.ts`, `services/command/handlers/TaskCommandHandler.ts` (`moveTask`, `recycleTask`, `restoreTasks`)
+- **Current Guarantee**: Move Journal removal is intentionally a separate persistence write after domain mutations. Under hostile crashes where domain writes commit (target written, source deleted) but journal removal fails or is interrupted, the lingering journal entry is deterministically handled by `MoveReconcilerService.reconcileAll()`. Reconciler detects the committed state (`!sourceData && targetData`), leaves the target entity intact, preserves any subsequent user edits, prevents source resurrection, and idempotently cleans the journal. If crashes occur during partial domain writes or chained moves, reconciler safely converges without duplicating entities or resurrecting deleted/tombstoned data.
+- **Verification**: `services/storage/__tests__/MoveJournalRemovalDurability.test.ts` (domain commit + journal crash + subsequent target edit preservation; partial write crash; chained moves to 3rd workspace; tombstone protection against zombie resurrection; and double recovery idempotency).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
 
-### 1. Un-atomic Journal Removal
-- **Exact File**: `services/storage/MoveReconcilerService.ts` and `ConversionReconcilerService.ts`
-- **Exact Code Path**: Reconcilers perform a domain write via `AsyncStorage.multiSet`, followed immediately by a separate `removeOperationsUnlocked` write to the journal.
-- **Failure Condition**: The app crashes between the `multiSet` and the journal removal.
-- **Impact**: Idempotent redundant execution. The journal entry survives, and on next boot, the reconciler redundantly re-executes the operation.
-- **Why Existing Recovery Does Not Cover It**: Because the operations are separate writes, the window of failure inherently exists. While technically safe due to idempotency, it is technically an un-atomic write boundary.
-- **Confidence Level**: Low severity (P2), but architecturally impure.
+### 1. Conversion Journal Removal Atomicity
+- **Exact File**: `services/storage/ConversionReconcilerService.ts` and `repositories/ConversionJournalRepository.ts`
+- **Exact Code Path**: Reconcilers perform a domain write, followed by a separate `removeOperationUnlocked` write to the conversion journal. (Move Journal removal was audited and hostile-verified safe in Phase 10H; Conversion Journal remains unverified).
+- **Failure Condition**: The app crashes between the destination write/source deletion and journal removal.
+- **Impact**: Idempotent redundant execution during startup recovery.
+- **Why Existing Recovery Does Not Cover It**: Separate write boundaries exist in non-ACID AsyncStorage.
+- **Confidence Level**: Low severity (P2), but architecturally un-atomic.
 
 ### 2. Secondary Command Handler Hardening
 - **Exact File**: Remaining secondary operations in `HabitCommandHandler.ts` and `TaskCommandHandler.ts`. (`ChecklistCommandHandler.ts` audited and verified in Phase 10E; `ResourceCommandHandler.ts` audited and verified in Phase 10F).

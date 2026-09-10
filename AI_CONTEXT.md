@@ -53,8 +53,9 @@ The current canonical terminology established by the codebase:
   - `ChecklistCommandHandler` item-level dual-state mutations (`toggleChecklistItem`, `deleteChecklistItem`, `addChecklistItem`) and lifecycle boundaries are verified under workspace partition locks with zero lost updates.
   - `ResourceCommandHandler` permanent deletion (`permanentlyDeleteResource`) and multi-repository boundaries (Active, RecycleBin, Tombstone, Graph relationships, and `resourceIds` reconciliation) are verified under hostile concurrency.
   - `GraphReconcilerService` secondary resource reference (`resourceIds`) mutation paths across Task, Habit, and Checklist are hardened against stale prunes and concurrent user linking.
+  - `MoveJournalRepository` and `MoveReconcilerService` removal durability and idempotent crash recovery across multi-partition workspace boundaries are verified safe under hostile crash/restart conditions.
 - **Known Remaining Areas Requiring Audit/Hardening**:
-  - Cross-domain move/conversion journal-removal atomicity and remaining secondary task/habit operations (see `docs/integrity_status.md` OPEN items).
+  - Conversion journal-removal atomicity and remaining secondary task/habit operations (see `docs/integrity_status.md` OPEN items).
 
 ---
 
