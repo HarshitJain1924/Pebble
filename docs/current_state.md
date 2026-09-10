@@ -119,6 +119,9 @@ Bulk Habit completion is per-item failure-isolated; a failure affecting one sele
 ### Checklist item mutations maintain partition-locked integrity
 Checklist item-level operations (`toggleChecklistItem`, `deleteChecklistItem`, `addChecklistItem`, `mergeChecklistItems`) execute under the partition mutex `pebble:v1:checklists:${workspaceId}` with fresh under-lock reads. They advance revision monotonically, preserve dual-level state (item completion and recurrence occurrence history), honor lifecycle guards, prevent ghost resurrection on concurrent moves/recycles/deletions, and enforce exact-once pebble rewards.
 
+### Resource permanent deletion maintains multi-repository boundary integrity
+Resource permanent deletion (`permanentlyDeleteResource`) serializes under `pebble:v1:resources:${workspaceId}`. It safely falls back to the Recycle Bin if missing from active storage, commits durable tombstones, removes active/bin records, and prunes graph relationship edges. Interleaving with concurrent updates, moves, recycles, or restores converges cleanly without resurrecting ghosts or zombies. Dangling `resourceIds` on tasks, habits, and checklists are self-healed by `GraphReconcilerService` via targeted writes without clobbering revisions or timestamps.
+
 ## 13. Notification Persistence & Reconciliation
 Implemented in `NotificationReconcilerService.ts` and `reminders.service.ts`.
 - **Source of Truth**: The domain entity (`task.reminder.triggerAt`) is the sole source of truth.
@@ -171,9 +174,9 @@ permission.
 - `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
 ## 19. Current Test-Suite Status
-- **Total Tests**: 1819 passing
-- **Total Suites**: 199 passing
-- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, and checklist item concurrency).
+- **Total Tests**: 1828 passing
+- **Total Suites**: 200 passing
+- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, and resource hostile concurrency).
 
 ## 20. Explicit List of Verified Integrity Mechanisms
 - **Monotonic Revisions**: `TaskRepository.ts` (lines 140+).

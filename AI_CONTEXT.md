@@ -51,8 +51,9 @@ The current canonical terminology established by the codebase:
   - `Workspace` lifecycle (delete/restore) is hardened with a strict 5-lock acquisition sequence (`tasks`, `habits`, `checklists`, `resources`, `ws_lifecycle`).
   - `HabitCommandHandler.updateHabit` and `completeHabits` are hardened with `withLock` and failure isolation.
   - `ChecklistCommandHandler` item-level dual-state mutations (`toggleChecklistItem`, `deleteChecklistItem`, `addChecklistItem`) and lifecycle boundaries are verified under workspace partition locks with zero lost updates.
+  - `ResourceCommandHandler` permanent deletion (`permanentlyDeleteResource`) and multi-repository boundaries (Active, RecycleBin, Tombstone, Graph relationships, and `resourceIds` reconciliation) are verified under hostile concurrency.
 - **Known Remaining Areas Requiring Audit/Hardening**:
-  - `Resource` mutation surface and cross-domain move/conversion journal-removal atomicity (see `docs/integrity_status.md` OPEN items).
+  - Cross-domain move/conversion journal-removal atomicity and remaining secondary task/habit operations (see `docs/integrity_status.md` OPEN items).
 
 ---
 

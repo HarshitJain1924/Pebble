@@ -66,6 +66,11 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Guarantee**: Checklist item mutations are strictly serialized under the partition mutex `pebble:v1:checklists:${workspaceId}` with fresh under-lock reads. Dual-level state (item completion, occurrence-isolated recurrence history, monotonic revisions, and exact-once pebble rewards) is preserved without lost updates, phantom resurrection on concurrent move/recycle/permanent deletion, or lifecycle guard bypass.
 - **Verification**: `services/command/__tests__/toggleChecklistItemConcurrency.test.ts` (hostile concurrency across distinct items, concurrent deletion, concurrent move, concurrent recycle, concurrent permanent deletion, rapid double-toggle, idempotent re-completion, and multi-date occurrence isolation).
 
+### 13. Resource Permanent Deletion & Multi-Repository Boundary Integrity
+- **Affected Code**: `services/command/handlers/ResourceCommandHandler.ts` (`permanentlyDeleteResource`)
+- **Current Guarantee**: Resource permanent deletion safely serializes under partition mutex `pebble:v1:resources:${workspaceId}`, checks active partition and recycle bin, registers durable tombstones in `TombstoneRepository`, purges active records, removes recycle bin items, and prunes graph relationship edges. Interleaving with concurrent updates, moves, recycles, and restores converges cleanly without resurrecting ghosts or zombies. Dangling `resourceIds` on tasks, habits, and checklists are self-healed by `GraphReconcilerService` without clobbering revisions or timestamps.
+- **Verification**: `services/command/__tests__/permanentlyDeleteResourceConcurrency.test.ts` (hostile concurrency against update, move, recycle, restore, double invocation, graph edge removal, dangling resourceIds reconciliation, generation bumps, and relationship races).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
@@ -79,10 +84,10 @@ These items exist in current code and have not yet been fully audited or hardene
 - **Confidence Level**: Low severity (P2), but architecturally impure.
 
 ### 2. Secondary Command Handler Hardening
-- **Exact File**: `ResourceCommandHandler.ts`, and remaining operations in `HabitCommandHandler.ts` and `TaskCommandHandler.ts`. (`ChecklistCommandHandler.ts` audited and verified in Phase 10E).
+- **Exact File**: Remaining secondary operations in `HabitCommandHandler.ts` and `TaskCommandHandler.ts`. (`ChecklistCommandHandler.ts` audited and verified in Phase 10E; `ResourceCommandHandler.ts` audited and verified in Phase 10F).
 - **Failure Condition**: Highly concurrent offline cross-partition operations.
 - **Impact**: Unknown.
-- **Why Existing Recovery Does Not Cover It**: While Workspace, Task (core), Checklist, and Recycle Bin have received full mutex lock verification, remaining secondary commands have not been explicitly subjected to hostile concurrency tests.
+- **Why Existing Recovery Does Not Cover It**: While Workspace, Task (core), Checklist, Resource, and Recycle Bin have received full mutex lock verification, remaining secondary commands have not been explicitly subjected to hostile concurrency tests.
 - **Confidence Level**: Unverified.
 
 ## HISTORICAL (No Longer Apply)
