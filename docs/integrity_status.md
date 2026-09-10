@@ -71,6 +71,11 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Guarantee**: Resource permanent deletion safely serializes under partition mutex `pebble:v1:resources:${workspaceId}`, checks active partition and recycle bin, registers durable tombstones in `TombstoneRepository`, purges active records, removes recycle bin items, and prunes graph relationship edges. Interleaving with concurrent updates, moves, recycles, and restores converges cleanly without resurrecting ghosts or zombies. Dangling `resourceIds` on tasks, habits, and checklists are self-healed by `GraphReconcilerService` without clobbering revisions or timestamps.
 - **Verification**: `services/command/__tests__/permanentlyDeleteResourceConcurrency.test.ts` (hostile concurrency against update, move, recycle, restore, double invocation, graph edge removal, dangling resourceIds reconciliation, generation bumps, and relationship races).
 
+### 14. Resource Reference (resourceIds) Concurrency & GraphReconciler Race
+- **Affected Code**: `services/storage/GraphReconcilerService.ts` (`reconcileAll`), `TaskRepository.ts`, `HabitRepository.ts`, `ChecklistRepository.ts` (`updateResourceIds`)
+- **Current Fix**: When `updateResourceIds` rejects a stale snapshot due to concurrent user mutation (`res === "state_changed"`), the reconciler refreshes both the entity AND the active workspace resources (`ResourceRepository.getResources(workspaceId)`). This prevents newly created resources added concurrently from being falsely identified as invalid and stripped. Targeted updates preserve `revision`, `updatedAt`, and `lifecycleGeneration`, while entity deletion/move/recycle cleanly rejects with `'not_found'` or `'state_changed'`, preventing ghost resurrection.
+- **Verification**: `services/storage/__tests__/GraphReconcilerResourceIdsRace.test.ts` (T1/T2/T3 interleaving, newly added reference preservation, user unlinking, metadata preservation, concurrent deletion/ghost prevention, habit parity, checklist parity).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.

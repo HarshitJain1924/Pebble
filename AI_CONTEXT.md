@@ -52,6 +52,7 @@ The current canonical terminology established by the codebase:
   - `HabitCommandHandler.updateHabit` and `completeHabits` are hardened with `withLock` and failure isolation.
   - `ChecklistCommandHandler` item-level dual-state mutations (`toggleChecklistItem`, `deleteChecklistItem`, `addChecklistItem`) and lifecycle boundaries are verified under workspace partition locks with zero lost updates.
   - `ResourceCommandHandler` permanent deletion (`permanentlyDeleteResource`) and multi-repository boundaries (Active, RecycleBin, Tombstone, Graph relationships, and `resourceIds` reconciliation) are verified under hostile concurrency.
+  - `GraphReconcilerService` secondary resource reference (`resourceIds`) mutation paths across Task, Habit, and Checklist are hardened against stale prunes and concurrent user linking.
 - **Known Remaining Areas Requiring Audit/Hardening**:
   - Cross-domain move/conversion journal-removal atomicity and remaining secondary task/habit operations (see `docs/integrity_status.md` OPEN items).
 
