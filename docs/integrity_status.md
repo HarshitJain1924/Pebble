@@ -61,6 +61,11 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Fix**: Bulk Habit completion is per-item failure-isolated; a failure affecting one selected Habit does not roll back or prevent independent selected Habits from being processed, and committed changes still trigger aggregate state notification. (Does not claim transactional/atomic batch semantics).
 - **Verification**: `services/command/__tests__/completeHabitsConcurrency.test.ts` (hostile concurrency, concurrent move/recycle, mid-batch failure isolation, and idempotency scenarios).
 
+### 12. Checklist Item Concurrency & Dual-Level State Integrity
+- **Affected Code**: `services/command/handlers/ChecklistCommandHandler.ts` (`toggleChecklistItem`, `deleteChecklistItem`, etc.)
+- **Current Guarantee**: Checklist item mutations are strictly serialized under the partition mutex `pebble:v1:checklists:${workspaceId}` with fresh under-lock reads. Dual-level state (item completion, occurrence-isolated recurrence history, monotonic revisions, and exact-once pebble rewards) is preserved without lost updates, phantom resurrection on concurrent move/recycle/permanent deletion, or lifecycle guard bypass.
+- **Verification**: `services/command/__tests__/toggleChecklistItemConcurrency.test.ts` (hostile concurrency across distinct items, concurrent deletion, concurrent move, concurrent recycle, concurrent permanent deletion, rapid double-toggle, idempotent re-completion, and multi-date occurrence isolation).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
@@ -74,10 +79,10 @@ These items exist in current code and have not yet been fully audited or hardene
 - **Confidence Level**: Low severity (P2), but architecturally impure.
 
 ### 2. Secondary Command Handler Hardening
-- **Exact File**: `ChecklistCommandHandler.ts`, `ResourceCommandHandler.ts`, and remaining operations in `HabitCommandHandler.ts` and `TaskCommandHandler.ts`.
+- **Exact File**: `ResourceCommandHandler.ts`, and remaining operations in `HabitCommandHandler.ts` and `TaskCommandHandler.ts`. (`ChecklistCommandHandler.ts` audited and verified in Phase 10E).
 - **Failure Condition**: Highly concurrent offline cross-partition operations.
 - **Impact**: Unknown.
-- **Why Existing Recovery Does Not Cover It**: While Workspace, Task (core), and Recycle Bin have received full mutex lock verification, the secondary commands have not been explicitly subjected to hostile concurrency tests.
+- **Why Existing Recovery Does Not Cover It**: While Workspace, Task (core), Checklist, and Recycle Bin have received full mutex lock verification, remaining secondary commands have not been explicitly subjected to hostile concurrency tests.
 - **Confidence Level**: Unverified.
 
 ## HISTORICAL (No Longer Apply)

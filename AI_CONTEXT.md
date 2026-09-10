@@ -49,9 +49,10 @@ The current canonical terminology established by the codebase:
 - **Known Data-Integrity Work Completed**:
   - The `Task` mutation surface (update, complete, uncomplete, move, recycle, restore, bulk operations) has received substantial lock-boundary hardening.
   - `Workspace` lifecycle (delete/restore) is hardened with a strict 5-lock acquisition sequence (`tasks`, `habits`, `checklists`, `resources`, `ws_lifecycle`).
-  - `HabitCommandHandler.updateHabit` is hardened with `withLock` and `saveHabitUnlocked`.
+  - `HabitCommandHandler.updateHabit` and `completeHabits` are hardened with `withLock` and failure isolation.
+  - `ChecklistCommandHandler` item-level dual-state mutations (`toggleChecklistItem`, `deleteChecklistItem`, `addChecklistItem`) and lifecycle boundaries are verified under workspace partition locks with zero lost updates.
 - **Known Remaining Areas Requiring Audit/Hardening**:
-  - `TaskCommandHandler.clearCompletedTasks` and remaining untested `Habit`/`Checklist` corner cases (see `docs/integrity_status.md` OPEN items).
+  - `Resource` mutation surface and cross-domain move/conversion journal-removal atomicity (see `docs/integrity_status.md` OPEN items).
 
 ---
 
