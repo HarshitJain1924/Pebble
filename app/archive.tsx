@@ -21,6 +21,7 @@ import { type Checklist, type Habit, type Resource, Task, INBOX_WORKSPACE_ID, MY
 
 import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 import { AppCard } from "@/shared/components/ui/AppCard";
+import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { getDateKey } from "@/services/scheduling/recurrence.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
@@ -204,6 +205,12 @@ export default function ArchiveScreen() {
     );
   };
 
+  const isArchiveEmpty =
+    archivedTasks.length === 0 &&
+    archivedHabits.length === 0 &&
+    archivedChecklists.length === 0 &&
+    archivedResources.length === 0;
+
   return (
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor: colors.background }]}
@@ -227,6 +234,27 @@ export default function ArchiveScreen() {
           style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
         >
           <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : isArchiveEmpty ? (
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            alignItems: "center",
+            paddingHorizontal: 20,
+          }}
+        >
+          <EmptyState
+            mascot="idle"
+            title="Archive is empty"
+            description="Completed or archived tasks, habits, checklists, and resources will appear here."
+            action={{
+              label: "Back",
+              icon: "arrow-left",
+              onPress: () => router.back(),
+            }}
+            style={{ width: "100%", maxWidth: 360 }}
+          />
         </View>
       ) : (
         <ScrollView

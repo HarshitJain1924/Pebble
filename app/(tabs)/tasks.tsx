@@ -46,6 +46,7 @@ import { SuggestionBanner } from "@/features/capture/components/SuggestionBanner
 import { ProgressSection } from "@/features/profile/components/ProgressSection";
 import { ResourceSection } from "@/features/resources/components/ResourceSection";
 import { ChecklistSection } from "@/features/checklists/components/ChecklistSection";
+import { EmptyState } from "@/shared/components/ui/EmptyState";
 
 import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
 import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
@@ -467,10 +468,30 @@ export function WorkspacesScreen() {
                   return (
                     <View style={{ gap: 12, paddingBottom: 24 }}>
                       {filteredChecklists.length === 0 ? (
-                        <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 40 }}>
-                          <Feather name="list" size={24} color={colors.textMuted} style={{ marginBottom: 8 }} />
-                          <Text style={{ color: colors.textMuted, fontSize: 13 }}>No checklists in this workspace.</Text>
-                        </View>
+                        activeChecklists.length === 0 ? (
+                          <EmptyState
+                            mascot="idle"
+                            title="No checklists yet"
+                            description="Break down complex routines, packing lists, or projects into step-by-step checklists."
+                            action={{
+                              label: "New Checklist",
+                              icon: "plus",
+                              onPress: () => emitStateChange("open_quick_add"),
+                            }}
+                            style={{ marginVertical: 16 }}
+                          />
+                        ) : (
+                          <EmptyState
+                            graphic={<Feather name="search" size={24} color={colors.textMuted} />}
+                            title="No matching checklists"
+                            description="Try searching with a different term."
+                            action={{
+                              label: "Clear Search",
+                              onPress: () => state.setSearchQuery(""),
+                            }}
+                            style={{ marginVertical: 16 }}
+                          />
+                        )
                       ) : (
                         <ChecklistSection
                           checklists={filteredChecklists}

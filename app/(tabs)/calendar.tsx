@@ -47,6 +47,8 @@ import { QuickJumpSheet } from "@/features/calendar/components/QuickJumpSheet";
 import { CalendarFilterSheet } from "@/features/calendar/components/CalendarFilterSheet";
 import { CalendarItemPopover } from "@/features/calendar/components/CalendarItemPopover";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { emitStateChange } from "@/services/events/state-events";
+import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 
@@ -417,6 +419,20 @@ export default function CalendarScreen() {
                   </Text>
                 )}
               </View>
+
+              {totalItemsCount === 0 && (
+                <EmptyState
+                  mascot="sleeping"
+                  title="Your schedule is clear"
+                  description="Add a task or habit with a date or reminder to plan your day."
+                  action={{
+                    label: "Add Task",
+                    icon: "plus",
+                    onPress: () => emitStateChange("open_quick_add"),
+                  }}
+                  style={{ marginHorizontal: 16, marginVertical: 10 }}
+                />
+              )}
 
               {/* 24-Hour Continuous Timeline */}
               <DayPlannerView

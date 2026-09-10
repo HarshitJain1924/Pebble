@@ -4,7 +4,9 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
+import { EmptyState } from "@/shared/components/ui/EmptyState";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import { emitStateChange } from "@/services/events/state-events";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
 import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
 
@@ -243,15 +245,21 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
             {/* STEP 1: ITEM SELECTION */}
             {!selectedEntity ? (
               !hasUnplacedItems ? (
-                <View style={styles.emptyContainer}>
-                  <Feather name="check-circle" size={28} color={colors.success} />
-                  <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                    No Unplaced Items
-                  </Text>
-                  <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-                    All tasks and checklists for this workspace are already scheduled.
-                  </Text>
-                </View>
+                <EmptyState
+                  mascot="sleeping"
+                  title="No unplaced items"
+                  description="All tasks and checklists for this workspace are already scheduled."
+                  action={{
+                    label: "Create Task",
+                    icon: "plus",
+                    onPress: () => {
+                      onClose();
+                      emitStateChange("open_quick_add");
+                    },
+                  }}
+                  colors={colors}
+                  style={{ marginVertical: 20 }}
+                />
               ) : (
                 <ScrollView
                   style={styles.scrollList}

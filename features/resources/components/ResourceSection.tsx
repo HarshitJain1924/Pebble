@@ -18,6 +18,7 @@ import { Image as ExpoImage } from "expo-image";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
@@ -96,8 +97,13 @@ export function ResourceSection({
     }
   }, [focusResourceId, folderResources]);
 
+  const activeFolderResources = useMemo(
+    () => folderResources.filter((r) => !r.archivedAt),
+    [folderResources]
+  );
+
   const filteredResources = useMemo(() => {
-    let list = folderResources.filter((r) => !r.archivedAt);
+    let list = activeFolderResources;
 
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase().trim();
@@ -325,15 +331,37 @@ export function ResourceSection({
       {/* Compact Resource List (Space-Efficient & Scannable) */}
       <View style={styles.cardFeed}>
         {filteredResources.length === 0 ? (
-          <View style={[styles.emptyContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={[styles.emptyIconCircle, { backgroundColor: `${theme.primary}12` }]}>
-              <Feather name="folder" size={26} color={theme.primary} />
-            </View>
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>No resources found</Text>
-            <Text style={[styles.emptySubtitle, { color: theme.textMuted }]}>
-              Files, images, links, or notes in this workspace will appear here.
-            </Text>
-          </View>
+          activeFolderResources.length === 0 ? (
+            <EmptyState
+              mascot="peek"
+              title="No resources yet"
+              description="Save links, notes, images, and references you want to keep close."
+              action={{
+                label: "Add Resource",
+                icon: "plus",
+                onPress: () => setIsAddingResource(true),
+              }}
+              style={{ marginVertical: 8 }}
+            />
+          ) : (
+            <EmptyState
+              graphic={<Feather name="folder" size={24} color={theme.textMuted} />}
+              title="No matching resources"
+              description="Try selecting a different filter or clearing search."
+              action={
+                activeFilter !== "all"
+                  ? {
+                      label: "Show All Resources",
+                      onPress: () => {
+                        Haptics.selectionAsync().catch(() => {});
+                        setActiveFilter("all");
+                      },
+                    }
+                  : undefined
+              }
+              style={{ marginVertical: 8 }}
+            />
+          )
         ) : (
           filteredResources.map((res) => {
             const hasAttachment = Boolean(res.attachments && res.attachments.length > 0);

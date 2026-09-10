@@ -76,6 +76,7 @@ The current canonical terminology established by the codebase:
 4. **Alarms & Reminders**: Local reminders using `expo-notifications`.
 5. **Resources**: Save passive reference items (links, notes, images) nested inside workspaces.
 6. **Manual Data Export**: User-facing export flow in Settings that generates a full local backup JSON via authoritative `BackupService` and presents the platform-native share/save sheet (`expo-sharing`).
+7. **Contextual Empty-State System**: Reusable, accessible `EmptyState` component with Pebble mascot integration (`idle`, `sleeping`, `focus`, `peek`), concise explanatory messaging, and immediate action triggers (`open_quick_add`, `setIsAddingResource`) across Checklists, Resources, Calendar, Focus target picking, and Archive.
 
 ---
 

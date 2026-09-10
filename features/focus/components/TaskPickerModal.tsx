@@ -2,6 +2,8 @@ import React from "react";
 import { Modal, View, Pressable, ScrollView, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { EmptyState } from "@/shared/components/ui/EmptyState";
+import { emitStateChange } from "@/services/events/state-events";
 
 interface TaskPickerModalProps {
   visible: boolean;
@@ -135,11 +137,20 @@ export const TaskPickerModal: React.FC<TaskPickerModalProps> = ({
             )}
 
             {todoList.length === 0 && habitList.length === 0 && (
-              <View style={{ paddingVertical: 32, alignItems: "center" }}>
-                <Text style={{ color: colors.textMuted, textAlign: "center" }}>
-                  No focus targets available today.
-                </Text>
-              </View>
+              <EmptyState
+                mascot="focus"
+                title="No focus targets yet"
+                description="Create a task or habit to anchor your focus session."
+                action={{
+                  label: "Create Task",
+                  icon: "plus",
+                  onPress: () => {
+                    onClose();
+                    emitStateChange("open_quick_add");
+                  },
+                }}
+                style={{ marginVertical: 12 }}
+              />
             )}
           </ScrollView>
         </View>
