@@ -22,12 +22,9 @@ import UndoProvider from "@/shared/components/ui/UndoContext";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import NotificationListener from "@/shared/components/ui/NotificationListener";
 
-import { cleanupRecycleBin } from "@/services/storage/storage.service";
-import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
-import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
-import { BackupService } from "@/services/storage/backup.service";
 import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
 import { OnboardingService } from "@/services/onboarding/onboarding.service";
+import { runStartupRecovery } from "@/services/startup/startup-recovery";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -68,20 +65,10 @@ export default function RootLayout() {
 
     const checkOnboarding = async () => {
       try {
-
-        await BackupService.recoverInterruptedRestore();
-        await MoveReconcilerService.reconcileAll();
-        await ConversionReconcilerService.reconcileAll();
-        await MoveReconcilerService.reconcileHistoricalGhosts();
-        await cleanupRecycleBin();
-        
-        // Notification reconciliation must finish before the UI mounts
-        // to prevent races with user mutations, but failure must not crash startup.
-        try {
-          await NotificationReconcilerService.reconcileAll();
-        } catch (e) {
-          console.warn("[RootLayout] Failed to run NotificationReconcilerService", e);
-        }
+        // Single, testable startup recovery sequence: interrupted-restore
+        // recovery, move/conversion journal replay, ghost pruning, recycle-bin
+        // cleanup, graph reconciliation, and notification reconciliation.
+        await runStartupRecovery();
 
         const completed = await OnboardingService.isOnboardingCompleted();
         const inOnboarding = segments[0] === "onboarding";

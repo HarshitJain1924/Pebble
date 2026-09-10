@@ -16,14 +16,46 @@ Global keys manage system-level features.
 - `pebble:v1:checklists:${workspaceId}` - Checklists partition
 - `pebble:v1:resources:${workspaceId}` - Resources partition
 - `pebble:v1:recycle_bin` - Soft-deleted entities
-- `pebble:v1:move_journal` - Pending cross-workspace moves
-- `pebble:v1:conversion_journal` - Pending task<->habit conversions
+- `pebble:v1:move_journal` (+ `pebble:v1:move_journal_seq`) - Pending cross-workspace moves
+- `pebble:v1:conversion_journal` (+ `pebble:v1:conversion_journal_seq`) - Pending task<->habit conversions
+- `pebble:v1:relationships` - Relationship graph (also owns `pebble:v1:focus_sessions`, `pebble:v1:system_event_log`)
+- `pebble:v1:tombstones` - Durable deletion barriers for permanent deletes
+- `pebble:v1:ui_state` - Active workspace, onboarding completion, theme cache
+- `pebble:settings` / `pebble:profile` - Global settings & profile
+- `pebble:notifications:log` - In-app notification history log
+
+The **authoritative registry of all Pebble-owned keys** (exact keys + dynamic
+partition patterns) lives in `services/storage/storage-keys.ts`
+(`isPebbleOwnedKey`). Backup, restore, and clear-all all use this single
+definition, so the wipe/backup surface cannot drift from the write surface.
+
+### Legacy keys
+- `todoapp:onboarding_completed` is a **one-way compatibility mirror** only.
+  Canonical onboarding state is `pebble:v1:ui_state.completedOnboarding`
+  (see `OnboardingRepository`). The mirror can never override canonical state.
+- `pebble:tasks`, `pebble:habits`, `pebble:checklists`, `pebble:collections`,
+  `pebble:vault`, `pebble:schema_version` are **dead legacy keys**: nothing in
+  the codebase reads or writes them. They are retained in the owned-key
+  registry solely so clear-all/restore can remove them — they cannot resurrect
+  stale data.
 
 ## 3. Repository Responsibilities
 Repositories (e.g. `TaskRepository.ts`, `WorkspaceRepository.ts`) are pure data-access objects.
 - They enforce exact storage keys and structural normalizations.
 - They do NOT contain complex side-effect logic or cross-partition orchestrations.
 - They expose both locked (`saveTasks`) and unlocked (`saveTasksUnlocked`) variants for composition in Command Handlers.
+- `GraphRepository` maintains an in-memory relationship cache (with rollback on
+  write failure). The cache is a pure optimization: it is invalidated by
+  `resetCache()` after restore and clear-all, and every mutation persists
+  through the locked repository boundary, so it can never become authoritative
+  over persisted state.
+
+**Mutation ownership rule:** all persisted domain mutations flow
+UI → Command/Service boundary (`EntityCommandService` + command handlers)
+→ Repository → AsyncStorage. Reads may stay direct. A known historical bypass
+(Resource detail screen calling `ResourceRepository.saveResource` directly)
+was converged onto `EntityCommandService.updateResource` /
+`toggleArchiveResource`.
 
 ## 4. Locking Model & Canonical Lock Ordering
 All Read-Modify-Write (RMW) cycles are serialized in memory using the mutex system in `shared/utils/mutex.ts` (`withLock`, `withLocks`).
@@ -82,10 +114,20 @@ Implemented in `NotificationReconcilerService.ts` and `reminders.service.ts`.
 - **Reconciliation**: On startup, `NotificationReconcilerService` scans all entities and rebuilds any missing OS notifications, ensuring eventual consistency.
 
 ## 14. Startup Recovery Sequence
-At boot, Pebble runs the following idempotently:
-1. `MoveReconcilerService.reconcileAll()`
-2. `ConversionReconcilerService.reconcileAll()`
-3. `NotificationReconcilerService.reconcile()`
+The entire sequence lives in `services/startup/startup-recovery.ts`
+(`runStartupRecovery`), invoked once from `app/_layout.tsx` before onboarding
+resolution. Every step is idempotent and internally locked; the sequence is
+NOT a transaction (AsyncStorage cannot provide one) — each step is designed
+to converge on repeated runs (RECONCILED model). Order:
+1. `BackupService.recoverInterruptedRestore()` - finish any crashed restore
+2. `MoveReconcilerService.reconcileAll()` - replay cross-workspace moves
+3. `ConversionReconcilerService.reconcileAll()` - roll conversions forward/back
+4. `MoveReconcilerService.reconcileHistoricalGhosts()` - prune dead journal intents
+5. `cleanupRecycleBin()` - drop expired recycle-bin snapshots
+6. `GraphReconcilerService.reconcileAll()` - prune dangling/stale relationship
+   edges + dangling resourceIds against the settled entity registry
+7. `NotificationReconcilerService.reconcileAll()` - rebuild missing OS
+   notifications (failure tolerated; never requests OS permission)
 
 ## 15. Crash-Recovery Guarantees
 - Cross-workspace moves will eventually complete via journal.
@@ -93,16 +135,35 @@ At boot, Pebble runs the following idempotently:
 - If the system crashes mid-write, AsyncStorage provides atomic single-key writes or atomic `multiSet` block writes.
 - If a target workspace is deleted while a move is pending, data is retained in the source or the source's recycle bin snapshot.
 
-## 16. Known Limitations
+## 16. Graph Reconciliation Location
+`GraphReconcilerService.reconcileAll()` runs at startup (step 6 above) and
+after backup restore. It is the self-healing path for the relationship graph
+(RECONCILED integrity model): it prunes dangling edges, prunes edges whose
+lifecycleGeneration no longer matches the active entity, deduplicates edges,
+and cleans dangling resourceIds on tasks/habits/checklists via targeted
+repository writes. Command handlers also clean the graph synchronously on
+delete; the reconciler is the crash-safety net for interruptions between the
+two operations.
+
+## 17. Notification Permission Lifecycle
+OS notification permission is requested **only** after explicit user intent
+(Alert Center "Enable Alerts"). Nothing at cold launch, screen mount, or
+reconciliation triggers the native prompt. The canonical lifecycle lives in
+`services/notifications/notification-permission.ts`: already-granted installs
+are never re-prompted; a permanent denial routes to system Settings instead
+of re-invoking the native request. Onboarding does not require notification
+permission.
+
+## 18. Known Limitations
 - Native SQLite is not used; `AsyncStorage` forces string serialization overhead on large arrays.
 - `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
-## 17. Current Test-Suite Status
-- **Total Tests**: 731 passing
-- **Total Suites**: 86 passing
-- (Recorded at 2026-08-25).
+## 19. Current Test-Suite Status
+- **Total Tests**: 1796 passing
+- **Total Suites**: 196 passing
+- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, and cross-domain integrity suites).
 
-## 18. Explicit List of Verified Integrity Mechanisms
+## 20. Explicit List of Verified Integrity Mechanisms
 - **Monotonic Revisions**: `TaskRepository.ts` (lines 140+).
 - **Recycle Bin Locked RMW**: `RecycleBinRepository.ts` (lines 53+).
 - **Split-Brain Conflict Forking**: `MoveReconcilerService.ts` (Case D).

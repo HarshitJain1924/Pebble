@@ -99,8 +99,12 @@ export const ResourceDetailContent: React.FC<ResourceDetailContentProps> = ({
   const handleUpdate = async (patch: Partial<Resource>) => {
     if (!resource) return;
     try {
-      const updated = { ...resource, ...patch, updatedAt: Date.now() };
-      await ResourceRepository.saveResource(updated);
+      // Canonical mutation boundary: lifecycle guard + locked merge + events.
+      const updated = await EntityCommandService.updateResource(
+        resource.id,
+        resource.workspaceId,
+        patch,
+      );
       setResource(updated);
       setEditTitle(updated.title || "");
       setEditBody(updated.body || "");
@@ -128,21 +132,22 @@ export const ResourceDetailContent: React.FC<ResourceDetailContentProps> = ({
         currentWs = editWorkspaceId;
       }
 
-      // Update resource fields
+      // Update resource fields through the canonical mutation boundary
+      // (lifecycle guard + locked merge + events). Runs against the post-move
+      // workspace so the merge reads the freshest persisted record.
       const updatedAttachments = resource.type === "link" && editUrl.trim()
         ? [{ id: `att-${Date.now()}-url`, name: editUrl.trim(), uri: editUrl.trim(), mimeType: "text/plain" }]
         : resource.attachments;
 
-      const updated: Resource = {
-        ...resource,
-        workspaceId: currentWs,
-        title: editTitle.trim(),
-        body: editBody.trim() || undefined,
-        attachments: updatedAttachments,
-        updatedAt: Date.now(),
-      };
-
-      await ResourceRepository.saveResource(updated);
+      const updated: Resource = await EntityCommandService.updateResource(
+        resource.id,
+        currentWs,
+        {
+          title: editTitle.trim(),
+          body: editBody.trim() || undefined,
+          attachments: updatedAttachments,
+        },
+      );
       setResource(updated);
       setIsEditing(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -166,13 +171,12 @@ export const ResourceDetailContent: React.FC<ResourceDetailContentProps> = ({
   const handleToggleArchive = async () => {
     if (!resource) return;
     try {
-      const isArchived = Boolean(resource.archivedAt);
-      const updated: Resource = {
-        ...resource,
-        archivedAt: isArchived ? undefined : Date.now(),
-        updatedAt: Date.now(),
-      };
-      await ResourceRepository.saveResource(updated);
+      // Canonical mutation boundary: lifecycle guard + locked merge + events.
+      const { resource: updated } =
+        await EntityCommandService.toggleArchiveResource(
+          resource.id,
+          resource.workspaceId,
+        );
       setResource(updated);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e) {

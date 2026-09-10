@@ -36,6 +36,9 @@ The current canonical terminology established by the codebase:
 - **Storage**: 100% local-first client database via `@react-native-async-storage/async-storage`.
 - **Partitioning**: Data is strictly partitioned by entity type and workspace ID (e.g., `pebble:v1:tasks:${workspaceId}`).
 - **Repositories**: Pure data-access objects (e.g., `TaskRepository`, `HabitRepository`) that enforce exact storage keys and structural normalizations.
+- **Owned-Key Registry**: `services/storage/storage-keys.ts` (`isPebbleOwnedKey`) is the single definition of the Pebble storage surface used by backup/restore/clear-all.
+- **Startup Recovery**: `services/startup/startup-recovery.ts` (`runStartupRecovery`) is the single startup sequence: interrupted-restore recovery → MoveReconciler → ConversionReconciler → ghost pruning → recycle-bin cleanup → **GraphReconciler** → NotificationReconciler.
+- **Notification Permission**: OS permission is requested only after explicit user intent (Alert Center "Enable Alerts") via `services/notifications/notification-permission.ts`; permanent denials route to system Settings.
 
 ### 3.2 Command Handler Architecture
 - **Command Handlers**: All complex mutations, side-effects, and cross-partition logic are centralized in Command Handlers (`TaskCommandHandler`, `HabitCommandHandler`, `WorkspaceCommandHandler`, etc.).
@@ -48,9 +51,7 @@ The current canonical terminology established by the codebase:
   - `Workspace` lifecycle (delete/restore) is hardened with a strict 5-lock acquisition sequence (`tasks`, `habits`, `checklists`, `resources`, `ws_lifecycle`).
   - `HabitCommandHandler.updateHabit` is hardened with `withLock` and `saveHabitUnlocked`.
 - **Known Remaining Areas Requiring Audit/Hardening**:
-  - Remaining `Habit` operations (e.g., `completeHabit`, `moveHabit`).
-  - `Checklist` and `Resource` operations.
-  - `TaskCommandHandler.clearCompletedTasks`.
+  - `TaskCommandHandler.clearCompletedTasks` and remaining untested `Habit`/`Checklist` corner cases (see `docs/integrity_status.md` OPEN items).
 
 ---
 

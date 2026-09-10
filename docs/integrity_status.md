@@ -41,6 +41,16 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Fix**: Durable MoveJournal recovery intents are only deleted *after* the domain persistence (`saveTasksUnlocked`) successfully completes. If a specific workspace save fails, the intent survives for the reconciler to pick up.
 - **Verification**: `services/command/__tests__/restoreJournalIntegrity.test.ts`
 
+### 8. Resource Detail Screen Direct Persistence Bypass
+- **Affected Code**: `features/details/resources/ResourceDetailContent.tsx`
+- **Current Fix**: The detail screen mutated Resources through `ResourceRepository.saveResource` directly, skipping the command boundary (lifecycle guard, locked fresh-state merge, `resources_changed` events, analytics). It now routes all mutations through `EntityCommandService.updateResource` / `toggleArchiveResource`, restoring the UI → Command → Repository ownership path.
+- **Verification**: `ResourceCommandHandler.concurrency.test.ts`, `ResourceCommandHandler.toggleArchive.regression.test.ts`, full suite.
+
+### 9. Graph Reconciler Missing From Startup Recovery
+- **Affected Code**: `app/_layout.tsx` → `services/startup/startup-recovery.ts`
+- **Current Fix**: `GraphReconcilerService.reconcileAll()` was only invoked during backup restore. It is now part of the startup recovery sequence, running after restore/move/conversion/recycle-bin steps and before notification reconciliation, so dangling/stale relationship edges self-heal on every launch.
+- **Verification**: `services/startup/__tests__/startupRecovery.test.ts`, `RelationshipGraphIntegrity.test.ts` (15/18/19/20/21/22), `CrossDomainIntegrity.test.ts`.
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
