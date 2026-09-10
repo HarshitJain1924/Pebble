@@ -34,6 +34,10 @@ import {
   markNotificationLogsAsRead,
   type NotificationLogEntry,
 } from "@/services/scheduling/notifications-log";
+import {
+  getNotificationPermissionStatus,
+  requestNotificationPermission,
+} from "@/services/notifications/notification-permission";
 
 export default function AlertCenterScreen() {
   const insets = useSafeAreaInsets();
@@ -53,48 +57,29 @@ export default function AlertCenterScreen() {
   const [testing, setTesting] = useState<boolean>(false);
   const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
 
-  // 1. Fetch system permission status
+  // 1. Fetch system permission status (inspection only — never prompts)
   const checkPermissions = useCallback(async () => {
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && "Notification" in window) {
-        setPermissionStatus(Notification.permission);
-      } else {
-        setPermissionStatus("unsupported");
-      }
-      return;
-    }
-
-    try {
-      const Notifications = await import("expo-notifications");
-      const { status } = await Notifications.getPermissionsAsync();
-      setPermissionStatus(status);
-    } catch {
-      setPermissionStatus("undetermined");
-    }
+    setPermissionStatus(await getNotificationPermissionStatus());
   }, []);
 
-  // 2. Request notification permissions
+  // 2. Request notification permissions — explicit user intent only.
+  //    Already-granted installs are never re-prompted, and a permanent denial
+  //    routes to system Settings instead of re-invoking the native request.
   const requestPermissions = async () => {
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && "Notification" in window) {
-        const status = await Notification.requestPermission();
-        setPermissionStatus(status);
-        if (status === "granted") {
-          Alert.alert("Success", "Browser notifications enabled!");
-        }
-      }
-      return;
-    }
-
-    try {
-      const Notifications = await import("expo-notifications");
-      const { status } = await Notifications.requestPermissionsAsync();
-      setPermissionStatus(status);
-      if (status === "granted") {
-        Alert.alert("Granted", "Notifications are active on your device!");
-      }
-    } catch {
-      Alert.alert("Error", "Could not request notifications permission.");
+    const { status, openedSettings } = await requestNotificationPermission();
+    setPermissionStatus(status);
+    if (status === "granted") {
+      Alert.alert(
+        Platform.OS === "web" ? "Success" : "Granted",
+        Platform.OS === "web"
+          ? "Browser notifications enabled!"
+          : "Notifications are active on your device!",
+      );
+    } else if (openedSettings) {
+      Alert.alert(
+        "Settings",
+        "Notifications are disabled in system settings. Enable them there to receive alerts on time.",
+      );
     }
   };
 
@@ -367,7 +352,11 @@ export default function AlertCenterScreen() {
                   }}
                   style={[styles.bannerButton, { backgroundColor: colors.warning }]}
                 >
-                  <Text style={styles.bannerButtonText}>Enable Alerts</Text>
+                  <Text style={styles.bannerButtonText}>
+                    {permissionStatus === "denied"
+                      ? "Open Settings"
+                      : "Enable Alerts"}
+                  </Text>
                 </PressableScale>
               </View>
             </AppCard>

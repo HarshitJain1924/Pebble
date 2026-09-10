@@ -46,16 +46,13 @@ export default function NotificationListener() {
         const Notifications = await import("expo-notifications");
         if (!active) return;
 
-        // Request basic permissions but do not force
-        try {
-          const { status } = await Notifications.getPermissionsAsync();
-          console.log("[NotificationListener] getPermissionsAsync status:", status);
-          if (status !== "granted") {
-            const requestResult = await Notifications.requestPermissionsAsync();
-            console.log("[NotificationListener] requestPermissionsAsync status:", requestResult.status);
-          }
-
-          if (Platform.OS === "android") {
+        // Configure Android notification channels. Channel setup is required
+        // for scheduling but NEVER prompts for OS permission. The native
+        // permission dialog is deliberately deferred until the user explicitly
+        // enables alerts (Alert Center "Enable Alerts" action) — cold launch
+        // and listener mounting must not trigger it.
+        if (Platform.OS === "android") {
+          try {
             await Notifications.setNotificationChannelAsync("todo-reminders", {
               name: "Task Reminders",
               importance: Notifications.AndroidImportance.HIGH,
@@ -65,9 +62,9 @@ export default function NotificationListener() {
               importance: Notifications.AndroidImportance.HIGH,
             });
             console.log("[NotificationListener] Android notification channels configured (todo-reminders, daily-habits) with HIGH importance.");
+          } catch (e) {
+            // ignore
           }
-        } catch (e) {
-          // ignore
         }
 
         Notifications.setNotificationHandler({

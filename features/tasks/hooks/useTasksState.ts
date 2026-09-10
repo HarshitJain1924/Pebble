@@ -607,16 +607,15 @@ export function useTasksState() {
     }, [loadState, loadSuggestions]),
   );
 
-  // Sync notification permissions and channels
+  // Ensure Android notification channels exist for scheduled reminders.
+  // OS notification permission is deliberately NOT requested here — screen
+  // mounting must never trigger the native prompt. Permission is only
+  // requested after explicit user intent (Alert Center "Enable Alerts").
   useEffect(() => {
     (async () => {
       try {
-        const Notifications = await import("expo-notifications");
-        const { status } = await Notifications.getPermissionsAsync();
-        if (status !== "granted") {
-          await Notifications.requestPermissionsAsync();
-        }
         if (Platform.OS === "android") {
+          const Notifications = await import("expo-notifications");
           await Notifications.setNotificationChannelAsync("todo-reminders", {
             name: "Task Reminders",
             importance: Notifications.AndroidImportance.DEFAULT,
