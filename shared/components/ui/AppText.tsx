@@ -3,9 +3,20 @@ import React from "react";
 
 function getFontFamily(style: any) {
   const flattened = StyleSheet.flatten(style || {});
-  const weight = flattened.fontWeight;
+  if (flattened.fontFamily) {
+    return flattened.fontFamily;
+  }
+  const weight = flattened.fontWeight != null ? String(flattened.fontWeight) : undefined;
   
-  if (weight === "700" || weight === "bold") {
+  // 700 (bold), 800 (heavy), and 900 (black) map to Pebble's strongest shipped weight: Outfit_700Bold
+  if (
+    weight === "900" ||
+    weight === "black" ||
+    weight === "800" ||
+    weight === "heavy" ||
+    weight === "700" ||
+    weight === "bold"
+  ) {
     return "Outfit_700Bold";
   } else if (weight === "600" || weight === "semibold") {
     return "Outfit_600SemiBold";
