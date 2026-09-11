@@ -1,3 +1,4 @@
+import { Radius } from "@/shared/constants/radii";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import React, {
@@ -288,7 +289,7 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     bottom: 24,
-    borderRadius: 12,
+    borderRadius: Radius.md,
     borderWidth: 1,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -308,7 +309,7 @@ const toastStyles = StyleSheet.create({
     left: 24,
     right: 24,
     bottom: 40,
-    borderRadius: 16,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -340,7 +341,7 @@ const bannerStyles = StyleSheet.create({
   },
   card: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: Radius.md,
     padding: 12,
     flexDirection: "row",
     alignItems: "center",

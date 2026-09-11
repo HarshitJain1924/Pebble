@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, View,  Dimensions, Pressable } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
+import { Radius } from "@/shared/constants/radii";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -281,7 +282,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    borderRadius: 20,
+    borderRadius: Radius.xl,
     overflow: "hidden",
   },
   rightBg: {
@@ -292,7 +293,7 @@ const styles = StyleSheet.create({
     gap: 8,
     height: "100%",
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: Radius.xl,
   },
   leftBg: {
     flex: 1,
@@ -303,7 +304,7 @@ const styles = StyleSheet.create({
     gap: 8,
     height: "100%",
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: Radius.xl,
   },
   bgText: {
     fontSize: 10,

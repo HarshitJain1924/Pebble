@@ -11,6 +11,7 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import { Radius } from "@/shared/constants/radii";
 import { Colors } from "@/shared/constants/theme";
 
 export type MascotVariant =
@@ -183,7 +184,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 20,
+    borderRadius: Radius.xl,
     borderWidth: 1,
     borderStyle: "solid",
     gap: 8,
@@ -235,7 +236,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 18,
     height: 44,
-    borderRadius: 22,
+    borderRadius: Radius.pill,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
@@ -254,7 +255,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 16,
     height: 44,
-    borderRadius: 22,
+    borderRadius: Radius.pill,
     borderWidth: 1,
   },
   secondaryButtonText: {

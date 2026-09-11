@@ -11,6 +11,7 @@ import {
   PriorityIndicator,
   StatusBadge,
 } from "@/shared/components/design-system";
+import { Radius } from "@/shared/constants/radii";
 import { type ThemeColors } from "@/shared/constants/theme";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
 import {
@@ -886,7 +887,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   workspaceCard: {
-    borderRadius: 20,
+    borderRadius: Radius.xl,
     borderWidth: 1,
     padding: 16,
     shadowColor: "#000",
@@ -942,7 +943,7 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 5,
-    borderRadius: 8,
+    borderRadius: Radius.sm,
     borderWidth: 1,
   },
   resourcePillEmoji: {
@@ -1033,7 +1034,7 @@ const styles = StyleSheet.create({
   metaBadgePill: {
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: Radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1072,7 +1073,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   previewGatewayBtn: {
-    borderRadius: 12,
+    borderRadius: Radius.md,
     borderWidth: 1,
     marginTop: 10,
     minHeight: 38,

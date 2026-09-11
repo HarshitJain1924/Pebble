@@ -4,6 +4,7 @@ import {
   EMOJI_OPTIONS,
   RenderAvatar,
 } from "@/features/profile/components/RenderAvatar";
+import { Radius } from "@/shared/constants/radii";
 import { Colors } from "@/shared/constants/theme";
 import { emitThemeChange, useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
@@ -1214,7 +1215,7 @@ const styles = StyleSheet.create({
   switchTrack: {
     width: 44,
     height: 24,
-    borderRadius: 12,
+    borderRadius: Radius.md,
     padding: 2,
     justifyContent: "center",
   },
@@ -1234,7 +1235,7 @@ const styles = StyleSheet.create({
   },
   quietTimesBlock: {
     backgroundColor: "rgba(0,0,0,0.08)",
-    borderRadius: 12,
+    borderRadius: Radius.md,
     padding: 12,
     gap: 4,
   },
@@ -1304,7 +1305,7 @@ const styles = StyleSheet.create({
   modalView: {
     width: "90%",
     maxHeight: "80%",
-    borderRadius: 20,
+    borderRadius: Radius.xl,
     borderWidth: 1,
     padding: 20,
     gap: 12,

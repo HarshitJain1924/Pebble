@@ -1,4 +1,5 @@
 import { Platform, StyleSheet } from "react-native";
+import { Radius } from "@/shared/constants/radii";
 import { Spacing } from "@/shared/constants/spacing";
 import { Typography } from "@/shared/constants/typography";
 
@@ -14,7 +15,7 @@ export const styles = StyleSheet.create({
   listHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: Typography.sizes.md, fontWeight: "700" },
   listPills: { gap: 8, paddingVertical: 4 },
-  listPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  listPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: Radius.xl, borderWidth: 1 },
   createListRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -33,7 +34,7 @@ export const styles = StyleSheet.create({
   categoryChoiceRow: { gap: 6, marginTop: 6, marginBottom: 2 },
   categoryChoiceLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" },
   categoryChoicePills: { gap: 6, paddingRight: 4 },
-  categoryChoicePill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
+  categoryChoicePill: { borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: 8, paddingVertical: 5 },
   
   listContent: { gap: 8, paddingBottom: 120 },
   emptyState: {
@@ -179,7 +180,7 @@ export const styles = StyleSheet.create({
     padding: Spacing.md,
     marginTop: 8,
     gap: 12,
-    borderRadius: 16,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.05)",
   },
@@ -191,7 +192,7 @@ export const styles = StyleSheet.create({
   alarmBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 12,
+    borderRadius: Radius.md,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.05)",
     alignItems: "center",
@@ -203,23 +204,23 @@ export const styles = StyleSheet.create({
   sectionHeaderPressable: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4, paddingHorizontal: 4 },
   sectionHeaderText: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1.2 },
   sectionTasksList: { gap: 6 },
-  tagBadge: { borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, alignSelf: "flex-start" },
+  tagBadge: { borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.sm, alignSelf: "flex-start" },
   tagBadgeText: { fontSize: 9, fontWeight: "700", textTransform: "uppercase" },
   
   segmentedControlContainer: {
     flexDirection: "row",
     padding: 4,
     backgroundColor: "rgba(255, 255, 255, 0.02)",
-    borderRadius: 16,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.05)",
   },
-  segmentButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: "transparent", gap: 6 },
+  segmentButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: Radius.md, borderWidth: 1, borderColor: "transparent", gap: 6 },
   segmentText: { fontSize: 13 },
   
   editTaskRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 2 },
   editLabel: { fontSize: 12, fontWeight: "600", width: 54 },
-  editTitleInput: { flex: 1, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, fontSize: 13 },
+  editTitleInput: { flex: 1, borderWidth: 1, borderRadius: Radius.sm, paddingHorizontal: 10, paddingVertical: 6, fontSize: 13 },
   migrateCategoryRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 2 },
   migratePills: { gap: 6, paddingVertical: 2 },
   migratePill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1 },
@@ -227,9 +228,9 @@ export const styles = StyleSheet.create({
   expandedActionsRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, width: "100%" },
   expandedActionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
   expandedActionBtnText: { fontSize: 12, fontWeight: "700" },
-  warningBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: Spacing.md, borderRadius: 16, borderWidth: 1 },
+  warningBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: Spacing.md, borderRadius: Radius.lg, borderWidth: 1 },
   warningText: { fontSize: Typography.sizes.sm, fontWeight: "600" },
-  successBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: Spacing.md, borderRadius: 16, borderWidth: 1 },
+  successBanner: { flexDirection: "row", alignItems: "center", gap: 8, padding: Spacing.md, borderRadius: Radius.lg, borderWidth: 1 },
   successText: { fontSize: Typography.sizes.sm, fontWeight: "600" },
   summaryRow: { flexDirection: "row", gap: 12 },
   summaryHalf: { flex: 1, gap: 4, padding: Spacing.md },

@@ -5,6 +5,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
+import { Radius } from "@/shared/constants/radii";
 import { Shadows } from "@/shared/constants/shadows";
 import { Spacing } from "@/shared/constants/spacing";
 import { Colors } from "@/shared/constants/theme";
@@ -112,7 +113,7 @@ export const AppCard: React.FC<AppCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 20,
+    borderRadius: Radius.xl,
     padding: Spacing.lg,
     borderWidth: 1,
   },

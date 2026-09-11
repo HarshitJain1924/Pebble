@@ -50,6 +50,7 @@ import * as Clipboard from "expo-clipboard";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import CaptureInputBox from "@/features/capture/components/CaptureInputBox";
+import { Radius } from "@/shared/constants/radii";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { useUndo } from "@/shared/components/ui/UndoContext";
@@ -2204,7 +2205,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 16,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 18,
@@ -2213,14 +2214,14 @@ const styles = StyleSheet.create({
   fileOnlyIcon: {
     width: 48,
     height: 48,
-    borderRadius: 12,
+    borderRadius: Radius.md,
     alignItems: "center",
     justifyContent: "center",
   },
   fileOnlyThumb: {
     width: 48,
     height: 48,
-    borderRadius: 12,
+    borderRadius: Radius.md,
   },
   fileOnlyNameInput: {
     fontSize: 16,
@@ -2257,7 +2258,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: Radius.md,
   },
   primaryActionBtnText: {
     fontSize: 16,

@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
+import { Radius } from "@/shared/constants/radii";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { type Workspace } from "@/shared/types/domain.types";
 
@@ -33,7 +34,7 @@ export const ContinueWorkspaceCard: React.FC<ContinueWorkspaceCardProps> = ({
         contentStyle={{ overflow: "hidden" }}
         style={{
           backgroundColor: colors.card,
-          borderRadius: 20,
+          borderRadius: Radius.xl,
           borderWidth: 1.5,
           borderColor: `${accentColor}40`,
           marginHorizontal: 4,
