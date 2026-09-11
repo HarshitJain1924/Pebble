@@ -269,7 +269,7 @@ export function TodoItem({
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: isSelected }}
                   accessibilityLabel={`Select task ${item.title}`}
-                  hitSlop={8}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   style={{ padding: 4 }}
                 >
                   <Feather
@@ -282,7 +282,7 @@ export function TodoItem({
                 <AnimatedCheckbox
                   checked={isTaskCompleted(item)}
                   onToggle={onToggleTodo}
-                  accessibilityLabel={`Mark task as ${isTaskCompleted(item) ? "uncompleted" : "completed"}: ${item.title}`}
+                  accessibilityLabel={`Mark task as ${isTaskCompleted(item) ? "incomplete" : "completed"}: ${item.title}`}
                 />
               )}
               <Pressable

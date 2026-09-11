@@ -133,8 +133,9 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
           onPress={onToggleChecklist}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: isAllCompleted }}
-          accessibilityLabel={`Mark all items in checklist ${checklist.title} as ${isAllCompleted ? "uncompleted" : "completed"}`}
+          accessibilityLabel={`Mark all items in checklist ${checklist.title} as ${isAllCompleted ? "incomplete" : "completed"}`}
           style={styles.cardCheckbox}
+          hitSlop={{ top: 13, bottom: 13, left: 13, right: 13 }}
         >
           <Feather
             name={isAllCompleted ? "check-circle" : "circle"}
@@ -183,6 +184,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                     : `${linkedCount} resources linked to ${checklist.title}`
                 }
                 style={styles.paperclipBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
               >
                 {linkedResourceIds.length === 0 ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 1 }}>
@@ -215,6 +217,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 accessibilityRole="button"
                 accessibilityLabel={`More options for checklist ${checklist.title}`}
                 style={styles.moreBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
               >
                 <Feather name="more-horizontal" size={15} color={colors.textMuted} />
               </PressableScale>
@@ -230,6 +233,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                     : `Expand checklist ${checklist.title}`
                 }
                 style={styles.chevronBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
               >
                 <Feather
                   name={isExpanded ? "chevron-up" : "chevron-down"}
@@ -297,7 +301,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                   onPress={() => handleToggleItem(item.id)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: item.completed }}
-                  accessibilityLabel={`Mark ${item.title} as ${item.completed ? "uncompleted" : "completed"}`}
+                  accessibilityLabel={`Mark ${item.title} as ${item.completed ? "incomplete" : "completed"}`}
                   style={{ flex: 1 }}
                   contentStyle={styles.checkItemLeft}
                 >

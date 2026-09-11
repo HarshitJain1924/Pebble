@@ -79,7 +79,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             }}
             accessibilityRole="button"
             accessibilityLabel="Clear search"
-            hitSlop={8}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ padding: 4 }}
           >
             <Feather name="x" size={16} color={colors.textMuted} />

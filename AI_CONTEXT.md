@@ -77,7 +77,7 @@ The current canonical terminology established by the codebase:
 5. **Resources**: Save passive reference items (links, notes, images) nested inside workspaces.
 6. **Manual Data Export**: User-facing export flow in Settings that generates a full local backup JSON via authoritative `BackupService` and presents the platform-native share/save sheet (`expo-sharing`).
 7. **Contextual Empty-State System**: Reusable, accessible `EmptyState` component with Pebble mascot integration (`idle`, `sleeping`, `focus`, `peek`), concise explanatory messaging, and immediate action triggers (`open_quick_add`, `setIsAddingResource`) across Checklists, Resources, Calendar, Focus target picking, and Archive.
-8. **Accessibility Hardening**: Standardized semantic roles, state exposure (`checked`, `selected`, `expanded`, `busy`, `disabled`), contextual accessible labels on icon-only controls, and default 44pt touch-target padding (`hitSlop={8}`) across core interactive components (`PressableScale`, `AnimatedCheckbox`, `SegmentedSwitcher`, `AppCard`) and major user-facing screens.
+8. **Accessibility Hardening**: Standardized semantic roles, state exposure (`checked`, `selected`, `expanded`, `busy`, `disabled`), contextual accessible labels on icon-only controls, expanded baseline hit areas on core interactive components (`PressableScale`, `AnimatedCheckbox`, `SegmentedSwitcher`, `AppCard`), and explicit touch-target hardening across high-risk controls.
 
 ---
 

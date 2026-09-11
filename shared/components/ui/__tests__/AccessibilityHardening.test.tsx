@@ -9,11 +9,23 @@ import PressableScale from "../PressableScale";
 import { AnimatedCheckbox } from "../AnimatedCheckbox";
 import { SegmentedSwitcher } from "../SegmentedSwitcher";
 import { AppCard } from "../AppCard";
+import { AppHeader } from "../AppHeader";
 import { VoiceCaptureButton } from "@/features/capture/components/VoiceCaptureButton";
+import { ZenModeModal } from "@/features/today/components/ZenModeModal";
+
+jest.mock("expo-router", () => ({
+  useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }),
+}));
+
+jest.mock("expo-blur", () => ({
+  BlurView: "BlurView",
+}));
 
 jest.mock("expo-haptics", () => ({
   ImpactFeedbackStyle: { Light: "light", Medium: "medium" },
+  NotificationFeedbackType: { Success: "success", Warning: "warning" },
   impactAsync: jest.fn(async () => undefined),
+  notificationAsync: jest.fn(async () => undefined),
 }));
 
 jest.mock("@expo/vector-icons", () => ({
@@ -97,30 +109,35 @@ describe("UI Accessibility Hardening Suite", () => {
     });
   });
 
-  describe("AnimatedCheckbox state and touch target", () => {
-    it("exposes accessible=true, accessibilityRole=checkbox, and checked=false state", () => {
+  describe("AnimatedCheckbox state, contextual labeling, and touch target", () => {
+    it("exposes accessible=true, accessibilityRole=checkbox, and checked=false with action-oriented default label", () => {
       let renderer: any;
       act(() => {
         renderer = create(
           <AnimatedCheckbox
             checked={false}
             onToggle={() => {}}
-            accessibilityLabel="Mark habit completed"
           />
         );
       });
 
       const checkbox = renderer.root.findByProps({ accessibilityRole: "checkbox" });
       expect(checkbox.props.accessible).toBe(true);
+      expect(checkbox.props.accessibilityRole).toBe("checkbox");
       expect(checkbox.props.accessibilityState).toEqual({
         checked: false,
         disabled: false,
       });
-      expect(checkbox.props.accessibilityLabel).toBe("Mark habit completed");
-      expect(checkbox.props.hitSlop).toEqual({ top: 8, bottom: 8, left: 8, right: 8 });
+      // Verifies action-oriented fallback when unchecked
+      expect(checkbox.props.accessibilityLabel).toBe("Mark as completed");
+
+      // Verify touch target: 26 (default size) + 9 (top) + 9 (bottom) = 44pt
+      const hs = checkbox.props.hitSlop;
+      expect(26 + hs.top + hs.bottom).toBeGreaterThanOrEqual(44);
+      expect(26 + hs.left + hs.right).toBeGreaterThanOrEqual(44);
     });
 
-    it("exposes checked=true and default contextual label when none provided", () => {
+    it("exposes checked=true with action-oriented default label when unchecked", () => {
       let renderer: any;
       act(() => {
         renderer = create(
@@ -133,7 +150,26 @@ describe("UI Accessibility Hardening Suite", () => {
         checked: true,
         disabled: false,
       });
-      expect(checkbox.props.accessibilityLabel).toBe("Completed");
+      // Verifies action-oriented fallback when checked
+      expect(checkbox.props.accessibilityLabel).toBe("Mark as incomplete");
+    });
+
+    it("preserves caller-provided contextual label", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <AnimatedCheckbox
+            checked={false}
+            onToggle={() => {}}
+            accessibilityLabel="Mark task as completed: Submit tax report"
+          />
+        );
+      });
+
+      const checkbox = renderer.root.findByProps({ accessibilityRole: "checkbox" });
+      expect(checkbox.props.accessibilityLabel).toBe(
+        "Mark task as completed: Submit tax report"
+      );
     });
 
     it("exposes disabled=true when onToggle is missing", () => {
@@ -268,6 +304,140 @@ describe("UI Accessibility Hardening Suite", () => {
       });
       expect(button).toBeDefined();
       expect(button.props.accessibilityState).toEqual({ busy: true });
+    });
+  });
+
+  describe("ZenModeModal contextual AnimatedCheckbox labeling", () => {
+    it("renders task completion checkbox with contextual label including task title", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <ZenModeModal
+            visible={true}
+            onClose={() => {}}
+            colorScheme="dark"
+            colors={{
+              card: "#18181B",
+              border: "#27272A",
+              text: "#FFFFFF",
+              textMuted: "#A1A1AA",
+              primary: "#8B5CF6",
+            }}
+            breathStyle={{}}
+            activeZenTask={{
+              id: "task-123",
+              title: "Review quarterly goals",
+              status: "todo",
+            } as any}
+            activeZenHabit={null}
+            getFolderById={() => null}
+            onCompleteTask={jest.fn(async () => {})}
+            onCompleteHabit={jest.fn(async () => {})}
+          />
+        );
+      });
+
+      const checkbox = renderer.root.findByProps({
+        accessibilityRole: "checkbox",
+        accessibilityLabel: "Mark task as completed: Review quarterly goals",
+      });
+      expect(checkbox).toBeDefined();
+      expect(checkbox.props.accessibilityState).toEqual({
+        checked: false,
+        disabled: false,
+      });
+    });
+
+    it("renders habit completion checkbox with contextual label including habit title", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <ZenModeModal
+            visible={true}
+            onClose={() => {}}
+            colorScheme="dark"
+            colors={{
+              card: "#18181B",
+              border: "#27272A",
+              text: "#FFFFFF",
+              textMuted: "#A1A1AA",
+              primary: "#8B5CF6",
+            }}
+            breathStyle={{}}
+            activeZenTask={null}
+            activeZenHabit={{
+              id: "habit-456",
+              title: "Drink 2L water",
+              recurrence: "daily",
+              completionHistory: [],
+            } as any}
+            getFolderById={() => null}
+            onCompleteTask={jest.fn(async () => {})}
+            onCompleteHabit={jest.fn(async () => {})}
+          />
+        );
+      });
+
+      const checkbox = renderer.root.findByProps({
+        accessibilityRole: "checkbox",
+        accessibilityLabel: "Mark habit as completed: Drink 2L water",
+      });
+      expect(checkbox).toBeDefined();
+      expect(checkbox.props.accessibilityState).toEqual({
+        checked: false,
+        disabled: false,
+      });
+    });
+  });
+
+  describe("Touch-target contracts for high-risk small controls", () => {
+    it("AppHeader search clear button has hitSlop achieving at least 44pt touch area", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <AppHeader
+            title="Today"
+            showSearch={true}
+            searchQuery="test"
+            onSearchQueryChange={() => {}}
+          />
+        );
+      });
+
+      // Tap search button to enter search mode
+      const searchBtn = renderer.root.findByProps({ accessibilityLabel: "Search" });
+      act(() => {
+        searchBtn.props.onPress();
+      });
+
+      const clearBtn = renderer.root.findByProps({ accessibilityLabel: "Clear search" });
+      expect(clearBtn).toBeDefined();
+      // Icon is size 16, padding is 4 (visual size: 24). hitSlop top/bottom 12: 24 + 12 + 12 = 48 >= 44
+      const hs = clearBtn.props.hitSlop;
+      expect(24 + hs.top + hs.bottom).toBeGreaterThanOrEqual(44);
+      expect(24 + hs.left + hs.right).toBeGreaterThanOrEqual(44);
+    });
+
+    it("PressableScale permits caller override of hitSlop for touch target compliance", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <PressableScale
+            onPress={() => {}}
+            hitSlop={{ top: 12, bottom: 12, left: 10, right: 10 }}
+          >
+            <Text>Small Action</Text>
+          </PressableScale>
+        );
+      });
+
+      const pressable = renderer.root.findByProps({ accessibilityRole: "button" });
+      expect(pressable.props.hitSlop).toEqual({
+        top: 12,
+        bottom: 12,
+        left: 10,
+        right: 10,
+      });
     });
   });
 });

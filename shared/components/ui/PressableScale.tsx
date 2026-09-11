@@ -61,6 +61,7 @@ export const PressableScale: React.FC<Props> = ({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={onPress}
+      // Provides an expanded baseline hit area; small sub-28pt visual elements must specify explicit hitSlop or min dimensions to reach 44pt.
       hitSlop={hitSlop ?? 8}
       accessibilityRole={resolvedRole}
       accessibilityState={resolvedState}

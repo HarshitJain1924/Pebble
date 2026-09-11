@@ -256,6 +256,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
                 accessibilityLabel={`${cell.dayNum} ${MONTH_NAMES[month.month]} ${month.year}${isToday ? ", today" : ""}. ${totalStats} ${totalStats === 1 ? "item" : "items"} scheduled.`}
+                hitSlop={{ top: 3, bottom: 3, left: 0, right: 0 }}
                 style={styles.dayPressable}
               >
                 <View

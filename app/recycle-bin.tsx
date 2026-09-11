@@ -403,7 +403,7 @@ export default function RecycleBinScreen() {
           {searchQuery.length > 0 && (
             <TouchableOpacity
               onPress={() => setSearchQuery("")}
-              hitSlop={10}
+              hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
               accessibilityRole="button"
               accessibilityLabel="Clear search query"
             >

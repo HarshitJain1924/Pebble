@@ -518,7 +518,7 @@ export function ResourceSection({
               <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>Add Resource</Text>
               <TouchableOpacity
                 onPress={() => setIsAddingResource(false)}
-                hitSlop={10}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 accessibilityRole="button"
                 accessibilityLabel="Close add resource sheet"
               >

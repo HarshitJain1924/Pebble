@@ -175,7 +175,7 @@ permission.
 - `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
 ## 19. Current Test-Suite Status
-- **Total Tests**: 1874 passing
+- **Total Tests**: 1879 passing
 - **Total Suites**: 208 passing
 - (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, resource hostile concurrency, resource reference concurrency audit, Move Journal removal durability audit, UI/UX Phase 1 manual data export suite, UI/UX Phase 2 contextual empty-state system, and UI/UX Phase 3 global accessibility semantic hardening).
 
@@ -189,11 +189,13 @@ permission.
 
 ## 21. Accessibility Semantics & Interaction Baseline (UI/UX Phase 3)
 - Major user-facing interactive surfaces were audited and hardened with semantic accessibility props without altering visual layout or component architecture.
-- `PressableScale` establishes the interactive button baseline: automatically defaults `accessibilityRole="button"` for pressable elements, merges `disabled` states into `accessibilityState`, and enforces a default `hitSlop={8}` touch target padding.
-- `AnimatedCheckbox` establishes the checkbox baseline: `accessible={true}`, `accessibilityRole="checkbox"`, `accessibilityState={{ checked, disabled }}`, contextual dynamic labels, and `hitSlop={8}`.
+- `PressableScale` establishes the interactive button baseline: automatically defaults `accessibilityRole="button"` for pressable elements, merges `disabled` states into `accessibilityState`, and provides a default expanded hit area (`hitSlop={8}`). Small sub-28pt visual controls specify explicit `hitSlop` or minimum padding at the call site for practical touch-target sizing.
+- `AnimatedCheckbox` establishes the checkbox baseline: `accessible={true}`, `accessibilityRole="checkbox"`, `accessibilityState={{ checked, disabled }}`, action-oriented contextual dynamic labels ("Mark [task/habit/item] as completed/incomplete"), and `hitSlop={9}` to achieve an effective 44pt touch boundary for its default 26pt visual size.
+- High-risk small controls (e.g. search clear buttons in AppHeader and RecycleBin, modal close buttons, checklist and habit completion toggles, day pressables, and card action icons) were audited and hardened with explicit `hitSlop` or padding to ensure practical touch targets.
 - `SegmentedSwitcher` establishes tablist semantics: container `accessibilityRole="tablist"`, options `accessibilityRole="tab"` with `accessibilityState={{ selected }}`.
 - `AppCard` defaults interactive surfaces to `accessibilityRole="button"`.
 - User-facing icon-only actions (navigation back/close, clear search, delete, restore, file picker, voice recording states, ambient sound player/transport controls, calendar navigation) provide contextual accessibility labels and roles.
 - Stateful controls (task/habit/checklist completion, accordion expanded/collapsed states, filter pills, calendar day selections, timer presets, voice recording states, ambient mute) expose explicit `accessibilityState` (`checked`, `selected`, `expanded`, `busy`, `disabled`).
 - Decorative illustrations and mascots (e.g. `EmptyState`) are marked `accessible={false}` and `importantForAccessibility="no"` to avoid screen-reader noise.
+
 

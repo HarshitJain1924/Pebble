@@ -154,6 +154,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                   >
                     <AnimatedCheckbox
                       checked={false}
+                      accessibilityLabel={`Mark task as completed: ${activeZenTask.title}`}
                       onToggle={async (e) => {
                         await onCompleteTask(activeZenTask.id, e);
                         setTimeout(() => {
@@ -232,6 +233,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                   >
                     <AnimatedCheckbox
                       checked={false}
+                      accessibilityLabel={`Mark habit as completed: ${activeZenHabit.title}`}
                       onToggle={async (e) => {
                         await onCompleteHabit(activeZenHabit.id, e);
                         setTimeout(() => {

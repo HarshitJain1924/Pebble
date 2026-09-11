@@ -67,6 +67,8 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
     }
   };
 
+  const defaultLabel = checked ? "Mark as incomplete" : "Mark as completed";
+
   return (
     <Pressable
       onPress={handlePress}
@@ -76,8 +78,8 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
       accessible={true}
       accessibilityRole="checkbox"
       accessibilityState={{ checked, disabled: !onToggle }}
-      accessibilityLabel={accessibilityLabel ?? (checked ? "Completed" : "Not completed")}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityLabel={accessibilityLabel ?? defaultLabel}
+      hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
     >
       <Animated.View
         style={[

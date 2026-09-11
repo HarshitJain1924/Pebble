@@ -29,7 +29,6 @@ import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { SegmentedSwitcher } from "@/shared/components/ui/SegmentedSwitcher";
-import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
 import { styles } from "@/shared/constants/taskStyles";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";

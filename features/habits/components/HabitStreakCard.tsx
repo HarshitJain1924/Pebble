@@ -143,8 +143,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
           onPress={onPressToggle}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: completedToday }}
-          accessibilityLabel={`Mark habit ${title} as ${completedToday ? "uncompleted" : "completed"}`}
-          hitSlop={8}
+          accessibilityLabel={`Mark habit ${title} as ${completedToday ? "incomplete" : "completed"}`}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={styles.checkButton}
         >
           <ProgressRing
