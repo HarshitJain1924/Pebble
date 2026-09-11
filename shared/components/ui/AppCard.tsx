@@ -15,6 +15,10 @@ type AppCardProps = {
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
   interactive?: boolean;
+  accessibilityRole?: any;
+  accessibilityLabel?: string;
+  accessibilityState?: any;
+  accessible?: boolean;
 };
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -24,6 +28,10 @@ export const AppCard: React.FC<AppCardProps> = ({
   style,
   onPress,
   interactive = !!onPress,
+  accessibilityRole,
+  accessibilityLabel,
+  accessibilityState,
+  accessible,
 }) => {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? "dark"];
@@ -91,6 +99,10 @@ export const AppCard: React.FC<AppCardProps> = ({
       onPressOut={handlePressOut}
       delayPressIn={80}
       activeOpacity={1}
+      accessible={accessible ?? true}
+      accessibilityRole={accessibilityRole ?? "button"}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
       style={[flatStyle, animatedStyle]}
     >
       {children}

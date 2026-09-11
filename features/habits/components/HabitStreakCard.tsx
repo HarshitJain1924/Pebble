@@ -139,7 +139,14 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       {/* Primary Card Row */}
       <View style={styles.cardHeaderRow}>
         {/* Thicker empty ring for satisfying Apple-style fitness feel */}
-        <Pressable onPress={onPressToggle} style={styles.checkButton}>
+        <Pressable
+          onPress={onPressToggle}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: completedToday }}
+          accessibilityLabel={`Mark habit ${title} as ${completedToday ? "uncompleted" : "completed"}`}
+          hitSlop={8}
+          style={styles.checkButton}
+        >
           <ProgressRing
             progress={completedToday ? 1 : 0}
             size={24}
@@ -219,6 +226,13 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
           onPress={onPressResources}
           onLongPress={linkedCount > 0 ? onLongPressResources : undefined}
           delayLongPress={350}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: isExpanded }}
+          accessibilityLabel={
+            linkedCount === 0
+              ? `Attach resource to ${title}`
+              : `${linkedCount} resources linked to ${title}. Tap to ${isExpanded ? "collapse" : "expand"}`
+          }
           style={{
             width: 44,
             height: 44,
@@ -286,6 +300,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
                 <View key={res.id}>
                   <TouchableOpacity
                     onPress={() => onPressOpenResource?.(res)}
+                    accessibilityRole={isLink ? "link" : "button"}
+                    accessibilityLabel={`Open resource: ${res.title}`}
                     style={styles.resourceRow}
                   >
                     {/* Icon or Thumbnail */}
@@ -403,6 +419,12 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
                   );
                   setShowAllResources?.(!showAllResources);
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  showAllResources
+                    ? "Show fewer resources"
+                    : `Show ${linkedResources.length - 2} more resources`
+                }
                 style={styles.showMoreBtn}
               >
                 <Text
@@ -422,6 +444,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
             {/* Flat Link Resource Action button (no dashed border) */}
             <TouchableOpacity
               onPress={onPressAddResource}
+              accessibilityRole="button"
+              accessibilityLabel={`Link resource to ${title}`}
               style={styles.addResourceBtn}
             >
               <Feather name="plus" size={14} color={colors.primary} />

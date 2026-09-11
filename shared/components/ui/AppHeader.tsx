@@ -77,6 +77,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               setIsSearching(false);
               onSearchQueryChange?.("");
             }}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+            hitSlop={8}
             style={{ padding: 4 }}
           >
             <Feather name="x" size={16} color={colors.textMuted} />
@@ -86,7 +89,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <>
           <View style={styles.left}>
             {kicker && <Text style={[styles.kicker, { color: colors.primary }]}>{kicker.toUpperCase()}</Text>}
-            {title && <Text style={[styles.title, { color: colors.text }]}>{title}</Text>}
+            {title && <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>{title}</Text>}
             {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
           </View>
           {(showNotifications || showProfile || showArchive || showTrash || streak !== undefined || showSearch) && (
@@ -103,6 +106,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Search"
+                  hitSlop={6}
                   onPress={() => setIsSearching(true)}
                 >
                   <Feather name="search" size={16} color={colors.textMuted} />
@@ -121,6 +125,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Open recycle bin"
+                  hitSlop={6}
                   onPress={() => router.push("/recycle-bin")}
                 >
                   <Feather name="trash-2" size={16} color={colors.textMuted} />
@@ -139,6 +144,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Open archive"
+                  hitSlop={6}
                   onPress={() => router.push("/archive")}
                 >
                   <Feather name="archive" size={16} color={colors.textMuted} />
@@ -157,6 +163,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="View streak"
+                  hitSlop={6}
                   onPress={onStreakPress}
                 >
                   <Text style={{ fontSize: 13, marginRight: 3 }}>🔥</Text>
@@ -184,6 +191,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Open notifications"
+                  hitSlop={6}
                   onPress={() => router.push("/notifications")}
                 >
                   <Feather name="bell" size={16} color={colors.textMuted} />
@@ -206,6 +214,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   style={styles.profileHeaderWrap}
                   accessibilityRole="button"
                   accessibilityLabel="Open profile"
+                  hitSlop={6}
                   onPress={() => router.push("/profile")}
                 >
                   <View

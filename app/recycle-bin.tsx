@@ -353,17 +353,22 @@ export default function RecycleBinScreen() {
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
           style={styles.headerBtn}
           hitSlop={10}
         >
           <Feather name="arrow-left" size={22} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
+        <Text accessibilityRole="header" style={[styles.headerTitle, { color: colors.text }]}>
           Recycle Bin
         </Text>
         <TouchableOpacity
           onPress={handleEmptyRecycleBin}
           disabled={items.length === 0}
+          accessibilityRole="button"
+          accessibilityLabel="Empty Recycle Bin"
+          accessibilityState={{ disabled: items.length === 0 }}
           style={{ opacity: items.length === 0 ? 0.35 : 1 }}
           hitSlop={10}
         >
@@ -390,12 +395,18 @@ export default function RecycleBinScreen() {
           <TextInput
             placeholder="Search deleted items..."
             placeholderTextColor={colors.textMuted}
+            accessibilityLabel="Search deleted items"
             value={searchQuery}
             onChangeText={setSearchQuery}
             style={[styles.searchInput, { color: colors.text }]}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery("")} hitSlop={10}>
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search query"
+            >
               <Feather name="x" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           )}
@@ -405,9 +416,10 @@ export default function RecycleBinScreen() {
       {/* Tabs */}
       <View style={styles.tabsWrapper}>
         <View
+          accessibilityRole="tablist"
           style={[
             styles.tabsContainer,
-            { backgroundColor: isLight ? "#E2E8F0" : "#27272A" },
+            { backgroundColor: isLight ? "#E2E8F8" : "#27272A" },
           ]}
         >
           {(["task", "habit", "workspace", "resource"] as const).map((tab) => {
@@ -418,6 +430,14 @@ export default function RecycleBinScreen() {
               return i.entityType === tab;
             }).length;
             const isActive = activeTab === tab;
+            const tabName =
+              tab === "task"
+                ? "Tasks"
+                : tab === "habit"
+                  ? "Habits"
+                  : tab === "workspace"
+                    ? "Workspaces"
+                    : "Resources";
             return (
               <TouchableOpacity
                 key={tab}
@@ -427,6 +447,9 @@ export default function RecycleBinScreen() {
                     () => {},
                   );
                 }}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={`${tabName} tab, ${count} items`}
                 style={[
                   styles.tabButton,
                   isActive && {
@@ -448,13 +471,7 @@ export default function RecycleBinScreen() {
                     },
                   ]}
                 >
-                  {tab === "task"
-                    ? "Tasks"
-                    : tab === "habit"
-                      ? "Habits"
-                      : tab === "workspace"
-                        ? "Workspaces"
-                        : "Resources"}
+                  {tabName}
                   {count > 0 && ` (${count})`}
                 </Text>
               </TouchableOpacity>
@@ -475,6 +492,8 @@ export default function RecycleBinScreen() {
           <TouchableOpacity
             style={[styles.restoreAllBtn, { borderColor: colors.primary }]}
             onPress={handleRestoreAll}
+            accessibilityRole="button"
+            accessibilityLabel={`Restore all deleted ${activeTab === "resource" ? "resources" : activeTab + "s"}`}
           >
             <Feather
               name="rotate-ccw"
@@ -641,6 +660,8 @@ export default function RecycleBinScreen() {
                   <View style={styles.actions}>
                     <TouchableOpacity
                       onPress={() => handleRestoreItem(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restore ${getItemTitle(item)}`}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.success}15` },
@@ -655,6 +676,8 @@ export default function RecycleBinScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handlePermanentDelete(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Permanently delete ${getItemTitle(item)}`}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.error}15` },

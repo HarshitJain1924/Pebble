@@ -275,7 +275,7 @@ export function ResourceSection({
     <View style={styles.container}>
       {/* Workspace Section Header (Matching Tasks, Habits, Checklists) */}
       <View style={styles.sectionHeaderRow}>
-        <Text style={[styles.sectionHeading, { color: theme.text }]}>Resources</Text>
+        <Text accessibilityRole="header" style={[styles.sectionHeading, { color: theme.text }]}>Resources</Text>
         <Text style={[styles.itemCountText, { color: theme.textMuted }]}>
           {folderResources.length} {folderResources.length === 1 ? "item" : "items"}
         </Text>
@@ -306,6 +306,9 @@ export function ResourceSection({
                   Haptics.selectionAsync().catch(() => {});
                   setActiveFilter(filter.key);
                 }}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={`${filter.label} filter`}
                 style={[
                   styles.filterPill,
                   {
@@ -458,6 +461,8 @@ export function ResourceSection({
                             void handleOpenLink(attachment.uri);
                           }}
                           hitSlop={8}
+                          accessibilityRole="link"
+                          accessibilityLabel={`Open external link: ${res.title}`}
                           style={[styles.openLinkIconBtn, { backgroundColor: `${theme.primary}12` }]}
                         >
                           <Feather name="external-link" size={12} color={theme.primary} />
@@ -470,6 +475,8 @@ export function ResourceSection({
                           setSelectedResource(res);
                         }}
                         hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Options for resource: ${res.title}`}
                         style={styles.moreButton}
                       >
                         <Feather name="more-vertical" size={16} color={theme.textMuted} />
@@ -508,8 +515,13 @@ export function ResourceSection({
           <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.sheetHandleBar} />
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Add Resource</Text>
-              <TouchableOpacity onPress={() => setIsAddingResource(false)} hitSlop={10}>
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>Add Resource</Text>
+              <TouchableOpacity
+                onPress={() => setIsAddingResource(false)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Close add resource sheet"
+              >
                 <Feather name="x" size={20} color={theme.textMuted} />
               </TouchableOpacity>
             </View>
@@ -533,6 +545,9 @@ export function ResourceSection({
                       Haptics.selectionAsync().catch(() => {});
                       setNewResType(t.type);
                     }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={`${t.label} resource type`}
                     style={[
                       styles.typeTabPill,
                       {
@@ -615,6 +630,14 @@ export function ResourceSection({
                   },
                 ]}
                 onPress={() => handlePickDocument(newResType === "media")}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  pickedFile
+                    ? `Selected file ${pickedFile.name}. Tap to change.`
+                    : newResType === "media"
+                    ? "Choose image or video"
+                    : "Choose document"
+                }
                 activeOpacity={0.8}
               >
                 <Feather
@@ -666,6 +689,8 @@ export function ResourceSection({
                 <TouchableOpacity
                   onPress={() => setSelectedResource(null)}
                   hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close resource options"
                   style={[styles.closeIconBtn, { backgroundColor: `${theme.border}40` }]}
                 >
                   <Feather name="x" size={16} color={theme.textMuted} />
@@ -681,6 +706,8 @@ export function ResourceSection({
                     setSelectedResource(null);
                     handleOpenEdit(res);
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit resource ${selectedResource.title}`}
                   activeOpacity={0.7}
                 >
                   <View style={[styles.actionIconPill, { backgroundColor: `${theme.primary}18` }]}>
@@ -695,6 +722,8 @@ export function ResourceSection({
                     setLinkingResource(selectedResource);
                     setSelectedResource(null);
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Link resource ${selectedResource.title} to task or habit`}
                   activeOpacity={0.7}
                 >
                   <View style={[styles.actionIconPill, { backgroundColor: "#3B82F618" }]}>
@@ -709,6 +738,8 @@ export function ResourceSection({
                     handleToggleArchive(selectedResource);
                     setSelectedResource(null);
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${selectedResource.archivedAt ? "Unarchive" : "Archive"} resource ${selectedResource.title}`}
                   activeOpacity={0.7}
                 >
                   <View style={[styles.actionIconPill, { backgroundColor: `${theme.border}60` }]}>
@@ -722,6 +753,8 @@ export function ResourceSection({
                 <TouchableOpacity
                   style={[styles.actionRowBtn, { backgroundColor: "rgba(239,68,68,0.1)" }]}
                   onPress={() => handleDelete(selectedResource)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete resource ${selectedResource.title}`}
                   activeOpacity={0.7}
                 >
                   <View style={[styles.actionIconPill, { backgroundColor: "rgba(239,68,68,0.15)" }]}>
@@ -742,8 +775,13 @@ export function ResourceSection({
             <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.sheetHandleBar} />
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>Edit Resource</Text>
-                <TouchableOpacity onPress={() => setEditingResource(null)} hitSlop={10}>
+                <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>Edit Resource</Text>
+                <TouchableOpacity
+                  onPress={() => setEditingResource(null)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close edit resource sheet"
+                >
                   <Feather name="x" size={20} color={theme.textMuted} />
                 </TouchableOpacity>
               </View>
@@ -757,6 +795,7 @@ export function ResourceSection({
                 onChangeText={setEditTitle}
                 placeholder="Title"
                 placeholderTextColor={theme.textMuted}
+                accessibilityLabel="Resource title"
               />
 
               {editingResource.body !== undefined && (
@@ -772,6 +811,7 @@ export function ResourceSection({
                   numberOfLines={4}
                   placeholder="Content..."
                   placeholderTextColor={theme.textMuted}
+                  accessibilityLabel="Resource content"
                 />
               )}
 
@@ -794,8 +834,13 @@ export function ResourceSection({
             <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.sheetHandleBar} />
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>Link Resource</Text>
-                <TouchableOpacity onPress={() => setLinkingResource(null)} hitSlop={10}>
+                <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>Link Resource</Text>
+                <TouchableOpacity
+                  onPress={() => setLinkingResource(null)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close link resource sheet"
+                >
                   <Feather name="x" size={20} color={theme.textMuted} />
                 </TouchableOpacity>
               </View>
@@ -815,6 +860,9 @@ export function ResourceSection({
                               onToggleLinkResource(todo.id, "task", linkingResource.id);
                             }
                           }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isLinked }}
+                          accessibilityLabel={`${isLinked ? "Unlink from" : "Link to"} task ${todo.title}`}
                         >
                           <Text style={[styles.linkItemText, { color: theme.text }]}>{todo.title}</Text>
                           <Feather
@@ -842,6 +890,9 @@ export function ResourceSection({
                               onToggleLinkResource(habit.id, "habit", linkingResource.id);
                             }
                           }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isLinked }}
+                          accessibilityLabel={`${isLinked ? "Unlink from" : "Link to"} habit ${habit.title}`}
                         >
                           <Text style={[styles.linkItemText, { color: theme.text }]}>{habit.title}</Text>
                           <Feather
@@ -869,6 +920,9 @@ export function ResourceSection({
                               onToggleLinkResource(checklist.id, "checklist", linkingResource.id);
                             }
                           }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isLinked }}
+                          accessibilityLabel={`${isLinked ? "Unlink from" : "Link to"} checklist ${checklist.title}`}
                         >
                           <Text style={[styles.linkItemText, { color: theme.text }]}>{checklist.title}</Text>
                           <Feather

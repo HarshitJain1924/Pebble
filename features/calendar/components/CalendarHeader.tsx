@@ -76,7 +76,8 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
       <Pressable
         onPress={handleDatePress}
         style={styles.header}
-        accessibilityLabel={`Header: Calendar. Tap to jump to another date.`}
+        accessibilityRole="header"
+        accessibilityLabel={`Calendar: ${subtitle}. Tap to jump to another date.`}
       >
         <Text style={[styles.kicker, { color: colors.primary }]}>
           SCHEDULE
@@ -95,6 +96,8 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           onToggleViewMode();
         }}
+        accessibilityRole="button"
+        accessibilityLabel={`Current view: ${VIEW_LABELS[calendarViewMode]}. Tap to toggle view mode.`}
         scaleTo={0.95}
         contentStyle={[
           styles.viewToggleButton,

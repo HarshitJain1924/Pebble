@@ -176,6 +176,8 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
           <Pressable
             onPress={handlePrevMonth}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
             style={[
               styles.navButton,
               {
@@ -187,13 +189,15 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
             <Feather name="chevron-left" size={16} color={colors.text} />
           </Pressable>
 
-          <Text style={[styles.monthTitleText, { color: colors.text }]}>
+          <Text accessibilityRole="header" style={[styles.monthTitleText, { color: colors.text }]}>
             {MONTH_NAMES[month.month]} {month.year}
           </Text>
 
           <Pressable
             onPress={handleNextMonth}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
             style={[
               styles.navButton,
               {
@@ -240,6 +244,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
             const isSelected = selectedDate === dateStr;
             const isToday = dateStr === getDateKey();
             const stats = getDateStats(dateStr);
+            const totalStats = stats.tasks + stats.habits + stats.checklists;
 
             return (
               <Pressable
@@ -248,6 +253,9 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                   setSelectedDate(dateStr);
                 }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                accessibilityLabel={`${cell.dayNum} ${MONTH_NAMES[month.month]} ${month.year}${isToday ? ", today" : ""}. ${totalStats} ${totalStats === 1 ? "item" : "items"} scheduled.`}
                 style={styles.dayPressable}
               >
                 <View
@@ -320,6 +328,8 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
           {/* Open Day View Button */}
           <PressableScale
             onPress={() => onSelectDayAndOpenTimeline(selectedDate)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open day view for ${selectedWeekday}, ${selectedMonthName} ${selectedDayNum}`}
             scaleTo={0.96}
             contentStyle={[
               styles.openDayButton,
@@ -348,6 +358,8 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                   <PressableScale
                     key={item.id}
                     onPress={() => onOpenItem(item)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open all day ${item.type}: ${item.title}`}
                     scaleTo={0.96}
                     contentStyle={[
                       styles.agendaAllDayChip,
@@ -386,6 +398,8 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                 <PressableScale
                   key={item.id}
                   onPress={() => onOpenItem(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${item.type}: ${item.title}, at ${timeStr}, duration ${durStr}`}
                   scaleTo={0.98}
                   contentStyle={styles.agendaItemContainer}
                 >
@@ -445,6 +459,8 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
         {/* Plan Something Button */}
         <PressableScale
           onPress={() => onPlanAtDate(selectedDate)}
+          accessibilityRole="button"
+          accessibilityLabel={`Plan an item for ${selectedWeekday}, ${selectedMonthName} ${selectedDayNum}`}
           scaleTo={0.98}
           contentStyle={[
             styles.planSomethingButton,

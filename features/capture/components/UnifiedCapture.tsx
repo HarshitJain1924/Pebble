@@ -1324,6 +1324,9 @@ export default function UnifiedCapture({
           </View>
           <TouchableOpacity
             onPress={() => sheetRef.current?.dismiss()}
+            accessibilityRole="button"
+            accessibilityLabel="Close quick capture"
+            hitSlop={10}
             style={[styles.closeIconBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}
           >
             <Feather name="x" size={18} color={textMuted} />

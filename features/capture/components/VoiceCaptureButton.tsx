@@ -146,6 +146,19 @@ export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
           onPress={handlePress}
           haptic
           hitSlop={20}
+          accessibilityRole="button"
+          accessibilityLabel={
+            status === "listening"
+              ? "Stop voice recording"
+              : status === "processing"
+              ? "Processing voice recording"
+              : status === "completed"
+              ? "Voice recording completed"
+              : status === "error"
+              ? "Voice recording error, tap to retry"
+              : "Start voice recording"
+          }
+          accessibilityState={{ busy: status === "processing" }}
           style={styles.pressableScale}
         >
           <Animated.View

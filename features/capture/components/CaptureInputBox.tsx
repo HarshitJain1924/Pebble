@@ -132,6 +132,8 @@ export const CaptureInputBox = React.memo(function CaptureInputBox({
         {value.length > 0 && (
           <TouchableOpacity
             onPress={handleClear}
+            accessibilityRole="button"
+            accessibilityLabel="Clear text"
             style={styles.actionBtn}
             hitSlop={8}
             activeOpacity={0.7}
@@ -143,6 +145,8 @@ export const CaptureInputBox = React.memo(function CaptureInputBox({
         {onAttachmentPress && (
           <TouchableOpacity
             onPress={onAttachmentPress}
+            accessibilityRole="button"
+            accessibilityLabel="Add attachment"
             style={styles.actionBtn}
             hitSlop={8}
             activeOpacity={0.7}

@@ -142,6 +142,10 @@ export function HabitSection({
             {isSelectionMode && (
               <Pressable
                 onPress={() => onToggleSelectItem?.(item.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: selectedItemIds.has(item.id) }}
+                accessibilityLabel={`Select habit ${item.title}`}
+                hitSlop={8}
                 style={{ paddingLeft: 6, paddingRight: 4 }}
               >
                 <Feather
@@ -216,6 +220,9 @@ export function HabitSection({
             <View style={styles.sectionContainer}>
               <Pressable
                 onPress={() => setTodayExpanded(!todayExpanded)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: todayExpanded }}
+                accessibilityLabel={`Today's habits, ${todayList.length} items. Tap to ${todayExpanded ? "collapse" : "expand"}`}
                 style={styles.sectionHeaderPressable}
               >
                 <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
@@ -240,6 +247,9 @@ export function HabitSection({
             <View style={styles.sectionContainer}>
               <Pressable
                 onPress={() => setCompletedExpanded(!completedExpanded)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: completedExpanded }}
+                accessibilityLabel={`Completed habits, ${completedList.length} items. Tap to ${completedExpanded ? "collapse" : "expand"}`}
                 style={styles.sectionHeaderPressable}
               >
                 <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
@@ -269,6 +279,8 @@ export function HabitSection({
           />
           <TouchableOpacity
             onPress={onCreateHabit}
+            accessibilityRole="button"
+            accessibilityLabel="Create Habit"
             style={{
               flexDirection: "row",
               alignItems: "center",
@@ -337,6 +349,9 @@ export function HabitSection({
                     <TouchableOpacity
                       key={res.id}
                       onPress={() => activeHabitId && onToggleLinkResource?.(activeHabitId, "habit", res.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: isLinked }}
+                      accessibilityLabel={`${isLinked ? "Unlink" : "Link"} resource ${res.title}`}
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
@@ -371,6 +386,8 @@ export function HabitSection({
 
             <TouchableOpacity
               onPress={() => setShowLinkSelector(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Done linking resources"
               style={{
                 backgroundColor: colors.primary,
                 paddingVertical: 10,
@@ -394,6 +411,8 @@ export function HabitSection({
       >
         <Pressable
           onPress={() => setPeekingResourceIds(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss resources glance"
           style={{
             flex: 1,
             backgroundColor: "rgba(0,0,0,0.6)",

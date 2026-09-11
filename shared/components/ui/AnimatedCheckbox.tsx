@@ -14,12 +14,14 @@ type AnimatedCheckboxProps = {
   checked: boolean;
   onToggle?: (event?: any) => void;
   size?: number;
+  accessibilityLabel?: string;
 };
 
 export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
   checked,
   onToggle,
   size = 26,
+  accessibilityLabel,
 }) => {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? "dark"];
@@ -71,6 +73,11 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={!onToggle}
+      accessible={true}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked, disabled: !onToggle }}
+      accessibilityLabel={accessibilityLabel ?? (checked ? "Completed" : "Not completed")}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
     >
       <Animated.View
         style={[

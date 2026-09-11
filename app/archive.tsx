@@ -219,11 +219,14 @@ export default function ArchiveScreen() {
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
           style={styles.headerBtn}
         >
           <Feather name="arrow-left" size={22} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
+        <Text accessibilityRole="header" style={[styles.headerTitle, { color: colors.text }]}>
           Archived Items
         </Text>
         <View style={{ width: 34 }} />
@@ -263,7 +266,7 @@ export default function ArchiveScreen() {
         >
           {/* Archived Tasks */}
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.primary }]}>
               Archived Tasks
             </Text>
             {archivedTasks.length === 0 ? (
@@ -338,6 +341,9 @@ export default function ArchiveScreen() {
                   <View style={styles.actions}>
                     <TouchableOpacity
                       onPress={() => handleRestore(todo, "task")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restore task ${todo.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.success}15` },
@@ -351,6 +357,9 @@ export default function ArchiveScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeletePermanently(todo, "task")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Permanently delete task ${todo.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.error}15` },
@@ -366,7 +375,7 @@ export default function ArchiveScreen() {
 
           {/* Archived Habits */}
           <View style={[styles.section, { marginTop: 24 }]}>
-            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.primary }]}>
               Archived Habits
             </Text>
             {archivedHabits.length === 0 ? (
@@ -416,6 +425,9 @@ export default function ArchiveScreen() {
                   <View style={styles.actions}>
                     <TouchableOpacity
                       onPress={() => handleRestore(habit, "habit")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restore habit ${habit.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.success}15` },
@@ -429,6 +441,9 @@ export default function ArchiveScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeletePermanently(habit, "habit")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Permanently delete habit ${habit.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.error}15` },
@@ -444,7 +459,7 @@ export default function ArchiveScreen() {
 
           {/* Archived Checklists */}
           <View style={[styles.section, { marginTop: 24 }]}>
-            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.primary }]}>
               Archived Checklists
             </Text>
             {archivedChecklists.length === 0 ? (
@@ -494,6 +509,9 @@ export default function ArchiveScreen() {
                   <View style={styles.actions}>
                     <TouchableOpacity
                       onPress={() => handleRestore(cl, "checklist")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restore checklist ${cl.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.success}15` },
@@ -507,6 +525,9 @@ export default function ArchiveScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeletePermanently(cl, "checklist")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Permanently delete checklist ${cl.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.error}15` },
@@ -522,7 +543,7 @@ export default function ArchiveScreen() {
 
           {/* Archived Resources */}
           <View style={[styles.section, { marginTop: 24 }]}>
-            <Text style={[styles.sectionTitle, { color: colors.primary }]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.primary }]}>
               Archived Resources
             </Text>
             {archivedResources.length === 0 ? (
@@ -572,6 +593,9 @@ export default function ArchiveScreen() {
                   <View style={styles.actions}>
                     <TouchableOpacity
                       onPress={() => handleRestore(res, "resource")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restore resource ${res.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.success}15` },
@@ -585,6 +609,9 @@ export default function ArchiveScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeletePermanently(res, "resource")}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Permanently delete resource ${res.title}`}
+                      hitSlop={8}
                       style={[
                         styles.actionBtn,
                         { backgroundColor: `${colors.error}15` },

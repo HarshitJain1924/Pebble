@@ -98,6 +98,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
       <PressableScale
         onPress={onOpenPlayer}
         haptic
+        accessibilityRole="button"
+        accessibilityLabel={`Ambient sound: ${soundTitle}. Tap to select sound.`}
         style={styles.barWrapper}
         contentStyle={[
           styles.inactiveBar,
@@ -136,8 +138,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
             </Text>
             <Text
               numberOfLines={1}
-              style={[styles.inactiveSub, { color: colors.textMuted }]}
-            >
+              style={[styles.inactiveSub, { color: colors.textMuted }]}>
               {soundTitle}
             </Text>
           </View>
@@ -168,6 +169,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         <PressableScale
           onPress={onOpenPlayer}
           haptic
+          accessibilityRole="button"
+          accessibilityLabel={`Current ambient sound: ${soundTitle}. Tap to change sound.`}
           style={styles.activeTrackGroupWrapper}
           contentStyle={styles.activeTrackGroup}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
@@ -205,6 +208,9 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         <PressableScale
           onPress={() => onToggleMute(!isMuted)}
           haptic
+          accessibilityRole="button"
+          accessibilityState={{ selected: isMuted }}
+          accessibilityLabel={isMuted ? "Unmute ambient sound" : "Mute ambient sound"}
           style={[
             styles.volumeBtn,
             {
@@ -243,6 +249,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         <PressableScale
           onPress={onPrevTrack}
           haptic
+          accessibilityRole="button"
+          accessibilityLabel="Previous ambient sound track"
           style={styles.transportBtn}
           contentStyle={styles.iconCenter}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -253,6 +261,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         <PressableScale
           onPress={onTogglePlay}
           haptic
+          accessibilityRole="button"
+          accessibilityLabel={isPlaying ? "Pause ambient sound" : "Play ambient sound"}
           style={[
             styles.transportPlayBtn,
             {
@@ -272,6 +282,8 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
         <PressableScale
           onPress={onNextTrack}
           haptic
+          accessibilityRole="button"
+          accessibilityLabel="Next ambient sound track"
           style={styles.transportBtn}
           contentStyle={styles.iconCenter}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

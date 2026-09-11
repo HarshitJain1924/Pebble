@@ -65,6 +65,7 @@ export const SegmentedSwitcher: React.FC<SegmentedSwitcherProps> = ({
   return (
     <View
       onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+      accessibilityRole="tablist"
       style={[
         styles.container,
         {
@@ -90,6 +91,9 @@ export const SegmentedSwitcher: React.FC<SegmentedSwitcherProps> = ({
         return (
           <Pressable
             key={option.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={option.label}
             style={({ pressed }) => [
               styles.button,
               pressed && { opacity: 0.8 },

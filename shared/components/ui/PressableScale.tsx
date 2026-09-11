@@ -25,6 +25,8 @@ export const PressableScale: React.FC<Props> = ({
   scaleTo = 0.97,
   haptic = false,
   hitSlop,
+  accessibilityRole,
+  accessibilityState,
   ...rest
 }) => {
   const scale = useSharedValue(1);
@@ -48,12 +50,20 @@ export const PressableScale: React.FC<Props> = ({
     onPressOut?.(e);
   };
 
+  const resolvedRole = accessibilityRole ?? (onPress ? "button" : undefined);
+  const resolvedState =
+    rest.disabled !== undefined || accessibilityState
+      ? { disabled: Boolean(rest.disabled), ...accessibilityState }
+      : undefined;
+
   return (
     <Pressable
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={onPress}
       hitSlop={hitSlop ?? 8}
+      accessibilityRole={resolvedRole}
+      accessibilityState={resolvedState}
       {...rest}
       style={style}
     >

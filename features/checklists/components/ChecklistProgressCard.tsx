@@ -129,7 +129,13 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     >
       {/* Primary Card Header Row aligned with mockup */}
       <View style={styles.cardHeaderRow}>
-        <PressableScale onPress={onToggleChecklist} style={styles.cardCheckbox}>
+        <PressableScale
+          onPress={onToggleChecklist}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: isAllCompleted }}
+          accessibilityLabel={`Mark all items in checklist ${checklist.title} as ${isAllCompleted ? "uncompleted" : "completed"}`}
+          style={styles.cardCheckbox}
+        >
           <Feather
             name={isAllCompleted ? "check-circle" : "circle"}
             size={18}
@@ -139,7 +145,12 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
 
         <View style={styles.cardMainColumn}>
           <View style={styles.titleRow}>
-            <PressableScale onPress={handleEditPress} style={styles.titlePress}>
+            <PressableScale
+              onPress={handleEditPress}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit checklist ${checklist.title}`}
+              style={styles.titlePress}
+            >
               <Text
                 style={[
                   styles.title,
@@ -165,6 +176,12 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                     setShowLinkSelector(true);
                   }
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  linkedResourceIds.length === 0
+                    ? `Attach resource to ${checklist.title}`
+                    : `${linkedCount} resources linked to ${checklist.title}`
+                }
                 style={styles.paperclipBtn}
               >
                 {linkedResourceIds.length === 0 ? (
@@ -195,6 +212,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
               {/* Card Contextual Overflow Menu Button */}
               <PressableScale
                 onPress={handleShowOverflowMenu}
+                accessibilityRole="button"
+                accessibilityLabel={`More options for checklist ${checklist.title}`}
                 style={styles.moreBtn}
               >
                 <Feather name="more-horizontal" size={15} color={colors.textMuted} />
@@ -203,6 +222,13 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
               {/* Chevron Expand Button */}
               <PressableScale
                 onPress={onToggleExpand}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isExpanded }}
+                accessibilityLabel={
+                  isExpanded
+                    ? `Collapse checklist ${checklist.title}`
+                    : `Expand checklist ${checklist.title}`
+                }
                 style={styles.chevronBtn}
               >
                 <Feather
@@ -215,7 +241,13 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
           </View>
 
           {/* Flat Progress Bar below the Title */}
-          <PressableScale onPress={onToggleExpand} style={styles.progressRowPress}>
+          <PressableScale
+            onPress={onToggleExpand}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isExpanded }}
+            accessibilityLabel={`Checklist progress: ${completedCount} of ${totalCount} completed. Tap to ${isExpanded ? "collapse" : "expand"}`}
+            style={styles.progressRowPress}
+          >
             <View
               style={[
                 styles.progressTrack,
@@ -263,6 +295,9 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
               <View key={item.id} style={styles.checkItemRow}>
                 <PressableScale
                   onPress={() => handleToggleItem(item.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: item.completed }}
+                  accessibilityLabel={`Mark ${item.title} as ${item.completed ? "uncompleted" : "completed"}`}
                   style={{ flex: 1 }}
                   contentStyle={styles.checkItemLeft}
                 >
@@ -294,6 +329,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 onChangeText={setNewItemText}
                 placeholder="Add item..."
                 placeholderTextColor={colors.textMuted}
+                accessibilityLabel={`Add item to checklist ${checklist.title}`}
                 onSubmitEditing={handleAddItem}
                 style={[styles.addItemInput, { color: colors.text }]}
               />
@@ -328,6 +364,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                             Alert.alert(res.title, "Image attachment");
                           }
                         }}
+                        accessibilityRole={isLink ? "link" : "button"}
+                        accessibilityLabel={`Open resource: ${res.title}`}
                         contentStyle={styles.resourceRow}
                       >
                         {isImage ? (
@@ -571,6 +609,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                   close();
                   onDuplicateChecklist?.(checklist);
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Duplicate checklist ${checklist.title}`}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -604,6 +644,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                     );
                   }, 300);
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Archive checklist ${checklist.title}`}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -638,6 +680,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                     );
                   }, 300);
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete checklist ${checklist.title}`}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -658,6 +702,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
             {/* Cancel option */}
             <TouchableOpacity
               onPress={close}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
               style={{
                 alignItems: "center",
                 justifyContent: "center",

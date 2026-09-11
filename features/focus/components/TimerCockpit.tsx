@@ -405,6 +405,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
         <View style={styles.completedActionsWrap}>
           <Pressable
             onPress={handleReset}
+            accessibilityRole="button"
+            accessibilityLabel="Start next session"
             style={({ pressed }) => [
               styles.primaryBtn,
               {
@@ -429,6 +431,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 setTotalSessionTime(5 * 60);
               }
             }}
+            accessibilityRole="button"
+            accessibilityLabel="Take a break"
             style={({ pressed }) => [
               styles.completedBreakBtn,
               {
@@ -462,6 +466,14 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
           {mode === "pomodoro" ? (
             <Pressable
               onPress={handleStartPause}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isActive
+                  ? "Pause focus session"
+                  : pomodoroMode === "work"
+                  ? "Start focus session"
+                  : "Start break session"
+              }
               style={({ pressed }) => [
                 styles.primaryBtn,
                 {
@@ -480,6 +492,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
           ) : (
             <Pressable
               onPress={swStartPause}
+              accessibilityRole="button"
+              accessibilityLabel={swRunning ? "Pause stopwatch" : "Start stopwatch"}
               style={({ pressed }) => [
                 styles.primaryBtn,
                 {
@@ -532,6 +546,9 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                   key={mins}
                   onPress={() => selectDuration(mins)}
                   hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={`${mins} minutes preset`}
                   style={({ pressed }) => [
                     styles.presetBtn,
                     {
@@ -564,6 +581,9 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             <Pressable
               onPress={selectCustomDuration}
               hitSlop={6}
+              accessibilityRole="button"
+              accessibilityState={{ selected: showCustomInput }}
+              accessibilityLabel="Custom duration"
               style={({ pressed }) => [
                 styles.presetBtn,
                 {
@@ -598,6 +618,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               <Pressable
                 onPress={() => adjustCustomMinutes(-5)}
                 hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Decrease custom duration by 5 minutes"
                 style={({ pressed }) => [
                   styles.adjustBtn,
                   {
@@ -617,6 +639,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                   onSubmitEditing={handleCustomMinutesSubmitOrBlur}
                   keyboardType="number-pad"
                   maxLength={3}
+                  accessibilityLabel="Custom duration in minutes"
                   style={[
                     styles.customAdjusterInput,
                     {
@@ -631,6 +654,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               <Pressable
                 onPress={() => adjustCustomMinutes(5)}
                 hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Increase custom duration by 5 minutes"
                 style={({ pressed }) => [
                   styles.adjustBtn,
                   {
@@ -661,6 +686,9 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                     setBreakType(mins === 5 ? "short" : "long");
                   }}
                   hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={`${mins} minutes break`}
                   style={({ pressed }) => [
                     styles.presetBtn,
                     {
@@ -702,6 +730,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               <Pressable
                 onPress={handleReset}
                 hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Reset timer"
                 style={({ pressed }) => [
                   styles.secondaryBtn,
                   { opacity: pressed ? 0.6 : 1 },
@@ -727,6 +757,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             <Pressable
               onPress={swRunning ? swLap : swReset}
               hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={swRunning ? "Record lap" : "Reset stopwatch"}
               style={({ pressed }) => [
                 styles.secondaryBtn,
                 { opacity: pressed ? 0.6 : 1 },

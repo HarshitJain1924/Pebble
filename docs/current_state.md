@@ -175,9 +175,9 @@ permission.
 - `FlatList` performance degrades on extremely deeply nested `Checklist` structures (as noted in `docs/architecture/decision_log.md`).
 
 ## 19. Current Test-Suite Status
-- **Total Tests**: 1862 passing
-- **Total Suites**: 207 passing
-- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, resource hostile concurrency, resource reference concurrency audit, Move Journal removal durability audit, UI/UX Phase 1 manual data export suite, and UI/UX Phase 2 contextual empty-state system).
+- **Total Tests**: 1874 passing
+- **Total Suites**: 208 passing
+- (Recorded at 2026-09-11; includes notification permission lifecycle, startup recovery sequence, cross-domain integrity suites, bulk habit completion failure isolation, checklist item concurrency, resource hostile concurrency, resource reference concurrency audit, Move Journal removal durability audit, UI/UX Phase 1 manual data export suite, UI/UX Phase 2 contextual empty-state system, and UI/UX Phase 3 global accessibility semantic hardening).
 
 ## 20. Explicit List of Verified Integrity Mechanisms
 - **Monotonic Revisions**: `TaskRepository.ts` (lines 140+).
@@ -186,3 +186,14 @@ permission.
 - **Move Target Existence Check**: `MoveReconcilerService.ts` (`targetExists` validation).
 - **Native OS Isolation in Backup**: `BackupService.ts` (`restoreStructuredBackup`).
 - **Alphabetical Lock Acquisition**: `mutex.ts` (`withLocks`).
+
+## 21. Accessibility Semantics & Interaction Baseline (UI/UX Phase 3)
+- Major user-facing interactive surfaces were audited and hardened with semantic accessibility props without altering visual layout or component architecture.
+- `PressableScale` establishes the interactive button baseline: automatically defaults `accessibilityRole="button"` for pressable elements, merges `disabled` states into `accessibilityState`, and enforces a default `hitSlop={8}` touch target padding.
+- `AnimatedCheckbox` establishes the checkbox baseline: `accessible={true}`, `accessibilityRole="checkbox"`, `accessibilityState={{ checked, disabled }}`, contextual dynamic labels, and `hitSlop={8}`.
+- `SegmentedSwitcher` establishes tablist semantics: container `accessibilityRole="tablist"`, options `accessibilityRole="tab"` with `accessibilityState={{ selected }}`.
+- `AppCard` defaults interactive surfaces to `accessibilityRole="button"`.
+- User-facing icon-only actions (navigation back/close, clear search, delete, restore, file picker, voice recording states, ambient sound player/transport controls, calendar navigation) provide contextual accessibility labels and roles.
+- Stateful controls (task/habit/checklist completion, accordion expanded/collapsed states, filter pills, calendar day selections, timer presets, voice recording states, ambient mute) expose explicit `accessibilityState` (`checked`, `selected`, `expanded`, `busy`, `disabled`).
+- Decorative illustrations and mascots (e.g. `EmptyState`) are marked `accessible={false}` and `importantForAccessibility="no"` to avoid screen-reader noise.
+

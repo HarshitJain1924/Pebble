@@ -203,6 +203,9 @@ export function SwipeableCard({
                   translateX.value = withSpring(0, SPRING_CONFIG);
                   onSnooze();
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Snooze"
+                hitSlop={8}
                 style={[styles.actionButton, { backgroundColor: "#F59E0B" }]}
               >
                 <Feather name="clock" size={16} color="#FFFFFF" />
@@ -215,6 +218,9 @@ export function SwipeableCard({
                   translateX.value = withSpring(0, SPRING_CONFIG);
                   onEdit();
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Edit"
+                hitSlop={8}
                 style={[styles.actionButton, { backgroundColor: colors.primary }]}
               >
                 <Feather name="edit-2" size={16} color="#FFFFFF" />
@@ -227,6 +233,9 @@ export function SwipeableCard({
                   translateX.value = withSpring(0, SPRING_CONFIG);
                   onDelete();
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Delete"
+                hitSlop={8}
                 style={[styles.actionButton, { backgroundColor: colors.error }]}
               >
                 <Feather name="trash-2" size={16} color="#FFFFFF" />

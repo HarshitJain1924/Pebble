@@ -264,7 +264,14 @@ export function TodoItem({
           <View style={styles.todoMainRow}>
             <View style={styles.todoLeft}>
               {isSelectionMode ? (
-                <Pressable onPress={onSelect} style={{ padding: 4 }}>
+                <Pressable
+                  onPress={onSelect}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: isSelected }}
+                  accessibilityLabel={`Select task ${item.title}`}
+                  hitSlop={8}
+                  style={{ padding: 4 }}
+                >
                   <Feather
                     name={isSelected ? "check-circle" : "circle"}
                     size={18}
@@ -275,9 +282,15 @@ export function TodoItem({
                 <AnimatedCheckbox
                   checked={isTaskCompleted(item)}
                   onToggle={onToggleTodo}
+                  accessibilityLabel={`Mark task as ${isTaskCompleted(item) ? "uncompleted" : "completed"}: ${item.title}`}
                 />
               )}
-              <Pressable onPress={isSelectionMode ? onSelect : onEditTodo} style={styles.todoTexts}>
+              <Pressable
+                onPress={isSelectionMode ? onSelect : onEditTodo}
+                accessibilityRole="button"
+                accessibilityLabel={isSelectionMode ? `Select task ${item.title}` : `Edit task ${item.title}`}
+                style={styles.todoTexts}
+              >
                 <Text
                   style={[
                     styles.todoTitle,
@@ -336,6 +349,15 @@ export function TodoItem({
                 setIsPeeking(true);
               } : undefined}
               delayLongPress={350}
+              accessibilityRole="button"
+              accessibilityLabel={
+                linkedCount === 0
+                  ? `Attach resource to ${item.title}`
+                  : isExpanded
+                  ? `Collapse ${linkedCount} linked resources for ${item.title}`
+                  : `Expand ${linkedCount} linked resources for ${item.title}`
+              }
+              accessibilityState={linkedCount > 0 ? { expanded: isExpanded } : undefined}
               style={{
                 width: 44,
                 height: 44,
@@ -390,6 +412,8 @@ export function TodoItem({
                             Alert.alert(res.title, "Image attachment");
                           }
                         }}
+                        accessibilityRole={isLink ? "link" : "button"}
+                        accessibilityLabel={`${res.title}, ${isLink ? "link" : isNote ? "note" : "image"}`}
                         style={styles.resourceRow}
                       >
                         {/* Icon or Thumbnail */}
@@ -447,6 +471,8 @@ export function TodoItem({
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                       setShowAllResources(!showAllResources);
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel={showAllResources ? "Show fewer resources" : `Show ${linkedResources.length - 2} more resources`}
                     style={styles.showMoreBtn}
                   >
                     <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>
@@ -458,6 +484,8 @@ export function TodoItem({
                 {/* Flat Link Resource Action button (no dashed border) */}
                 <TouchableOpacity
                   onPress={() => setShowLinkSelector(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Link resource to ${item.title}`}
                   style={styles.addResourceBtn}
                 >
                   <Feather name="plus" size={14} color={colors.primary} />
@@ -517,6 +545,9 @@ export function TodoItem({
                       <TouchableOpacity
                         key={res.id}
                         onPress={() => onToggleLinkResource?.(item.id, "task", res.id)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: isLinked }}
+                        accessibilityLabel={`${res.title}, ${isLinked ? "linked" : "not linked"}`}
                         style={{
                           flexDirection: "row",
                           alignItems: "center",
@@ -551,6 +582,8 @@ export function TodoItem({
 
               <TouchableOpacity
                 onPress={() => setShowLinkSelector(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close resource linker"
                 style={{
                   backgroundColor: colors.primary,
                   paddingVertical: 10,

@@ -382,6 +382,8 @@ export default function CalendarScreen() {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                       setShowQuickJump(true);
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quick jump to date"
                     style={[
                       styles.iconButton,
                       {
@@ -400,6 +402,8 @@ export default function CalendarScreen() {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                       setShowFilter(true);
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open calendar filters"
                     style={[
                       styles.iconButton,
                       {
