@@ -6,11 +6,6 @@ import { type Router } from "expo-router";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
-import {
-  CategoryChip,
-  PriorityIndicator,
-  StatusBadge,
-} from "@/shared/components/design-system";
 import { Radius } from "@/shared/constants/radii";
 import { type ThemeColors } from "@/shared/constants/theme";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
@@ -26,6 +21,18 @@ import {
   getRowContentAction,
 } from "@/features/today/utils/today-interactions";
 
+/**
+ * Pebble Canonical Priority Color Scale
+ * High: Crimson (#EF4444)
+ * Medium: Amber (#F59E0B)
+ * Low: Slate (#64748B)
+ */
+export const PRIORITY_COLORS: Record<"high" | "medium" | "low", string> = {
+  high: "#EF4444",
+  medium: "#F59E0B",
+  low: "#64748B",
+};
+
 const getOverdueLabel = (dateStr: string) => {
   if (!dateStr) return "Overdue";
   const todayStr = getDateKey();
@@ -39,6 +46,421 @@ const getOverdueLabel = (dateStr: string) => {
   if (diffDays <= 0) return "Overdue";
   if (diffDays === 1) return "Yesterday";
   return `${diffDays} days ago`;
+};
+
+export type WorkspaceItemType = "task" | "habit" | "checklist" | "resource";
+
+export interface WorkspaceItemRowProps {
+  type: WorkspaceItemType;
+  id: string;
+  title: string;
+  subtitle?: string;
+  completed?: boolean;
+  priority?: "high" | "medium" | "low";
+  timeChip?: {
+    label: string;
+    isOverdue?: boolean;
+  };
+  streak?: number;
+  checklistMeta?: {
+    completedCount: number;
+    totalCount: number;
+  };
+  resourceMeta?: {
+    type?: string;
+    attachmentCount?: number;
+  };
+  isExpanded?: boolean;
+  accentColor: string;
+  colors: ThemeColors;
+  colorScheme: "light" | "dark" | null | undefined;
+  onToggleComplete?: () => void;
+  onPressRow?: () => void;
+  checkboxDisabled?: boolean;
+  accessibilityLabel?: string;
+  children?: React.ReactNode;
+}
+
+/**
+ * Consolidated WorkspaceItemRow component
+ * Unifies visual signatures, hit targets, and interactions across tasks, habits, checklists, and resources.
+ */
+export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
+  type,
+  id,
+  title,
+  subtitle,
+  completed = false,
+  priority,
+  timeChip,
+  streak,
+  checklistMeta,
+  resourceMeta,
+  isExpanded = false,
+  accentColor,
+  colors,
+  colorScheme,
+  onToggleComplete,
+  onPressRow,
+  checkboxDisabled = false,
+  accessibilityLabel,
+  children,
+}) => {
+  const isDark = colorScheme !== "light";
+  const priorityColor = priority ? PRIORITY_COLORS[priority] : undefined;
+
+  const renderControl = () => {
+    if (type === "resource") {
+      const iconName =
+        resourceMeta?.type === "link"
+          ? "link"
+          : resourceMeta?.type === "idea"
+          ? "zap"
+          : "file-text";
+
+      return (
+        <View
+          style={[
+            styles.resourceIconBadge,
+            {
+              backgroundColor: isDark
+                ? "rgba(14, 165, 233, 0.15)"
+                : "#E0F2FE",
+              borderColor: isDark
+                ? "rgba(14, 165, 233, 0.3)"
+                : "#BAE6FD",
+            },
+          ]}
+        >
+          <Feather
+            name={iconName}
+            size={12}
+            color={isDark ? "#38BDF8" : "#0284C7"}
+          />
+        </View>
+      );
+    }
+
+    if (type === "checklist") {
+      return (
+        <PressableScale
+          disabled={checkboxDisabled || !onToggleComplete}
+          onPress={onToggleComplete}
+          hitSlop={12}
+          haptic
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: completed }}
+          accessibilityLabel={`Toggle checklist ${title}`}
+          style={[
+            styles.checklistSquare,
+            {
+              borderColor: completed
+                ? accentColor
+                : isDark
+                ? "rgba(255,255,255,0.2)"
+                : "rgba(0,0,0,0.2)",
+              backgroundColor: completed ? accentColor : "transparent",
+            },
+          ]}
+        >
+          {completed && <Feather name="check" size={12} color="#ffffff" />}
+        </PressableScale>
+      );
+    }
+
+    // Task or Habit: circular checkbox
+    const checkColor = type === "habit" ? "#10B981" : accentColor;
+    return (
+      <PressableScale
+        disabled={checkboxDisabled || !onToggleComplete}
+        onPress={onToggleComplete}
+        hitSlop={12}
+        haptic
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: completed }}
+        accessibilityLabel={`Mark ${type} ${title} as ${completed ? "incomplete" : "complete"}`}
+        style={[
+          styles.checkboxBase,
+          {
+            borderColor: completed
+              ? checkColor
+              : isDark
+              ? "rgba(255,255,255,0.2)"
+              : "rgba(0,0,0,0.2)",
+            backgroundColor: completed ? checkColor : "transparent",
+          },
+        ]}
+      >
+        {completed && <Feather name="check" size={12} color="#ffffff" />}
+      </PressableScale>
+    );
+  };
+
+  const renderBadges = () => {
+    return (
+      <View style={styles.rowRightWrap}>
+        {/* Habit: Dedicated Flame Streak Chip */}
+        {type === "habit" && typeof streak === "number" && (
+          <View
+            style={[
+              styles.metaBadgePill,
+              styles.streakBadge,
+              {
+                backgroundColor: isDark
+                  ? "rgba(249, 115, 22, 0.16)"
+                  : "#FFEDD5",
+                borderColor: isDark
+                  ? "rgba(249, 115, 22, 0.3)"
+                  : "#FDBA74",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.streakBadgeText,
+                { color: isDark ? "#FB923C" : "#C2410C" },
+              ]}
+            >
+              {`🔥 ${streak}`}
+            </Text>
+          </View>
+        )}
+
+        {/* Task: Priority Badge (High or Med) */}
+        {type === "task" && priority === "high" && (
+          <View
+            style={[
+              styles.metaBadgePill,
+              {
+                backgroundColor: isDark
+                  ? "rgba(239, 68, 68, 0.18)"
+                  : "#FEE2E2",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.metaBadgeText,
+                { color: isDark ? "#F87171" : "#DC2626" },
+              ]}
+            >
+              High
+            </Text>
+          </View>
+        )}
+
+        {type === "task" && priority === "medium" && (
+          <View
+            style={[
+              styles.metaBadgePill,
+              {
+                backgroundColor: isDark
+                  ? "rgba(245, 158, 11, 0.18)"
+                  : "#FEF3C7",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.metaBadgeText,
+                { color: isDark ? "#FBBF24" : "#D97706" },
+              ]}
+            >
+              Med
+            </Text>
+          </View>
+        )}
+
+        {/* Task: Prominent Time / Due Chip */}
+        {timeChip && (
+          <View
+            style={[
+              styles.metaBadgePill,
+              {
+                backgroundColor: timeChip.isOverdue
+                  ? isDark
+                    ? "rgba(239, 68, 68, 0.18)"
+                    : "#FEE2E2"
+                  : isDark
+                  ? "rgba(255, 255, 255, 0.08)"
+                  : "#F3F4F6",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.metaBadgeText,
+                {
+                  color: timeChip.isOverdue
+                    ? isDark
+                      ? "#F87171"
+                      : "#DC2626"
+                    : colors.textMuted,
+                },
+              ]}
+            >
+              {timeChip.label}
+            </Text>
+          </View>
+        )}
+
+        {/* Type Badges: Distinct non-indigo colors */}
+        {type === "habit" && (
+          <View
+            style={[
+              styles.metaBadgePill,
+              {
+                backgroundColor: isDark
+                  ? "rgba(34, 197, 94, 0.18)"
+                  : "#DCFCE7",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.metaBadgeText,
+                { color: isDark ? "#4ADE80" : "#15803D" },
+              ]}
+            >
+              Habit
+            </Text>
+          </View>
+        )}
+
+        {type === "checklist" && (
+          <View
+            style={[
+              styles.metaBadgePill,
+              {
+                backgroundColor: isDark
+                  ? "rgba(168, 85, 247, 0.18)"
+                  : "#F3E8FF",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.metaBadgeText,
+                { color: isDark ? "#C084FC" : "#7E22CE" },
+              ]}
+            >
+              Checklist
+            </Text>
+          </View>
+        )}
+
+        {type === "resource" && (
+          <View
+            style={[
+              styles.metaBadgePill,
+              {
+                backgroundColor: isDark
+                  ? "rgba(14, 165, 233, 0.18)"
+                  : "#E0F2FE",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.metaBadgeText,
+                { color: isDark ? "#38BDF8" : "#0284C7" },
+              ]}
+            >
+              Resource
+            </Text>
+          </View>
+        )}
+
+        {/* Trailing Affordance */}
+        {type === "checklist" ? (
+          <Feather
+            name={isExpanded ? "chevron-up" : "chevron-down"}
+            size={14}
+            color={colors.textMuted}
+          />
+        ) : (
+          <Feather
+            name="chevron-right"
+            size={14}
+            color={colors.textMuted}
+            style={{ opacity: 0.6 }}
+          />
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.rowWrapper}>
+      <View style={styles.itemRow}>
+        {/* Scannable Priority Stripe on Left */}
+        <View style={styles.priorityIndicatorContainer}>
+          {priorityColor ? (
+            <View
+              style={[
+                styles.priorityBar,
+                { backgroundColor: priorityColor },
+              ]}
+            />
+          ) : (
+            <View style={styles.prioritySpacer} />
+          )}
+        </View>
+
+        {/* Control: Checkbox or Resource Icon */}
+        {renderControl()}
+
+        <View style={styles.controlSpacer} />
+
+        {/* Clickable Row Content Area */}
+        <PressableScale
+          onPress={onPressRow}
+          disabled={!onPressRow}
+          haptic
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel || `${title}, ${subtitle || type}`}
+          style={styles.flexOne}
+          contentStyle={styles.rowContentStyle}
+        >
+          <View style={styles.rowTextContainer}>
+            <Text
+              style={[
+                styles.itemTitleText,
+                {
+                  color: completed ? colors.textMuted : colors.text,
+                  textDecorationLine: completed ? "line-through" : "none",
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {title}
+            </Text>
+            {subtitle ? (
+              <Text
+                style={[
+                  styles.itemSubtitleText,
+                  {
+                    color:
+                      timeChip?.isOverdue && !completed
+                        ? colors.error
+                        : colors.textMuted,
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+
+          {renderBadges()}
+        </PressableScale>
+      </View>
+
+      {/* Nested Children (e.g. Expanded Checklist Sub-Items) */}
+      {isExpanded && children}
+    </View>
+  );
 };
 
 export interface ActiveContextItem {
@@ -82,10 +504,20 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
   completeHabitFromDashboard,
   toggleChecklistItemFromDashboard,
 }) => {
+  const isDark = colorScheme !== "light";
   const [collapsedMap, setCollapsedMap] = React.useState<Record<string, boolean>>({});
+  const [expandedResourceFolders, setExpandedResourceFolders] = React.useState<Record<string, boolean>>({});
 
   const toggleCollapse = (folderId: string) => {
     setCollapsedMap((prev) => ({
+      ...prev,
+      [folderId]: !prev[folderId],
+    }));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  };
+
+  const toggleResourcesExpanded = (folderId: string) => {
+    setExpandedResourceFolders((prev) => ({
       ...prev,
       [folderId]: !prev[folderId],
     }));
@@ -132,46 +564,93 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
         const folderCollections = allCollections[folder.id] || [];
         const resourcesCount: number = folderCollections.length;
         const folderColor = folder.color || colors.primary;
+        const isCollapsed = !!collapsedMap[folder.id];
+        const isResourcesExpanded = !!expandedResourceFolders[folder.id];
 
         const taskItems = tasks.map((todo) => {
           const isOverdue = getTaskOccurrenceState(
             todo,
             getDateKey(),
           ).isOverdue;
+          const isCompleted = isTaskCompleted(todo);
+
+          let subtitle = "Today";
+          let timeChip: { label: string; isOverdue?: boolean } | undefined;
+
+          if (isCompleted) {
+            subtitle = "Completed";
+          } else if (isOverdue) {
+            const dateKey = getTodoDateKey(todo);
+            const overdueText = getOverdueLabel(dateKey);
+            subtitle = `Overdue • ${overdueText}`;
+            timeChip = { label: overdueText, isOverdue: true };
+          } else if (todo.reminder?.triggerAt !== undefined) {
+            const d = new Date(todo.reminder.triggerAt);
+            const ampm = d.getHours() >= 12 ? "PM" : "AM";
+            const displayHour = d.getHours() % 12 || 12;
+            const displayMinute = String(d.getMinutes()).padStart(2, "0");
+            const timeText = `${displayHour}:${displayMinute} ${ampm}`;
+            subtitle = `Today • ${timeText}`;
+            timeChip = { label: timeText, isOverdue: false };
+          } else if (todo.recurrence?.frequency) {
+            subtitle = `Recurs • ${todo.recurrence.frequency.charAt(0).toUpperCase() + todo.recurrence.frequency.slice(1)}`;
+          }
+
           return {
             type: "task" as const,
             id: todo.id,
             key: `task-${todo.id}`,
-            completed: isTaskCompleted(todo),
+            completed: isCompleted,
             title: todo.title,
-            priority: todo.priority === "none" ? undefined : todo.priority,
+            subtitle,
+            timeChip,
+            priority: todo.priority === "none" ? undefined : (todo.priority as "high" | "medium" | "low" | undefined),
             isOverdue,
             original: todo,
           };
         });
 
-        const habitItems = habits.map((habit) => ({
-          type: "habit" as const,
-          id: habit.id,
-          key: `habit-${habit.id}`,
-          completed: Boolean(habit.completionHistory && isHabitCompletedToday(habit)),
-          title: habit.title,
-          streak: getHabitCurrentStreak(habit),
-          priority: undefined,
-          original: habit,
-        }));
+        const habitItems = habits.map((habit) => {
+          const isCompletedHabit = Boolean(habit.completionHistory && isHabitCompletedToday(habit));
+          const currentStreak = getHabitCurrentStreak(habit);
+          let subtitle = "";
+          if (isCompletedHabit) {
+            subtitle = "Completed";
+          } else {
+            subtitle = habit.description ? habit.description : `Day ${currentStreak + 1}`;
+          }
+
+          return {
+            type: "habit" as const,
+            id: habit.id,
+            key: `habit-${habit.id}`,
+            completed: isCompletedHabit,
+            title: habit.title,
+            subtitle,
+            streak: currentStreak,
+            priority: undefined,
+            original: habit,
+          };
+        });
 
         const checklistItems = checklists.map((checklist) => {
           const completedCount = checklist.items.filter(
             (item) => item.completed,
           ).length;
           const totalCount = checklist.items.length;
+          const remaining = totalCount - completedCount;
+          const isCompleted = completedCount === totalCount && totalCount > 0;
+          const subtitle = isCompleted
+            ? "Completed"
+            : `${completedCount} of ${totalCount} items • ${remaining} left`;
+
           return {
             type: "checklist" as const,
             id: checklist.id,
             key: `checklist-${checklist.id}`,
-            completed: completedCount === totalCount && totalCount > 0,
+            completed: isCompleted,
             title: checklist.title,
+            subtitle,
             completedCount,
             totalCount,
             original: checklist,
@@ -195,7 +674,6 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
 
         const displayedItems = sortedActionItems.slice(0, PREVIEW_LIMIT);
         const remainingCount = sortedActionItems.length - PREVIEW_LIMIT;
-        const isCollapsed = !!collapsedMap[folder.id];
 
         return (
           <View
@@ -216,6 +694,8 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 style={styles.headerLeftPressable}
                 contentStyle={styles.headerLeftContent}
                 haptic
+                accessibilityRole="button"
+                accessibilityLabel={`${folder.name}, ${completedItems} of ${totalItems} completed. Tap to ${isCollapsed ? "expand" : "collapse"}.`}
               >
                 <View
                   style={[
@@ -242,21 +722,84 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 </View>
               </PressableScale>
 
-              <View style={styles.headerRightActions}>
+              {/* Grouped Header Actions: Info Cluster separated from Action Cluster */}
+              <View style={styles.headerRightGroup}>
+                {/* Info Cluster: Interactive Resource Count Pill */}
                 {resourcesCount > 0 && (
+                  <View style={styles.headerInfoCluster}>
+                    <PressableScale
+                      onPress={() => toggleResourcesExpanded(folder.id)}
+                      hitSlop={8}
+                      haptic
+                      accessibilityRole="button"
+                      accessibilityLabel={`Workspace resources, ${resourcesCount} available. Tap to ${isResourcesExpanded ? "hide" : "show"}.`}
+                      style={[
+                        styles.resourcePill,
+                        {
+                          backgroundColor: isResourcesExpanded
+                            ? colorScheme === "light"
+                              ? "#E0F2FE"
+                              : "rgba(14, 165, 233, 0.18)"
+                            : colorScheme === "light"
+                            ? "#F3F4F6"
+                            : "rgba(255,255,255,0.06)",
+                          borderColor: isResourcesExpanded
+                            ? isDark
+                              ? "rgba(14, 165, 233, 0.35)"
+                              : "#BAE6FD"
+                            : colors.border,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.resourcePillEmoji}>📎</Text>
+                      <Text
+                        style={[
+                          styles.resourcePillText,
+                          {
+                            color: isResourcesExpanded
+                              ? isDark
+                                ? "#38BDF8"
+                                : "#0284C7"
+                              : colors.textMuted,
+                          },
+                        ]}
+                      >
+                        {resourcesCount}
+                      </Text>
+                      <Feather
+                        name={isResourcesExpanded ? "chevron-up" : "chevron-down"}
+                        size={11}
+                        color={
+                          isResourcesExpanded
+                            ? isDark
+                              ? "#38BDF8"
+                              : "#0284C7"
+                            : colors.textMuted
+                        }
+                        style={{ marginLeft: 2 }}
+                      />
+                    </PressableScale>
+                  </View>
+                )}
+
+                {/* Visual spacer separating Info from Actions */}
+                {resourcesCount > 0 && <View style={styles.clusterDividerSpacer} />}
+
+                {/* Action Cluster: Navigate to Workspace + Collapse Toggle */}
+                <View style={styles.headerActionCluster}>
                   <PressableScale
-                    onPress={() => {
+                    onPress={() =>
                       router.push({
                         pathname: "/tasks",
-                        params: {
-                          workspaceId: folder.id,
-                          segment: "vault",
-                        },
-                      } as any);
-                    }}
+                        params: { workspaceId: folder.id },
+                      } as any)
+                    }
+                    hitSlop={8}
                     haptic
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${folder.name} workspace`}
                     style={[
-                      styles.resourcePill,
+                      styles.gatewayButton,
                       {
                         backgroundColor:
                           colorScheme === "light"
@@ -266,66 +809,37 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                       },
                     ]}
                   >
-                    <Text style={styles.resourcePillEmoji}>📎</Text>
-                    <Text
-                      style={[
-                        styles.resourcePillText,
-                        { color: colors.textMuted },
-                      ]}
-                    >
-                      {resourcesCount}
-                    </Text>
+                    <Feather
+                      name="arrow-right"
+                      size={14}
+                      color={folderColor}
+                    />
                   </PressableScale>
-                )}
 
-                <PressableScale
-                  onPress={() =>
-                    router.push({
-                      pathname: "/tasks",
-                      params: { workspaceId: folder.id },
-                    } as any)
-                  }
-                  hitSlop={8}
-                  haptic
-                  style={[
-                    styles.gatewayButton,
-                    {
-                      backgroundColor:
-                        colorScheme === "light"
-                          ? "#F3F4F6"
-                          : "rgba(255,255,255,0.06)",
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Feather
-                    name="arrow-right"
-                    size={14}
-                    color={folderColor}
-                  />
-                </PressableScale>
-
-                <PressableScale
-                  onPress={() => toggleCollapse(folder.id)}
-                  hitSlop={8}
-                  haptic
-                  style={[
-                    styles.gatewayButton,
-                    {
-                      backgroundColor:
-                        colorScheme === "light"
-                          ? "#F3F4F6"
-                          : "rgba(255,255,255,0.06)",
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Feather
-                    name={isCollapsed ? "chevron-down" : "chevron-up"}
-                    size={14}
-                    color={colors.textMuted}
-                  />
-                </PressableScale>
+                  <PressableScale
+                    onPress={() => toggleCollapse(folder.id)}
+                    hitSlop={8}
+                    haptic
+                    accessibilityRole="button"
+                    accessibilityLabel={isCollapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+                    style={[
+                      styles.gatewayButton,
+                      {
+                        backgroundColor:
+                          colorScheme === "light"
+                            ? "#F3F4F6"
+                            : "rgba(255,255,255,0.06)",
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Feather
+                      name={isCollapsed ? "chevron-down" : "chevron-up"}
+                      size={14}
+                      color={colors.textMuted}
+                    />
+                  </PressableScale>
+                </View>
               </View>
             </View>
 
@@ -353,525 +867,335 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
               <>
                 {/* Items Stream */}
                 <View style={styles.itemsListWrap}>
-              {displayedItems.map((item, index) => {
-                const isLast = index === displayedItems.length - 1;
-                const itemColor = folderColor;
+                  {displayedItems.map((item, index) => {
+                    const isLast = index === displayedItems.length - 1 && (!isResourcesExpanded || folderCollections.length === 0);
+                    const itemColor = folderColor;
 
-                if (item.type === "task") {
-                  const todo = item.original;
-                  let subtitle = "Today";
-                  if (isTaskCompleted(todo)) {
-                    subtitle = "Completed";
-                  } else if (item.isOverdue) {
-                    const dateKey = getTodoDateKey(todo);
-                    subtitle = `Overdue • ${getOverdueLabel(dateKey)}`;
-                  } else if (todo.recurrence?.frequency) {
-                    subtitle = `Recurs • ${todo.recurrence.frequency.charAt(0).toUpperCase() + todo.recurrence.frequency.slice(1)}`;
-                  } else if (todo.reminder?.triggerAt !== undefined) {
-                    const d = new Date(todo.reminder.triggerAt);
-                    const ampm = d.getHours() >= 12 ? "PM" : "AM";
-                    const displayHour = d.getHours() % 12 || 12;
-                    const displayMinute = String(d.getMinutes()).padStart(2, "0");
-                    subtitle = `Today • ${displayHour}:${displayMinute} ${ampm}`;
-                  }
+                    if (item.type === "task") {
+                      const todo = item.original;
+                      const checkboxAction = getCheckboxAction("task", item.completed);
+                      const contentAction = getRowContentAction("task", todo.id);
 
-                  const isCompleted = isTaskCompleted(todo);
-                  const checkboxAction = getCheckboxAction("task", isCompleted);
-                  const contentAction = getRowContentAction("task", todo.id);
-
-                  return (
-                    <View key={item.key}>
-                      <View style={styles.itemRow}>
-                        <PriorityIndicator
-                          priority={todo.priority === "none" ? undefined : todo.priority}
-                        />
-                        <View style={styles.prioritySpacer} />
-
-                        <PressableScale
-                          disabled={checkboxAction === "locked"}
-                          onPress={(e) =>
-                            completeTodoFromDashboard(todo.id, e, folder.id)
-                          }
-                          hitSlop={12}
-                          haptic
-                          style={[
-                            styles.checkboxBase,
-                            {
-                              borderColor: isCompleted
-                                ? itemColor
-                                : "rgba(255,255,255,0.2)",
-                              backgroundColor: isCompleted
-                                ? itemColor
-                                : "transparent",
-                            },
-                          ]}
-                        >
-                          {isCompleted && (
-                            <Feather name="check" size={12} color="#ffffff" />
-                          )}
-                        </PressableScale>
-
-                        <View style={styles.checkboxSpacer} />
-
-                        <PressableScale
-                          onPress={() => {
-                            if (contentAction.action === "open-details") {
-                              router.push(contentAction.route);
+                      return (
+                        <View key={item.key}>
+                          <WorkspaceItemRow
+                            type="task"
+                            id={todo.id}
+                            title={todo.title}
+                            subtitle={item.subtitle}
+                            completed={item.completed}
+                            priority={item.priority}
+                            timeChip={item.timeChip}
+                            accentColor={itemColor}
+                            colors={colors}
+                            colorScheme={colorScheme}
+                            checkboxDisabled={checkboxAction === "locked"}
+                            onToggleComplete={(e?: any) =>
+                              completeTodoFromDashboard(todo.id, e, folder.id)
                             }
-                          }}
-                          style={styles.flexOne}
-                          contentStyle={styles.rowContentStyle}
-                        >
-                          <View style={styles.rowTextContainer}>
-                            <Text
+                            onPressRow={() => {
+                              if (contentAction.action === "open-details") {
+                                router.push(contentAction.route);
+                              }
+                            }}
+                          />
+                          {!isLast && (
+                            <View
                               style={[
-                                styles.itemTitleText,
-                                {
-                                  color: isCompleted
-                                    ? colors.textMuted
-                                    : colors.text,
-                                  textDecorationLine: isCompleted
-                                    ? "line-through"
-                                    : "none",
-                                },
+                                styles.itemDivider,
+                                { backgroundColor: colors.border },
                               ]}
-                              numberOfLines={1}
-                            >
-                              {todo.title}
-                            </Text>
-                            <Text
-                              style={[
-                                styles.itemSubtitleText,
-                                {
-                                  color: item.isOverdue && !isCompleted
-                                    ? colors.error
-                                    : colors.textMuted,
-                                },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {subtitle}
-                            </Text>
-                          </View>
+                            />
+                          )}
+                        </View>
+                      );
+                    }
 
-                          <View style={styles.rowRightWrap}>
-                            {todo.priority === "high" && (
-                              <View
-                                style={[
-                                  styles.metaBadgePill,
-                                  {
-                                    backgroundColor:
-                                      colorScheme === "light"
-                                        ? "#FEE2E2"
-                                        : "rgba(239, 68, 68, 0.18)",
-                                  },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.metaBadgeText,
-                                    {
-                                      color:
-                                        colorScheme === "light"
-                                          ? "#DC2626"
-                                          : "#F87171",
-                                    },
-                                  ]}
-                                >
-                                  High
-                                </Text>
+                    if (item.type === "habit") {
+                      const habit = item.original;
+                      const checkboxAction = getCheckboxAction("habit", item.completed);
+                      const contentAction = getRowContentAction("habit", habit.id);
+
+                      return (
+                        <View key={item.key}>
+                          <WorkspaceItemRow
+                            type="habit"
+                            id={habit.id}
+                            title={habit.title}
+                            subtitle={item.subtitle}
+                            completed={item.completed}
+                            streak={item.streak}
+                            accentColor={itemColor}
+                            colors={colors}
+                            colorScheme={colorScheme}
+                            checkboxDisabled={checkboxAction === "locked"}
+                            onToggleComplete={(e?: any) =>
+                              completeHabitFromDashboard(habit.id, e, folder.id)
+                            }
+                            onPressRow={() => {
+                              if (contentAction.action === "open-details") {
+                                router.push(contentAction.route);
+                              }
+                            }}
+                          />
+                          {!isLast && (
+                            <View
+                              style={[
+                                styles.itemDivider,
+                                { backgroundColor: colors.border },
+                              ]}
+                            />
+                          )}
+                        </View>
+                      );
+                    }
+
+                    if (item.type === "checklist") {
+                      const checklist = item.original;
+                      const isExpanded = !!expandedChecklistIds[checklist.id];
+                      const checkboxAction = getCheckboxAction("checklist", item.completed);
+                      const contentAction = getRowContentAction("checklist", checklist.id);
+
+                      const handleChecklistExpandToggle = () => {
+                        setExpandedChecklistIds((prev) => ({
+                          ...prev,
+                          [checklist.id]: !isExpanded,
+                        }));
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      };
+
+                      return (
+                        <View key={item.key}>
+                          <WorkspaceItemRow
+                            type="checklist"
+                            id={checklist.id}
+                            title={checklist.title}
+                            subtitle={item.subtitle}
+                            completed={item.completed}
+                            checklistMeta={{
+                              completedCount: item.completedCount,
+                              totalCount: item.totalCount,
+                            }}
+                            isExpanded={isExpanded}
+                            accentColor={itemColor}
+                            colors={colors}
+                            colorScheme={colorScheme}
+                            checkboxDisabled={checkboxAction === "locked"}
+                            onToggleComplete={() => {
+                              if (checkboxAction === "toggle-expand") {
+                                handleChecklistExpandToggle();
+                              }
+                            }}
+                            onPressRow={() => {
+                              if (contentAction.action === "toggle-expand") {
+                                handleChecklistExpandToggle();
+                              }
+                            }}
+                          >
+                            {checklist.items && (
+                              <View style={styles.subItemsWrapper}>
+                                {checklist.items.map((subItem) => (
+                                  <View
+                                    key={subItem.id}
+                                    style={styles.subItemRow}
+                                  >
+                                    <PressableScale
+                                      onPress={() =>
+                                        toggleChecklistItemFromDashboard(
+                                          checklist.id,
+                                          subItem.id,
+                                          folder.id,
+                                        )
+                                      }
+                                      hitSlop={8}
+                                      haptic
+                                      accessibilityRole="checkbox"
+                                      accessibilityState={{ checked: subItem.completed }}
+                                      accessibilityLabel={`Checklist item ${subItem.title}`}
+                                      style={[
+                                        styles.subItemCheckbox,
+                                        {
+                                          borderColor: subItem.completed
+                                            ? itemColor
+                                            : isDark
+                                            ? "rgba(255,255,255,0.2)"
+                                            : "rgba(0,0,0,0.2)",
+                                          backgroundColor: subItem.completed
+                                            ? itemColor
+                                            : "transparent",
+                                        },
+                                      ]}
+                                    >
+                                      {subItem.completed && (
+                                        <Feather
+                                          name="check"
+                                          size={10}
+                                          color="#ffffff"
+                                        />
+                                      )}
+                                    </PressableScale>
+                                    <Text
+                                      style={[
+                                        styles.subItemTitle,
+                                        {
+                                          color: subItem.completed
+                                            ? colors.textMuted
+                                            : colors.text,
+                                          textDecorationLine: subItem.completed
+                                            ? "line-through"
+                                            : "none",
+                                        },
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {subItem.title}
+                                    </Text>
+                                  </View>
+                                ))}
                               </View>
                             )}
-                            <Feather
-                              name="chevron-right"
-                              size={14}
-                              color={colors.textMuted}
-                              style={{ opacity: 0.6 }}
+                          </WorkspaceItemRow>
+                          {!isLast && (
+                            <View
+                              style={[
+                                styles.itemDivider,
+                                { backgroundColor: colors.border },
+                              ]}
                             />
-                          </View>
-                        </PressableScale>
-                      </View>
-                      {!isLast && (
-                        <View
-                          style={[
-                            styles.itemDivider,
-                            { backgroundColor: colors.border },
-                          ]}
-                        />
-                      )}
-                    </View>
-                  );
-                }
-
-                if (item.type === "habit") {
-                  const habit = item.original;
-                  const isCompletedHabit = Boolean(habit.completionHistory && isHabitCompletedToday(habit));
-                  const checkboxAction = getCheckboxAction("habit", isCompletedHabit);
-                  const contentAction = getRowContentAction("habit", habit.id);
-                  const currentStreak = getHabitCurrentStreak(habit);
-
-                  let subtitle = "";
-                  if (isCompletedHabit) {
-                    subtitle = "Completed";
-                  } else {
-                    const detail = habit.description
-                      ? habit.description
-                      : `${currentStreak} day streak`;
-                    subtitle = `Day ${currentStreak + 1} • ${detail}`;
-                  }
-
-                  return (
-                    <View key={item.key}>
-                      <View style={styles.itemRow}>
-                        <PriorityIndicator priority={undefined} />
-                        <View style={styles.prioritySpacer} />
-
-                        <PressableScale
-                          disabled={checkboxAction === "locked"}
-                          onPress={(e) =>
-                            completeHabitFromDashboard(habit.id, e, folder.id)
-                          }
-                          hitSlop={12}
-                          haptic
-                          style={[
-                            styles.checkboxBase,
-                            {
-                              borderColor: isCompletedHabit
-                                ? "#F59E0B"
-                                : "rgba(255,255,255,0.2)",
-                              backgroundColor: isCompletedHabit
-                                ? "#F59E0B"
-                                : "transparent",
-                            },
-                          ]}
-                        >
-                          {isCompletedHabit && (
-                            <Feather name="check" size={12} color="#ffffff" />
                           )}
-                        </PressableScale>
-
-                        <View style={styles.checkboxSpacer} />
-
-                        <PressableScale
-                          onPress={() => {
-                            if (contentAction.action === "open-details") {
-                              router.push(contentAction.route);
-                            }
-                          }}
-                          style={styles.flexOne}
-                          contentStyle={styles.rowContentStyle}
-                        >
-                          <View style={styles.rowTextContainer}>
-                            <Text
-                              style={[
-                                styles.itemTitleText,
-                                {
-                                  color: isCompletedHabit
-                                    ? colors.textMuted
-                                    : colors.text,
-                                  textDecorationLine: isCompletedHabit
-                                    ? "line-through"
-                                    : "none",
-                                },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {habit.title}
-                            </Text>
-                            <Text
-                              style={[
-                                styles.itemSubtitleText,
-                                { color: colors.textMuted },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {subtitle}
-                            </Text>
-                          </View>
-
-                          <View style={styles.rowRightWrap}>
-                            <View
-                              style={[
-                                styles.metaBadgePill,
-                                {
-                                  backgroundColor:
-                                    colorScheme === "light"
-                                      ? "#DCFCE7"
-                                      : "rgba(34, 197, 94, 0.18)",
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.metaBadgeText,
-                                  {
-                                    color:
-                                      colorScheme === "light"
-                                        ? "#15803D"
-                                        : "#4ADE80",
-                                  },
-                                ]}
-                              >
-                                Habit
-                              </Text>
-                            </View>
-                            <Feather
-                              name="chevron-right"
-                              size={14}
-                              color={colors.textMuted}
-                              style={{ opacity: 0.6 }}
-                            />
-                          </View>
-                        </PressableScale>
-                      </View>
-                      {!isLast && (
-                        <View
-                          style={[
-                            styles.itemDivider,
-                            { backgroundColor: colors.border },
-                          ]}
-                        />
-                      )}
-                    </View>
-                  );
-                }
-
-                if (item.type === "checklist") {
-                  const checklist = item.original;
-                  const isExpanded = !!expandedChecklistIds[checklist.id];
-                  const checkboxAction = getCheckboxAction("checklist", item.completed);
-                  const contentAction = getRowContentAction("checklist", checklist.id);
-                  const remaining = item.totalCount - item.completedCount;
-                  const subtitle = item.completed
-                    ? "Completed"
-                    : `${item.completedCount} of ${item.totalCount} items • ${remaining} left`;
-
-                  return (
-                    <View key={item.key}>
-                      <View style={styles.itemRow}>
-                        <View style={{ width: 2 }} />
-                        <View style={styles.prioritySpacer} />
-
-                        <PressableScale
-                          disabled={checkboxAction === "locked"}
-                          onPress={() => {
-                            if (checkboxAction === "toggle-expand") {
-                              setExpandedChecklistIds((prev) => ({
-                                ...prev,
-                                [checklist.id]: !isExpanded,
-                              }));
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                            }
-                          }}
-                          hitSlop={12}
-                          haptic
-                          style={[
-                            styles.checklistSquare,
-                            {
-                              borderColor: item.completed
-                                ? itemColor
-                                : "rgba(255,255,255,0.2)",
-                              backgroundColor: item.completed
-                                ? itemColor
-                                : "transparent",
-                            },
-                          ]}
-                        >
-                          {item.completed && (
-                            <Feather name="check" size={12} color="#ffffff" />
-                          )}
-                        </PressableScale>
-
-                        <View style={styles.checkboxSpacer} />
-
-                        <PressableScale
-                          onPress={() => {
-                            if (contentAction.action === "toggle-expand") {
-                              setExpandedChecklistIds((prev) => ({
-                                ...prev,
-                                [checklist.id]: !isExpanded,
-                              }));
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                            }
-                          }}
-                          style={styles.flexOne}
-                          contentStyle={styles.rowContentStyle}
-                        >
-                          <View style={styles.rowTextContainer}>
-                            <Text
-                              style={[
-                                styles.itemTitleText,
-                                {
-                                  color: item.completed
-                                    ? colors.textMuted
-                                    : colors.text,
-                                  textDecorationLine: item.completed
-                                    ? "line-through"
-                                    : "none",
-                                },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {checklist.title}
-                            </Text>
-                            <Text
-                              style={[
-                                styles.itemSubtitleText,
-                                { color: colors.textMuted },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {subtitle}
-                            </Text>
-                          </View>
-
-                          <View style={styles.rowRightWrap}>
-                            <View
-                              style={[
-                                styles.metaBadgePill,
-                                {
-                                  backgroundColor:
-                                    colorScheme === "light"
-                                      ? "#F3E8FF"
-                                      : "rgba(168, 85, 247, 0.18)",
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.metaBadgeText,
-                                  {
-                                    color:
-                                      colorScheme === "light"
-                                        ? "#7E22CE"
-                                        : "#C084FC",
-                                  },
-                                ]}
-                              >
-                                Checklist
-                              </Text>
-                            </View>
-                            <Feather
-                              name={isExpanded ? "chevron-up" : "chevron-down"}
-                              size={15}
-                              color={colors.textMuted}
-                            />
-                          </View>
-                        </PressableScale>
-                      </View>
-
-                      {/* Expanded Sub-items */}
-                      {isExpanded && checklist.items && (
-                        <View style={styles.subItemsWrapper}>
-                          {checklist.items.map((subItem) => (
-                            <View
-                              key={subItem.id}
-                              style={styles.subItemRow}
-                            >
-                              <PressableScale
-                                onPress={() =>
-                                  toggleChecklistItemFromDashboard(
-                                    checklist.id,
-                                    subItem.id,
-                                    folder.id,
-                                  )
-                                }
-                                hitSlop={8}
-                                haptic
-                                style={[
-                                  styles.subItemCheckbox,
-                                  {
-                                    borderColor: subItem.completed
-                                      ? itemColor
-                                      : "rgba(255,255,255,0.2)",
-                                    backgroundColor: subItem.completed
-                                      ? itemColor
-                                      : "transparent",
-                                  },
-                                ]}
-                              >
-                                {subItem.completed && (
-                                  <Feather
-                                    name="check"
-                                    size={10}
-                                    color="#ffffff"
-                                  />
-                                )}
-                              </PressableScale>
-                              <Text
-                                style={[
-                                  styles.subItemTitle,
-                                  {
-                                    color: subItem.completed
-                                      ? colors.textMuted
-                                      : colors.text,
-                                    textDecorationLine: subItem.completed
-                                      ? "line-through"
-                                      : "none",
-                                  },
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {subItem.title}
-                              </Text>
-                            </View>
-                          ))}
                         </View>
-                      )}
+                      );
+                    }
 
-                      {!isLast && (
-                        <View
-                          style={[
-                            styles.itemDivider,
-                            { backgroundColor: colors.border },
-                          ]}
-                        />
-                      )}
+                    return null;
+                  })}
+                </View>
+
+                {/* Inline Collapsible Resources Section */}
+                {isResourcesExpanded && folderCollections.length > 0 && (
+                  <View style={styles.resourcesSectionWrap}>
+                    <View
+                      style={[
+                        styles.resourcesSectionHeader,
+                        { borderBottomColor: colors.border },
+                      ]}
+                    >
+                      <Text
+                        style={[styles.resourcesSectionTitle, { color: colors.textMuted }]}
+                      >
+                        {`WORKSPACE RESOURCES (${folderCollections.length})`}
+                      </Text>
+                      <PressableScale
+                        onPress={() => {
+                          router.push({
+                            pathname: "/tasks",
+                            params: {
+                              workspaceId: folder.id,
+                              segment: "vault",
+                            },
+                          } as any);
+                        }}
+                        hitSlop={8}
+                        haptic
+                        accessibilityRole="button"
+                        accessibilityLabel="Open all resources in Vault"
+                      >
+                        <Text style={[styles.viewVaultLinkText, { color: folderColor }]}>
+                          View Vault →
+                        </Text>
+                      </PressableScale>
                     </View>
-                  );
-                }
 
-                return null;
-              })}
-            </View>
+                    {folderCollections.map((res: any, idx: number) => {
+                      const isLastRes = idx === folderCollections.length - 1;
+                      const resType = res.type || "note";
+                      const attachmentCount = res.attachments?.length || 0;
+                      let resSubtitle = resType.charAt(0).toUpperCase() + resType.slice(1);
+                      if (attachmentCount > 0) {
+                        resSubtitle += ` • ${attachmentCount} attachment${attachmentCount > 1 ? "s" : ""}`;
+                      } else if (res.content) {
+                        const snippet = res.content.trim().slice(0, 32);
+                        resSubtitle += ` • ${snippet}${res.content.length > 32 ? "..." : ""}`;
+                      }
 
-            {/* Preview Cap: View all items gateway */}
-            {remainingCount > 0 && (
-              <PressableScale
-                onPress={() =>
-                  router.push({
-                    pathname: "/tasks",
-                    params: { workspaceId: folder.id },
-                  } as any)
-                }
-                haptic
-                style={[
-                  styles.previewGatewayBtn,
-                  {
-                    backgroundColor:
-                      colorScheme === "light"
-                        ? "#F3F4F6"
-                        : "rgba(255,255,255,0.05)",
-                    borderColor: colors.border,
-                  },
-                ]}
-                contentStyle={styles.previewGatewayContent}
-              >
-                <Text
-                  style={[
-                    styles.previewGatewayText,
-                    { color: folderColor },
-                  ]}
-                >
-                  {`+${remainingCount} more in ${folder.name}`}
-                </Text>
-                <Feather
-                  name="arrow-right"
-                  size={13}
-                  color={folderColor}
-                />
-              </PressableScale>
-            )}
+                      return (
+                        <View key={`resource-${res.id || idx}`}>
+                          <WorkspaceItemRow
+                            type="resource"
+                            id={res.id || `res-${idx}`}
+                            title={res.title || "Untitled Resource"}
+                            subtitle={resSubtitle}
+                            resourceMeta={{
+                              type: resType,
+                              attachmentCount,
+                            }}
+                            accentColor="#0EA5E9"
+                            colors={colors}
+                            colorScheme={colorScheme}
+                            onPressRow={() => {
+                              router.push({
+                                pathname: "/tasks",
+                                params: {
+                                  workspaceId: folder.id,
+                                  segment: "vault",
+                                  resourceId: res.id,
+                                },
+                              } as any);
+                            }}
+                          />
+                          {!isLastRes && (
+                            <View
+                              style={[
+                                styles.itemDivider,
+                                { backgroundColor: colors.border },
+                              ]}
+                            />
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Preview Cap: View all items gateway */}
+                {remainingCount > 0 && (
+                  <PressableScale
+                    onPress={() =>
+                      router.push({
+                        pathname: "/tasks",
+                        params: { workspaceId: folder.id },
+                      } as any)
+                    }
+                    haptic
+                    accessibilityRole="button"
+                    accessibilityLabel={`View all items in ${folder.name}, ${remainingCount} more`}
+                    style={[
+                      styles.previewGatewayBtn,
+                      {
+                        backgroundColor:
+                          colorScheme === "light"
+                            ? "#F3F4F6"
+                            : "rgba(255,255,255,0.05)",
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    contentStyle={styles.previewGatewayContent}
+                  >
+                    <Text
+                      style={[
+                        styles.previewGatewayText,
+                        { color: folderColor },
+                      ]}
+                    >
+                      {`+${remainingCount} more in ${folder.name}`}
+                    </Text>
+                    <Feather
+                      name="arrow-right"
+                      size={13}
+                      color={folderColor}
+                    />
+                  </PressableScale>
+                )}
               </>
             )}
           </View>
@@ -912,7 +1236,7 @@ const styles = StyleSheet.create({
   folderEmojiWrap: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: Radius.md,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -932,7 +1256,18 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 1,
   },
-  headerRightActions: {
+  headerRightGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerInfoCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  clusterDividerSpacer: {
+    width: 10,
+  },
+  headerActionCluster: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -943,6 +1278,7 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 5,
+    minHeight: 32,
     borderRadius: Radius.sm,
     borderWidth: 1,
   },
@@ -956,24 +1292,27 @@ const styles = StyleSheet.create({
   gatewayButton: {
     width: 32,
     height: 32,
-    borderRadius: 9,
+    borderRadius: Radius.md,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   progressBarTrack: {
     height: 3,
-    borderRadius: 1.5,
+    borderRadius: 2,
     overflow: "hidden",
     marginBottom: 10,
     opacity: 0.6,
   },
   progressBarFill: {
     height: "100%",
-    borderRadius: 1.5,
+    borderRadius: 2,
   },
   itemsListWrap: {
     gap: 2,
+  },
+  rowWrapper: {
+    width: "100%",
   },
   itemRow: {
     flexDirection: "row",
@@ -981,16 +1320,27 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     minHeight: 44,
   },
-  prioritySpacer: {
-    width: 6,
+  priorityIndicatorContainer: {
+    width: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 6,
   },
-  checkboxSpacer: {
+  priorityBar: {
+    width: 3,
+    height: 18,
+    borderRadius: 1.5,
+  },
+  prioritySpacer: {
+    width: 3,
+  },
+  controlSpacer: {
     width: 10,
   },
   checkboxBase: {
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: Radius.pill,
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
@@ -998,8 +1348,16 @@ const styles = StyleSheet.create({
   checklistSquare: {
     width: 20,
     height: 20,
-    borderRadius: 4,
+    borderRadius: Radius.sm,
     borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resourceIconBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1011,6 +1369,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    minHeight: 44,
   },
   rowTextContainer: {
     flex: 1,
@@ -1043,6 +1402,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.2,
   },
+  streakBadge: {
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  streakBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
   itemDivider: {
     height: 1,
     opacity: 0.15,
@@ -1058,12 +1426,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     paddingVertical: 4,
-    minHeight: 32,
+    minHeight: 36,
   },
   subItemCheckbox: {
     width: 16,
     height: 16,
-    borderRadius: 4,
+    borderRadius: Radius.sm / 2,
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
@@ -1071,6 +1439,29 @@ const styles = StyleSheet.create({
   subItemTitle: {
     fontSize: 12,
     flex: 1,
+  },
+  resourcesSectionWrap: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+    gap: 2,
+  },
+  resourcesSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+  resourcesSectionTitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+  },
+  viewVaultLinkText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
   previewGatewayBtn: {
     borderRadius: Radius.md,
