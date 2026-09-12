@@ -130,7 +130,7 @@ describe("NowFocusCard component", () => {
     expect(text).toContain("NOW");
     expect(text).toContain("Finish project documentation");
     expect(text).toContain("2:00 PM – 3:00 PM");
-    expect(text).toContain("43 min remaining");
+    expect(text).toContain("43 min left");
     expect(text).toContain("High priority");
     // Execution-first: direct completion is primary, focus is secondary.
     expect(text).toContain("Complete");
@@ -195,7 +195,7 @@ describe("NowFocusCard component", () => {
     expect(text).toContain("NOW");
     expect(text).toContain("Morning workout");
     expect(text).toContain("7:00 AM – 7:45 AM");
-    expect(text).toContain("25 min remaining");
+    expect(text).toContain("25 min left");
     expect(text).toContain("Habit");
     expect(text).toContain("Complete");
     expect(text).toContain("Focus on this");

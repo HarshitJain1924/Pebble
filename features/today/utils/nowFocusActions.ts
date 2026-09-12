@@ -83,7 +83,7 @@ export function createNowFocusActionHandlers({
   };
 
   const handleCompleteNowFocus = async (focus: NowFocusResult): Promise<void> => {
-    if (!focus.item) return;
+    if (!focus.item || focus.state === "upcoming") return;
     if (focus.type === "task") {
       await completeTodoFromDashboard(
         focus.item.id,
@@ -103,7 +103,7 @@ export function createNowFocusActionHandlers({
     focus: NowFocusResult,
     itemId: string,
   ): Promise<void> => {
-    if (!focus.item || focus.type !== "checklist") return;
+    if (!focus.item || focus.type !== "checklist" || focus.state === "upcoming") return;
     const checklist = focus.item as Checklist;
     const currentNow = getCurrentNow();
     const dateKey = checklist.recurrence

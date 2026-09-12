@@ -454,6 +454,103 @@ describe("NOW Execution Model & Action-Wiring Integration", () => {
       expect(mockCompleteTodo).not.toHaveBeenCalled();
       expect(mockCompleteHabit).not.toHaveBeenCalled();
     });
+
+    it("D1. Upcoming Task: handleCompleteNowFocus and handleStartNowFocus perform zero calls", async () => {
+      const upcomingTask = mockTask({
+        id: "task-upcoming-readonly",
+        schedule: { date: TODAY_DATE, startTime: "17:00", endTime: "18:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [upcomingTask],
+        habits: [],
+        checklists: [],
+      });
+      expect(focus.state).toBe("upcoming");
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleCompleteNowFocus(focus);
+      expect(mockCompleteTodo).not.toHaveBeenCalled();
+      expect(EntityCommandService.completeTask).not.toHaveBeenCalled();
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).not.toHaveBeenCalled();
+      expect(mockStore["todoapp:focus:current_session"]).toBeUndefined();
+    });
+
+    it("D2. Upcoming Habit: handleCompleteNowFocus and handleStartNowFocus perform zero calls", async () => {
+      const upcomingHabit = mockHabit({
+        id: "habit-upcoming-readonly",
+        schedule: { date: TODAY_DATE, startTime: "18:00", endTime: "19:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [upcomingHabit],
+        checklists: [],
+      });
+      expect(focus.state).toBe("upcoming");
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleCompleteNowFocus(focus);
+      expect(mockCompleteHabit).not.toHaveBeenCalled();
+      expect(EntityCommandService.completeHabit).not.toHaveBeenCalled();
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).not.toHaveBeenCalled();
+      expect(mockStore["todoapp:focus:current_session"]).toBeUndefined();
+    });
+
+    it("D3. Upcoming Checklist: handleCompleteNowChecklistItem and handleStartNowFocus perform zero calls", async () => {
+      const upcomingChecklist = mockChecklist({
+        id: "chk-upcoming-readonly",
+        items: [{ id: "step-1", title: "Review", completed: false }],
+        schedule: { date: TODAY_DATE, startTime: "19:00", endTime: "20:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [],
+        checklists: [upcomingChecklist],
+      });
+      expect(focus.state).toBe("upcoming");
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleCompleteNowChecklistItem(focus, "step-1");
+      expect(mockToggleChecklistItem).not.toHaveBeenCalled();
+      expect(EntityCommandService.toggleChecklistItem).not.toHaveBeenCalled();
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).not.toHaveBeenCalled();
+      expect(mockStore["todoapp:focus:current_session"]).toBeUndefined();
+    });
   });
 
   // ─────────────────────────────────────────────────────────────
