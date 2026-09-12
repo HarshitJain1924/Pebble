@@ -27,6 +27,7 @@ jest.mock("@/features/settings/services/settings.service", () => ({
 jest.mock("@/services/storage/storage.service", () => ({
   getDashboardFilters: jest.fn().mockResolvedValue({}),
   saveDashboardFilter: jest.fn().mockResolvedValue(undefined),
+  saveDashboardFilters: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/shared/components/ui/UndoContext", () => ({
@@ -47,8 +48,8 @@ jest.mock("@/features/today/components/PebbleJarProgressCard", () => ({
 jest.mock("@/features/today/components/StreakBanner", () => ({
   StreakBanner: "StreakBanner",
 }));
-jest.mock("@/features/today/components/DashboardFilterBar", () => ({
-  DashboardFilterBar: "DashboardFilterBar",
+jest.mock("@/features/today/components/TodayFilterControl", () => ({
+  TodayFilterControl: "TodayFilterControl",
 }));
 jest.mock("@/features/today/components/WorkspaceSectionedStream", () => ({
   WorkspaceSectionedStream: "WorkspaceSectionedStream",

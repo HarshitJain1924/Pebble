@@ -26,6 +26,11 @@ export const COLLECTIONS_STORAGE_KEY = "pebble:collections";
 export const CHECKLISTS_STORAGE_KEY = "pebble:checklists";
 export const DASHBOARD_FILTER_STORAGE_KEY = "todoapp:dashboard:filter";
 export const DASHBOARD_PRIORITY_STORAGE_KEY = "todoapp:dashboard:priority";
+export const DASHBOARD_WORKSPACE_STORAGE_KEY = "todoapp:dashboard:workspace";
+export const DASHBOARD_CATEGORY_STORAGE_KEY = "todoapp:dashboard:category";
+export const DASHBOARD_SCHEDULE_STORAGE_KEY = "todoapp:dashboard:schedule";
+export const DASHBOARD_STATUS_STORAGE_KEY = "todoapp:dashboard:status";
+export const DASHBOARD_SORT_STORAGE_KEY = "todoapp:dashboard:sort";
 export const GRATITUDE_HISTORY_STORAGE_KEY = "todoapp:gratitude_history";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -183,22 +188,47 @@ export async function appendGratitudeHistoryEntry(
 export async function getDashboardFilters(): Promise<{
   filter: string | null;
   priority: string | null;
+  workspaceId: string | null;
+  categoryId: string | null;
+  schedule: string | null;
+  status: string | null;
+  sort: string | null;
 }> {
   try {
-    const [filter, priority] = await Promise.all([
+    const [filter, priority, workspaceId, categoryId, schedule, status, sort] = await Promise.all([
       AsyncStorage.getItem(DASHBOARD_FILTER_STORAGE_KEY),
       AsyncStorage.getItem(DASHBOARD_PRIORITY_STORAGE_KEY),
+      AsyncStorage.getItem(DASHBOARD_WORKSPACE_STORAGE_KEY),
+      AsyncStorage.getItem(DASHBOARD_CATEGORY_STORAGE_KEY),
+      AsyncStorage.getItem(DASHBOARD_SCHEDULE_STORAGE_KEY),
+      AsyncStorage.getItem(DASHBOARD_STATUS_STORAGE_KEY),
+      AsyncStorage.getItem(DASHBOARD_SORT_STORAGE_KEY),
     ]);
-    return { filter, priority };
+    return { filter, priority, workspaceId, categoryId, schedule, status, sort };
   } catch (e) {
     console.warn("Failed to read dashboard filters", e);
-    return { filter: null, priority: null };
+    return {
+      filter: null,
+      priority: null,
+      workspaceId: null,
+      categoryId: null,
+      schedule: null,
+      status: null,
+      sort: null,
+    };
   }
 }
 
 export async function saveDashboardFilter(filter: string): Promise<void> {
   try {
     await AsyncStorage.setItem(DASHBOARD_FILTER_STORAGE_KEY, filter);
+    await Promise.all([
+      AsyncStorage.removeItem(DASHBOARD_WORKSPACE_STORAGE_KEY),
+      AsyncStorage.removeItem(DASHBOARD_CATEGORY_STORAGE_KEY),
+      AsyncStorage.removeItem(DASHBOARD_SCHEDULE_STORAGE_KEY),
+      AsyncStorage.removeItem(DASHBOARD_STATUS_STORAGE_KEY),
+      AsyncStorage.removeItem(DASHBOARD_SORT_STORAGE_KEY),
+    ]);
   } catch (e) {
     console.warn("Failed to save dashboard filter", e);
   }
@@ -209,6 +239,30 @@ export async function saveDashboardPriority(priority: string): Promise<void> {
     await AsyncStorage.setItem(DASHBOARD_PRIORITY_STORAGE_KEY, priority);
   } catch (e) {
     console.warn("Failed to save dashboard priority", e);
+  }
+}
+
+export async function saveDashboardFilters(filters: {
+  filter: string;
+  priority: string;
+  workspaceId: string;
+  categoryId: string;
+  schedule: string;
+  status: string;
+  sort: string;
+}): Promise<void> {
+  try {
+    await Promise.all([
+      AsyncStorage.setItem(DASHBOARD_FILTER_STORAGE_KEY, filters.filter),
+      AsyncStorage.setItem(DASHBOARD_PRIORITY_STORAGE_KEY, filters.priority),
+      AsyncStorage.setItem(DASHBOARD_WORKSPACE_STORAGE_KEY, filters.workspaceId),
+      AsyncStorage.setItem(DASHBOARD_CATEGORY_STORAGE_KEY, filters.categoryId),
+      AsyncStorage.setItem(DASHBOARD_SCHEDULE_STORAGE_KEY, filters.schedule),
+      AsyncStorage.setItem(DASHBOARD_STATUS_STORAGE_KEY, filters.status),
+      AsyncStorage.setItem(DASHBOARD_SORT_STORAGE_KEY, filters.sort),
+    ]);
+  } catch (e) {
+    console.warn("Failed to save dashboard filters", e);
   }
 }
 

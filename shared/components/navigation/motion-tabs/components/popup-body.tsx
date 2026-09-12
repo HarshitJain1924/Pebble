@@ -27,6 +27,11 @@ import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
+import {
+  getDashboardFilters,
+  saveDashboardFilter,
+  saveDashboardPriority,
+} from "@/services/storage/storage.service";
 
 const getTodoDateKey = (todo: any) => {
   // Canonical schedule.date
@@ -161,10 +166,9 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       );
 
       // Load Filter States
-      const dashboardFilter = await AsyncStorage.getItem("todoapp:dashboard:filter");
-      const priorityFilter = await AsyncStorage.getItem("todoapp:dashboard:priority");
-      if (dashboardFilter) setActiveFilter(dashboardFilter);
-      if (priorityFilter) setActivePriority(priorityFilter);
+      const { filter, priority } = await getDashboardFilters();
+      if (filter) setActiveFilter(filter);
+      if (priority) setActivePriority(priority);
 
     } catch (e) {
       console.warn("Failed to load drawer data", e);
@@ -192,14 +196,14 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const toggleDashboardFilter = async (filter: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setActiveFilter(filter);
-    await AsyncStorage.setItem("todoapp:dashboard:filter", filter);
+    await saveDashboardFilter(filter);
     emitStateChange("dashboard_filter_changed");
   };
 
   const togglePriorityFilter = async (priority: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setActivePriority(priority);
-    await AsyncStorage.setItem("todoapp:dashboard:priority", priority);
+    await saveDashboardPriority(priority);
     emitStateChange("dashboard_filter_changed");
   };
 

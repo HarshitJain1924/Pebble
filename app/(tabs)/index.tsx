@@ -2,10 +2,10 @@ import {
   getProfile,
   type UserProfile,
 } from "@/features/settings/services/settings.service";
-import { addStateListener } from "@/services/events/state-events";
+import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import {
   getDashboardFilters,
-  saveDashboardFilter,
+  saveDashboardFilters,
 } from "@/services/storage/storage.service";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { styles } from "@/shared/constants/dashboardStyles";
@@ -26,7 +26,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { DashboardFilterBar } from "@/features/today/components/DashboardFilterBar";
+import { TodayFilterControl } from "@/features/today/components/TodayFilterControl";
 import { PebbleSanctuaryModal } from "@/features/today/components/PebbleSanctuaryModal";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
 import { ReviewMyDayModal } from "@/features/today/components/ReviewMyDayModal";
@@ -41,6 +41,12 @@ import { TodayDayContext } from "@/features/today/components/TodayDayContext";
 import { getNowFocus, type NowFocusResult } from "@/features/today/utils/getNowFocus";
 import { useLiveClock } from "@/features/today/hooks/useLiveClock";
 import { buildTodayDayContext } from "@/features/today/utils/todayDayContext";
+import {
+  DEFAULT_TODAY_FILTERS,
+  normalizeTodayFilters,
+  toPersistedTodayFilters,
+  type TodayFilterState,
+} from "@/features/today/utils/todayFilters";
 import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
@@ -154,21 +160,12 @@ export function TodayScreen() {
   const [rewardStartCount, setRewardStartCount] = useState(0);
   const [rewardTargetCount, setRewardTargetCount] = useState(0);
 
-  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits">(
-    "tasks",
+  const [filterState, setFilterState] = useState<TodayFilterState>(
+    DEFAULT_TODAY_FILTERS,
   );
-  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<
-    "all" | "high" | "medium" | "low"
-  >("all");
-  const [selectedFolderFilter, setSelectedFolderFilter] =
-    useState<string>("all");
-  const [selectedSortOption, setSelectedSortOption] = useState<
-    "default" | "priority" | "alphabetical"
-  >("default");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [hasUnreadNotifs, setHasUnreadNotifs] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
   const [expandedChecklistIds, setExpandedChecklistIds] = useState<
     Record<string, boolean>
   >({});
@@ -350,9 +347,8 @@ export function TodayScreen() {
   useEffect(() => {
     const loadSavedFilters = async () => {
       try {
-        const { filter, priority } = await getDashboardFilters();
-        if (filter) setActiveFilter(filter);
-        if (priority) setSelectedPriorityFilter(priority as any);
+        const persisted = await getDashboardFilters();
+        setFilterState(normalizeTodayFilters(persisted));
       } catch (e) {
         console.warn("Failed to load dashboard filters on mount", e);
       }
@@ -370,6 +366,12 @@ export function TodayScreen() {
     return () => {
       unsubscribeFilters();
     };
+  }, []);
+
+  const handleApplyFilters = useCallback(async (next: TodayFilterState) => {
+    setFilterState(next);
+    await saveDashboardFilters(toPersistedTodayFilters(next));
+    emitStateChange("dashboard_filter_changed", "today_filter_sheet");
   }, []);
 
   const getGreetingTime = () => {
@@ -401,10 +403,7 @@ export function TodayScreen() {
     completedHabits,
     allChecklists,
     searchQuery,
-    activeFilter,
-    selectedFolderFilter,
-    selectedPriorityFilter,
-    selectedSortOption,
+    filterState,
   });
 
   const flatChecklists = useMemo(() => {
@@ -418,6 +417,28 @@ export function TodayScreen() {
     });
     return list;
   }, [allChecklists]);
+
+  const filterCategoryIds = useMemo(() => {
+    const categoryIds = [
+      ...todoStats.pending,
+      ...(todoStats.completedTasks ?? []),
+      ...todoStats.overdue,
+      ...pendingHabits,
+      ...completedHabits,
+      ...flatChecklists,
+    ]
+      .map((item) => item.categoryId)
+      .filter((categoryId): categoryId is string => Boolean(categoryId));
+
+    return Array.from(new Set(categoryIds)).sort((a, b) => a.localeCompare(b));
+  }, [
+    todoStats.pending,
+    todoStats.completedTasks,
+    todoStats.overdue,
+    pendingHabits,
+    completedHabits,
+    flatChecklists,
+  ]);
 
   const currentNow = useLiveClock();
 
@@ -553,14 +574,12 @@ export function TodayScreen() {
             onViewFullDay={() => router.push("/calendar")}
           />
 
-          {/* Global Filter Row */}
-          <DashboardFilterBar
-            activeFilter={activeFilter}
-            onSelectFilter={async (filterKey) => {
-              setActiveFilter(filterKey);
-              await saveDashboardFilter(filterKey);
-            }}
+          <TodayFilterControl
+            value={filterState}
+            folders={folders}
+            categoryIds={filterCategoryIds}
             colors={colors}
+            onApply={handleApplyFilters}
           />
 
           {/* Workspace-Grouped Today Execution Stream */}
