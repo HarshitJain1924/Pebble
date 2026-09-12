@@ -4,7 +4,6 @@ import {
   StyleSheet,
   Dimensions,
   Platform,
-  Pressable,
 } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
@@ -13,9 +12,10 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Workspace, Task, type Checklist } from "@/shared/types/domain.types";
-import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
+import { TactileFolderCard } from "./TactileFolderCard";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
 
 interface WorkspaceGridProps {
   workspaces: Workspace[];
@@ -46,43 +46,87 @@ export function WorkspaceGrid({
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
 
+  const activeWorkspaces = workspaces.filter((w) => !w.archivedAt);
+  const filteredWorkspaces =
+    searchQuery.trim() === ""
+      ? activeWorkspaces
+      : activeWorkspaces.filter((w) =>
+          w.name.toLowerCase().includes(searchQuery.toLowerCase()),
+        );
+
   if (!isHydrated && workspaces.length === 0) {
     const cardBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
     const borderCol = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+
     return (
       <View style={{ flex: 1, paddingVertical: 10 }}>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
           {[1, 2, 3].map((key) => (
-            <View key={key} style={gridStyles.workspaceGridCard}>
+            <View
+              key={key}
+              style={{
+                width: CARD_WIDTH,
+                height: 185,
+                marginTop: 18,
+                position: "relative",
+              }}
+            >
               <View
                 style={{
                   position: "absolute",
                   top: -11,
-                  left: 16,
-                  width: "45%",
-                  height: 12,
+                  left: 14,
+                  width: "48%",
+                  height: 14,
                   backgroundColor: borderCol,
-                  borderTopLeftRadius: 8,
-                  borderTopRightRadius: 8,
-                  zIndex: 2,
+                  borderTopLeftRadius: 10,
+                  borderTopRightRadius: 10,
+                  zIndex: 1,
                 }}
               />
               <View
                 style={[
                   gridStyles.cardContainer,
                   {
+                    width: "100%",
+                    height: "100%",
                     borderColor: borderCol,
                     backgroundColor: cardBg,
                     opacity: 0.7,
+                    borderRadius: 22,
                   },
                 ]}
               >
                 <View style={gridStyles.topRow}>
-                  <View style={[gridStyles.iconWrapper, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)" }]} />
+                  <View
+                    style={[
+                      gridStyles.iconWrapper,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(255,255,255,0.08)"
+                          : "rgba(0,0,0,0.05)",
+                      },
+                    ]}
+                  />
                 </View>
                 <View style={gridStyles.detailsBlock}>
-                  <View style={{ width: "60%", height: 16, borderRadius: 4, backgroundColor: borderCol, marginBottom: 8 }} />
-                  <View style={{ width: "85%", height: 12, borderRadius: 4, backgroundColor: borderCol }} />
+                  <View
+                    style={{
+                      width: "60%",
+                      height: 14,
+                      borderRadius: 4,
+                      backgroundColor: borderCol,
+                      marginBottom: 8,
+                    }}
+                  />
+                  <View
+                    style={{
+                      width: "80%",
+                      height: 11,
+                      borderRadius: 4,
+                      backgroundColor: borderCol,
+                    }}
+                  />
                 </View>
               </View>
             </View>
@@ -92,281 +136,167 @@ export function WorkspaceGrid({
     );
   }
 
-  const activeWorkspaces = workspaces.filter((w) => !w.archivedAt);
-  const filteredWorkspaces =
-    searchQuery.trim() === ""
-      ? activeWorkspaces
-      : activeWorkspaces.filter((w) =>
-          w.name.toLowerCase().includes(searchQuery.toLowerCase()),
-        );
-
-  const getCardBgColor = (baseColor: string) => {
-    if (isDark) {
-      return `${baseColor}22`;
-    } else {
-      return `${baseColor}0C`;
-    }
-  };
-
-  const getBorderColor = (baseColor: string) => {
-    if (isDark) {
-      return `${baseColor}44`;
-    } else {
-      return `${baseColor}22`;
-    }
-  };
-
-  const renderCountBadge = (iconName: string, count: number, activeColor: string, showLabel: boolean, label: string) => {
-    if (count === 0) return null;
-    return (
-      <View 
-        style={[
-          gridStyles.countBadge, 
-          { 
-            borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", 
-            backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)" 
-          }
-        ]}
-      >
-        <Feather name={iconName as any} size={11} color={activeColor} />
-        <Text style={[gridStyles.countText, { color: isDark ? "#FFFFFF" : "#333333" }]}>
-          {count}
-          {showLabel ? ` ${count === 1 ? label : label + "s"}` : ""}
-        </Text>
-      </View>
-    );
-  };
-
   return (
     <View style={{ flex: 1, paddingVertical: 10 }}>
+      {/* Workspaces Section Header */}
+      <View style={gridStyles.headerBar}>
+        <Text style={[gridStyles.sectionLabel, { color: colors.textMuted }]}>
+          {filteredWorkspaces.length}{" "}
+          {filteredWorkspaces.length === 1 ? "WORKSPACE" : "WORKSPACES"}
+        </Text>
+      </View>
+
+      {/* 2-Column Workspaces Grid */}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
         {filteredWorkspaces.map((workspace) => {
-          const workspaceColor = workspace.color || "#6366F1";
           const workspaceTasks = todos[workspace.id] ?? [];
-          const activeCount = workspaceTasks.filter((t) => !isTaskCompleted(t)).length;
-          
-          const workspaceHabits = habits ? habits.filter((h) => h.workspaceId === workspace.id) : [];
-          const habitCount = workspaceHabits.filter((h) => !isHabitCompletedToday(h)).length;
-
-          const workspaceCollections = collections ? (collections[workspace.id] || []) : [];
+          const workspaceHabits = habits
+            ? habits.filter((h) => h.workspaceId === workspace.id)
+            : [];
+          const workspaceCollections = collections
+            ? collections[workspace.id] || []
+            : [];
           const resourceCount = workspaceCollections.reduce(
-            (sum: number, col: any) => sum + (col.items ? col.items.filter((i: any) => !i.archivedAt).length : 0),
+            (sum: number, col: any) =>
+              sum + (col.items ? col.items.filter((i: any) => !i.archivedAt).length : 0),
             0
           );
-
-          const workspaceChecklists = checklists ? (checklists[workspace.id] || []) : [];
+          const workspaceChecklists = checklists
+            ? checklists[workspace.id] || []
+            : [];
           const checklistCount = workspaceChecklists.filter((c) => !c.archivedAt).length;
 
-          // Compute if we should show badge labels
-          const totalActiveBadges = (activeCount > 0 ? 1 : 0) + (habitCount > 0 ? 1 : 0) + (checklistCount > 0 ? 1 : 0) + (resourceCount > 0 ? 1 : 0);
-          const showLabel = totalActiveBadges <= 1;
-
-          const defaultDescription = workspace.name.toLowerCase() === "inbox"
-            ? "Quick capture of tasks and ideas."
-            : workspace.name.toLowerCase() === "my pebbles" 
-              ? "Your main workspace for getting things done." 
-              : `Tasks and notes for ${workspace.name.toLowerCase()} activities.`;
-
-          const descriptionText = workspace.description || defaultDescription;
-
           return (
-            <View key={workspace.id} style={gridStyles.workspaceGridCard}>
-              {/* Nub */}
-              <View
-                style={{
-                  position: "absolute",
-                  top: -11,
-                  left: 16,
-                  width: "45%",
-                  height: 12,
-                  backgroundColor: workspaceColor,
-                  borderTopLeftRadius: 8,
-                  borderTopRightRadius: 8,
-                  zIndex: 2,
-                }}
-              />
-              {/* Card Content Container */}
-              <PressableScale
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  onSelectWorkspace(workspace.id);
-                }}
-                onLongPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                  onEditWorkspace(workspace.id);
-                }}
-                haptic={true}
-                style={gridStyles.cardPressable}
-                contentStyle={[
-                  gridStyles.cardContainer, 
-                  { 
-                    borderColor: getBorderColor(workspaceColor), 
-                    backgroundColor: isDark ? "#12131A" : "#FFFFFF" 
-                  }
-                ]}
-              >
-                {/* Solid Background Color Overlay */}
-                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: getCardBgColor(workspaceColor) }]} />
-
-                {/* Top Row: Icon on left */}
-                <View style={gridStyles.topRow}>
-                  <View style={[gridStyles.iconWrapper, { backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.03)" }]}>
-                    <Text style={{ fontSize: 24 }}>{workspace.emoji || "📁"}</Text>
-                  </View>
-                </View>
-
-                {/* Middle Row: Title & Description */}
-                <View style={gridStyles.detailsBlock}>
-                  <Text style={[gridStyles.workspaceName, { color: isDark ? "#FFFFFF" : "#111111" }]} numberOfLines={1}>
-                    {workspace.name}
-                  </Text>
-                  <Text style={[gridStyles.workspaceDescription, { color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)" }]} numberOfLines={2}>
-                    {descriptionText}
-                  </Text>
-                </View>
-
-                {/* Bottom Row: Badge Counts */}
-                <View style={gridStyles.countBadgeRow}>
-                  {renderCountBadge("check-square", activeCount, workspaceColor, showLabel, "task")}
-                  {renderCountBadge("refresh-cw", habitCount, "#F59E0B", showLabel, "habit")}
-                  {renderCountBadge("list", checklistCount, "#10B981", showLabel, "checklist")}
-                  {renderCountBadge("folder", resourceCount, "#A855F7", showLabel, "resource")}
-                </View>
-              </PressableScale>
-
-              {/* Absolute Sibling Edit Menu Trigger */}
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  onEditWorkspace(workspace.id);
-                }}
-                style={gridStyles.moreButtonAbsolute}
-                hitSlop={15}
-              >
-                <Feather name="more-horizontal" size={20} color={isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.4)"} />
-              </Pressable>
-            </View>
+            <TactileFolderCard
+              key={workspace.id}
+              workspace={workspace}
+              tasks={workspaceTasks}
+              habitCount={workspaceHabits.length}
+              checklistCount={checklistCount}
+              resourceCount={resourceCount}
+              onSelectWorkspace={onSelectWorkspace}
+              onEditWorkspace={onEditWorkspace}
+            />
           );
         })}
 
-        {/* Add New Workspace */}
-        <PressableScale
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-            onCreateWorkspace();
-          }}
-          haptic={true}
-          style={gridStyles.workspaceGridCard}
-        >
+        {/* Add New Workspace Card */}
+        <View style={[gridStyles.newWorkspaceWrapper, { width: CARD_WIDTH }]}>
           {/* Nub */}
           <View
             style={{
               position: "absolute",
               top: -11,
-              left: 16,
-              width: "45%",
-              height: 12,
-              backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-              borderTopLeftRadius: 8,
-              borderTopRightRadius: 8,
-              borderWidth: 1,
-              borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+              left: 14,
+              width: "48%",
+              height: 14,
+              backgroundColor: isDark
+                ? "rgba(255,255,255,0.04)"
+                : "rgba(0,0,0,0.03)",
+              borderTopLeftRadius: 10,
+              borderTopRightRadius: 10,
+              borderWidth: 1.5,
+              borderColor: isDark
+                ? "rgba(255,255,255,0.12)"
+                : "rgba(0,0,0,0.08)",
               borderBottomWidth: 0,
-              zIndex: 2,
+              borderStyle: "dashed",
+              zIndex: 1,
             }}
           />
-          {/* Card Content Container */}
-          <View
-            style={[
+          <PressableScale
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              onCreateWorkspace();
+            }}
+            haptic={true}
+            style={{ width: "100%", height: "100%" }}
+            contentStyle={[
               gridStyles.cardContainer,
               {
-                borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+                width: "100%",
+                height: "100%",
+                borderColor: isDark
+                  ? "rgba(255,255,255,0.12)"
+                  : "rgba(0,0,0,0.08)",
                 borderStyle: "dashed",
+                borderWidth: 1.5,
                 backgroundColor: "transparent",
                 justifyContent: "center",
                 alignItems: "center",
                 padding: 16,
-                minHeight: 180,
+                borderRadius: 22,
               },
             ]}
           >
             <View
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
+                width: 40,
+                height: 40,
+                borderRadius: 20,
                 backgroundColor: `${colors.primary}18`,
                 borderWidth: 1.5,
                 borderColor: colors.primary,
                 alignItems: "center",
                 justifyContent: "center",
-                marginBottom: 10,
+                marginBottom: 8,
               }}
             >
-              <Feather name="plus" size={22} color={colors.primary} />
+              <Feather name="plus" size={20} color={colors.primary} />
             </View>
             <Text
               style={{
                 color: colors.primary,
                 fontWeight: "800",
-                fontSize: 14,
+                fontSize: 13,
                 letterSpacing: -0.2,
-                marginBottom: 4,
+                marginBottom: 2,
               }}
             >
-              New Workspace
+              New Folder
             </Text>
             <Text
               style={{
                 color: colors.textMuted,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: "500",
                 textAlign: "center",
-                lineHeight: 15,
-                paddingHorizontal: 8,
+                lineHeight: 14,
+                paddingHorizontal: 4,
               }}
               numberOfLines={2}
             >
-              Create a new folder to organize better.
+              Create workspace
             </Text>
-          </View>
-        </PressableScale>
+          </PressableScale>
+        </View>
       </View>
     </View>
   );
 }
 
 const gridStyles = StyleSheet.create({
-  workspaceGridCard: {
-    width: (SCREEN_WIDTH - 44) / 2,
+  headerBar: {
+    marginBottom: 4,
+    paddingHorizontal: 2,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  newWorkspaceWrapper: {
+    height: 185,
     marginTop: 18,
     position: "relative",
   },
-  cardPressable: {
-    width: "100%",
-  },
   cardContainer: {
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1.5,
     overflow: "hidden",
     width: "100%",
-    minHeight: 180,
     padding: 14,
     justifyContent: "space-between",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000000",
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.12,
-        shadowRadius: 10,
-      },
-      android: {
-        elevation: 2,
-      },
-      web: {
-        boxShadow: "0 6px 18px rgba(0,0,0,0.1)",
-      }
-    }),
   },
   topRow: {
     flexDirection: "row",
@@ -375,59 +305,17 @@ const gridStyles = StyleSheet.create({
     width: "100%",
   },
   iconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
   },
-  moreButtonAbsolute: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 100,
-  },
   detailsBlock: {
     marginTop: 14,
     flex: 1,
     justifyContent: "center",
-  },
-  workspaceName: {
-    fontSize: 16,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-    marginBottom: 4,
-  },
-  workspaceDescription: {
-    fontSize: 11,
-    fontWeight: "500",
-    lineHeight: 15,
-  },
-  countBadgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 5,
-    marginTop: 12,
-    alignItems: "center",
-    width: "100%",
-  },
-  countBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 3.5,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  countText: {
-    fontSize: 10,
-    fontWeight: "700",
   },
 });
