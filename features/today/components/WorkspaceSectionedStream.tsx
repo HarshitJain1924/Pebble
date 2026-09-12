@@ -1,6 +1,7 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { Image as ExpoImage } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { type Router } from "expo-router";
 
@@ -48,6 +49,88 @@ const getOverdueLabel = (dateStr: string) => {
   return `${diffDays} days ago`;
 };
 
+export type ResourceCategory = "image" | "pdf" | "link" | "note";
+
+export interface ResourceVisualInfo {
+  category: ResourceCategory;
+  label: string;
+  thumbnailUri?: string;
+  attachmentCount?: number;
+}
+
+/**
+ * Robust resource category and thumbnail resolver
+ * Identifies images (by MIME or extension), PDFs, links, and notes.
+ * Extracts image thumbnail URI from attachments, direct URI, or content.
+ */
+export function resolveResourceVisual(res: any): ResourceVisualInfo {
+  const attachments = Array.isArray(res.attachments) ? res.attachments : [];
+  const attachment = attachments[0];
+  const name = (attachment?.name || res.title || "").toLowerCase();
+  const mime = (attachment?.mimeType || res.mimeType || "").toLowerCase();
+  const uri =
+    attachment?.uri ||
+    res.uri ||
+    (typeof res.content === "string" &&
+    (res.content.startsWith("file://") ||
+      res.content.startsWith("http://") ||
+      res.content.startsWith("https://") ||
+      res.content.startsWith("data:image/"))
+      ? res.content
+      : undefined);
+
+  // 1. Image detection
+  const isImageMime = mime.startsWith("image/");
+  const isImageExt =
+    /\.(png|jpe?g|webp|gif|bmp|svg)(\?.*)?$/i.test(name) ||
+    (uri ? /\.(png|jpe?g|webp|gif|bmp|svg)(\?.*)?$/i.test(uri) : false);
+
+  if (isImageMime || isImageExt) {
+    return {
+      category: "image",
+      label: "Image",
+      thumbnailUri: uri,
+      attachmentCount: attachments.length,
+    };
+  }
+
+  // 2. PDF detection
+  const isPdfMime = mime.includes("pdf");
+  const isPdfExt =
+    /\.pdf(\?.*)?$/i.test(name) ||
+    (uri ? /\.pdf(\?.*)?$/i.test(uri) : false);
+
+  if (isPdfMime || isPdfExt) {
+    return {
+      category: "pdf",
+      label: "PDF",
+      attachmentCount: attachments.length,
+    };
+  }
+
+  // 3. Link detection
+  const isLink =
+    res.type === "link" ||
+    /^(https?:\/\/|www\.)/i.test(res.title || "") ||
+    /^(https?:\/\/|www\.)/i.test(res.content || "") ||
+    /^(https?:\/\/|www\.)/i.test(res.body || "");
+
+  if (isLink) {
+    return {
+      category: "link",
+      label: "Link",
+      attachmentCount: attachments.length,
+    };
+  }
+
+  // 4. Note / Idea fallback
+  return {
+    category: "note",
+    label: res.type === "idea" ? "Idea" : "Note",
+    attachmentCount: attachments.length,
+  };
+}
+
 export type WorkspaceItemType = "task" | "habit" | "checklist" | "resource";
 
 export interface WorkspaceItemRowProps {
@@ -55,21 +138,16 @@ export interface WorkspaceItemRowProps {
   id: string;
   title: string;
   subtitle?: string;
+  isOverdue?: boolean;
   completed?: boolean;
   priority?: "high" | "medium" | "low";
-  timeChip?: {
-    label: string;
-    isOverdue?: boolean;
-  };
+  hasReminder?: boolean;
   streak?: number;
-  checklistMeta?: {
+  checklistProgress?: {
     completedCount: number;
     totalCount: number;
   };
-  resourceMeta?: {
-    type?: string;
-    attachmentCount?: number;
-  };
+  resourceVisual?: ResourceVisualInfo;
   isExpanded?: boolean;
   accentColor: string;
   colors: ThemeColors;
@@ -82,20 +160,25 @@ export interface WorkspaceItemRowProps {
 }
 
 /**
- * Consolidated WorkspaceItemRow component
- * Unifies visual signatures, hit targets, and interactions across tasks, habits, checklists, and resources.
+ * Consolidated WorkspaceItemRow Component
+ * Enforces clean two-line typography hierarchy:
+ *   TITLE
+ *   secondary context
+ * Priority is communicated exclusively via the left vertical stripe.
+ * Right side hosts only secondary state (streak, checklist count, reminder bell, trailing chevron).
  */
 export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
   type,
   id,
   title,
   subtitle,
+  isOverdue = false,
   completed = false,
   priority,
-  timeChip,
+  hasReminder = false,
   streak,
-  checklistMeta,
-  resourceMeta,
+  checklistProgress,
+  resourceVisual,
   isExpanded = false,
   accentColor,
   colors,
@@ -109,14 +192,31 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
   const isDark = colorScheme !== "light";
   const priorityColor = priority ? PRIORITY_COLORS[priority] : undefined;
 
-  const renderControl = () => {
-    if (type === "resource") {
-      const iconName =
-        resourceMeta?.type === "link"
-          ? "link"
-          : resourceMeta?.type === "idea"
-          ? "zap"
-          : "file-text";
+  const renderResourceVisual = () => {
+    const visual = resourceVisual || { category: "note" as const, label: "Note" };
+
+    if (visual.category === "image") {
+      if (visual.thumbnailUri) {
+        return (
+          <View
+            style={[
+              styles.resourceThumbnailWrap,
+              {
+                borderColor: isDark
+                  ? "rgba(255, 255, 255, 0.12)"
+                  : "rgba(0, 0, 0, 0.08)",
+              },
+            ]}
+          >
+            <ExpoImage
+              source={{ uri: visual.thumbnailUri }}
+              style={styles.resourceThumbnail}
+              contentFit="cover"
+              transition={150}
+            />
+          </View>
+        );
+      }
 
       return (
         <View
@@ -124,21 +224,82 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
             styles.resourceIconBadge,
             {
               backgroundColor: isDark
-                ? "rgba(14, 165, 233, 0.15)"
+                ? "rgba(14, 165, 233, 0.12)"
                 : "#E0F2FE",
               borderColor: isDark
-                ? "rgba(14, 165, 233, 0.3)"
+                ? "rgba(14, 165, 233, 0.25)"
                 : "#BAE6FD",
             },
           ]}
         >
-          <Feather
-            name={iconName}
-            size={12}
-            color={isDark ? "#38BDF8" : "#0284C7"}
-          />
+          <Feather name="image" size={15} color={isDark ? "#38BDF8" : "#0284C7"} />
         </View>
       );
+    }
+
+    if (visual.category === "pdf") {
+      return (
+        <View
+          style={[
+            styles.resourceIconBadge,
+            {
+              backgroundColor: isDark
+                ? "rgba(239, 68, 68, 0.12)"
+                : "#FEE2E2",
+              borderColor: isDark
+                ? "rgba(239, 68, 68, 0.25)"
+                : "#FECACA",
+            },
+          ]}
+        >
+          <Feather name="file-text" size={15} color={isDark ? "#F87171" : "#DC2626"} />
+        </View>
+      );
+    }
+
+    if (visual.category === "link") {
+      return (
+        <View
+          style={[
+            styles.resourceIconBadge,
+            {
+              backgroundColor: isDark
+                ? "rgba(59, 130, 246, 0.12)"
+                : "#DBEAFE",
+              borderColor: isDark
+                ? "rgba(59, 130, 246, 0.25)"
+                : "#BFDBFE",
+            },
+          ]}
+        >
+          <Feather name="link" size={15} color={isDark ? "#60A5FA" : "#2563EB"} />
+        </View>
+      );
+    }
+
+    // Default Note / Document
+    return (
+      <View
+        style={[
+          styles.resourceIconBadge,
+          {
+            backgroundColor: isDark
+              ? "rgba(139, 92, 246, 0.12)"
+              : "#EDE9FE",
+            borderColor: isDark
+              ? "rgba(139, 92, 246, 0.25)"
+              : "#DDD6FE",
+          },
+        ]}
+      >
+        <Feather name="file-text" size={15} color={isDark ? "#A78BFA" : "#7C3AED"} />
+      </View>
+    );
+  };
+
+  const renderControl = () => {
+    if (type === "resource") {
+      return renderResourceVisual();
     }
 
     if (type === "checklist") {
@@ -196,204 +357,81 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
     );
   };
 
-  const renderBadges = () => {
-    return (
-      <View style={styles.rowRightWrap}>
-        {/* Habit: Dedicated Flame Streak Chip */}
-        {type === "habit" && typeof streak === "number" && (
-          <View
+  const renderTrailingMeta = () => {
+    // Habit: Streak chip
+    if (type === "habit" && typeof streak === "number") {
+      return (
+        <View
+          style={[
+            styles.streakChip,
+            {
+              backgroundColor: isDark
+                ? "rgba(249, 115, 22, 0.14)"
+                : "#FFEDD5",
+            },
+          ]}
+        >
+          <Text
             style={[
-              styles.metaBadgePill,
-              styles.streakBadge,
-              {
-                backgroundColor: isDark
-                  ? "rgba(249, 115, 22, 0.16)"
-                  : "#FFEDD5",
-                borderColor: isDark
-                  ? "rgba(249, 115, 22, 0.3)"
-                  : "#FDBA74",
-              },
+              styles.streakText,
+              { color: isDark ? "#FB923C" : "#C2410C" },
             ]}
           >
-            <Text
-              style={[
-                styles.streakBadgeText,
-                { color: isDark ? "#FB923C" : "#C2410C" },
-              ]}
-            >
-              {`🔥 ${streak}`}
-            </Text>
-          </View>
-        )}
+            {`🔥 ${streak}`}
+          </Text>
+        </View>
+      );
+    }
 
-        {/* Task: Priority Badge (High or Med) */}
-        {type === "task" && priority === "high" && (
-          <View
+    // Checklist: Progress count (e.g. 0/2)
+    if (type === "checklist" && checklistProgress) {
+      return (
+        <Text style={[styles.trailingCounterText, { color: colors.textMuted }]}>
+          {`${checklistProgress.completedCount}/${checklistProgress.totalCount}`}
+        </Text>
+      );
+    }
+
+    // Task: Subtle bell icon if reminder scheduled
+    if (type === "task" && hasReminder && !completed) {
+      return (
+        <Feather
+          name="bell"
+          size={12}
+          color={colors.textMuted}
+          style={styles.bellIcon}
+        />
+      );
+    }
+
+    // Resource: Attachment count if multiple
+    if (
+      type === "resource" &&
+      resourceVisual?.attachmentCount &&
+      resourceVisual.attachmentCount > 1
+    ) {
+      return (
+        <View style={styles.resourceAttachmentCountWrap}>
+          <Feather name="paperclip" size={11} color={colors.textMuted} />
+          <Text
             style={[
-              styles.metaBadgePill,
-              {
-                backgroundColor: isDark
-                  ? "rgba(239, 68, 68, 0.18)"
-                  : "#FEE2E2",
-              },
+              styles.resourceAttachmentCountText,
+              { color: colors.textMuted },
             ]}
           >
-            <Text
-              style={[
-                styles.metaBadgeText,
-                { color: isDark ? "#F87171" : "#DC2626" },
-              ]}
-            >
-              High
-            </Text>
-          </View>
-        )}
+            {resourceVisual.attachmentCount}
+          </Text>
+        </View>
+      );
+    }
 
-        {type === "task" && priority === "medium" && (
-          <View
-            style={[
-              styles.metaBadgePill,
-              {
-                backgroundColor: isDark
-                  ? "rgba(245, 158, 11, 0.18)"
-                  : "#FEF3C7",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.metaBadgeText,
-                { color: isDark ? "#FBBF24" : "#D97706" },
-              ]}
-            >
-              Med
-            </Text>
-          </View>
-        )}
-
-        {/* Task: Prominent Time / Due Chip */}
-        {timeChip && (
-          <View
-            style={[
-              styles.metaBadgePill,
-              {
-                backgroundColor: timeChip.isOverdue
-                  ? isDark
-                    ? "rgba(239, 68, 68, 0.18)"
-                    : "#FEE2E2"
-                  : isDark
-                  ? "rgba(255, 255, 255, 0.08)"
-                  : "#F3F4F6",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.metaBadgeText,
-                {
-                  color: timeChip.isOverdue
-                    ? isDark
-                      ? "#F87171"
-                      : "#DC2626"
-                    : colors.textMuted,
-                },
-              ]}
-            >
-              {timeChip.label}
-            </Text>
-          </View>
-        )}
-
-        {/* Type Badges: Distinct non-indigo colors */}
-        {type === "habit" && (
-          <View
-            style={[
-              styles.metaBadgePill,
-              {
-                backgroundColor: isDark
-                  ? "rgba(34, 197, 94, 0.18)"
-                  : "#DCFCE7",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.metaBadgeText,
-                { color: isDark ? "#4ADE80" : "#15803D" },
-              ]}
-            >
-              Habit
-            </Text>
-          </View>
-        )}
-
-        {type === "checklist" && (
-          <View
-            style={[
-              styles.metaBadgePill,
-              {
-                backgroundColor: isDark
-                  ? "rgba(168, 85, 247, 0.18)"
-                  : "#F3E8FF",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.metaBadgeText,
-                { color: isDark ? "#C084FC" : "#7E22CE" },
-              ]}
-            >
-              Checklist
-            </Text>
-          </View>
-        )}
-
-        {type === "resource" && (
-          <View
-            style={[
-              styles.metaBadgePill,
-              {
-                backgroundColor: isDark
-                  ? "rgba(14, 165, 233, 0.18)"
-                  : "#E0F2FE",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.metaBadgeText,
-                { color: isDark ? "#38BDF8" : "#0284C7" },
-              ]}
-            >
-              Resource
-            </Text>
-          </View>
-        )}
-
-        {/* Trailing Affordance */}
-        {type === "checklist" ? (
-          <Feather
-            name={isExpanded ? "chevron-up" : "chevron-down"}
-            size={14}
-            color={colors.textMuted}
-          />
-        ) : (
-          <Feather
-            name="chevron-right"
-            size={14}
-            color={colors.textMuted}
-            style={{ opacity: 0.6 }}
-          />
-        )}
-      </View>
-    );
+    return null;
   };
 
   return (
     <View style={styles.rowWrapper}>
       <View style={styles.itemRow}>
-        {/* Scannable Priority Stripe on Left */}
+        {/* Priority stripe on left edge only */}
         <View style={styles.priorityIndicatorContainer}>
           {priorityColor ? (
             <View
@@ -407,12 +445,12 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           )}
         </View>
 
-        {/* Control: Checkbox or Resource Icon */}
+        {/* Completion Control or Resource Visual */}
         {renderControl()}
 
         <View style={styles.controlSpacer} />
 
-        {/* Clickable Row Content Area */}
+        {/* Clickable Content Area */}
         <PressableScale
           onPress={onPressRow}
           disabled={!onPressRow}
@@ -422,6 +460,7 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           style={styles.flexOne}
           contentStyle={styles.rowContentStyle}
         >
+          {/* Two-line title + secondary context */}
           <View style={styles.rowTextContainer}>
             <Text
               style={[
@@ -440,10 +479,9 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
                 style={[
                   styles.itemSubtitleText,
                   {
-                    color:
-                      timeChip?.isOverdue && !completed
-                        ? colors.error
-                        : colors.textMuted,
+                    color: isOverdue && !completed
+                      ? colors.error
+                      : colors.textMuted,
                   },
                 ]}
                 numberOfLines={1}
@@ -453,7 +491,26 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
             ) : null}
           </View>
 
-          {renderBadges()}
+          {/* Right side: Secondary state + trailing affordance */}
+          <View style={styles.rowRightWrap}>
+            {renderTrailingMeta()}
+
+            {type === "checklist" ? (
+              <Feather
+                name={isExpanded ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={colors.textMuted}
+                style={{ opacity: 0.6 }}
+              />
+            ) : (
+              <Feather
+                name="chevron-right"
+                size={14}
+                color={colors.textMuted}
+                style={{ opacity: 0.35 }}
+              />
+            )}
+          </View>
         </PressableScale>
       </View>
 
@@ -567,33 +624,38 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
         const isCollapsed = !!collapsedMap[folder.id];
         const isResourcesExpanded = !!expandedResourceFolders[folder.id];
 
+        // Format tasks: priority communicated via stripe; secondary context has due/time
         const taskItems = tasks.map((todo) => {
           const isOverdue = getTaskOccurrenceState(
             todo,
             getDateKey(),
           ).isOverdue;
           const isCompleted = isTaskCompleted(todo);
+          const hasReminder = Boolean(todo.reminder?.enabled && todo.reminder?.triggerAt !== undefined);
 
           let subtitle = "Today";
-          let timeChip: { label: string; isOverdue?: boolean } | undefined;
-
           if (isCompleted) {
             subtitle = "Completed";
           } else if (isOverdue) {
             const dateKey = getTodoDateKey(todo);
             const overdueText = getOverdueLabel(dateKey);
-            subtitle = `Overdue • ${overdueText}`;
-            timeChip = { label: overdueText, isOverdue: true };
+            subtitle = `Overdue · ${overdueText}`;
           } else if (todo.reminder?.triggerAt !== undefined) {
             const d = new Date(todo.reminder.triggerAt);
             const ampm = d.getHours() >= 12 ? "PM" : "AM";
             const displayHour = d.getHours() % 12 || 12;
             const displayMinute = String(d.getMinutes()).padStart(2, "0");
             const timeText = `${displayHour}:${displayMinute} ${ampm}`;
-            subtitle = `Today • ${timeText}`;
-            timeChip = { label: timeText, isOverdue: false };
+            subtitle = `Today · ${timeText}`;
           } else if (todo.recurrence?.frequency) {
-            subtitle = `Recurs • ${todo.recurrence.frequency.charAt(0).toUpperCase() + todo.recurrence.frequency.slice(1)}`;
+            const freq = todo.recurrence.frequency.toLowerCase();
+            const freqLabel =
+              freq === "daily"
+                ? "Daily"
+                : freq === "weekly"
+                ? "Weekly"
+                : freq.charAt(0).toUpperCase() + freq.slice(1);
+            subtitle = `Recurs · ${freqLabel}`;
           }
 
           return {
@@ -603,21 +665,27 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
             completed: isCompleted,
             title: todo.title,
             subtitle,
-            timeChip,
-            priority: todo.priority === "none" ? undefined : (todo.priority as "high" | "medium" | "low" | undefined),
             isOverdue,
+            hasReminder,
+            priority: todo.priority === "none" ? undefined : (todo.priority as "high" | "medium" | "low" | undefined),
             original: todo,
           };
         });
 
+        // Format habits: streak on right side; secondary context has recurrence
         const habitItems = habits.map((habit) => {
           const isCompletedHabit = Boolean(habit.completionHistory && isHabitCompletedToday(habit));
           const currentStreak = getHabitCurrentStreak(habit);
           let subtitle = "";
           if (isCompletedHabit) {
             subtitle = "Completed";
+          } else if (habit.recurrence?.frequency) {
+            const freq = habit.recurrence.frequency.toLowerCase();
+            subtitle = freq === "daily" ? "Every day" : `Every ${freq}`;
+          } else if (habit.description) {
+            subtitle = habit.description;
           } else {
-            subtitle = habit.description ? habit.description : `Day ${currentStreak + 1}`;
+            subtitle = `Day ${currentStreak + 1}`;
           }
 
           return {
@@ -633,6 +701,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
           };
         });
 
+        // Format checklists: 0/2 on right side; secondary context has items left
         const checklistItems = checklists.map((checklist) => {
           const completedCount = checklist.items.filter(
             (item) => item.completed,
@@ -640,9 +709,15 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
           const totalCount = checklist.items.length;
           const remaining = totalCount - completedCount;
           const isCompleted = completedCount === totalCount && totalCount > 0;
-          const subtitle = isCompleted
-            ? "Completed"
-            : `${completedCount} of ${totalCount} items • ${remaining} left`;
+
+          let subtitle = "";
+          if (isCompleted) {
+            subtitle = "Completed";
+          } else if (remaining === 1) {
+            subtitle = "1 item left";
+          } else {
+            subtitle = `${remaining} items left`;
+          }
 
           return {
             type: "checklist" as const,
@@ -687,7 +762,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
               },
             ]}
           >
-            {/* Workspace Section Header */}
+            {/* Clean Workspace Section Header */}
             <View style={styles.workspaceHeader}>
               <PressableScale
                 onPress={() => toggleCollapse(folder.id)}
@@ -717,133 +792,112 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   <Text
                     style={[styles.folderMetaText, { color: colors.textMuted }]}
                   >
-                    {completedItems}/{totalItems} Completed
+                    {`${completedItems} / ${totalItems} completed`}
                   </Text>
                 </View>
               </PressableScale>
 
-              {/* Grouped Header Actions: Info Cluster separated from Action Cluster */}
-              <View style={styles.headerRightGroup}>
-                {/* Info Cluster: Interactive Resource Count Pill */}
+              {/* Compact Header Actions */}
+              <View style={styles.headerRightActions}>
                 {resourcesCount > 0 && (
-                  <View style={styles.headerInfoCluster}>
-                    <PressableScale
-                      onPress={() => toggleResourcesExpanded(folder.id)}
-                      hitSlop={8}
-                      haptic
-                      accessibilityRole="button"
-                      accessibilityLabel={`Workspace resources, ${resourcesCount} available. Tap to ${isResourcesExpanded ? "hide" : "show"}.`}
+                  <PressableScale
+                    onPress={() => toggleResourcesExpanded(folder.id)}
+                    hitSlop={8}
+                    haptic
+                    accessibilityRole="button"
+                    accessibilityLabel={`Workspace resources, ${resourcesCount} available. Tap to ${isResourcesExpanded ? "hide" : "show"}.`}
+                    style={[
+                      styles.resourceCountButton,
+                      {
+                        backgroundColor: isResourcesExpanded
+                          ? isDark
+                            ? "rgba(14, 165, 233, 0.18)"
+                            : "#E0F2FE"
+                          : isDark
+                          ? "rgba(255, 255, 255, 0.05)"
+                          : "#F3F4F6",
+                        borderColor: isResourcesExpanded
+                          ? isDark
+                            ? "rgba(14, 165, 233, 0.35)"
+                            : "#BAE6FD"
+                          : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.resourcePillEmoji}>📎</Text>
+                    <Text
                       style={[
-                        styles.resourcePill,
+                        styles.resourcePillText,
                         {
-                          backgroundColor: isResourcesExpanded
-                            ? colorScheme === "light"
-                              ? "#E0F2FE"
-                              : "rgba(14, 165, 233, 0.18)"
-                            : colorScheme === "light"
-                            ? "#F3F4F6"
-                            : "rgba(255,255,255,0.06)",
-                          borderColor: isResourcesExpanded
-                            ? isDark
-                              ? "rgba(14, 165, 233, 0.35)"
-                              : "#BAE6FD"
-                            : colors.border,
-                        },
-                      ]}
-                    >
-                      <Text style={styles.resourcePillEmoji}>📎</Text>
-                      <Text
-                        style={[
-                          styles.resourcePillText,
-                          {
-                            color: isResourcesExpanded
-                              ? isDark
-                                ? "#38BDF8"
-                                : "#0284C7"
-                              : colors.textMuted,
-                          },
-                        ]}
-                      >
-                        {resourcesCount}
-                      </Text>
-                      <Feather
-                        name={isResourcesExpanded ? "chevron-up" : "chevron-down"}
-                        size={11}
-                        color={
-                          isResourcesExpanded
+                          color: isResourcesExpanded
                             ? isDark
                               ? "#38BDF8"
                               : "#0284C7"
-                            : colors.textMuted
-                        }
-                        style={{ marginLeft: 2 }}
-                      />
-                    </PressableScale>
-                  </View>
+                            : colors.textMuted,
+                        },
+                      ]}
+                    >
+                      {resourcesCount}
+                    </Text>
+                  </PressableScale>
                 )}
 
-                {/* Visual spacer separating Info from Actions */}
-                {resourcesCount > 0 && <View style={styles.clusterDividerSpacer} />}
+                <PressableScale
+                  onPress={() =>
+                    router.push({
+                      pathname: "/tasks",
+                      params: { workspaceId: folder.id },
+                    } as any)
+                  }
+                  hitSlop={8}
+                  haptic
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${folder.name} workspace`}
+                  style={[
+                    styles.compactActionBtn,
+                    {
+                      backgroundColor:
+                        colorScheme === "light"
+                          ? "#F3F4F6"
+                          : "rgba(255, 255, 255, 0.05)",
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Feather
+                    name="arrow-right"
+                    size={14}
+                    color={folderColor}
+                  />
+                </PressableScale>
 
-                {/* Action Cluster: Navigate to Workspace + Collapse Toggle */}
-                <View style={styles.headerActionCluster}>
-                  <PressableScale
-                    onPress={() =>
-                      router.push({
-                        pathname: "/tasks",
-                        params: { workspaceId: folder.id },
-                      } as any)
-                    }
-                    hitSlop={8}
-                    haptic
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${folder.name} workspace`}
-                    style={[
-                      styles.gatewayButton,
-                      {
-                        backgroundColor:
-                          colorScheme === "light"
-                            ? "#F3F4F6"
-                            : "rgba(255,255,255,0.06)",
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Feather
-                      name="arrow-right"
-                      size={14}
-                      color={folderColor}
-                    />
-                  </PressableScale>
-
-                  <PressableScale
-                    onPress={() => toggleCollapse(folder.id)}
-                    hitSlop={8}
-                    haptic
-                    accessibilityRole="button"
-                    accessibilityLabel={isCollapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
-                    style={[
-                      styles.gatewayButton,
-                      {
-                        backgroundColor:
-                          colorScheme === "light"
-                            ? "#F3F4F6"
-                            : "rgba(255,255,255,0.06)",
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Feather
-                      name={isCollapsed ? "chevron-down" : "chevron-up"}
-                      size={14}
-                      color={colors.textMuted}
-                    />
-                  </PressableScale>
-                </View>
+                <PressableScale
+                  onPress={() => toggleCollapse(folder.id)}
+                  hitSlop={8}
+                  haptic
+                  accessibilityRole="button"
+                  accessibilityLabel={isCollapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+                  style={[
+                    styles.compactActionBtn,
+                    {
+                      backgroundColor:
+                        colorScheme === "light"
+                          ? "#F3F4F6"
+                          : "rgba(255, 255, 255, 0.05)",
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Feather
+                    name={isCollapsed ? "chevron-down" : "chevron-up"}
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                </PressableScale>
               </View>
             </View>
 
-            {/* Subtle Workspace Progress Line */}
+            {/* Subtle Progress Bar */}
             {totalItems > 0 && (
               <View
                 style={[
@@ -883,9 +937,10 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             id={todo.id}
                             title={todo.title}
                             subtitle={item.subtitle}
+                            isOverdue={item.isOverdue}
                             completed={item.completed}
                             priority={item.priority}
-                            timeChip={item.timeChip}
+                            hasReminder={item.hasReminder}
                             accentColor={itemColor}
                             colors={colors}
                             colorScheme={colorScheme}
@@ -972,7 +1027,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             title={checklist.title}
                             subtitle={item.subtitle}
                             completed={item.completed}
-                            checklistMeta={{
+                            checklistProgress={{
                               completedCount: item.completedCount,
                               totalCount: item.totalCount,
                             }}
@@ -1074,16 +1129,11 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 {/* Inline Collapsible Resources Section */}
                 {isResourcesExpanded && folderCollections.length > 0 && (
                   <View style={styles.resourcesSectionWrap}>
-                    <View
-                      style={[
-                        styles.resourcesSectionHeader,
-                        { borderBottomColor: colors.border },
-                      ]}
-                    >
+                    <View style={styles.resourcesSectionHeader}>
                       <Text
                         style={[styles.resourcesSectionTitle, { color: colors.textMuted }]}
                       >
-                        {`WORKSPACE RESOURCES (${folderCollections.length})`}
+                        {`Resources · ${folderCollections.length}`}
                       </Text>
                       <PressableScale
                         onPress={() => {
@@ -1108,14 +1158,16 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
 
                     {folderCollections.map((res: any, idx: number) => {
                       const isLastRes = idx === folderCollections.length - 1;
-                      const resType = res.type || "note";
-                      const attachmentCount = res.attachments?.length || 0;
-                      let resSubtitle = resType.charAt(0).toUpperCase() + resType.slice(1);
-                      if (attachmentCount > 0) {
-                        resSubtitle += ` • ${attachmentCount} attachment${attachmentCount > 1 ? "s" : ""}`;
-                      } else if (res.content) {
-                        const snippet = res.content.trim().slice(0, 32);
-                        resSubtitle += ` • ${snippet}${res.content.length > 32 ? "..." : ""}`;
+                      const visual = resolveResourceVisual(res);
+
+                      let resSubtitle = visual.label;
+                      if (visual.attachmentCount && visual.attachmentCount > 0) {
+                        resSubtitle += ` · ${visual.attachmentCount} attachment${visual.attachmentCount > 1 ? "s" : ""}`;
+                      } else if (res.content && visual.category === "note") {
+                        const snippet = res.content.trim().slice(0, 28);
+                        if (snippet) {
+                          resSubtitle += ` · ${snippet}${res.content.length > 28 ? "..." : ""}`;
+                        }
                       }
 
                       return (
@@ -1125,10 +1177,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             id={res.id || `res-${idx}`}
                             title={res.title || "Untitled Resource"}
                             subtitle={resSubtitle}
-                            resourceMeta={{
-                              type: resType,
-                              attachmentCount,
-                            }}
+                            resourceVisual={visual}
                             accentColor="#0EA5E9"
                             colors={colors}
                             colorScheme={colorScheme}
@@ -1175,7 +1224,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                         backgroundColor:
                           colorScheme === "light"
                             ? "#F3F4F6"
-                            : "rgba(255,255,255,0.05)",
+                            : "rgba(255, 255, 255, 0.05)",
                         borderColor: colors.border,
                       },
                     ]}
@@ -1223,7 +1272,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   headerLeftPressable: {
     flex: 1,
@@ -1256,29 +1305,18 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 1,
   },
-  headerRightGroup: {
+  headerRightActions: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
   },
-  headerInfoCluster: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  clusterDividerSpacer: {
-    width: 10,
-  },
-  headerActionCluster: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  resourcePill: {
+  resourceCountButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    minHeight: 32,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    minHeight: 28,
     borderRadius: Radius.sm,
     borderWidth: 1,
   },
@@ -1286,27 +1324,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   resourcePillText: {
-    fontSize: 10,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "600",
   },
-  gatewayButton: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.md,
+  compactActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.sm,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   progressBarTrack: {
-    height: 3,
-    borderRadius: 2,
+    height: 2.5,
+    borderRadius: 1.5,
     overflow: "hidden",
     marginBottom: 10,
     opacity: 0.6,
   },
   progressBarFill: {
     height: "100%",
-    borderRadius: 2,
+    borderRadius: 1.5,
   },
   itemsListWrap: {
     gap: 2,
@@ -1317,22 +1355,24 @@ const styles = StyleSheet.create({
   itemRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
+    paddingVertical: 9,
     minHeight: 44,
   },
   priorityIndicatorContainer: {
-    width: 4,
-    alignItems: "center",
+    width: 3,
+    height: 24,
     justifyContent: "center",
-    marginRight: 6,
+    alignItems: "center",
+    marginRight: 8,
   },
   priorityBar: {
     width: 3,
-    height: 18,
+    height: 24,
     borderRadius: 1.5,
   },
   prioritySpacer: {
     width: 3,
+    height: 24,
   },
   controlSpacer: {
     width: 10,
@@ -1348,14 +1388,27 @@ const styles = StyleSheet.create({
   checklistSquare: {
     width: 20,
     height: 20,
-    borderRadius: Radius.sm,
+    borderRadius: Radius.sm - 2,
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
   },
+  resourceThumbnailWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.sm,
+    overflow: "hidden",
+    borderWidth: 1,
+    backgroundColor: "rgba(128, 128, 128, 0.1)",
+  },
+  resourceThumbnail: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.sm,
+  },
   resourceIconBadge: {
-    width: 20,
-    height: 20,
+    width: 32,
+    height: 32,
     borderRadius: Radius.sm,
     borderWidth: 1,
     alignItems: "center",
@@ -1374,46 +1427,54 @@ const styles = StyleSheet.create({
   rowTextContainer: {
     flex: 1,
     gap: 2,
+    paddingRight: 8,
   },
   itemTitleText: {
     fontSize: 14,
     fontWeight: "600",
+    letterSpacing: -0.1,
   },
   itemSubtitleText: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "400",
     marginTop: 1,
   },
   rowRightWrap: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginLeft: 8,
+    gap: 8,
+    marginLeft: 4,
   },
-  metaBadgePill: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: Radius.sm,
+  streakChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.sm - 2,
     alignItems: "center",
     justifyContent: "center",
   },
-  metaBadgeText: {
-    fontSize: 10,
+  streakText: {
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.2,
   },
-  streakBadge: {
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+  trailingCounterText: {
+    fontSize: 12,
+    fontWeight: "500",
   },
-  streakBadgeText: {
-    fontSize: 10,
-    fontWeight: "700",
+  bellIcon: {
+    marginRight: 2,
+  },
+  resourceAttachmentCountWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  resourceAttachmentCountText: {
+    fontSize: 11,
+    fontWeight: "500",
   },
   itemDivider: {
     height: 1,
-    opacity: 0.15,
+    opacity: 0.12,
   },
   subItemsWrapper: {
     paddingLeft: 36,
@@ -1444,7 +1505,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.06)",
+    borderTopColor: "rgba(255, 255, 255, 0.06)",
     gap: 2,
   },
   resourcesSectionHeader: {
@@ -1455,9 +1516,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   resourcesSectionTitle: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.8,
+    fontSize: 12,
+    fontWeight: "600",
   },
   viewVaultLinkText: {
     fontSize: 11,

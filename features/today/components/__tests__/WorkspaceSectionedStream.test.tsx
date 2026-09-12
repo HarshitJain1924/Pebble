@@ -367,9 +367,9 @@ describe("WorkspaceSectionedStream Component", () => {
     // Now resource section and items should be visible inline
     texts = root.findAllByType("Text" as any).map((n: any) => n.props.children);
     const joined = texts.flat().join(" ");
-    expect(joined).toContain("WORKSPACE RESOURCES (1)");
+    expect(joined).toContain("Resources · 1");
     expect(joined).toContain("Q3 Strategy Document");
-    expect(joined).toContain("Resource");
+    expect(joined).toContain("Note");
 
     // Click the resource item row to test navigation
     const resTitleNode = root.findAllByType("Text" as any).find((n: any) => n.props.children === "Q3 Strategy Document");
@@ -396,16 +396,30 @@ describe("WorkspaceSectionedStream Component", () => {
     });
 
     texts = root.findAllByType("Text" as any).map((n: any) => n.props.children);
-    expect(texts.flat().join(" ")).not.toContain("WORKSPACE RESOURCES");
+    expect(texts.flat().join(" ")).not.toContain("Resources · 1");
   });
 
-  it("renders distinct badges and streak counters for habits and tasks", () => {
+  it("renders distinct secondary metadata without redundant text badges", () => {
+    const testChecklists: Checklist[] = [
+      {
+        id: "cl-clean",
+        title: "Sprint Release Items",
+        workspaceId: "ws-work",
+        items: [
+          { id: "sub-1", title: "Bump package version", completed: false },
+          { id: "sub-2", title: "Deploy to staging", completed: true },
+        ],
+        createdAt: 1000,
+        updatedAt: 1000,
+      } as any,
+    ];
+
     const activeContexts = [
       {
         folder: sampleWorkspace,
-        tasks: [sampleTasks[0]], // high priority
+        tasks: [sampleTasks[0]], // high priority task
         habits: [sampleHabits[0]], // habit with streak
-        checklists: [sampleChecklists[0]],
+        checklists: testChecklists,
         totalCount: 3,
       },
     ];
@@ -432,15 +446,21 @@ describe("WorkspaceSectionedStream Component", () => {
     const texts = root.findAllByType("Text" as any).map((n: any) => n.props.children);
     const joined = texts.flat().join(" ");
 
-    // High priority badge on task
-    expect(joined).toContain("High");
+    // Redundant text badges must NOT be rendered
+    expect(joined).not.toContain("High");
+    expect(joined).not.toContain("Med");
+    expect(joined).not.toContain("Habit");
+    expect(joined).not.toContain("Checklist");
+    expect(joined).not.toContain("Resource");
 
-    // Habit badge and flame streak badge on habit
-    expect(joined).toContain("Habit");
+    // Clean secondary state and context is rendered
+    expect(joined).toContain("Review quarterly deck");
+    expect(joined).toContain("Today");
+    expect(joined).toContain("Inbox Zero morning sweep");
     expect(joined).toContain("🔥 0");
-
-    // Checklist badge
-    expect(joined).toContain("Checklist");
+    expect(joined).toContain("Sprint Release Items");
+    expect(joined).toContain("1 item left");
+    expect(joined).toContain("1/2");
   });
 
   it("tapping an item row does not trigger workspace card collapse", () => {
@@ -531,17 +551,17 @@ describe("WorkspaceSectionedStream Component", () => {
 });
 
 describe("WorkspaceItemRow Component", () => {
-  it("renders a task row with medium priority and time chip", () => {
+  it("renders a task row with two-line layout and reminder icon without priority text badge", () => {
     let renderer: any;
     act(() => {
       renderer = create(
         <WorkspaceItemRow
           type="task"
           id="task-custom"
-          title="Submit report"
-          subtitle="Today • 3:00 PM"
+          title="Read"
+          subtitle="Today · 8:34 AM"
           priority="medium"
-          timeChip={{ label: "3:00 PM", isOverdue: false }}
+          hasReminder={true}
           accentColor="#3B82F6"
           colors={Colors.dark}
           colorScheme="dark"
@@ -551,22 +571,27 @@ describe("WorkspaceItemRow Component", () => {
 
     const root = renderer.root;
     const texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
-    expect(texts).toContain("Submit report");
-    expect(texts).toContain("Today • 3:00 PM");
-    expect(texts).toContain("Med");
-    expect(texts).toContain("3:00 PM");
+    expect(texts).toContain("Read");
+    expect(texts).toContain("Today · 8:34 AM");
+    // Priority text badge is removed
+    expect(texts).not.toContain("Med");
+    expect(texts).not.toContain("High");
+
+    // Bell icon is present for reminder
+    const bellIcon = root.findByProps({ name: "bell" });
+    expect(bellIcon).toBeDefined();
   });
 
-  it("renders a habit row with streak badge and habit badge", () => {
+  it("renders a habit row with streak chip and no redundant text badge", () => {
     let renderer: any;
     act(() => {
       renderer = create(
         <WorkspaceItemRow
           type="habit"
           id="habit-custom"
-          title="Morning Meditation"
-          subtitle="Day 8"
-          streak={7}
+          title="Gym"
+          subtitle="Every morning"
+          streak={0}
           accentColor="#10B981"
           colors={Colors.dark}
           colorScheme="dark"
@@ -576,47 +601,57 @@ describe("WorkspaceItemRow Component", () => {
 
     const root = renderer.root;
     const texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
-    expect(texts).toContain("Morning Meditation");
-    expect(texts).toContain("🔥 7");
-    expect(texts).toContain("Habit");
+    expect(texts).toContain("Gym");
+    expect(texts).toContain("Every morning");
+    expect(texts).toContain("🔥 0");
+    // No redundant Habit text badge
+    expect(texts).not.toContain("Habit");
   });
 
-  it("renders a checklist row with checklist badge and children when expanded", () => {
+  it("renders a checklist row with progress count and children when expanded", () => {
     let renderer: any;
     act(() => {
       renderer = create(
         <WorkspaceItemRow
           type="checklist"
           id="cl-custom"
-          title="Grocery Run"
-          subtitle="1 of 3 items • 2 left"
+          title="Shopping"
+          subtitle="2 items left"
+          checklistProgress={{ completedCount: 0, totalCount: 2 }}
           isExpanded={true}
           accentColor="#8B5CF6"
           colors={Colors.dark}
           colorScheme="dark"
         >
-          <Text>Subitem: Apples</Text>
+          <Text>Subitem: Milk</Text>
         </WorkspaceItemRow>
       );
     });
 
     const root = renderer.root;
     const texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
-    expect(texts).toContain("Grocery Run");
-    expect(texts).toContain("Checklist");
-    expect(texts).toContain("Subitem: Apples");
+    expect(texts).toContain("Shopping");
+    expect(texts).toContain("2 items left");
+    expect(texts).toContain("0/2");
+    expect(texts).toContain("Subitem: Milk");
+    expect(texts).not.toContain("Checklist");
   });
 
-  it("renders a resource row with resource badge", () => {
+  it("renders an image resource row with actual image thumbnail when URI is available", () => {
     let renderer: any;
     act(() => {
       renderer = create(
         <WorkspaceItemRow
           type="resource"
-          id="res-custom"
-          title="API Reference Manual"
-          subtitle="Link • 2 attachments"
-          resourceMeta={{ type: "link", attachmentCount: 2 }}
+          id="res-img-1"
+          title="aerogrid.png"
+          subtitle="Image · 1 attachment"
+          resourceVisual={{
+            category: "image",
+            label: "Image",
+            thumbnailUri: "file:///data/user/0/pebble/aerogrid.png",
+            attachmentCount: 1,
+          }}
           accentColor="#0EA5E9"
           colors={Colors.dark}
           colorScheme="dark"
@@ -626,10 +661,49 @@ describe("WorkspaceItemRow Component", () => {
 
     const root = renderer.root;
     const texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
-    expect(texts).toContain("API Reference Manual");
-    expect(texts).toContain("Link • 2 attachments");
-    expect(texts).toContain("Resource");
+    expect(texts).toContain("aerogrid.png");
+    expect(texts).toContain("Image · 1 attachment");
+    expect(texts).not.toContain("Resource");
+    expect(texts).not.toContain("Note");
+
+    // Check that ExpoImage is rendered with thumbnail URI
+    const img = root.findByProps({ contentFit: "cover" });
+    expect(img).toBeDefined();
+    expect(JSON.stringify(img.props.source)).toContain("aerogrid.png");
+  });
+
+  it("renders a PDF resource row with PDF icon and correct subtitle", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceItemRow
+          type="resource"
+          id="res-pdf-1"
+          title="Q3 planning doc"
+          subtitle="PDF · 1 attachment"
+          resourceVisual={{
+            category: "pdf",
+            label: "PDF",
+            attachmentCount: 1,
+          }}
+          accentColor="#0EA5E9"
+          colors={Colors.dark}
+          colorScheme="dark"
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
+    expect(texts).toContain("Q3 planning doc");
+    expect(texts).toContain("PDF · 1 attachment");
+    expect(texts).not.toContain("Resource");
+    expect(texts).not.toContain("Note");
+
+    const pdfIcon = root.findByProps({ name: "file-text" });
+    expect(pdfIcon).toBeDefined();
   });
 });
+
 
 
