@@ -12,7 +12,14 @@ import {
 } from "react-native";
 import Animated, { FadeInRight, FadeOutRight } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import Svg, {
+  Circle,
+  Defs,
+  LinearGradient,
+  Path,
+  Rect,
+  Stop,
+} from "react-native-svg";
 
 import { RenderAvatar } from "@/features/profile/components/RenderAvatar";
 import {
@@ -70,7 +77,13 @@ export interface PebbleCircadianHeaderProps {
   showSearch?: boolean;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
+  onJarPress?: () => void;
+  jarRef?: React.RefObject<any>;
+  onJarLayout?: () => void;
+  onNotificationsPress?: () => void;
+  /** @deprecated Streak removed from header per top-nav refactor */
   streak?: number;
+  /** @deprecated Streak removed from header per top-nav refactor */
   onStreakPress?: () => void;
   colors: ThemeColors;
   colorScheme: "light" | "dark" | null | undefined;
@@ -87,6 +100,10 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
   showSearch = true,
   searchQuery = "",
   onSearchQueryChange,
+  onJarPress,
+  jarRef,
+  onJarLayout,
+  onNotificationsPress,
   streak,
   onStreakPress,
   colors,
@@ -297,7 +314,7 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
               </Text>
             </View>
 
-            {/* Right: Actions (Search, Streak, Avatar) */}
+            {/* Right: Actions (Search, Pebble Jar, Notifications, Profile) */}
             <View style={styles.rightActionsRow}>
               {showSearch && (
                 <Pressable
@@ -322,27 +339,91 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                 </Pressable>
               )}
 
-              {streak !== undefined && streak > 0 && (
-                <Pressable
-                  onPress={onStreakPress}
-                  style={({ pressed }) => [
-                    styles.streakPill,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(245, 158, 11, 0.2)"
-                        : "rgba(254, 243, 199, 0.9)",
-                      borderColor: isDark
-                        ? "rgba(245, 158, 11, 0.3)"
-                        : "rgba(245, 158, 11, 0.4)",
-                      opacity: pressed ? 0.8 : 1,
-                    },
-                  ]}
-                  hitSlop={6}
+              {/* Pebble Jar Action */}
+              <Pressable
+                onPress={onJarPress}
+                style={({ pressed }) => [
+                  styles.circleActionButton,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(20, 20, 25, 0.65)"
+                      : "rgba(255, 255, 255, 0.85)",
+                    borderColor: isDark
+                      ? "rgba(255, 255, 255, 0.18)"
+                      : "rgba(0, 0, 0, 0.08)",
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Open Pebble Sanctuary"
+                hitSlop={6}
+              >
+                <View
+                  ref={jarRef}
+                  onLayout={onJarLayout}
+                  collapsable={false}
+                  style={styles.jarIconWrap}
                 >
-                  <Text style={styles.streakText}>{`🔥 ${streak}`}</Text>
-                </Pressable>
-              )}
+                  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                    {/* Jar Lid */}
+                    <Rect
+                      x="7"
+                      y="2"
+                      width="10"
+                      height="2.5"
+                      rx="1"
+                      fill={colors.text}
+                    />
+                    {/* Jar Neck */}
+                    <Rect
+                      x="8.5"
+                      y="4.5"
+                      width="7"
+                      height="1.5"
+                      fill={colors.text}
+                      opacity={0.6}
+                    />
+                    {/* Jar Body */}
+                    <Path
+                      d="M6 6.5C5.44772 6.5 5 6.94772 5 7.5V19C5 20.6569 6.34315 22 8 22H16C17.6569 22 19 20.6569 19 19V7.5C19 6.94772 18.5523 6.5 18 6.5H6Z"
+                      stroke={colors.text}
+                      strokeWidth="1.6"
+                      strokeLinejoin="round"
+                    />
+                    {/* Pebbles Inside */}
+                    <Circle cx="9.5" cy="18" r="2.2" fill="#8B5CF6" />
+                    <Circle cx="14.5" cy="18" r="2.2" fill="#F59E0B" />
+                    <Circle cx="12" cy="14.5" r="2" fill="#3B82F6" />
+                  </Svg>
+                </View>
+              </Pressable>
 
+              {/* Notifications Action */}
+              <Pressable
+                onPress={
+                  onNotificationsPress ?? (() => router.push("/notifications"))
+                }
+                style={({ pressed }) => [
+                  styles.circleActionButton,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(20, 20, 25, 0.65)"
+                      : "rgba(255, 255, 255, 0.85)",
+                    borderColor: isDark
+                      ? "rgba(255, 255, 255, 0.18)"
+                      : "rgba(0, 0, 0, 0.08)",
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Open notifications"
+                hitSlop={6}
+              >
+                <Feather name="bell" size={16} color={colors.text} />
+                {hasUnreadNotifs && <View style={styles.unreadBadgeDot} />}
+              </Pressable>
+
+              {/* Profile Avatar Action */}
               <Pressable
                 onPress={() => router.push("/profile")}
                 style={({ pressed }) => [
@@ -363,7 +444,6 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                   size={36}
                   style={styles.avatarInner}
                 />
-                {hasUnreadNotifs && <View style={styles.unreadBadgeDot} />}
               </Pressable>
             </View>
           </View>
@@ -432,18 +512,11 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
-  streakPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
+  jarIconWrap: {
+    width: 20,
+    height: 20,
     alignItems: "center",
     justifyContent: "center",
-  },
-  streakText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#D97706",
   },
   avatarWrapper: {
     width: 38,
@@ -462,8 +535,8 @@ const styles = StyleSheet.create({
   },
   unreadBadgeDot: {
     position: "absolute",
-    top: 1,
-    right: 1,
+    top: 3,
+    right: 3,
     width: 8,
     height: 8,
     borderRadius: 4,

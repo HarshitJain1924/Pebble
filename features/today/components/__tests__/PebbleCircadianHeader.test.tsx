@@ -94,7 +94,7 @@ describe("PebbleCircadianHeader", () => {
       expect(textContents).not.toContain("Harshit");
     });
 
-    it("renders streak pill when streak is provided", () => {
+    it("does not render streak pill even when streak is provided", () => {
       let renderer: any;
       act(() => {
         renderer = create(
@@ -108,7 +108,36 @@ describe("PebbleCircadianHeader", () => {
 
       const textNodes = renderer.root.findAllByType("Text");
       const textContents = textNodes.map((n: any) => n.props.children).flat();
-      expect(textContents).toContain("🔥 7");
+      expect(textContents).not.toContain("🔥 7");
+    });
+
+    it("renders Search, Pebble Jar, Notifications, and Profile actions", () => {
+      const onJarPress = jest.fn();
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <PebbleCircadianHeader
+            onJarPress={onJarPress}
+            colors={Colors.dark}
+            colorScheme="dark"
+          />
+        );
+      });
+
+      const searchBtn = renderer.root.findByProps({ accessibilityLabel: "Search tasks" });
+      const jarBtn = renderer.root.findByProps({ accessibilityLabel: "Open Pebble Sanctuary" });
+      const notifBtn = renderer.root.findByProps({ accessibilityLabel: "Open notifications" });
+      const profileBtn = renderer.root.findByProps({ accessibilityLabel: "Open profile" });
+
+      expect(searchBtn).toBeDefined();
+      expect(jarBtn).toBeDefined();
+      expect(notifBtn).toBeDefined();
+      expect(profileBtn).toBeDefined();
+
+      act(() => {
+        jarBtn.props.onPress();
+      });
+      expect(onJarPress).toHaveBeenCalledTimes(1);
     });
   });
 });

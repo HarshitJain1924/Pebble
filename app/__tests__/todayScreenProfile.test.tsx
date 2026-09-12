@@ -33,6 +33,10 @@ jest.mock("@/shared/components/ui/UndoContext", () => ({
   useUndo: () => ({ showUndo: jest.fn() }),
 }));
 
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
+
 // Sub-components are mocked as strings so we can assert on the props wired in.
 jest.mock("@/features/today/components/PebbleCircadianHeader", () => ({
   PebbleCircadianHeader: "PebbleCircadianHeader",
@@ -173,8 +177,8 @@ describe("Today screen profile & pebble data wiring", () => {
     return renderer.root.findByType("PebbleCircadianHeader" as any).props;
   }
 
-  function jarCardProps() {
-    return renderer.root.findByType("PebbleJarProgressCard" as any).props;
+  function sanctuaryModalProps() {
+    return renderer.root.findByType("PebbleSanctuaryModal" as any).props;
   }
 
   it("loads the persisted profile into Today's header (no generic fallback)", async () => {
@@ -212,48 +216,57 @@ describe("Today screen profile & pebble data wiring", () => {
     expect(headerProps().title).toBe("Grace");
   });
 
-  it("displays the canonical today pebble count from the pebble log", async () => {
+  it("does not render PebbleJarProgressCard or StreakBanner on Today", async () => {
+    await renderToday();
+    expect(renderer.root.findAllByType("PebbleJarProgressCard" as any).length).toBe(0);
+    expect(renderer.root.findAllByType("StreakBanner" as any).length).toBe(0);
+  });
+
+  it("opens the Pebble Sanctuary modal when header Jar is pressed", async () => {
+    await renderToday();
+    expect(sanctuaryModalProps().visible).toBe(false);
+
+    await act(async () => {
+      headerProps().onJarPress();
+    });
+
+    expect(sanctuaryModalProps().visible).toBe(true);
+  });
+
+  it("wires pebble stats to the Pebble Sanctuary modal", async () => {
     (getPebbleCounts as jest.Mock).mockResolvedValue({
       ...basePebbleCounts,
-      today: 7,
-      todayTypes: { task: 3, habit: 2, focus: 1, checklist: 1 },
+      lifetime: 42,
+      monthly: 15,
+      monthlyTypes: { task: 8, habit: 4, focus: 2, checklist: 1 },
     });
 
     await renderToday();
 
-    expect(jarCardProps().todayPebbles).toBe(7);
-    expect(jarCardProps().todayTypes).toEqual({
-      task: 3,
-      habit: 2,
-      focus: 1,
+    expect(sanctuaryModalProps().lifetimePebbles).toBe(42);
+    expect(sanctuaryModalProps().monthlyPebbles).toBe(15);
+    expect(sanctuaryModalProps().monthlyTypes).toEqual({
+      task: 8,
+      habit: 4,
+      focus: 2,
       checklist: 1,
     });
   });
 
-  it("handles zero pebbles today correctly", async () => {
-    await renderToday();
-
-    expect(jarCardProps().todayPebbles).toBe(0);
-    expect(jarCardProps().todayTypes).toEqual({
-      task: 0,
-      habit: 0,
-      focus: 0,
-      checklist: 0,
-    });
-  });
-
-  it("refreshes today's pebble count when pebbles_changed is emitted", async () => {
+  it("refreshes pebble stats in the Sanctuary modal when pebbles_changed is emitted", async () => {
     (getPebbleCounts as jest.Mock)
-      .mockResolvedValueOnce({ ...basePebbleCounts, today: 2 })
-      .mockResolvedValueOnce({ ...basePebbleCounts, today: 5 });
+      .mockResolvedValueOnce({ ...basePebbleCounts, lifetime: 10, monthly: 5 })
+      .mockResolvedValueOnce({ ...basePebbleCounts, lifetime: 20, monthly: 12 });
 
     await renderToday();
-    expect(jarCardProps().todayPebbles).toBe(2);
+    expect(sanctuaryModalProps().lifetimePebbles).toBe(10);
+    expect(sanctuaryModalProps().monthlyPebbles).toBe(5);
 
     emitStateChange("pebbles_changed");
     await flushAsync();
 
     expect(getPebbleCounts).toHaveBeenCalledTimes(2);
-    expect(jarCardProps().todayPebbles).toBe(5);
+    expect(sanctuaryModalProps().lifetimePebbles).toBe(20);
+    expect(sanctuaryModalProps().monthlyPebbles).toBe(12);
   });
 });

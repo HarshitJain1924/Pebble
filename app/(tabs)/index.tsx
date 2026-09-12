@@ -25,12 +25,11 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DashboardFilterBar } from "@/features/today/components/DashboardFilterBar";
-import { PebbleJarProgressCard } from "@/features/today/components/PebbleJarProgressCard";
 import { PebbleSanctuaryModal } from "@/features/today/components/PebbleSanctuaryModal";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
 import { ReviewMyDayModal } from "@/features/today/components/ReviewMyDayModal";
-import { StreakBanner } from "@/features/today/components/StreakBanner";
 import { WorkspaceSectionedStream } from "@/features/today/components/WorkspaceSectionedStream";
 import { ZenModeModal } from "@/features/today/components/ZenModeModal";
 import { useTodayActions } from "@/features/today/hooks/useTodayActions";
@@ -76,6 +75,7 @@ export function TodayScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const { showUndo } = useUndo();
 
@@ -84,6 +84,8 @@ export function TodayScreen() {
   >([]);
   const miniJarRef = useRef<View>(null);
   const parentScrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef<number>(0);
+  const baseJarCoordsRef = useRef<{ x: number; y: number } | null>(null);
   const [targetCoordinates, setTargetCoordinates] = useState<{
     x: number;
     y: number;
@@ -164,8 +166,6 @@ export function TodayScreen() {
   const [allChecklistsLocal, setAllChecklistsLocal] = useState<
     Record<string, Checklist[]>
   >({});
-  const jarFillAnim = useSharedValue(0);
-  const cardScrollX = useSharedValue(0);
   const breathScale = useSharedValue(1);
 
   useEffect(() => {
@@ -189,18 +189,31 @@ export function TodayScreen() {
     };
   });
 
+  const updateJarCoordinates = useCallback(() => {
+    miniJarRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        const currentScrollY = scrollOffsetRef.current;
+        const calculatedBaseY = y + height / 2 + currentScrollY;
+        const calculatedBaseX = x + width / 2;
+        baseJarCoordsRef.current = { x: calculatedBaseX, y: calculatedBaseY };
+        const minTopY = (insets.top || 20) + 16;
+        setTargetCoordinates({
+          x: calculatedBaseX,
+          y: Math.max(minTopY, y + height / 2),
+        });
+      }
+    });
+  }, [insets.top]);
+
   const onJarLayout = useCallback(() => {
-    setTimeout(() => {
-      miniJarRef.current?.measureInWindow((x, y, width, height) => {
-        if (width > 0 && height > 0) {
-          setTargetCoordinates({
-            x: x + width / 2,
-            y: y + height / 2,
-          });
-        }
-      });
-    }, 150);
-  }, []);
+    setTimeout(updateJarCoordinates, 150);
+  }, [updateJarCoordinates]);
+
+  useEffect(() => {
+    if (flyingPebbles.length > 0) {
+      updateJarCoordinates();
+    }
+  }, [flyingPebbles.length, updateJarCoordinates]);
 
   // Single source of truth for dashboard data — useTodayDashboard owns all state
   const {
@@ -350,14 +363,6 @@ export function TodayScreen() {
     };
   }, []);
 
-  const totalItems = todoStats.total + habitStats.total;
-  const completedItems = todoStats.completed + habitStats.completed;
-  const progressPct = totalItems === 0 ? 0 : completedItems / totalItems;
-
-  useEffect(() => {
-    jarFillAnim.value = withTiming(progressPct, { duration: 600 });
-  }, [progressPct]);
-
   const getGreetingTime = () => {
     const hour = new Date().getHours();
     if (hour >= 4 && hour < 12) return "Good morning";
@@ -412,6 +417,19 @@ export function TodayScreen() {
           ]}
           contentInsetAdjustmentBehavior="never"
           showsVerticalScrollIndicator={false}
+          onScroll={(event) => {
+            const scrollY = event.nativeEvent.contentOffset.y;
+            scrollOffsetRef.current = scrollY;
+            if (baseJarCoordsRef.current) {
+              const minTopY = (insets.top || 20) + 16;
+              const currentY = baseJarCoordsRef.current.y - scrollY;
+              setTargetCoordinates({
+                x: baseJarCoordsRef.current.x,
+                y: Math.max(minTopY, currentY),
+              });
+            }
+          }}
+          scrollEventThrottle={16}
         >
           {/* Circadian Scenic Pebble Art Header */}
           <PebbleCircadianHeader
@@ -420,43 +438,17 @@ export function TodayScreen() {
             subtitle="Small steps. A calmer you."
             profile={profile}
             hasUnreadNotifs={hasUnreadNotifs}
-            streak={mainStreak}
             showSearch={true}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
+            onJarPress={() => setPebbleJarModalVisible(true)}
+            jarRef={miniJarRef}
+            onJarLayout={onJarLayout}
             colors={colors}
             colorScheme={colorScheme}
             style={{
-              marginBottom: -4,
+              marginBottom: 8,
             }}
-          />
-
-          {/* Glassmorphic Swipeable Progress Cards (Today & Monthly) */}
-          <PebbleJarProgressCard
-            colors={colors}
-            colorScheme={colorScheme ?? "dark"}
-            todoStats={todoStats}
-            habitStats={habitStats}
-            todayPebbles={todayPebbles}
-            todayTypes={todayTypes}
-            monthlyTypes={monthlyTypes}
-            monthlyPebbles={monthlyPebbles}
-            lifetimePebbles={lifetimePebbles}
-            jarFillAnim={jarFillAnim}
-            cardScrollX={cardScrollX}
-            miniJarRef={miniJarRef}
-            onJarLayout={onJarLayout}
-            breathScale={breathScale}
-            parentScrollRef={parentScrollRef}
-          />
-
-          {/* Compact Streak Banner */}
-          <StreakBanner
-            streak={mainStreak}
-            recoveryInfo={mainStreakRecoveryInfo}
-            onRecover={handleRecoverMainStreak}
-            colors={colors}
-            colorScheme={colorScheme ?? "dark"}
           />
 
           {/* Global Filter Row */}
