@@ -38,6 +38,7 @@ import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
 import { PebbleCircadianHeader } from "@/features/today/components/PebbleCircadianHeader";
 import { NowFocusCard } from "@/features/today/components/NowFocusCard";
 import { getNowFocus, type NowFocusResult } from "@/features/today/utils/getNowFocus";
+import { useLiveClock } from "@/features/today/hooks/useLiveClock";
 import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
@@ -414,13 +415,16 @@ export function TodayScreen() {
     return list;
   }, [allChecklists]);
 
+  const currentNow = useLiveClock();
+
   const nowFocus = useMemo(() => {
     return getNowFocus({
+      now: currentNow,
       tasks: todoStats.pending,
       habits: pendingHabits,
       checklists: flatChecklists,
     });
-  }, [todoStats.pending, pendingHabits, flatChecklists]);
+  }, [currentNow, todoStats.pending, pendingHabits, flatChecklists]);
 
   const handleStartNowFocus = useCallback(
     (focus: NowFocusResult) => {

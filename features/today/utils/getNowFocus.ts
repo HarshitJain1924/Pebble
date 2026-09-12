@@ -16,7 +16,7 @@ import {
   isTaskOverdue,
   getHabitCurrentStreak,
 } from "@/shared/utils/domain-selectors";
-import { getTodayDateKey } from "@/shared/utils/date-key";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 
 export type NowFocusState = "active" | "recommended" | "upcoming" | "empty";
 export type NowFocusItemType = "task" | "habit" | "checklist";
@@ -33,12 +33,46 @@ export interface NowFocusResult {
 }
 
 export interface GetNowFocusOptions {
+  /**
+   * Reference point in time to evaluate NOW for.
+   * Required for deterministic time reactivity.
+   */
   now?: Date;
+
+  /**
+   * Optional reference date key (YYYY-MM-DD).
+   * If omitted, derived directly from the provided `now` parameter.
+   */
   referenceDateKey?: string;
+
+  /** Today's tasks (completed & overdue items are automatically filtered out). */
   tasks: Task[];
+
+  /** Today's habits. */
   habits: Habit[];
+
+  /** Today's active checklists. */
   checklists: Checklist[];
+
+  /** Optional overdue tasks list for safety / testing (overdue items are excluded from NOW). */
   overdueTasks?: Task[];
+
+  /**
+   * Optional policy for day boundary in minutes from midnight (e.g. 1440 for midnight).
+   * When omitted and no upcoming scheduled activities exist today, the schedule is treated
+   * as open/unconstrained rather than making an arbitrary bedtime assumption (e.g. 10 PM).
+   */
+  dayBoundaryMinutes?: number;
+}
+
+export interface ParsedSchedule {
+  isScheduled: boolean;
+  startMinutes?: number; // 0..1439
+  endMinutes?: number;
+  durationMinutes: number;
+  hasExplicitDuration: boolean;
+  dueMinutes?: number; // minutes from midnight when an explicit deadline/due time exists
+  dueDateKey?: string; // YYYY-MM-DD
 }
 
 interface ParsedCandidate {
@@ -49,11 +83,12 @@ interface ParsedCandidate {
   priority: TaskPriority;
   priorityWeight: number; // 3: high, 2: medium, 1: low, 0: none
   isScheduled: boolean;
-  startMinutes?: number; // 0..1439
+  startMinutes?: number;
   endMinutes?: number;
   durationMinutes: number;
   hasExplicitDuration: boolean;
-  dueTimestamp?: number;
+  dueMinutes?: number;
+  dueDateKey?: string;
   streak?: number;
   checklistProgress?: {
     completedCount: number;
@@ -82,15 +117,106 @@ function formatTimeRange(startMinutes: number, endMinutes: number): string {
 }
 
 /**
+ * Parses scheduling and due-time information uniformly across Tasks, Habits, and Checklists.
+ *
+ * NOTE ON PEBBLE DUE-TIME SEMANTICS:
+ * Pebble's Task model contains `schedule?: TaskSchedule` with `date`, `startTime`, `endTime`,
+ * and `durationMinutes`. It also contains `reminder?: Reminder` with `triggerAt`.
+ *
+ * A reminder time (`reminder.triggerAt`) is an OS notification alert trigger, NOT the due time.
+ * The true due / target time of day is:
+ * 1. An explicit `dueTime` field (if present on the item or schedule), OR
+ * 2. `schedule.endTime` (an explicit deadline), OR
+ * 3. `schedule.startTime` (scheduled target time of day).
+ *
+ * `reminder.triggerAt` is intentionally NEVER treated as the due time.
+ */
+export function parseItemSchedule(
+  item: Task | Habit | Checklist,
+  defaultDuration = 30,
+): ParsedSchedule {
+  const schedule = item.schedule;
+  const startTimeParsed = parseTimeString(schedule?.startTime);
+  const endTimeParsed = parseTimeString(schedule?.endTime);
+  const explicitDuration = parseDurationMinutes(schedule?.durationMinutes);
+
+  // Parse explicit due time if provided (e.g. "16:00" or dueTime on schedule/item)
+  const rawDue = (item as { dueTime?: unknown }).dueTime || (schedule as { dueTime?: unknown } | undefined)?.dueTime;
+  let dueMinutes: number | undefined = undefined;
+
+  if (typeof rawDue === "string") {
+    const parsed = parseTimeString(rawDue);
+    if (parsed) dueMinutes = parsed.hour * 60 + parsed.minute;
+  } else if (typeof rawDue === "number" && Number.isFinite(rawDue)) {
+    const d = new Date(rawDue);
+    dueMinutes = d.getHours() * 60 + d.getMinutes();
+  }
+
+  // If no explicit dueTime was set, derive from endTime (deadline) or startTime (target)
+  if (dueMinutes === undefined) {
+    if (endTimeParsed) {
+      dueMinutes = endTimeParsed.hour * 60 + endTimeParsed.minute;
+    } else if (startTimeParsed) {
+      dueMinutes = startTimeParsed.hour * 60 + startTimeParsed.minute;
+    }
+  }
+
+  // Resolve duration
+  let duration: number;
+  let hasExplicitDuration = false;
+
+  if (explicitDuration !== undefined) {
+    duration = explicitDuration;
+    hasExplicitDuration = true;
+  } else if (startTimeParsed && endTimeParsed) {
+    const startM = startTimeParsed.hour * 60 + startTimeParsed.minute;
+    const endM = endTimeParsed.hour * 60 + endTimeParsed.minute;
+    const diff = endM - startM;
+    if (diff > 0) {
+      duration = diff;
+      hasExplicitDuration = true;
+    } else {
+      duration = defaultDuration;
+    }
+  } else {
+    duration = defaultDuration;
+  }
+
+  // Resolve scheduled status and window
+  const isScheduled = startTimeParsed !== undefined;
+  let startMinutes: number | undefined = undefined;
+  let endMinutes: number | undefined = undefined;
+
+  if (startTimeParsed) {
+    startMinutes = startTimeParsed.hour * 60 + startTimeParsed.minute;
+    endMinutes = startMinutes + duration;
+  }
+
+  return {
+    isScheduled,
+    startMinutes,
+    endMinutes,
+    durationMinutes: duration,
+    hasExplicitDuration,
+    dueMinutes,
+    dueDateKey: schedule?.date,
+  };
+}
+
+/**
  * Pure deterministic selector for Pebble's NOW focus layer.
  *
  * Implements the 4 conceptual states:
- * 1. ACTIVE NOW: Current time is within an incomplete scheduled activity's window.
- * 2. RECOMMENDED NOW: No active activity; candidate fits within available free time before next scheduled event.
- * 3. UPCOMING ("UP NEXT"): No active/recommended item; shows nearest upcoming scheduled activity.
+ * 1. ACTIVE NOW: Current time is inside an incomplete scheduled activity's window.
+ * 2. RECOMMENDED NOW: Free time before next scheduled event; candidate fits within available window.
+ * 3. UPCOMING ("UP NEXT"): No active/recommended item; surfaces nearest upcoming scheduled activity.
  * 4. EMPTY: No active, recommended, or upcoming item ("Nothing needs your attention right now.").
  *
- * Guaranteed to be non-destructive: never mutates schedules, dates, or items.
+ * Strict Invariants:
+ * - Read-only: never mutates schedules, tasks, or calendar data.
+ * - Overdue is separate: overdue tasks are excluded from becoming NOW.
+ * - Entity-neutral: works natively across Tasks, Habits, and Checklists.
+ * - Time-reactive: accepts explicit `now` parameter with no hidden `Date.now()` calls.
  */
 export function getNowFocus({
   now = new Date(),
@@ -98,11 +224,10 @@ export function getNowFocus({
   tasks = [],
   habits = [],
   checklists = [],
+  dayBoundaryMinutes,
 }: GetNowFocusOptions): NowFocusResult {
-  const dateKey = referenceDateKey || getTodayDateKey();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
-  const nowMinutes = currentHour * 60 + currentMinute;
+  const dateKey = referenceDateKey || dateKeyFromDate(now);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
   // ─────────────────────────────────────────────────────────────
   // 1. Filter out completed, archived, and overdue items
@@ -139,17 +264,14 @@ export function getNowFocus({
     ) {
       return false;
     }
-    if (
-      checklist.schedule?.date &&
-      checklist.schedule.date !== dateKey
-    ) {
+    if (checklist.schedule?.date && checklist.schedule.date !== dateKey) {
       return false;
     }
     return true;
   });
 
   // ─────────────────────────────────────────────────────────────
-  // 2. Parse candidates into unified model
+  // 2. Parse candidates uniformly into unified representation
   // ─────────────────────────────────────────────────────────────
 
   const parsedCandidates: ParsedCandidate[] = [];
@@ -157,41 +279,7 @@ export function getNowFocus({
   // Parse Tasks
   for (const task of eligibleTasks) {
     const priority = task.priority || "none";
-    const startTimeParsed = parseTimeString(task.schedule?.startTime);
-    const explicitDuration = parseDurationMinutes(
-      task.schedule?.durationMinutes,
-    );
-    let duration = explicitDuration;
-    let hasExplicitDuration = explicitDuration !== undefined;
-
-    let startMinutes: number | undefined = undefined;
-    let endMinutes: number | undefined = undefined;
-
-    if (startTimeParsed) {
-      startMinutes = startTimeParsed.hour * 60 + startTimeParsed.minute;
-      if (!duration && task.schedule?.endTime) {
-        const endTimeParsed = parseTimeString(task.schedule.endTime);
-        if (endTimeParsed) {
-          const diff =
-            endTimeParsed.hour * 60 +
-            endTimeParsed.minute -
-            startMinutes;
-          if (diff > 0) {
-            duration = diff;
-            hasExplicitDuration = true;
-          }
-        }
-      }
-      duration = duration || 30; // fallback duration for scheduled task without explicit duration
-      endMinutes = startMinutes + duration;
-    } else {
-      duration = duration || 30; // default estimated duration for unscheduled task
-    }
-
-    let dueTimestamp: number | undefined = undefined;
-    if (task.reminder?.triggerAt) {
-      dueTimestamp = task.reminder.triggerAt;
-    }
+    const sched = parseItemSchedule(task);
 
     parsedCandidates.push({
       type: "task",
@@ -200,49 +288,20 @@ export function getNowFocus({
       title: task.title,
       priority,
       priorityWeight: PRIORITY_WEIGHTS[priority] ?? 0,
-      isScheduled: startMinutes !== undefined,
-      startMinutes,
-      endMinutes,
-      durationMinutes: duration,
-      hasExplicitDuration,
-      dueTimestamp,
+      isScheduled: sched.isScheduled,
+      startMinutes: sched.startMinutes,
+      endMinutes: sched.endMinutes,
+      durationMinutes: sched.durationMinutes,
+      hasExplicitDuration: sched.hasExplicitDuration,
+      dueMinutes: sched.dueMinutes,
+      dueDateKey: sched.dueDateKey,
     });
   }
 
   // Parse Habits
   for (const habit of eligibleHabits) {
-    const habitPriority: TaskPriority = (habit as any).priority || "none";
-    const startTimeParsed = parseTimeString(habit.schedule?.startTime);
-    const explicitDuration = parseDurationMinutes(
-      habit.schedule?.durationMinutes,
-    );
-    let duration = explicitDuration;
-    let hasExplicitDuration = explicitDuration !== undefined;
-
-    let startMinutes: number | undefined = undefined;
-    let endMinutes: number | undefined = undefined;
-
-    if (startTimeParsed) {
-      startMinutes = startTimeParsed.hour * 60 + startTimeParsed.minute;
-      if (!duration && habit.schedule?.endTime) {
-        const endTimeParsed = parseTimeString(habit.schedule.endTime);
-        if (endTimeParsed) {
-          const diff =
-            endTimeParsed.hour * 60 +
-            endTimeParsed.minute -
-            startMinutes;
-          if (diff > 0) {
-            duration = diff;
-            hasExplicitDuration = true;
-          }
-        }
-      }
-      duration = duration || 30;
-      endMinutes = startMinutes + duration;
-    } else {
-      duration = duration || 30;
-    }
-
+    const priority: TaskPriority = (habit as { priority?: TaskPriority }).priority || "none";
+    const sched = parseItemSchedule(habit);
     const streak = getHabitCurrentStreak(habit, dateKey);
 
     parsedCandidates.push({
@@ -250,52 +309,23 @@ export function getNowFocus({
       item: habit,
       id: habit.id,
       title: habit.title,
-      priority: habitPriority,
-      priorityWeight: PRIORITY_WEIGHTS[habitPriority] ?? 0,
-      isScheduled: startMinutes !== undefined,
-      startMinutes,
-      endMinutes,
-      durationMinutes: duration,
-      hasExplicitDuration,
+      priority,
+      priorityWeight: PRIORITY_WEIGHTS[priority] ?? 0,
+      isScheduled: sched.isScheduled,
+      startMinutes: sched.startMinutes,
+      endMinutes: sched.endMinutes,
+      durationMinutes: sched.durationMinutes,
+      hasExplicitDuration: sched.hasExplicitDuration,
+      dueMinutes: sched.dueMinutes,
+      dueDateKey: sched.dueDateKey,
       streak,
     });
   }
 
   // Parse Checklists
   for (const checklist of eligibleChecklists) {
-    const checklistPriority: TaskPriority =
-      (checklist as any).priority || "none";
-    const startTimeParsed = parseTimeString(checklist.schedule?.startTime);
-    const explicitDuration = parseDurationMinutes(
-      checklist.schedule?.durationMinutes,
-    );
-    let duration = explicitDuration;
-    let hasExplicitDuration = explicitDuration !== undefined;
-
-    let startMinutes: number | undefined = undefined;
-    let endMinutes: number | undefined = undefined;
-
-    if (startTimeParsed) {
-      startMinutes = startTimeParsed.hour * 60 + startTimeParsed.minute;
-      if (!duration && checklist.schedule?.endTime) {
-        const endTimeParsed = parseTimeString(checklist.schedule.endTime);
-        if (endTimeParsed) {
-          const diff =
-            endTimeParsed.hour * 60 +
-            endTimeParsed.minute -
-            startMinutes;
-          if (diff > 0) {
-            duration = diff;
-            hasExplicitDuration = true;
-          }
-        }
-      }
-      duration = duration || 30;
-      endMinutes = startMinutes + duration;
-    } else {
-      duration = duration || 30;
-    }
-
+    const priority: TaskPriority = (checklist as { priority?: TaskPriority }).priority || "none";
+    const sched = parseItemSchedule(checklist);
     const stats = checklist.recurrence
       ? getChecklistOccurrenceStats(checklist, dateKey)
       : getChecklistStats(checklist);
@@ -305,13 +335,15 @@ export function getNowFocus({
       item: checklist,
       id: checklist.id,
       title: checklist.title,
-      priority: checklistPriority,
-      priorityWeight: PRIORITY_WEIGHTS[checklistPriority] ?? 0,
-      isScheduled: startMinutes !== undefined,
-      startMinutes,
-      endMinutes,
-      durationMinutes: duration,
-      hasExplicitDuration,
+      priority,
+      priorityWeight: PRIORITY_WEIGHTS[priority] ?? 0,
+      isScheduled: sched.isScheduled,
+      startMinutes: sched.startMinutes,
+      endMinutes: sched.endMinutes,
+      durationMinutes: sched.durationMinutes,
+      hasExplicitDuration: sched.hasExplicitDuration,
+      dueMinutes: sched.dueMinutes,
+      dueDateKey: sched.dueDateKey,
       checklistProgress: {
         completedCount: stats.completedCount,
         totalCount: stats.total,
@@ -368,73 +400,90 @@ export function getNowFocus({
 
   // Find upcoming scheduled candidates today (startMinutes > nowMinutes)
   const upcomingScheduled = parsedCandidates
-    .filter((c) => c.isScheduled && c.startMinutes !== undefined && c.startMinutes > nowMinutes)
+    .filter(
+      (c) =>
+        c.isScheduled &&
+        c.startMinutes !== undefined &&
+        c.startMinutes > nowMinutes,
+    )
     .sort((a, b) => (a.startMinutes ?? 0) - (b.startMinutes ?? 0));
 
   const nextScheduled = upcomingScheduled[0];
-  let availableWindowMinutes: number;
+  let availableWindowMinutes: number | undefined = undefined;
 
   if (nextScheduled && nextScheduled.startMinutes !== undefined) {
+    // When an upcoming scheduled activity exists, the free window is bounded and exact
     availableWindowMinutes = nextScheduled.startMinutes - nowMinutes;
+  } else if (dayBoundaryMinutes !== undefined) {
+    // Explicit day boundary passed by caller
+    availableWindowMinutes = Math.max(0, dayBoundaryMinutes - nowMinutes);
   } else {
-    // No scheduled activity remaining today. Available window extends until end of day (e.g. 22:00 / 10 PM)
-    const endOfDayMinutes = 22 * 60; // 10:00 PM
-    availableWindowMinutes = Math.max(0, endOfDayMinutes - nowMinutes);
-    // If it's already late night, provide at least a nominal window
-    if (availableWindowMinutes <= 0) {
-      availableWindowMinutes = 60;
-    }
+    // No upcoming scheduled events for the rest of today.
+    // Pebble does not impose an artificial bedtime assumption (e.g. 10 PM).
+    // The schedule is open (unconstrained).
+    availableWindowMinutes = undefined;
   }
 
   // ─────────────────────────────────────────────────────────────
   // 5. STEP 3: Recommend an unscheduled actionable item that fits
   // ─────────────────────────────────────────────────────────────
 
-  // Candidates for recommendation: items that are unscheduled
+  // Unscheduled candidates: actionable items that are not fixed timeline events
   const recommendationCandidates = parsedCandidates.filter((c) => {
-    // A scheduled item that is upcoming is part of the schedule, not an unscheduled recommendation
+    // Fixed upcoming scheduled events belong on the timeline, not as unscheduled recommendations
     if (c.isScheduled) return false;
 
-    // Must fit within available free window
-    if (c.hasExplicitDuration) {
-      // Explicit duration MUST be <= available window
-      return c.durationMinutes <= availableWindowMinutes;
-    } else {
-      // Unspecified duration requires available window to be at least candidate default (30m)
-      // or at least 15m for quick actions if window is tight
-      return availableWindowMinutes >= Math.min(30, c.durationMinutes);
+    // Check if item fits the available window (if window is bounded)
+    if (availableWindowMinutes !== undefined) {
+      if (c.hasExplicitDuration) {
+        return c.durationMinutes <= availableWindowMinutes;
+      } else {
+        // Unspecified duration requires available window to be at least candidate default (30m)
+        // or at least 15m for quick actions
+        return availableWindowMinutes >= Math.min(30, c.durationMinutes);
+      }
     }
+
+    // When the schedule is open/unbounded, any actionable unscheduled candidate fits
+    return true;
   });
 
   if (recommendationCandidates.length > 0) {
     // Deterministic ranking:
     // 1. Priority (high > medium > low > none)
-    // 2. Due time proximity (tasks with earlier dueTimestamp or reminder)
-    // 3. Fits window well (duration closer to window)
-    // 4. Stable ID tie-breaker
+    // 2. Real due-time proximity (earlier due time today ranks first)
+    // 3. Due date proximity (due today before due tomorrow/later)
+    // 4. Duration fit (prefers item that makes good use of window)
+    // 5. Stable ID tie-breaker
     recommendationCandidates.sort((a, b) => {
       // 1. Priority
       if (b.priorityWeight !== a.priorityWeight) {
         return b.priorityWeight - a.priorityWeight;
       }
 
-      // 2. Due proximity
-      if (a.dueTimestamp && b.dueTimestamp) {
-        if (a.dueTimestamp !== b.dueTimestamp) {
-          return a.dueTimestamp - b.dueTimestamp;
+      // 2. Real due time of day proximity (HH:mm)
+      if (a.dueMinutes !== undefined && b.dueMinutes !== undefined) {
+        if (a.dueMinutes !== b.dueMinutes) {
+          return a.dueMinutes - b.dueMinutes;
         }
-      } else if (a.dueTimestamp && !b.dueTimestamp) {
+      } else if (a.dueMinutes !== undefined && b.dueMinutes === undefined) {
         return -1;
-      } else if (!a.dueTimestamp && b.dueTimestamp) {
+      } else if (a.dueMinutes === undefined && b.dueMinutes !== undefined) {
         return 1;
       }
 
-      // 3. Duration fit (prefers candidate that fits comfortably)
+      // 3. Due date key proximity (today before future dates)
+      const aIsToday = a.dueDateKey === dateKey;
+      const bIsToday = b.dueDateKey === dateKey;
+      if (aIsToday && !bIsToday) return -1;
+      if (!aIsToday && bIsToday) return 1;
+
+      // 4. Duration fit
       if (b.durationMinutes !== a.durationMinutes) {
         return b.durationMinutes - a.durationMinutes;
       }
 
-      // 4. Stable ID
+      // 5. Stable ID
       return a.id.localeCompare(b.id);
     });
 
@@ -442,11 +491,15 @@ export function getNowFocus({
     const durationStr = `~${recommended.durationMinutes} min`;
 
     let contextLabel: string;
-    if (availableWindowMinutes >= 60) {
-      const hours = Math.round((availableWindowMinutes / 60) * 10) / 10;
-      contextLabel = `${durationStr} · Fits ${hours}h free time`;
+    if (availableWindowMinutes !== undefined) {
+      if (availableWindowMinutes >= 60) {
+        const hours = Math.round((availableWindowMinutes / 60) * 10) / 10;
+        contextLabel = `${durationStr} · Fits ${hours}h free time`;
+      } else {
+        contextLabel = `${durationStr} · Fits ${availableWindowMinutes}m free time`;
+      }
     } else {
-      contextLabel = `${durationStr} · Fits ${availableWindowMinutes}m free time`;
+      contextLabel = `${durationStr} · Open schedule`;
     }
 
     return {

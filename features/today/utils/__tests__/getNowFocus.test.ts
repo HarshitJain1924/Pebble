@@ -5,11 +5,10 @@ const TODAY_DATE = "2026-09-12";
 
 function createDateAtTime(hours: number, minutes: number): Date {
   // 2026-09-12Thh:mm:00
-  const d = new Date(2026, 8, 12, hours, minutes, 0, 0);
-  return d;
+  return new Date(2026, 8, 12, hours, minutes, 0, 0);
 }
 
-function mockTask(overrides: Partial<Task>): Task {
+function mockTask(overrides: Partial<Task> & { dueTime?: string }): Task {
   return {
     id: `task-${Math.random().toString(36).substring(2, 7)}`,
     workspaceId: "inbox",
@@ -57,12 +56,11 @@ function mockChecklist(overrides: Partial<Checklist>): Checklist {
 }
 
 describe("getNowFocus decision engine", () => {
-  // 1. Active scheduled Task becomes ACTIVE NOW
-  it("1. active scheduled Task becomes ACTIVE NOW", () => {
+  // 1. 2:00 PM + active 2:00–3:00 Task → active
+  it("1. 2:00 PM + active 2:00–3:00 Task -> active", () => {
     const task = mockTask({
-      id: "task-active",
-      title: "Finish portfolio",
-      priority: "high",
+      id: "task-2-3",
+      title: "Deep Work Session",
       schedule: {
         date: TODAY_DATE,
         startTime: "14:00",
@@ -71,7 +69,7 @@ describe("getNowFocus decision engine", () => {
     });
 
     const result = getNowFocus({
-      now: createDateAtTime(14, 15), // 2:15 PM
+      now: createDateAtTime(14, 0), // Exactly 2:00 PM
       referenceDateKey: TODAY_DATE,
       tasks: [task],
       habits: [],
@@ -80,41 +78,15 @@ describe("getNowFocus decision engine", () => {
 
     expect(result.state).toBe("active");
     expect(result.type).toBe("task");
-    expect(result.item?.id).toBe("task-active");
+    expect(result.item?.id).toBe("task-2-3");
     expect(result.timeLabel).toBe("2:00 PM – 3:00 PM");
   });
 
-  // 2. Active scheduled Habit becomes ACTIVE NOW
-  it("2. active scheduled Habit becomes ACTIVE NOW", () => {
-    const habit = mockHabit({
-      id: "habit-active",
-      title: "Workout",
-      schedule: {
-        date: TODAY_DATE,
-        startTime: "14:00",
-        endTime: "14:45",
-      },
-    });
-
-    const result = getNowFocus({
-      now: createDateAtTime(14, 20), // 2:20 PM
-      referenceDateKey: TODAY_DATE,
-      tasks: [],
-      habits: [habit],
-      checklists: [],
-    });
-
-    expect(result.state).toBe("active");
-    expect(result.type).toBe("habit");
-    expect(result.item?.id).toBe("habit-active");
-    expect(result.timeLabel).toBe("2:00 PM – 2:45 PM");
-  });
-
-  // 3. Active scheduled Checklist becomes ACTIVE NOW
-  it("3. active scheduled Checklist becomes ACTIVE NOW", () => {
-    const checklist = mockChecklist({
-      id: "checklist-active",
-      title: "Prepare presentation",
+  // 2. 2:30 PM + same Task → active
+  it("2. 2:30 PM + same Task -> active", () => {
+    const task = mockTask({
+      id: "task-2-3",
+      title: "Deep Work Session",
       schedule: {
         date: TODAY_DATE,
         startTime: "14:00",
@@ -123,34 +95,58 @@ describe("getNowFocus decision engine", () => {
     });
 
     const result = getNowFocus({
-      now: createDateAtTime(14, 10), // 2:10 PM
+      now: createDateAtTime(14, 30), // 2:30 PM mid-window
       referenceDateKey: TODAY_DATE,
-      tasks: [],
+      tasks: [task],
       habits: [],
-      checklists: [checklist],
+      checklists: [],
     });
 
     expect(result.state).toBe("active");
-    expect(result.type).toBe("checklist");
-    expect(result.item?.id).toBe("checklist-active");
+    expect(result.type).toBe("task");
+    expect(result.item?.id).toBe("task-2-3");
   });
 
-  // 4. At 2:00 PM, a 2:30 PM scheduled activity is respected and a later 4 PM high-priority task is NOT incorrectly selected as NOW
-  it("4. at 2:00 PM, a 2:30 PM scheduled activity is respected and later 4 PM high-priority task is NOT selected as NOW", () => {
-    const scheduledTask = mockTask({
-      id: "task-230",
-      title: "Study JavaScript",
-      priority: "medium",
+  // 3. 3:00 PM + Task ended → it no longer counts as active
+  it("3. 3:00 PM + Task ended -> it no longer counts as active", () => {
+    const task = mockTask({
+      id: "task-2-3",
+      title: "Deep Work Session",
       schedule: {
         date: TODAY_DATE,
-        startTime: "14:30",
-        endTime: "15:30",
+        startTime: "14:00",
+        endTime: "15:00",
       },
     });
 
-    const laterTask = mockTask({
+    const result = getNowFocus({
+      now: createDateAtTime(15, 0), // 3:00 PM window ended
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).not.toBe("active");
+    expect(result.state).toBe("empty");
+  });
+
+  // 4. 2:00 PM + upcoming 2:30 activity + later 4 PM high-priority activity → do NOT skip 2:30
+  it("4. 2:00 PM + upcoming 2:30 activity + later 4 PM high-priority activity -> do NOT skip 2:30", () => {
+    const task230 = mockTask({
+      id: "task-230",
+      title: "Check Emails",
+      priority: "low",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:30",
+        endTime: "15:00",
+      },
+    });
+
+    const task4pm = mockTask({
       id: "task-4pm",
-      title: "Finish report",
+      title: "Critical Client Demo",
       priority: "high",
       schedule: {
         date: TODAY_DATE,
@@ -162,63 +158,223 @@ describe("getNowFocus decision engine", () => {
     const result = getNowFocus({
       now: createDateAtTime(14, 0), // 2:00 PM
       referenceDateKey: TODAY_DATE,
-      tasks: [scheduledTask, laterTask],
+      tasks: [task4pm, task230],
       habits: [],
       checklists: [],
     });
 
-    // The available window before 2:30 PM is 30 mins.
-    // 4 PM task is scheduled later and must NOT be shown as NOW.
-    // Since there is no unscheduled task fitting the window, it shows the 2:30 PM task as upcoming ("UP NEXT")!
+    // 2:30 PM is the nearest upcoming scheduled activity; it must NOT be skipped for the 4 PM task
     expect(result.state).toBe("upcoming");
     expect(result.item?.id).toBe("task-230");
-    expect(result.item?.id).not.toBe("task-4pm");
     expect(result.timeLabel).toBe("Starts at 2:30 PM");
   });
 
-  // 5. A free window before the next scheduled activity allows an unscheduled Task to be recommended if it fits
-  it("5. free window before next scheduled activity allows an unscheduled Task to be recommended if it fits", () => {
-    const nextScheduled = mockTask({
-      id: "task-scheduled",
-      title: "Team Sync",
+  // 5. 2:00 PM + free 30-minute window + 15-minute unscheduled Task → recommended
+  it("5. 2:00 PM + free 30-minute window + 15-minute unscheduled Task -> recommended", () => {
+    const upcomingTask = mockTask({
+      id: "task-upcoming",
+      title: "Dentist",
       schedule: {
         date: TODAY_DATE,
-        startTime: "16:00", // 4:00 PM -> 2h free window from 2:00 PM
-        endTime: "17:00",
+        startTime: "14:30", // 30 min window from 2:00 PM
+        endTime: "15:00",
       },
     });
 
-    const unscheduledTask = mockTask({
-      id: "task-unscheduled",
-      title: "Study JavaScript",
-      priority: "high",
+    const shortTask = mockTask({
+      id: "task-short",
+      title: "Pay Utility Bill",
+      priority: "medium",
       schedule: {
-        durationMinutes: 45,
+        durationMinutes: 15, // 15 <= 30 mins window
       },
     });
 
     const result = getNowFocus({
-      now: createDateAtTime(14, 0), // 2:00 PM
+      now: createDateAtTime(14, 0),
       referenceDateKey: TODAY_DATE,
-      tasks: [nextScheduled, unscheduledTask],
+      tasks: [upcomingTask, shortTask],
       habits: [],
       checklists: [],
     });
 
     expect(result.state).toBe("recommended");
     expect(result.type).toBe("task");
-    expect(result.item?.id).toBe("task-unscheduled");
-    expect(result.windowMinutes).toBe(120); // 2 hours
-    expect(result.durationMinutes).toBe(45);
+    expect(result.item?.id).toBe("task-short");
+    expect(result.durationMinutes).toBe(15);
+    expect(result.windowMinutes).toBe(30);
   });
 
-  // 6. An unscheduled Habit can be recommended when appropriate
-  it("6. an unscheduled Habit can be recommended when appropriate", () => {
+  // 6. 2:00 PM + free 30-minute window + 60-minute unscheduled Task → not recommended
+  it("6. 2:00 PM + free 30-minute window + 60-minute unscheduled Task -> not recommended", () => {
+    const upcomingTask = mockTask({
+      id: "task-upcoming",
+      title: "Team Meeting",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:30", // 30 min window from 2:00 PM
+        endTime: "15:30",
+      },
+    });
+
+    const longTask = mockTask({
+      id: "task-long",
+      title: "Write Strategy Document",
+      priority: "high",
+      schedule: {
+        durationMinutes: 60, // 60 > 30 mins window!
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [upcomingTask, longTask],
+      habits: [],
+      checklists: [],
+    });
+
+    // longTask does not fit into 30m window, falls back to upcoming 2:30 activity
+    expect(result.state).toBe("upcoming");
+    expect(result.item?.id).toBe("task-upcoming");
+  });
+
+  // 7. High-priority item due at 4 PM vs low-priority item due at 8 PM → high-priority/nearer-due candidate wins when both fit
+  it("7. high-priority item due at 4 PM vs low-priority item due at 8 PM -> high-priority/nearer-due candidate wins when both fit", () => {
+    const highPriorityDue4pm = mockTask({
+      id: "task-high-4pm",
+      title: "Complete Tax Filing",
+      priority: "high",
+      dueTime: "16:00",
+      schedule: {
+        durationMinutes: 45,
+      },
+    });
+
+    const lowPriorityDue8pm = mockTask({
+      id: "task-low-8pm",
+      title: "Organize Bookshelf",
+      priority: "low",
+      dueTime: "20:00",
+      schedule: {
+        durationMinutes: 30,
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [lowPriorityDue8pm, highPriorityDue4pm],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("recommended");
+    expect(result.item?.id).toBe("task-high-4pm");
+  });
+
+  // 8. Reminder at 2 PM but actual due time at 4 PM → ranking uses actual due time, NOT reminder time
+  it("8. reminder at 2 PM but actual due time at 4 PM -> ranking uses actual due time, NOT reminder time", () => {
+    // Task A: reminder early at 1:00 PM, but real due time later at 4:00 PM (16:00)
+    const taskA = mockTask({
+      id: "task-A",
+      title: "Task with early reminder but late due time",
+      priority: "high",
+      dueTime: "16:00", // Due 4:00 PM
+      reminder: {
+        enabled: true,
+        triggerAt: createDateAtTime(13, 0).getTime(), // Reminder was at 1:00 PM
+      },
+      schedule: {
+        durationMinutes: 30,
+      },
+    });
+
+    // Task B: reminder later at 1:45 PM, but real due time sooner at 2:30 PM (14:30)
+    const taskB = mockTask({
+      id: "task-B",
+      title: "Task with later reminder but earlier due time",
+      priority: "high",
+      dueTime: "14:30", // Due 2:30 PM (sooner!)
+      reminder: {
+        enabled: true,
+        triggerAt: createDateAtTime(13, 45).getTime(), // Reminder was at 1:45 PM
+      },
+      schedule: {
+        durationMinutes: 30,
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0), // 2:00 PM
+      referenceDateKey: TODAY_DATE,
+      tasks: [taskA, taskB],
+      habits: [],
+      checklists: [],
+    });
+
+    // Task B has the earlier real due time (14:30 vs 16:00) and MUST win despite Task A's earlier reminder trigger!
+    expect(result.state).toBe("recommended");
+    expect(result.item?.id).toBe("task-B");
+  });
+
+  // 9. Scheduled Habit can become active
+  it("9. scheduled Habit can become active", () => {
+    const habit = mockHabit({
+      id: "habit-active",
+      title: "Afternoon Walk",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "14:30",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 10),
+      referenceDateKey: TODAY_DATE,
+      tasks: [],
+      habits: [habit],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.type).toBe("habit");
+    expect(result.item?.id).toBe("habit-active");
+  });
+
+  // 10. Scheduled Checklist can become active
+  it("10. scheduled Checklist can become active", () => {
+    const checklist = mockChecklist({
+      id: "checklist-active",
+      title: "Daily Standup Routine",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "14:30",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 15),
+      referenceDateKey: TODAY_DATE,
+      tasks: [],
+      habits: [],
+      checklists: [checklist],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.type).toBe("checklist");
+    expect(result.item?.id).toBe("checklist-active");
+  });
+
+  // 11. Unscheduled Habit can be recommended
+  it("11. unscheduled Habit can be recommended", () => {
     const unscheduledHabit = mockHabit({
       id: "habit-meditate",
-      title: "Mindfulness Meditation",
+      title: "5-Minute Breathwork",
       schedule: {
-        durationMinutes: 15,
+        durationMinutes: 5,
       },
     });
 
@@ -235,13 +391,13 @@ describe("getNowFocus decision engine", () => {
     expect(result.item?.id).toBe("habit-meditate");
   });
 
-  // 7. An unscheduled Checklist can be recommended when appropriate
-  it("7. an unscheduled Checklist can be recommended when appropriate", () => {
+  // 12. Unscheduled Checklist can be recommended
+  it("12. unscheduled Checklist can be recommended", () => {
     const unscheduledChecklist = mockChecklist({
-      id: "checklist-weekly",
-      title: "Weekly Review",
+      id: "checklist-eod",
+      title: "Shutdown Routine",
       schedule: {
-        durationMinutes: 30,
+        durationMinutes: 20,
       },
     });
 
@@ -255,88 +411,13 @@ describe("getNowFocus decision engine", () => {
 
     expect(result.state).toBe("recommended");
     expect(result.type).toBe("checklist");
-    expect(result.item?.id).toBe("checklist-weekly");
+    expect(result.item?.id).toBe("checklist-eod");
   });
 
-  // 8. A candidate that does not fit the available window is not recommended when duration information is available
-  it("8. candidate that does not fit the available window is not recommended when duration information is available", () => {
-    const nextScheduled = mockTask({
-      id: "task-upcoming",
-      title: "Quick Meeting",
-      schedule: {
-        date: TODAY_DATE,
-        startTime: "14:30", // Available window is 30 mins from 2:00 PM
-        endTime: "15:00",
-      },
-    });
-
-    const longTask = mockTask({
-      id: "task-long",
-      title: "Deep Architecture Refactor",
-      priority: "high",
-      schedule: {
-        durationMinutes: 60, // 60 mins > 30 mins window!
-      },
-    });
-
-    const result = getNowFocus({
-      now: createDateAtTime(14, 0), // 2:00 PM
-      referenceDateKey: TODAY_DATE,
-      tasks: [nextScheduled, longTask],
-      habits: [],
-      checklists: [],
-    });
-
-    // longTask does NOT fit into 30m window, so nextScheduled is shown as upcoming ("UP NEXT")
-    expect(result.state).toBe("upcoming");
-    expect(result.item?.id).toBe("task-upcoming");
-  });
-
-  // 9. A high-priority item due soon outranks a lower-priority item due later when both fit
-  it("9. a high-priority item due soon outranks a lower-priority item due later when both fit", () => {
-    const highPriorityTask = mockTask({
-      id: "task-high-priority",
-      title: "Finish quarterly report",
-      priority: "high",
-      schedule: {
-        durationMinutes: 45,
-      },
-      reminder: {
-        enabled: true,
-        triggerAt: createDateAtTime(16, 0).getTime(), // Due 4:00 PM
-      },
-    });
-
-    const lowPriorityTask = mockTask({
-      id: "task-low-priority",
-      title: "Read design book",
-      priority: "low",
-      schedule: {
-        durationMinutes: 30,
-      },
-      reminder: {
-        enabled: true,
-        triggerAt: createDateAtTime(20, 0).getTime(), // Due 8:00 PM
-      },
-    });
-
-    const result = getNowFocus({
-      now: createDateAtTime(14, 0), // 2:00 PM, free until 10 PM
-      referenceDateKey: TODAY_DATE,
-      tasks: [lowPriorityTask, highPriorityTask],
-      habits: [],
-      checklists: [],
-    });
-
-    expect(result.state).toBe("recommended");
-    expect(result.item?.id).toBe("task-high-priority");
-  });
-
-  // 10. Completed items cannot become NOW
-  it("10. completed items cannot become NOW", () => {
+  // 13. Completed Task/Habit/Checklist cannot become NOW
+  it("13. completed Task/Habit/Checklist cannot become NOW", () => {
     const completedTask = mockTask({
       id: "task-completed",
-      title: "Already done task",
       status: "completed",
       completedAt: Date.now(),
       schedule: {
@@ -348,7 +429,6 @@ describe("getNowFocus decision engine", () => {
 
     const completedHabit = mockHabit({
       id: "habit-completed",
-      title: "Already done habit",
       completionHistory: [{ date: TODAY_DATE, completedAt: Date.now() }],
       schedule: {
         date: TODAY_DATE,
@@ -359,10 +439,9 @@ describe("getNowFocus decision engine", () => {
 
     const completedChecklist = mockChecklist({
       id: "checklist-completed",
-      title: "Already done checklist",
       items: [
-        { id: "item-1", title: "Item 1", completed: true },
-        { id: "item-2", title: "Item 2", completed: true },
+        { id: "i1", title: "i1", completed: true },
+        { id: "i2", title: "i2", completed: true },
       ],
       schedule: {
         date: TODAY_DATE,
@@ -380,14 +459,14 @@ describe("getNowFocus decision engine", () => {
     });
 
     expect(result.state).toBe("empty");
+    expect(result.item).toBeUndefined();
   });
 
-  // 11. Overdue items do NOT automatically become NOW
-  it("11. overdue items do NOT automatically become NOW", () => {
-    // Task scheduled yesterday is overdue
+  // 14. Overdue Task does not automatically become NOW
+  it("14. overdue Task does not automatically become NOW", () => {
     const overdueTask = mockTask({
       id: "task-overdue",
-      title: "Old task from yesterday",
+      title: "Task from Yesterday",
       priority: "high",
       schedule: {
         date: "2026-09-11", // yesterday
@@ -402,13 +481,12 @@ describe("getNowFocus decision engine", () => {
       checklists: [],
     });
 
-    // OVERDUE != NOW
     expect(result.state).toBe("empty");
     expect(result.item).toBeUndefined();
   });
 
-  // 12. No active/upcoming/suitable candidate produces the empty state
-  it("12. no active/upcoming/suitable candidate produces the empty state", () => {
+  // 15. No valid candidate → empty
+  it("15. no valid candidate -> empty", () => {
     const result = getNowFocus({
       now: createDateAtTime(14, 0),
       referenceDateKey: TODAY_DATE,
@@ -421,11 +499,11 @@ describe("getNowFocus decision engine", () => {
     expect(result.item).toBeUndefined();
   });
 
-  // 13. Multiple active activities produce deterministic selection
-  it("13. multiple active activities produce deterministic selection", () => {
-    const taskHighPriority = mockTask({
+  // 16. Multiple active candidates remain deterministic
+  it("16. multiple active candidates remain deterministic", () => {
+    const highTask = mockTask({
       id: "task-active-high",
-      title: "Critical Server Fix",
+      title: "Urgent Outage Fix",
       priority: "high",
       schedule: {
         date: TODAY_DATE,
@@ -434,9 +512,9 @@ describe("getNowFocus decision engine", () => {
       },
     });
 
-    const taskMediumPriority = mockTask({
+    const medTask = mockTask({
       id: "task-active-med",
-      title: "Write documentation",
+      title: "Code Review",
       priority: "medium",
       schedule: {
         date: TODAY_DATE,
@@ -445,9 +523,34 @@ describe("getNowFocus decision engine", () => {
       },
     });
 
-    const habitActive = mockHabit({
-      id: "habit-active",
-      title: "Drink Water",
+    // Invert input order to test deterministic resolution
+    const res1 = getNowFocus({
+      now: createDateAtTime(14, 15),
+      referenceDateKey: TODAY_DATE,
+      tasks: [medTask, highTask],
+      habits: [],
+      checklists: [],
+    });
+
+    const res2 = getNowFocus({
+      now: createDateAtTime(14, 15),
+      referenceDateKey: TODAY_DATE,
+      tasks: [highTask, medTask],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(res1.state).toBe("active");
+    expect(res2.state).toBe("active");
+    expect(res1.item?.id).toBe("task-active-high");
+    expect(res2.item?.id).toBe("task-active-high");
+  });
+
+  // 17. Changing the `now` input changes the result correctly
+  it("17. changing the now input changes the result correctly", () => {
+    const scheduledTask = mockTask({
+      id: "task-windowed",
+      title: "Scheduled Work Block",
       schedule: {
         date: TODAY_DATE,
         startTime: "14:00",
@@ -455,35 +558,45 @@ describe("getNowFocus decision engine", () => {
       },
     });
 
-    // Run with different input orders to verify determinism
-    const result1 = getNowFocus({
-      now: createDateAtTime(14, 15),
+    // At 1:30 PM: Upcoming
+    const before = getNowFocus({
+      now: createDateAtTime(13, 30),
       referenceDateKey: TODAY_DATE,
-      tasks: [taskMediumPriority, taskHighPriority],
-      habits: [habitActive],
+      tasks: [scheduledTask],
+      habits: [],
       checklists: [],
     });
+    expect(before.state).toBe("upcoming");
+    expect(before.item?.id).toBe("task-windowed");
 
-    const result2 = getNowFocus({
+    // At 2:15 PM: Active
+    const during = getNowFocus({
       now: createDateAtTime(14, 15),
       referenceDateKey: TODAY_DATE,
-      tasks: [taskHighPriority, taskMediumPriority],
-      habits: [habitActive],
+      tasks: [scheduledTask],
+      habits: [],
       checklists: [],
     });
+    expect(during.state).toBe("active");
+    expect(during.item?.id).toBe("task-windowed");
 
-    expect(result1.state).toBe("active");
-    expect(result2.state).toBe("active");
-    expect(result1.item?.id).toBe("task-active-high");
-    expect(result2.item?.id).toBe("task-active-high");
+    // At 3:05 PM: Ended -> Empty
+    const after = getNowFocus({
+      now: createDateAtTime(15, 5),
+      referenceDateKey: TODAY_DATE,
+      tasks: [scheduledTask],
+      habits: [],
+      checklists: [],
+    });
+    expect(after.state).toBe("empty");
   });
 
-  // 14. Starting/selection logic does not mutate underlying schedule data
-  it("14. selection logic does not mutate underlying schedule data", () => {
-    const originalTask: Task = mockTask({
+  // 18. Selector does not mutate input objects
+  it("18. selector does not mutate input objects", () => {
+    const task: Task = mockTask({
       id: "task-immutable",
-      title: "Immutable Task",
-      priority: "high",
+      title: "Untouched Task",
+      priority: "medium",
       schedule: {
         date: TODAY_DATE,
         startTime: "14:00",
@@ -492,54 +605,70 @@ describe("getNowFocus decision engine", () => {
       },
     });
 
-    const taskSnapshot = JSON.stringify(originalTask);
+    const frozenSnapshot = JSON.stringify(task);
 
-    const result = getNowFocus({
+    getNowFocus({
       now: createDateAtTime(14, 15),
       referenceDateKey: TODAY_DATE,
-      tasks: [originalTask],
+      tasks: [task],
       habits: [],
       checklists: [],
     });
 
-    expect(result.state).toBe("active");
-    // Verify object identity and deep value preservation
-    expect(JSON.stringify(originalTask)).toBe(taskSnapshot);
+    expect(JSON.stringify(task)).toBe(frozenSnapshot);
   });
 
-  // 15. Transition: at 2:15, upcoming is not active; at 2:31, it becomes active
-  it("15. time progression: before window activity is not active; after window starts it becomes active", () => {
-    const scheduledActivity = mockTask({
-      id: "task-230-progression",
-      title: "Sync with Team",
-      priority: "high",
+  // 19. Selector does not modify schedules/calendar data
+  it("19. selector does not modify schedules/calendar data", () => {
+    const habit = mockHabit({
+      id: "habit-unchanged",
+      title: "Habit Unchanged",
       schedule: {
         date: TODAY_DATE,
-        startTime: "14:30",
-        endTime: "15:00",
+        startTime: "14:00",
+        endTime: "14:30",
+        durationMinutes: 30,
       },
     });
 
-    // At 2:15 PM -> Not active yet, it's upcoming
-    const beforeResult = getNowFocus({
-      now: createDateAtTime(14, 15),
-      referenceDateKey: TODAY_DATE,
-      tasks: [scheduledActivity],
-      habits: [],
-      checklists: [],
-    });
-    expect(beforeResult.state).toBe("upcoming");
-    expect(beforeResult.item?.id).toBe("task-230-progression");
+    const origStartTime = habit.schedule?.startTime;
+    const origEndTime = habit.schedule?.endTime;
 
-    // At 2:31 PM -> Window has begun, it becomes ACTIVE NOW
-    const afterResult = getNowFocus({
-      now: createDateAtTime(14, 31),
+    getNowFocus({
+      now: createDateAtTime(14, 10),
       referenceDateKey: TODAY_DATE,
-      tasks: [scheduledActivity],
+      tasks: [],
+      habits: [habit],
+      checklists: [],
+    });
+
+    expect(habit.schedule?.startTime).toBe(origStartTime);
+    expect(habit.schedule?.endTime).toBe(origEndTime);
+  });
+
+  // 20. Open schedule without upcoming events does not impose an arbitrary 10 PM cutoff
+  it("20. open schedule without upcoming events does not impose an arbitrary 10 PM cutoff", () => {
+    const eveningTask = mockTask({
+      id: "task-evening",
+      title: "Late Night Coding",
+      schedule: {
+        durationMinutes: 90,
+      },
+    });
+
+    // Calling at 9:30 PM (21:30) with no upcoming scheduled tasks
+    const result = getNowFocus({
+      now: createDateAtTime(21, 30),
+      referenceDateKey: TODAY_DATE,
+      tasks: [eveningTask],
       habits: [],
       checklists: [],
     });
-    expect(afterResult.state).toBe("active");
-    expect(afterResult.item?.id).toBe("task-230-progression");
+
+    // In previous implementation with hardcoded 10 PM (22:00), window was 30 mins, so 90 min task was rejected.
+    // In our unconstrained open schedule, it fits and is recommended!
+    expect(result.state).toBe("recommended");
+    expect(result.item?.id).toBe("task-evening");
+    expect(result.contextLabel).toContain("Open schedule");
   });
 });
