@@ -671,4 +671,143 @@ describe("getNowFocus decision engine", () => {
     expect(result.item?.id).toBe("task-evening");
     expect(result.contextLabel).toContain("Open schedule");
   });
+
+  // 21. Exact user scenario: newly created task at 2:00 PM scheduled for 3:00 PM
+  it("21. exact user scenario: 2:00 PM -> scheduled 3:00 PM -> upcoming with title -> 3:00 PM active -> 3:31 PM empty", () => {
+    const newTask = mockTask({
+      id: "task-user-scenario-engine",
+      title: "Test NOW task",
+      priority: "medium",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "15:00",
+        endTime: "15:30",
+        durationMinutes: 30,
+      },
+    });
+
+    // 1. At 2:00 PM -> MUST return UPCOMING with the task item and title intact!
+    const at2pm = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [newTask],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(at2pm.state).toBe("upcoming");
+    expect(at2pm.type).toBe("task");
+    expect(at2pm.item).toBeDefined();
+    expect(at2pm.item?.title).toBe("Test NOW task");
+    expect(at2pm.timeLabel).toBe("Starts at 3:00 PM");
+
+    // 2. At 3:00 PM -> window begins, MUST transition to ACTIVE NOW
+    const at3pm = getNowFocus({
+      now: createDateAtTime(15, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [newTask],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(at3pm.state).toBe("active");
+    expect(at3pm.type).toBe("task");
+    expect(at3pm.item?.title).toBe("Test NOW task");
+    expect(at3pm.timeLabel).toBe("3:00 PM – 3:30 PM");
+
+    // 3. At 3:31 PM -> scheduled window ended, NOW reevaluates
+    const at331pm = getNowFocus({
+      now: createDateAtTime(15, 31),
+      referenceDateKey: TODAY_DATE,
+      tasks: [newTask],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(at331pm.state).toBe("empty");
+    expect(at331pm.item).toBeUndefined();
+  });
+
+  // 22. Invariant: every non-empty state (active, recommended, upcoming) returns a complete item with defined title
+  it("22. invariant: every non-empty state returns a complete item with defined title and type", () => {
+    const activeTask = mockTask({
+      id: "t-act",
+      title: "Active Task",
+      schedule: { date: TODAY_DATE, startTime: "14:00", endTime: "15:00" },
+    });
+    const upcomingTask = mockTask({
+      id: "t-upc",
+      title: "Upcoming Task",
+      schedule: { date: TODAY_DATE, startTime: "16:00", endTime: "17:00" },
+    });
+    const recTask = mockTask({
+      id: "t-rec",
+      title: "Recommended Task",
+      schedule: { durationMinutes: 20 },
+    });
+
+    // Case 1: Active
+    const resActive = getNowFocus({
+      now: createDateAtTime(14, 30),
+      referenceDateKey: TODAY_DATE,
+      tasks: [activeTask],
+      habits: [],
+      checklists: [],
+    });
+    expect(resActive.state).toBe("active");
+    expect(resActive.item).toBeDefined();
+    expect(resActive.item?.title).toBe("Active Task");
+    expect(resActive.type).toBe("task");
+
+    // Case 2: Recommended
+    const resRec = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [upcomingTask, recTask],
+      habits: [],
+      checklists: [],
+    });
+    expect(resRec.state).toBe("recommended");
+    expect(resRec.item).toBeDefined();
+    expect(resRec.item?.title).toBe("Recommended Task");
+    expect(resRec.type).toBe("task");
+
+    // Case 3: Upcoming
+    const resUpc = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [upcomingTask],
+      habits: [],
+      checklists: [],
+    });
+    expect(resUpc.state).toBe("upcoming");
+    expect(resUpc.item).toBeDefined();
+    expect(resUpc.item?.title).toBe("Upcoming Task");
+    expect(resUpc.type).toBe("task");
+  });
+
+  // 23. Tasks with schedule.date: "inbox" are recognized as unscheduled and eligible for recommendation
+  it("23. tasks with schedule.date: 'inbox' are treated as unscheduled and eligible for recommendation", () => {
+    const inboxTask = mockTask({
+      id: "task-inbox-sentinel",
+      title: "Inbox Task",
+      priority: "high",
+      schedule: {
+        date: "inbox", // Canonical Pebble unscheduled sentinel
+        durationMinutes: 15,
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [inboxTask],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("recommended");
+    expect(result.item?.id).toBe("task-inbox-sentinel");
+    expect(result.item?.title).toBe("Inbox Task");
+  });
 });

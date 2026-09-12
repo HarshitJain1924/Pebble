@@ -522,6 +522,7 @@ export function TodayScreen() {
             focus={nowFocus}
             onStartFocus={handleStartNowFocus}
             onPressCard={handlePressNowCard}
+            onViewFocus={handlePressNowCard}
             colors={colors}
             colorScheme={colorScheme}
             style={{ marginBottom: 4 }}

@@ -25,6 +25,7 @@ export interface NowFocusCardProps {
   focus: NowFocusResult;
   onStartFocus?: (focus: NowFocusResult) => void;
   onPressCard?: (focus: NowFocusResult) => void;
+  onViewFocus?: (focus: NowFocusResult) => void;
   colors: ThemeColors;
   colorScheme: "light" | "dark" | null | undefined;
   style?: StyleProp<ViewStyle>;
@@ -46,27 +47,12 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
   focus,
   onStartFocus,
   onPressCard,
+  onViewFocus,
   colors,
   colorScheme,
   style,
 }) => {
   const isDark = colorScheme !== "light";
-
-  const handleStart = () => {
-    if (onStartFocus) {
-      onStartFocus(focus);
-    } else if (onPressCard) {
-      onPressCard(focus);
-    }
-  };
-
-  const handlePress = () => {
-    if (onPressCard) {
-      onPressCard(focus);
-    } else if (onStartFocus) {
-      onStartFocus(focus);
-    }
-  };
 
   // ─────────────────────────────────────────────────────────────
   // 1. EMPTY STATE
@@ -132,6 +118,41 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
   // 2. ACTIVE, RECOMMENDED, or UPCOMING STATE
   // ─────────────────────────────────────────────────────────────
   const { state, type, item, timeLabel, contextLabel } = focus;
+
+  // Action handlers with strict state-appropriate semantics:
+  // - UPCOMING: Must VIEW/inspect item (never starts Zen mode or mutates)
+  // - ACTIVE / RECOMMENDED: Triggers start / focus mode
+  const handleActionPress = () => {
+    if (state === "upcoming") {
+      if (onViewFocus) {
+        onViewFocus(focus);
+      } else if (onPressCard) {
+        onPressCard(focus);
+      }
+    } else {
+      if (onStartFocus) {
+        onStartFocus(focus);
+      } else if (onPressCard) {
+        onPressCard(focus);
+      }
+    }
+  };
+
+  const handleCardPress = () => {
+    if (state === "upcoming") {
+      if (onViewFocus) {
+        onViewFocus(focus);
+      } else if (onPressCard) {
+        onPressCard(focus);
+      }
+    } else {
+      if (onPressCard) {
+        onPressCard(focus);
+      } else if (onStartFocus) {
+        onStartFocus(focus);
+      }
+    }
+  };
 
   // Resolve item-specific metadata
   let priorityColor: string | undefined = undefined;
@@ -213,11 +234,10 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
       testID={`now-focus-card-${state}`}
     >
       <PressableScale
-        onPress={handlePress}
+        onPress={handleCardPress}
         haptic
         scaleTo={0.98}
-        contentStyle={{ overflow: "hidden" }}
-        style={[
+        contentStyle={[
           styles.cardSurface,
           {
             backgroundColor: isDark ? "rgba(30, 41, 59, 0.7)" : "#FFFFFF",
@@ -226,6 +246,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
               : "rgba(0, 0, 0, 0.08)",
           },
         ]}
+        style={styles.cardPressableWrap}
         accessibilityRole="button"
         accessibilityLabel={`${eyebrowText}: ${item.title}`}
       >
@@ -333,9 +354,10 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
 
             {/* Primary Action Button (44x44 minimum hit target) */}
             <PressableScale
-              onPress={handleStart}
+              onPress={handleActionPress}
               haptic
               scaleTo={0.95}
+              contentStyle={styles.actionButtonContent}
               style={[
                 styles.actionButton,
                 {
@@ -386,7 +408,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginVertical: 6,
   },
+  cardPressableWrap: {
+    width: "100%",
+  },
   cardSurface: {
+    width: "100%",
     borderRadius: Radius.lg,
     borderWidth: 1,
     overflow: "hidden",
@@ -396,6 +422,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
     flexDirection: "row",
+    alignItems: "stretch",
   },
   leftStripe: {
     width: 4,
@@ -404,6 +431,7 @@ const styles = StyleSheet.create({
   },
   cardInner: {
     flex: 1,
+    minWidth: 0,
     paddingVertical: 14,
     paddingHorizontal: 14,
     gap: 8,
@@ -445,9 +473,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    width: "100%",
   },
   textColumn: {
     flex: 1,
+    minWidth: 0,
     gap: 3,
   },
   titleText: {
@@ -460,14 +490,19 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   actionButton: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexShrink: 0,
     justifyContent: "center",
-    gap: 5,
+    alignItems: "center",
     minHeight: 44,
     minWidth: 84,
     paddingHorizontal: 16,
     borderRadius: Radius.pill,
+  },
+  actionButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
   },
   actionButtonText: {
     fontSize: 13,

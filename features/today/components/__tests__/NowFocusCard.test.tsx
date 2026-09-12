@@ -98,6 +98,7 @@ describe("NowFocusCard component", () => {
       recurrence: { frequency: "daily", interval: 1 },
       completionHistory: [
         { date: "2026-09-11", completedAt: 12345 },
+        { date: "2026-09-10", completedAt: 12344 },
       ],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -133,13 +134,13 @@ describe("NowFocusCard component", () => {
     const checklist: Checklist = {
       id: "chk-1",
       workspaceId: "inbox",
-      title: "Release Launch Checklist",
+      title: "Deployment Checklist",
       revision: 1,
       lifecycleGeneration: 1,
       items: [
-        { id: "i1", title: "Build APK", completed: true },
-        { id: "i2", title: "Test notifications", completed: true },
-        { id: "i3", title: "Deploy to store", completed: false },
+        { id: "i1", title: "Build bundle", completed: true },
+        { id: "i2", title: "Run migration", completed: true },
+        { id: "i3", title: "Smoke tests", completed: false },
       ],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -150,13 +151,17 @@ describe("NowFocusCard component", () => {
       type: "checklist",
       item: checklist,
       timeLabel: "2:00 PM – 3:00 PM",
+      durationMinutes: 60,
     };
+
+    const onStartFocus = jest.fn();
 
     let renderer: any;
     act(() => {
       renderer = create(
         <NowFocusCard
           focus={focus}
+          onStartFocus={onStartFocus}
           colors={mockColors}
           colorScheme="dark"
         />,
@@ -164,9 +169,18 @@ describe("NowFocusCard component", () => {
     });
 
     const text = getAllText(renderer.root);
-    expect(text).toContain("Release Launch Checklist");
-    expect(text).toContain("Continue");
+    expect(text).toContain("NOW");
+    expect(text).toContain("Deployment Checklist");
     expect(text).toContain("2 / 3 completed");
+    expect(text).toContain("Continue");
+
+    const actionButton = renderer.root.findByProps({
+      testID: "now-focus-action-button",
+    });
+    act(() => {
+      actionButton.props.onPress();
+    });
+    expect(onStartFocus).toHaveBeenCalledWith(focus);
   });
 
   it("renders recommended state with free time fit context", () => {
@@ -245,6 +259,80 @@ describe("NowFocusCard component", () => {
     expect(text).toContain("Doctor Appointment");
     expect(text).toContain("Starts at 3:30 PM");
     expect(text).toContain("View");
+  });
+
+  it("exact user scenario: scheduled 3:00 PM task renders complete title, subtitle, and View action", () => {
+    const task: Task = {
+      id: "task-user-scenario",
+      workspaceId: "inbox",
+      title: "Test NOW task",
+      priority: "medium",
+      status: "todo",
+      revision: 1,
+      lifecycleGeneration: 1,
+      schedule: {
+        date: "2026-09-12",
+        startTime: "15:00",
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const focus: NowFocusResult = {
+      state: "upcoming",
+      type: "task",
+      item: task,
+      timeLabel: "Starts at 3:00 PM",
+      durationMinutes: 30,
+      windowMinutes: 60,
+      nextScheduledTime: "3:00 PM",
+    };
+
+    const onStartFocus = jest.fn();
+    const onViewFocus = jest.fn();
+    const onPressCard = jest.fn();
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <NowFocusCard
+          focus={focus}
+          onStartFocus={onStartFocus}
+          onViewFocus={onViewFocus}
+          onPressCard={onPressCard}
+          colors={mockColors}
+          colorScheme="dark"
+        />,
+      );
+    });
+
+    const text = getAllText(renderer.root);
+    // Must contain the title and subtitle, NOT just the View button!
+    expect(text).toContain("UP NEXT");
+    expect(text).toContain("Test NOW task");
+    expect(text).toContain("Starts at 3:00 PM · Task");
+    expect(text).toContain("View");
+
+    // Action button "View" MUST call onViewFocus, NOT onStartFocus (must NOT start Zen)
+    const actionButton = renderer.root.findByProps({
+      testID: "now-focus-action-button",
+    });
+    act(() => {
+      actionButton.props.onPress();
+    });
+    expect(onViewFocus).toHaveBeenCalledWith(focus);
+    expect(onStartFocus).not.toHaveBeenCalled();
+
+    // Card press on UPCOMING MUST also call onViewFocus/onPressCard, NOT onStartFocus
+    const cardPressable = renderer.root.findByProps({
+      accessibilityRole: "button",
+      accessibilityLabel: "UP NEXT: Test NOW task",
+    });
+    act(() => {
+      cardPressable.props.onPress();
+    });
+    expect(onViewFocus).toHaveBeenCalledTimes(2);
+    expect(onStartFocus).not.toHaveBeenCalled();
   });
 
   it("renders calm empty state when nothing needs attention", () => {

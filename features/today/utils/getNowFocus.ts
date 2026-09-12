@@ -21,16 +21,27 @@ import { dateKeyFromDate } from "@/shared/utils/date-key";
 export type NowFocusState = "active" | "recommended" | "upcoming" | "empty";
 export type NowFocusItemType = "task" | "habit" | "checklist";
 
-export interface NowFocusResult {
-  state: NowFocusState;
-  type?: NowFocusItemType;
-  item?: Task | Habit | Checklist;
-  timeLabel?: string;
-  contextLabel?: string;
-  windowMinutes?: number;
-  durationMinutes?: number;
-  nextScheduledTime?: string;
-}
+export type NowFocusResult =
+  | {
+      state: "empty";
+      type?: undefined;
+      item?: undefined;
+      timeLabel?: undefined;
+      contextLabel?: undefined;
+      windowMinutes?: undefined;
+      durationMinutes?: undefined;
+      nextScheduledTime?: undefined;
+    }
+  | {
+      state: "active" | "recommended" | "upcoming";
+      type: NowFocusItemType;
+      item: Task | Habit | Checklist;
+      timeLabel?: string;
+      contextLabel?: string;
+      windowMinutes?: number;
+      durationMinutes?: number;
+      nextScheduledTime?: string;
+    };
 
 export interface GetNowFocusOptions {
   /**
@@ -199,7 +210,7 @@ export function parseItemSchedule(
     durationMinutes: duration,
     hasExplicitDuration,
     dueMinutes,
-    dueDateKey: schedule?.date,
+    dueDateKey: schedule?.date && schedule.date !== "inbox" ? schedule.date : undefined,
   };
 }
 
@@ -233,13 +244,16 @@ export function getNowFocus({
   // 1. Filter out completed, archived, and overdue items
   // ─────────────────────────────────────────────────────────────
 
+  // Helper: check if scheduled for another date (Pebble uses "inbox" as sentinel for unscheduled)
+  const isScheduledForDifferentDate = (d?: string) =>
+    Boolean(d && d !== "inbox" && d !== dateKey);
+
   // Tasks: non-completed, non-overdue, today or unscheduled
   const eligibleTasks = tasks.filter((task) => {
     if (task.archivedAt) return false;
     if (isTaskCompleted(task)) return false;
     if (isTaskOverdue(task, dateKey)) return false;
-    // Scheduled for another date in the future?
-    if (task.schedule?.date && task.schedule.date !== dateKey) return false;
+    if (isScheduledForDifferentDate(task.schedule?.date)) return false;
     return true;
   });
 
@@ -250,7 +264,7 @@ export function getNowFocus({
     if (habit.recurrence && !isRecurringOccurrenceForDate(habit, dateKey)) {
       return false;
     }
-    if (habit.schedule?.date && habit.schedule.date !== dateKey) return false;
+    if (isScheduledForDifferentDate(habit.schedule?.date)) return false;
     return true;
   });
 
@@ -264,7 +278,7 @@ export function getNowFocus({
     ) {
       return false;
     }
-    if (checklist.schedule?.date && checklist.schedule.date !== dateKey) {
+    if (isScheduledForDifferentDate(checklist.schedule?.date)) {
       return false;
     }
     return true;
