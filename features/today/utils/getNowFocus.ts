@@ -224,6 +224,16 @@ export function parseItemSchedule(
     endMinutes = startMinutes + duration;
   }
 
+  const rawDueDate =
+    (item as { dueDate?: unknown }).dueDate ||
+    (schedule as { dueDate?: unknown } | undefined)?.dueDate;
+  let dueDateKey: string | undefined = undefined;
+  if (schedule?.date && schedule.date !== "inbox") {
+    dueDateKey = schedule.date;
+  } else if (typeof rawDueDate === "string" && rawDueDate && rawDueDate !== "inbox") {
+    dueDateKey = rawDueDate;
+  }
+
   return {
     isScheduled,
     startMinutes,
@@ -231,8 +241,59 @@ export function parseItemSchedule(
     durationMinutes: duration,
     hasExplicitDuration,
     dueMinutes,
-    dueDateKey: schedule?.date && schedule.date !== "inbox" ? schedule.date : undefined,
+    dueDateKey,
   };
+}
+
+export const IMMINENT_HORIZON_MINUTES = 60;
+export const IMMINENT_WINDOW_BUFFER_MINUTES = 30;
+
+export enum UrgencyTier {
+  IMMINENT = 0,
+  APPROACHING = 1,
+  OPEN = 2,
+}
+
+/**
+ * Pure deterministic urgency tier classifier for Pebble NOW recommendation candidates.
+ *
+ * Product Semantics:
+ * - Tier 0 (IMMINENT): A candidate whose deadline is close enough that Pebble must protect
+ *   it from becoming overdue during the current execution window.
+ * - Tier 1 (APPROACHING): A candidate due later today with meaningful headroom.
+ * - Tier 2 (OPEN): No due time, or deadline belongs to a future date.
+ */
+export function getUrgencyTier(
+  candidate: ParsedCandidate,
+  nowMinutes: number,
+  todayDateKey: string,
+  availableWindowMinutes?: number,
+): UrgencyTier {
+  // 1. If no due time was specified, there is no immediate deadline pressure
+  if (candidate.dueMinutes === undefined) {
+    return UrgencyTier.OPEN;
+  }
+
+  // 2. If candidate has an explicit due date belonging to a future date,
+  // it must not be treated as today's deadline pressure
+  if (candidate.dueDateKey !== undefined && candidate.dueDateKey !== todayDateKey) {
+    return UrgencyTier.OPEN;
+  }
+
+  const minutesUntilDue = candidate.dueMinutes - nowMinutes;
+
+  // 3. Imminent threshold:
+  // Deadline within 60 minutes OR within the immediate free window + 30m buffer
+  const imminentThreshold = Math.max(
+    IMMINENT_HORIZON_MINUTES,
+    (availableWindowMinutes ?? 0) + IMMINENT_WINDOW_BUFFER_MINUTES,
+  );
+
+  if (minutesUntilDue <= imminentThreshold) {
+    return UrgencyTier.IMMINENT;
+  }
+
+  return UrgencyTier.APPROACHING;
 }
 
 /**
@@ -522,18 +583,26 @@ export function getNowFocus({
 
   if (recommendationCandidates.length > 0) {
     // Deterministic ranking:
-    // 1. Priority (high > medium > low > none)
-    // 2. Real due-time proximity (earlier due time today ranks first)
-    // 3. Due date proximity (due today before due tomorrow/later)
-    // 4. Duration fit (prefers item that makes good use of window)
-    // 5. Stable ID tie-breaker
+    // 1. Urgency Tier (Tier 0 Imminent > Tier 1 Approaching > Tier 2 Open)
+    // 2. Priority (high > medium > low > none) within the same urgency tier
+    // 3. Real due-time proximity (earlier due time today ranks first)
+    // 4. Due date proximity (due today before due tomorrow/later)
+    // 5. Duration fit (prefers item that makes good use of window)
+    // 6. Stable ID tie-breaker
     recommendationCandidates.sort((a, b) => {
-      // 1. Priority
+      // 1. Urgency Tier
+      const tierA = getUrgencyTier(a, nowMinutes, dateKey, availableWindowMinutes);
+      const tierB = getUrgencyTier(b, nowMinutes, dateKey, availableWindowMinutes);
+      if (tierA !== tierB) {
+        return tierA - tierB;
+      }
+
+      // 2. Priority within the same urgency tier
       if (b.priorityWeight !== a.priorityWeight) {
         return b.priorityWeight - a.priorityWeight;
       }
 
-      // 2. Real due time of day proximity (HH:mm)
+      // 3. Real due time of day proximity (HH:mm)
       if (a.dueMinutes !== undefined && b.dueMinutes !== undefined) {
         if (a.dueMinutes !== b.dueMinutes) {
           return a.dueMinutes - b.dueMinutes;
@@ -544,18 +613,18 @@ export function getNowFocus({
         return 1;
       }
 
-      // 3. Due date key proximity (today before future dates)
+      // 4. Due date key proximity (today before future dates)
       const aIsToday = a.dueDateKey === dateKey;
       const bIsToday = b.dueDateKey === dateKey;
       if (aIsToday && !bIsToday) return -1;
       if (!aIsToday && bIsToday) return 1;
 
-      // 4. Duration fit
+      // 5. Duration fit
       if (b.durationMinutes !== a.durationMinutes) {
         return b.durationMinutes - a.durationMinutes;
       }
 
-      // 5. Stable ID
+      // 6. Stable ID
       return a.id.localeCompare(b.id);
     });
 

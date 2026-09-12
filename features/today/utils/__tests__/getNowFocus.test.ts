@@ -8,7 +8,7 @@ function createDateAtTime(hours: number, minutes: number, seconds = 0): Date {
   return new Date(2026, 8, 12, hours, minutes, seconds, 0);
 }
 
-function mockTask(overrides: Partial<Task> & { dueTime?: string }): Task {
+function mockTask(overrides: Partial<Task> & { dueTime?: string; dueDate?: string }): Task {
   return {
     id: `task-${Math.random().toString(36).substring(2, 7)}`,
     workspaceId: "inbox",
@@ -2082,9 +2082,11 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
         checklists: [],
       });
 
-      // Audit Finding: Current implementation orders priorityWeight before dueMinutes
+      // Product Rule: Candidate B is in Tier 0 (IMMINENT) because it is due at 3:30 PM (during the next meeting)
+      // and will breach if not done in the current 2:00–3:00 PM window.
+      // Candidate A is Tier 1 (APPROACHING, due at 8:00 PM). Candidate B wins!
       expect(result.state).toBe("recommended");
-      expect(result.item?.id).toBe("adv-2-task-a");
+      expect(result.item?.id).toBe("adv-2-task-b");
     });
 
     // Adv-3: PRIORITY VS OTHERWISE IDENTICAL CANDIDATES
@@ -2518,7 +2520,7 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
     });
 
     // Scenario 1: High priority due 8 PM vs Low priority due 3:30 PM (Current time: 2 PM, 60m window)
-    it("Scenario 1: High priority (due 8 PM) vs Low priority (due 3:30 PM) -> Current implementation selects High priority", () => {
+    it("Scenario 1: High priority (due 8 PM) vs Low priority (due 3:30 PM) -> Low priority (due 3:30 PM) is Tier 0 Imminent and wins", () => {
       const highPriDue8PM = mockTask({
         id: "scen-1-high-8pm",
         priority: "high",
@@ -2540,12 +2542,12 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
         checklists: [],
       });
 
-      // Current behavior: priority (high > low) precedes due time
-      expect(result.item?.id).toBe("scen-1-high-8pm");
+      // Approved behavior: 3:30 PM task is Tier 0 (IMMINENT) and outranks Tier 1 (APPROACHING) 8 PM task
+      expect(result.item?.id).toBe("scen-1-low-330pm");
     });
 
     // Scenario 2: High priority due late/no time vs Low priority due in 20 minutes (Current time: 2 PM)
-    it("Scenario 2: High priority (due late tonight) vs Low priority (due in 20 min) -> Current implementation selects High priority", () => {
+    it("Scenario 2: High priority (due late tonight) vs Low priority (due in 20 min) -> Low priority is Tier 0 Imminent and wins", () => {
       const highPriDueTonight = mockTask({
         id: "scen-2-high-tonight",
         priority: "high",
@@ -2567,12 +2569,12 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
         checklists: [],
       });
 
-      // Current behavior: High priority wins, even though low-pri task will become overdue in 20m
-      expect(result.item?.id).toBe("scen-2-high-tonight");
+      // Approved behavior: Due in 20m is Tier 0 (IMMINENT), protecting it from becoming overdue
+      expect(result.item?.id).toBe("scen-2-low-20m");
     });
 
     // Scenario 3: High priority due in 2 hours vs Medium priority due in 30 minutes (Current time: 2 PM)
-    it("Scenario 3: High priority (due in 2h / 4 PM) vs Medium priority (due in 30m / 2:30 PM) -> Current implementation selects High priority", () => {
+    it("Scenario 3: High priority (due in 2h / 4 PM) vs Medium priority (due in 30m / 2:30 PM) -> Medium priority is Tier 0 Imminent and wins", () => {
       const highPriDue4PM = mockTask({
         id: "scen-3-high-4pm",
         priority: "high",
@@ -2594,12 +2596,12 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
         checklists: [],
       });
 
-      // Current behavior: priority precedes due time
-      expect(result.item?.id).toBe("scen-3-high-4pm");
+      // Approved behavior: Due in 30m is Tier 0 (IMMINENT), while due in 2h is Tier 1 (APPROACHING)
+      expect(result.item?.id).toBe("scen-3-med-230pm");
     });
 
     // Scenario 4: High priority due in 20 min vs Low priority due in 25 min (Current time: 2 PM)
-    it("Scenario 4: High priority (due in 20m) vs Low priority (due in 25m) -> All models agree on High priority", () => {
+    it("Scenario 4: High priority (due in 20m) vs Low priority (due in 25m) -> Both Tier 0 Imminent; High priority wins", () => {
       const highPriDue20m = mockTask({
         id: "scen-4-high-20m",
         priority: "high",
@@ -2621,12 +2623,12 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
         checklists: [],
       });
 
-      // Both models pick highPriDue20m (both earlier due time AND higher priority)
+      // Both are Tier 0; priority governs within tier
       expect(result.item?.id).toBe("scen-4-high-20m");
     });
 
     // Scenario 5: High priority due end-of-day vs Low priority due end-of-day (Current time: 2 PM)
-    it("Scenario 5: High priority (due 11 PM) vs Low priority (due 11 PM) -> All models agree on High priority", () => {
+    it("Scenario 5: High priority (due 11 PM) vs Low priority (due 11 PM) -> Both Tier 1 Approaching; High priority wins", () => {
       const highPriDue11PM = mockTask({
         id: "scen-5-high-11pm",
         priority: "high",
@@ -2652,7 +2654,7 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
     });
 
     // Scenario 6: No due time + High priority vs Due soon (30m) + Low priority (Current time: 2 PM)
-    it("Scenario 6: No due time (High priority) vs Due in 30m (Low priority) -> Current implementation selects High priority", () => {
+    it("Scenario 6: No due time (High priority) vs Due in 30m (Low priority) -> Low priority (Tier 0 Imminent) beats High priority (Tier 2 Open)", () => {
       const highPriNoDueTime = mockTask({
         id: "scen-6-high-nodue",
         priority: "high",
@@ -2668,17 +2670,17 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
       const result = getNowFocus({
         now: createDateAtTime(14, 0, 0),
         referenceDateKey: TODAY_DATE,
-        tasks: [lowPriDueIn30m, highPriNoDueTime, nextEventAt1500],
+        tasks: [highPriNoDueTime, lowPriDueIn30m, nextEventAt1500],
         habits: [],
         checklists: [],
       });
 
-      // Current behavior: priority first
-      expect(result.item?.id).toBe("scen-6-high-nodue");
+      // Approved behavior: Imminent deadline strictly outranks no deadline regardless of priority
+      expect(result.item?.id).toBe("scen-6-low-30m");
     });
 
     // Scenario 7: Same due time (5 PM), different priority (High vs Low)
-    it("Scenario 7: Same due time (5 PM), High vs Low priority -> All models agree on High priority", () => {
+    it("Scenario 7: Same due time (5 PM), High vs Low priority -> Both Tier 1 Approaching; High priority wins", () => {
       const highPriDue5PM = mockTask({
         id: "scen-7-high-5pm",
         priority: "high",
@@ -2704,7 +2706,7 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
     });
 
     // Scenario 8: Same priority (Medium), different due urgency (5 PM vs 2:30 PM)
-    it("Scenario 8: Same priority (Medium), different due urgency (5 PM vs 2:30 PM) -> All models agree on earlier due item", () => {
+    it("Scenario 8: Same priority (Medium), different due urgency (5 PM vs 2:30 PM) -> 2:30 PM (Tier 0 Imminent) wins", () => {
       const medPriDue5PM = mockTask({
         id: "scen-8-med-5pm",
         priority: "medium",
@@ -2790,8 +2792,69 @@ describe("getNowFocus behavioral stress & multi-workspace integration", () => {
 
       expect(result.item?.id).toBe("scen-10-fitting-20m");
     });
+
+    // Scenario 11: Future-date due times do not get misclassified as today's imminent deadline
+    it("Scenario 11: Future-date due times do not get misclassified as today's imminent deadline", () => {
+      const taskDueTomorrowMorning = mockTask({
+        id: "task-tomorrow-9am",
+        priority: "high",
+        dueTime: "09:00",
+        schedule: { date: "2026-09-13", durationMinutes: 20 },
+      });
+      const taskDueToday5PM = mockTask({
+        id: "task-today-5pm",
+        priority: "low",
+        dueTime: "17:00",
+        schedule: { date: TODAY_DATE, durationMinutes: 20 },
+      });
+
+      const result = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [taskDueTomorrowMorning, taskDueToday5PM, nextEventAt1500],
+        habits: [],
+        checklists: [],
+      });
+
+      // Tomorrow's 9 AM task is not eligible today (scheduled for different date).
+      // Task due today at 5 PM is Tier 1 Approaching today and wins!
+      expect(result.state).toBe("recommended");
+      expect(result.item?.id).toBe("task-today-5pm");
+    });
+
+    // Scenario 12: Unscheduled inbox item with dueDate tomorrow does not become imminent
+    it("Scenario 12: Unscheduled inbox item with dueDate tomorrow does not become imminent", () => {
+      const inboxTomorrow9AM = mockTask({
+        id: "inbox-tomorrow-9am",
+        priority: "high",
+        dueTime: "09:00",
+        dueDate: "2026-09-13",
+        schedule: { date: "inbox", durationMinutes: 20 },
+      });
+      const inboxToday5PM = mockTask({
+        id: "inbox-today-5pm",
+        priority: "low",
+        dueTime: "17:00",
+        schedule: { date: "inbox", durationMinutes: 20 },
+      });
+
+      const result = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [inboxTomorrow9AM, inboxToday5PM, nextEventAt1500],
+        habits: [],
+        checklists: [],
+      });
+
+      // inboxTomorrow9AM has dueDate: "2026-09-13" -> Tier 2 (OPEN).
+      // inboxToday5PM has due today 17:00 -> Tier 1 (APPROACHING).
+      // inboxToday5PM wins!
+      expect(result.state).toBe("recommended");
+      expect(result.item?.id).toBe("inbox-today-5pm");
+    });
   });
 });
+
 
 
 
