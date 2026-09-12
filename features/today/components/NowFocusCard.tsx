@@ -125,13 +125,20 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 name="feather"
                 size={18}
                 color={colors.primary || "#6366F1"}
+                style={styles.emptyIcon}
               />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            <View style={styles.emptyTextColumn}>
+              <Text
+                style={[styles.emptyTitle, { color: colors.text }]}
+                numberOfLines={2}
+              >
                 Nothing needs your attention right now.
               </Text>
-              <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+              <Text
+                style={[styles.emptySubtitle, { color: colors.textMuted }]}
+                numberOfLines={2}
+              >
                 Enjoy the calm or take a small breather.
               </Text>
             </View>
@@ -324,6 +331,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                       styles.eyebrowText,
                       { color: colors.primary || "#6366F1" },
                     ]}
+                    numberOfLines={1}
                   >
                     {eyebrowText}
                   </Text>
@@ -338,6 +346,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                         ? "#10B981"
                         : "#8B5CF6"
                     }
+                    style={styles.eyebrowIcon}
                   />
                   <Text
                     style={[
@@ -349,6 +358,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                             : "#8B5CF6",
                       },
                     ]}
+                    numberOfLines={1}
                   >
                     {eyebrowText}
                   </Text>
@@ -368,7 +378,12 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                   },
                 ]}
               >
-                <Feather name="clock" size={11} color={colors.textMuted} />
+                <Feather
+                  name="clock"
+                  size={11}
+                  color={colors.textMuted}
+                  style={styles.durationChipIcon}
+                />
                 <Text
                   style={[styles.durationChipText, { color: colors.textMuted }]}
                   numberOfLines={1}
@@ -387,6 +402,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
             haptic
             scaleTo={0.99}
             style={styles.detailsArea}
+            contentStyle={styles.detailsAreaContent}
             accessibilityRole="button"
             accessibilityLabel={`${eyebrowText}: ${item.title}`}
           >
@@ -415,11 +431,15 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
               <View style={styles.checklistProgressRow}>
                 <Text
                   style={[styles.checklistProgressText, { color: colors.textMuted }]}
+                  numberOfLines={1}
                   testID="now-focus-checklist-progress"
                 >
                   {`${completedCount} of ${totalCount} complete`}
                 </Text>
-                <Text style={[styles.checklistProgressPercent, { color: colors.textMuted }]}>
+                <Text
+                  style={[styles.checklistProgressPercent, { color: colors.textMuted }]}
+                  numberOfLines={1}
+                >
                   {`${progressPercent}%`}
                 </Text>
               </View>
@@ -452,7 +472,10 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
               {/* Single next actionable item row */}
               {nextChecklistItem ? (
                 <View style={styles.checklistNextItemContainer}>
-                  <Text style={[styles.checklistNextItemLabel, { color: colors.textMuted }]}>
+                  <Text
+                    style={[styles.checklistNextItemLabel, { color: colors.textMuted }]}
+                    numberOfLines={1}
+                  >
                     NEXT ITEM
                   </Text>
                   <PressableScale
@@ -474,6 +497,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                           : "rgba(0, 0, 0, 0.06)",
                       },
                     ]}
+                    contentStyle={styles.checklistItemRowContent}
                   >
                     <View
                       testID="now-focus-checklist-item-checkbox"
@@ -497,6 +521,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                       name="chevron-right"
                       size={15}
                       color={isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.25)"}
+                      style={styles.chevronIcon}
                     />
                   </PressableScale>
                 </View>
@@ -523,8 +548,16 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 accessibilityLabel={`Complete ${item.title}`}
                 testID="now-focus-complete-button"
               >
-                <Feather name="check" size={14} color="#FFFFFF" />
-                <Text style={[styles.actionButtonText, { color: "#FFFFFF" }]}>
+                <Feather
+                  name="check"
+                  size={14}
+                  color="#FFFFFF"
+                  style={styles.actionButtonIcon}
+                />
+                <Text
+                  style={[styles.actionButtonText, { color: "#FFFFFF" }]}
+                  numberOfLines={1}
+                >
                   Complete
                 </Text>
               </PressableScale>
@@ -549,7 +582,12 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 accessibilityLabel={`Focus on ${item.title}`}
                 testID="now-focus-action-button"
               >
-                <Feather name="play" size={12} color={colors.text} />
+                <Feather
+                  name="play"
+                  size={12}
+                  color={colors.text}
+                  style={styles.actionButtonIcon}
+                />
                 <Text
                   style={[styles.actionButtonText, { color: colors.text }]}
                   numberOfLines={1}
@@ -569,7 +607,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 onPress={handleViewPress}
                 haptic
                 scaleTo={0.96}
-                contentStyle={styles.actionButtonContent}
+                contentStyle={styles.upcomingPillContent}
                 style={[
                   styles.upcomingPill,
                   {
@@ -585,10 +623,18 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 accessibilityLabel={`View ${item.title}`}
                 testID="now-focus-action-button"
               >
-                <Text style={[styles.actionButtonText, { color: colors.text }]}>
+                <Text
+                  style={[styles.actionButtonText, { color: colors.text }]}
+                  numberOfLines={1}
+                >
                   View details
                 </Text>
-                <Feather name="chevron-right" size={14} color={colors.text} />
+                <Feather
+                  name="chevron-right"
+                  size={14}
+                  color={colors.text}
+                  style={styles.actionButtonIcon}
+                />
               </PressableScale>
             </View>
           ) : null}
@@ -605,6 +651,7 @@ const styles = StyleSheet.create({
   },
   cardSurface: {
     width: "100%",
+    minWidth: 0,
     borderRadius: Radius.lg,
     borderWidth: 1,
     overflow: "hidden",
@@ -618,6 +665,7 @@ const styles = StyleSheet.create({
   },
   leftStripe: {
     width: 4,
+    flexShrink: 0,
     borderTopLeftRadius: Radius.lg,
     borderBottomLeftRadius: Radius.lg,
   },
@@ -633,8 +681,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
+    minWidth: 0,
+    gap: 8,
   },
   eyebrowContainer: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -642,6 +694,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    minWidth: 0,
+    maxWidth: "100%",
   },
   liveDotOuter: {
     width: 14,
@@ -649,6 +703,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   liveDotInner: {
     width: 6,
@@ -659,12 +714,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
+    minWidth: 0,
+    maxWidth: "100%",
+  },
+  eyebrowIcon: {
+    flexShrink: 0,
   },
   eyebrowText: {
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.8,
     textTransform: "uppercase",
+    flexShrink: 1,
   },
   durationChip: {
     flexDirection: "row",
@@ -673,6 +734,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: Radius.pill,
+    flexShrink: 0,
+  },
+  durationChipIcon: {
+    flexShrink: 0,
   },
   durationChipText: {
     fontSize: 11,
@@ -680,6 +745,11 @@ const styles = StyleSheet.create({
   },
   detailsArea: {
     width: "100%",
+    minWidth: 0,
+  },
+  detailsAreaContent: {
+    width: "100%",
+    minWidth: 0,
     gap: 3,
   },
   titleText: {
@@ -695,6 +765,7 @@ const styles = StyleSheet.create({
   },
   checklistSection: {
     width: "100%",
+    minWidth: 0,
     gap: 6,
     marginTop: 2,
   },
@@ -703,19 +774,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
+    minWidth: 0,
+    gap: 8,
   },
   checklistProgressText: {
     fontSize: 12,
     fontWeight: "600",
+    flex: 1,
+    minWidth: 0,
   },
   checklistProgressPercent: {
     fontSize: 11,
     fontWeight: "600",
+    flexShrink: 0,
   },
   checklistProgressBarTrack: {
     height: 5,
     borderRadius: 3,
     width: "100%",
+    minWidth: 0,
     overflow: "hidden",
   },
   checklistProgressBarFill: {
@@ -724,6 +801,7 @@ const styles = StyleSheet.create({
   },
   checklistNextItemContainer: {
     width: "100%",
+    minWidth: 0,
     gap: 6,
     marginTop: 4,
   },
@@ -734,14 +812,20 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   checklistItemRow: {
-    flexDirection: "row",
-    alignItems: "center",
     width: "100%",
+    minWidth: 0,
     minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: Radius.md,
     borderWidth: 1,
+    justifyContent: "center",
+  },
+  checklistItemRowContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    minWidth: 0,
     gap: 10,
   },
   checklistItemCheckbox: {
@@ -757,24 +841,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  chevronIcon: {
+    flexShrink: 0,
+  },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     width: "100%",
+    minWidth: 0,
     marginTop: 2,
   },
   actionPill: {
     flex: 1,
     minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
     minHeight: 44,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: Radius.pill,
     borderWidth: 1,
     borderColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
   },
   completePill: {
     borderWidth: 0,
@@ -784,27 +871,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-start",
     width: "100%",
+    minWidth: 0,
     marginTop: 2,
   },
   upcomingPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
     minHeight: 44,
     paddingHorizontal: 16,
     borderRadius: Radius.pill,
     borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  upcomingPillContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
+    minWidth: 0,
   },
   actionButtonContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+    width: "100%",
+    minWidth: 0,
+  },
+  actionButtonIcon: {
+    flexShrink: 0,
   },
   actionButtonText: {
     fontSize: 13,
     fontWeight: "700",
+    flexShrink: 1,
   },
   emptyContent: {
     flexDirection: "row",
@@ -813,6 +912,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     flex: 1,
+    minWidth: 0,
+    width: "100%",
   },
   emptyIconBadge: {
     width: 36,
@@ -820,6 +921,14 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
+  },
+  emptyIcon: {
+    flexShrink: 0,
+  },
+  emptyTextColumn: {
+    flex: 1,
+    minWidth: 0,
   },
   emptyTitle: {
     fontSize: 14,
