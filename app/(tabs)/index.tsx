@@ -13,7 +13,7 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, {
@@ -36,7 +36,9 @@ import { useTodayActions } from "@/features/today/hooks/useTodayActions";
 import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
 import { PebbleCircadianHeader } from "@/features/today/components/PebbleCircadianHeader";
-import type { Checklist } from "@/shared/types/domain.types";
+import { NowFocusCard } from "@/features/today/components/NowFocusCard";
+import { getNowFocus, type NowFocusResult } from "@/features/today/utils/getNowFocus";
+import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 
@@ -138,6 +140,8 @@ export function TodayScreen() {
   >(undefined);
   const [pebbleJarModalVisible, setPebbleJarModalVisible] = useState(false);
   const [isZenModeActive, setIsZenModeActive] = useState(false);
+  const [zenTaskOverride, setZenTaskOverride] = useState<Task | null>(null);
+  const [zenHabitOverride, setZenHabitOverride] = useState<Habit | null>(null);
   const [isReviewModalVisible, setIsReviewModalVisible] = useState(false);
   const [gratitudeText, setGratitudeText] = useState("");
   const [intentionText, setIntentionText] = useState("");
@@ -398,6 +402,64 @@ export function TodayScreen() {
     selectedSortOption,
   });
 
+  const flatChecklists = useMemo(() => {
+    const list: Checklist[] = [];
+    Object.values(allChecklists).forEach((chks) => {
+      chks.forEach((c) => {
+        if (!c.archivedAt) {
+          list.push(c);
+        }
+      });
+    });
+    return list;
+  }, [allChecklists]);
+
+  const nowFocus = useMemo(() => {
+    return getNowFocus({
+      tasks: todoStats.pending,
+      habits: pendingHabits,
+      checklists: flatChecklists,
+    });
+  }, [todoStats.pending, pendingHabits, flatChecklists]);
+
+  const handleStartNowFocus = useCallback(
+    (focus: NowFocusResult) => {
+      if (!focus.item) return;
+      if (focus.type === "task") {
+        setZenTaskOverride(focus.item as Task);
+        setZenHabitOverride(null);
+        setIsZenModeActive(true);
+      } else if (focus.type === "habit") {
+        setZenHabitOverride(focus.item as Habit);
+        setZenTaskOverride(null);
+        setIsZenModeActive(true);
+      } else if (focus.type === "checklist") {
+        setExpandedChecklistIds((prev) => ({
+          ...prev,
+          [focus.item!.id]: true,
+        }));
+      }
+    },
+    [],
+  );
+
+  const handlePressNowCard = useCallback(
+    (focus: NowFocusResult) => {
+      if (!focus.item) return;
+      if (focus.type === "task") {
+        router.push(`/task-details?id=${focus.item.id}&type=task` as any);
+      } else if (focus.type === "habit") {
+        router.push(`/task-details?id=${focus.item.id}&type=habit` as any);
+      } else if (focus.type === "checklist") {
+        setExpandedChecklistIds((prev) => ({
+          ...prev,
+          [focus.item!.id]: !prev[focus.item!.id],
+        }));
+      }
+    },
+    [router],
+  );
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar
@@ -451,6 +513,16 @@ export function TodayScreen() {
             }}
           />
 
+          {/* Pebble NOW Focus Card */}
+          <NowFocusCard
+            focus={nowFocus}
+            onStartFocus={handleStartNowFocus}
+            onPressCard={handlePressNowCard}
+            colors={colors}
+            colorScheme={colorScheme}
+            style={{ marginBottom: 4 }}
+          />
+
           {/* Global Filter Row */}
           <DashboardFilterBar
             activeFilter={activeFilter}
@@ -497,12 +569,16 @@ export function TodayScreen() {
       {/* Zen Mode Overlay */}
       <ZenModeModal
         visible={isZenModeActive}
-        onClose={() => setIsZenModeActive(false)}
+        onClose={() => {
+          setIsZenModeActive(false);
+          setZenTaskOverride(null);
+          setZenHabitOverride(null);
+        }}
         colorScheme={colorScheme}
         colors={colors}
         breathStyle={breathStyle}
-        activeZenTask={todoStats.pending[0] || null}
-        activeZenHabit={pendingHabits[0] || null}
+        activeZenTask={zenTaskOverride || todoStats.pending[0] || null}
+        activeZenHabit={zenHabitOverride || pendingHabits[0] || null}
         getFolderById={getFolderById}
         onCompleteTask={completeTodoFromDashboard}
         onCompleteHabit={completeHabitFromDashboard}
