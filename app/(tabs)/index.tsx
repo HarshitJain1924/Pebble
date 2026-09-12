@@ -455,13 +455,59 @@ export function TodayScreen() {
       } else if (focus.type === "habit") {
         router.push(`/task-details?id=${focus.item.id}&type=habit` as any);
       } else if (focus.type === "checklist") {
-        setExpandedChecklistIds((prev) => ({
-          ...prev,
-          [focus.item!.id]: !prev[focus.item!.id],
-        }));
+        router.push(`/checklist-details?id=${focus.item.id}` as any);
       }
     },
     [router],
+  );
+
+  /**
+   * NOW direct completion — reuses the exact canonical Today completion flows
+   * (EntityCommandService.completeTask / completeHabit under the hood) so pebble
+   * rewards, streaks, history, reminders and live recompute stay untouched.
+   */
+  const handleCompleteNowFocus = useCallback(
+    (focus: NowFocusResult) => {
+      if (!focus.item) return;
+      if (focus.type === "task") {
+        void completeTodoFromDashboard(
+          focus.item.id,
+          undefined,
+          (focus.item as Task).workspaceId,
+        );
+      } else if (focus.type === "habit") {
+        void completeHabitFromDashboard(
+          focus.item.id,
+          undefined,
+          (focus.item as Habit).workspaceId,
+        );
+      }
+    },
+    [completeTodoFromDashboard, completeHabitFromDashboard],
+  );
+
+  /**
+   * NOW inline checklist item completion — reuses the canonical dashboard
+   * toggle (EntityCommandService.toggleChecklistItem), which owns occurrence,
+   * recurrence, progress and pebble-award semantics.
+   */
+  const handleCompleteNowChecklistItem = useCallback(
+    (focus: NowFocusResult, itemId: string) => {
+      if (!focus.item || focus.type !== "checklist") return;
+      const checklist = focus.item as Checklist;
+      // Recurring checklists complete against today's occurrence record, which is
+      // the state getNowFocus reads for progress / the next item.
+      const dateKey = checklist.recurrence
+        ? dateKeyFromDate(currentNow)
+        : undefined;
+      void toggleChecklistItemFromDashboard(
+        checklist.id,
+        itemId,
+        checklist.workspaceId,
+        dateKey,
+      );
+    },
+    [toggleChecklistItemFromDashboard, currentNow],
   );
 
   return (
@@ -520,6 +566,8 @@ export function TodayScreen() {
           {/* Pebble NOW Focus Card */}
           <NowFocusCard
             focus={nowFocus}
+            onComplete={handleCompleteNowFocus}
+            onCompleteChecklistItem={handleCompleteNowChecklistItem}
             onStartFocus={handleStartNowFocus}
             onPressCard={handlePressNowCard}
             onViewFocus={handlePressNowCard}

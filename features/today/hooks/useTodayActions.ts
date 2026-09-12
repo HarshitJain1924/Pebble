@@ -96,13 +96,32 @@ export function useTodayActions({
     }
   }, [loadDashboardData]);
 
+  /**
+   * Canonical checklist item toggle used by Today surfaces.
+   *
+   * `dateKey` is forwarded to the canonical command so recurring checklists are
+   * completed against the correct occurrence record (occurrenceHistory[dateKey])
+   * — the same state `getNowFocus` reads back for progress and the next item.
+   * Omitted for non-recurring checklists, preserving existing behavior.
+   */
   const toggleChecklistItemFromDashboard = useCallback(
-    async (checklistId: string, itemId: string, folderId: string) => {
+    async (
+      checklistId: string,
+      itemId: string,
+      folderId: string,
+      dateKey?: string,
+    ) => {
       try {
-        const result = await EntityCommandService.toggleChecklistItem(checklistId, itemId, folderId, {
-          skipEvents: true,
-          skipAnalytics: true,
-        });
+        const result = await EntityCommandService.toggleChecklistItem(
+          checklistId,
+          itemId,
+          folderId,
+          dateKey,
+          {
+            skipEvents: true,
+            skipAnalytics: true,
+          },
+        );
 
         if (result) {
           const updatedChecklist = result.updated;

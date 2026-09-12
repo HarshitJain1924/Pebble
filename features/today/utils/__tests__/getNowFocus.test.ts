@@ -414,6 +414,91 @@ describe("getNowFocus decision engine", () => {
     expect(result.item?.id).toBe("checklist-eod");
   });
 
+  // 12b. Checklist focus exposes occurrence-aware progress + the next actionable item
+  it("12b. active Checklist exposes checklistState with the next incomplete item", () => {
+    const checklist = mockChecklist({
+      id: "checklist-next",
+      items: [
+        { id: "i1", title: "Build bundle", completed: true },
+        { id: "i2", title: "Run migration", completed: false },
+        { id: "i3", title: "Smoke tests", completed: false },
+      ],
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 30),
+      referenceDateKey: TODAY_DATE,
+      tasks: [],
+      habits: [],
+      checklists: [checklist],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.checklistState).toEqual({
+      completedCount: 1,
+      total: 3,
+      nextItem: { id: "i2", title: "Run migration" },
+    });
+  });
+
+  it("12c. recurring Checklist resolves its next item from occurrence-isolated state", () => {
+    const checklist = mockChecklist({
+      id: "checklist-recurring",
+      recurrence: { frequency: "daily", interval: 1 },
+      items: [
+        { id: "i1", title: "Build bundle", completed: false },
+        { id: "i2", title: "Run migration", completed: false },
+      ],
+      occurrenceHistory: {
+        [TODAY_DATE]: { completedItemIds: ["i1"] },
+      },
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 30),
+      referenceDateKey: TODAY_DATE,
+      tasks: [],
+      habits: [],
+      checklists: [checklist],
+    });
+
+    expect(result.state).toBe("active");
+    // i1 is globally incomplete but completed for today's occurrence — i2 is next.
+    expect(result.checklistState).toEqual({
+      completedCount: 1,
+      total: 2,
+      nextItem: { id: "i2", title: "Run migration" },
+    });
+  });
+
+  it("12d. non-checklist focus carries no checklistState", () => {
+    const task = mockTask({
+      id: "task-no-checklist-state",
+      schedule: { date: TODAY_DATE, startTime: "14:00", endTime: "15:00" },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 30),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.checklistState).toBeUndefined();
+  });
+
   // 13. Completed Task/Habit/Checklist cannot become NOW
   it("13. completed Task/Habit/Checklist cannot become NOW", () => {
     const completedTask = mockTask({

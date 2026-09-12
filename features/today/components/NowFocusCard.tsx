@@ -16,15 +16,25 @@ export const PRIORITY_COLORS: Record<"high" | "medium" | "low", string> = {
   medium: "#F59E0B",
   low: "#64748B",
 };
-import {
-  getChecklistStats,
-  getHabitCurrentStreak,
-} from "@/shared/utils/domain-selectors";
+import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 
 export interface NowFocusCardProps {
   focus: NowFocusResult;
+  /**
+   * Direct completion of an active/recommended Task or Habit.
+   * The caller owns the canonical completion flow — this component never mutates.
+   */
+  onComplete?: (focus: NowFocusResult) => void;
+  /**
+   * Direct completion of a single checklist item by id.
+   * The caller owns the canonical checklist item flow — this component never mutates.
+   */
+  onCompleteChecklistItem?: (focus: NowFocusResult, itemId: string) => void;
+  /** Enter execution/focus mode (Zen) for the focus item. */
   onStartFocus?: (focus: NowFocusResult) => void;
+  /** Open the item's management surface (details page). */
   onPressCard?: (focus: NowFocusResult) => void;
+  /** Inspect-only action for UP NEXT items. Never starts focus. */
   onViewFocus?: (focus: NowFocusResult) => void;
   colors: ThemeColors;
   colorScheme: "light" | "dark" | null | undefined;
@@ -37,14 +47,23 @@ export interface NowFocusCardProps {
  * Renders Pebble's single primary focus for Today:
  * - ACTIVE: Currently active scheduled window ("NOW" + live accent)
  * - RECOMMENDED: Free time recommendation fitting duration ("NOW" + sparkle)
- * - UPCOMING: Next scheduled activity ("UP NEXT")
+ * - UPCOMING: Next scheduled activity ("UP NEXT") — inspect only, never execution
  * - EMPTY: Calm status when nothing requires immediate focus
  *
- * Implements Level 1 surface with left priority stripe, type-specific
- * metadata (Task/Habit/Checklist), and a non-destructive primary CTA.
+ * Execution semantics (smallest clean change on top of the existing surface):
+ * - ACTIVE / RECOMMENDED: direct "Complete" (Task/Habit) or an inline
+ *   next-item checkbox (Checklist), plus "Focus on this". Details live on the
+ *   card/title press.
+ * - UPCOMING: "View details" only. Never completes, never starts focus.
+ *
+ * Purely presentational: every mutation is emitted as a semantic callback
+ * (onComplete / onCompleteChecklistItem / onStartFocus / onViewFocus) and
+ * executed by the caller through Pebble's canonical command paths.
  */
 export const NowFocusCard: React.FC<NowFocusCardProps> = ({
   focus,
+  onComplete,
+  onCompleteChecklistItem,
   onStartFocus,
   onPressCard,
   onViewFocus,
@@ -117,49 +136,52 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
   // ─────────────────────────────────────────────────────────────
   // 2. ACTIVE, RECOMMENDED, or UPCOMING STATE
   // ─────────────────────────────────────────────────────────────
-  const { state, type, item, timeLabel, contextLabel } = focus;
+  const { state, type, item, timeLabel, contextLabel, checklistState } = focus;
 
-  // Action handlers with strict state-appropriate semantics:
-  // - UPCOMING: Must VIEW/inspect item (never starts Zen mode or mutates)
-  // - ACTIVE / RECOMMENDED: Triggers start / focus mode
-  const handleActionPress = () => {
-    if (state === "upcoming") {
-      if (onViewFocus) {
-        onViewFocus(focus);
-      } else if (onPressCard) {
-        onPressCard(focus);
-      }
-    } else {
-      if (onStartFocus) {
-        onStartFocus(focus);
-      } else if (onPressCard) {
-        onPressCard(focus);
-      }
+  // Execution states own direct progress; UPCOMING is inspect-only.
+  const isExecutionState = state === "active" || state === "recommended";
+  const isChecklistExecution = isExecutionState && type === "checklist";
+  const nextChecklistItem = isChecklistExecution
+    ? checklistState?.nextItem ?? null
+    : null;
+  const showDirectComplete = isExecutionState && type !== "checklist";
+
+  // UP NEXT never starts focus — it only inspects the item.
+  const handleViewPress = () => {
+    if (onViewFocus) {
+      onViewFocus(focus);
+    } else if (onPressCard) {
+      onPressCard(focus);
     }
   };
 
   const handleCardPress = () => {
     if (state === "upcoming") {
-      if (onViewFocus) {
-        onViewFocus(focus);
-      } else if (onPressCard) {
-        onPressCard(focus);
-      }
-    } else {
-      if (onPressCard) {
-        onPressCard(focus);
-      } else if (onStartFocus) {
-        onStartFocus(focus);
-      }
+      handleViewPress();
+      return;
     }
+    // Execution states: card/title is the management (details) affordance.
+    if (onPressCard) {
+      onPressCard(focus);
+    }
+  };
+
+  const handleCompletePress = () => {
+    onComplete?.(focus);
+  };
+
+  const handleFocusPress = () => {
+    onStartFocus?.(focus);
+  };
+
+  const handleChecklistItemPress = (itemId: string) => {
+    onCompleteChecklistItem?.(focus, itemId);
   };
 
   // Resolve item-specific metadata
   let priorityColor: string | undefined = undefined;
   let typeLabel = "Task";
   let contextDetail = "";
-  let actionLabel = "Start";
-  let actionIcon: "play" | "arrow-right" | "check" = "play";
 
   if (type === "task") {
     const task = item as Task;
@@ -180,13 +202,16 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
       contextDetail = `${streak} day streak 🔥`;
     }
   } else if (type === "checklist") {
-    const checklist = item as Checklist;
     typeLabel = "Checklist";
-    actionLabel = "Continue";
-    actionIcon = "arrow-right";
-    const stats = getChecklistStats(checklist);
-    contextDetail = `${stats.completedCount} / ${stats.total} completed`;
+    const total = checklistState?.total ?? 0;
+    if (total > 0) {
+      contextDetail = `${checklistState?.completedCount ?? 0} / ${total} completed`;
+    }
   }
+
+  // For checklist execution the progress is rendered on its own line beneath the
+  // subtitle (hierarchy stays on the current item), so keep it out of the subtitle.
+  const progressInSubtitle = type !== "checklist";
 
   // Eyebrow and accent resolution
   let eyebrowText = "NOW";
@@ -203,8 +228,6 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
   } else if (state === "upcoming") {
     eyebrowText = "UP NEXT";
     eyebrowIcon = "clock";
-    actionLabel = "View";
-    actionIcon = "arrow-right";
   }
 
   // Combine subtitle fragments
@@ -218,12 +241,12 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
     } else if (timeLabel) {
       subtitleParts.push(timeLabel);
     }
-    if (contextDetail) subtitleParts.push(contextDetail);
+    if (contextDetail && progressInSubtitle) subtitleParts.push(contextDetail);
   } else {
     // Active state
     if (timeLabel) subtitleParts.push(timeLabel);
     subtitleParts.push(typeLabel);
-    if (contextDetail) subtitleParts.push(contextDetail);
+    if (contextDetail && progressInSubtitle) subtitleParts.push(contextDetail);
   }
   const subtitleDisplay = subtitleParts.join(" · ");
 
@@ -233,11 +256,15 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
       style={[styles.container, style]}
       testID={`now-focus-card-${state}`}
     >
-      <PressableScale
-        onPress={handleCardPress}
-        haptic
-        scaleTo={0.98}
-        contentStyle={[
+      {/*
+       * IMPORTANT: the card surface is a plain View and every interactive control
+       * (details pressable, View details, checklist checkbox, Complete, Focus) is a
+       * SIBLING of the others. PressableScale renders its children inside a
+       * pointerEvents="none" wrapper, so a control nested inside the details
+       * pressable would fall through to the card's navigation handler.
+       */}
+      <View
+        style={[
           styles.cardSurface,
           {
             backgroundColor: isDark ? "rgba(30, 41, 59, 0.7)" : "#FFFFFF",
@@ -246,9 +273,6 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
               : "rgba(0, 0, 0, 0.08)",
           },
         ]}
-        style={styles.cardPressableWrap}
-        accessibilityRole="button"
-        accessibilityLabel={`${eyebrowText}: ${item.title}`}
       >
         {/* Left priority / status accent stripe */}
         <View
@@ -269,136 +293,232 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
         />
 
         <View style={styles.cardInner}>
-          {/* Eyebrow Header */}
-          <View style={styles.eyebrowRow}>
-            {isLiveActive ? (
-              <View style={styles.liveIndicatorWrap}>
-                <View
-                  style={[
-                    styles.liveDotOuter,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(99, 102, 241, 0.25)"
-                        : "rgba(99, 102, 241, 0.15)",
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.liveDotInner,
-                      { backgroundColor: colors.primary || "#6366F1" },
-                    ]}
-                  />
-                </View>
+          <View style={styles.contentRow}>
+            {/* Details affordance: eyebrow + title + subtitle. */}
+            <PressableScale
+              onPress={handleCardPress}
+              haptic
+              scaleTo={0.99}
+              style={styles.detailsArea}
+              contentStyle={styles.detailsAreaContent}
+              accessibilityRole="button"
+              accessibilityLabel={`${eyebrowText}: ${item.title}`}
+            >
+              {/* Eyebrow Header */}
+              <View style={styles.eyebrowRow}>
+                {isLiveActive ? (
+                  <View style={styles.liveIndicatorWrap}>
+                    <View
+                      style={[
+                        styles.liveDotOuter,
+                        {
+                          backgroundColor: isDark
+                            ? "rgba(99, 102, 241, 0.25)"
+                            : "rgba(99, 102, 241, 0.15)",
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.liveDotInner,
+                          { backgroundColor: colors.primary || "#6366F1" },
+                        ]}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.eyebrowText,
+                        { color: colors.primary || "#6366F1" },
+                      ]}
+                    >
+                      {eyebrowText}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.eyebrowBadgeWrap}>
+                    <Feather
+                      name={eyebrowIcon === "clock" ? "clock" : "compass"}
+                      size={12}
+                      color={
+                        state === "recommended"
+                          ? "#10B981"
+                          : colors.primary || "#6366F1"
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.eyebrowText,
+                        {
+                          color:
+                            state === "recommended"
+                              ? "#10B981"
+                              : colors.primary || "#6366F1",
+                        },
+                      ]}
+                    >
+                      {eyebrowText}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Title + supporting context */}
+              <View style={styles.textColumn}>
                 <Text
                   style={[
-                    styles.eyebrowText,
-                    { color: colors.primary || "#6366F1" },
+                    styles.titleText,
+                    { color: colors.text },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {item.title}
+                </Text>
+                {subtitleDisplay ? (
+                  <Text
+                    style={[
+                      styles.subtitleText,
+                      { color: colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {subtitleDisplay}
+                  </Text>
+                ) : null}
+              </View>
+            </PressableScale>
+
+            {/* UP NEXT only: inspect action. Never completes, never starts focus. */}
+            {state === "upcoming" ? (
+              <PressableScale
+                onPress={handleViewPress}
+                haptic
+                scaleTo={0.95}
+                contentStyle={styles.actionButtonContent}
+                style={[
+                  styles.actionButton,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.12)"
+                      : "rgba(0, 0, 0, 0.06)",
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`View ${item.title}`}
+                testID="now-focus-action-button"
+              >
+                <Text
+                  style={[
+                    styles.actionButtonText,
+                    { color: colors.text },
                   ]}
                 >
-                  {eyebrowText}
+                  View details
                 </Text>
-              </View>
-            ) : (
-              <View style={styles.eyebrowBadgeWrap}>
+                <Feather name="chevron-right" size={13} color={colors.text} />
+              </PressableScale>
+            ) : null}
+          </View>
+
+          {/* Checklist execution: occurrence-aware progress */}
+          {isChecklistExecution && contextDetail ? (
+            <Text
+              style={[styles.checklistProgressText, { color: colors.textMuted }]}
+              testID="now-focus-checklist-progress"
+            >
+              {contextDetail}
+            </Text>
+          ) : null}
+
+          {/* Checklist execution: the single next actionable item */}
+          {isChecklistExecution && nextChecklistItem ? (
+            <View style={styles.checklistItemRow} testID="now-focus-checklist-item">
+              <PressableScale
+                onPress={() => handleChecklistItemPress(nextChecklistItem.id)}
+                haptic
+                scaleTo={0.9}
+                hitSlop={12}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: false }}
+                accessibilityLabel={`Complete checklist item ${nextChecklistItem.title}`}
+                testID="now-focus-checklist-item-checkbox"
+                style={[
+                  styles.checklistItemCheckbox,
+                  {
+                    borderColor: isDark
+                      ? "rgba(255, 255, 255, 0.3)"
+                      : "rgba(0, 0, 0, 0.25)",
+                  },
+                ]}
+              />
+              <Text
+                style={[styles.checklistItemTitle, { color: colors.text }]}
+                numberOfLines={1}
+                testID="now-focus-checklist-item-title"
+              >
+                {nextChecklistItem.title}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Execution actions: direct completion + focus */}
+          {isExecutionState ? (
+            <View style={styles.actionRow}>
+              {showDirectComplete ? (
+                <PressableScale
+                  onPress={handleCompletePress}
+                  haptic
+                  scaleTo={0.95}
+                  contentStyle={styles.actionButtonContent}
+                  style={[styles.actionPill, styles.completePill]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Complete ${item.title}`}
+                  testID="now-focus-complete-button"
+                >
+                  <Feather name="check" size={14} color="#FFFFFF" />
+                  <Text style={[styles.actionButtonText, { color: "#FFFFFF" }]}>
+                    Complete
+                  </Text>
+                </PressableScale>
+              ) : null}
+
+              <PressableScale
+                onPress={handleFocusPress}
+                haptic
+                scaleTo={0.95}
+                contentStyle={styles.actionButtonContent}
+                style={[
+                  styles.actionPill,
+                  {
+                    backgroundColor: showDirectComplete
+                      ? isDark
+                        ? "rgba(255, 255, 255, 0.1)"
+                        : "rgba(0, 0, 0, 0.05)"
+                      : colors.primary || "#6366F1",
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Focus on ${item.title}`}
+                testID="now-focus-action-button"
+              >
                 <Feather
-                  name={eyebrowIcon === "clock" ? "clock" : "compass"}
+                  name="play"
                   size={12}
-                  color={
-                    state === "recommended"
-                      ? "#10B981"
-                      : colors.primary || "#6366F1"
-                  }
+                  color={showDirectComplete ? colors.text : "#FFFFFF"}
                 />
                 <Text
                   style={[
-                    styles.eyebrowText,
-                    {
-                      color:
-                        state === "recommended"
-                          ? "#10B981"
-                          : colors.primary || "#6366F1",
-                    },
-                  ]}
-                >
-                  {eyebrowText}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* Body Content & Primary CTA */}
-          <View style={styles.contentRow}>
-            <View style={styles.textColumn}>
-              <Text
-                style={[
-                  styles.titleText,
-                  { color: colors.text },
-                ]}
-                numberOfLines={2}
-              >
-                {item.title}
-              </Text>
-              {subtitleDisplay ? (
-                <Text
-                  style={[
-                    styles.subtitleText,
-                    { color: colors.textMuted },
+                    styles.actionButtonText,
+                    { color: showDirectComplete ? colors.text : "#FFFFFF" },
                   ]}
                   numberOfLines={1}
                 >
-                  {subtitleDisplay}
+                  Focus on this
                 </Text>
-              ) : null}
+              </PressableScale>
             </View>
-
-            {/* Primary Action Button (44x44 minimum hit target) */}
-            <PressableScale
-              onPress={handleActionPress}
-              haptic
-              scaleTo={0.95}
-              contentStyle={styles.actionButtonContent}
-              style={[
-                styles.actionButton,
-                {
-                  backgroundColor:
-                    state === "upcoming"
-                      ? isDark
-                        ? "rgba(255, 255, 255, 0.12)"
-                        : "rgba(0, 0, 0, 0.06)"
-                      : colors.primary || "#6366F1",
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={`${actionLabel} ${item.title}`}
-              testID="now-focus-action-button"
-            >
-              <Text
-                style={[
-                  styles.actionButtonText,
-                  {
-                    color:
-                      state === "upcoming"
-                        ? colors.text
-                        : "#FFFFFF",
-                  },
-                ]}
-              >
-                {actionLabel}
-              </Text>
-              <Feather
-                name={actionIcon === "play" ? "play" : "chevron-right"}
-                size={13}
-                color={
-                  state === "upcoming"
-                    ? colors.text
-                    : "#FFFFFF"
-                }
-              />
-            </PressableScale>
-          </View>
+          ) : null}
         </View>
-      </PressableScale>
+      </View>
     </Animated.View>
   );
 };
@@ -407,9 +527,6 @@ const styles = StyleSheet.create({
   container: {
     marginHorizontal: 16,
     marginVertical: 6,
-  },
-  cardPressableWrap: {
-    width: "100%",
   },
   cardSurface: {
     width: "100%",
@@ -434,6 +551,20 @@ const styles = StyleSheet.create({
     minWidth: 0,
     paddingVertical: 14,
     paddingHorizontal: 14,
+    gap: 8,
+  },
+  contentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    width: "100%",
+  },
+  detailsArea: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailsAreaContent: {
     gap: 8,
   },
   eyebrowRow: {
@@ -468,15 +599,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
-  contentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    width: "100%",
-  },
   textColumn: {
-    flex: 1,
     minWidth: 0,
     gap: 3,
   },
@@ -489,13 +612,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+  },
+  actionPill: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderRadius: Radius.pill,
+  },
+  completePill: {
+    backgroundColor: "#10B981",
+  },
   actionButton: {
     flexShrink: 0,
     justifyContent: "center",
     alignItems: "center",
     minHeight: 44,
-    minWidth: 84,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderRadius: Radius.pill,
   },
   actionButtonContent: {
@@ -507,6 +648,29 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: 13,
     fontWeight: "700",
+  },
+  checklistProgressText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  checklistItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+  },
+  checklistItemCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    flexShrink: 0,
+  },
+  checklistItemTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: "600",
   },
   emptyContent: {
     flexDirection: "row",

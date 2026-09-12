@@ -10,6 +10,7 @@ import type {
 import {
   getChecklistStats,
   getChecklistOccurrenceStats,
+  getNextIncompleteChecklistItem,
   isChecklistCompletedForDate,
   isHabitCompletedToday,
   isTaskCompleted,
@@ -21,6 +22,17 @@ import { dateKeyFromDate } from "@/shared/utils/date-key";
 export type NowFocusState = "active" | "recommended" | "upcoming" | "empty";
 export type NowFocusItemType = "task" | "habit" | "checklist";
 
+/**
+ * Occurrence-aware checklist execution state for the NOW surface.
+ * Present only when the focus item is a Checklist.
+ */
+export interface NowChecklistState {
+  completedCount: number;
+  total: number;
+  /** Next actionable item in canonical checklist order, or null when fully complete. */
+  nextItem: { id: string; title: string } | null;
+}
+
 export type NowFocusResult =
   | {
       state: "empty";
@@ -31,6 +43,7 @@ export type NowFocusResult =
       windowMinutes?: undefined;
       durationMinutes?: undefined;
       nextScheduledTime?: undefined;
+      checklistState?: undefined;
     }
   | {
       state: "active" | "recommended" | "upcoming";
@@ -41,6 +54,8 @@ export type NowFocusResult =
       windowMinutes?: number;
       durationMinutes?: number;
       nextScheduledTime?: string;
+      /** Checklist-only: occurrence-aware progress + next actionable item. */
+      checklistState?: NowChecklistState;
     };
 
 export interface GetNowFocusOptions {
@@ -290,6 +305,25 @@ export function getNowFocus({
 
   const parsedCandidates: ParsedCandidate[] = [];
 
+  /**
+   * Projects the occurrence-aware checklist execution state onto the result so the
+   * NOW card stays presentational (no completion/recurrence logic in the component).
+   */
+  const resolveChecklistState = (
+    candidate: ParsedCandidate,
+  ): NowChecklistState | undefined => {
+    if (candidate.type !== "checklist") return undefined;
+    const nextItem = getNextIncompleteChecklistItem(
+      candidate.item as Checklist,
+      dateKey,
+    );
+    return {
+      completedCount: candidate.checklistProgress?.completedCount ?? 0,
+      total: candidate.checklistProgress?.totalCount ?? 0,
+      nextItem: nextItem ? { id: nextItem.id, title: nextItem.title } : null,
+    };
+  };
+
   // Parse Tasks
   for (const task of eligibleTasks) {
     const priority = task.priority || "none";
@@ -405,6 +439,7 @@ export function getNowFocus({
       item: active.item,
       timeLabel,
       durationMinutes: active.durationMinutes,
+      checklistState: resolveChecklistState(active),
     };
   }
 
@@ -527,6 +562,7 @@ export function getNowFocus({
         nextScheduled && nextScheduled.startMinutes !== undefined
           ? formatMinutesToTime(nextScheduled.startMinutes)
           : undefined,
+      checklistState: resolveChecklistState(recommended),
     };
   }
 
@@ -544,6 +580,7 @@ export function getNowFocus({
       durationMinutes: nextScheduled.durationMinutes,
       windowMinutes: availableWindowMinutes,
       nextScheduledTime: timeLabel,
+      checklistState: resolveChecklistState(nextScheduled),
     };
   }
 

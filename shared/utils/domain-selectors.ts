@@ -345,6 +345,27 @@ export function getChecklistCompletedItemsCountForDate(
 }
 
 /**
+ * Resolve the next actionable (incomplete) item of a checklist.
+ *
+ * Canonical source of truth for "what should the user do next" on a checklist:
+ * - Respects the checklist's own item ordering (single source of truth, no guessing).
+ * - Honors item-level completion for non-recurring checklists.
+ * - Honors occurrence-isolated completion (occurrenceHistory[dateKey]) for
+ *   recurring checklists via getChecklistItemCompletedForDate.
+ *
+ * Returns undefined when every item is already complete (or the checklist has no items).
+ */
+export function getNextIncompleteChecklistItem(
+  checklist: Checklist,
+  dateKey?: string,
+): import("../types/domain.types").ChecklistItem | undefined {
+  const items = checklist.items || [];
+  return items.find(
+    (item) => !getChecklistItemCompletedForDate(checklist, item.id, dateKey),
+  );
+}
+
+/**
  * Check whether a checklist is fully completed on a specific date.
  */
 export function isChecklistCompletedForDate(
