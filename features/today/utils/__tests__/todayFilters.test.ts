@@ -29,7 +29,12 @@ function task(
   };
 }
 
-function habit(id: string, workspaceId: string, completed = false): Habit {
+function habit(
+  id: string,
+  workspaceId: string,
+  completed = false,
+  overrides: Partial<Habit> = {},
+): Habit {
   return {
     id,
     workspaceId,
@@ -42,10 +47,16 @@ function habit(id: string, workspaceId: string, completed = false): Habit {
     lifecycleGeneration: 1,
     createdAt: 1,
     updatedAt: 1,
+    ...overrides,
   };
 }
 
-function checklist(id: string, workspaceId: string, completed = false): Checklist {
+function checklist(
+  id: string,
+  workspaceId: string,
+  completed = false,
+  overrides: Partial<Checklist> = {},
+): Checklist {
   return {
     id,
     workspaceId,
@@ -58,21 +69,32 @@ function checklist(id: string, workspaceId: string, completed = false): Checklis
     lifecycleGeneration: 1,
     createdAt: 1,
     updatedAt: 1,
+    ...overrides,
   };
 }
 
 const baseInput = {
   pendingTasks: [
-    task("High work", "work", "high", { categoryId: "work", schedule: { date: TODAY } }),
-    task("Low personal", "personal", "low", { categoryId: "personal" }),
+    task("High work", "work", "high", {
+      categoryId: "work",
+      description: "Quarterly report",
+      schedule: { date: TODAY },
+    }),
+    task("Low personal", "personal", "low", {
+      categoryId: "personal",
+      description: "Buy groceries",
+    }),
   ],
   completedTasks: [
     task("Done work", "work", "high", { status: "completed", categoryId: "work" }),
   ],
   overdueTasks: [task("Late work", "work", "high", { categoryId: "work" })],
-  pendingHabits: [habit("Morning habit", "work")],
-  completedHabits: [habit("Done habit", "work", true)],
-  checklists: [checklist("Open checklist", "work"), checklist("Done checklist", "work", true)],
+  pendingHabits: [habit("Morning habit", "work", false, { categoryId: "health" })],
+  completedHabits: [habit("Done habit", "work", true, { categoryId: "health" })],
+  checklists: [
+    checklist("Open checklist", "work", false, { description: "Release steps" }),
+    checklist("Done checklist", "work", true),
+  ],
   workspaceNames: { work: "Work", personal: "Personal" },
 };
 
@@ -115,6 +137,106 @@ describe("applyTodayFilters", () => {
     expect(
       applyTodayFilters(baseInput, filter({ type: "checklists" }), TODAY).checklists,
     ).toHaveLength(2);
+  });
+
+  it("supports case-insensitive partial matching across titles, descriptions, workspaces, and category names", () => {
+    expect(
+      applyTodayFilters(baseInput, filter({ type: "tasks" }), TODAY).tasks.map((item) => item.id),
+    ).toEqual(["High work", "Low personal"]);
+
+    expect(
+      applyTodayFilters({ ...baseInput, searchQuery: "REPORT" }, DEFAULT_TODAY_FILTERS, TODAY).tasks.map(
+        (item) => item.id,
+      ),
+    ).toEqual(["High work"]);
+
+    expect(
+      applyTodayFilters({ ...baseInput, searchQuery: "PERSON" }, DEFAULT_TODAY_FILTERS, TODAY).tasks.map(
+        (item) => item.id,
+      ),
+    ).toEqual(["Low personal"]);
+
+    expect(
+      applyTodayFilters({ ...baseInput, searchQuery: "HEALTH" }, DEFAULT_TODAY_FILTERS, TODAY).pendingHabits.map(
+        (item) => item.id,
+      ),
+    ).toEqual(["Morning habit"]);
+  });
+
+  it("returns no execution items for a query with no matches", () => {
+    const result = applyTodayFilters(
+      { ...baseInput, searchQuery: "does-not-exist" },
+      DEFAULT_TODAY_FILTERS,
+      TODAY,
+    );
+
+    expect(result.tasks).toEqual([]);
+    expect(result.completedTasks).toEqual([]);
+    expect(result.pendingHabits).toEqual([]);
+    expect(result.completedHabits).toEqual([]);
+    expect(result.checklists).toEqual([]);
+  });
+
+  it("composes search with type, workspace, priority, status, schedule, and category filters", () => {
+    const result = applyTodayFilters(
+      { ...baseInput, searchQuery: "report" },
+      filter({
+        type: "tasks",
+        workspaceId: "work",
+        categoryId: "work",
+        priority: "high",
+        schedule: "scheduled",
+        status: "active",
+      }),
+      TODAY,
+    );
+
+    expect(result.tasks.map((item) => item.id)).toEqual(["High work"]);
+    expect(result.completedTasks).toEqual([]);
+    expect(result.pendingHabits).toEqual([]);
+    expect(result.checklists).toEqual([]);
+  });
+
+  it("keeps search scoped to entity rows and preserves checklist behavior", () => {
+    const result = applyTodayFilters(
+      { ...baseInput, searchQuery: "release" },
+      filter({ type: "checklists" }),
+      TODAY,
+    );
+
+    expect(result.checklists).toHaveLength(1);
+    expect(result.checklists[0]).toBe(baseInput.checklists[0]);
+    expect(result.checklists[0].items).toHaveLength(2);
+  });
+
+  it("preserves completed and overdue status semantics while searching", () => {
+    const completed = applyTodayFilters(
+      { ...baseInput, searchQuery: "done" },
+      filter({ status: "completed" }),
+      TODAY,
+    );
+    expect(completed.completedTasks.map((item) => item.id)).toEqual(["Done work"]);
+    expect(completed.completedHabits.map((item) => item.id)).toEqual(["Done habit"]);
+
+    const overdue = applyTodayFilters(
+      { ...baseInput, searchQuery: "late" },
+      filter({ status: "overdue" }),
+      TODAY,
+    );
+    expect(overdue.overdueTasks.map((item) => item.id)).toEqual(["Late work"]);
+    expect(overdue.tasks).toEqual([]);
+  });
+
+  it("does not mutate the raw execution dataset used by independent projections", () => {
+    const pendingBefore = [...baseInput.pendingTasks];
+    applyTodayFilters(
+      { ...baseInput, searchQuery: "report" },
+      DEFAULT_TODAY_FILTERS,
+      TODAY,
+    );
+
+    expect(baseInput.pendingTasks).toEqual(pendingBefore);
+    expect(baseInput.pendingTasks).toHaveLength(2);
   });
 
   it("keeps overdue separate from active, completed, and non-task results", () => {

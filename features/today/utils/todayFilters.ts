@@ -235,7 +235,9 @@ function matchesSharedFilters(
   if (!query) return true;
 
   const workspaceName = workspaceNames[resolveWorkspaceId(item)] || "";
-  return [item.title, item.description || "", workspaceName]
+  const categoryId = item.categoryId || "";
+  const categoryName = getCategoryMeta(categoryId)?.label || "";
+  return [item.title, item.description || "", workspaceName, categoryId, categoryName]
     .some((value) => value.toLowerCase().includes(query));
 }
 

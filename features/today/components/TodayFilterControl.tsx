@@ -14,6 +14,7 @@ import { Radius } from "@/shared/constants/radii";
 import type { ThemeColors } from "@/shared/constants/theme";
 import type { Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { TodaySearchControl } from "@/features/today/components/TodaySearchControl";
 import {
   DEFAULT_TODAY_FILTERS,
   getTodayCategoryLabel,
@@ -27,12 +28,17 @@ import {
   type TodayFilterType,
 } from "@/features/today/utils/todayFilters";
 
-interface TodayFilterControlProps {
+export interface TodayFilterControlProps {
   value: TodayFilterState;
   folders: Workspace[];
   categoryIds: string[];
   colors: ThemeColors;
   onApply: (next: TodayFilterState) => void | Promise<void>;
+  searchQuery: string;
+  isSearchActive: boolean;
+  onSearchOpen: () => void;
+  onSearchQueryChange: (query: string) => void;
+  onSearchExit: () => void;
 }
 
 type FilterSectionKey =
@@ -417,22 +423,32 @@ export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => 
     <>
       <View style={styles.controlWrap}>
         <Text style={[styles.availableWorkLabel, { color: props.colors.textMuted }]}>Available work</Text>
-        <PressableScale
-          onPress={() => setVisible(true)}
-          haptic
-          accessibilityRole="button"
-          accessibilityLabel={count > 0 ? `Open filters, ${count} active` : "Open filters"}
-          style={[styles.filterButton, { backgroundColor: props.colors.card, borderColor: props.colors.border }]}
-          contentStyle={styles.filterButtonContent}
-        >
-          <Feather name="sliders" size={15} color={props.colors.primary} />
-          <Text style={[styles.filterButtonText, { color: props.colors.text }]}>Filter</Text>
-          {count > 0 ? (
-            <View style={[styles.countBadge, { backgroundColor: `${props.colors.primary}20` }]}>
-              <Text style={[styles.countText, { color: props.colors.primary }]}>{count}</Text>
-            </View>
-          ) : null}
-        </PressableScale>
+        <View style={styles.controlActions}>
+          <TodaySearchControl
+            query={props.searchQuery}
+            active={props.isSearchActive}
+            colors={props.colors}
+            onOpen={props.onSearchOpen}
+            onChangeText={props.onSearchQueryChange}
+            onExit={props.onSearchExit}
+          />
+          <PressableScale
+            onPress={() => setVisible(true)}
+            haptic
+            accessibilityRole="button"
+            accessibilityLabel={count > 0 ? `Open filters, ${count} active` : "Open filters"}
+            style={[styles.filterButton, { backgroundColor: props.colors.card, borderColor: props.colors.border }]}
+            contentStyle={styles.filterButtonContent}
+          >
+            <Feather name="sliders" size={15} color={props.colors.primary} />
+            <Text style={[styles.filterButtonText, { color: props.colors.text }]}>Filter</Text>
+            {count > 0 ? (
+              <View style={[styles.countBadge, { backgroundColor: `${props.colors.primary}20` }]}>
+                <Text style={[styles.countText, { color: props.colors.primary }]}>{count}</Text>
+              </View>
+            ) : null}
+          </PressableScale>
+        </View>
       </View>
 
       <TodayFilterSheet
@@ -454,10 +470,18 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   availableWorkLabel: {
+    flexShrink: 1,
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 1.1,
     textTransform: "uppercase",
+  },
+  controlActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    flexShrink: 1,
   },
   filterButton: {
     minHeight: 44,

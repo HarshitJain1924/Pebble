@@ -27,6 +27,7 @@ import Animated, {
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TodayFilterControl } from "@/features/today/components/TodayFilterControl";
+import { TodaySearchEmptyState } from "@/features/today/components/TodaySearchControl";
 import { PebbleSanctuaryModal } from "@/features/today/components/PebbleSanctuaryModal";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
 import { ReviewMyDayModal } from "@/features/today/components/ReviewMyDayModal";
@@ -163,6 +164,7 @@ export function TodayScreen() {
   const [filterState, setFilterState] = useState<TodayFilterState>(
     DEFAULT_TODAY_FILTERS,
   );
+  const [isSearchActive, setIsSearchActive] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [hasUnreadNotifs, setHasUnreadNotifs] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -374,6 +376,19 @@ export function TodayScreen() {
     emitStateChange("dashboard_filter_changed", "today_filter_sheet");
   }, []);
 
+  const handleSearchOpen = useCallback(() => {
+    setIsSearchActive(true);
+  }, []);
+
+  const handleSearchExit = useCallback(() => {
+    setIsSearchActive(false);
+    setSearchQuery("");
+  }, []);
+
+  const handleSearchClear = useCallback(() => {
+    setSearchQuery("");
+  }, []);
+
   const getGreetingTime = () => {
     const hour = new Date().getHours();
     if (hour >= 4 && hour < 12) return "Good morning";
@@ -542,8 +557,6 @@ export function TodayScreen() {
             profile={profile}
             hasUnreadNotifs={hasUnreadNotifs}
             showSearch={false}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
             onJarPress={() => setPebbleJarModalVisible(true)}
             jarRef={miniJarRef}
             onJarLayout={onJarLayout}
@@ -580,21 +593,34 @@ export function TodayScreen() {
             categoryIds={filterCategoryIds}
             colors={colors}
             onApply={handleApplyFilters}
+            searchQuery={searchQuery}
+            isSearchActive={isSearchActive}
+            onSearchOpen={handleSearchOpen}
+            onSearchQueryChange={setSearchQuery}
+            onSearchExit={handleSearchExit}
           />
 
           {/* Workspace-Grouped Today Execution Stream */}
-          <WorkspaceSectionedStream
-            activeContexts={activeContexts}
-            colors={colors}
-            colorScheme={colorScheme}
-            allCollections={allResources}
-            expandedChecklistIds={expandedChecklistIds}
-            setExpandedChecklistIds={setExpandedChecklistIds}
-            router={router}
-            completeTodoFromDashboard={completeTodoFromDashboard}
-            completeHabitFromDashboard={completeHabitFromDashboard}
-            toggleChecklistItemFromDashboard={toggleChecklistItemFromDashboard}
-          />
+          {searchQuery.trim() && activeContexts.length === 0 ? (
+            <TodaySearchEmptyState
+              query={searchQuery.trim()}
+              colors={colors}
+              onClear={handleSearchClear}
+            />
+          ) : (
+            <WorkspaceSectionedStream
+              activeContexts={activeContexts}
+              colors={colors}
+              colorScheme={colorScheme}
+              allCollections={allResources}
+              expandedChecklistIds={expandedChecklistIds}
+              setExpandedChecklistIds={setExpandedChecklistIds}
+              router={router}
+              completeTodoFromDashboard={completeTodoFromDashboard}
+              completeHabitFromDashboard={completeHabitFromDashboard}
+              toggleChecklistItemFromDashboard={toggleChecklistItemFromDashboard}
+            />
+          )}
         </ScrollView>
       </Animated.View>
 
