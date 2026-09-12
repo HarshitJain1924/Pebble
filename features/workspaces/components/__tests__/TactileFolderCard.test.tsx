@@ -75,14 +75,40 @@ describe("TactileFolderCard Component", () => {
       Array.isArray(n.props.children) ? n.props.children.join("") : String(n.props.children ?? "")
     );
 
-    // Workspace Title & total count subtitle
     expect(texts).toContain("May");
     expect(texts).toContain("5 items");
 
-    // Inventory breakdown: 2 Tasks, 1 Habit, 2 Docs
+    // Inventory breakdown: 2 Tasks, 1 Habit, 2 Resources
     expect(texts.some((t: string) => t.includes("2 Tasks"))).toBe(true);
     expect(texts.some((t: string) => t.includes("1 Habit"))).toBe(true);
-    expect(texts.some((t: string) => t.includes("2 Docs"))).toBe(true);
+    expect(texts.some((t: string) => t.includes("2 Resources"))).toBe(true);
+  });
+
+  it("renders checklist chip and description when present", () => {
+    let renderer: any;
+    const wsWithDesc = { ...sampleWorkspace, description: "Monthly sprint focus" };
+    act(() => {
+      renderer = create(
+        <TactileFolderCard
+          workspace={wsWithDesc}
+          tasks={sampleTasks}
+          habitCount={0}
+          checklistCount={1}
+          resourceCount={0}
+          onSelectWorkspace={mockSelectWorkspace}
+          onEditWorkspace={mockEditWorkspace}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const textNodes = root.findAllByType("Text" as any);
+    const texts = textNodes.map((n: any) =>
+      Array.isArray(n.props.children) ? n.props.children.join("") : String(n.props.children ?? "")
+    );
+
+    expect(texts).toContain("Monthly sprint focus");
+    expect(texts.some((t: string) => t.includes("1 Checklist"))).toBe(true);
   });
 
   it("renders friendly empty state when workspace has 0 items", () => {
@@ -110,5 +136,46 @@ describe("TactileFolderCard Component", () => {
     expect(texts).toContain("May");
     expect(texts).toContain("0 items");
     expect(texts).toContain("Empty folder");
+  });
+
+  it("renders Feather icon when workspace has iconType 'icon'", () => {
+    let renderer: any;
+    const wsWithIcon: Workspace = {
+      ...sampleWorkspace,
+      emoji: undefined,
+      icon: "briefcase",
+      iconType: "icon",
+    };
+    act(() => {
+      renderer = create(
+        <TactileFolderCard
+          workspace={wsWithIcon}
+          tasks={[]}
+          habitCount={0}
+          checklistCount={0}
+          resourceCount={0}
+          onSelectWorkspace={mockSelectWorkspace}
+          onEditWorkspace={mockEditWorkspace}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const textNodes = root.findAllByType("Text" as any);
+    const texts = textNodes.map((n: any) =>
+      Array.isArray(n.props.children) ? n.props.children.join("") : String(n.props.children ?? "")
+    );
+
+    // Title should render
+    expect(texts).toContain("May");
+    // Emoji should NOT render
+    expect(texts).not.toContain("📁");
+
+    // Feather icon element should be found with name "briefcase"
+    const { Feather } = require("@expo/vector-icons");
+    const icons = root.findAllByType(Feather);
+    const briefcaseIcon = icons.find((i: any) => i.props.name === "briefcase");
+    expect(briefcaseIcon).toBeDefined();
+    expect(briefcaseIcon.props.color).toBe("#FFFFFF");
   });
 });

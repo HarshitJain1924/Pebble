@@ -385,7 +385,14 @@ interface PickerConfig {
 
 interface UnifiedCaptureProps {
   sheetRef: React.RefObject<BottomSheetModal | null>;
-  workspaces: { id: string; name: string; emoji?: string; color?: string }[];
+  workspaces: {
+    id: string;
+    name: string;
+    emoji?: string;
+    icon?: string;
+    iconType?: "emoji" | "icon";
+    color?: string;
+  }[];
   defaultWorkspaceId?: string;
   defaultDate?: string;
   defaultType?: ParsedProductivityItem["type"];
@@ -1179,7 +1186,7 @@ export default function UnifiedCapture({
         title: "Select Workspace",
         options: workspaces.map((w) => ({
           id: w.id,
-          label: `${w.emoji || "📂"} ${w.name}`,
+          label: `${w.iconType === "icon" || (!w.emoji && w.icon) ? "▣" : (w.emoji || "📂")} ${w.name}`,
           isSelected: (selectedWorkspaceId || INBOX_WORKSPACE_ID) === w.id,
         })),
         onSelect: (id: string) => handleWorkspaceChange(id),
@@ -1481,9 +1488,22 @@ export default function UnifiedCapture({
               accessibilityRole="button"
               style={[styles.contextBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }]}
             >
-              <Text numberOfLines={1} style={[styles.contextBtnText, { color: textPrimary }]}>
-                {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.emoji || "▣"} {workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID))?.name || "Inbox"}
-              </Text>
+              {(() => {
+                const curWs = workspaces.find((w) => w.id === (selectedWorkspaceId || INBOX_WORKSPACE_ID));
+                const isWsIcon = curWs?.iconType === "icon" || (!curWs?.emoji && curWs?.icon);
+                return (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                    {isWsIcon ? (
+                      <Feather name={(curWs?.icon || "folder") as any} size={13} color={curWs?.color || textPrimary} />
+                    ) : (
+                      <Text style={{ fontSize: 13 }}>{curWs?.emoji || "▣"}</Text>
+                    )}
+                    <Text numberOfLines={1} style={[styles.contextBtnText, { color: textPrimary }]}>
+                      {curWs?.name || "Inbox"}
+                    </Text>
+                  </View>
+                );
+              })()}
               <Feather name="chevron-down" size={13} color={textMuted} />
             </TouchableOpacity>
 
@@ -1572,7 +1592,14 @@ interface CaptureSummaryCardProps {
   borderColor: string;
   themePrimary: string;
   themeSecondary: string;
-  workspaces: { id: string; name: string; emoji?: string }[];
+  workspaces: {
+    id: string;
+    name: string;
+    emoji?: string;
+    icon?: string;
+    iconType?: "emoji" | "icon";
+    color?: string;
+  }[];
   selectedWorkspaceId?: string;
   onActivePickerChange: (picker: string | null, extraOptions?: ChipPickerOption[]) => void;
   onDismiss: () => void;
@@ -1733,7 +1760,8 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
     };
 
     const ws = workspaces.find((w) => w.id === selectedWorkspaceId);
-    pushField("workspace", "Workspace", ws ? `${ws.emoji ?? ""} ${ws.name}`.trim() || "Inbox" : "Inbox", "grid");
+    const wsPrefix = ws?.iconType === "icon" || (!ws?.emoji && ws?.icon) ? "" : (ws?.emoji ? `${ws.emoji} ` : "");
+    pushField("workspace", "Workspace", ws ? `${wsPrefix}${ws.name}`.trim() || "Inbox" : "Inbox", "grid");
 
     const isTaskLike = parsedItem.type === "task" || parsedItem.type === "habit" || parsedItem.type === "checklist";
     const isList = parsedItem.type === "checklist";

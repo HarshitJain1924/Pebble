@@ -130,6 +130,7 @@ export function useTasksState() {
   // Resource state
   const {
     resources,
+    setAllResources,
     loadResourcesState,
     createResource,
     updateResource,
@@ -374,6 +375,7 @@ export function useTasksState() {
         todosMap: allTodosMap,
         habits: allHabits,
         checklistsMap: allChecklistsMap,
+        resourcesMap: allResourcesMap,
       } = await loadWorkspaceData(currentLists);
 
       // Generation counter check — skip commit if a newer load request was initiated
@@ -387,6 +389,7 @@ export function useTasksState() {
       console.log("[INSTRUMENT] [useTasksState] setTodos(allTodosMap) CALLED — allTodosMap keys:", Object.keys(allTodosMap));
       setHabits(allHabits);
       setChecklists(allChecklistsMap);
+      setAllResources?.(allResourcesMap);
       await loadResourcesState(selectedWorkspaceId);
 
       if (requestId !== loadRequestIdRef.current) return;

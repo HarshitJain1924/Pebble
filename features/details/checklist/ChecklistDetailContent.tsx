@@ -136,7 +136,13 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   const totalCount = form.items.length;
   const progress = totalCount > 0 ? completedCount / totalCount : 0;
 
-  const currentWorkspace = useMemo(() => {
+  const currentWorkspace: {
+    name: string;
+    emoji?: string;
+    icon?: string;
+    iconType?: "emoji" | "icon";
+    color?: string;
+  } = useMemo(() => {
     return (
       workspaces.find((ws) => ws.id === form.workspaceId) || {
         name: "Inbox",
@@ -245,6 +251,8 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         id: folder.id,
         name: folder.name,
         emoji: folder.emoji,
+        icon: folder.icon,
+        iconType: folder.iconType,
         color: folder.color,
         revision: folder.revision || 1,
         lifecycleGeneration: folder.lifecycleGeneration || 1,
@@ -631,9 +639,17 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
                   marginTop: 6,
                 }}
               >
-                <Text style={{ fontSize: 14 }}>
-                  {currentWorkspace.emoji || "📁"}
-                </Text>
+                {currentWorkspace.iconType === "icon" || (!currentWorkspace.emoji && currentWorkspace.icon) ? (
+                  <Feather
+                    name={(currentWorkspace.icon || "folder") as any}
+                    size={14}
+                    color={currentWorkspace.color || colors.textMuted}
+                  />
+                ) : (
+                  <Text style={{ fontSize: 14 }}>
+                    {currentWorkspace.emoji || "📁"}
+                  </Text>
+                )}
                 <Text
                   style={{
                     color: colors.textMuted,
@@ -895,9 +911,18 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
                   accessibilityRole="button"
                   accessibilityLabel={`Select ${ws.name} workspace`}
                 >
-                  <Text style={{ fontSize: 18, marginRight: 10 }}>
-                    {ws.emoji || "📁"}
-                  </Text>
+                  {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
+                    <Feather
+                      name={(ws.icon || "folder") as any}
+                      size={18}
+                      color={form.workspaceId === ws.id ? colors.primary : colors.text}
+                      style={{ marginRight: 10 }}
+                    />
+                  ) : (
+                    <Text style={{ fontSize: 18, marginRight: 10 }}>
+                      {ws.emoji || "📁"}
+                    </Text>
+                  )}
                   <Text
                     style={{
                       color:

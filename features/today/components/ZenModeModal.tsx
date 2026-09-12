@@ -131,7 +131,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                       }}
                     >
                       {folder
-                        ? `${folder.emoji} ${folder.name}`
+                        ? `${folder.emoji ? `${folder.emoji} ` : ""}${folder.name}`
                         : "FOCUS PEBBLE"}
                     </Text>
                   </View>
@@ -197,7 +197,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                       }}
                     >
                       {folder
-                        ? `${folder.emoji} ${folder.name} • HABIT`
+                        ? `${folder.emoji ? `${folder.emoji} ` : ""}${folder.name} • HABIT`
                         : "FOCUS HABIT"}
                     </Text>
                   </View>

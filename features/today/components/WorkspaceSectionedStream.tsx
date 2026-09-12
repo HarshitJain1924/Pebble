@@ -778,9 +778,17 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                     { backgroundColor: `${folderColor}18` },
                   ]}
                 >
-                  <Text style={styles.folderEmojiText}>
-                    {folder.emoji || "📁"}
-                  </Text>
+                  {folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
+                    <Feather
+                      name={(folder.icon || "folder") as any}
+                      size={14}
+                      color={folderColor}
+                    />
+                  ) : (
+                    <Text style={styles.folderEmojiText}>
+                      {folder.emoji || "📁"}
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.headerTitleWrap}>
                   <Text

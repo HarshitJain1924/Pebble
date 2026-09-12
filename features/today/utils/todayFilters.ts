@@ -188,6 +188,74 @@ export function getTodayCategoryLabel(categoryId: string): string {
   return getCategoryMeta(categoryId)?.label || getTodayFilterLabel(categoryId);
 }
 
+export interface ActiveFilterPill {
+  key: keyof TodayFilterState;
+  label: string;
+}
+
+export function getActiveFilterPills(
+  state: TodayFilterState,
+  folders: { id: string; name: string }[] = [],
+): ActiveFilterPill[] {
+  const pills: ActiveFilterPill[] = [];
+
+  if (state.type !== "all") {
+    pills.push({
+      key: "type",
+      label: getTodayFilterLabel(state.type),
+    });
+  }
+  if (state.priority !== "all") {
+    pills.push({
+      key: "priority",
+      label: `${getTodayFilterLabel(state.priority)} Priority`,
+    });
+  }
+  if (state.status !== "all") {
+    pills.push({
+      key: "status",
+      label: getTodayFilterLabel(state.status),
+    });
+  }
+  if (state.schedule !== "all") {
+    pills.push({
+      key: "schedule",
+      label: getTodayFilterLabel(state.schedule),
+    });
+  }
+  if (state.workspaceId !== "all") {
+    const ws = folders.find((f) => f.id === state.workspaceId);
+    pills.push({
+      key: "workspaceId",
+      label: ws ? ws.name : "Workspace",
+    });
+  }
+  if (state.categoryId !== "all") {
+    pills.push({
+      key: "categoryId",
+      label: getTodayCategoryLabel(state.categoryId),
+    });
+  }
+  if (state.sort !== "default") {
+    pills.push({
+      key: "sort",
+      label: `Sort: ${getTodayFilterLabel(state.sort)}`,
+    });
+  }
+
+  return pills;
+}
+
+export function removeTodayFilter(
+  state: TodayFilterState,
+  key: keyof TodayFilterState,
+): TodayFilterState {
+  return {
+    ...state,
+    [key]: DEFAULT_TODAY_FILTERS[key],
+  };
+}
+
 function uniqueById<T extends { id: string }>(items: T[]): T[] {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -237,7 +305,11 @@ function matchesSharedFilters(
   const workspaceName = workspaceNames[resolveWorkspaceId(item)] || "";
   const categoryId = item.categoryId || "";
   const categoryName = getCategoryMeta(categoryId)?.label || "";
-  return [item.title, item.description || "", workspaceName, categoryId, categoryName]
+  const subItemsText =
+    "items" in item && Array.isArray((item as any).items)
+      ? (item as any).items.map((sub: any) => sub.title || "").join(" ")
+      : "";
+  return [item.title, item.description || "", workspaceName, categoryId, categoryName, subItemsText]
     .some((value) => value.toLowerCase().includes(query));
 }
 

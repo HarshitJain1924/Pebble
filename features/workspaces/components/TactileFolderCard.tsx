@@ -9,6 +9,7 @@ import {
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
@@ -18,7 +19,7 @@ import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export const FOLDER_CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
 export const FOLDER_CARD_HEIGHT = 185;
-export const FOLDER_POCKET_HEIGHT = 92;
+export const FOLDER_POCKET_HEIGHT = 94;
 
 interface TactileFolderCardProps {
   workspace: Workspace;
@@ -82,7 +83,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
     if (checklistCount > 0) {
       list.push({
         key: "checklists",
-        label: checklistCount === 1 ? "List" : "Lists",
+        label: checklistCount === 1 ? "Checklist" : "Checklists",
         count: checklistCount,
         icon: "list",
         color: "#10B981",
@@ -91,7 +92,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
     if (resourceCount > 0) {
       list.push({
         key: "resources",
-        label: resourceCount === 1 ? "Doc" : "Docs",
+        label: resourceCount === 1 ? "Resource" : "Resources",
         count: resourceCount,
         icon: "paperclip",
         color: "#A855F7",
@@ -105,6 +106,44 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
     if (totalItemCount === 0) return "0 items";
     return `${totalItemCount} ${totalItemCount === 1 ? "item" : "items"}`;
   }, [totalItemCount]);
+
+  // Description text for workspace
+  const descriptionText =
+    workspace.description ||
+    (workspace.id === "inbox"
+      ? "Quick capture"
+      : workspace.id === "my-pebbles"
+      ? "Personal space"
+      : undefined);
+
+  // Curvy top edges with clean, straight diagonal tilted sides
+  const { pocketPath, rimPath } = React.useMemo(() => {
+    const w = FOLDER_CARD_WIDTH;
+    const h = FOLDER_POCKET_HEIGHT;
+    const taper = 5; // 5pt straight tilt on each side
+    const rTop = 14; // Curvy top corners
+    const rBot = 16; // Smooth bottom corner matching folder body
+
+    const xTR = Number((w - (taper * rTop) / h).toFixed(2));
+    const xTL = Number(((taper * rTop) / h).toFixed(2));
+
+    const p = [
+      `M ${rTop} 0`,
+      `L ${w - rTop} 0`,
+      `Q ${w} 0, ${xTR} ${rTop}`,
+      `L ${w - taper} ${h - rBot}`,
+      `C ${w - taper} ${h - rBot * 0.45}, ${w - taper - rBot * 0.45} ${h}, ${w - taper - rBot} ${h}`,
+      `L ${taper + rBot} ${h}`,
+      `C ${taper + rBot * 0.45} ${h}, ${taper} ${h - rBot * 0.45}, ${taper} ${h - rBot}`,
+      `L ${xTL} ${rTop}`,
+      `Q 0 0, ${rTop} 0`,
+      "Z",
+    ].join(" ");
+
+    const r = `M ${rTop} 1.5 L ${w - rTop} 1.5`;
+
+    return { pocketPath: p, rimPath: r };
+  }, []);
 
   return (
     <View style={styles.wrapper}>
@@ -213,6 +252,8 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
                       { color: isDark ? "rgba(255,255,255,0.9)" : "#334155" },
                     ]}
                     numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.75}
                   >
                     {item.count} {item.label}
                   </Text>
@@ -238,30 +279,50 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
           )}
         </View>
 
-        {/* ─── LAYER 3: FRONT POCKET FLAP (BOTTOM HALF POCKET) ─── */}
-        <View
-          style={[
-            styles.frontPocket,
-            {
-              backgroundColor: workspaceColor,
-            },
-          ]}
-        >
-          {/* Subtle top bevel rim highlight */}
-          <View style={styles.pocketTopRimHighlight} />
-          <View style={styles.pocketInnerShading} />
+        {/* ─── LAYER 3: 3D FRONT POCKET WITH STRAIGHT TILTED SIDES ─── */}
+        <View style={styles.frontPocket}>
+          <Svg
+            width={FOLDER_CARD_WIDTH}
+            height={FOLDER_POCKET_HEIGHT}
+            style={StyleSheet.absoluteFillObject}
+          >
+            <Defs>
+              <SvgLinearGradient id={`pocketGrad-${workspace.id}`} x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.16} />
+                <Stop offset="0.45" stopColor="#FFFFFF" stopOpacity={0.02} />
+                <Stop offset="1" stopColor="#000000" stopOpacity={0.2} />
+              </SvgLinearGradient>
+            </Defs>
+            {/* Base Pocket Shape */}
+            <Path d={pocketPath} fill={workspaceColor} />
+            {/* 3D Sheen Overlay */}
+            <Path d={pocketPath} fill={`url(#pocketGrad-${workspace.id})`} />
+            {/* Top Rim Luminous Stroke */}
+            <Path d={rimPath} stroke="rgba(255,255,255,0.42)" strokeWidth={1.5} strokeLinecap="round" />
+          </Svg>
 
           {/* Front Pocket Content */}
           <View style={styles.frontPocketContent}>
             <View style={styles.titleColumn}>
               <View style={styles.nameRow}>
-                {workspace.emoji ? (
+                {workspace.iconType === "icon" || (!workspace.emoji && workspace.icon) ? (
+                  <Feather
+                    name={(workspace.icon || "folder") as any}
+                    size={15}
+                    color="#FFFFFF"
+                  />
+                ) : workspace.emoji ? (
                   <Text style={styles.workspaceEmoji}>{workspace.emoji}</Text>
                 ) : null}
                 <Text style={styles.workspaceTitle} numberOfLines={1}>
                   {workspace.name}
                 </Text>
               </View>
+              {descriptionText ? (
+                <Text style={styles.workspaceDescription} numberOfLines={1}>
+                  {descriptionText}
+                </Text>
+              ) : null}
               <Text style={styles.workspaceSubtitle} numberOfLines={1}>
                 {subtitle}
               </Text>
@@ -318,10 +379,10 @@ const styles = StyleSheet.create({
   backFlapBody: {
     position: "absolute",
     top: 0,
-    left: 0,
-    right: 0,
+    left: 3,
+    right: 3,
     bottom: 0,
-    borderRadius: 22,
+    borderRadius: 20,
     overflow: "hidden",
     zIndex: 1,
     ...Platform.select({
@@ -345,8 +406,8 @@ const styles = StyleSheet.create({
   slipCard: {
     position: "absolute",
     top: 6,
-    left: 8,
-    right: 8,
+    left: 9,
+    right: 9,
     height: 125,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
@@ -397,17 +458,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   inventoryChip: {
-    width: "48%",
+    width: "48.5%",
     flexDirection: "row",
     alignItems: "center",
-    gap: 3.5,
-    paddingHorizontal: 5,
+    gap: 3,
+    paddingHorizontal: 4.5,
     paddingVertical: 3.5,
     borderRadius: 6,
     borderWidth: 1,
   },
   inventoryChipText: {
-    fontSize: 9.5,
+    fontSize: 8.5,
     fontWeight: "600",
     flex: 1,
   },
@@ -429,13 +490,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: FOLDER_POCKET_HEIGHT,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
     zIndex: 3,
-    overflow: "hidden",
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
     ...Platform.select({
       ios: {
         shadowColor: "#000000",
@@ -451,22 +507,10 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  pocketTopRimHighlight: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1.5,
-    backgroundColor: "rgba(255,255,255,0.32)",
-  },
-  pocketInnerShading: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.03)",
-  },
   frontPocketContent: {
-    paddingHorizontal: 12,
-    paddingBottom: 14,
-    paddingTop: 8,
+    paddingHorizontal: 14,
+    paddingTop: 13,
+    paddingBottom: 10,
   },
   titleColumn: {
     paddingRight: 32,
@@ -474,8 +518,8 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginBottom: 2,
+    gap: 4.5,
+    marginBottom: 1.5,
   },
   workspaceEmoji: {
     fontSize: 15,
@@ -486,14 +530,20 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     letterSpacing: -0.3,
   },
+  workspaceDescription: {
+    fontSize: 10.5,
+    fontWeight: "500",
+    color: "rgba(255,255,255,0.78)",
+    marginBottom: 2.5,
+  },
   workspaceSubtitle: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: "600",
-    color: "rgba(255,255,255,0.74)",
+    color: "rgba(255,255,255,0.68)",
   },
   actionButtonContainer: {
     position: "absolute",
-    bottom: 12,
+    bottom: 24,
     right: 12,
     zIndex: 10,
   },

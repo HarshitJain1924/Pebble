@@ -106,13 +106,18 @@ export function WorkspaceModal({
         const workspace = workspaces.find((l) => l.id === editingWorkspaceId);
         if (workspace) {
           setWorkspaceNameInput(workspace.name);
+          const isIcon = workspace.iconType === "icon" || (!workspace.emoji && Boolean(workspace.icon));
+          setWorkspaceIconTypeInput(isIcon ? "icon" : "emoji");
+          setWorkspaceIconInput(workspace.icon || "briefcase");
           setWorkspaceEmojiInput(workspace.emoji || "📁");
           setWorkspaceColorInput(workspace.color || "#6366F1");
           setWorkspaceDescriptionInput(workspace.description || "");
         }
       } else {
         setWorkspaceNameInput("");
+        setWorkspaceIconTypeInput("emoji");
         setWorkspaceEmojiInput("📚");
+        setWorkspaceIconInput("briefcase");
         setWorkspaceColorInput("#6366F1");
         setWorkspaceDescriptionInput("");
       }
@@ -122,6 +127,10 @@ export function WorkspaceModal({
   const handleSave = () => {
     const trimmed = workspaceNameInput.trim();
     if (!trimmed) return;
+
+    const isIconType = workspaceIconTypeInput === "icon";
+    const emojiVal = isIconType ? undefined : workspaceEmojiInput;
+    const iconVal = isIconType ? workspaceIconInput : undefined;
 
     let updatedWorkspaces = [...workspaces];
     let updatedTodos = { ...todos };
@@ -133,7 +142,9 @@ export function WorkspaceModal({
           ? {
               ...l,
               name: trimmed,
-              emoji: workspaceEmojiInput,
+              iconType: workspaceIconTypeInput,
+              emoji: emojiVal,
+              icon: iconVal,
               color: workspaceColorInput,
               description: workspaceDescriptionInput.trim() || undefined,
               updatedAt: Date.now(),
@@ -145,7 +156,9 @@ export function WorkspaceModal({
       updatedWorkspaces.push({
         id: newId,
         name: trimmed,
-        emoji: workspaceEmojiInput,
+        iconType: workspaceIconTypeInput,
+        emoji: emojiVal,
+        icon: iconVal,
         color: workspaceColorInput,
         description: workspaceDescriptionInput.trim() || undefined,
         revision: 1,

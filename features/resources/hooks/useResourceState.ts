@@ -17,6 +17,14 @@ export function useResourceState(
 ) {
   const [resources, setResources] = useState<Record<string, Resource[]>>(() => globalResources || {});
 
+  const setAllResources = useCallback((allMap: Record<string, Resource[]>) => {
+    setResources((prev) => {
+      const next = { ...prev, ...allMap };
+      setGlobalResources(next);
+      return next;
+    });
+  }, []);
+
   const loadResourcesState = useCallback(async (targetWorkspaceId?: string) => {
     try {
       const activeList = targetWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
@@ -133,6 +141,7 @@ export function useResourceState(
 
   return {
     resources,
+    setAllResources,
     loadResourcesState,
     createResource,
     updateResource,

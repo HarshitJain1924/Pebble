@@ -2,7 +2,9 @@ import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
 import {
   applyTodayFilters,
   DEFAULT_TODAY_FILTERS,
+  getActiveFilterPills,
   normalizeTodayFilters,
+  removeTodayFilter,
   toPersistedTodayFilters,
   type TodayFilterState,
 } from "../todayFilters";
@@ -271,6 +273,26 @@ describe("applyTodayFilters", () => {
       "Low personal",
     ]);
   });
+
+  it("matches checklist sub-item titles when searching", () => {
+    const customInput = {
+      ...baseInput,
+      checklists: [
+        checklist("Open checklist", "work", false, {
+          items: [{ id: "sub-1", title: "Verify deployment logs", completed: false }],
+        }),
+        checklist("Done checklist", "work", true, {
+          items: [{ id: "sub-2", title: "Review PR", completed: true }],
+        }),
+      ],
+    };
+    const result = applyTodayFilters(
+      { ...customInput, searchQuery: "deployment" },
+      DEFAULT_TODAY_FILTERS,
+      TODAY,
+    );
+    expect(result.checklists.map((item) => item.id)).toEqual(["Open checklist"]);
+  });
 });
 
 describe("Today filter persistence compatibility", () => {
@@ -293,3 +315,45 @@ describe("Today filter persistence compatibility", () => {
     ).toMatchObject({ filter: "overdue", priority: "all", status: "overdue" });
   });
 });
+
+describe("Today active filter pills and removal", () => {
+  it("returns an empty pill list for default filters", () => {
+    expect(getActiveFilterPills(DEFAULT_TODAY_FILTERS)).toEqual([]);
+  });
+
+  it("generates readable pills for active filters", () => {
+    const state: TodayFilterState = {
+      type: "habits",
+      workspaceId: "work",
+      categoryId: "all",
+      priority: "high",
+      schedule: "scheduled",
+      status: "active",
+      sort: "priority",
+    };
+    const folders = [{ id: "work", name: "Work Workspace" }];
+    const pills = getActiveFilterPills(state, folders);
+
+    expect(pills).toEqual([
+      { key: "type", label: "Habits" },
+      { key: "priority", label: "High Priority" },
+      { key: "status", label: "Active" },
+      { key: "schedule", label: "Scheduled" },
+      { key: "workspaceId", label: "Work Workspace" },
+      { key: "sort", label: "Sort: Priority" },
+    ]);
+  });
+
+  it("removes a specific filter and resets only that key to default", () => {
+    const state: TodayFilterState = {
+      ...DEFAULT_TODAY_FILTERS,
+      type: "tasks",
+      priority: "high",
+    };
+    const updated = removeTodayFilter(state, "priority");
+
+    expect(updated.priority).toBe("all");
+    expect(updated.type).toBe("tasks");
+  });
+});
+

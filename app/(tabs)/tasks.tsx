@@ -868,7 +868,11 @@ export function WorkspacesScreen() {
                     gap: 10,
                   }}
                 >
-                  <Text style={{ fontSize: 18 }}>{ws.emoji || "📁"}</Text>
+                  {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
+                    <Feather name={(ws.icon || "folder") as any} size={18} color={ws.color || colors.primary} />
+                  ) : (
+                    <Text style={{ fontSize: 18 }}>{ws.emoji || "📁"}</Text>
+                  )}
                   <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>{ws.name}</Text>
                 </TouchableOpacity>
               ))}

@@ -14,10 +14,13 @@ import { withLock } from "@/shared/utils/mutex";
 const WORKSPACES_KEY = "pebble:v1:workspaces";
 
 export function normalizeWorkspace(raw: any): Workspace {
+  const isIcon = raw.iconType === "icon" || (!raw.emoji && Boolean(raw.icon) && raw.iconType !== "emoji");
   return {
     id: raw.id,
     name: raw.name || "Untitled Workspace",
-    emoji: raw.emoji || (raw.iconType === "emoji" ? raw.icon : undefined),
+    emoji: isIcon ? undefined : (raw.emoji || (raw.iconType === "emoji" ? raw.icon : undefined)),
+    icon: isIcon ? (raw.icon || "briefcase") : undefined,
+    iconType: isIcon ? "icon" : (raw.iconType === "emoji" || raw.emoji ? "emoji" : undefined),
     color: raw.color || undefined,
     description: raw.description || undefined,
     revision: raw.revision ?? 1,

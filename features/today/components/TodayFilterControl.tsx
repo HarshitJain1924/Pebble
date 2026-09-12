@@ -17,9 +17,10 @@ import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { TodaySearchControl } from "@/features/today/components/TodaySearchControl";
 import {
   DEFAULT_TODAY_FILTERS,
+  getActiveFilterPills,
   getTodayCategoryLabel,
   getTodayFilterCount,
-  getTodayFilterLabel,
+  removeTodayFilter,
   type TodayFilterPriority,
   type TodayFilterSchedule,
   type TodayFilterSort,
@@ -40,15 +41,6 @@ export interface TodayFilterControlProps {
   onSearchQueryChange: (query: string) => void;
   onSearchExit: () => void;
 }
-
-type FilterSectionKey =
-  | "type"
-  | "workspaceId"
-  | "categoryId"
-  | "priority"
-  | "schedule"
-  | "status"
-  | "sort";
 
 interface FilterOption<T extends string> {
   value: T;
@@ -88,81 +80,66 @@ const SORT_OPTIONS: FilterOption<TodayFilterSort>[] = [
   { value: "alphabetical", label: "Alphabetical" },
 ];
 
-function FilterOptionRow<T extends string>({
-  option,
-  selected,
+function FilterChipGroup<T extends string>({
+  label,
+  options,
+  selectedValue,
   colors,
   onSelect,
 }: {
-  option: FilterOption<T>;
-  selected: boolean;
+  label: string;
+  options: FilterOption<T>[];
+  selectedValue: T;
   colors: ThemeColors;
   onSelect: (value: T) => void;
 }) {
   return (
-    <PressableScale
-      onPress={() => onSelect(option.value)}
-      hitSlop={4}
-      haptic
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
-      accessibilityLabel={option.label}
-      style={styles.optionPressable}
-      contentStyle={[
-        styles.optionContent,
-        {
-          backgroundColor: selected ? `${colors.primary}18` : "transparent",
-          borderColor: selected ? colors.primary : colors.border,
-        },
-      ]}
-    >
-      <Text style={[styles.optionText, { color: selected ? colors.primary : colors.text }]}>
-        {option.label}
-      </Text>
-      {selected ? <Feather name="check" size={15} color={colors.primary} /> : null}
-    </PressableScale>
-  );
-}
-
-function FilterSection({
-  title,
-  summary,
-  expanded,
-  colors,
-  onToggle,
-  children,
-}: {
-  title: string;
-  summary: string;
-  expanded: boolean;
-  colors: ThemeColors;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={[styles.section, { borderBottomColor: colors.border }]}>
-      <PressableScale
-        onPress={onToggle}
-        haptic
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        accessibilityLabel={`${title} filter, ${summary}`}
-        style={styles.sectionHeaderPressable}
-        contentStyle={styles.sectionHeaderContent}
-      >
-        <View style={styles.sectionTitleWrap}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
-          {!expanded ? (
-            <Text style={[styles.sectionSummary, { color: colors.textMuted }]}>{summary}</Text>
-          ) : null}
-        </View>
-        <Feather
-          name={expanded ? "chevron-up" : "chevron-down"}
-          size={16}
-          color={colors.textMuted}
-        />
-      </PressableScale>
-      {expanded ? <View style={styles.options}>{children}</View> : null}
+    <View style={styles.chipGroupSection}>
+      <Text style={[styles.chipGroupLabel, { color: colors.textMuted }]}>{label}</Text>
+      <View style={styles.chipGroupRow}>
+        {options.map((option) => {
+          const isSelected = selectedValue === option.value;
+          return (
+            <PressableScale
+              key={option.value}
+              onPress={() => onSelect(option.value)}
+              hitSlop={4}
+              haptic
+              accessibilityRole="radio"
+              accessibilityState={{ selected: isSelected }}
+              accessibilityLabel={`${label}: ${option.label}`}
+              style={[
+                styles.sheetChip,
+                {
+                  backgroundColor: isSelected ? `${colors.primary}18` : colors.card,
+                  borderColor: isSelected ? colors.primary : colors.border,
+                },
+              ]}
+              contentStyle={styles.sheetChipContent}
+            >
+              {isSelected ? (
+                <Feather
+                  name="check"
+                  size={13}
+                  color={colors.primary}
+                  style={styles.sheetChipCheck}
+                />
+              ) : null}
+              <Text
+                style={[
+                  styles.sheetChipText,
+                  {
+                    color: isSelected ? colors.primary : colors.text,
+                    fontWeight: isSelected ? "700" : "500",
+                  },
+                ]}
+              >
+                {option.label}
+              </Text>
+            </PressableScale>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -177,20 +154,10 @@ function TodayFilterSheet({
   onClose,
 }: TodayFilterControlProps & { visible: boolean; onClose: () => void }) {
   const [draft, setDraft] = useState<TodayFilterState>(value);
-  const [expanded, setExpanded] = useState<Record<FilterSectionKey, boolean>>({
-    type: true,
-    workspaceId: false,
-    categoryId: false,
-    priority: false,
-    schedule: false,
-    status: false,
-    sort: false,
-  });
 
   useEffect(() => {
     if (visible) {
       setDraft(value);
-      setExpanded((current) => ({ ...current, type: true }));
     }
   }, [visible, value]);
 
@@ -223,10 +190,6 @@ function TodayFilterSheet({
     [categoryIds],
   );
 
-  const toggleSection = (section: FilterSectionKey) => {
-    setExpanded((current) => ({ ...current, [section]: !current[section] }));
-  };
-
   const setFilter = <K extends keyof TodayFilterState>(key: K, next: TodayFilterState[K]) => {
     setDraft((current) => ({ ...current, [key]: next }));
   };
@@ -237,8 +200,10 @@ function TodayFilterSheet({
         <View style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={[styles.sheetHeader, { borderBottomColor: colors.border }]}>
             <View>
-              <Text style={[styles.sheetTitle, { color: colors.text }]}>Filter</Text>
-              <Text style={[styles.sheetSubtitle, { color: colors.textMuted }]}>Shape Available Work</Text>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>Filters</Text>
+              <Text style={[styles.sheetSubtitle, { color: colors.textMuted }]}>
+                Shape Available Work
+              </Text>
             </View>
             <PressableScale
               onPress={close}
@@ -257,131 +222,65 @@ function TodayFilterSheet({
             style={styles.sheetScroll}
             contentContainerStyle={styles.sheetScrollContent}
           >
-            <FilterSection
-              title="Type"
-              summary={getTodayFilterLabel(draft.type)}
-              expanded={expanded.type}
+            <FilterChipGroup
+              label="Type"
+              options={TYPE_OPTIONS}
+              selectedValue={draft.type}
               colors={colors}
-              onToggle={() => toggleSection("type")}
-            >
-              {TYPE_OPTIONS.map((option) => (
-                <FilterOptionRow
-                  key={option.value}
-                  option={option}
-                  selected={draft.type === option.value}
-                  colors={colors}
-                  onSelect={(value) => setFilter("type", value)}
-                />
-              ))}
-            </FilterSection>
+              onSelect={(val) => setFilter("type", val)}
+            />
 
-            <FilterSection
-              title="Workspace"
-              summary={workspaceOptions.find((option) => option.value === draft.workspaceId)?.label || "All"}
-              expanded={expanded.workspaceId}
+            <FilterChipGroup
+              label="Priority"
+              options={PRIORITY_OPTIONS}
+              selectedValue={draft.priority}
               colors={colors}
-              onToggle={() => toggleSection("workspaceId")}
-            >
-              {workspaceOptions.map((option) => (
-                <FilterOptionRow
-                  key={option.value}
-                  option={option}
-                  selected={draft.workspaceId === option.value}
-                  colors={colors}
-                  onSelect={(value) => setFilter("workspaceId", value)}
-                />
-              ))}
-            </FilterSection>
+              onSelect={(val) => setFilter("priority", val)}
+            />
 
-            <FilterSection
-              title="Category"
-              summary={categoryOptions.find((option) => option.value === draft.categoryId)?.label || "All"}
-              expanded={expanded.categoryId}
+            <FilterChipGroup
+              label="Status"
+              options={STATUS_OPTIONS}
+              selectedValue={draft.status}
               colors={colors}
-              onToggle={() => toggleSection("categoryId")}
-            >
-              {categoryOptions.map((option) => (
-                <FilterOptionRow
-                  key={option.value}
-                  option={option}
-                  selected={draft.categoryId === option.value}
-                  colors={colors}
-                  onSelect={(value) => setFilter("categoryId", value)}
-                />
-              ))}
-            </FilterSection>
+              onSelect={(val) => setFilter("status", val)}
+            />
 
-            <FilterSection
-              title="Priority"
-              summary={getTodayFilterLabel(draft.priority)}
-              expanded={expanded.priority}
+            <FilterChipGroup
+              label="Schedule"
+              options={SCHEDULE_OPTIONS}
+              selectedValue={draft.schedule}
               colors={colors}
-              onToggle={() => toggleSection("priority")}
-            >
-              {PRIORITY_OPTIONS.map((option) => (
-                <FilterOptionRow
-                  key={option.value}
-                  option={option}
-                  selected={draft.priority === option.value}
-                  colors={colors}
-                  onSelect={(value) => setFilter("priority", value)}
-                />
-              ))}
-            </FilterSection>
+              onSelect={(val) => setFilter("schedule", val)}
+            />
 
-            <FilterSection
-              title="Schedule"
-              summary={getTodayFilterLabel(draft.schedule)}
-              expanded={expanded.schedule}
+            <FilterChipGroup
+              label="Sort by"
+              options={SORT_OPTIONS}
+              selectedValue={draft.sort}
               colors={colors}
-              onToggle={() => toggleSection("schedule")}
-            >
-              {SCHEDULE_OPTIONS.map((option) => (
-                <FilterOptionRow
-                  key={option.value}
-                  option={option}
-                  selected={draft.schedule === option.value}
-                  colors={colors}
-                  onSelect={(value) => setFilter("schedule", value)}
-                />
-              ))}
-            </FilterSection>
+              onSelect={(val) => setFilter("sort", val)}
+            />
 
-            <FilterSection
-              title="Status"
-              summary={getTodayFilterLabel(draft.status)}
-              expanded={expanded.status}
-              colors={colors}
-              onToggle={() => toggleSection("status")}
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <FilterOptionRow
-                  key={option.value}
-                  option={option}
-                  selected={draft.status === option.value}
-                  colors={colors}
-                  onSelect={(value) => setFilter("status", value)}
-                />
-              ))}
-            </FilterSection>
+            {workspaceOptions.length > 1 ? (
+              <FilterChipGroup
+                label="Workspace"
+                options={workspaceOptions}
+                selectedValue={draft.workspaceId}
+                colors={colors}
+                onSelect={(val) => setFilter("workspaceId", val)}
+              />
+            ) : null}
 
-            <FilterSection
-              title="Sort"
-              summary={getTodayFilterLabel(draft.sort)}
-              expanded={expanded.sort}
-              colors={colors}
-              onToggle={() => toggleSection("sort")}
-            >
-              {SORT_OPTIONS.map((option) => (
-                <FilterOptionRow
-                  key={option.value}
-                  option={option}
-                  selected={draft.sort === option.value}
-                  colors={colors}
-                  onSelect={(value) => setFilter("sort", value)}
-                />
-              ))}
-            </FilterSection>
+            {categoryOptions.length > 1 ? (
+              <FilterChipGroup
+                label="Category"
+                options={categoryOptions}
+                selectedValue={draft.categoryId}
+                colors={colors}
+                onSelect={(val) => setFilter("categoryId", val)}
+              />
+            ) : null}
           </ScrollView>
 
           <View style={[styles.sheetFooter, { borderTopColor: colors.border }]}>
@@ -393,7 +292,7 @@ function TodayFilterSheet({
               style={styles.footerButton}
               contentStyle={styles.clearButtonContent}
             >
-              <Text style={[styles.clearButtonText, { color: colors.textMuted }]}>Clear all</Text>
+              <Text style={[styles.clearButtonText, { color: colors.textMuted }]}>Reset all</Text>
             </PressableScale>
             <PressableScale
               onPress={async () => {
@@ -418,12 +317,15 @@ function TodayFilterSheet({
 export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => {
   const [visible, setVisible] = useState(false);
   const count = getTodayFilterCount(props.value);
+  const activePills = useMemo(
+    () => getActiveFilterPills(props.value, props.folders),
+    [props.value, props.folders],
+  );
 
   return (
-    <>
-      <View style={styles.controlWrap}>
-        <Text style={[styles.availableWorkLabel, { color: props.colors.textMuted }]}>Available work</Text>
-        <View style={styles.controlActions}>
+    <View style={styles.container}>
+      {props.isSearchActive ? (
+        <View style={styles.activeSearchWrap}>
           <TodaySearchControl
             query={props.searchQuery}
             active={props.isSearchActive}
@@ -432,41 +334,178 @@ export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => 
             onChangeText={props.onSearchQueryChange}
             onExit={props.onSearchExit}
           />
-          <PressableScale
-            onPress={() => setVisible(true)}
-            haptic
-            accessibilityRole="button"
-            accessibilityLabel={count > 0 ? `Open filters, ${count} active` : "Open filters"}
-            style={[styles.filterButton, { backgroundColor: props.colors.card, borderColor: props.colors.border }]}
-            contentStyle={styles.filterButtonContent}
-          >
-            <Feather name="sliders" size={15} color={props.colors.primary} />
-            <Text style={[styles.filterButtonText, { color: props.colors.text }]}>Filter</Text>
-            {count > 0 ? (
-              <View style={[styles.countBadge, { backgroundColor: `${props.colors.primary}20` }]}>
-                <Text style={[styles.countText, { color: props.colors.primary }]}>{count}</Text>
-              </View>
-            ) : null}
-          </PressableScale>
         </View>
+      ) : (
+        <View style={styles.controlWrap}>
+          <Text style={[styles.availableWorkLabel, { color: props.colors.textMuted }]}>
+            Available work
+          </Text>
+          <View style={styles.controlActions}>
+            <TodaySearchControl
+              query={props.searchQuery}
+              active={props.isSearchActive}
+              colors={props.colors}
+              onOpen={props.onSearchOpen}
+              onChangeText={props.onSearchQueryChange}
+              onExit={props.onSearchExit}
+            />
+            <PressableScale
+              onPress={() => setVisible(true)}
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={count > 0 ? `Open filters, ${count} active` : "Open filters"}
+              style={[
+                styles.filterButton,
+                {
+                  backgroundColor: props.colors.card,
+                  borderColor: count > 0 ? props.colors.primary : props.colors.border,
+                },
+              ]}
+              contentStyle={styles.filterButtonContent}
+            >
+              <Feather
+                name="sliders"
+                size={15}
+                color={count > 0 ? props.colors.primary : props.colors.textMuted}
+              />
+              <Text style={[styles.filterButtonText, { color: props.colors.text }]}>Filter</Text>
+              {count > 0 ? (
+                <View style={[styles.countBadge, { backgroundColor: `${props.colors.primary}20` }]}>
+                  <Text style={[styles.countText, { color: props.colors.primary }]}>{count}</Text>
+                </View>
+              ) : null}
+            </PressableScale>
+          </View>
+        </View>
+      )}
+
+      {/* Quick Type segmented pills */}
+      <View style={styles.quickTypeRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickTypeScrollContent}
+        >
+          {TYPE_OPTIONS.map((option) => {
+            const isSelected = props.value.type === option.value;
+            return (
+              <PressableScale
+                key={option.value}
+                onPress={() => {
+                  props.onApply({
+                    ...props.value,
+                    type: option.value,
+                  });
+                }}
+                haptic
+                hitSlop={4}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                accessibilityLabel={`Filter by ${option.label}`}
+                style={[
+                  styles.quickTypePill,
+                  {
+                    backgroundColor: isSelected ? `${props.colors.primary}18` : props.colors.card,
+                    borderColor: isSelected ? props.colors.primary : props.colors.border,
+                  },
+                ]}
+                contentStyle={styles.quickTypePillContent}
+              >
+                <Text
+                  style={[
+                    styles.quickTypePillText,
+                    {
+                      color: isSelected ? props.colors.primary : props.colors.textMuted,
+                      fontWeight: isSelected ? "700" : "500",
+                    },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </ScrollView>
       </View>
+
+      {/* Active Filter Chips (if any non-default filter active) */}
+      {activePills.length > 0 ? (
+        <View style={styles.activePillsRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.activePillsScrollContent}
+          >
+            {activePills.map((pill) => (
+              <View
+                key={pill.key}
+                style={[
+                  styles.activePill,
+                  {
+                    backgroundColor: `${props.colors.primary}14`,
+                    borderColor: `${props.colors.primary}35`,
+                  },
+                ]}
+              >
+                <Text style={[styles.activePillText, { color: props.colors.primary }]}>
+                  {pill.label}
+                </Text>
+                <PressableScale
+                  onPress={() => props.onApply(removeTodayFilter(props.value, pill.key))}
+                  haptic
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove filter ${pill.label}`}
+                  style={styles.pillClearBtn}
+                  contentStyle={styles.pillClearBtnContent}
+                >
+                  <Feather name="x" size={12} color={props.colors.primary} />
+                </PressableScale>
+              </View>
+            ))}
+            <PressableScale
+              onPress={() => props.onApply(DEFAULT_TODAY_FILTERS)}
+              haptic
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Reset all filters"
+              style={styles.resetAllBtn}
+              contentStyle={styles.resetAllBtnContent}
+            >
+              <Text style={[styles.resetAllBtnText, { color: props.colors.textMuted }]}>
+                Reset all
+              </Text>
+            </PressableScale>
+          </ScrollView>
+        </View>
+      ) : null}
 
       <TodayFilterSheet
         {...props}
         visible={visible}
         onClose={() => setVisible(false)}
       />
-    </>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    marginBottom: 8,
+  },
   controlWrap: {
     marginTop: 20,
     marginHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    minHeight: 44,
+  },
+  activeSearchWrap: {
+    marginTop: 20,
+    marginHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
     minHeight: 44,
   },
   availableWorkLabel: {
@@ -511,13 +550,83 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "800",
   },
+  quickTypeRow: {
+    marginTop: 10,
+    marginHorizontal: 16,
+  },
+  quickTypeScrollContent: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 2,
+  },
+  quickTypePill: {
+    minHeight: 34,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+  },
+  quickTypePillContent: {
+    minHeight: 34,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickTypePillText: {
+    fontSize: 12,
+  },
+  activePillsRow: {
+    marginTop: 8,
+    marginHorizontal: 16,
+  },
+  activePillsScrollContent: {
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  activePill: {
+    minHeight: 28,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 10,
+    paddingRight: 4,
+    gap: 4,
+  },
+  activePillText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  pillClearBtn: {
+    minWidth: 22,
+    minHeight: 22,
+  },
+  pillClearBtnContent: {
+    minWidth: 22,
+    minHeight: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resetAllBtn: {
+    minHeight: 28,
+  },
+  resetAllBtnContent: {
+    minHeight: 28,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resetAllBtnText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
   sheet: {
     borderTopLeftRadius: Radius.xl,
     borderTopRightRadius: Radius.xl,
     borderWidth: 1,
     paddingTop: 8,
     paddingBottom: Platform.OS === "ios" ? 28 : 16,
-    maxHeight: "88%",
+    maxHeight: "85%",
   },
   sheetHeader: {
     minHeight: 64,
@@ -551,52 +660,41 @@ const styles = StyleSheet.create({
   },
   sheetScrollContent: {
     paddingHorizontal: 20,
+    paddingVertical: 8,
+    gap: 6,
   },
-  section: {
-    borderBottomWidth: 1,
+  chipGroupSection: {
+    paddingVertical: 8,
   },
-  sectionHeaderPressable: {
-    minHeight: 52,
-  },
-  sectionHeaderContent: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  sectionTitleWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    paddingRight: 12,
-  },
-  sectionTitle: {
-    fontSize: 14,
+  chipGroupLabel: {
+    fontSize: 11,
     fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: 8,
   },
-  sectionSummary: {
-    fontSize: 12,
-  },
-  options: {
+  chipGroupRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
-    paddingBottom: 12,
   },
-  optionPressable: {
-    minHeight: 44,
-  },
-  optionContent: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderRadius: Radius.md,
+  sheetChip: {
+    minHeight: 40,
     borderWidth: 1,
+    borderRadius: Radius.md,
+  },
+  sheetChipContent: {
+    minHeight: 40,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
   },
-  optionText: {
+  sheetChipCheck: {
+    marginRight: 4,
+  },
+  sheetChipText: {
     fontSize: 13,
-    fontWeight: "600",
   },
   sheetFooter: {
     paddingHorizontal: 20,

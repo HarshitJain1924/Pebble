@@ -61,17 +61,17 @@ export const TodaySearchControl: React.FC<TodaySearchControlProps> = ({
   }
 
   return (
-    <>
+    <View style={styles.activeContainer}>
       <Animated.View
         entering={FadeInRight.duration(160)}
         exiting={FadeOutRight.duration(120)}
         style={[styles.searchField, { backgroundColor: colors.card, borderColor: colors.primary }]}
       >
-        <Feather name="search" size={15} color={colors.textMuted} />
+        <Feather name="search" size={15} color={colors.primary} />
         <TextInput
           value={query}
           onChangeText={onChangeText}
-          placeholder="Search available work"
+          placeholder="Search tasks, habits, checklists..."
           placeholderTextColor={colors.textMuted}
           autoFocus
           autoCorrect={false}
@@ -83,7 +83,7 @@ export const TodaySearchControl: React.FC<TodaySearchControlProps> = ({
           <PressableScale
             onPress={() => onChangeText("")}
             haptic
-            hitSlop={6}
+            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Clear search"
             style={styles.iconButton}
@@ -99,12 +99,12 @@ export const TodaySearchControl: React.FC<TodaySearchControlProps> = ({
         haptic
         accessibilityRole="button"
         accessibilityLabel="Exit search"
-        style={[styles.exitButton, { borderColor: colors.border }]}
-        contentStyle={styles.iconButtonContent}
+        style={[styles.exitButton, { borderColor: colors.border, backgroundColor: colors.card }]}
+        contentStyle={styles.exitButtonContent}
       >
         <Feather name="x" size={16} color={colors.textMuted} />
       </PressableScale>
-    </>
+    </View>
   );
 };
 
@@ -125,7 +125,7 @@ export const TodaySearchEmptyState: React.FC<TodaySearchEmptyStateProps> = ({
     </View>
     <Text style={[styles.emptyTitle, { color: colors.text }]}>No matches</Text>
     <Text style={[styles.emptyDescription, { color: colors.textMuted }]}>
-      {`Nothing in your day matches “${query}”.`}
+      {`No items in your day match “${query}”.`}
     </Text>
     <PressableScale
       onPress={onClear}
@@ -133,8 +133,15 @@ export const TodaySearchEmptyState: React.FC<TodaySearchEmptyStateProps> = ({
       accessibilityRole="button"
       accessibilityLabel="Clear search"
       style={styles.clearButton}
-      contentStyle={styles.clearButtonContent}
+      contentStyle={[
+        styles.clearButtonContent,
+        {
+          backgroundColor: `${colors.primary}18`,
+          borderColor: colors.primary,
+        },
+      ]}
     >
+      <Feather name="x" size={13} color={colors.primary} />
       <Text style={[styles.clearButtonText, { color: colors.primary }]}>Clear search</Text>
     </PressableScale>
   </View>
@@ -160,9 +167,6 @@ const styles = StyleSheet.create({
   searchField: {
     minHeight: 44,
     flex: 1,
-    flexBasis: 130,
-    maxWidth: 220,
-    minWidth: 100,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
@@ -178,11 +182,23 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     fontSize: 13,
   },
+  activeContainer: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   exitButton: {
     minWidth: 44,
     minHeight: 44,
     borderWidth: 1,
     borderRadius: Radius.md,
+  },
+  exitButtonContent: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   iconButton: {
     minWidth: 32,

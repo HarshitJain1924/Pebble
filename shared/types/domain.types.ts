@@ -12,6 +12,8 @@ export interface Workspace {
   id: string;
   name: string;
   emoji?: string;
+  icon?: string;
+  iconType?: "emoji" | "icon";
   color?: string;
   description?: string;
   type?: "list" | "tag" | "smart";

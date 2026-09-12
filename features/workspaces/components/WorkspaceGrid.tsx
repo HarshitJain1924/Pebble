@@ -157,8 +157,15 @@ export function WorkspaceGrid({
             ? collections[workspace.id] || []
             : [];
           const resourceCount = workspaceCollections.reduce(
-            (sum: number, col: any) =>
-              sum + (col.items ? col.items.filter((i: any) => !i.archivedAt).length : 0),
+            (sum: number, item: any) => {
+              if (item.items && Array.isArray(item.items)) {
+                return (
+                  sum +
+                  item.items.filter((i: any) => !i.archivedAt && !i.archived).length
+                );
+              }
+              return sum + (!item.archivedAt && !item.archived ? 1 : 0);
+            },
             0
           );
           const workspaceChecklists = checklists

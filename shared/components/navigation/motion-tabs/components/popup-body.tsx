@@ -512,7 +512,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 ]}
               >
                 <View style={[styles.workspaceIconContainer, { backgroundColor: `${ws.color || colors.accent}12` }]}>
-                  <Text style={styles.workspaceEmoji}>{ws.emoji || "📁"}</Text>
+                  {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
+                    <Feather name={(ws.icon || "folder") as any} size={16} color={ws.color || colors.accent} />
+                  ) : (
+                    <Text style={styles.workspaceEmoji}>{ws.emoji || "📁"}</Text>
+                  )}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.workspaceName, { color: colors.foreground }]} numberOfLines={1}>

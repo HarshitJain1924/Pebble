@@ -28,7 +28,13 @@ export interface ChecklistDetailFormProps {
   moveItemUp: (index: number) => void;
   moveItemDown: (index: number) => void;
   toggleResource: (resId: string) => void;
-  currentWorkspace: { name: string; emoji?: string };
+  currentWorkspace: {
+    name: string;
+    emoji?: string;
+    icon?: string;
+    iconType?: "emoji" | "icon";
+    color?: string;
+  };
   linkedResources: Resource[];
   onOpenWorkspacePicker: () => void;
   onOpenLinkPicker: () => void;
@@ -128,9 +134,17 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
           accessibilityLabel="Select workspace"
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ fontSize: 15 }}>
-              {currentWorkspace.emoji || "📁"}
-            </Text>
+            {currentWorkspace.iconType === "icon" || (!currentWorkspace.emoji && currentWorkspace.icon) ? (
+              <Feather
+                name={(currentWorkspace.icon || "folder") as any}
+                size={15}
+                color={currentWorkspace.color || colors.primary}
+              />
+            ) : (
+              <Text style={{ fontSize: 15 }}>
+                {currentWorkspace.emoji || "📁"}
+              </Text>
+            )}
             <Text
               style={{ color: colors.text, fontSize: 15, fontWeight: "500" }}
             >

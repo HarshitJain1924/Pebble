@@ -402,7 +402,11 @@ export const ResourceDetailContent: React.FC<ResourceDetailContentProps> = ({
                       },
                     ]}
                   >
-                    <Text style={styles.wsEmoji}>{ws.emoji || "📁"}</Text>
+                    {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
+                      <Feather name={(ws.icon || "folder") as any} size={14} color={isSelected ? colors.primary : colors.text} style={{ marginRight: 4 }} />
+                    ) : (
+                      <Text style={styles.wsEmoji}>{ws.emoji || "📁"}</Text>
+                    )}
                     <Text style={[styles.wsName, { color: isSelected ? colors.primary : colors.text }]}>
                       {ws.name}
                     </Text>

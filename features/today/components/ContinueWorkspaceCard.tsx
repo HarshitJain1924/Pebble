@@ -72,9 +72,17 @@ export const ContinueWorkspaceCard: React.FC<ContinueWorkspaceCardProps> = ({
               justifyContent: "center",
             }}
           >
-            <Text style={{ fontSize: 24 }}>
-              {continueWorkspace.emoji || "📁"}
-            </Text>
+            {continueWorkspace.iconType === "icon" || (!continueWorkspace.emoji && continueWorkspace.icon) ? (
+              <Feather
+                name={(continueWorkspace.icon || "folder") as any}
+                size={22}
+                color={accentColor}
+              />
+            ) : (
+              <Text style={{ fontSize: 24 }}>
+                {continueWorkspace.emoji || "📁"}
+              </Text>
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <Text

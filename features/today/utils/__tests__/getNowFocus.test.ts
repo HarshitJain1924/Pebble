@@ -8,6 +8,8 @@ function createDateAtTime(hours: number, minutes: number, seconds = 0): Date {
   return new Date(2026, 8, 12, hours, minutes, seconds, 0);
 }
 
+const TEST_BASE_TIME = new Date(2026, 8, 12).getTime();
+
 function mockTask(overrides: Partial<Task> & { dueTime?: string; dueDate?: string }): Task {
   return {
     id: `task-${Math.random().toString(36).substring(2, 7)}`,
@@ -17,8 +19,8 @@ function mockTask(overrides: Partial<Task> & { dueTime?: string; dueDate?: strin
     lifecycleGeneration: 1,
     status: "todo",
     priority: "none",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: TEST_BASE_TIME,
+    updatedAt: TEST_BASE_TIME,
     ...overrides,
   };
 }
@@ -32,8 +34,8 @@ function mockHabit(overrides: Partial<Habit> & { priority?: TaskPriority }): Hab
     lifecycleGeneration: 1,
     recurrence: { frequency: "daily", interval: 1 },
     completionHistory: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: TEST_BASE_TIME,
+    updatedAt: TEST_BASE_TIME,
     ...overrides,
   };
 }
@@ -49,8 +51,8 @@ function mockChecklist(overrides: Partial<Checklist> & { priority?: TaskPriority
       { id: "item-1", title: "Item 1", completed: false },
       { id: "item-2", title: "Item 2", completed: false },
     ],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: TEST_BASE_TIME,
+    updatedAt: TEST_BASE_TIME,
     ...overrides,
   };
 }
