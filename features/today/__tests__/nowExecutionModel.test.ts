@@ -2,8 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getNowFocus } from "../utils/getNowFocus";
 import { launchFocusSession } from "@/features/focus/services/FocusLaunchService";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
-import { parseDurationMinutes } from "@/services/scheduling/scheduling.service";
-import { router } from "expo-router";
+import { createNowFocusActionHandlers } from "../utils/nowFocusActions";
 import type { Task, Habit, Checklist } from "@/shared/types/domain.types";
 
 let mockStore: Record<string, string> = {};
@@ -24,11 +23,23 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
   }),
 }));
 
+const mockRouter = {
+  navigate: jest.fn(),
+  push: jest.fn(),
+};
+
 jest.mock("expo-router", () => ({
   router: {
-    navigate: jest.fn(),
-    push: jest.fn(),
+    navigate: jest.fn((...args) => mockRouter.navigate(...args)),
+    push: jest.fn((...args) => mockRouter.push(...args)),
   },
+}));
+
+jest.mock("expo-haptics", () => ({
+  impactAsync: jest.fn().mockResolvedValue(undefined),
+  notificationAsync: jest.fn().mockResolvedValue(undefined),
+  ImpactFeedbackStyle: { Light: "light" },
+  NotificationFeedbackType: { Success: "success" },
 }));
 
 jest.mock("@/services/command/EntityCommandService", () => ({
@@ -41,8 +52,8 @@ jest.mock("@/services/command/EntityCommandService", () => ({
 
 const TODAY_DATE = "2026-09-12";
 
-function createDateAtTime(hours: number, minutes: number): Date {
-  return new Date(2026, 8, 12, hours, minutes, 0, 0);
+function createDateAtTime(hours: number, minutes: number, seconds = 0): Date {
+  return new Date(2026, 8, 12, hours, minutes, seconds, 0);
 }
 
 function mockTask(overrides: Partial<Task> = {}): Task {
@@ -93,21 +104,42 @@ function mockChecklist(overrides: Partial<Checklist> = {}): Checklist {
   };
 }
 
-describe("NOW Execution Model Integration", () => {
+describe("NOW Execution Model & Action-Wiring Integration", () => {
+  let mockCompleteTodo: jest.Mock;
+  let mockCompleteHabit: jest.Mock;
+  let mockToggleChecklistItem: jest.Mock;
+  let mockLaunchFocus: jest.Mock;
+
   beforeEach(() => {
     mockStore = {};
     jest.clearAllMocks();
+
+    mockCompleteTodo = jest.fn().mockImplementation(async (id: string, notify?: boolean, wsId?: string) => {
+      return EntityCommandService.completeTask(id, wsId || "inbox");
+    });
+
+    mockCompleteHabit = jest.fn().mockImplementation(async (id: string, notify?: boolean, wsId?: string) => {
+      return EntityCommandService.completeHabit(id, wsId || "inbox");
+    });
+
+    mockToggleChecklistItem = jest.fn().mockImplementation(async (chkId: string, itemId: string, wsId: string, dateKey?: string) => {
+      return EntityCommandService.toggleChecklistItem(chkId, itemId, wsId, dateKey);
+    });
+
+    mockLaunchFocus = jest.fn().mockImplementation(async (params) => {
+      return launchFocusSession(params);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────
-  // 1. TASK EXECUTION MODEL
+  // 1. REAL NOW ACTION-WIRING CHAIN (Task, Habit, Checklist, Upcoming)
   // ─────────────────────────────────────────────────────────────
-  describe("Task execution", () => {
-    it("active scheduled Task appears in NOW and calculates remaining time accurately", () => {
+  describe("Real NOW action wiring chain", () => {
+    it("A. Task: active/recommended task in NOW routes Complete through canonical Today completion and EntityCommandService", async () => {
       const task = mockTask({
-        id: "task-now-1",
-        title: "Build Pebble NOW",
-        priority: "high",
+        id: "task-now-action",
+        title: "Deploy Migration",
+        workspaceId: "ws-work",
         schedule: {
           date: TODAY_DATE,
           startTime: "14:00",
@@ -115,36 +147,7 @@ describe("NOW Execution Model Integration", () => {
         },
       });
 
-      // Current time: 2:17 PM
-      const result = getNowFocus({
-        now: createDateAtTime(14, 17),
-        referenceDateKey: TODAY_DATE,
-        tasks: [task],
-        habits: [],
-        checklists: [],
-      });
-
-      expect(result.state).toBe("active");
-      expect(result.type).toBe("task");
-      expect(result.item?.id).toBe("task-now-1");
-      expect(result.item?.title).toBe("Build Pebble NOW");
-      expect(result.timeLabel).toBe("2:00 PM – 3:00 PM");
-      expect(result.durationMinutes).toBe(60);
-      expect(result.remainingMinutes).toBe(43); // 3:00 PM (900m) - 2:17 PM (857m) = 43m
-    });
-
-    it("Focus on this for an active scheduled Task launches canonical Focus session with remaining time", async () => {
-      const task = mockTask({
-        id: "task-now-1",
-        title: "Build Pebble NOW",
-        schedule: {
-          date: TODAY_DATE,
-          startTime: "14:00",
-          endTime: "15:00",
-        },
-      });
-
-      const now = createDateAtTime(14, 17);
+      const now = createDateAtTime(14, 17, 45);
       const focus = getNowFocus({
         now,
         referenceDateKey: TODAY_DATE,
@@ -154,300 +157,29 @@ describe("NOW Execution Model Integration", () => {
       });
 
       expect(focus.state).toBe("active");
-      expect(focus.remainingMinutes).toBe(43);
+      expect(focus.remainingSeconds).toBe(2535);
 
-      // Emulate handleStartNowFocus logic
-      const explicitDuration = parseDurationMinutes(focus.item?.schedule?.durationMinutes);
-      let durationSeconds: number;
-      if (focus.state === "active" && focus.remainingMinutes !== undefined) {
-        durationSeconds = Math.max(60, focus.remainingMinutes * 60);
-      } else if (explicitDuration !== undefined && explicitDuration > 0) {
-        durationSeconds = explicitDuration * 60;
-      } else {
-        durationSeconds = 25 * 60;
-      }
-
-      expect(durationSeconds).toBe(43 * 60); // 2580 seconds
-
-      await launchFocusSession({
-        targetId: focus.item!.id,
-        durationSeconds,
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+        getCurrentNow: () => now,
       });
 
-      // Assert canonical storage was written
-      expect(mockStore["todoapp:focus:current_stopwatch"]).toBeUndefined();
-      expect(mockStore["todoapp:focus:current_session"]).toBeDefined();
+      // Complete invoked from NOW handler
+      await handlers.handleCompleteNowFocus(focus);
 
-      const session = JSON.parse(mockStore["todoapp:focus:current_session"]);
-      expect(session.type).toBe("work");
-      expect(session.isActive).toBe(true);
-      expect(session.focusedTaskId).toBe("task-now-1");
-      expect(session.duration).toBe(2580);
-
-      // Assert navigation to focus
-      expect(router.navigate).toHaveBeenCalledWith("/focus");
+      expect(mockCompleteTodo).toHaveBeenCalledTimes(1);
+      expect(mockCompleteTodo).toHaveBeenCalledWith("task-now-action", undefined, "ws-work");
+      expect(EntityCommandService.completeTask).toHaveBeenCalledWith("task-now-action", "ws-work");
     });
 
-    it("Task completion from NOW uses canonical EntityCommandService.completeTask", async () => {
-      const task = mockTask({ id: "task-complete-test", workspaceId: "ws-1" });
-      await EntityCommandService.completeTask(task.id, task.workspaceId);
-      expect(EntityCommandService.completeTask).toHaveBeenCalledWith("task-complete-test", "ws-1");
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────
-  // 2. HABIT EXECUTION MODEL
-  // ─────────────────────────────────────────────────────────────
-  describe("Habit execution", () => {
-    it("active scheduled Habit appears in NOW and calculates remaining time accurately", () => {
-      const habit = mockHabit({
-        id: "habit-now-1",
-        title: "Morning workout",
-        schedule: {
-          date: TODAY_DATE,
-          startTime: "07:00",
-          endTime: "08:00",
-        },
-      });
-
-      // Current time: 7:20 AM
-      const result = getNowFocus({
-        now: createDateAtTime(7, 20),
-        referenceDateKey: TODAY_DATE,
-        tasks: [],
-        habits: [habit],
-        checklists: [],
-      });
-
-      expect(result.state).toBe("active");
-      expect(result.type).toBe("habit");
-      expect(result.item?.id).toBe("habit-now-1");
-      expect(result.remainingMinutes).toBe(40);
-    });
-
-    it("Focus on this for an active Habit launches canonical Focus session with remaining time", async () => {
-      const habit = mockHabit({
-        id: "habit-now-1",
-        title: "Morning workout",
-        schedule: {
-          date: TODAY_DATE,
-          startTime: "07:00",
-          endTime: "08:00",
-        },
-      });
-
-      const focus = getNowFocus({
-        now: createDateAtTime(7, 20),
-        referenceDateKey: TODAY_DATE,
-        tasks: [],
-        habits: [habit],
-        checklists: [],
-      });
-
-      const durationSeconds = Math.max(60, focus.remainingMinutes! * 60);
-      expect(durationSeconds).toBe(40 * 60); // 2400 seconds
-
-      await launchFocusSession({
-        targetId: focus.item!.id,
-        durationSeconds,
-      });
-
-      const session = JSON.parse(mockStore["todoapp:focus:current_session"]);
-      expect(session.focusedTaskId).toBe("habit-now-1");
-      expect(session.duration).toBe(2400);
-      expect(session.isActive).toBe(true);
-      expect(router.navigate).toHaveBeenCalledWith("/focus");
-    });
-
-    it("Habit completion uses canonical EntityCommandService.completeHabit", async () => {
-      const habit = mockHabit({ id: "habit-complete-test", workspaceId: "ws-1" });
-      await EntityCommandService.completeHabit(habit.id, habit.workspaceId);
-      expect(EntityCommandService.completeHabit).toHaveBeenCalledWith("habit-complete-test", "ws-1");
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────
-  // 3. CHECKLIST EXECUTION MODEL
-  // ─────────────────────────────────────────────────────────────
-  describe("Checklist execution", () => {
-    it("active Checklist surfaces next incomplete item and progress", () => {
-      const checklist = mockChecklist({
-        id: "chk-active-1",
-        title: "Morning routine",
-        items: [
-          { id: "step-1", title: "Shower", completed: true },
-          { id: "step-2", title: "Breakfast", completed: true },
-          { id: "step-3", title: "Journal", completed: false },
-          { id: "step-4", title: "Review tasks", completed: false },
-          { id: "step-5", title: "Meditate", completed: false },
-        ],
-        schedule: {
-          date: TODAY_DATE,
-          startTime: "08:00",
-          endTime: "09:00",
-        },
-      });
-
-      const result = getNowFocus({
-        now: createDateAtTime(8, 30),
-        referenceDateKey: TODAY_DATE,
-        tasks: [],
-        habits: [],
-        checklists: [checklist],
-      });
-
-      expect(result.state).toBe("active");
-      expect(result.type).toBe("checklist");
-      expect(result.checklistState).toBeDefined();
-      expect(result.checklistState?.completedCount).toBe(2);
-      expect(result.checklistState?.total).toBe(5);
-      expect(result.checklistState?.nextItem?.id).toBe("step-3");
-      expect(result.checklistState?.nextItem?.title).toBe("Journal");
-    });
-
-    it("Checklist never launches Focus session (guard in handleStartNowFocus)", async () => {
-      const checklist = mockChecklist({ id: "chk-no-focus" });
-      const focus = {
-        state: "active" as const,
-        type: "checklist" as const,
-        item: checklist,
-      };
-
-      // Emulate handleStartNowFocus: checklists return early without launching focus
-      const handleStartNowFocus = async (f: typeof focus) => {
-        if (!f.item || f.type === "checklist") return;
-        await launchFocusSession({ targetId: f.item.id, durationSeconds: 1500 });
-      };
-
-      await handleStartNowFocus(focus);
-      expect(mockStore["todoapp:focus:current_session"]).toBeUndefined();
-      expect(router.navigate).not.toHaveBeenCalled();
-    });
-
-    it("completing checklist items mutates checklist state and updates next item", async () => {
-      const chkId = "chk-mut-1";
-      const itemId = "step-1";
-      const wsId = "ws-1";
-
-      const updatedChecklist = mockChecklist({
-        id: chkId,
-        items: [
-          { id: "step-1", title: "Shower", completed: true },
-          { id: "step-2", title: "Breakfast", completed: false },
-        ],
-      });
-
-      (EntityCommandService.toggleChecklistItem as jest.Mock).mockResolvedValueOnce({
-        updated: updatedChecklist,
-      });
-
-      const res = await EntityCommandService.toggleChecklistItem(chkId, itemId, wsId);
-      expect(EntityCommandService.toggleChecklistItem).toHaveBeenCalledWith(chkId, itemId, wsId);
-      expect(res?.updated.items[0].completed).toBe(true);
-
-      // Evaluating NOW with updated checklist advances nextItem
-      const nowResult = getNowFocus({
-        now: createDateAtTime(8, 15),
-        referenceDateKey: TODAY_DATE,
-        tasks: [],
-        habits: [],
-        checklists: [updatedChecklist],
-      });
-
-      expect(nowResult.checklistState?.completedCount).toBe(1);
-      expect(nowResult.checklistState?.nextItem?.id).toBe("step-2");
-    });
-
-    it("when all items in Checklist are complete, it leaves NOW naturally", () => {
-      const finishedChecklist = mockChecklist({
-        id: "chk-finished",
-        items: [
-          { id: "i1", title: "Item 1", completed: true },
-          { id: "i2", title: "Item 2", completed: true },
-        ],
-        schedule: {
-          date: TODAY_DATE,
-          startTime: "08:00",
-          endTime: "09:00",
-        },
-      });
-
-      const result = getNowFocus({
-        now: createDateAtTime(8, 30),
-        referenceDateKey: TODAY_DATE,
-        tasks: [],
-        habits: [],
-        checklists: [finishedChecklist],
-      });
-
-      // Completed checklist is filtered out of eligible items
-      expect(result.state).toBe("empty");
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────
-  // 4. UPCOMING (UP NEXT) EXECUTION MODEL
-  // ─────────────────────────────────────────────────────────────
-  describe("Upcoming (UP NEXT) behavior", () => {
-    it("nearest upcoming activity surfaces as UP NEXT without remaining minutes", () => {
+    it("A2. Task: pressing Focus on this routes through FocusLaunchService with exact remaining seconds", async () => {
       const task = mockTask({
-        id: "task-upc",
-        title: "Afternoon Review",
-        schedule: {
-          date: TODAY_DATE,
-          startTime: "16:00",
-          endTime: "17:00",
-        },
-      });
-
-      const result = getNowFocus({
-        now: createDateAtTime(14, 0), // 2:00 PM, item starts at 4:00 PM
-        referenceDateKey: TODAY_DATE,
-        tasks: [task],
-        habits: [],
-        checklists: [],
-      });
-
-      expect(result.state).toBe("upcoming");
-      expect(result.timeLabel).toBe("Starts at 4:00 PM");
-      expect(result.remainingMinutes).toBeUndefined();
-    });
-
-    it("UP NEXT does not trigger auto-start of Focus session", () => {
-      // UP NEXT is informational only — neither Focus nor timer starts automatically
-      expect(mockStore["todoapp:focus:current_session"]).toBeUndefined();
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────
-  // 5. REGRESSION & DETERMINISM
-  // ─────────────────────────────────────────────────────────────
-  describe("Regression & determinism", () => {
-    it("unscheduled tasks are recommended during free window without fake remaining allocation", () => {
-      const recTask = mockTask({
-        id: "task-rec-1",
-        title: "Read Documentation",
-        schedule: {
-          durationMinutes: 30,
-        },
-      });
-
-      const result = getNowFocus({
-        now: createDateAtTime(14, 0),
-        referenceDateKey: TODAY_DATE,
-        tasks: [recTask],
-        habits: [],
-        checklists: [],
-      });
-
-      expect(result.state).toBe("recommended");
-      expect(result.durationMinutes).toBe(30);
-      expect(result.remainingMinutes).toBeUndefined(); // no fake schedule invented
-    });
-
-    it("NOW is reactive to time transitions", () => {
-      const task = mockTask({
-        id: "task-reactive",
+        id: "task-now-focus",
+        title: "Coding Session",
         schedule: {
           date: TODAY_DATE,
           startTime: "14:00",
@@ -455,47 +187,566 @@ describe("NOW Execution Model Integration", () => {
         },
       });
 
-      // 1:59 PM -> UPCOMING
-      const t1 = getNowFocus({
-        now: createDateAtTime(13, 59),
+      // At 14:17:45 in 14:00-15:00 slot -> exactly 2535 seconds remaining
+      const now = createDateAtTime(14, 17, 45);
+      const focus = getNowFocus({
+        now,
         referenceDateKey: TODAY_DATE,
         tasks: [task],
         habits: [],
         checklists: [],
       });
-      expect(t1.state).toBe("upcoming");
 
-      // 2:00 PM -> ACTIVE NOW (60m remaining)
-      const t2 = getNowFocus({
-        now: createDateAtTime(14, 0),
-        referenceDateKey: TODAY_DATE,
-        tasks: [task],
-        habits: [],
-        checklists: [],
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+        getCurrentNow: () => now,
       });
-      expect(t2.state).toBe("active");
-      expect(t2.remainingMinutes).toBe(60);
 
-      // 2:45 PM -> ACTIVE NOW (15m remaining)
-      const t3 = getNowFocus({
-        now: createDateAtTime(14, 45),
-        referenceDateKey: TODAY_DATE,
-        tasks: [task],
-        habits: [],
-        checklists: [],
-      });
-      expect(t3.state).toBe("active");
-      expect(t3.remainingMinutes).toBe(15);
+      // Focus invoked from NOW handler
+      await handlers.handleStartNowFocus(focus);
 
-      // 3:00 PM -> EMPTY (window closed)
-      const t4 = getNowFocus({
-        now: createDateAtTime(15, 0),
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "task-now-focus",
+        durationSeconds: 2535, // EXACT second precision, NOT 43*60 = 2580!
+      });
+
+      const session = JSON.parse(mockStore["todoapp:focus:current_session"]);
+      expect(session.duration).toBe(2535);
+      expect(session.focusedTaskId).toBe("task-now-focus");
+      expect(session.isActive).toBe(true);
+      expect(mockRouter.navigate).toHaveBeenCalledWith("/focus");
+    });
+
+    it("B. Habit: pressing Complete routes through canonical completeHabit flow", async () => {
+      const habit = mockHabit({
+        id: "habit-now-complete",
+        title: "Afternoon Walk",
+        workspaceId: "ws-personal",
+        schedule: {
+          date: TODAY_DATE,
+          startTime: "14:00",
+          endTime: "14:45",
+        },
+      });
+
+      const now = createDateAtTime(14, 15, 0);
+      const focus = getNowFocus({
+        now,
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [habit],
+        checklists: [],
+      });
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+        getCurrentNow: () => now,
+      });
+
+      await handlers.handleCompleteNowFocus(focus);
+
+      expect(mockCompleteHabit).toHaveBeenCalledWith("habit-now-complete", undefined, "ws-personal");
+      expect(EntityCommandService.completeHabit).toHaveBeenCalledWith("habit-now-complete", "ws-personal");
+    });
+
+    it("B2. Habit: pressing Focus on this passes active remaining scheduled allocation to FocusLaunchService", async () => {
+      const habit = mockHabit({
+        id: "habit-now-focus",
+        title: "Meditation",
+        schedule: {
+          date: TODAY_DATE,
+          startTime: "07:00",
+          endTime: "07:30",
+        },
+      });
+
+      // At 7:10:00 -> 20 minutes = 1200 seconds remaining
+      const now = createDateAtTime(7, 10, 0);
+      const focus = getNowFocus({
+        now,
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [habit],
+        checklists: [],
+      });
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+        getCurrentNow: () => now,
+      });
+
+      await handlers.handleStartNowFocus(focus);
+
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "habit-now-focus",
+        durationSeconds: 1200,
+      });
+      expect(mockRouter.navigate).toHaveBeenCalledWith("/focus");
+    });
+
+    it("C. Checklist: completing the single visible item routes through canonical toggleChecklistItem", async () => {
+      const checklist = mockChecklist({
+        id: "chk-flow-1",
+        title: "Morning Routine",
+        workspaceId: "ws-home",
+        items: [
+          { id: "item-1", title: "Drink water", completed: true },
+          { id: "item-2", title: "Journal", completed: false },
+          { id: "item-3", title: "Stretch", completed: false },
+        ],
+        schedule: {
+          date: TODAY_DATE,
+          startTime: "08:00",
+          endTime: "09:00",
+        },
+      });
+
+      const now = createDateAtTime(8, 15, 0);
+      const focus = getNowFocus({
+        now,
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [],
+        checklists: [checklist],
+      });
+
+      expect(focus.state).toBe("active");
+      expect(focus.checklistState?.nextItem?.id).toBe("item-2");
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+        getCurrentNow: () => now,
+      });
+
+      // Execute completion of visible item
+      await handlers.handleCompleteNowChecklistItem(focus, "item-2");
+
+      expect(mockToggleChecklistItem).toHaveBeenCalledWith(
+        "chk-flow-1",
+        "item-2",
+        "ws-home",
+        undefined,
+      );
+      expect(EntityCommandService.toggleChecklistItem).toHaveBeenCalledWith(
+        "chk-flow-1",
+        "item-2",
+        "ws-home",
+        undefined,
+      );
+
+      // Checklist never invokes Focus
+      expect(mockLaunchFocus).not.toHaveBeenCalled();
+    });
+
+    it("C2. Checklist: state updates advance nextItem, and final completion leaves NOW naturally", () => {
+      const initialChecklist = mockChecklist({
+        id: "chk-adv",
+        title: "Setup checklist",
+        items: [
+          { id: "i1", title: "Step 1", completed: false },
+          { id: "i2", title: "Step 2", completed: false },
+        ],
+        schedule: { date: TODAY_DATE, startTime: "10:00", endTime: "11:00" },
+      });
+
+      const now = createDateAtTime(10, 15, 0);
+
+      // Step 1: initial state
+      const focus1 = getNowFocus({
+        now,
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [],
+        checklists: [initialChecklist],
+      });
+      expect(focus1.checklistState?.nextItem?.id).toBe("i1");
+      expect(focus1.checklistState?.completedCount).toBe(0);
+
+      // Step 2: item 1 completed
+      const updatedChecklist1 = {
+        ...initialChecklist,
+        items: [
+          { id: "i1", title: "Step 1", completed: true },
+          { id: "i2", title: "Step 2", completed: false },
+        ],
+      };
+      const focus2 = getNowFocus({
+        now,
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [],
+        checklists: [updatedChecklist1],
+      });
+      expect(focus2.checklistState?.nextItem?.id).toBe("i2");
+      expect(focus2.checklistState?.completedCount).toBe(1);
+
+      // Step 3: final item completed -> leaves NOW naturally
+      const updatedChecklist2 = {
+        ...initialChecklist,
+        items: [
+          { id: "i1", title: "Step 1", completed: true },
+          { id: "i2", title: "Step 2", completed: true },
+        ],
+      };
+      const focus3 = getNowFocus({
+        now,
+        referenceDateKey: TODAY_DATE,
+        tasks: [],
+        habits: [],
+        checklists: [updatedChecklist2],
+      });
+      expect(focus3.state).toBe("empty");
+      expect(focus3.item).toBeUndefined();
+    });
+
+    it("D. Upcoming: View details navigates to details, NEVER launches Focus, NEVER completes", () => {
+      const upcomingTask = mockTask({
+        id: "task-upcoming-wire",
+        title: "Afternoon Sync",
+        schedule: {
+          date: TODAY_DATE,
+          startTime: "16:00",
+          endTime: "17:00",
+        },
+      });
+
+      const now = createDateAtTime(14, 0, 0);
+      const focus = getNowFocus({
+        now,
+        referenceDateKey: TODAY_DATE,
+        tasks: [upcomingTask],
+        habits: [],
+        checklists: [],
+      });
+
+      expect(focus.state).toBe("upcoming");
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+        getCurrentNow: () => now,
+      });
+
+      // View details called
+      handlers.handleViewFocus(focus);
+
+      expect(mockRouter.push).toHaveBeenCalledWith("/task-details?id=task-upcoming-wire&type=task");
+      expect(mockLaunchFocus).not.toHaveBeenCalled();
+      expect(mockCompleteTodo).not.toHaveBeenCalled();
+      expect(mockCompleteHabit).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 2. TIMING PRECISION & FOCUS LAUNCH CONTRACT TESTS
+  // ─────────────────────────────────────────────────────────────
+  describe("Timing precision & Focus launch contract", () => {
+    it("14:00:00 in 14:00–15:00 slot -> 3600 sec to Focus", async () => {
+      const task = mockTask({
+        id: "t-3600",
+        schedule: { date: TODAY_DATE, startTime: "14:00", endTime: "15:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
         referenceDateKey: TODAY_DATE,
         tasks: [task],
         habits: [],
         checklists: [],
       });
-      expect(t4.state).toBe("empty");
+
+      expect(focus.remainingSeconds).toBe(3600);
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-3600",
+        durationSeconds: 3600,
+      });
+    });
+
+    it("14:17:00 in 14:00–15:00 slot -> 2580 sec to Focus", async () => {
+      const task = mockTask({
+        id: "t-2580",
+        schedule: { date: TODAY_DATE, startTime: "14:00", endTime: "15:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 17, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [task],
+        habits: [],
+        checklists: [],
+      });
+
+      expect(focus.remainingSeconds).toBe(2580);
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-2580",
+        durationSeconds: 2580,
+      });
+    });
+
+    it("14:17:45 in 14:00–15:00 slot -> 2535 sec to Focus (not rounded to 43*60)", async () => {
+      const task = mockTask({
+        id: "t-2535",
+        schedule: { date: TODAY_DATE, startTime: "14:00", endTime: "15:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 17, 45),
+        referenceDateKey: TODAY_DATE,
+        tasks: [task],
+        habits: [],
+        checklists: [],
+      });
+
+      expect(focus.remainingSeconds).toBe(2535);
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-2535",
+        durationSeconds: 2535,
+      });
+    });
+
+    it("14:59:59 in 14:00–15:00 slot -> 1 sec to Focus", async () => {
+      const task = mockTask({
+        id: "t-1sec",
+        schedule: { date: TODAY_DATE, startTime: "14:00", endTime: "15:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 59, 59),
+        referenceDateKey: TODAY_DATE,
+        tasks: [task],
+        habits: [],
+        checklists: [],
+      });
+
+      expect(focus.remainingSeconds).toBe(1);
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-1sec",
+        durationSeconds: 1,
+      });
+    });
+
+    it("15:00:00 in 14:00–15:00 slot -> no longer active", () => {
+      const task = mockTask({
+        id: "t-ended",
+        schedule: { date: TODAY_DATE, startTime: "14:00", endTime: "15:00" },
+      });
+
+      const focus = getNowFocus({
+        now: createDateAtTime(15, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [task],
+        habits: [],
+        checklists: [],
+      });
+
+      expect(focus.state).not.toBe("active");
+      expect(focus.remainingSeconds).toBeUndefined();
+    });
+
+    it("explicit durationMinutes takes precedence over endTime for resolved end boundary", async () => {
+      const task = mockTask({
+        id: "t-authoritative-dur",
+        schedule: {
+          date: TODAY_DATE,
+          startTime: "14:00",
+          endTime: "15:00",
+          durationMinutes: 45, // Ends at 14:45!
+        },
+      });
+
+      // At 14:17:45 -> ends at 14:45:00 (53100s). 53100 - 51465 = 1635s.
+      const focus = getNowFocus({
+        now: createDateAtTime(14, 17, 45),
+        referenceDateKey: TODAY_DATE,
+        tasks: [task],
+        habits: [],
+        checklists: [],
+      });
+
+      expect(focus.remainingSeconds).toBe(1635);
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focus);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-authoritative-dur",
+        durationSeconds: 1635,
+      });
+    });
+
+    it("recommended unscheduled task launches Focus with explicit duration or 25m fallback", async () => {
+      const taskWithDur = mockTask({
+        id: "t-rec-dur",
+        schedule: { durationMinutes: 15 },
+      });
+
+      const focusWithDur = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [taskWithDur],
+        habits: [],
+        checklists: [],
+      });
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focusWithDur);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-rec-dur",
+        durationSeconds: 15 * 60,
+      });
+
+      // Unscheduled task without duration -> falls back to 25m preset (1500 sec)
+      const taskNoDur = mockTask({ id: "t-rec-nodur" });
+      const focusNoDur = getNowFocus({
+        now: createDateAtTime(14, 0, 0),
+        referenceDateKey: TODAY_DATE,
+        tasks: [taskNoDur],
+        habits: [],
+        checklists: [],
+      });
+
+      await handlers.handleStartNowFocus(focusNoDur);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-rec-nodur",
+        durationSeconds: 25 * 60,
+      });
+    });
+
+    it("invalid or non-positive duration safely falls back to 25m without creating invalid duration", async () => {
+      const focusInvalidDur = {
+        state: "recommended" as const,
+        type: "task" as const,
+        item: mockTask({
+          id: "t-invalid-dur",
+          schedule: { durationMinutes: -30 as any },
+        }),
+      };
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focusInvalidDur);
+      expect(mockLaunchFocus).toHaveBeenCalledWith({
+        targetId: "t-invalid-dur",
+        durationSeconds: 25 * 60,
+      });
+    });
+
+    it("Checklist NEVER launches Focus, even if handleStartNowFocus is somehow invoked", async () => {
+      const focusChecklist = {
+        state: "active" as const,
+        type: "checklist" as const,
+        item: mockChecklist({ id: "chk-guard-test" }),
+      };
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focusChecklist);
+      expect(mockLaunchFocus).not.toHaveBeenCalled();
+      expect(mockRouter.navigate).not.toHaveBeenCalled();
+    });
+
+    it("Upcoming NEVER launches Focus, even if handleStartNowFocus is somehow invoked", async () => {
+      const focusUpcoming = {
+        state: "upcoming" as const,
+        type: "task" as const,
+        item: mockTask({ id: "t-upcoming-guard" }),
+      };
+
+      const handlers = createNowFocusActionHandlers({
+        completeTodoFromDashboard: mockCompleteTodo,
+        completeHabitFromDashboard: mockCompleteHabit,
+        toggleChecklistItemFromDashboard: mockToggleChecklistItem,
+        launchFocus: mockLaunchFocus,
+        router: mockRouter,
+      });
+
+      await handlers.handleStartNowFocus(focusUpcoming);
+      expect(mockLaunchFocus).not.toHaveBeenCalled();
+      expect(mockRouter.navigate).not.toHaveBeenCalled();
     });
   });
 });

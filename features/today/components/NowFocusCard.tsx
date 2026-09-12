@@ -434,15 +434,17 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
 
           {/* Checklist execution: the single next actionable item */}
           {isChecklistExecution && nextChecklistItem ? (
-            <View style={styles.checklistItemRow} testID="now-focus-checklist-item">
-              <PressableScale
-                onPress={() => handleChecklistItemPress(nextChecklistItem.id)}
-                haptic
-                scaleTo={0.9}
-                hitSlop={12}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: false }}
-                accessibilityLabel={`Complete checklist item ${nextChecklistItem.title}`}
+            <PressableScale
+              onPress={() => handleChecklistItemPress(nextChecklistItem.id)}
+              haptic
+              scaleTo={0.98}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: false }}
+              accessibilityLabel={`Complete checklist item ${nextChecklistItem.title}`}
+              testID="now-focus-checklist-item"
+              style={styles.checklistItemRow}
+            >
+              <View
                 testID="now-focus-checklist-item-checkbox"
                 style={[
                   styles.checklistItemCheckbox,
@@ -460,33 +462,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
               >
                 {nextChecklistItem.title}
               </Text>
-            </View>
-          ) : null}
-
-          {/* Checklist execution: direct action to complete the next incomplete item */}
-          {isChecklistExecution && nextChecklistItem ? (
-            <View style={styles.actionRow}>
-              <PressableScale
-                onPress={() => handleChecklistItemPress(nextChecklistItem.id)}
-                haptic
-                scaleTo={0.95}
-                contentStyle={styles.actionButtonContent}
-                style={[
-                  styles.actionPill,
-                  {
-                    backgroundColor: colors.primary || "#6366F1",
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Continue ${nextChecklistItem.title}`}
-                testID="now-focus-checklist-continue"
-              >
-                <Feather name="arrow-right" size={14} color="#FFFFFF" />
-                <Text style={[styles.actionButtonText, { color: "#FFFFFF" }]}>
-                  Continue
-                </Text>
-              </PressableScale>
-            </View>
+            </PressableScale>
           ) : null}
 
           {/* Execution actions for Task & Habit: direct completion + focus */}

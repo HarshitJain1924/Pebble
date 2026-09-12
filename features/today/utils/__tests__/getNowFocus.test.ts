@@ -3,9 +3,9 @@ import type { Task, Habit, Checklist } from "@/shared/types/domain.types";
 
 const TODAY_DATE = "2026-09-12";
 
-function createDateAtTime(hours: number, minutes: number): Date {
-  // 2026-09-12Thh:mm:00
-  return new Date(2026, 8, 12, hours, minutes, 0, 0);
+function createDateAtTime(hours: number, minutes: number, seconds = 0): Date {
+  // 2026-09-12Thh:mm:ss
+  return new Date(2026, 8, 12, hours, minutes, seconds, 0);
 }
 
 function mockTask(overrides: Partial<Task> & { dueTime?: string }): Task {
@@ -996,6 +996,213 @@ describe("getNowFocus decision engine", () => {
     });
 
     expect(result.state).toBe("upcoming");
+    expect(result.remainingMinutes).toBeUndefined();
+    expect(result.remainingSeconds).toBeUndefined();
+  });
+
+  // 28. Exact second precision for active scheduled Task: 14:00:00 in 14:00–15:00 slot → 3600 sec
+  it("28. 14:00:00 in a 14:00–15:00 slot -> 3600 sec", () => {
+    const task = mockTask({
+      id: "task-precision-1",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.remainingMinutes).toBe(60);
+    expect(result.remainingSeconds).toBe(3600);
+  });
+
+  // 29. Exact second precision for active scheduled Task: 14:17:00 in 14:00–15:00 slot → 2580 sec
+  it("29. 14:17:00 in a 14:00–15:00 slot -> 2580 sec", () => {
+    const task = mockTask({
+      id: "task-precision-2",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 17, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.remainingMinutes).toBe(43);
+    expect(result.remainingSeconds).toBe(2580);
+  });
+
+  // 30. Exact second precision for active scheduled Task: 14:17:45 in 14:00–15:00 slot → 2535 sec (NOT 2580)
+  it("30. 14:17:45 in a 14:00–15:00 slot -> 2535 sec", () => {
+    const task = mockTask({
+      id: "task-precision-3",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 17, 45),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.remainingMinutes).toBe(43);
+    // 54000 - (14*3600 + 17*60 + 45) = 54000 - 51465 = 2535
+    expect(result.remainingSeconds).toBe(2535);
+  });
+
+  // 31. Exact second precision for active scheduled Task: 14:59:59 in 14:00–15:00 slot → 1 sec
+  it("31. 14:59:59 in a 14:00–15:00 slot -> 1 sec", () => {
+    const task = mockTask({
+      id: "task-precision-4",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 59, 59),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.remainingMinutes).toBe(1);
+    expect(result.remainingSeconds).toBe(1);
+  });
+
+  // 32. 15:00:00 in a 14:00–15:00 slot → no longer active
+  it("32. 15:00:00 in a 14:00–15:00 slot -> no longer active", () => {
+    const task = mockTask({
+      id: "task-precision-5",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(15, 0, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).not.toBe("active");
+    expect(result.state).toBe("empty");
+    expect(result.remainingSeconds).toBeUndefined();
+  });
+
+  // 33. Explicit durationMinutes takes precedence over endTime for resolved end boundary
+  it("33. explicit durationMinutes takes precedence over endTime for resolved end boundary", () => {
+    const task = mockTask({
+      id: "task-precedence",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+        durationMinutes: 45, // Authoritative duration! Ends at 14:45, not 15:00
+      },
+    });
+
+    // At 14:17:45 -> end boundary is 14:45:00 (53100s). 53100 - 51465 = 1635 seconds
+    const resultActive = getNowFocus({
+      now: createDateAtTime(14, 17, 45),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(resultActive.state).toBe("active");
+    expect(resultActive.durationMinutes).toBe(45);
+    expect(resultActive.remainingMinutes).toBe(28); // 885 - 857 = 28m
+    expect(resultActive.remainingSeconds).toBe(1635);
+
+    // At 14:45:00 -> window closed
+    const resultEnded = getNowFocus({
+      now: createDateAtTime(14, 45, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(resultEnded.state).not.toBe("active");
+  });
+
+  // 34. Active scheduled Habit calculates exact remainingSeconds (7:15:30 in 7:00-8:00 -> 2670 sec)
+  it("34. active scheduled Habit calculates exact remainingSeconds", () => {
+    const habit = mockHabit({
+      id: "habit-sec",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "07:00",
+        endTime: "08:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(7, 15, 30),
+      referenceDateKey: TODAY_DATE,
+      tasks: [],
+      habits: [habit],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    // 8:00 is 28800s. 7:15:30 is 7*3600 + 15*60 + 30 = 25200 + 900 + 30 = 26130s.
+    // 28800 - 26130 = 2670s.
+    expect(result.remainingSeconds).toBe(2670);
+  });
+
+  // 35. Unscheduled recommendation does NOT get fake remaining scheduled time
+  it("35. unscheduled recommendation does NOT get fake remaining scheduled time", () => {
+    const task = mockTask({
+      id: "task-unscheduled-rec",
+      schedule: {
+        durationMinutes: 20,
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("recommended");
+    expect(result.remainingSeconds).toBeUndefined();
     expect(result.remainingMinutes).toBeUndefined();
   });
 });

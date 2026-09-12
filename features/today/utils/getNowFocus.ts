@@ -43,6 +43,7 @@ export type NowFocusResult =
       windowMinutes?: undefined;
       durationMinutes?: undefined;
       remainingMinutes?: undefined;
+      remainingSeconds?: undefined;
       nextScheduledTime?: undefined;
       checklistState?: undefined;
     }
@@ -54,8 +55,10 @@ export type NowFocusResult =
       contextLabel?: string;
       windowMinutes?: number;
       durationMinutes?: number;
-      /** Remaining minutes in currently active scheduled allocation. */
+      /** Remaining minutes in currently active scheduled allocation (for UI display). */
       remainingMinutes?: number;
+      /** Exact remaining duration in seconds in currently active scheduled allocation (for Focus launch). */
+      remainingSeconds?: number;
       nextScheduledTime?: string;
       /** Checklist-only: occurrence-aware progress + next actionable item. */
       checklistState?: NowChecklistState;
@@ -436,6 +439,16 @@ export function getNowFocus({
         ? formatTimeRange(active.startMinutes, active.endMinutes)
         : undefined;
 
+    const currentSecondsOfDay =
+      now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+    const endSecondsOfDay =
+      active.endMinutes !== undefined ? active.endMinutes * 60 : undefined;
+
+    const remainingSeconds =
+      endSecondsOfDay !== undefined
+        ? Math.max(1, endSecondsOfDay - currentSecondsOfDay)
+        : active.durationMinutes * 60;
+
     const remainingMinutes =
       active.endMinutes !== undefined
         ? Math.max(1, active.endMinutes - nowMinutes)
@@ -448,6 +461,7 @@ export function getNowFocus({
       timeLabel,
       durationMinutes: active.durationMinutes,
       remainingMinutes,
+      remainingSeconds,
       checklistState: resolveChecklistState(active),
     };
   }

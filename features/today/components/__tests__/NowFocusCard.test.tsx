@@ -247,33 +247,32 @@ describe("NowFocusCard component", () => {
     expect(text).not.toContain("Run migration");
     // Checklists MUST NOT show "Focus on this"
     expect(text).not.toContain("Focus on this");
-    // Direct action "Continue" is shown
-    expect(text).toContain("Continue");
+    // Redundant "Continue" button is removed — single execution affordance
+    expect(text).not.toContain("Continue");
+    expect(
+      renderer.root.findAllByProps({ testID: "now-focus-checklist-continue" }),
+    ).toHaveLength(0);
     // Bulk completion of a checklist is not a canonical action.
     expect(
       renderer.root.findAllByProps({ testID: "now-focus-complete-button" }),
     ).toHaveLength(0);
 
-    // The inline checkbox completes exactly that item through the canonical callback.
-    pressByTestID(renderer, "now-focus-checklist-item-checkbox");
+    // The single actionable item row completes exactly that item through the canonical callback.
+    pressByTestID(renderer, "now-focus-checklist-item");
     expect(onCompleteChecklistItem).toHaveBeenCalledWith(focus, "i3");
-
-    // The Continue button also completes that item.
-    pressByTestID(renderer, "now-focus-checklist-continue");
-    expect(onCompleteChecklistItem).toHaveBeenCalledTimes(2);
 
     // The user never has to open the details page to tick an item, and never starts focus.
     expect(onPressCard).not.toHaveBeenCalled();
     expect(onStartFocus).not.toHaveBeenCalled();
 
-    // Nested-pressable guard: the checkbox is NOT inside the details pressable.
+    // Nested-pressable guard: the item row is NOT inside the details pressable.
     const detailsPressable = renderer.root.findByProps({
       accessibilityRole: "button",
       accessibilityLabel: "NOW: Deployment Checklist",
     });
     expect(
       detailsPressable.findAllByProps({
-        testID: "now-focus-checklist-item-checkbox",
+        testID: "now-focus-checklist-item",
       }),
     ).toHaveLength(0);
     expect(
@@ -349,7 +348,7 @@ describe("NowFocusCard component", () => {
     expect(text).toContain("Deploy");
     expect(text).not.toContain("Smoke tests");
 
-    pressByTestID(renderer, "now-focus-checklist-item-checkbox");
+    pressByTestID(renderer, "now-focus-checklist-item");
     expect(onCompleteChecklistItem).toHaveBeenCalledWith(updatedFocus, "i4");
   });
 
