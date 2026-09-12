@@ -102,13 +102,14 @@ const pressByTestID = (renderer: any, testID: string) => {
 };
 
 describe("NowFocusCard component", () => {
-  it("renders an ACTIVE Task as an execution surface: Complete + Focus, with details via card press", () => {
+  it("renders an ACTIVE Task as an execution surface: Complete + Focus, with remaining time and details via card press", () => {
     const focus: NowFocusResult = {
       state: "active",
       type: "task",
       item: mockTask({ title: "Finish project documentation" }),
       timeLabel: "2:00 PM – 3:00 PM",
       durationMinutes: 60,
+      remainingMinutes: 43,
     };
 
     const onComplete = jest.fn();
@@ -129,6 +130,7 @@ describe("NowFocusCard component", () => {
     expect(text).toContain("NOW");
     expect(text).toContain("Finish project documentation");
     expect(text).toContain("2:00 PM – 3:00 PM");
+    expect(text).toContain("43 min remaining");
     expect(text).toContain("High priority");
     // Execution-first: direct completion is primary, focus is secondary.
     expect(text).toContain("Complete");
@@ -164,7 +166,7 @@ describe("NowFocusCard component", () => {
     ).toHaveLength(0);
   });
 
-  it("renders an ACTIVE Habit with Complete + Focus and streak context", () => {
+  it("renders an ACTIVE Habit with Complete + Focus, remaining time, and streak context", () => {
     const habit = mockHabit({
       title: "Morning workout",
       completionHistory: [
@@ -178,6 +180,7 @@ describe("NowFocusCard component", () => {
       item: habit,
       timeLabel: "7:00 AM – 7:45 AM",
       durationMinutes: 45,
+      remainingMinutes: 25,
     };
 
     const onComplete = jest.fn();
@@ -192,6 +195,7 @@ describe("NowFocusCard component", () => {
     expect(text).toContain("NOW");
     expect(text).toContain("Morning workout");
     expect(text).toContain("7:00 AM – 7:45 AM");
+    expect(text).toContain("25 min remaining");
     expect(text).toContain("Habit");
     expect(text).toContain("Complete");
     expect(text).toContain("Focus on this");
@@ -236,12 +240,15 @@ describe("NowFocusCard component", () => {
     expect(text).toContain("NOW");
     expect(text).toContain("Deployment Checklist");
     expect(text).toContain("2:00 PM – 3:00 PM · Checklist");
-    expect(text).toContain("2 / 3 completed");
+    expect(text).toContain("2 of 3 complete");
     // Only the next actionable item is shown — not the whole checklist.
     expect(text).toContain("Smoke tests");
     expect(text).not.toContain("Build bundle");
     expect(text).not.toContain("Run migration");
-    expect(text).toContain("Focus on this");
+    // Checklists MUST NOT show "Focus on this"
+    expect(text).not.toContain("Focus on this");
+    // Direct action "Continue" is shown
+    expect(text).toContain("Continue");
     // Bulk completion of a checklist is not a canonical action.
     expect(
       renderer.root.findAllByProps({ testID: "now-focus-complete-button" }),
@@ -250,7 +257,12 @@ describe("NowFocusCard component", () => {
     // The inline checkbox completes exactly that item through the canonical callback.
     pressByTestID(renderer, "now-focus-checklist-item-checkbox");
     expect(onCompleteChecklistItem).toHaveBeenCalledWith(focus, "i3");
-    // The user never has to open the details page to tick an item.
+
+    // The Continue button also completes that item.
+    pressByTestID(renderer, "now-focus-checklist-continue");
+    expect(onCompleteChecklistItem).toHaveBeenCalledTimes(2);
+
+    // The user never has to open the details page to tick an item, and never starts focus.
     expect(onPressCard).not.toHaveBeenCalled();
     expect(onStartFocus).not.toHaveBeenCalled();
 
@@ -266,6 +278,10 @@ describe("NowFocusCard component", () => {
     ).toHaveLength(0);
     expect(
       detailsPressable.findAllByProps({ testID: "now-focus-action-button" }),
+    ).toHaveLength(0);
+    // Checklist never renders now-focus-action-button ("Focus on this")
+    expect(
+      renderer.root.findAllByProps({ testID: "now-focus-action-button" }),
     ).toHaveLength(0);
   });
 
@@ -297,7 +313,7 @@ describe("NowFocusCard component", () => {
     });
 
     expect(getAllText(renderer.root)).toContain("Smoke tests");
-    expect(getAllText(renderer.root)).toContain("2 / 4 completed");
+    expect(getAllText(renderer.root)).toContain("2 of 4 complete");
 
     // Canonical completion updated the checklist — NOW recomputes to the next item.
     const updatedFocus: NowFocusResult = {
@@ -329,7 +345,7 @@ describe("NowFocusCard component", () => {
     });
 
     const text = getAllText(renderer.root);
-    expect(text).toContain("3 / 4 completed");
+    expect(text).toContain("3 of 4 complete");
     expect(text).toContain("Deploy");
     expect(text).not.toContain("Smoke tests");
 
@@ -337,7 +353,7 @@ describe("NowFocusCard component", () => {
     expect(onCompleteChecklistItem).toHaveBeenCalledWith(updatedFocus, "i4");
   });
 
-  it("renders the completed state for a finished checklist (no item, no completion control)", () => {
+  it("renders the completed state for a finished checklist (no item, no completion control, no focus)", () => {
     const focus: NowFocusResult = {
       state: "active",
       type: "checklist",
@@ -360,14 +376,20 @@ describe("NowFocusCard component", () => {
     });
 
     const text = getAllText(renderer.root);
-    expect(text).toContain("3 / 3 completed");
+    expect(text).toContain("3 of 3 complete");
     expect(
       renderer.root.findAllByProps({ testID: "now-focus-checklist-item-checkbox" }),
     ).toHaveLength(0);
     expect(
       renderer.root.findAllByProps({ testID: "now-focus-complete-button" }),
     ).toHaveLength(0);
-    expect(text).toContain("Focus on this");
+    expect(
+      renderer.root.findAllByProps({ testID: "now-focus-checklist-continue" }),
+    ).toHaveLength(0);
+    expect(text).not.toContain("Focus on this");
+    expect(
+      renderer.root.findAllByProps({ testID: "now-focus-action-button" }),
+    ).toHaveLength(0);
   });
 
   it("renders RECOMMENDED items with direct completion and free-time context", () => {

@@ -42,6 +42,7 @@ export type NowFocusResult =
       contextLabel?: undefined;
       windowMinutes?: undefined;
       durationMinutes?: undefined;
+      remainingMinutes?: undefined;
       nextScheduledTime?: undefined;
       checklistState?: undefined;
     }
@@ -53,6 +54,8 @@ export type NowFocusResult =
       contextLabel?: string;
       windowMinutes?: number;
       durationMinutes?: number;
+      /** Remaining minutes in currently active scheduled allocation. */
+      remainingMinutes?: number;
       nextScheduledTime?: string;
       /** Checklist-only: occurrence-aware progress + next actionable item. */
       checklistState?: NowChecklistState;
@@ -433,12 +436,18 @@ export function getNowFocus({
         ? formatTimeRange(active.startMinutes, active.endMinutes)
         : undefined;
 
+    const remainingMinutes =
+      active.endMinutes !== undefined
+        ? Math.max(1, active.endMinutes - nowMinutes)
+        : active.durationMinutes;
+
     return {
       state: "active",
       type: active.type,
       item: active.item,
       timeLabel,
       durationMinutes: active.durationMinutes,
+      remainingMinutes,
       checklistState: resolveChecklistState(active),
     };
   }

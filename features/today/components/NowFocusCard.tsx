@@ -205,7 +205,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
     typeLabel = "Checklist";
     const total = checklistState?.total ?? 0;
     if (total > 0) {
-      contextDetail = `${checklistState?.completedCount ?? 0} / ${total} completed`;
+      contextDetail = `${checklistState?.completedCount ?? 0} of ${total} complete`;
     }
   }
 
@@ -245,6 +245,9 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
   } else {
     // Active state
     if (timeLabel) subtitleParts.push(timeLabel);
+    if (focus.remainingMinutes !== undefined && type !== "checklist") {
+      subtitleParts.push(`${focus.remainingMinutes} min remaining`);
+    }
     subtitleParts.push(typeLabel);
     if (contextDetail && progressInSubtitle) subtitleParts.push(contextDetail);
   }
@@ -379,7 +382,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                       styles.subtitleText,
                       { color: colors.textMuted },
                     ]}
-                    numberOfLines={1}
+                    numberOfLines={2}
                   >
                     {subtitleDisplay}
                   </Text>
@@ -460,26 +463,50 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
             </View>
           ) : null}
 
-          {/* Execution actions: direct completion + focus */}
-          {isExecutionState ? (
+          {/* Checklist execution: direct action to complete the next incomplete item */}
+          {isChecklistExecution && nextChecklistItem ? (
             <View style={styles.actionRow}>
-              {showDirectComplete ? (
-                <PressableScale
-                  onPress={handleCompletePress}
-                  haptic
-                  scaleTo={0.95}
-                  contentStyle={styles.actionButtonContent}
-                  style={[styles.actionPill, styles.completePill]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Complete ${item.title}`}
-                  testID="now-focus-complete-button"
-                >
-                  <Feather name="check" size={14} color="#FFFFFF" />
-                  <Text style={[styles.actionButtonText, { color: "#FFFFFF" }]}>
-                    Complete
-                  </Text>
-                </PressableScale>
-              ) : null}
+              <PressableScale
+                onPress={() => handleChecklistItemPress(nextChecklistItem.id)}
+                haptic
+                scaleTo={0.95}
+                contentStyle={styles.actionButtonContent}
+                style={[
+                  styles.actionPill,
+                  {
+                    backgroundColor: colors.primary || "#6366F1",
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Continue ${nextChecklistItem.title}`}
+                testID="now-focus-checklist-continue"
+              >
+                <Feather name="arrow-right" size={14} color="#FFFFFF" />
+                <Text style={[styles.actionButtonText, { color: "#FFFFFF" }]}>
+                  Continue
+                </Text>
+              </PressableScale>
+            </View>
+          ) : null}
+
+          {/* Execution actions for Task & Habit: direct completion + focus */}
+          {isExecutionState && type !== "checklist" ? (
+            <View style={styles.actionRow}>
+              <PressableScale
+                onPress={handleCompletePress}
+                haptic
+                scaleTo={0.95}
+                contentStyle={styles.actionButtonContent}
+                style={[styles.actionPill, styles.completePill]}
+                accessibilityRole="button"
+                accessibilityLabel={`Complete ${item.title}`}
+                testID="now-focus-complete-button"
+              >
+                <Feather name="check" size={14} color="#FFFFFF" />
+                <Text style={[styles.actionButtonText, { color: "#FFFFFF" }]}>
+                  Complete
+                </Text>
+              </PressableScale>
 
               <PressableScale
                 onPress={handleFocusPress}
@@ -489,11 +516,9 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 style={[
                   styles.actionPill,
                   {
-                    backgroundColor: showDirectComplete
-                      ? isDark
-                        ? "rgba(255, 255, 255, 0.1)"
-                        : "rgba(0, 0, 0, 0.05)"
-                      : colors.primary || "#6366F1",
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.1)"
+                      : "rgba(0, 0, 0, 0.05)",
                   },
                 ]}
                 accessibilityRole="button"
@@ -503,12 +528,12 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 <Feather
                   name="play"
                   size={12}
-                  color={showDirectComplete ? colors.text : "#FFFFFF"}
+                  color={colors.text}
                 />
                 <Text
                   style={[
                     styles.actionButtonText,
-                    { color: showDirectComplete ? colors.text : "#FFFFFF" },
+                    { color: colors.text },
                   ]}
                   numberOfLines={1}
                 >

@@ -42,6 +42,8 @@ import { useLiveClock } from "@/features/today/hooks/useLiveClock";
 import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
+import { launchFocusSession } from "@/features/focus/services/FocusLaunchService";
+import { parseDurationMinutes } from "@/services/scheduling/scheduling.service";
 
 const getTodoDateKey = (todo: any) => {
   // Canonical schedule.date (repository normalizes scheduledDate → schedule.date)
@@ -427,22 +429,26 @@ export function TodayScreen() {
   }, [currentNow, todoStats.pending, pendingHabits, flatChecklists]);
 
   const handleStartNowFocus = useCallback(
-    (focus: NowFocusResult) => {
-      if (!focus.item) return;
-      if (focus.type === "task") {
-        setZenTaskOverride(focus.item as Task);
-        setZenHabitOverride(null);
-        setIsZenModeActive(true);
-      } else if (focus.type === "habit") {
-        setZenHabitOverride(focus.item as Habit);
-        setZenTaskOverride(null);
-        setIsZenModeActive(true);
-      } else if (focus.type === "checklist") {
-        setExpandedChecklistIds((prev) => ({
-          ...prev,
-          [focus.item!.id]: true,
-        }));
+    async (focus: NowFocusResult) => {
+      if (!focus.item || focus.type === "checklist") return;
+
+      const explicitDuration = parseDurationMinutes(
+        focus.item.schedule?.durationMinutes,
+      );
+
+      let durationSeconds: number;
+      if (focus.state === "active" && focus.remainingMinutes !== undefined) {
+        durationSeconds = Math.max(60, focus.remainingMinutes * 60);
+      } else if (explicitDuration !== undefined && explicitDuration > 0) {
+        durationSeconds = explicitDuration * 60;
+      } else {
+        durationSeconds = 25 * 60;
       }
+
+      await launchFocusSession({
+        targetId: focus.item.id,
+        durationSeconds,
+      });
     },
     [],
   );

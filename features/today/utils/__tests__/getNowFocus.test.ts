@@ -80,6 +80,7 @@ describe("getNowFocus decision engine", () => {
     expect(result.type).toBe("task");
     expect(result.item?.id).toBe("task-2-3");
     expect(result.timeLabel).toBe("2:00 PM – 3:00 PM");
+    expect(result.remainingMinutes).toBe(60);
   });
 
   // 2. 2:30 PM + same Task → active
@@ -105,6 +106,7 @@ describe("getNowFocus decision engine", () => {
     expect(result.state).toBe("active");
     expect(result.type).toBe("task");
     expect(result.item?.id).toBe("task-2-3");
+    expect(result.remainingMinutes).toBe(30);
   });
 
   // 3. 3:00 PM + Task ended → it no longer counts as active
@@ -894,5 +896,106 @@ describe("getNowFocus decision engine", () => {
     expect(result.state).toBe("recommended");
     expect(result.item?.id).toBe("task-inbox-sentinel");
     expect(result.item?.title).toBe("Inbox Task");
+  });
+
+  // 24. Active scheduled Task calculates exact remainingMinutes based on current time (2:17 PM in 2:00-3:00 -> 43 min)
+  it("24. active scheduled Task calculates exact remainingMinutes based on current time", () => {
+    const task = mockTask({
+      id: "task-prompt-example",
+      title: "Build Pebble NOW",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "14:00",
+        endTime: "15:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 17), // 2:17 PM
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.type).toBe("task");
+    expect(result.item?.title).toBe("Build Pebble NOW");
+    expect(result.timeLabel).toBe("2:00 PM – 3:00 PM");
+    expect(result.durationMinutes).toBe(60);
+    expect(result.remainingMinutes).toBe(43);
+  });
+
+  // 25. Active scheduled Habit calculates exact remainingMinutes (7:20 AM in 7:00-8:00 -> 40 min)
+  it("25. active scheduled Habit calculates exact remainingMinutes based on current time", () => {
+    const habit = mockHabit({
+      id: "habit-prompt-example",
+      title: "Morning workout",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "07:00",
+        endTime: "08:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(7, 20), // 7:20 AM
+      referenceDateKey: TODAY_DATE,
+      tasks: [],
+      habits: [habit],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("active");
+    expect(result.type).toBe("habit");
+    expect(result.item?.title).toBe("Morning workout");
+    expect(result.remainingMinutes).toBe(40);
+  });
+
+  // 26. Unscheduled recommended Task does NOT invent a fake remaining allocation
+  it("26. unscheduled recommended Task does not invent a fake remaining allocation", () => {
+    const task = mockTask({
+      id: "task-unscheduled",
+      title: "Deep Reading",
+      schedule: {
+        durationMinutes: 45,
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("recommended");
+    expect(result.durationMinutes).toBe(45);
+    expect(result.remainingMinutes).toBeUndefined();
+  });
+
+  // 27. Upcoming scheduled Task does not have remainingMinutes
+  it("27. upcoming scheduled Task does not have remainingMinutes", () => {
+    const task = mockTask({
+      id: "task-upcoming-27",
+      title: "Upcoming Meeting",
+      schedule: {
+        date: TODAY_DATE,
+        startTime: "16:00",
+        endTime: "17:00",
+      },
+    });
+
+    const result = getNowFocus({
+      now: createDateAtTime(14, 0),
+      referenceDateKey: TODAY_DATE,
+      tasks: [task],
+      habits: [],
+      checklists: [],
+    });
+
+    expect(result.state).toBe("upcoming");
+    expect(result.remainingMinutes).toBeUndefined();
   });
 });
