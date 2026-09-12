@@ -37,8 +37,10 @@ import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
 import { PebbleCircadianHeader } from "@/features/today/components/PebbleCircadianHeader";
 import { NowFocusCard } from "@/features/today/components/NowFocusCard";
+import { TodayDayContext } from "@/features/today/components/TodayDayContext";
 import { getNowFocus, type NowFocusResult } from "@/features/today/utils/getNowFocus";
 import { useLiveClock } from "@/features/today/hooks/useLiveClock";
+import { buildTodayDayContext } from "@/features/today/utils/todayDayContext";
 import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
@@ -428,6 +430,31 @@ export function TodayScreen() {
     });
   }, [currentNow, todoStats.pending, pendingHabits, flatChecklists]);
 
+  const todayDayContext = useMemo(
+    () =>
+      buildTodayDayContext({
+        now: currentNow,
+        tasks: [...todoStats.pending, ...(todoStats.completedTasks ?? [])],
+        habits: [...pendingHabits, ...completedHabits],
+        checklists: flatChecklists,
+        nowFocus,
+      }),
+    [
+      currentNow,
+      todoStats.pending,
+      todoStats.completedTasks,
+      pendingHabits,
+      completedHabits,
+      flatChecklists,
+      nowFocus,
+    ],
+  );
+
+  const workspaceNames = useMemo(
+    () => Object.fromEntries(folders.map((folder) => [folder.id, folder.name])),
+    [folders],
+  );
+
   const {
     handleStartNowFocus,
     handleCompleteNowFocus,
@@ -493,7 +520,7 @@ export function TodayScreen() {
             subtitle="Small steps. A calmer you."
             profile={profile}
             hasUnreadNotifs={hasUnreadNotifs}
-            showSearch={true}
+            showSearch={false}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
             onJarPress={() => setPebbleJarModalVisible(true)}
@@ -517,6 +544,13 @@ export function TodayScreen() {
             colors={colors}
             colorScheme={colorScheme}
             style={{ marginBottom: 4 }}
+          />
+
+          <TodayDayContext
+            context={todayDayContext}
+            workspaceNames={workspaceNames}
+            colors={colors}
+            onViewFullDay={() => router.push("/calendar")}
           />
 
           {/* Global Filter Row */}
