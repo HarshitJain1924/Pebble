@@ -7,7 +7,7 @@ import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { EmptyState } from "@/shared/components/ui/EmptyState";
+import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import * as Haptics from "expo-haptics";
 import { type Habit } from "@/shared/types/domain.types";
 import { isRecurringOccurrenceForDate, getDateKey } from "@/services/scheduling/recurrence.service";
@@ -30,6 +30,8 @@ interface HabitSectionProps {
   allResources?: any[];
   onToggleLinkResource?: (itemId: string, itemType: "habit", resourceId: string) => void;
   onCreateHabit?: () => void;
+  searchQuery?: string;
+  onClearSearch?: () => void;
 }
 
 export function HabitSection({
@@ -42,6 +44,8 @@ export function HabitSection({
   allResources = [],
   onToggleLinkResource,
   onCreateHabit,
+  searchQuery,
+  onClearSearch,
 }: HabitSectionProps) {
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -270,35 +274,13 @@ export function HabitSection({
           )}
         </View>
       ) : (
-        <View style={{ alignItems: "center", gap: 12, marginTop: 10 }}>
-          <EmptyState
-            graphic={<Feather name="activity" size={24} color={colors.textMuted} />}
-            title="No habits yet."
-            description="Small routines become lasting habits."
-            style={{ width: "100%", padding: 32, gap: 8 }}
-          />
-          <TouchableOpacity
-            onPress={onCreateHabit}
-            accessibilityRole="button"
-            accessibilityLabel="Create Habit"
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.primary,
-              paddingHorizontal: 16,
-              height: 40,
-              borderRadius: 20,
-              gap: 6,
-              marginTop: 4,
-            }}
-          >
-            <Feather name="plus" size={16} color="#FFFFFF" />
-            <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 13 }}>
-              Create Habit
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <WorkspaceEmptyState
+          context="habits"
+          searchQuery={searchQuery}
+          onClearSearch={onClearSearch}
+          onCreateItem={onCreateHabit}
+          style={{ marginVertical: 16 }}
+        />
       )}
 
       {/* Link Selector Modal for Habit */}

@@ -56,9 +56,6 @@ jest.mock("@/features/profile/components/ProductivityDashboard", () => ({
 jest.mock("@/features/profile/components/WeeklyProductivityTrend", () => ({
   WeeklyProductivityTrend: "WeeklyProductivityTrend",
 }));
-jest.mock("@/features/profile/components/FocusRhythmPeaks", () => ({
-  FocusRhythmPeaks: "FocusRhythmPeaks",
-}));
 
 import StatsScreen from "@/app/profile/stats";
 import {
@@ -105,7 +102,11 @@ describe("Analytics screen metric scope", () => {
     (WorkspaceRepository.getWorkspaces as jest.Mock).mockResolvedValue([]);
     (TaskRepository.getTasks as jest.Mock).mockResolvedValue({});
     (HabitRepository.getHabits as jest.Mock).mockResolvedValue({});
-    (getPebbleCounts as jest.Mock).mockResolvedValue({ ...basePebbleCounts });
+    // Non-zero activity by default so the analytical sections render.
+    (getPebbleCounts as jest.Mock).mockResolvedValue({
+      ...basePebbleCounts,
+      lifetime: 12,
+    });
   });
 
   afterEach(() => {
@@ -125,10 +126,10 @@ describe("Analytics screen metric scope", () => {
 
   it("uses the canonical lifetime focus-session count, not the daily reset counter", async () => {
     (getPebbleCounts as jest.Mock).mockResolvedValue({
-      ...basePebbleCounts,
-      lifetimeTypes: { task: 2, habit: 1, focus: 3, checklist: 0 },
-    });
-    // Trap value: the legacy daily-only counter says 99 sessions today.
+      ...basePebbleCounts,        lifetime: 12,
+        lifetimeTypes: { task: 2, habit: 1, focus: 3, checklist: 0 },
+      });
+      // Trap value: the legacy daily-only counter says 99 sessions today.
     await AsyncStorage.setItem(
       "todoapp:focus:stats",
       JSON.stringify({ completedToday: 99, totalFocusTime: 42 }),
@@ -142,10 +143,10 @@ describe("Analytics screen metric scope", () => {
 
   it("keeps historical/lifetime focus data out of the today-only counter", async () => {
     (getPebbleCounts as jest.Mock).mockResolvedValue({
-      ...basePebbleCounts,
-      lifetimeTypes: { task: 0, habit: 0, focus: 8, checklist: 0 },
-    });
-    await AsyncStorage.setItem(
+      ...basePebbleCounts,        lifetime: 12,
+        lifetimeTypes: { task: 0, habit: 0, focus: 8, checklist: 0 },
+      });
+      await AsyncStorage.setItem(
       "todoapp:focus:stats",
       JSON.stringify({ completedToday: 2, totalFocusTime: 0 }),
     );
@@ -155,7 +156,7 @@ describe("Analytics screen metric scope", () => {
     expect(dashboardStats().focusSessions).toBe(8);
   });
 
-  it("averages the Focus Score over the last 90 days of history", async () => {
+  it("averages the productivity score over the last 90 days of history", async () => {
     await AsyncStorage.setItem(
       "pebble:history",
       JSON.stringify([
@@ -169,14 +170,60 @@ describe("Analytics screen metric scope", () => {
     expect(dashboardStats().avgScore).toBe(50);
   });
 
+  function renderedStrings(): string[] {
+    return renderer.root
+      .findAll((node: any) => {
+        const c = node.props?.children;
+        return typeof c === "string" || typeof c === "number";
+      })
+      .map((node: any) => String(node.props.children));
+  }
+
+  it("shows the checklist Pebble source alongside every other canonical type", async () => {
+    (getPebbleCounts as jest.Mock).mockResolvedValue({
+      ...basePebbleCounts,
+      lifetime: 10,
+      lifetimeTypes: { task: 3, habit: 2, focus: 1, checklist: 4 },
+    });
+
+    await renderStats();
+
+    const strings = renderedStrings();
+    expect(strings).toEqual(
+      expect.arrayContaining(["Checklists", "Tasks", "Habits", "Focus"]),
+    );
+    expect(strings).toContain("4");
+  });
+
+  it("shows the empty state only when there is genuinely no activity", async () => {
+    (getPebbleCounts as jest.Mock).mockResolvedValue({ ...basePebbleCounts });
+
+    await renderStats();
+
+    expect(renderedStrings()).toContain("Not enough data yet.");
+  });
+
+  it("never renders the unpopulated daily focus rhythm section", async () => {
+    (getPebbleCounts as jest.Mock).mockResolvedValue({
+      ...basePebbleCounts,
+      lifetime: 5,
+    });
+
+    await renderStats();
+
+    expect(renderedStrings().join("\n")).not.toMatch(/DAILY FOCUS RHYTHM/);
+  });
+
   it("refreshes focus stats when pebbles_changed is emitted", async () => {
     (getPebbleCounts as jest.Mock)
       .mockResolvedValueOnce({
         ...basePebbleCounts,
+        lifetime: 12,
         lifetimeTypes: { task: 0, habit: 0, focus: 1, checklist: 0 },
       })
       .mockResolvedValueOnce({
         ...basePebbleCounts,
+        lifetime: 12,
         lifetimeTypes: { task: 0, habit: 0, focus: 5, checklist: 0 },
       });
 

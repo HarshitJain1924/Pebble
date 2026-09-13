@@ -6,7 +6,7 @@ import { TodoItem } from "@/features/tasks/components/TaskItem";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
-import { EmptyState } from "@/shared/components/ui/EmptyState";
+import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { Task, Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 
@@ -30,6 +30,9 @@ interface TaskSectionsProps {
   onToggleSelectItem?: (id: string) => void;
   allResources?: any[];
   onToggleLinkResource?: (itemId: string, itemType: "task", resourceId: string) => void;
+  searchQuery?: string;
+  onClearSearch?: () => void;
+  onCreateTask?: () => void;
 }
 
 export function TaskSections({
@@ -52,6 +55,9 @@ export function TaskSections({
   onToggleSelectItem,
   allResources = [],
   onToggleLinkResource,
+  searchQuery,
+  onClearSearch,
+  onCreateTask,
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -122,11 +128,12 @@ export function TaskSections({
 
   if (!hasAnyTasks) {
     return (
-      <EmptyState
-        graphic={<Feather name="check" size={24} color={colors.success} />}
-        title="No tasks in this workspace."
-        description="Add a task to get started."
-        style={{ padding: 32, gap: 8, marginTop: 20 }}
+      <WorkspaceEmptyState
+        context="tasks"
+        searchQuery={searchQuery}
+        onClearSearch={onClearSearch}
+        onCreateItem={onCreateTask}
+        style={{ marginVertical: 16 }}
       />
     );
   }

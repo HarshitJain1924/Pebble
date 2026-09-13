@@ -11,6 +11,13 @@ export interface PebbleLogEntry {
   type: PebbleType;
   timestamp: number;
   rewardId?: string;
+  /**
+   * Audit provenance only — records whether this entry was the first Pebble of
+   * its local day (and therefore triggered the +1 bonus Gem). It is written but
+   * never read: bonus-Gem correctness is enforced structurally by the
+   * `todayPebbles.length === 0` check on earn and the "sole Pebble of the day"
+   * check on reversal. Retained for historical log inspection/migration.
+   */
   bonusGemAwarded?: boolean;
 }
 
@@ -96,6 +103,11 @@ export async function earnPebbleUnlocked(
     return dateKeyFromDate(d) === todayStr;
   });
 
+  // Daily cap. The cap counts reward EVENTS (log entries), and every eligible
+  // completion records exactly one entry worth exactly one Pebble, so
+  // "15 events/day" == "15 Pebbles/day" for the current reward model. The cap is
+  // global across task/habit/focus/checklist. A reward rejected here is dropped
+  // by design (no backlog) and the completion itself still commits.
   if (todayPebbles.length >= 15) {
     console.log("Daily pebble limit reached (15/day).");
     return { success: false, changed: false };
@@ -706,6 +718,10 @@ export async function reversePebbleReward(rewardId: string): Promise<boolean> {
 }
 
 export async function getPebbleCounts(): Promise<PebbleCounts> {
+  // The lazy first-run backfill inside getPebbleCountsUnlocked is a
+  // read-modify-write on the pebble log. Serialize it on the economy lock so a
+  // concurrent reward write can never be clobbered by the backfill.
+  await ensurePebbleLogInitialized();
   return getPebbleCountsUnlocked();
 }
 
@@ -717,16 +733,17 @@ export async function ensurePebbleLogInitialized(): Promise<void> {
   });
 }
 
-export async function getPebbleBalance(): Promise<number> {
-  return getGemsBalance();
-}
-
 /**
- * Legacy compatibility wrapper for spending.
- * In Pebble v1, Pebbles are an accrual/gamification metric (capped at 15/day, 45 Pebbles = 1 Gem).
- * Gems are the spendable currency.
- * Historical callers specified amounts in legacy pebble units, where 10 legacy pebbles represented 1 Gem.
- * This wrapper converts legacy pebble amounts to Gems: Math.max(1, Math.floor(amount / 10)).
+ * LEGACY / NON-PRODUCT API — do not use in new code.
+ *
+ * In Pebble v1, Pebbles are a non-spendable accrual metric (15 events/day cap,
+ * 45 lifetime Pebbles = 1 derived Gem). Gems are the only spendable currency and
+ * the canonical spend entry point is `spendGems`.
+ *
+ * This wrapper exists only for historical callers/tests that expressed spend
+ * amounts in "legacy pebble units" where 10 legacy pebbles == 1 Gem. That ratio
+ * deliberately differs from the canonical 45:1 Pebble→Gem model and must NOT be
+ * used to derive balances. No production module references it.
  */
 export async function spendPebbles(
   amount: number,
@@ -740,6 +757,9 @@ export async function spendPebbles(
 }
 
 export async function getGemsBalance(): Promise<number> {
+  // Same first-run backfill hazard as getPebbleCounts: the derived balance
+  // read may initialize the pebble log, so serialize that initialization.
+  await ensurePebbleLogInitialized();
   return getGemsBalanceUnlocked();
 }
 

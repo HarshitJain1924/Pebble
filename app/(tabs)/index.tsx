@@ -51,6 +51,7 @@ import {
 import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
 import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
+import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
 import { createNowFocusActionHandlers } from "@/features/today/utils/nowFocusActions";
 import { launchFocusSession } from "@/features/focus/services/FocusLaunchService";
 
@@ -686,63 +687,6 @@ export function TodayScreen() {
     </View>
   );
 }
-
-const getMilestoneInfo = (pebbles: number) => {
-  if (pebbles <= 10) {
-    return {
-      stage: 1,
-      name: "First Steps",
-      range: "0-10",
-      desc: "Gathering the first stones of momentum.",
-    };
-  }
-  if (pebbles <= 25) {
-    return {
-      stage: 2,
-      name: "Sprout",
-      range: "11-25",
-      desc: "A small base of habit stones.",
-    };
-  }
-  if (pebbles <= 50) {
-    return {
-      stage: 3,
-      name: "Zen Stream",
-      range: "26-50",
-      desc: "Flowing stream of productivity.",
-    };
-  }
-  if (pebbles <= 100) {
-    return {
-      stage: 4,
-      name: "Sanctuary Base",
-      range: "51-100",
-      desc: "Solid foundation for daily rhythm.",
-    };
-  }
-  if (pebbles <= 250) {
-    return {
-      stage: 5,
-      name: "Pebble Hoarder",
-      range: "101-250",
-      desc: "A significant heap of accomplishments.",
-    };
-  }
-  if (pebbles <= 500) {
-    return {
-      stage: 6,
-      name: "Zen Mountain",
-      range: "251-500",
-      desc: "An impressive, towering mount of zen.",
-    };
-  }
-  return {
-    stage: 7,
-    name: "Ocean of Focus",
-    range: "500+",
-    desc: "Infinite zen achieved. Master level.",
-  };
-};
 
 const localStyles = StyleSheet.create({
   overlayContainer: {

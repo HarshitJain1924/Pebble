@@ -4,10 +4,6 @@
  * Habit CRUD operations extracted from useTasksState using canonical Habit model.
  */
 import {
-  earnPebble,
-} from "@/features/profile/services/pebble.service";
-
-import {
   TASK_CATEGORY_META,
   type TaskCategory,
 } from "@/features/tasks/services/task-categories";

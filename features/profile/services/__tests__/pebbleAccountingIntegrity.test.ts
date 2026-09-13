@@ -484,4 +484,25 @@ describe("Pebble Accounting Integrity — Phase 5 Hardening", () => {
       expect(emitStateChange).not.toHaveBeenCalled();
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 7. Eligible Completion Types Earn Pebbles
+  // ──────────────────────────────────────────────────────────────────────────
+  describe("Eligible Completion Types", () => {
+    it("records one lifetime Pebble per task, habit, focus, and checklist completion", async () => {
+      expect(await earnPebble("task", "task:type-1")).toBe(true);
+      expect(await earnPebble("habit", "habit:type-1")).toBe(true);
+      expect(await earnPebble("focus", "focus:type-1")).toBe(true);
+      expect(await earnPebble("checklist", "checklist:type-1")).toBe(true);
+
+      const counts = await getPebbleCounts();
+      expect(counts.lifetime).toBe(4);
+      expect(counts.lifetimeTypes).toEqual({
+        task: 1,
+        habit: 1,
+        focus: 1,
+        checklist: 1,
+      });
+    });
+  });
 });

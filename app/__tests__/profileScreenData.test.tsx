@@ -5,6 +5,9 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
+const mockPush = jest.fn();
+const mockBack = jest.fn();
+
 jest.mock("expo-router", () => {
   const React = require("react");
   return {
@@ -12,17 +15,13 @@ jest.mock("expo-router", () => {
     useFocusEffect: (cb: any) => {
       React.useEffect(() => cb(), [cb]);
     },
-    useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }),
+    useRouter: () => ({ push: mockPush, back: mockBack, replace: jest.fn() }),
   };
 });
 
 jest.mock("expo-haptics", () => ({
   impactAsync: jest.fn().mockResolvedValue(undefined),
   ImpactFeedbackStyle: { Light: "light", Medium: "medium", Heavy: "heavy" },
-}));
-
-jest.mock("expo-blur", () => ({
-  BlurView: () => null,
 }));
 
 jest.mock("@expo/vector-icons", () => ({
@@ -34,21 +33,9 @@ jest.mock("@/shared/hooks/useColorScheme", () => ({
 }));
 
 jest.mock("@/features/profile/components/RenderAvatar", () => ({
-  AVATAR_OPTIONS: [],
+  AVATAR_OPTIONS: [{ id: "avatar_zen", label: "Zen Master", desc: "Calm" }],
   EMOJI_OPTIONS: ["😀"],
   RenderAvatar: () => null,
-}));
-
-jest.mock("@/features/profile/components/RankTiersModal", () => ({
-  RankTiersModal: "RankTiersModal",
-}));
-
-jest.mock("@/shared/components/layout/AmbientBackground", () => ({
-  FloatingGlow: () => null,
-}));
-
-jest.mock("@/features/habits/services/habit.service", () => ({
-  normalizeHabitsForToday: (habits: any[]) => habits,
 }));
 
 jest.mock("@/features/profile/services/pebble.service", () => ({
@@ -56,41 +43,25 @@ jest.mock("@/features/profile/services/pebble.service", () => ({
   getGemsBalance: jest.fn(),
 }));
 
-jest.mock("@/services/analytics/productivity-history.service", () => ({
-  getAllHistory: jest.fn(),
+jest.mock("@/features/profile/services/achievement-stats.service", () => ({
+  getAchievementStats: jest.fn(),
 }));
 
 jest.mock("@/features/settings/services/settings.service", () => ({
   getProfile: jest.fn(),
   saveProfile: jest.fn(),
-  getLevelInfo: jest.fn().mockReturnValue({
-    level: 1,
-    xpInCurrentLevel: 0,
-    xpNeededForNext: 10,
-    progressPct: 0,
-    rank: "First Steps",
-  }),
-}));
-
-jest.mock("@/repositories", () => ({
-  WorkspaceRepository: { getWorkspaces: jest.fn() },
-  TaskRepository: { getTasks: jest.fn() },
-  HabitRepository: { getHabits: jest.fn() },
 }));
 
 import ProfileScreen from "@/app/profile";
 import {
-  WorkspaceRepository,
-  TaskRepository,
-  HabitRepository,
-} from "@/repositories";
-import {
   getPebbleCounts,
   getGemsBalance,
 } from "@/features/profile/services/pebble.service";
-import { getAllHistory } from "@/services/analytics/productivity-history.service";
-import { getProfile } from "@/features/settings/services/settings.service";
-import { emitStateChange } from "@/services/events/state-events";
+import { getAchievementStats } from "@/features/profile/services/achievement-stats.service";
+import {
+  getProfile,
+  saveProfile,
+} from "@/features/settings/services/settings.service";
 
 const basePebbleCounts = {
   lifetime: 0,
@@ -101,17 +72,16 @@ const basePebbleCounts = {
   lifetimeTypes: { task: 0, habit: 0, focus: 0, checklist: 0 },
   streak: 0,
   bestStreak: 0,
-  weeklyStatus: [],
 };
 
-function dateKeyDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+// 6 of the canonical 10 achievements unlock with these numbers.
+const baseAchievementStats = {
+  todosCompleted: 12,
+  habitsCompleted: 1,
+  activeStreak: 7,
+  focusSessions: 1,
+  focusTime: 0,
+};
 
 async function flushAsync(): Promise<void> {
   for (let i = 0; i < 10; i++) {
@@ -121,9 +91,9 @@ async function flushAsync(): Promise<void> {
 
 let renderer: any;
 
-function renderedTextContains(target: string): boolean {
-  return (
-    renderer.root.findAll((node: any) => {
+function allText(): string {
+  return renderer.root
+    .findAll((node: any) => {
       const kids = node.props?.children;
       if (kids === undefined || kids === null) return false;
       const flat = Array.isArray(kids)
@@ -131,24 +101,47 @@ function renderedTextContains(target: string): boolean {
             .filter((k) => typeof k === "string" || typeof k === "number")
             .join("")
         : String(kids);
-      return flat === target || flat.includes(target);
-    }).length > 0
+      return true;
+    })
+    .map((node: any) => {
+      const kids = node.props.children;
+      return Array.isArray(kids)
+        ? kids
+            .filter((k) => typeof k === "string" || typeof k === "number")
+            .join("")
+        : String(kids);
+    })
+    .join("\n");
+}
+
+function renderedTextContains(target: string): boolean {
+  return allText().includes(target);
+}
+
+function pressableByLabel(label: string) {
+  return renderer.root.find(
+    (node: any) =>
+      node.props?.accessibilityLabel === label &&
+      typeof node.props?.onPress === "function",
   );
 }
 
-describe("Profile screen data wiring", () => {
+describe("Profile screen", () => {
+  let storedProfile: { name: string; email: string; avatar: string };
+
   beforeEach(() => {
     jest.clearAllMocks();
-    (WorkspaceRepository.getWorkspaces as jest.Mock).mockResolvedValue([]);
-    (TaskRepository.getTasks as jest.Mock).mockResolvedValue({});
-    (HabitRepository.getHabits as jest.Mock).mockResolvedValue({});
+    storedProfile = { name: "Ada", email: "ada@pebble.app", avatar: "🦉" };
     (getPebbleCounts as jest.Mock).mockResolvedValue({ ...basePebbleCounts });
     (getGemsBalance as jest.Mock).mockResolvedValue(0);
-    (getAllHistory as jest.Mock).mockResolvedValue([]);
-    (getProfile as jest.Mock).mockResolvedValue({
-      name: "Ada",
-      email: "ada@pebble.app",
-      avatar: "🦉",
+    (getAchievementStats as jest.Mock).mockResolvedValue({
+      ...baseAchievementStats,
+    });
+    (getProfile as jest.Mock).mockImplementation(async () => ({
+      ...storedProfile,
+    }));
+    (saveProfile as jest.Mock).mockImplementation(async (next: any) => {
+      storedProfile = { ...next };
     });
   });
 
@@ -163,49 +156,211 @@ describe("Profile screen data wiring", () => {
     await flushAsync();
   }
 
-  it("displays the canonical pebbles-earned-today value in the hero status line", async () => {
-    (getPebbleCounts as jest.Mock).mockResolvedValue({
-      ...basePebbleCounts,
-      today: 3,
+  describe("identity", () => {
+    it("shows the name and email without a settings gear", async () => {
+      await renderProfile();
+
+      expect(renderedTextContains("Ada")).toBe(true);
+      expect(renderedTextContains("ada@pebble.app")).toBe(true);
+      expect(renderedTextContains("Settings")).toBe(false);
+    });
+  });
+
+  describe("sanctuary progression", () => {
+    it("presents lifetime Pebbles as the primary number", async () => {
+      (getPebbleCounts as jest.Mock).mockResolvedValue({
+        ...basePebbleCounts,
+        lifetime: 42,
+        monthly: 5,
+      });
+      (getGemsBalance as jest.Mock).mockResolvedValue(3);
+
+      await renderProfile();
+
+      expect(renderedTextContains("42")).toBe(true);
+      expect(renderedTextContains("Pebbles")).toBe(true);
+      // 42 Pebbles sits in the 26-50 band.
+      expect(renderedTextContains("Stage 3 · Zen Stream")).toBe(true);
     });
 
-    await renderProfile();
+    it("shows monthly Pebbles as informational text and Gems as secondary", async () => {
+      (getPebbleCounts as jest.Mock).mockResolvedValue({
+        ...basePebbleCounts,
+        lifetime: 42,
+        monthly: 7,
+      });
+      (getGemsBalance as jest.Mock).mockResolvedValue(3);
 
-    expect(renderedTextContains("+3 pebbles today")).toBe(true);
+      await renderProfile();
+
+      expect(renderedTextContains("This month · 7")).toBe(true);
+      expect(renderedTextContains("Gems · 3")).toBe(true);
+    });
+
+    it("does not render a fabricated /100 monthly target", async () => {
+      (getPebbleCounts as jest.Mock).mockResolvedValue({
+        ...basePebbleCounts,
+        lifetime: 42,
+        monthly: 7,
+      });
+
+      await renderProfile();
+
+      expect(renderedTextContains("/100")).toBe(false);
+      expect(renderedTextContains("Monthly Target")).toBe(false);
+    });
+
+    it("reports remaining Pebbles to the next stage from the canonical helper", async () => {
+      (getPebbleCounts as jest.Mock).mockResolvedValue({
+        ...basePebbleCounts,
+        lifetime: 18,
+      });
+
+      await renderProfile();
+
+      // Stage 2 completes at 25 → 7 Pebbles remaining.
+      expect(renderedTextContains("7 pebbles to Stage 3")).toBe(true);
+    });
+
+    it("shows a calm empty state with no fabricated progress when there are no Pebbles", async () => {
+      await renderProfile();
+
+      expect(renderedTextContains("Your sanctuary is empty.")).toBe(true);
+      expect(
+        renderedTextContains("Finish something to earn your first Pebble."),
+      ).toBe(true);
+      expect(renderedTextContains("This month")).toBe(false);
+    });
+
+    it("never renders XP, Level, Rank or experience copy", async () => {
+      (getPebbleCounts as jest.Mock).mockResolvedValue({
+        ...basePebbleCounts,
+        lifetime: 42,
+      });
+      (getGemsBalance as jest.Mock).mockResolvedValue(3);
+
+      await renderProfile();
+
+      expect(allText()).not.toMatch(/(\bXP\b|\bLvl\b|\bLevel\b|\bRank\b|experience)/i);
+    });
   });
 
-  it("handles zero pebbles today correctly", async () => {
-    await renderProfile();
+  describe("achievements gateway", () => {
+    it("derives the unlocked count from the canonical ten achievements", async () => {
+      await renderProfile();
 
-    expect(renderedTextContains("Ready for today's focus")).toBe(true);
+      expect(renderedTextContains("6 of 10 unlocked")).toBe(true);
+    });
+
+    it("never reports a hardcoded six-item count", async () => {
+      (getAchievementStats as jest.Mock).mockResolvedValue({
+        todosCompleted: 0,
+        habitsCompleted: 0,
+        activeStreak: 0,
+        focusSessions: 0,
+        focusTime: 0,
+      });
+
+      await renderProfile();
+
+      expect(renderedTextContains("0 of 10 unlocked")).toBe(true);
+    });
   });
 
-  it("computes Focus Score over the last 90 days (not just the current month)", async () => {
-    // A 45-day-old 100% day is inside the 90-day window but outside the
-    // current month; today scores 0. The 90-day average is 50 — a
-    // current-month-only calculation would wrongly show 0.
-    (getAllHistory as jest.Mock).mockResolvedValue([
-      { date: dateKeyDaysAgo(45), score: 100 },
-      { date: dateKeyDaysAgo(0), score: 0 },
-    ]);
+  describe("navigation", () => {
+    it("opens Stats", async () => {
+      await renderProfile();
 
-    await renderProfile();
+      await act(async () => {
+        pressableByLabel("Stats and insights").props.onPress();
+      });
 
-    expect(renderedTextContains("50%")).toBe(true);
+      expect(mockPush).toHaveBeenCalledWith("/profile/stats");
+    });
+
+    it("opens Achievements", async () => {
+      await renderProfile();
+
+      await act(async () => {
+        pressableByLabel(
+          "Achievements, 6 of 10 unlocked",
+        ).props.onPress();
+      });
+
+      expect(mockPush).toHaveBeenCalledWith("/profile/achievements");
+    });
   });
 
-  it("refreshes today's pebbles when pebbles_changed is emitted", async () => {
-    (getPebbleCounts as jest.Mock)
-      .mockResolvedValueOnce({ ...basePebbleCounts, today: 1 })
-      .mockResolvedValueOnce({ ...basePebbleCounts, today: 4 });
+  describe("avatar picker", () => {
+    it("persists a selection immediately with no separate save step", async () => {
+      await renderProfile();
 
-    await renderProfile();
-    expect(renderedTextContains("+1 pebble today")).toBe(true);
+      await act(async () => {
+        pressableByLabel("Change your avatar").props.onPress();
+      });
+      await act(async () => {
+        pressableByLabel("Emoji avatar 😀").props.onPress();
+      });
+      await flushAsync();
 
-    emitStateChange("pebbles_changed");
-    await flushAsync();
+      expect(saveProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ avatar: "😀" }),
+      );
+      expect(renderedTextContains("Save Profile")).toBe(false);
+    });
 
-    expect(getPebbleCounts).toHaveBeenCalledTimes(2);
-    expect(renderedTextContains("+4 pebbles today")).toBe(true);
+    it("keeps the chosen option marked as selected", async () => {
+      await renderProfile();
+
+      await act(async () => {
+        pressableByLabel("Change your avatar").props.onPress();
+      });
+      await act(async () => {
+        pressableByLabel("Emoji avatar 😀").props.onPress();
+      });
+      await flushAsync();
+
+      const selected = pressableByLabel("Emoji avatar 😀");
+      expect(selected.props.accessibilityRole).toBe("radio");
+      expect(selected.props.accessibilityState.selected).toBe(true);
+    });
+
+    it("reverts the selection and shows an inline error when saving fails", async () => {
+      (saveProfile as jest.Mock).mockRejectedValue(new Error("disk full"));
+
+      await renderProfile();
+
+      await act(async () => {
+        pressableByLabel("Change your avatar").props.onPress();
+      });
+      await act(async () => {
+        pressableByLabel("Emoji avatar 😀").props.onPress();
+      });
+      await flushAsync();
+
+      expect(
+        renderedTextContains("Couldn't save that choice. Please try again."),
+      ).toBe(true);
+      expect(pressableByLabel("Emoji avatar 😀").props.accessibilityState
+        .selected).toBe(false);
+    });
+  });
+
+  describe("refresh", () => {
+    it("reloads when pebbles_changed is emitted", async () => {
+      (getPebbleCounts as jest.Mock)
+        .mockResolvedValueOnce({ ...basePebbleCounts, lifetime: 20 })
+        .mockResolvedValueOnce({ ...basePebbleCounts, lifetime: 30 });
+
+      await renderProfile();
+      expect(renderedTextContains("20")).toBe(true);
+
+      const { emitStateChange } = require("@/services/events/state-events");
+      emitStateChange("pebbles_changed");
+      await flushAsync();
+
+      expect(getPebbleCounts).toHaveBeenCalledTimes(2);
+      expect(renderedTextContains("30")).toBe(true);
+    });
   });
 });

@@ -7,6 +7,7 @@ import Animated, {
   useAnimatedStyle,
   type SharedValue,
 } from "react-native-reanimated";
+import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -43,63 +44,6 @@ const PEBBLE_SLOTS = [
   { x: 24, b: 25 },
   { x: 30, b: 25 },
 ];
-
-const getMilestoneInfo = (pebbles: number) => {
-  if (pebbles <= 10) {
-    return {
-      stage: 1,
-      name: "First Steps",
-      range: "0-10",
-      desc: "Gathering the first stones of momentum.",
-    };
-  }
-  if (pebbles <= 25) {
-    return {
-      stage: 2,
-      name: "Sprout",
-      range: "11-25",
-      desc: "A small base of habit stones.",
-    };
-  }
-  if (pebbles <= 50) {
-    return {
-      stage: 3,
-      name: "Zen Stream",
-      range: "26-50",
-      desc: "Flowing stream of productivity.",
-    };
-  }
-  if (pebbles <= 100) {
-    return {
-      stage: 4,
-      name: "Sanctuary Base",
-      range: "51-100",
-      desc: "Solid foundation for daily rhythm.",
-    };
-  }
-  if (pebbles <= 250) {
-    return {
-      stage: 5,
-      name: "Pebble Hoarder",
-      range: "101-250",
-      desc: "A significant heap of accomplishments.",
-    };
-  }
-  if (pebbles <= 500) {
-    return {
-      stage: 6,
-      name: "Zen Mountain",
-      range: "251-500",
-      desc: "An impressive, towering mount of zen.",
-    };
-  }
-  return {
-    stage: 7,
-    name: "Ocean of Focus",
-    range: "500+",
-    desc: "Infinite zen achieved. Master level.",
-  };
-};
 
 export interface PebbleJarProgressCardProps {
   colors: {
@@ -390,16 +334,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                     letterSpacing: 0.8,
                   }}
                 >
-                  Monthly Sanctuary
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 11,
-                    fontWeight: "600",
-                    color: colors.textMuted,
-                  }}
-                >
-                  {monthlyPebblesCount}%
+                  This month
                 </Text>
               </View>
 
@@ -412,16 +347,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                     letterSpacing: -0.5,
                   }}
                 >
-                  {monthlyPebblesCount}{" "}
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: "500",
-                      color: colors.textMuted,
-                    }}
-                  >
-                    / 100
-                  </Text>
+                  {monthlyPebblesCount}
                 </Text>
               </View>
 

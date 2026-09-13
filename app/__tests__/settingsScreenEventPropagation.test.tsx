@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Pressable } from "react-native";
+import { Alert } from "react-native";
 import { act, create } from "react-test-renderer";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
@@ -15,8 +15,15 @@ jest.mock("react-native-reanimated", () => {
     default: { View },
     Animated: { View },
     FadeInDown: entering,
+    useSharedValue: (value: any) => ({ value }),
+    useAnimatedStyle: () => ({}),
+    withSpring: (value: any) => value,
+    withTiming: (value: any) => value,
   };
 });
+
+const mockReplace = jest.fn();
+const mockPush = jest.fn();
 
 jest.mock("expo-router", () => {
   const React = require("react");
@@ -24,7 +31,7 @@ jest.mock("expo-router", () => {
     useFocusEffect: (cb: any) => {
       React.useEffect(() => cb(), [cb]);
     },
-    useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+    useRouter: () => ({ push: mockPush, replace: mockReplace }),
   };
 });
 
@@ -37,69 +44,27 @@ jest.mock("expo-haptics", () => ({
   ImpactFeedbackStyle: { Light: "light", Medium: "medium", Heavy: "heavy" },
 }));
 
-jest.mock("@/shared/components/ui/AppCard", () => ({
-  AppCard: ({ children }: any) => children,
-}));
+const mockEmitThemeChange = jest.fn();
 
 jest.mock("@/shared/hooks/useColorScheme", () => ({
   useColorScheme: () => "dark",
-  emitThemeChange: jest.fn(),
+  emitThemeChange: (theme: string) => mockEmitThemeChange(theme),
 }));
 
-jest.mock("@/features/profile/components/RenderAvatar", () => ({
-  AVATAR_OPTIONS: [{ id: "avatar_crow", label: "Crow" }],
-  EMOJI_OPTIONS: ["😀"],
-  RenderAvatar: () => null,
-}));
-
-jest.mock("@/features/profile/services/pebble.service", () => ({
-  GEMS_BONUS_KEY: "gems_bonus",
-  GEMS_SPENT_KEY: "gems_spent",
-  PEBBLE_LOG_KEY: "pebble_log",
-  PEBBLE_SPENT_KEY: "pebble_spent",
-}));
-
-jest.mock("@/features/capture/services/quick-suggestions.service", () => ({
-  QUICK_SUGGESTIONS_SEEN_KEY: "quick_suggestions_seen",
-}));
-
-jest.mock("@/services/storage/storage.service", () => ({
-  CHECKLISTS_STORAGE_KEY: "pebble:checklists",
-  COLLECTIONS_STORAGE_KEY: "pebble:collections",
-  DASHBOARD_FILTER_STORAGE_KEY: "dashboard_filter",
-  DASHBOARD_PRIORITY_STORAGE_KEY: "dashboard_priority",
-  HISTORY_STORAGE_KEY: "pebble:history",
-  NOTIF_LOG_STORAGE_KEY: "pebble:notif_log",
-  PROFILE_STORAGE_KEY: "pebble:profile",
-  RECYCLE_BIN_STORAGE_KEY: "pebble:recycle_bin",
-  SETTINGS_STORAGE_KEY: "pebble:settings",
-}));
-
-jest.mock("@/repositories", () => ({
-  clearRepositoryStorage: jest.fn().mockResolvedValue(undefined),
-}));
-
-jest.mock("@/services/analytics/widget-data.service", () => ({
-  WIDGET_PAYLOAD_KEY: "widget_payload",
+jest.mock("@/features/settings/services/export.service", () => ({
+  exportBackupFile: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/services/storage/backup.service", () => ({
   BackupService: {
-    generateStructuredBackup: jest.fn(),
-    restoreStructuredBackup: jest.fn(),
+    restoreStructuredBackup: jest.fn().mockResolvedValue(undefined),
     clearAllData: jest.fn().mockResolvedValue(undefined),
   },
-}));
-
-jest.mock("@/services/scheduling/reminders.service", () => ({
-  cancelAllScheduledNotifications: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/features/settings/services/settings.service", () => ({
   getSettings: jest.fn(),
   saveSettings: jest.fn(),
-  getProfile: jest.fn(),
-  saveProfile: jest.fn(),
 }));
 
 jest.mock("@/services/events/state-events", () => ({
@@ -107,12 +72,7 @@ jest.mock("@/services/events/state-events", () => ({
 }));
 
 import SettingsScreen from "@/app/(tabs)/settings";
-import {
-  getSettings,
-  saveSettings,
-  getProfile,
-  saveProfile,
-} from "@/features/settings/services/settings.service";
+import { saveSettings, getSettings } from "@/features/settings/services/settings.service";
 import { emitStateChange } from "@/services/events/state-events";
 
 const baseSettings = {
@@ -120,88 +80,166 @@ const baseSettings = {
   quietHours: { enabled: false, startHour: 22, endHour: 7 },
   categories: { work: true, personal: true },
   escalationEnabled: true,
-  showDuration: true,
-  showRepeat: true,
-  showReminder: true,
-  showTags: true,
-  showNotes: true,
   showMascot: true,
   editorRowOrder: [],
 };
 
-const baseProfile = { name: "Tester", email: "t@pebble.app", avatar: "😀" };
-
-describe("settings_changed propagation from the Settings screen", () => {
+describe("Settings screen", () => {
   let renderer: any;
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    (getSettings as jest.Mock).mockResolvedValue(baseSettings);
-    (getProfile as jest.Mock).mockResolvedValue(baseProfile);
+    (getSettings as jest.Mock).mockResolvedValue({ ...baseSettings });
     (saveSettings as jest.Mock).mockResolvedValue(undefined);
-    (saveProfile as jest.Mock).mockResolvedValue(undefined);
     jest.spyOn(Alert, "alert").mockImplementation(() => {});
 
     await act(async () => {
       renderer = create(<SettingsScreen />);
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  /**
-   * Presses Pressables until one causes saveSettings to be called with a
-   * payload satisfying `pred`. Tracks per-press emissions so assertions on
-   * emitStateChange reflect the exact press under test.
-   */
-  async function pressUntilSave(
-    pred: (saved: any) => boolean,
-  ): Promise<boolean> {
-    // Pressables are matched by their onPress handler because RN's Pressable
-    // composite type is not reliably findable via findAllByType in the test env.
-    const pressables = renderer.root.findAll(
-      (node: any) => typeof node.props.onPress === "function",
+  afterEach(() => {
+    renderer?.unmount();
+  });
+
+  function byLabel(label: string) {
+    return renderer.root.find(
+      (node: any) =>
+        node.props?.accessibilityLabel === label &&
+        typeof node.props?.onPress === "function",
     );
-    for (const pressable of pressables) {
-      (saveSettings as jest.Mock).mockClear();
-      (emitStateChange as jest.Mock).mockClear();
-      try {
-        await act(async () => {
-          await pressable.props.onPress();
-        });
-      } catch {
-        // Non-handler pressables (e.g. scroll rows) — keep scanning.
-      }
-      if (
-        (saveSettings as jest.Mock).mock.calls.some(([saved]: any) =>
-          pred(saved),
-        )
-      ) {
-        return true;
-      }
-    }
-    return false;
   }
 
-  it("emits settings_changed when a category subscription is toggled off", async () => {
-    const found = await pressUntilSave(
-      (saved) => saved?.categories?.work === false,
+  async function press(label: string) {
+    await act(async () => {
+      byLabel(label).props.onPress();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it("emits settings_changed when the companion toggle is switched off", async () => {
+    await press("Companion");
+
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ showMascot: false }),
     );
-    expect(found).toBe(true);
     expect(emitStateChange).toHaveBeenCalledWith("settings_changed");
   });
 
-  it("emits settings_changed when the escalation toggle is switched off", async () => {
-    const found = await pressUntilSave(
-      (saved) => saved?.escalationEnabled === false,
+  it("emits settings_changed when reminders are switched off", async () => {
+    await press("Reminders");
+
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ escalationEnabled: false }),
     );
-    expect(found).toBe(true);
     expect(emitStateChange).toHaveBeenCalledWith("settings_changed");
   });
 
   it("emits settings_changed when quiet hours are enabled", async () => {
-    const found = await pressUntilSave(
-      (saved) => saved?.quietHours?.enabled === true,
+    await press("Quiet hours");
+
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        quietHours: expect.objectContaining({ enabled: true }),
+      }),
     );
-    expect(found).toBe(true);
     expect(emitStateChange).toHaveBeenCalledWith("settings_changed");
+  });
+
+  it("emits settings_changed when a category subscription is toggled off", async () => {
+    await press("Category reminders");
+    await press("Work");
+
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        categories: expect.objectContaining({ work: false }),
+      }),
+    );
+    expect(emitStateChange).toHaveBeenCalledWith("settings_changed");
+  });
+
+  it("changes theme without a confirmation alert and keeps persistence", async () => {
+    (Alert.alert as jest.Mock).mockClear();
+
+    await press("Light");
+
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ theme: "light" }),
+    );
+    expect(mockEmitThemeChange).toHaveBeenCalledWith("light");
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it("persists a chosen quiet-hours hour from the time picker", async () => {
+    (getSettings as jest.Mock).mockResolvedValue({
+      ...baseSettings,
+      quietHours: { enabled: true, startHour: 22, endHour: 7 },
+    });
+    await act(async () => {
+      renderer.unmount();
+      renderer = create(<SettingsScreen />);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await press("Mute from 10:00 PM");
+    await press("11:00 PM");
+
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        quietHours: expect.objectContaining({ startHour: 23 }),
+      }),
+    );
+  });
+
+  it("renders the current quiet-hours window as readable rows", async () => {
+    (getSettings as jest.Mock).mockResolvedValue({
+      ...baseSettings,
+      quietHours: { enabled: true, startHour: 22, endHour: 7 },
+    });
+    await act(async () => {
+      renderer.unmount();
+      renderer = create(<SettingsScreen />);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(byLabel("Mute from 10:00 PM")).toBeTruthy();
+    expect(byLabel("Resume at 7:00 AM")).toBeTruthy();
+  });
+
+  it("opens the archive, export and restore actions from the Data group", async () => {
+    await press("Archived items");
+    expect(mockPush).toHaveBeenCalledWith("/archive");
+
+    expect(byLabel("Export data")).toBeTruthy();
+    expect(byLabel("Restore data")).toBeTruthy();
+  });
+
+  it("confirms before clearing data with explicit scope copy", () => {
+    byLabel("Clear all data").props.onPress();
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      "Clear all data?",
+      "This deletes your tasks, habits, checklists, focus history and progress on this device. It can't be undone.",
+      expect.arrayContaining([
+        expect.objectContaining({ text: "Keep my data", style: "cancel" }),
+        expect.objectContaining({
+          text: "Delete everything",
+          style: "destructive",
+        }),
+      ]),
+    );
+  });
+
+  it("does not render removed developer or dashboard copy", () => {
+    const text = renderer.root
+      .findAll((node: any) => typeof node.props?.children === "string")
+      .map((node: any) => node.props.children)
+      .join("\n");
+
+    expect(text).not.toMatch(
+      /(PREMIUM CONTROLS|Settings Console|Data Engineering|engineer back-ups|workspace level|Notification Parameters|Storage Wiped|storage keys|empty canvas)/,
+    );
+    expect(text).not.toMatch(/(\bXP\b|\bLvl\b|\bRank\b)/);
   });
 });

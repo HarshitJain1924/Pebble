@@ -46,6 +46,7 @@ import { ProgressSection } from "@/features/profile/components/ProgressSection";
 import { ResourceSection } from "@/features/resources/components/ResourceSection";
 import { ChecklistSection } from "@/features/checklists/components/ChecklistSection";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
+import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 
 import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
 import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
@@ -86,6 +87,20 @@ export function WorkspacesScreen() {
   const allResources = React.useMemo(() => {
     return state.resources[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
   }, [state.resources, state.activeWorkspaceId]);
+
+  const searchPlaceholder = React.useMemo(() => {
+    switch (state.workspaceSegment) {
+      case "habits":
+        return "Search habits...";
+      case "checklists":
+        return "Search checklists...";
+      case "resources":
+        return "Search resources...";
+      case "tasks":
+      default:
+        return "Search tasks...";
+    }
+  }, [state.workspaceSegment]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -254,7 +269,7 @@ export function WorkspacesScreen() {
                     <TextInput
                       value={state.searchQuery}
                       onChangeText={state.setSearchQuery}
-                      placeholder="Search..."
+                      placeholder={searchPlaceholder}
                       placeholderTextColor={colors.textMuted}
                       style={{
                         flex: 1,
@@ -410,6 +425,9 @@ export function WorkspacesScreen() {
                           return next;
                         });
                       }}
+                      searchQuery={state.searchQuery}
+                      onClearSearch={() => state.setSearchQuery("")}
+                      onCreateTask={() => emitStateChange("open_quick_add")}
                     />
                   </View>
                 )}
@@ -448,6 +466,8 @@ export function WorkspacesScreen() {
                       onCreateHabit={() => {
                         state.setIsAddingHabit(true);
                       }}
+                      searchQuery={state.searchQuery}
+                      onClearSearch={() => state.setSearchQuery("")}
                     />
                   </View>
                 )}
@@ -465,32 +485,18 @@ export function WorkspacesScreen() {
                       });
                   
                   return (
-                    <View style={{ gap: 12, paddingBottom: 24 }}>
+                    <View style={{ gap: 10, paddingBottom: 24 }}>
+                      <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
+                        Checklists
+                      </Text>
                       {filteredChecklists.length === 0 ? (
-                        activeChecklists.length === 0 ? (
-                          <EmptyState
-                            mascot="idle"
-                            title="No checklists yet"
-                            description="Break down complex routines, packing lists, or projects into step-by-step checklists."
-                            action={{
-                              label: "New Checklist",
-                              icon: "plus",
-                              onPress: () => emitStateChange("open_quick_add"),
-                            }}
-                            style={{ marginVertical: 16 }}
-                          />
-                        ) : (
-                          <EmptyState
-                            graphic={<Feather name="search" size={24} color={colors.textMuted} />}
-                            title="No matching checklists"
-                            description="Try searching with a different term."
-                            action={{
-                              label: "Clear Search",
-                              onPress: () => state.setSearchQuery(""),
-                            }}
-                            style={{ marginVertical: 16 }}
-                          />
-                        )
+                        <WorkspaceEmptyState
+                          context="checklists"
+                          searchQuery={state.searchQuery}
+                          onClearSearch={() => state.setSearchQuery("")}
+                          onCreateItem={() => setIsAddingChecklist(true)}
+                          style={{ marginVertical: 16 }}
+                        />
                       ) : (
                         <ChecklistSection
                           checklists={filteredChecklists}

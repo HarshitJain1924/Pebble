@@ -26,7 +26,6 @@ import {
 } from "@/services/scheduling/reminders.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 
-import { earnPebble, reversePebbleReward } from "@/features/profile/services/pebble.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import { generateId } from "@/shared/utils/id";

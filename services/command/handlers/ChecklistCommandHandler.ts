@@ -27,7 +27,7 @@ import {
 } from "@/services/scheduling/reminders.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 
-import { earnPebble, reversePebbleReward } from "@/features/profile/services/pebble.service";
+import { earnPebble } from "@/features/profile/services/pebble.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import { generateId } from "@/shared/utils/id";
@@ -678,6 +678,13 @@ static async moveChecklist(
           updatedAt: Date.now(),
         };
 
+        // INTENTIONAL one-time reward (Phase 3 decision): a checklist awards at
+        // most one Pebble ever. `pebbleAwarded` is a checklist-wide latch and is
+        // never cleared, so later occurrences of a recurring checklist do NOT
+        // re-award (the `:<dateKey>` suffix only names the occurrence that first
+        // earned it). There is deliberately no reward reversal here: unchecking
+        // items is locked by tests as non-reversing, mirroring the existing
+        // product behavior. See pebbleRewardLifecycle.test.ts.
         if (allCompleted && !currentRecord.completedAt && !checklist.pebbleAwarded) {
           updatedChecklist.pebbleAwarded = true;
           await earnPebble("checklist", `checklist:${checklist.id}:${dateKey}`);
@@ -703,6 +710,9 @@ static async moveChecklist(
           updatedAt: Date.now(),
         };
 
+        // Same one-time latch as the recurring branch above: once a checklist
+        // has earned its Pebble, unchecking/editing items never re-awards and
+        // never reverses it.
         if (isNowComplete && !wasComplete && !checklist.pebbleAwarded) {
           updatedChecklist.pebbleAwarded = true;
           await earnPebble("checklist", `checklist:${checklist.id}`);

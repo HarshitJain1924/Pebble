@@ -4,6 +4,7 @@ import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { InteractivePebbleJar } from "@/features/profile/components/InteractivePebbleJar";
+import type { MilestoneInfo } from "@/shared/utils/pebble-milestones";
 
 export interface PebbleSanctuaryModalProps {
   visible: boolean;
@@ -23,12 +24,7 @@ export interface PebbleSanctuaryModalProps {
   monthlyTypes: { task: number; habit: number; focus: number; checklist: number };
   lifetimeTypes: { task: number; habit: number; focus: number; checklist: number };
   profileAvatar?: string;
-  getMilestoneInfo: (count: number) => {
-    stage: number;
-    name: string;
-    range: string;
-    desc: string;
-  };
+  getMilestoneInfo: (count: number) => MilestoneInfo;
 }
 
 export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
@@ -119,15 +115,6 @@ export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
                 >
                   {monthlyPebbles}
                 </Text>
-                <Text
-                  style={{
-                    fontSize: 18,
-                    fontWeight: "700",
-                    color: colors.textMuted,
-                  }}
-                >
-                  / 100
-                </Text>
               </View>
               <Text
                 style={{
@@ -138,7 +125,7 @@ export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
                   letterSpacing: 1.2,
                 }}
               >
-                Monthly Target (Thirsty Crow)
+                This month
               </Text>
             </View>
 
@@ -487,29 +474,16 @@ export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
                             overflow: "hidden",
                           }}
                         >
-                          {(() => {
-                            const current = lifetimePebbles;
-                            const ranges = [0, 10, 25, 50, 100, 250, 500];
-                            const minVal = ranges[milestoneInfo.stage - 1];
-                            const maxVal = ranges[milestoneInfo.stage];
-                            const totalInStage = maxVal - minVal;
-                            const progressInStage = Math.max(
-                              0,
-                              current - minVal,
-                            );
-                            const pct =
-                              (progressInStage / totalInStage) * 100;
-
-                            return (
-                              <View
-                                style={{
-                                  height: "100%",
-                                  width: `${Math.max(5, Math.min(100, pct))}%`,
-                                  backgroundColor: colors.primary,
-                                }}
-                              />
-                            );
-                          })()}
+                          <View
+                            style={{
+                              height: "100%",
+                              width: `${Math.max(
+                                5,
+                                Math.min(100, milestoneInfo.progressRatio * 100),
+                              )}%`,
+                              backgroundColor: colors.primary,
+                            }}
+                          />
                         </View>
                         <View
                           style={{
@@ -518,52 +492,30 @@ export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
                             alignItems: "center",
                           }}
                         >
-                          {(() => {
-                            const nextMilestone = [10, 25, 50, 100, 250, 500][
-                              milestoneInfo.stage - 1
-                            ];
-                            const remaining = nextMilestone - lifetimePebbles;
-                            return (
-                              <Text
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: "600",
-                                  color: colors.textMuted,
-                                }}
-                              >
-                                {remaining} pebble{remaining === 1 ? "" : "s"}{" "}
-                                to Stage {milestoneInfo.stage + 1}
-                              </Text>
-                            );
-                          })()}
+                          <Text
+                            style={{
+                              fontSize: 9,
+                              fontWeight: "600",
+                              color: colors.textMuted,
+                            }}
+                          >
+                            {milestoneInfo.remaining} pebble
+                            {milestoneInfo.remaining === 1 ? "" : "s"} to Stage{" "}
+                            {milestoneInfo.nextStage}
+                          </Text>
 
-                          {(() => {
-                            const nextUnlock = [
-                              { count: 10, label: "Sprout Jar Nest" },
-                              { count: 26, label: "Curious Mascot grows" },
-                              { count: 100, label: "Zen Energy floats" },
-                              {
-                                count: 101,
-                                label: "Crowned Mascot & sparkles",
-                              },
-                              { count: 500, label: "Golden Jar & sparks" },
-                            ].find((u) => lifetimePebbles < u.count);
-
-                            if (!nextUnlock) return null;
-
-                            return (
-                              <Text
-                                style={{
-                                  fontSize: 8,
-                                  fontWeight: "700",
-                                  textTransform: "uppercase",
-                                  color: colors.warning,
-                                }}
-                              >
-                                ⚡ Next: {nextUnlock.label}
-                              </Text>
-                            );
-                          })()}
+                          {milestoneInfo.nextUnlock ? (
+                            <Text
+                              style={{
+                                fontSize: 8,
+                                fontWeight: "700",
+                                textTransform: "uppercase",
+                                color: colors.warning,
+                              }}
+                            >
+                              ⚡ Next: {milestoneInfo.nextUnlock}
+                            </Text>
+                          ) : null}
                         </View>
                       </View>
                     )}

@@ -8,7 +8,6 @@ import {
   getSettings,
   isCurrentlyInQuietHours,
   saveSettings,
-  getLevelInfo,
 } from "@/features/settings/services/settings.service";
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -241,7 +240,6 @@ export function MascotOverlay() {
   });
 
   const lifetimePebblesRef = useRef(0);
-  const prevLevelRef = useRef(0);
   const prevTodayPebblesRef = useRef(0);
   const lastActiveTimeRef = useRef<number>(0);
   const activityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -360,9 +358,6 @@ export function MascotOverlay() {
       const prof = await getProfile();
       setProfile(prof);
       const pebbleStats = await getPebbleCounts();
-      if (prevLevelRef.current === 0 && prof) {
-        prevLevelRef.current = getLevelInfo(pebbleStats.lifetime || 0).level;
-      }
 
       const settings = await getSettings();
       if (isInitial) {
@@ -489,7 +484,6 @@ export function MascotOverlay() {
       const newLifetime = pebbleStats.lifetime || 0;
       const prevLifetime = lifetimePebblesRef.current;
 
-      const prevLevel = prevLevelRef.current;
       await loadStats();
 
       if (newLifetime > prevLifetime) {
@@ -498,22 +492,17 @@ export function MascotOverlay() {
         const pType = lastEntry ? lastEntry.type : "task";
 
         // Check Big Win Triggers:
-        // 1. Level up
-        const currentLevel = getLevelInfo(newLifetime).level;
-        const isLevelUp = prevLevel > 0 && currentLevel > prevLevel;
-        prevLevelRef.current = currentLevel;
-
-        // 2. Stage/milestone update
+        // 1. Stage/milestone update
         const milestones = [10, 25, 50, 100, 250, 500];
         const isMilestone = milestones.includes(newLifetime);
 
-        // 3. Daily Clear (all tasks/habits checked)
+        // 2. Daily Clear (all tasks/habits checked)
         const isDailyClear = await checkIfDailyClear();
 
-        // 4. First daily pebble completion
+        // 3. First daily pebble completion
         const isFirstPebbleToday = pebbleStats.today === 1;
 
-        if (isLevelUp || isMilestone || isDailyClear || isFirstPebbleToday) {
+        if (isMilestone || isDailyClear || isFirstPebbleToday) {
           setRewardStartCount(prevLifetime);
           setRewardTargetCount(newLifetime);
           setFallingPebbleType(pType);

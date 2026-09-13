@@ -1,7 +1,3 @@
-import {
-  earnPebble,
-} from "@/features/profile/services/pebble.service";
-
 import type { TaskCategory } from "@/features/tasks/services/task-categories";
 import { pluginManager } from "@/plugin";
 import { TaskRepository } from "@/repositories";

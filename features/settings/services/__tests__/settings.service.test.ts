@@ -128,5 +128,31 @@ describe("settings.service persistence delegation", () => {
       expect(updated.avatar).toBe("🔥");
       expect((await getProfile()).email).toBe("ada@example.com");
     });
+
+    it("stores no XP, Level, or Rank fields on the profile", async () => {
+      await saveProfile({
+        name: "Ada",
+        email: "ada@example.com",
+        avatar: "🚀",
+      });
+
+      const persisted = JSON.parse(
+        (await storage.getItem(PROFILE_STORAGE_KEY))!,
+      );
+      expect(Object.keys(persisted).sort()).toEqual([
+        "avatar",
+        "email",
+        "name",
+      ]);
+    });
+  });
+
+  describe("progression model", () => {
+    it("exposes no XP/Level/Rank progression helper", () => {
+      const service = require("@/features/settings/services/settings.service");
+
+      expect(service.getLevelInfo).toBeUndefined();
+      expect(service.levelInfo).toBeUndefined();
+    });
   });
 });

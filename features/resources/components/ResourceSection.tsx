@@ -19,6 +19,7 @@ import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
+import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
@@ -274,9 +275,11 @@ export function ResourceSection({
   return (
     <View style={styles.container}>
       {/* Workspace Section Header (Matching Tasks, Habits, Checklists) */}
-      <View style={styles.sectionHeaderRow}>
-        <Text accessibilityRole="header" style={[styles.sectionHeading, { color: theme.text }]}>Resources</Text>
-        <Text style={[styles.itemCountText, { color: theme.textMuted }]}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4, marginBottom: 8 }}>
+        <Text accessibilityRole="header" style={{ fontSize: 16, fontWeight: "800", color: theme.text }}>
+          Resources
+        </Text>
+        <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted }}>
           {folderResources.length} {folderResources.length === 1 ? "item" : "items"}
         </Text>
       </View>
@@ -334,37 +337,18 @@ export function ResourceSection({
       {/* Compact Resource List (Space-Efficient & Scannable) */}
       <View style={styles.cardFeed}>
         {filteredResources.length === 0 ? (
-          activeFolderResources.length === 0 ? (
-            <EmptyState
-              mascot="peek"
-              title="No resources yet"
-              description="Save links, notes, images, and references you want to keep close."
-              action={{
-                label: "Add Resource",
-                icon: "plus",
-                onPress: () => setIsAddingResource(true),
-              }}
-              style={{ marginVertical: 8 }}
-            />
-          ) : (
-            <EmptyState
-              graphic={<Feather name="folder" size={24} color={theme.textMuted} />}
-              title="No matching resources"
-              description="Try selecting a different filter or clearing search."
-              action={
-                activeFilter !== "all"
-                  ? {
-                      label: "Show All Resources",
-                      onPress: () => {
-                        Haptics.selectionAsync().catch(() => {});
-                        setActiveFilter("all");
-                      },
-                    }
-                  : undefined
+          <WorkspaceEmptyState
+            context="resources"
+            searchQuery={searchQuery || (activeFilter !== "all" ? activeFilter : undefined)}
+            onClearSearch={() => {
+              if (activeFilter !== "all") {
+                Haptics.selectionAsync().catch(() => {});
+                setActiveFilter("all");
               }
-              style={{ marginVertical: 8 }}
-            />
-          )
+            }}
+            onCreateItem={() => setIsAddingResource(true)}
+            style={{ marginVertical: 8 }}
+          />
         ) : (
           filteredResources.map((res) => {
             const hasAttachment = Boolean(res.attachments && res.attachments.length > 0);

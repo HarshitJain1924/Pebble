@@ -197,7 +197,7 @@ export class EntityCommandService {
 
   /**
    * Complete a Task.
-   * Handles XP, pebbles, analytics, side effects, and state emission.
+   * Handles pebble rewards, analytics, side effects, and state emission.
    */
   static async completeTask(
     taskId: string,
