@@ -28,7 +28,6 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TodayFilterControl } from "@/features/today/components/TodayFilterControl";
 import { TodaySearchEmptyState } from "@/features/today/components/TodaySearchControl";
-import { PebbleSanctuaryModal } from "@/features/today/components/PebbleSanctuaryModal";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
 import { ReviewMyDayModal } from "@/features/today/components/ReviewMyDayModal";
 import { WorkspaceSectionedStream } from "@/features/today/components/WorkspaceSectionedStream";
@@ -49,9 +48,7 @@ import {
   type TodayFilterState,
 } from "@/features/today/utils/todayFilters";
 import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
-import { getPebbleCounts, getGemsBalance } from "@/features/profile/services/pebble.service";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
-import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
 import { createNowFocusActionHandlers } from "@/features/today/utils/nowFocusActions";
 import { launchFocusSession } from "@/features/focus/services/FocusLaunchService";
 
@@ -111,47 +108,6 @@ export function TodayScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   }, []);
 
-  const [lifetimePebbles, setLifetimePebbles] = useState<number>(0);
-  const [monthlyPebbles, setMonthlyPebbles] = useState<number>(0);
-  const [todayPebbles, setTodayPebbles] = useState<number>(0);
-  const [todayTypes, setTodayTypes] = useState<{
-    task: number;
-    habit: number;
-    focus: number;
-    checklist: number;
-  }>({
-    task: 0,
-    habit: 0,
-    focus: 0,
-    checklist: 0,
-  });
-  const [gemsBalance, setGemsBalance] = useState<number>(0);
-  const [monthlyTypes, setMonthlyTypes] = useState<{
-    task: number;
-    habit: number;
-    focus: number;
-    checklist: number;
-  }>({
-    task: 0,
-    habit: 0,
-    focus: 0,
-    checklist: 0,
-  });
-  const [lifetimeTypes, setLifetimeTypes] = useState<{
-    task: number;
-    habit: number;
-    focus: number;
-    checklist: number;
-  }>({
-    task: 0,
-    habit: 0,
-    focus: 0,
-    checklist: 0,
-  });
-  const [fallingPebbleType, setFallingPebbleType] = useState<
-    "task" | "habit" | "focus" | "checklist" | undefined
-  >(undefined);
-  const [pebbleJarModalVisible, setPebbleJarModalVisible] = useState(false);
   const [isZenModeActive, setIsZenModeActive] = useState(false);
   const [zenTaskOverride, setZenTaskOverride] = useState<Task | null>(null);
   const [zenHabitOverride, setZenHabitOverride] = useState<Habit | null>(null);
@@ -272,29 +228,11 @@ export function TodayScreen() {
     }
   }, []);
 
-  const loadPebbleStats = useCallback(async () => {
-    try {
-      const counts = await getPebbleCounts();
-      setLifetimePebbles(counts.lifetime);
-      setMonthlyPebbles(counts.monthly);
-      setTodayPebbles(counts.today ?? 0);
-      setTodayTypes(counts.todayTypes ?? { task: 0, habit: 0, focus: 0, checklist: 0 });
-      setMonthlyTypes(counts.monthlyTypes);
-      setLifetimeTypes(counts.lifetimeTypes);
-
-      const gems = await getGemsBalance();
-      setGemsBalance(gems);
-    } catch (e) {
-      console.warn("Failed to load pebble stats", e);
-    }
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       loadDashboardData();
       void loadProfile();
-      void loadPebbleStats();
-    }, [loadDashboardData, loadProfile, loadPebbleStats]),
+    }, [loadDashboardData, loadProfile]),
   );
 
   // Synchronize dashboard state immediately when tasks/habits/profile are modified in other tabs/modals
@@ -311,11 +249,6 @@ export function TodayScreen() {
     const unsubscribeProfile = addStateListener("profile_changed", () => {
       void loadDashboardData();
       void loadProfile();
-    });
-
-    const unsubscribePebbles = addStateListener("pebbles_changed", () => {
-      void loadDashboardData();
-      void loadPebbleStats();
     });
 
     const unsubscribeChecklists = addStateListener("checklists_changed", () => {
@@ -338,7 +271,6 @@ export function TodayScreen() {
       unsubscribeTasks();
       unsubscribeHabits();
       unsubscribeProfile();
-      unsubscribePebbles();
       unsubscribeChecklists();
       unsubscribeResources();
       unsubscribeZen();
@@ -558,7 +490,7 @@ export function TodayScreen() {
             profile={profile}
             hasUnreadNotifs={hasUnreadNotifs}
             showSearch={false}
-            onJarPress={() => setPebbleJarModalVisible(true)}
+            onJarPress={() => router.push("/sanctuary")}
             jarRef={miniJarRef}
             onJarLayout={onJarLayout}
             colors={colors}
@@ -626,21 +558,6 @@ export function TodayScreen() {
       </Animated.View>
 
       {/* Reward Overlay Modal is rendered globally by MascotOverlay */}
-
-      {/* Sanctuary Jar Modal */}
-      <PebbleSanctuaryModal
-        visible={pebbleJarModalVisible}
-        onClose={() => setPebbleJarModalVisible(false)}
-        colorScheme={colorScheme}
-        colors={colors}
-        lifetimePebbles={lifetimePebbles}
-        monthlyPebbles={monthlyPebbles}
-        gemsBalance={gemsBalance}
-        monthlyTypes={monthlyTypes}
-        lifetimeTypes={lifetimeTypes}
-        profileAvatar={profile?.avatar}
-        getMilestoneInfo={getMilestoneInfo}
-      />
 
       {/* Zen Mode Overlay */}
       <ZenModeModal

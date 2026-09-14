@@ -5,9 +5,8 @@ const ROOT = path.resolve(__dirname, "../../..");
 
 const CONSUMERS = [
   "app/profile.tsx",
-  "app/(tabs)/index.tsx",
+  "app/sanctuary.tsx",
   "features/today/components/PebbleJarProgressCard.tsx",
-  "features/today/components/PebbleSanctuaryModal.tsx",
 ];
 
 function read(relative: string): string {

@@ -130,22 +130,34 @@ describe("SanctuaryScreen", () => {
   it("renders monthly and lifetime counts dynamically", async () => {
     await renderSanctuary();
 
-    expect(renderedTextContains("15")).toBe(true); // Monthly count
-    expect(renderedTextContains("Harvested this month")).toBe(true);
-    expect(renderedTextContains("15% Jar Capacity")).toBe(true);
-    expect(renderedTextContains("42")).toBe(true); // Lifetime count
+    expect(renderedTextContains("42")).toBe(true); // Lifetime count is the hero
+    expect(renderedTextContains("PEBBLES")).toBe(true);
+    expect(renderedTextContains("Lifetime collection")).toBe(true);
+    expect(renderedTextContains("+15 this month")).toBe(true); // Secondary context
+    expect(renderedTextContains("Capacity")).toBe(false);
     expect(renderedTextContains("25")).toBe(true); // Gems
   });
 
   it("renders collection sources breakdown accurately", async () => {
     await renderSanctuary();
 
-    expect(renderedTextContains("Tasks completed")).toBe(true);
+    expect(renderedTextContains("Tasks")).toBe(true);
     expect(renderedTextContains("22")).toBe(true); // Tasks lifetime
-    expect(renderedTextContains("Habits maintained")).toBe(true);
+    expect(renderedTextContains("Habits")).toBe(true);
     expect(renderedTextContains("12")).toBe(true); // Habits lifetime
-    expect(renderedTextContains("Deep focus sessions")).toBe(true);
+    expect(renderedTextContains("Focus")).toBe(true);
     expect(renderedTextContains("6")).toBe(true); // Focus lifetime
+    expect(renderedTextContains("Checklists")).toBe(true);
+    expect(renderedTextContains("2")).toBe(true); // Checklists lifetime
+  });
+
+  it("keeps milestone progression compact and canonical", async () => {
+    await renderSanctuary();
+
+    expect(renderedTextContains("Stage 3")).toBe(true);
+    expect(renderedTextContains("Zen Stream")).toBe(true);
+    expect(renderedTextContains("8 pebbles to Stage 4")).toBe(true);
+    expect(renderedTextContains(["CURRENT", "BIOME"].join(" "))).toBe(false);
   });
 
   it("navigates back when header back button is pressed", async () => {

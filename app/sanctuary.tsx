@@ -1,7 +1,7 @@
 import { InteractivePebbleJar } from "@/features/profile/components/InteractivePebbleJar";
 import {
-  getPebbleCounts,
   getGemsBalance,
+  getPebbleCounts,
   type PebbleCounts,
 } from "@/features/profile/services/pebble.service";
 import {
@@ -14,11 +14,7 @@ import { Radius } from "@/shared/constants/radii";
 import { Shadows } from "@/shared/constants/shadows";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import {
-  getMilestoneInfo,
-  PEBBLE_MILESTONES,
-  PEBBLE_STAGE_THRESHOLDS,
-} from "@/shared/utils/pebble-milestones";
+import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
@@ -75,15 +71,11 @@ export default function SanctuaryScreen() {
   );
 
   useEffect(() => {
-    const unsubPebbles = addStateListener("pebbles_changed", () => {
-      loadData();
-    });
-    const unsubProfile = addStateListener("profile_changed", () => {
-      loadData();
-    });
+    const unsubscribePebbles = addStateListener("pebbles_changed", loadData);
+    const unsubscribeProfile = addStateListener("profile_changed", loadData);
     return () => {
-      unsubPebbles();
-      unsubProfile();
+      unsubscribePebbles();
+      unsubscribeProfile();
     };
   }, [loadData]);
 
@@ -104,12 +96,20 @@ export default function SanctuaryScreen() {
   const lifetime = pebbleCounts.lifetime ?? 0;
   const monthly = pebbleCounts.monthly ?? 0;
   const milestone = getMilestoneInfo(lifetime);
-  const waterPct = Math.min(100, Math.round(monthly));
 
   const handlePress = (action: () => void) => () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     action();
   };
+
+  const accentSurface =
+    colorScheme === "dark"
+      ? "rgba(99, 102, 241, 0.08)"
+      : "rgba(79, 70, 229, 0.05)";
+  const accentBorder =
+    colorScheme === "dark"
+      ? "rgba(129, 140, 248, 0.18)"
+      : "rgba(79, 70, 229, 0.14)";
 
   return (
     <SafeAreaView
@@ -117,37 +117,36 @@ export default function SanctuaryScreen() {
     >
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* ── Top Header ─────────────────────────────────────────────── */}
       <View style={styles.header}>
         <Pressable
           style={({ pressed }) => [
             styles.headerButton,
             {
               backgroundColor: pressed ? colors.cardLight : "transparent",
-              transform: [{ scale: pressed ? 0.95 : 1 }],
+              transform: [{ scale: pressed ? 0.97 : 1 }],
             },
           ]}
           accessibilityRole="button"
           accessibilityLabel="Go back"
-          hitSlop={10}
           onPress={handlePress(() => router.back())}
         >
           <Feather name="arrow-left" size={20} color={colors.text} />
         </Pressable>
+
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           Pebble Sanctuary
         </Text>
+
         <Pressable
           style={({ pressed }) => [
             styles.headerButton,
             {
               backgroundColor: pressed ? colors.cardLight : "transparent",
-              transform: [{ scale: pressed ? 0.95 : 1 }],
+              transform: [{ scale: pressed ? 0.97 : 1 }],
             },
           ]}
           accessibilityRole="button"
           accessibilityLabel="Open profile"
-          hitSlop={10}
           onPress={handlePress(() => router.push("/profile"))}
         >
           <Feather name="user" size={19} color={colors.textMuted} />
@@ -158,20 +157,18 @@ export default function SanctuaryScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Section 1: The Living Jar (Hero) ─────────────────────── */}
         <Animated.View entering={enteringAnim(0)} style={styles.heroSection}>
+          <Text style={[styles.collectionEyebrow, { color: colors.textMuted }]}>
+            YOUR COLLECTION
+          </Text>
+
           <View
             style={[
               styles.jarAura,
               {
-                backgroundColor:
-                  colorScheme === "dark"
-                    ? "rgba(99, 102, 241, 0.06)"
-                    : "rgba(79, 70, 229, 0.04)",
-                borderColor:
-                  colorScheme === "dark"
-                    ? "rgba(255, 255, 255, 0.05)"
-                    : "rgba(0, 0, 0, 0.04)",
+                backgroundColor: accentSurface,
+                borderColor: accentBorder,
+                ...Shadows.glow,
               },
             ]}
           >
@@ -180,273 +177,113 @@ export default function SanctuaryScreen() {
               totalPebbles={lifetime}
               colors={colors}
               colorScheme={colorScheme ?? "dark"}
-              monthlyTypes={pebbleCounts.monthlyTypes}
+              // The jar is a lifetime collection, so its pebble color mix is too.
+              monthlyTypes={pebbleCounts.lifetimeTypes}
               profileAvatar={profile?.avatar}
             />
           </View>
 
-          <View style={styles.heroTextGroup}>
+          <View style={styles.heroCountGroup}>
             <View style={styles.heroCountRow}>
               <Text style={[styles.heroCount, { color: colors.text }]}>
-                {monthly}
+                {lifetime}
               </Text>
               <Text style={[styles.heroUnit, { color: colors.textMuted }]}>
                 PEBBLES
               </Text>
             </View>
             <Text style={[styles.heroCaption, { color: colors.textMuted }]}>
-              Harvested this month
+              Lifetime collection
             </Text>
-
-            <View
-              style={[
-                styles.capacityBadge,
-                {
-                  backgroundColor:
-                    colorScheme === "dark"
-                      ? "rgba(99, 102, 241, 0.12)"
-                      : "rgba(79, 70, 229, 0.08)",
-                  borderColor:
-                    colorScheme === "dark"
-                      ? "rgba(99, 102, 241, 0.2)"
-                      : "rgba(79, 70, 229, 0.14)",
-                },
-              ]}
-            >
-              <Feather name="droplet" size={11} color={colors.primary} />
-              <Text style={[styles.capacityText, { color: colors.primary }]}>
-                {waterPct}% Jar Capacity
-              </Text>
-            </View>
+            <Text style={[styles.monthlyNote, { color: colors.primary }]}>
+              +{monthly} this month
+            </Text>
           </View>
         </Animated.View>
 
-        {/* ── Section 2: Current Biome & Milestone Plaque ───────────── */}
-        <Animated.View entering={enteringAnim(60)}>
-          <View
-            style={[
-              styles.milestoneCard,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                ...Shadows.soft,
-              },
-            ]}
-          >
-            <View style={styles.milestoneTopRow}>
-              <View style={styles.milestoneHeaderTag}>
-                <Feather name="compass" size={12} color={colors.primary} />
-                <Text
-                  style={[styles.milestoneEyebrow, { color: colors.textMuted }]}
-                >
-                  CURRENT BIOME
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.stagePill,
-                  {
-                    backgroundColor:
-                      colorScheme === "dark"
-                        ? "rgba(99, 102, 241, 0.12)"
-                        : "rgba(79, 70, 229, 0.08)",
-                    borderColor:
-                      colorScheme === "dark"
-                        ? "rgba(99, 102, 241, 0.22)"
-                        : "rgba(79, 70, 229, 0.15)",
-                  },
-                ]}
-              >
-                <Text style={[styles.stagePillText, { color: colors.primary }]}>
-                  Stage {milestone.stage} of 7
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.milestoneTitleRow}>
-              <Text style={[styles.milestoneName, { color: colors.text }]}>
+        <Animated.View
+          entering={enteringAnim(70)}
+          style={[
+            styles.milestoneSection,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.milestoneHeadingRow}>
+            <View style={styles.milestoneTitleGroup}>
+              <Text style={[styles.sectionEyebrow, { color: colors.textMuted }]}>
+                PROGRESSION
+              </Text>
+              <Text style={[styles.milestoneTitle, { color: colors.text }]}>
+                Stage {milestone.stage} <Text style={{ color: colors.textMuted }}>·</Text>{" "}
                 {milestone.name}
               </Text>
-              <Text style={[styles.milestoneRange, { color: colors.textMuted }]}>
-                {milestone.range} pebbles
-              </Text>
             </View>
+            <Feather name="compass" size={18} color={colors.primary} />
+          </View>
 
-            <Text style={[styles.milestoneDesc, { color: colors.textMuted }]}>
-              {milestone.desc}
-            </Text>
-
-            {/* Progress Track */}
-            {!milestone.isMaxStage ? (
-              <View style={styles.progressBlock}>
+          {!milestone.isMaxStage ? (
+            <View style={styles.progressBlock}>
+              <View
+                style={[
+                  styles.progressTrack,
+                  { backgroundColor: colors.cardLight },
+                ]}
+                accessibilityRole="progressbar"
+                accessibilityLabel={`Progress to stage ${milestone.nextStage}`}
+                accessibilityValue={{
+                  min: 0,
+                  max: 100,
+                  now: Math.round(milestone.progressRatio * 100),
+                }}
+              >
                 <View
                   style={[
-                    styles.progressTrack,
-                    { backgroundColor: colors.cardLight },
+                    styles.progressFill,
+                    {
+                      width: `${Math.max(
+                        4,
+                        Math.min(100, milestone.progressRatio * 100),
+                      )}%`,
+                      backgroundColor: colors.primary,
+                    },
                   ]}
-                  accessibilityRole="progressbar"
-                  accessibilityLabel={`Progress to stage ${milestone.nextStage}`}
-                >
-                  <View
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${Math.max(
-                          4,
-                          Math.min(100, milestone.progressRatio * 100),
-                        )}%`,
-                        backgroundColor: colors.primary,
-                      },
-                    ]}
-                  />
-                </View>
-                <Text
-                  style={[styles.progressCaption, { color: colors.textMuted }]}
-                >
+                />
+              </View>
+              <View style={styles.progressMetaRow}>
+                <Text style={[styles.progressCaption, { color: colors.textMuted }]}>
                   {milestone.remaining} pebble
-                  {milestone.remaining === 1 ? "" : "s"} to Stage{" "}
-                  {milestone.nextStage}
+                  {milestone.remaining === 1 ? "" : "s"} to Stage {milestone.nextStage}
                 </Text>
+                {milestone.nextUnlock ? (
+                  <Text style={[styles.unlockCaption, { color: colors.warning }]}>
+                    Next unlock · {milestone.nextUnlock}
+                  </Text>
+                ) : null}
               </View>
-            ) : (
-              <Text
-                style={[styles.progressCaption, { color: colors.textMuted }]}
-              >
-                You&apos;ve reached the highest sanctuary milestone.
-              </Text>
-            )}
-
-            {milestone.unlock ? (
-              <View
-                style={[
-                  styles.unlockBanner,
-                  {
-                    backgroundColor:
-                      colorScheme === "dark"
-                        ? "rgba(245, 158, 11, 0.1)"
-                        : "rgba(217, 119, 6, 0.08)",
-                    borderColor:
-                      colorScheme === "dark"
-                        ? "rgba(245, 158, 11, 0.22)"
-                        : "rgba(217, 119, 6, 0.16)",
-                  },
-                ]}
-              >
-                <Feather name="star" size={12} color={colors.warning} />
-                <Text style={[styles.unlockText, { color: colors.warning }]}>
-                  Next milestone reward: {milestone.unlock}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+            </View>
+          ) : (
+            <Text style={[styles.progressCaption, { color: colors.textMuted }]}>
+              Highest Sanctuary stage reached.
+            </Text>
+          )}
         </Animated.View>
 
-        {/* ── Section 3: Economy Summary Tiles ───────────────────────── */}
-        <Animated.View entering={enteringAnim(120)}>
-          <View style={styles.economyRow}>
-            <View
-              style={[
-                styles.economyTile,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                  ...Shadows.soft,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.economyIconBadge,
-                  {
-                    backgroundColor:
-                      colorScheme === "dark"
-                        ? "rgba(245, 158, 11, 0.14)"
-                        : "rgba(217, 119, 6, 0.09)",
-                  },
-                ]}
-              >
-                <Feather name="disc" size={14} color={colors.warning} />
-              </View>
-              <Text style={[styles.economyValue, { color: colors.text }]}>
-                {gemsBalance}
-              </Text>
-              <Text style={[styles.economyLabel, { color: colors.textMuted }]}>
-                Gems balance
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.economyTile,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                  ...Shadows.soft,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.economyIconBadge,
-                  {
-                    backgroundColor:
-                      colorScheme === "dark"
-                        ? "rgba(99, 102, 241, 0.14)"
-                        : "rgba(79, 70, 229, 0.09)",
-                  },
-                ]}
-              >
-                <Feather name="shield" size={14} color={colors.primary} />
-              </View>
-              <Text style={[styles.economyValue, { color: colors.text }]}>
-                {lifetime}
-              </Text>
-              <Text style={[styles.economyLabel, { color: colors.textMuted }]}>
-                Lifetime pebbles
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* ── Section 4: Collection Sources Breakdown ────────────────── */}
-        <Animated.View entering={enteringAnim(180)}>
-          <Text style={[styles.sectionEyebrow, { color: colors.textMuted }]}>
-            COLLECTION SOURCES
+        <Animated.View entering={enteringAnim(130)}>
+          <Text style={[styles.sectionEyebrow, styles.sourcesLabel, { color: colors.textMuted }]}>
+            PEBBLES EARNED FROM
           </Text>
           <View
             style={[
-              styles.group,
+              styles.sourceGroup,
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            {/* Tasks */}
             <View style={styles.sourceRow}>
-              <View style={styles.rowLead}>
-                <View
-                  style={[
-                    styles.iconBadge,
-                    {
-                      backgroundColor:
-                        colorScheme === "dark"
-                          ? "rgba(99, 102, 241, 0.14)"
-                          : "rgba(79, 70, 229, 0.09)",
-                    },
-                  ]}
-                >
-                  <Feather
-                    name="check-square"
-                    size={14}
-                    color={colors.primary}
-                  />
+              <View style={styles.sourceLead}>
+                <View style={[styles.sourceIcon, { backgroundColor: accentSurface }]}>
+                  <Feather name="check-square" size={15} color={colors.primary} />
                 </View>
-                <View style={styles.rowText}>
-                  <Text style={[styles.rowTitle, { color: colors.text }]}>
-                    Tasks completed
-                  </Text>
-                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                    1 pebble per finished action
-                  </Text>
-                </View>
+                <Text style={[styles.sourceName, { color: colors.text }]}>Tasks</Text>
               </View>
               <Text style={[styles.sourceCount, { color: colors.text }]}>
                 {pebbleCounts.lifetimeTypes.task}
@@ -455,30 +292,22 @@ export default function SanctuaryScreen() {
 
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-            {/* Habits */}
             <View style={styles.sourceRow}>
-              <View style={styles.rowLead}>
+              <View style={styles.sourceLead}>
                 <View
                   style={[
-                    styles.iconBadge,
+                    styles.sourceIcon,
                     {
                       backgroundColor:
                         colorScheme === "dark"
-                          ? "rgba(245, 158, 11, 0.14)"
-                          : "rgba(217, 119, 6, 0.09)",
+                          ? "rgba(245, 158, 11, 0.12)"
+                          : "rgba(217, 119, 6, 0.08)",
                     },
                   ]}
                 >
-                  <Feather name="repeat" size={14} color={colors.warning} />
+                  <Feather name="repeat" size={15} color={colors.warning} />
                 </View>
-                <View style={styles.rowText}>
-                  <Text style={[styles.rowTitle, { color: colors.text }]}>
-                    Habits maintained
-                  </Text>
-                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                    Daily routines &amp; streaks
-                  </Text>
-                </View>
+                <Text style={[styles.sourceName, { color: colors.text }]}>Habits</Text>
               </View>
               <Text style={[styles.sourceCount, { color: colors.text }]}>
                 {pebbleCounts.lifetimeTypes.habit}
@@ -487,160 +316,62 @@ export default function SanctuaryScreen() {
 
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-            {/* Focus */}
             <View style={styles.sourceRow}>
-              <View style={styles.rowLead}>
+              <View style={styles.sourceLead}>
                 <View
                   style={[
-                    styles.iconBadge,
+                    styles.sourceIcon,
                     {
                       backgroundColor:
                         colorScheme === "dark"
-                          ? "rgba(16, 185, 129, 0.14)"
-                          : "rgba(5, 150, 105, 0.09)",
+                          ? "rgba(16, 185, 129, 0.12)"
+                          : "rgba(5, 150, 105, 0.08)",
                     },
                   ]}
                 >
-                  <Feather name="zap" size={14} color={colors.success} />
+                  <Feather name="zap" size={15} color={colors.success} />
                 </View>
-                <View style={styles.rowText}>
-                  <Text style={[styles.rowTitle, { color: colors.text }]}>
-                    Deep focus sessions
-                  </Text>
-                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                    Dedicated timer completions
-                  </Text>
-                </View>
+                <Text style={[styles.sourceName, { color: colors.text }]}>Focus</Text>
               </View>
               <Text style={[styles.sourceCount, { color: colors.text }]}>
                 {pebbleCounts.lifetimeTypes.focus}
               </Text>
             </View>
+
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+            <View style={styles.sourceRow}>
+              <View style={styles.sourceLead}>
+                <View
+                  style={[
+                    styles.sourceIcon,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(59, 130, 246, 0.12)"
+                          : "rgba(37, 99, 235, 0.08)",
+                    },
+                  ]}
+                >
+                  <Feather name="list" size={15} color={colors.secondary} />
+                </View>
+                <Text style={[styles.sourceName, { color: colors.text }]}>Checklists</Text>
+              </View>
+              <Text style={[styles.sourceCount, { color: colors.text }]}>
+                {pebbleCounts.lifetimeTypes.checklist}
+              </Text>
+            </View>
           </View>
         </Animated.View>
 
-        {/* ── Section 5: The Milestone Journey ───────────────────────── */}
-        <Animated.View entering={enteringAnim(240)}>
-          <Text style={[styles.sectionEyebrow, { color: colors.textMuted }]}>
-            SANCTUARY JOURNEY
-          </Text>
-          <View
-            style={[
-              styles.group,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            {PEBBLE_MILESTONES.map((m, index) => {
-              const prevThreshold =
-                index === 0 ? 0 : PEBBLE_STAGE_THRESHOLDS[index - 1];
-              const isUnlocked = lifetime >= prevThreshold;
-              const isCurrent = milestone.stage === m.stage;
-
-              return (
-                <React.Fragment key={m.stage}>
-                  {index > 0 ? (
-                    <View
-                      style={[
-                        styles.divider,
-                        { backgroundColor: colors.border },
-                      ]}
-                    />
-                  ) : null}
-                  <View
-                    style={[
-                      styles.journeyRow,
-                      isCurrent
-                        ? {
-                            backgroundColor:
-                              colorScheme === "dark"
-                                ? "rgba(99, 102, 241, 0.05)"
-                                : "rgba(79, 70, 229, 0.03)",
-                          }
-                        : null,
-                    ]}
-                  >
-                    <View style={styles.rowLead}>
-                      <View
-                        style={[
-                          styles.iconBadge,
-                          {
-                            backgroundColor: isCurrent
-                              ? colorScheme === "dark"
-                                ? "rgba(99, 102, 241, 0.18)"
-                                : "rgba(79, 70, 229, 0.12)"
-                              : isUnlocked
-                              ? colorScheme === "dark"
-                                ? "rgba(16, 185, 129, 0.12)"
-                                : "rgba(5, 150, 105, 0.08)"
-                              : colorScheme === "dark"
-                              ? "rgba(161, 161, 170, 0.08)"
-                              : "rgba(100, 116, 139, 0.06)",
-                          },
-                        ]}
-                      >
-                        <Feather
-                          name={
-                            isCurrent
-                              ? "compass"
-                              : isUnlocked
-                              ? "check"
-                              : "lock"
-                          }
-                          size={13}
-                          color={
-                            isCurrent
-                              ? colors.primary
-                              : isUnlocked
-                              ? colors.success
-                              : colors.textMuted
-                          }
-                        />
-                      </View>
-                      <View style={styles.rowText}>
-                        <View style={styles.stageTitleLine}>
-                          <Text
-                            style={[
-                              styles.journeyStageName,
-                              {
-                                color: isUnlocked
-                                  ? colors.text
-                                  : colors.textMuted,
-                                fontWeight: isCurrent ? "800" : "600",
-                              },
-                            ]}
-                          >
-                            {m.name}
-                          </Text>
-                          {isCurrent ? (
-                            <View
-                              style={[
-                                styles.currentPill,
-                                {
-                                  backgroundColor: colors.primary,
-                                },
-                              ]}
-                            >
-                              <Text style={styles.currentPillText}>
-                                ACTIVE
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                        <Text
-                          style={[
-                            styles.rowCaption,
-                            { color: colors.textMuted },
-                          ]}
-                        >
-                          {m.range} pebbles
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </React.Fragment>
-              );
-            })}
+        <Animated.View entering={enteringAnim(190)} style={styles.gemRow}>
+          <View style={[styles.gemIcon, { backgroundColor: colors.cardLight }]}>
+            <Feather name="disc" size={15} color={colors.warning} />
           </View>
+          <Text style={[styles.gemValue, { color: colors.text }]}>
+            {gemsBalance} Gems
+          </Text>
+          <Text style={[styles.gemCaption, { color: colors.textMuted }]}>in your economy</Text>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -674,24 +405,29 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 80,
-    gap: 20,
+    paddingBottom: 72,
+    gap: 24,
   },
   heroSection: {
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 6,
+    gap: 8,
+  },
+  collectionEyebrow: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.5,
   },
   jarAura: {
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    padding: 10,
-    borderRadius: 24,
+    borderRadius: Radius.xl,
     borderWidth: 1,
+    overflow: "hidden",
   },
-  heroTextGroup: {
+  heroCountGroup: {
     alignItems: "center",
-    gap: 4,
+    gap: 2,
   },
   heroCountRow: {
     flexDirection: "row",
@@ -699,10 +435,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   heroCount: {
-    fontSize: 36,
+    fontSize: 42,
     fontWeight: "900",
-    letterSpacing: -1,
-    lineHeight: 40,
+    letterSpacing: -1.5,
+    lineHeight: 46,
   },
   heroUnit: {
     fontSize: 11,
@@ -713,73 +449,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
   },
-  capacityBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
+  monthlyNote: {
+    fontSize: 12,
+    fontWeight: "700",
     marginTop: 2,
   },
-  capacityText: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  milestoneCard: {
+  milestoneSection: {
     borderRadius: Radius.lg,
     borderWidth: 1,
     padding: 16,
-    gap: 12,
+    gap: 14,
   },
-  milestoneTopRow: {
+  milestoneHeadingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  milestoneHeaderTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
+  milestoneTitleGroup: {
+    flex: 1,
+    gap: 4,
   },
-  milestoneEyebrow: {
+  sectionEyebrow: {
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1.2,
+    letterSpacing: 1.3,
   },
-  stagePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-  },
-  stagePillText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  milestoneTitleRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-  },
-  milestoneName: {
-    fontSize: 20,
+  milestoneTitle: {
+    fontSize: 17,
     fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  milestoneRange: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  milestoneDesc: {
-    fontSize: 13,
-    lineHeight: 18,
+    letterSpacing: -0.25,
   },
   progressBlock: {
-    gap: 6,
-    marginTop: 2,
+    gap: 8,
   },
   progressTrack: {
     width: "100%",
@@ -791,130 +492,81 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: Radius.pill,
   },
-  progressCaption: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  unlockBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  unlockText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  economyRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  economyTile: {
-    flex: 1,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    padding: 14,
+  progressMetaRow: {
     gap: 4,
   },
-  economyIconBadge: {
+  progressCaption: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  unlockCaption: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  sourcesLabel: {
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  sourceGroup: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  sourceRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  sourceLead: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  sourceIcon: {
     width: 28,
     height: 28,
     borderRadius: Radius.sm,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 4,
   },
-  economyValue: {
-    fontSize: 22,
+  sourceName: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  sourceCount: {
+    minWidth: 28,
+    textAlign: "right",
+    fontSize: 15,
     fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  economyLabel: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  sectionEyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    marginBottom: 6,
-    paddingHorizontal: 4,
-  },
-  group: {
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    overflow: "hidden",
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 56,
   },
-  sourceRow: {
+  gemRow: {
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    minHeight: 52,
+    gap: 8,
+    paddingHorizontal: 4,
   },
-  rowLead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  iconBadge: {
+  gemIcon: {
     width: 28,
     height: 28,
     borderRadius: Radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
-  rowText: {
-    flex: 1,
-    gap: 2,
-  },
-  rowTitle: {
+  gemValue: {
     fontSize: 14,
-    fontWeight: "600",
-  },
-  rowCaption: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  sourceCount: {
-    fontSize: 15,
     fontWeight: "700",
-    paddingLeft: 8,
   },
-  journeyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    minHeight: 48,
-  },
-  stageTitleLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  journeyStageName: {
-    fontSize: 14,
-  },
-  currentPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
-  },
-  currentPillText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: 0.6,
+  gemCaption: {
+    fontSize: 12,
+    fontWeight: "500",
   },
 });

@@ -11,14 +11,11 @@ jest.mock("expo-router", () => {
     useFocusEffect: (cb: any) => {
       React.useEffect(() => cb(), [cb]);
     },
-    useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+    useRouter: () => ({ push: mockPush, replace: jest.fn() }),
   };
 });
 
-jest.mock("@/features/profile/services/pebble.service", () => ({
-  getPebbleCounts: jest.fn(),
-  getGemsBalance: jest.fn(),
-}));
+const mockPush = jest.fn();
 
 jest.mock("@/features/settings/services/settings.service", () => ({
   getProfile: jest.fn(),
@@ -53,9 +50,6 @@ jest.mock("@/features/today/components/TodayFilterControl", () => ({
 }));
 jest.mock("@/features/today/components/WorkspaceSectionedStream", () => ({
   WorkspaceSectionedStream: "WorkspaceSectionedStream",
-}));
-jest.mock("@/features/today/components/PebbleSanctuaryModal", () => ({
-  PebbleSanctuaryModal: "PebbleSanctuaryModal",
 }));
 jest.mock("@/features/today/components/ZenModeModal", () => ({
   ZenModeModal: "ZenModeModal",
@@ -129,24 +123,8 @@ jest.mock("@/features/today/hooks/useTodaySelectors", () => ({
 }));
 
 import TodayScreen from "@/app/(tabs)/index";
-import {
-  getPebbleCounts,
-  getGemsBalance,
-} from "@/features/profile/services/pebble.service";
 import { getProfile } from "@/features/settings/services/settings.service";
 import { emitStateChange } from "@/services/events/state-events";
-
-const basePebbleCounts = {
-  lifetime: 0,
-  monthly: 0,
-  today: 0,
-  todayTypes: { task: 0, habit: 0, focus: 0, checklist: 0 },
-  monthlyTypes: { task: 0, habit: 0, focus: 0, checklist: 0 },
-  lifetimeTypes: { task: 0, habit: 0, focus: 0, checklist: 0 },
-  streak: 0,
-  bestStreak: 0,
-  weeklyStatus: [],
-};
 
 async function flushAsync(): Promise<void> {
   for (let i = 0; i < 10; i++) {
@@ -159,8 +137,6 @@ describe("Today screen profile & pebble data wiring", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (getPebbleCounts as jest.Mock).mockResolvedValue({ ...basePebbleCounts });
-    (getGemsBalance as jest.Mock).mockResolvedValue(0);
   });
 
   afterEach(() => {
@@ -176,10 +152,6 @@ describe("Today screen profile & pebble data wiring", () => {
 
   function headerProps() {
     return renderer.root.findByType("PebbleCircadianHeader" as any).props;
-  }
-
-  function sanctuaryModalProps() {
-    return renderer.root.findByType("PebbleSanctuaryModal" as any).props;
   }
 
   it("loads the persisted profile into Today's header (no generic fallback)", async () => {
@@ -223,51 +195,13 @@ describe("Today screen profile & pebble data wiring", () => {
     expect(renderer.root.findAllByType("StreakBanner" as any).length).toBe(0);
   });
 
-  it("opens the Pebble Sanctuary modal when header Jar is pressed", async () => {
+  it("navigates directly to Pebble Sanctuary when the header Jar is pressed", async () => {
     await renderToday();
-    expect(sanctuaryModalProps().visible).toBe(false);
 
     await act(async () => {
       headerProps().onJarPress();
     });
 
-    expect(sanctuaryModalProps().visible).toBe(true);
-  });
-
-  it("wires pebble stats to the Pebble Sanctuary modal", async () => {
-    (getPebbleCounts as jest.Mock).mockResolvedValue({
-      ...basePebbleCounts,
-      lifetime: 42,
-      monthly: 15,
-      monthlyTypes: { task: 8, habit: 4, focus: 2, checklist: 1 },
-    });
-
-    await renderToday();
-
-    expect(sanctuaryModalProps().lifetimePebbles).toBe(42);
-    expect(sanctuaryModalProps().monthlyPebbles).toBe(15);
-    expect(sanctuaryModalProps().monthlyTypes).toEqual({
-      task: 8,
-      habit: 4,
-      focus: 2,
-      checklist: 1,
-    });
-  });
-
-  it("refreshes pebble stats in the Sanctuary modal when pebbles_changed is emitted", async () => {
-    (getPebbleCounts as jest.Mock)
-      .mockResolvedValueOnce({ ...basePebbleCounts, lifetime: 10, monthly: 5 })
-      .mockResolvedValueOnce({ ...basePebbleCounts, lifetime: 20, monthly: 12 });
-
-    await renderToday();
-    expect(sanctuaryModalProps().lifetimePebbles).toBe(10);
-    expect(sanctuaryModalProps().monthlyPebbles).toBe(5);
-
-    emitStateChange("pebbles_changed");
-    await flushAsync();
-
-    expect(getPebbleCounts).toHaveBeenCalledTimes(2);
-    expect(sanctuaryModalProps().lifetimePebbles).toBe(20);
-    expect(sanctuaryModalProps().monthlyPebbles).toBe(12);
+    expect(mockPush).toHaveBeenCalledWith("/sanctuary");
   });
 });
