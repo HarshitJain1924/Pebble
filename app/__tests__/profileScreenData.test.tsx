@@ -36,7 +36,7 @@ jest.mock("@/shared/hooks/useColorScheme", () => ({
 
 jest.mock("@/features/profile/components/RenderAvatar", () => ({
   AVATAR_OPTIONS: [{ id: "avatar_zen", label: "Zen Master", desc: "Calm" }],
-  EMOJI_OPTIONS: ["😀"],
+  EMOJI_OPTIONS: ["ðŸ˜€"],
   RenderAvatar: () => null,
 }));
 
@@ -134,7 +134,7 @@ describe("Profile screen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockScheme = "dark";
-    storedProfile = { name: "Ada", email: "ada@pebble.app", avatar: "🦉" };
+    storedProfile = { name: "Ada", email: "ada@pebble.app", avatar: "ðŸ¦‰" };
     (getPebbleCounts as jest.Mock).mockResolvedValue({ ...basePebbleCounts });
     (getGemsBalance as jest.Mock).mockResolvedValue(0);
     (getAchievementStats as jest.Mock).mockResolvedValue({
@@ -182,8 +182,8 @@ describe("Profile screen", () => {
 
       expect(renderedTextContains("42")).toBe(true);
       expect(renderedTextContains("PEBBLES")).toBe(true);
-      // 42 Pebbles sits in the 26-50 band.
-      expect(renderedTextContains("Stage 3 · Zen Stream")).toBe(true);
+      // 42 Pebbles sits in the 25-49 chapter band.
+      expect(renderedTextContains("Chapter 2 — Growth")).toBe(true);
     });
 
     it("shows monthly Pebbles and Gems as a two-part meta footer", async () => {
@@ -223,8 +223,8 @@ describe("Profile screen", () => {
 
       await renderProfile();
 
-      // Stage 2 completes at 25 → 7 Pebbles remaining.
-      expect(renderedTextContains("7 pebbles to Stage 3")).toBe(true);
+      // 7 more Pebbles unlock Chapter 2 at 25.
+      expect(renderedTextContains("7 pebbles to Chapter 2")).toBe(true);
     });
 
     it("shows a calm empty state with no fabricated progress when there are no Pebbles", async () => {
@@ -322,12 +322,12 @@ describe("Profile screen", () => {
         pressableByLabel("Change your avatar").props.onPress();
       });
       await act(async () => {
-        pressableByLabel("Emoji avatar 😀").props.onPress();
+        pressableByLabel("Emoji avatar ðŸ˜€").props.onPress();
       });
       await flushAsync();
 
       expect(saveProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ avatar: "😀" }),
+        expect.objectContaining({ avatar: "ðŸ˜€" }),
       );
       expect(renderedTextContains("Save Profile")).toBe(false);
     });
@@ -339,11 +339,11 @@ describe("Profile screen", () => {
         pressableByLabel("Change your avatar").props.onPress();
       });
       await act(async () => {
-        pressableByLabel("Emoji avatar 😀").props.onPress();
+        pressableByLabel("Emoji avatar ðŸ˜€").props.onPress();
       });
       await flushAsync();
 
-      const selected = pressableByLabel("Emoji avatar 😀");
+      const selected = pressableByLabel("Emoji avatar ðŸ˜€");
       expect(selected.props.accessibilityRole).toBe("radio");
       expect(selected.props.accessibilityState.selected).toBe(true);
     });
@@ -357,14 +357,14 @@ describe("Profile screen", () => {
         pressableByLabel("Change your avatar").props.onPress();
       });
       await act(async () => {
-        pressableByLabel("Emoji avatar 😀").props.onPress();
+        pressableByLabel("Emoji avatar ðŸ˜€").props.onPress();
       });
       await flushAsync();
 
       expect(
         renderedTextContains("Couldn't save that choice. Please try again."),
       ).toBe(true);
-      expect(pressableByLabel("Emoji avatar 😀").props.accessibilityState
+      expect(pressableByLabel("Emoji avatar ðŸ˜€").props.accessibilityState
         .selected).toBe(false);
     });
   });

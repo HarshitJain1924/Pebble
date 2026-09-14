@@ -384,7 +384,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                 numberOfLines={1}
               >
                 {milestoneInfo
-                  ? `Stage ${milestoneInfo.stage} • ${milestoneInfo.name}`
+                  ? `Chapter ${milestoneInfo.stage} — ${milestoneInfo.name}`
                   : "Thirsty Crow Milestone"}
               </Text>
             </View>

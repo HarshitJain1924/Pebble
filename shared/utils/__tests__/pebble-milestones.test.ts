@@ -31,15 +31,15 @@ describe("pebble-milestones", () => {
       [1, 1],
       [9, 1],
       [10, 1],
-      [11, 2],
+      [24, 1],
       [25, 2],
-      [26, 3],
+      [49, 2],
       [50, 3],
-      [51, 4],
+      [99, 3],
       [100, 4],
-      [101, 5],
+      [249, 4],
       [250, 5],
-      [251, 6],
+      [499, 5],
       [500, 6],
       [501, 7],
       [9999, 7],
@@ -58,37 +58,52 @@ describe("pebble-milestones", () => {
 
     it("floors fractional counts", () => {
       expect(getMilestoneInfo(10.9).stage).toBe(1);
-      expect(getMilestoneInfo(11.2).stage).toBe(2);
+      expect(getMilestoneInfo(11.2).stage).toBe(1);
     });
   });
 
   describe("next milestone + remaining", () => {
     it("points at the next stage and its threshold", () => {
       const info = getMilestoneInfo(4);
-      expect(info.nextStage).toBe(2);
-      expect(info.nextStageName).toBe("Sprout");
+      expect(info.nextStage).toBe(1);
+      expect(info.nextStageName).toBe("Beginning");
       expect(info.nextThreshold).toBe(10);
       expect(info.remaining).toBe(6);
-      expect(info.nextUnlock).toBe("Sprout Jar Nest");
+      expect(info.nextUnlock).toBe("Beginning Jar Nest");
     });
 
-    it("reports zero remaining at an exact threshold", () => {
-      expect(getMilestoneInfo(10).remaining).toBe(0);
-      expect(getMilestoneInfo(25).remaining).toBe(0);
-      expect(getMilestoneInfo(500).remaining).toBe(0);
+    it("activates a chapter at each exact threshold", () => {
+      expect(getMilestoneInfo(9).isPrelude).toBe(true);
+      expect(getMilestoneInfo(10)).toMatchObject({
+        stage: 1,
+        name: "Beginning",
+        isPrelude: false,
+      });
+      expect(getMilestoneInfo(25)).toMatchObject({
+        stage: 2,
+        name: "Growth",
+        isPrelude: false,
+      });
+      expect(getMilestoneInfo(500)).toMatchObject({
+        stage: 6,
+        name: "Peak",
+        isPrelude: false,
+      });
+      expect(getMilestoneInfo(501)).toMatchObject({
+        stage: 7,
+        name: "Beyond",
+        isMaxStage: true,
+      });
     });
 
     it("uses the canonical threshold, not a duplicated list", () => {
-      // nextThreshold is the count that COMPLETES the current stage, so it
-      // always equals the stage's own canonical threshold.
-      expect(getMilestoneInfo(26).nextThreshold).toBe(50);
-      expect(getMilestoneInfo(51).nextThreshold).toBe(100);
-      expect(getMilestoneInfo(101).nextThreshold).toBe(250);
-      expect(getMilestoneInfo(251).nextThreshold).toBe(500);
-      expect(getMilestoneInfo(100).nextUnlock).toBe(
-        "Crowned Mascot & sparkles",
-      );
-      expect(getMilestoneInfo(250).nextUnlock).toBe("Golden Jar & sparks");
+      // nextThreshold is the count that unlocks the next chapter.
+      expect(getMilestoneInfo(25).nextThreshold).toBe(50);
+      expect(getMilestoneInfo(50).nextThreshold).toBe(100);
+      expect(getMilestoneInfo(100).nextThreshold).toBe(250);
+      expect(getMilestoneInfo(250).nextThreshold).toBe(500);
+      expect(getMilestoneInfo(100).nextUnlock).toBe("Golden Jar & sparks");
+      expect(getMilestoneInfo(250).nextUnlock).toBeNull();
     });
 
     it("has no next milestone at the final stage", () => {
@@ -105,8 +120,8 @@ describe("pebble-milestones", () => {
 
   describe("progress", () => {
     it("measures fill inside the current stage band", () => {
-      // Stage 2 spans 11-25; the band baseline is stage 1's threshold (10),
-      // matching the historical progress calculation exactly.
+      // Chapter 1 spans 10-24; its progress begins at the chapter's
+      // threshold and runs until Chapter 2 unlocks at 25.
       const info = getMilestoneInfo(18);
       expect(info.stageSpan).toBe(15);
       expect(info.progressInStage).toBe(8);
@@ -119,27 +134,56 @@ describe("pebble-milestones", () => {
     });
 
     it("never exceeds a full band", () => {
-      expect(getMilestoneInfo(10).progressRatio).toBe(1);
-      expect(getMilestoneInfo(25).progressRatio).toBe(1);
-      expect(getMilestoneInfo(500).progressRatio).toBe(1);
+      expect(getMilestoneInfo(10).progressRatio).toBe(0);
+      expect(getMilestoneInfo(25).progressRatio).toBe(0);
+      expect(getMilestoneInfo(500).progressRatio).toBe(0);
+      expect(getMilestoneInfo(501).progressRatio).toBe(1);
     });
   });
 
-  describe("canonical stage copy", () => {
-    it("preserves the existing stage names and bands", () => {
+  describe("canonical chapter copy", () => {
+    it("uses the Storybook chapter names and existing bands", () => {
       expect(PEBBLE_MILESTONES.map((m) => m.name)).toEqual([
-        "First Steps",
-        "Sprout",
-        "Zen Stream",
-        "Sanctuary Base",
-        "Pebble Hoarder",
-        "Zen Mountain",
-        "Ocean of Focus",
+        "Beginning",
+        "Growth",
+        "Flow",
+        "Home",
+        "Collection",
+        "Peak",
+        "Beyond",
       ]);
-      expect(getMilestoneInfo(30).range).toBe("26-50");
+      expect(PEBBLE_MILESTONES.map((m) => m.range)).toEqual([
+        "10-24",
+        "25-49",
+        "50-99",
+        "100-249",
+        "250-499",
+        "500",
+        "501+",
+      ]);
+      expect(getMilestoneInfo(30).range).toBe("25-49");
       expect(getMilestoneInfo(30).desc).toBe(
-        "Flowing stream of productivity.",
+        "A small base of habit stones.",
       );
+    });
+
+    it.each([
+      [9, "Beginning"],
+      [10, "Beginning"],
+      [24, "Beginning"],
+      [25, "Growth"],
+      [49, "Growth"],
+      [50, "Flow"],
+      [99, "Flow"],
+      [100, "Home"],
+      [249, "Home"],
+      [250, "Collection"],
+      [499, "Collection"],
+      [500, "Peak"],
+      [500, "Peak"],
+      [501, "Beyond"],
+    ])("maps %i Pebbles to chapter %s", (count, name) => {
+      expect(getMilestoneInfo(count).name).toBe(name);
     });
   });
 });

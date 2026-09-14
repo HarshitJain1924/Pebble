@@ -520,7 +520,7 @@ export default function ProfileScreen() {
                       style={[styles.stageLine, { color: colors.primary }]}
                       numberOfLines={1}
                     >
-                      Stage {milestone.stage} · {milestone.name}
+                      Chapter {milestone.stage} — {milestone.name}
                     </Text>
                   </View>
                 </View>
@@ -534,7 +534,7 @@ export default function ProfileScreen() {
                         { backgroundColor: colors.cardLight },
                       ]}
                       accessibilityRole="progressbar"
-                      accessibilityLabel={`Progress to stage ${milestone.nextStage}`}
+                      accessibilityLabel={`Progress to chapter ${milestone.nextStage}`}
                     >
                       <View
                         style={[
@@ -556,7 +556,7 @@ export default function ProfileScreen() {
                       ]}
                     >
                       {milestone.remaining} pebble
-                      {milestone.remaining === 1 ? "" : "s"} to Stage{" "}
+                      {milestone.remaining === 1 ? "" : "s"} to Chapter{" "}
                       {milestone.nextStage}
                     </Text>
                   </View>
@@ -567,7 +567,7 @@ export default function ProfileScreen() {
                       { color: colors.textMuted },
                     ]}
                   >
-                    You&apos;ve reached the final stage.
+                    You&apos;ve reached the final chapter.
                   </Text>
                 )}
 

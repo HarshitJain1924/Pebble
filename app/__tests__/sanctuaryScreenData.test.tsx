@@ -132,6 +132,12 @@ describe("SanctuaryScreen", () => {
 
     expect(renderedTextContains("42")).toBe(true); // Lifetime count is the hero
     expect(renderedTextContains("PEBBLES")).toBe(true);
+    expect(renderedTextContains("THE THIRSTY CROW")).toBe(true);
+    expect(
+      renderedTextContains(
+        "The Crow learned the old trick: drop in Pebbles and let the water rise.",
+      ),
+    ).toBe(true);
     expect(renderedTextContains("Lifetime collection")).toBe(true);
     expect(renderedTextContains("+15 this month")).toBe(true); // Secondary context
     expect(renderedTextContains("Capacity")).toBe(false);
@@ -154,9 +160,11 @@ describe("SanctuaryScreen", () => {
   it("keeps milestone progression compact and canonical", async () => {
     await renderSanctuary();
 
-    expect(renderedTextContains("Stage 3")).toBe(true);
-    expect(renderedTextContains("Zen Stream")).toBe(true);
-    expect(renderedTextContains("8 pebbles to Stage 4")).toBe(true);
+    expect(renderedTextContains("Chapter 2")).toBe(true);
+    expect(renderedTextContains("Growth")).toBe(true);
+    expect(renderedTextContains("Chapter 3")).toBe(true);
+    expect(renderedTextContains("Flow")).toBe(true);
+    expect(renderedTextContains("8 pebbles to unlock the next chapter")).toBe(true);
     expect(renderedTextContains(["CURRENT", "BIOME"].join(" "))).toBe(false);
   });
 
@@ -178,6 +186,30 @@ describe("SanctuaryScreen", () => {
     });
 
     expect(mockPush).toHaveBeenCalledWith("/profile");
+  });
+
+  it("activates Chapter 1 when the tenth Pebble is collected", async () => {
+    (getPebbleCounts as jest.Mock).mockResolvedValue({
+      ...basePebbleCounts,
+      lifetime: 9,
+    });
+
+    await renderSanctuary();
+    expect(renderedTextContains("Next up · Chapter 1")).toBe(true);
+
+    (getPebbleCounts as jest.Mock).mockResolvedValue({
+      ...basePebbleCounts,
+      lifetime: 10,
+    });
+
+    await act(async () => {
+      emitStateChange("pebbles_changed");
+    });
+    await flushAsync();
+
+    expect(renderedTextContains("Chapter 1")).toBe(true);
+    expect(renderedTextContains("Next up · Chapter 1")).toBe(false);
+    expect(renderedTextContains("Beginning")).toBe(true);
   });
 
   it("reactively reloads when pebbles_changed event is emitted", async () => {

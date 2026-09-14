@@ -96,6 +96,13 @@ export default function SanctuaryScreen() {
   const lifetime = pebbleCounts.lifetime ?? 0;
   const monthly = pebbleCounts.monthly ?? 0;
   const milestone = getMilestoneInfo(lifetime);
+  const storyCopy = milestone.isMaxStage
+    ? "The jar is full of hard-won water. The Crow has found its Sanctuary."
+    : milestone.stage === 1
+      ? "An empty jar, a thirsty Crow, and a first Pebble."
+      : milestone.stage <= 3
+        ? "The Crow learned the old trick: drop in Pebbles and let the water rise."
+        : "The water is rising. The Crow's little refuge is becoming a Sanctuary.";
 
   const handlePress = (action: () => void) => () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -159,7 +166,7 @@ export default function SanctuaryScreen() {
       >
         <Animated.View entering={enteringAnim(0)} style={styles.heroSection}>
           <Text style={[styles.collectionEyebrow, { color: colors.textMuted }]}>
-            YOUR COLLECTION
+            THE THIRSTY CROW
           </Text>
 
           <View
@@ -199,6 +206,15 @@ export default function SanctuaryScreen() {
               +{monthly} this month
             </Text>
           </View>
+
+          <View style={[styles.storyCue, { borderLeftColor: accentBorder }]}>
+            <View style={[styles.storyCueIcon, { backgroundColor: accentSurface }]}>
+              <Feather name="droplet" size={14} color={colors.primary} />
+            </View>
+            <Text style={[styles.storyCueText, { color: colors.textMuted }]}>
+              {storyCopy}
+            </Text>
+          </View>
         </Animated.View>
 
         <Animated.View
@@ -214,7 +230,8 @@ export default function SanctuaryScreen() {
                 PROGRESSION
               </Text>
               <Text style={[styles.milestoneTitle, { color: colors.text }]}>
-                Stage {milestone.stage} <Text style={{ color: colors.textMuted }}>·</Text>{" "}
+                {milestone.isPrelude ? "Next up · Chapter 1" : `Chapter ${milestone.stage}`} {" "}
+                <Text style={{ color: colors.textMuted }}>—</Text>{" "}
                 {milestone.name}
               </Text>
             </View>
@@ -222,49 +239,100 @@ export default function SanctuaryScreen() {
           </View>
 
           {!milestone.isMaxStage ? (
-            <View style={styles.progressBlock}>
-              <View
-                style={[
-                  styles.progressTrack,
-                  { backgroundColor: colors.cardLight },
-                ]}
-                accessibilityRole="progressbar"
-                accessibilityLabel={`Progress to stage ${milestone.nextStage}`}
-                accessibilityValue={{
-                  min: 0,
-                  max: 100,
-                  now: Math.round(milestone.progressRatio * 100),
-                }}
-              >
+            <>
+              {milestone.isPrelude ? (
                 <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      width: `${Math.max(
-                        4,
-                        Math.min(100, milestone.progressRatio * 100),
-                      )}%`,
-                      backgroundColor: colors.primary,
-                    },
-                  ]}
-                />
-              </View>
+                  style={styles.preludeRow}
+                  accessibilityRole="progressbar"
+                  accessibilityLabel="Progress toward chapter 1"
+                  accessibilityValue={{
+                    min: 0,
+                    max: 100,
+                    now: Math.round(milestone.progressRatio * 100),
+                  }}
+                >
+                  <View style={[styles.trailNode, styles.nextTrailNode, { borderColor: colors.border }]}>
+                    <Feather name="lock" size={15} color={colors.textMuted} />
+                  </View>
+                  <View style={styles.preludeCopy}>
+                    <Text style={[styles.trailStage, { color: colors.textMuted }]}>Chapter 1</Text>
+                    <Text style={[styles.trailName, { color: colors.text }]} numberOfLines={2}>
+                      {milestone.name}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View
+                  style={styles.milestoneTrail}
+                  accessibilityRole="progressbar"
+                  accessibilityLabel={`Progress from chapter ${milestone.stage} to chapter ${milestone.nextStage}`}
+                  accessibilityValue={{
+                    min: 0,
+                    max: 100,
+                    now: Math.round(milestone.progressRatio * 100),
+                  }}
+                >
+                  <View style={styles.trailStop}>
+                    <View style={[styles.trailNode, { backgroundColor: colors.primary }]}>
+                      <Feather name="compass" size={16} color="#FFFFFF" />
+                    </View>
+                    <Text style={[styles.trailStage, { color: colors.primary }]}>Chapter {milestone.stage}</Text>
+                    <Text style={[styles.trailName, { color: colors.text }]} numberOfLines={2}>
+                      {milestone.name}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.trailConnector, { backgroundColor: colors.cardLight }]}>
+                    <View
+                      style={[
+                        styles.trailConnectorFill,
+                        {
+                          width: `${Math.max(
+                            8,
+                            Math.min(100, milestone.progressRatio * 100),
+                          )}%`,
+                          backgroundColor: colors.primary,
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={styles.trailStop}>
+                    <View style={[styles.trailNode, styles.nextTrailNode, { borderColor: colors.border }]}>
+                      <Feather name="lock" size={15} color={colors.textMuted} />
+                    </View>
+                    <Text style={[styles.trailStage, { color: colors.textMuted }]}>Chapter {milestone.nextStage}</Text>
+                    <Text style={[styles.trailName, { color: colors.textMuted }]} numberOfLines={2}>
+                      {milestone.nextStageName}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               <View style={styles.progressMetaRow}>
                 <Text style={[styles.progressCaption, { color: colors.textMuted }]}>
                   {milestone.remaining} pebble
-                  {milestone.remaining === 1 ? "" : "s"} to Stage {milestone.nextStage}
+                  {milestone.remaining === 1 ? "" : "s"} to unlock the next chapter
                 </Text>
                 {milestone.nextUnlock ? (
-                  <Text style={[styles.unlockCaption, { color: colors.warning }]}>
-                    Next unlock · {milestone.nextUnlock}
-                  </Text>
+                  <View style={styles.unlockRow}>
+                    <Feather name="gift" size={13} color={colors.warning} />
+                    <Text style={[styles.unlockCaption, { color: colors.warning }]}>
+                      {milestone.nextUnlock}
+                    </Text>
+                  </View>
                 ) : null}
               </View>
-            </View>
+            </>
           ) : (
-            <Text style={[styles.progressCaption, { color: colors.textMuted }]}>
-              Highest Sanctuary stage reached.
-            </Text>
+            <View style={styles.maxStageRow}>
+              <View style={[styles.trailNode, { backgroundColor: colors.success }]}>
+                <Feather name="check" size={16} color="#FFFFFF" />
+              </View>
+              <Text style={[styles.progressCaption, { color: colors.textMuted }]}>
+                Highest Sanctuary chapter reached.
+              </Text>
+            </View>
           )}
         </Animated.View>
 
@@ -454,6 +522,28 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 2,
   },
+  storyCue: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+  },
+  storyCueIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  storyCueText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
+  },
   milestoneSection: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -479,18 +569,58 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.25,
   },
-  progressBlock: {
+  milestoneTrail: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 8,
   },
-  progressTrack: {
-    width: "100%",
-    height: 6,
+  preludeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  preludeCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  trailStop: {
+    flex: 1,
+    alignItems: "center",
+    gap: 4,
+  },
+  trailNode: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nextTrailNode: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+  },
+  trailConnector: {
+    flex: 1,
+    height: 4,
     borderRadius: Radius.pill,
     overflow: "hidden",
+    marginTop: 16,
   },
-  progressFill: {
+  trailConnectorFill: {
     height: "100%",
     borderRadius: Radius.pill,
+  },
+  trailStage: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  trailName: {
+    minHeight: 28,
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 14,
+    textAlign: "center",
   },
   progressMetaRow: {
     gap: 4,
@@ -502,6 +632,16 @@ const styles = StyleSheet.create({
   unlockCaption: {
     fontSize: 11,
     fontWeight: "600",
+  },
+  unlockRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  maxStageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   sourcesLabel: {
     marginBottom: 8,

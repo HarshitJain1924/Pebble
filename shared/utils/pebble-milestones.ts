@@ -13,15 +13,15 @@
  *
  * Thresholds are canonical and must not be altered:
  *   10, 25, 50, 100, 250, 500
- * A stage is "complete" at its threshold; the next stage begins one Pebble
- * later (count <= threshold), matching historical behaviour exactly.
+ * Each chapter unlocks when its threshold is reached. Before the first
+ * threshold, the first chapter is shown as upcoming.
  */
 
 export interface PebbleMilestone {
   /** 1-based stage number. */
   stage: number;
   name: string;
-  /** Human readable Pebble band, e.g. "11-25". */
+  /** Human readable chapter band, e.g. "25-49". */
   range: string;
   desc: string;
   /**
@@ -39,50 +39,50 @@ export const PEBBLE_STAGE_THRESHOLDS = [10, 25, 50, 100, 250, 500] as const;
 export const PEBBLE_MILESTONES: readonly PebbleMilestone[] = [
   {
     stage: 1,
-    name: "First Steps",
-    range: "0-10",
+    name: "Beginning",
+    range: "10-24",
     desc: "Gathering the first stones of momentum.",
-    unlock: "Sprout Jar Nest",
+    unlock: "Beginning Jar Nest",
   },
   {
     stage: 2,
-    name: "Sprout",
-    range: "11-25",
+    name: "Growth",
+    range: "25-49",
     desc: "A small base of habit stones.",
     unlock: "Curious Mascot grows",
   },
   {
     stage: 3,
-    name: "Zen Stream",
-    range: "26-50",
+    name: "Flow",
+    range: "50-99",
     desc: "Flowing stream of productivity.",
     unlock: "Zen Energy floats",
   },
   {
     stage: 4,
-    name: "Sanctuary Base",
-    range: "51-100",
+    name: "Home",
+    range: "100-249",
     desc: "Solid foundation for daily rhythm.",
     unlock: "Crowned Mascot & sparkles",
   },
   {
     stage: 5,
-    name: "Pebble Hoarder",
-    range: "101-250",
+    name: "Collection",
+    range: "250-499",
     desc: "A significant heap of accomplishments.",
     unlock: "Golden Jar & sparks",
   },
   {
     stage: 6,
-    name: "Zen Mountain",
-    range: "251-500",
+    name: "Peak",
+    range: "500",
     desc: "An impressive, towering mount of zen.",
     unlock: null,
   },
   {
     stage: 7,
-    name: "Ocean of Focus",
-    range: "500+",
+    name: "Beyond",
+    range: "501+",
     desc: "Infinite zen achieved. Master level.",
     unlock: null,
   },
@@ -93,9 +93,11 @@ export const MAX_PEBBLE_STAGE = PEBBLE_MILESTONES.length;
 export interface MilestoneInfo extends PebbleMilestone {
   /** True when the highest stage has been reached. */
   isMaxStage: boolean;
+  /** True before the first chapter has unlocked. */
+  isPrelude: boolean;
   nextStage: number | null;
   nextStageName: string | null;
-  /** Pebble count that completes the current stage (`null` at max stage). */
+  /** Pebble count that unlocks the next chapter (`null` at max stage). */
   nextThreshold: number | null;
   /** Pebbles earned inside the current stage band. */
   progressInStage: number;
@@ -103,9 +105,9 @@ export interface MilestoneInfo extends PebbleMilestone {
   stageSpan: number;
   /** 0..1 fill ratio of the current stage band. */
   progressRatio: number;
-  /** Pebbles left before the next stage is reached. */
+  /** Pebbles left before the next chapter is reached. */
   remaining: number;
-  /** Sanctuary visual unlocked when `nextThreshold` is reached. */
+  /** Sanctuary visual unlocked with the next chapter. */
   nextUnlock: string | null;
 }
 
@@ -114,13 +116,18 @@ function normalizePebbleCount(pebbles: number): number {
   return Math.floor(pebbles);
 }
 
-/** Resolve the 1-based stage for a lifetime Pebble count. */
+/** Resolve the 1-based active chapter for a lifetime Pebble count. */
 export function getPebbleStage(pebbles: number): number {
   const count = normalizePebbleCount(pebbles);
-  for (let i = 0; i < PEBBLE_STAGE_THRESHOLDS.length; i += 1) {
-    if (count <= PEBBLE_STAGE_THRESHOLDS[i]) return i + 1;
+  if (count < PEBBLE_STAGE_THRESHOLDS[0]) return 1;
+
+  for (let i = 1; i < PEBBLE_STAGE_THRESHOLDS.length; i += 1) {
+    if (count < PEBBLE_STAGE_THRESHOLDS[i]) return i;
   }
-  return MAX_PEBBLE_STAGE;
+
+  return count > PEBBLE_STAGE_THRESHOLDS[PEBBLE_STAGE_THRESHOLDS.length - 1]
+    ? MAX_PEBBLE_STAGE
+    : PEBBLE_STAGE_THRESHOLDS.length;
 }
 
 /**
@@ -133,9 +140,24 @@ export function getMilestoneInfo(pebbles: number): MilestoneInfo {
   const stage = getPebbleStage(count);
   const definition = PEBBLE_MILESTONES[stage - 1];
   const isMaxStage = stage >= MAX_PEBBLE_STAGE;
+  const isPrelude = count < PEBBLE_STAGE_THRESHOLDS[0];
 
-  const nextThreshold = isMaxStage ? null : PEBBLE_STAGE_THRESHOLDS[stage - 1];
-  const bandStart = stage === 1 ? 0 : PEBBLE_STAGE_THRESHOLDS[stage - 2];
+  const nextStage = isMaxStage ? null : isPrelude ? 1 : stage + 1;
+  const nextStageName = isMaxStage
+    ? null
+    : isPrelude
+      ? definition.name
+      : PEBBLE_MILESTONES[stage].name;
+  const nextThreshold = isMaxStage
+    ? null
+    : isPrelude
+      ? PEBBLE_STAGE_THRESHOLDS[0]
+      : stage === PEBBLE_STAGE_THRESHOLDS.length
+        ? PEBBLE_STAGE_THRESHOLDS[PEBBLE_STAGE_THRESHOLDS.length - 1] + 1
+        : PEBBLE_STAGE_THRESHOLDS[stage];
+  const bandStart = isPrelude
+    ? 0
+    : PEBBLE_STAGE_THRESHOLDS[stage - 1];
   const stageSpan = isMaxStage ? 0 : (nextThreshold as number) - bandStart;
   const progressInStage = isMaxStage ? 0 : Math.max(0, count - bandStart);
   const progressRatio = isMaxStage
@@ -147,14 +169,19 @@ export function getMilestoneInfo(pebbles: number): MilestoneInfo {
   return {
     ...definition,
     isMaxStage,
-    nextStage: isMaxStage ? null : stage + 1,
-    nextStageName: isMaxStage ? null : PEBBLE_MILESTONES[stage].name,
+    isPrelude,
+    nextStage,
+    nextStageName,
     nextThreshold,
     progressInStage,
     stageSpan,
     progressRatio,
     remaining: isMaxStage ? 0 : Math.max(0, (nextThreshold as number) - count),
-    nextUnlock: isMaxStage ? null : definition.unlock,
+    nextUnlock: isMaxStage
+      ? null
+      : isPrelude
+        ? definition.unlock
+        : PEBBLE_MILESTONES[stage].unlock,
   };
 }
 

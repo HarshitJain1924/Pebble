@@ -486,7 +486,7 @@ export default function StatsScreen() {
                   {lifetimePebbles} Pebbles earned
                 </Text>
                 <Text style={[styles.blockCaption, { color: colors.textMuted }]}>
-                  Stage {milestone.stage} · {milestone.name}
+                  Chapter {milestone.stage} — {milestone.name}
                 </Text>
 
                 <View style={styles.sourcesList}>

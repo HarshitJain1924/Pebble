@@ -8,6 +8,15 @@ const CONSUMERS = [
   "app/sanctuary.tsx",
   "features/today/components/PebbleJarProgressCard.tsx",
 ];
+const CHAPTER_NAMES = [
+  "Beginning",
+  "Growth",
+  "Flow",
+  "Home",
+  "Collection",
+  "Peak",
+  "Beyond",
+];
 
 function read(relative: string): string {
   return fs.readFileSync(path.join(ROOT, relative), "utf8");
@@ -20,10 +29,10 @@ describe("milestone consumers", () => {
 
   it.each(CONSUMERS)("%s declares no local milestone definitions", (file) => {
     const source = read(file);
-    // Stage copy must live only in the canonical module.
-    expect(source).not.toMatch(/First Steps/);
-    expect(source).not.toMatch(/Zen Mountain/);
-    expect(source).not.toMatch(/Ocean of Focus/);
+    // Chapter copy must live only in the canonical module.
+    CHAPTER_NAMES.forEach((name) => {
+      expect(source).not.toContain(name);
+    });
   });
 
   it.each(CONSUMERS)("%s declares no local threshold ladder", (file) => {
@@ -32,7 +41,7 @@ describe("milestone consumers", () => {
     expect(source).not.toMatch(/\[10,\s*25,\s*50,\s*100,\s*250,\s*500\]/);
   });
 
-  it("keeps stage copy declared in exactly one production file", () => {
+  it("keeps chapter copy declared in exactly one production file", () => {
     const matches: string[] = [];
     const walk = (dir: string) => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -51,7 +60,7 @@ describe("milestone consumers", () => {
         if (!/\.(ts|tsx)$/.test(entry.name)) continue;
         if (/__tests__|\.test\./.test(full)) continue;
         const source = fs.readFileSync(full, "utf8");
-        if (source.includes("Ocean of Focus")) matches.push(full);
+        if (source.includes('name: "Beyond"')) matches.push(full);
       }
     };
     walk(ROOT);
