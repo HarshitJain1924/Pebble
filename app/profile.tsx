@@ -224,7 +224,7 @@ export default function ProfileScreen() {
             Something went wrong.
           </Text>
           <Text style={[styles.stateBody, { color: colors.textMuted }]}>
-            We couldn't load your profile just now.
+            We couldn&apos;t load your profile just now.
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -254,7 +254,8 @@ export default function ProfileScreen() {
     >
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+      {/* ── Header: seamless, integrated back & settings ──────────── */}
+      <View style={styles.header}>
         <Pressable
           style={({ pressed }) => [
             styles.headerButton,
@@ -265,7 +266,7 @@ export default function ProfileScreen() {
           ]}
           accessibilityRole="button"
           accessibilityLabel="Go back"
-          hitSlop={8}
+          hitSlop={10}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
               () => {},
@@ -288,7 +289,7 @@ export default function ProfileScreen() {
           ]}
           accessibilityRole="button"
           accessibilityLabel="Settings"
-          hitSlop={8}
+          hitSlop={10}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
               () => {},
@@ -308,8 +309,17 @@ export default function ProfileScreen() {
         <Animated.View entering={enteringAnim(0, 400)} style={styles.identity}>
           <View
             style={[
-              styles.avatarRingOuter,
-              { borderColor: colors.border, backgroundColor: colors.card },
+              styles.avatarHalo,
+              {
+                borderColor:
+                  colorScheme === "dark"
+                    ? "rgba(255, 255, 255, 0.08)"
+                    : "rgba(0, 0, 0, 0.06)",
+                backgroundColor:
+                  colorScheme === "dark"
+                    ? "rgba(99, 102, 241, 0.08)"
+                    : "rgba(79, 70, 229, 0.05)",
+              },
             ]}
           >
             <Pressable
@@ -318,7 +328,7 @@ export default function ProfileScreen() {
                 {
                   borderColor: colors.border,
                   backgroundColor: colors.cardLight,
-                  opacity: pressed ? 0.85 : 1,
+                  opacity: pressed ? 0.88 : 1,
                   transform: [{ scale: pressed ? 0.97 : 1 }],
                 },
               ]}
@@ -338,7 +348,7 @@ export default function ProfileScreen() {
                   styles.avatarEditBadge,
                   {
                     backgroundColor: colors.card,
-                    borderColor: colors.border,
+                    borderColor: colors.background,
                     ...Shadows.soft,
                   },
                 ]}
@@ -348,23 +358,12 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.identityTextGroup}>
-            <Text style={[styles.nameText, { color: colors.text }]}>
-              {profile.name}
-            </Text>
-            <Text style={[styles.emailText, { color: colors.textMuted }]}>
-              {profile.email}
-            </Text>
-          </View>
-
           <Pressable
             style={({ pressed }) => [
-              styles.editLink,
+              styles.identityRow,
               {
-                borderColor: colors.border,
-                backgroundColor: colors.card,
                 opacity: pressed ? 0.75 : 1,
-                transform: [{ scale: pressed ? 0.97 : 1 }],
+                transform: [{ scale: pressed ? 0.98 : 1 }],
               },
             ]}
             accessibilityRole="button"
@@ -377,14 +376,31 @@ export default function ProfileScreen() {
               openDetailsEditor();
             }}
           >
-            <Feather name="edit-2" size={13} color={colors.primary} />
-            <Text style={[styles.editLinkText, { color: colors.primary }]}>
-              Edit profile
+            <View style={styles.nameRow}>
+              <Text style={[styles.nameText, { color: colors.text }]}>
+                {profile.name}
+              </Text>
+              <View
+                style={[
+                  styles.nameEditIconBadge,
+                  {
+                    backgroundColor:
+                      colorScheme === "dark"
+                        ? "rgba(99, 102, 241, 0.12)"
+                        : "rgba(79, 70, 229, 0.08)",
+                  },
+                ]}
+              >
+                <Feather name="edit-2" size={11} color={colors.primary} />
+              </View>
+            </View>
+            <Text style={[styles.emailText, { color: colors.textMuted }]}>
+              {profile.email}
             </Text>
           </Pressable>
         </Animated.View>
 
-        {/* ── Pebble Sanctuary — compact signature snapshot hero ─────── */}
+        {/* ── Pebble Sanctuary — signature centerpiece plaque ───────── */}
         <Animated.View entering={enteringAnim(60, 480)}>
           <View
             style={[
@@ -399,7 +415,7 @@ export default function ProfileScreen() {
             {/* Sanctuary Top Row: Label & Next Unlock */}
             <View style={styles.sanctuaryHeaderRow}>
               <View style={styles.sanctuaryHeaderTag}>
-                <Feather name="shield" size={12} color={colors.primary} />
+                <Feather name="shield" size={11} color={colors.primary} />
                 <Text
                   style={[styles.sanctuaryLabel, { color: colors.textMuted }]}
                 >
@@ -409,16 +425,16 @@ export default function ProfileScreen() {
               {milestone.nextUnlock ? (
                 <View
                   style={[
-                    styles.nextUnlockChip,
+                    styles.nextUnlockTag,
                     {
                       backgroundColor:
                         colorScheme === "dark"
                           ? "rgba(245, 158, 11, 0.12)"
-                          : "rgba(217, 119, 6, 0.1)",
+                          : "rgba(217, 119, 6, 0.08)",
                     },
                   ]}
                 >
-                  <Feather name="star" size={11} color={colors.warning} />
+                  <Feather name="star" size={10} color={colors.warning} />
                   <Text
                     style={[styles.nextUnlockText, { color: colors.warning }]}
                   >
@@ -446,48 +462,44 @@ export default function ProfileScreen() {
               </View>
             ) : (
               <>
-                {/* Main Snapshot Row: Lifetime Pebbles on Left, Stage on Right */}
+                {/* Main Row: Lifetime Pebbles on Left, Stage Capsule on Right */}
                 <View style={styles.sanctuaryMainRow}>
-                  <View style={styles.pebbleCountBlock}>
-                    <View
+                  <View style={styles.pebbleCountGroup}>
+                    <Text
                       style={[
-                        styles.pebbleGlyphContainer,
-                        { backgroundColor: colors.cardLight },
+                        styles.pebbleValue,
+                        { color: colors.text },
                       ]}
                     >
-                      <Feather name="disc" size={16} color={colors.primary} />
-                    </View>
-                    <View style={styles.pebbleNumberGroup}>
-                      <Text
-                        style={[
-                          styles.pebbleHeroValue,
-                          { color: colors.text },
-                        ]}
-                      >
-                        {lifetimePebbles}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.pebbleHeroUnit,
-                          { color: colors.textMuted },
-                        ]}
-                      >
-                        PEBBLES
-                      </Text>
-                    </View>
+                      {lifetimePebbles}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.pebbleUnit,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      PEBBLES
+                    </Text>
                   </View>
 
                   <View
                     style={[
-                      styles.stageBlock,
+                      styles.stageCapsule,
                       {
-                        borderColor: colors.border,
-                        backgroundColor: colors.cardLight,
+                        backgroundColor:
+                          colorScheme === "dark"
+                            ? "rgba(99, 102, 241, 0.12)"
+                            : "rgba(79, 70, 229, 0.08)",
+                        borderColor:
+                          colorScheme === "dark"
+                            ? "rgba(99, 102, 241, 0.22)"
+                            : "rgba(79, 70, 229, 0.16)",
                       },
                     ]}
                   >
                     <Text
-                      style={[styles.stageLine, { color: colors.text }]}
+                      style={[styles.stageLine, { color: colors.primary }]}
                       numberOfLines={1}
                     >
                       Stage {milestone.stage} · {milestone.name}
@@ -501,7 +513,7 @@ export default function ProfileScreen() {
                     <View
                       style={[
                         styles.progressTrack,
-                        { backgroundColor: colors.border },
+                        { backgroundColor: colors.cardLight },
                       ]}
                       accessibilityRole="progressbar"
                       accessibilityLabel={`Progress to stage ${milestone.nextStage}`}
@@ -537,7 +549,7 @@ export default function ProfileScreen() {
                       { color: colors.textMuted },
                     ]}
                   >
-                    You've reached the final stage.
+                    You&apos;ve reached the final stage.
                   </Text>
                 )}
 
@@ -549,18 +561,25 @@ export default function ProfileScreen() {
                   ]}
                 />
 
-                {/* Footer Meta Row: This Month & Gems */}
+                {/* Footer Meta Chips: This Month & Gems */}
                 <View style={styles.metaRow}>
-                  <View style={styles.metaInlineItem}>
+                  <View
+                    style={[
+                      styles.metaChip,
+                      {
+                        backgroundColor:
+                          colorScheme === "dark"
+                            ? "rgba(255, 255, 255, 0.04)"
+                            : "rgba(0, 0, 0, 0.03)",
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Feather name="calendar" size={11} color={colors.textMuted} />
                     <Text
                       style={[styles.metaLabel, { color: colors.textMuted }]}
                     >
                       This month
-                    </Text>
-                    <Text
-                      style={[styles.metaDot, { color: colors.textMuted }]}
-                    >
-                      ·
                     </Text>
                     <Text
                       style={[styles.metaValue, { color: colors.text }]}
@@ -570,17 +589,26 @@ export default function ProfileScreen() {
                   </View>
 
                   {gemsBalance > 0 ? (
-                    <View style={styles.metaInlineItem}>
+                    <View
+                      style={[
+                        styles.metaChip,
+                        {
+                          backgroundColor:
+                            colorScheme === "dark"
+                              ? "rgba(99, 102, 241, 0.08)"
+                              : "rgba(79, 70, 229, 0.05)",
+                          borderColor:
+                            colorScheme === "dark"
+                              ? "rgba(99, 102, 241, 0.2)"
+                              : "rgba(79, 70, 229, 0.12)",
+                        },
+                      ]}
+                    >
                       <Feather name="disc" size={11} color={colors.primary} />
                       <Text
                         style={[styles.metaLabel, { color: colors.textMuted }]}
                       >
                         Gems
-                      </Text>
-                      <Text
-                        style={[styles.metaDot, { color: colors.textMuted }]}
-                      >
-                        ·
                       </Text>
                       <Text
                         style={[styles.metaValue, { color: colors.text }]}
@@ -595,7 +623,7 @@ export default function ProfileScreen() {
           </View>
         </Animated.View>
 
-        {/* ── Your Progress — two compact gateway tiles ──────────────── */}
+        {/* ── Your Progress — two compact destination tiles ─────────── */}
         <View style={styles.progressSection}>
           <Text style={[styles.progressEyebrow, { color: colors.textMuted }]}>
             YOUR PROGRESS
@@ -628,14 +656,14 @@ export default function ProfileScreen() {
                     {
                       backgroundColor:
                         colorScheme === "dark"
-                          ? "rgba(99, 102, 241, 0.15)"
-                          : "rgba(79, 70, 229, 0.1)",
+                          ? "rgba(99, 102, 241, 0.14)"
+                          : "rgba(79, 70, 229, 0.09)",
                     },
                   ]}
                 >
                   <Feather
                     name="bar-chart-2"
-                    size={18}
+                    size={14}
                     color={colors.primary}
                   />
                 </View>
@@ -651,6 +679,12 @@ export default function ProfileScreen() {
                   numberOfLines={1}
                 >
                   Stats &amp; insights
+                </Text>
+                <Text
+                  style={[styles.gatewayTileCaption, { color: colors.textMuted }]}
+                  numberOfLines={1}
+                >
+                  Trends &amp; streaks
                 </Text>
               </View>
             </Pressable>
@@ -682,12 +716,12 @@ export default function ProfileScreen() {
                     {
                       backgroundColor:
                         colorScheme === "dark"
-                          ? "rgba(245, 158, 11, 0.15)"
-                          : "rgba(217, 119, 6, 0.1)",
+                          ? "rgba(245, 158, 11, 0.14)"
+                          : "rgba(217, 119, 6, 0.09)",
                     },
                   ]}
                 >
-                  <Feather name="award" size={18} color={colors.warning} />
+                  <Feather name="award" size={14} color={colors.warning} />
                 </View>
                 <View
                   style={[
@@ -695,7 +729,6 @@ export default function ProfileScreen() {
                     {
                       backgroundColor: colors.cardLight,
                       borderColor: colors.border,
-                      borderWidth: 1,
                     },
                   ]}
                 >
@@ -715,6 +748,12 @@ export default function ProfileScreen() {
                   numberOfLines={1}
                 >
                   Achievements
+                </Text>
+                <Text
+                  style={[styles.gatewayTileCaption, { color: colors.textMuted }]}
+                  numberOfLines={1}
+                >
+                  Milestone badges
                 </Text>
               </View>
             </Pressable>
@@ -962,28 +1001,29 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 44) : 0,
   },
   header: {
-    height: 56,
+    height: 52,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
+    paddingHorizontal: 16,
   },
   headerButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: Radius.pill,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "700",
+    letterSpacing: -0.3,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 100,
-    gap: 20,
+    paddingTop: 12,
+    paddingBottom: 80,
+    gap: 18,
   },
   centeredState: {
     flex: 1,
@@ -998,62 +1038,66 @@ const styles = StyleSheet.create({
   // Identity — open canvas personal anchor
   identity: {
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 6,
+    gap: 12,
+    paddingVertical: 8,
   },
-  avatarRingOuter: {
+  avatarHalo: {
+    alignItems: "center",
+    justifyContent: "center",
     position: "relative",
-    padding: 4,
+    padding: 6,
     borderRadius: Radius.pill,
     borderWidth: 1,
   },
   avatarButton: {
-    width: 96,
-    height: 96,
+    width: 92,
+    height: 92,
     borderRadius: Radius.pill,
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   avatarEditBadge: {
     position: "absolute",
-    bottom: -2,
-    right: -2,
+    bottom: 0,
+    right: 0,
     width: 28,
     height: 28,
     borderRadius: Radius.pill,
-    borderWidth: 1.5,
+    borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
   },
-  identityTextGroup: {
+  identityRow: {
     alignItems: "center",
-    gap: 3,
+    gap: 4,
   },
-  nameText: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    textAlign: "center",
-  },
-  emailText: {
-    fontSize: 14,
-    fontWeight: "500",
-    textAlign: "center",
-  },
-  editLink: {
+  nameRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    height: 36,
-    paddingHorizontal: 16,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    marginTop: 2,
   },
-  editLinkText: { fontSize: 13, fontWeight: "700" },
+  nameText: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    textAlign: "center",
+  },
+  nameEditIconBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emailText: {
+    fontSize: 13,
+    fontWeight: "500",
+    textAlign: "center",
+  },
 
-  // Pebble Sanctuary — compact snapshot hero
+  // Pebble Sanctuary — signature centerpiece plaque
   sanctuary: {
     borderRadius: Radius.xl,
     borderWidth: 1,
@@ -1069,17 +1113,17 @@ const styles = StyleSheet.create({
   sanctuaryHeaderTag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
   },
   sanctuaryLabel: {
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1.4,
+    letterSpacing: 1.2,
   },
-  nextUnlockChip: {
+  nextUnlockTag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: Radius.pill,
@@ -1093,95 +1137,83 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 2,
   },
-  pebbleCountBlock: {
+  pebbleCountGroup: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+    alignItems: "baseline",
+    gap: 6,
   },
-  pebbleGlyphContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pebbleNumberGroup: {
-    gap: 0,
-  },
-  pebbleHeroValue: {
+  pebbleValue: {
     fontSize: 28,
     fontWeight: "900",
-    letterSpacing: -1,
-    lineHeight: 30,
+    letterSpacing: -0.8,
+    lineHeight: 32,
   },
-  pebbleHeroUnit: {
+  pebbleUnit: {
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1.4,
+    letterSpacing: 1.2,
   },
-  stageBlock: {
+  stageCapsule: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: Radius.pill,
     borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
   },
   stageLine: {
     fontSize: 12,
     fontWeight: "700",
+    letterSpacing: -0.2,
   },
   progressContainer: {
     gap: 6,
   },
   progressTrack: {
     width: "100%",
-    height: 6,
+    height: 5,
     borderRadius: Radius.pill,
     overflow: "hidden",
   },
   progressFill: { height: "100%", borderRadius: Radius.pill },
-  progressCaption: { fontSize: 12 },
+  progressCaption: { fontSize: 11, fontWeight: "500" },
   metaDivider: {
     height: StyleSheet.hairlineWidth,
     alignSelf: "stretch",
-    marginTop: 2,
+    marginVertical: 2,
   },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: 10,
   },
-  metaInlineItem: {
+  metaChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
   },
   metaLabel: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "500",
   },
-  metaDot: {
+  metaValue: {
     fontSize: 12,
     fontWeight: "700",
   },
-  metaValue: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  sanctuaryEmpty: { alignItems: "center", gap: 6, paddingVertical: 12 },
-  sanctuaryEmptyTitle: { fontSize: 16, fontWeight: "700", textAlign: "center" },
-  sanctuaryEmptyBody: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+  sanctuaryEmpty: { alignItems: "center", gap: 4, paddingVertical: 8 },
+  sanctuaryEmptyTitle: { fontSize: 15, fontWeight: "700", textAlign: "center" },
+  sanctuaryEmptyBody: { fontSize: 12, lineHeight: 16, textAlign: "center" },
 
-  // Your Progress — compact navigation tiles
-  progressSection: { gap: 10 },
+  // Your Progress — compact destination tiles
+  progressSection: { gap: 8 },
   progressEyebrow: {
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1.4,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   },
   gatewayRow: {
     flexDirection: "row",
@@ -1192,7 +1224,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: Radius.lg,
     borderWidth: 1,
-    padding: 14,
+    padding: 13,
     minHeight: 96,
     justifyContent: "space-between",
   },
@@ -1202,25 +1234,30 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   gatewayIconBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.pill,
+    width: 28,
+    height: 28,
+    borderRadius: Radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
   gatewayTileBottom: {
-    marginTop: 8,
+    gap: 2,
   },
   gatewayTileText: {
     fontSize: 14,
     fontWeight: "700",
   },
+  gatewayTileCaption: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
   gatewayCountChip: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: Radius.pill,
+    borderWidth: 1,
   },
-  gatewayCountText: { fontSize: 12, fontWeight: "700" },
+  gatewayCountText: { fontSize: 11, fontWeight: "700" },
 
   // Sheets
   sheetOverlay: {

@@ -249,14 +249,38 @@ export default function SettingsScreen() {
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
+      {/* ── Header: seamless, integrated back ─────────────────────── */}
+      <View style={styles.header}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.headerButton,
+            {
+              backgroundColor: pressed ? colors.cardLight : "transparent",
+              transform: [{ scale: pressed ? 0.95 : 1 }],
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+              () => {},
+            );
+            router.back();
+          }}
+        >
+          <Feather name="arrow-left" size={20} color={colors.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Settings
+        </Text>
+        <View style={styles.headerButtonPlaceholder} />
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.screenTitle, { color: colors.text }]}>
-          Settings
-        </Text>
-
         {/* ── Experience ───────────────────────────────────────────── */}
         <Animated.View entering={FadeInDown.duration(350)}>
           <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
@@ -268,13 +292,28 @@ export default function SettingsScreen() {
               { borderColor: colors.border, backgroundColor: colors.card },
             ]}
           >
-            <View style={styles.blockRow}>
-              <Text style={[styles.rowTitle, { color: colors.text }]}>
-                Appearance
-              </Text>
+            <View style={styles.appearanceRow}>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(99, 102, 241, 0.14)"
+                          : "rgba(79, 70, 229, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="moon" size={14} color={colors.primary} />
+                </View>
+                <Text style={[styles.rowTitle, { color: colors.text }]}>
+                  Appearance
+                </Text>
+              </View>
               <View
                 style={[
-                  styles.themeRow,
+                  styles.themeSegment,
                   { borderColor: colors.border, backgroundColor: colors.cardLight },
                 ]}
                 accessibilityRole="tablist"
@@ -312,13 +351,28 @@ export default function SettingsScreen() {
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
             <View style={styles.toggleRow}>
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.text }]}>
-                  Companion
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Show the crow on the edge of your screen.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(245, 158, 11, 0.14)"
+                          : "rgba(217, 119, 6, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="feather" size={14} color={colors.warning} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Companion
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Show the crow on the edge of your screen.
+                  </Text>
+                </View>
               </View>
               <Pressable
                 accessibilityRole="switch"
@@ -354,13 +408,28 @@ export default function SettingsScreen() {
             ]}
           >
             <View style={styles.toggleRow}>
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.text }]}>
-                  Reminders
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Send a second reminder if something is still unfinished.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(99, 102, 241, 0.14)"
+                          : "rgba(79, 70, 229, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="bell" size={14} color={colors.primary} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Reminders
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Send a second reminder if something is still unfinished.
+                  </Text>
+                </View>
               </View>
               <Pressable
                 accessibilityRole="switch"
@@ -387,13 +456,28 @@ export default function SettingsScreen() {
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
             <View style={styles.toggleRow}>
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.text }]}>
-                  Quiet hours
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Mute reminders while you sleep.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="clock" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Quiet hours
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Mute reminders while you sleep.
+                  </Text>
+                </View>
               </View>
               <Pressable
                 accessibilityRole="switch"
@@ -421,16 +505,17 @@ export default function SettingsScreen() {
 
             {settings.quietHours.enabled && (
               <>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Mute from ${formatHour(settings.quietHours.startHour)}`}
                   onPress={handlePress(() => setHourPicker("start"))}
                   style={({ pressed }) => [
-                    styles.detailRow,
+                    styles.subRow,
                     { opacity: pressed ? 0.7 : 1 },
                   ]}
                 >
-                  <Text style={[styles.detailLabel, { color: colors.text }]}>
+                  <Text style={[styles.subRowLabel, { color: colors.text }]}>
                     Mute from
                   </Text>
                   <View style={styles.detailValueWrap}>
@@ -441,21 +526,22 @@ export default function SettingsScreen() {
                     </Text>
                     <Feather
                       name="chevron-right"
-                      size={16}
+                      size={14}
                       color={colors.textMuted}
                     />
                   </View>
                 </Pressable>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Resume at ${formatHour(settings.quietHours.endHour)}`}
                   onPress={handlePress(() => setHourPicker("end"))}
                   style={({ pressed }) => [
-                    styles.detailRow,
+                    styles.subRow,
                     { opacity: pressed ? 0.7 : 1 },
                   ]}
                 >
-                  <Text style={[styles.detailLabel, { color: colors.text }]}>
+                  <Text style={[styles.subRowLabel, { color: colors.text }]}>
                     Resume at
                   </Text>
                   <View style={styles.detailValueWrap}>
@@ -466,7 +552,7 @@ export default function SettingsScreen() {
                     </Text>
                     <Feather
                       name="chevron-right"
-                      size={16}
+                      size={14}
                       color={colors.textMuted}
                     />
                   </View>
@@ -481,21 +567,36 @@ export default function SettingsScreen() {
               accessibilityLabel="Category reminders"
               onPress={handlePress(() => setShowCategoriesSheet(true))}
               style={({ pressed }) => [
-                styles.toggleRow,
+                styles.navRow,
                 { opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.text }]}>
-                  Category reminders
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Choose which categories can send reminders.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="grid" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Category reminders
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Choose which categories can send reminders.
+                  </Text>
+                </View>
               </View>
               <Feather
                 name="chevron-right"
-                size={18}
+                size={16}
                 color={colors.textMuted}
               />
             </Pressable>
@@ -522,17 +623,32 @@ export default function SettingsScreen() {
                 { opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.text }]}>
-                  Archived items
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Restore or permanently delete archived items.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="archive" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Archived items
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Restore or permanently delete archived items.
+                  </Text>
+                </View>
               </View>
               <Feather
                 name="chevron-right"
-                size={18}
+                size={16}
                 color={colors.textMuted}
               />
             </Pressable>
@@ -550,20 +666,35 @@ export default function SettingsScreen() {
                 { opacity: isExporting ? 0.6 : pressed ? 0.7 : 1 },
               ]}
             >
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.text }]}>
-                  Export data
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Save a copy of your Pebble data.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="share-2" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Export data
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Save a copy of your Pebble data.
+                  </Text>
+                </View>
               </View>
               {isExporting ? (
                 <ActivityIndicator size="small" color={colors.textMuted} />
               ) : (
                 <Feather
-                  name="share-2"
-                  size={17}
+                  name="chevron-right"
+                  size={16}
                   color={colors.textMuted}
                 />
               )}
@@ -583,17 +714,32 @@ export default function SettingsScreen() {
                 { opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.text }]}>
-                  Restore data
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Replace your data with a backup.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="rotate-ccw" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Restore data
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Replace your data with a backup.
+                  </Text>
+                </View>
               </View>
               <Feather
                 name="chevron-right"
-                size={18}
+                size={16}
                 color={colors.textMuted}
               />
             </Pressable>
@@ -608,7 +754,7 @@ export default function SettingsScreen() {
           <View
             style={[
               styles.group,
-              { borderColor: colors.error, backgroundColor: colors.card },
+              { borderColor: colors.border, backgroundColor: colors.card },
             ]}
           >
             <Pressable
@@ -620,17 +766,32 @@ export default function SettingsScreen() {
                 { opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: colors.error }]}>
-                  Clear all data
-                </Text>
-                <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                  Delete everything on this device. This can't be undone.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(239, 68, 68, 0.14)"
+                          : "rgba(220, 38, 38, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="trash-2" size={14} color={colors.error} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.error }]}>
+                    Clear all data
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Delete everything on this device. This can&apos;t be undone.
+                  </Text>
+                </View>
               </View>
               <Feather
                 name="chevron-right"
-                size={18}
+                size={16}
                 color={colors.error}
               />
             </Pressable>
@@ -860,80 +1021,149 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  header: {
+    height: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.pill,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+  },
+  headerButtonPlaceholder: {
+    width: 44,
+    height: 44,
+  },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 120,
-    gap: 24,
-  },
-  screenTitle: {
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: -0.6,
-    marginBottom: 4,
+    paddingTop: 12,
+    paddingBottom: 80,
+    gap: 20,
   },
   sectionLabel: {
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1.2,
-    marginBottom: 8,
+    marginBottom: 6,
+    paddingHorizontal: 4,
   },
   group: {
     borderRadius: Radius.lg,
     borderWidth: 1,
-    paddingHorizontal: 16,
+    overflow: "hidden",
   },
-  divider: { height: 1 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 56,
+  },
+  rowLead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  iconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    minHeight: 64,
-    paddingVertical: 12,
+    minHeight: 52,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
   navRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    minHeight: 64,
-    paddingVertical: 12,
+    minHeight: 52,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
-  blockRow: { paddingVertical: 14, gap: 12 },
-  themeRow: {
+  appearanceRow: {
     flexDirection: "row",
-    gap: 4,
-    padding: 4,
-    borderRadius: Radius.md,
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 52,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  themeSegment: {
+    flexDirection: "row",
+    gap: 2,
+    padding: 2,
+    borderRadius: Radius.pill,
     borderWidth: 1,
+    flexShrink: 0,
   },
   themeOption: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: Radius.md,
+    paddingHorizontal: 11,
+    height: 28,
+    borderRadius: Radius.pill,
     alignItems: "center",
     justifyContent: "center",
   },
-  themeOptionText: { fontSize: 13, fontWeight: "700" },
-  detailRow: {
+  themeOptionText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  subRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     minHeight: 44,
     paddingVertical: 8,
+    paddingLeft: 56,
+    paddingRight: 16,
   },
-  detailLabel: { fontSize: 14, fontWeight: "600" },
-  detailValueWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
-  detailValue: { fontSize: 14 },
-  rowText: { flex: 1, gap: 3 },
-  rowTitle: { fontSize: 15, fontWeight: "600" },
-  rowCaption: { fontSize: 12, lineHeight: 16 },
+  subRowLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  detailValueWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  detailValue: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  rowText: {
+    flex: 1,
+    gap: 2,
+  },
+  rowTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  rowCaption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
   switchTrack: {
-    width: 46,
-    height: 28,
+    width: 44,
+    height: 26,
     borderRadius: Radius.pill,
-    padding: 3,
+    padding: 2,
     justifyContent: "center",
   },
   switchThumb: {
