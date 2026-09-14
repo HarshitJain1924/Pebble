@@ -21,6 +21,7 @@ import {
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Radius } from "@/shared/constants/radii";
+import { Shadows } from "@/shared/constants/shadows";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
@@ -36,6 +37,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  StatusBar,
   StyleSheet,
   TextInput,
   View,
@@ -204,7 +206,18 @@ export default function ProfileScreen() {
           <Text style={[styles.headerTitle, { color: colors.text }]}>
             Profile
           </Text>
-          <View style={styles.headerButton} />
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerButton,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            hitSlop={8}
+            onPress={() => router.push("/settings")}
+          >
+            <Feather name="settings" size={20} color={colors.textMuted} />
+          </Pressable>
         </View>
         <View style={styles.centeredState}>
           <Text style={[styles.stateTitle, { color: colors.text }]}>
@@ -241,11 +254,14 @@ export default function ProfileScreen() {
     >
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={[styles.header, { borderColor: colors.border }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Pressable
           style={({ pressed }) => [
             styles.headerButton,
-            { opacity: pressed ? 0.7 : 1 },
+            {
+              backgroundColor: pressed ? colors.cardLight : "transparent",
+              transform: [{ scale: pressed ? 0.95 : 1 }],
+            },
           ]}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -262,76 +278,161 @@ export default function ProfileScreen() {
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           Profile
         </Text>
-        <View style={styles.headerButton} />
+        <Pressable
+          style={({ pressed }) => [
+            styles.headerButton,
+            {
+              backgroundColor: pressed ? colors.cardLight : "transparent",
+              transform: [{ scale: pressed ? 0.95 : 1 }],
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+          hitSlop={8}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+              () => {},
+            );
+            router.push("/settings");
+          }}
+        >
+          <Feather name="settings" size={20} color={colors.textMuted} />
+        </Pressable>
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Identity ─────────────────────────────────────────────── */}
+        {/* ── Identity — open canvas personal anchor ───────────────── */}
         <Animated.View entering={enteringAnim(0, 400)} style={styles.identity}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.avatarButton,
-              {
-                borderColor: colors.primary,
-                backgroundColor: colors.cardLight,
-                opacity: pressed ? 0.85 : 1,
-              },
+          <View
+            style={[
+              styles.avatarRingOuter,
+              { borderColor: colors.border, backgroundColor: colors.card },
             ]}
-            accessibilityRole="button"
-            accessibilityLabel="Change your avatar"
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                () => {},
-              );
-              setAvatarError(null);
-              setShowAvatarPicker(true);
-            }}
           >
-            <RenderAvatar avatar={profile.avatar} size={72} />
-          </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.avatarButton,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.cardLight,
+                  opacity: pressed ? 0.85 : 1,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Change your avatar"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                  () => {},
+                );
+                setAvatarError(null);
+                setShowAvatarPicker(true);
+              }}
+            >
+              <RenderAvatar avatar={profile.avatar} size={92} />
+              <View
+                style={[
+                  styles.avatarEditBadge,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    ...Shadows.soft,
+                  },
+                ]}
+              >
+                <Feather name="camera" size={12} color={colors.primary} />
+              </View>
+            </Pressable>
+          </View>
 
-          <View style={styles.identityText}>
+          <View style={styles.identityTextGroup}>
             <Text style={[styles.nameText, { color: colors.text }]}>
               {profile.name}
             </Text>
             <Text style={[styles.emailText, { color: colors.textMuted }]}>
               {profile.email}
             </Text>
-            <Pressable
-              style={({ pressed }) => [
-                styles.editLink,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Edit profile details"
-              hitSlop={8}
-              onPress={openDetailsEditor}
-            >
-              <Text style={[styles.editLinkText, { color: colors.primary }]}>
-                Edit
-              </Text>
-            </Pressable>
           </View>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.editLink,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                opacity: pressed ? 0.75 : 1,
+                transform: [{ scale: pressed ? 0.97 : 1 }],
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Edit profile details"
+            hitSlop={8}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                () => {},
+              );
+              openDetailsEditor();
+            }}
+          >
+            <Feather name="edit-2" size={13} color={colors.primary} />
+            <Text style={[styles.editLinkText, { color: colors.primary }]}>
+              Edit profile
+            </Text>
+          </Pressable>
         </Animated.View>
 
-        {/* ── Pebble Sanctuary — the single focal surface ──────────── */}
-        <Animated.View entering={enteringAnim(60, 450)}>
+        {/* ── Pebble Sanctuary — compact signature snapshot hero ─────── */}
+        <Animated.View entering={enteringAnim(60, 480)}>
           <View
             style={[
               styles.sanctuary,
-              { borderColor: colors.border, backgroundColor: colors.card },
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                ...Shadows.soft,
+              },
             ]}
           >
-            <Text style={[styles.sanctuaryLabel, { color: colors.textMuted }]}>
-              PEBBLE SANCTUARY
-            </Text>
+            {/* Sanctuary Top Row: Label & Next Unlock */}
+            <View style={styles.sanctuaryHeaderRow}>
+              <View style={styles.sanctuaryHeaderTag}>
+                <Feather name="shield" size={12} color={colors.primary} />
+                <Text
+                  style={[styles.sanctuaryLabel, { color: colors.textMuted }]}
+                >
+                  PEBBLE SANCTUARY
+                </Text>
+              </View>
+              {milestone.nextUnlock ? (
+                <View
+                  style={[
+                    styles.nextUnlockChip,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(245, 158, 11, 0.12)"
+                          : "rgba(217, 119, 6, 0.1)",
+                    },
+                  ]}
+                >
+                  <Feather name="star" size={11} color={colors.warning} />
+                  <Text
+                    style={[styles.nextUnlockText, { color: colors.warning }]}
+                  >
+                    Next: {milestone.nextUnlock}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
 
             {isEmptySanctuary ? (
               <View style={styles.sanctuaryEmpty}>
-                <Text style={[styles.sanctuaryEmptyTitle, { color: colors.text }]}>
+                <Text
+                  style={[styles.sanctuaryEmptyTitle, { color: colors.text }]}
+                >
                   Your sanctuary is empty.
                 </Text>
                 <Text
@@ -345,23 +446,58 @@ export default function ProfileScreen() {
               </View>
             ) : (
               <>
-                <View style={styles.pebbleHeroRow}>
-                  <Text style={[styles.pebbleHeroValue, { color: colors.text }]}>
-                    {lifetimePebbles}
-                  </Text>
-                  <Text
-                    style={[styles.pebbleHeroUnit, { color: colors.textMuted }]}
+                {/* Main Snapshot Row: Lifetime Pebbles on Left, Stage on Right */}
+                <View style={styles.sanctuaryMainRow}>
+                  <View style={styles.pebbleCountBlock}>
+                    <View
+                      style={[
+                        styles.pebbleGlyphContainer,
+                        { backgroundColor: colors.cardLight },
+                      ]}
+                    >
+                      <Feather name="disc" size={16} color={colors.primary} />
+                    </View>
+                    <View style={styles.pebbleNumberGroup}>
+                      <Text
+                        style={[
+                          styles.pebbleHeroValue,
+                          { color: colors.text },
+                        ]}
+                      >
+                        {lifetimePebbles}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.pebbleHeroUnit,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        PEBBLES
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.stageBlock,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: colors.cardLight,
+                      },
+                    ]}
                   >
-                    Pebbles
-                  </Text>
+                    <Text
+                      style={[styles.stageLine, { color: colors.text }]}
+                      numberOfLines={1}
+                    >
+                      Stage {milestone.stage} · {milestone.name}
+                    </Text>
+                  </View>
                 </View>
 
-                <Text style={[styles.stageLine, { color: colors.text }]}>
-                  Stage {milestone.stage} · {milestone.name}
-                </Text>
-
-                {!milestone.isMaxStage && (
-                  <>
+                {/* Progress Track & Remaining caption */}
+                {!milestone.isMaxStage ? (
+                  <View style={styles.progressContainer}>
                     <View
                       style={[
                         styles.progressTrack,
@@ -384,110 +520,206 @@ export default function ProfileScreen() {
                       />
                     </View>
                     <Text
-                      style={[styles.progressCaption, { color: colors.textMuted }]}
+                      style={[
+                        styles.progressCaption,
+                        { color: colors.textMuted },
+                      ]}
                     >
                       {milestone.remaining} pebble
                       {milestone.remaining === 1 ? "" : "s"} to Stage{" "}
                       {milestone.nextStage}
                     </Text>
-                  </>
-                )}
-
-                {milestone.nextUnlock ? (
-                  <View style={styles.nextUnlockRow}>
-                    <Feather name="star" size={12} color={colors.warning} />
-                    <Text style={[styles.nextUnlockText, { color: colors.warning }]}>
-                      Next: {milestone.nextUnlock}
-                    </Text>
                   </View>
                 ) : (
                   <Text
-                    style={[styles.progressCaption, { color: colors.textMuted }]}
+                    style={[
+                      styles.progressCaption,
+                      { color: colors.textMuted },
+                    ]}
                   >
                     You've reached the final stage.
                   </Text>
                 )}
 
+                {/* Hairline divider */}
                 <View
-                  style={[styles.metaDivider, { backgroundColor: colors.border }]}
+                  style={[
+                    styles.metaDivider,
+                    { backgroundColor: colors.border },
+                  ]}
                 />
+
+                {/* Footer Meta Row: This Month & Gems */}
                 <View style={styles.metaRow}>
-                  <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                    This month · {monthlyPebbles}
-                  </Text>
-                  {gemsBalance > 0 && (
-                    <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                      Gems · {gemsBalance}
+                  <View style={styles.metaInlineItem}>
+                    <Text
+                      style={[styles.metaLabel, { color: colors.textMuted }]}
+                    >
+                      This month
                     </Text>
-                  )}
+                    <Text
+                      style={[styles.metaDot, { color: colors.textMuted }]}
+                    >
+                      ·
+                    </Text>
+                    <Text
+                      style={[styles.metaValue, { color: colors.text }]}
+                    >
+                      {monthlyPebbles}
+                    </Text>
+                  </View>
+
+                  {gemsBalance > 0 ? (
+                    <View style={styles.metaInlineItem}>
+                      <Feather name="disc" size={11} color={colors.primary} />
+                      <Text
+                        style={[styles.metaLabel, { color: colors.textMuted }]}
+                      >
+                        Gems
+                      </Text>
+                      <Text
+                        style={[styles.metaDot, { color: colors.textMuted }]}
+                      >
+                        ·
+                      </Text>
+                      <Text
+                        style={[styles.metaValue, { color: colors.text }]}
+                      >
+                        {gemsBalance}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               </>
             )}
           </View>
         </Animated.View>
 
-        {/* ── Gateways ─────────────────────────────────────────────── */}
-        <Animated.View entering={enteringAnim(120, 450)} style={styles.rows}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.row,
-              {
-                borderColor: colors.border,
-                backgroundColor: colors.card,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Stats and insights"
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                () => {},
-              );
-              router.push("/profile/stats");
-            }}
-          >
-            <Feather name="bar-chart-2" size={18} color={colors.primary} />
-            <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: colors.text }]}>
-                Stats &amp; insights
-              </Text>
-              <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                Your week, patterns and where your work goes
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={18} color={colors.textMuted} />
-          </Pressable>
+        {/* ── Your Progress — two compact gateway tiles ──────────────── */}
+        <View style={styles.progressSection}>
+          <Text style={[styles.progressEyebrow, { color: colors.textMuted }]}>
+            YOUR PROGRESS
+          </Text>
+          <View style={styles.gatewayRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.gatewayTile,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  opacity: pressed ? 0.8 : 1,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  ...Shadows.soft,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open Stats & insights"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                  () => {},
+                );
+                router.push("/profile/stats");
+              }}
+            >
+              <View style={styles.gatewayTileTop}>
+                <View
+                  style={[
+                    styles.gatewayIconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(99, 102, 241, 0.15)"
+                          : "rgba(79, 70, 229, 0.1)",
+                    },
+                  ]}
+                >
+                  <Feather
+                    name="bar-chart-2"
+                    size={18}
+                    color={colors.primary}
+                  />
+                </View>
+                <Feather
+                  name="chevron-right"
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </View>
+              <View style={styles.gatewayTileBottom}>
+                <Text
+                  style={[styles.gatewayTileText, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  Stats &amp; insights
+                </Text>
+              </View>
+            </Pressable>
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.row,
-              {
-                borderColor: colors.border,
-                backgroundColor: colors.card,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`Achievements, ${unlockedAchievements} of ${TOTAL_ACHIEVEMENTS} unlocked`}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                () => {},
-              );
-              router.push("/profile/achievements");
-            }}
-          >
-            <Feather name="award" size={18} color={colors.warning} />
-            <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: colors.text }]}>
-                Achievements
-              </Text>
-              <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
-                {`${unlockedAchievements} of ${TOTAL_ACHIEVEMENTS} unlocked`}
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={18} color={colors.textMuted} />
-          </Pressable>
-        </Animated.View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.gatewayTile,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  opacity: pressed ? 0.8 : 1,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  ...Shadows.soft,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open Achievements"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                  () => {},
+                );
+                router.push("/profile/achievements");
+              }}
+            >
+              <View style={styles.gatewayTileTop}>
+                <View
+                  style={[
+                    styles.gatewayIconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(245, 158, 11, 0.15)"
+                          : "rgba(217, 119, 6, 0.1)",
+                    },
+                  ]}
+                >
+                  <Feather name="award" size={18} color={colors.warning} />
+                </View>
+                <View
+                  style={[
+                    styles.gatewayCountChip,
+                    {
+                      backgroundColor: colors.cardLight,
+                      borderColor: colors.border,
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.gatewayCountText,
+                      { color: colors.primary },
+                    ]}
+                  >
+                    {`${unlockedAchievements} / ${TOTAL_ACHIEVEMENTS}`}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.gatewayTileBottom}>
+                <Text
+                  style={[styles.gatewayTileText, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  Achievements
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
       </ScrollView>
 
       {/* ── Avatar picker ──────────────────────────────────────────── */}
@@ -725,7 +957,10 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: {
+    flex: 1,
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 44) : 0,
+  },
   header: {
     height: 56,
     flexDirection: "row",
@@ -746,110 +981,246 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 120,
-    gap: 28,
+    paddingTop: 16,
+    paddingBottom: 100,
+    gap: 20,
   },
   centeredState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 12,
     paddingHorizontal: 32,
   },
   stateTitle: { fontSize: 17, fontWeight: "700" },
   stateBody: { fontSize: 13, textAlign: "center", lineHeight: 18 },
 
-  // Identity
+  // Identity — open canvas personal anchor
   identity: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: 10,
+    paddingVertical: 6,
+  },
+  avatarRingOuter: {
+    position: "relative",
+    padding: 4,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
   },
   avatarButton: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 2,
+    width: 96,
+    height: 96,
+    borderRadius: Radius.pill,
+    borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
   },
-  identityText: { flex: 1, gap: 2 },
-  nameText: { fontSize: 20, fontWeight: "800", letterSpacing: -0.4 },
-  emailText: { fontSize: 12 },
-  editLink: { marginTop: 8, alignSelf: "flex-start", minHeight: 24 },
+  avatarEditBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  identityTextGroup: {
+    alignItems: "center",
+    gap: 3,
+  },
+  nameText: {
+    fontSize: 24,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    textAlign: "center",
+  },
+  emailText: {
+    fontSize: 14,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  editLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 16,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    marginTop: 2,
+  },
   editLinkText: { fontSize: 13, fontWeight: "700" },
 
-  // Sanctuary focal surface
+  // Pebble Sanctuary — compact snapshot hero
   sanctuary: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    padding: 20,
-    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  sanctuaryHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sanctuaryHeaderTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   sanctuaryLabel: {
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
   },
-  pebbleHeroRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 8,
-  },
-  pebbleHeroValue: {
-    fontSize: 44,
-    fontWeight: "900",
-    letterSpacing: -1.5,
-  },
-  pebbleHeroUnit: { fontSize: 13, fontWeight: "700" },
-  stageLine: { fontSize: 14, fontWeight: "700" },
-  progressTrack: {
-    height: 6,
-    borderRadius: Radius.pill,
-    overflow: "hidden",
-    marginTop: 4,
-  },
-  progressFill: { height: "100%", borderRadius: Radius.pill },
-  progressCaption: { fontSize: 12 },
-  nextUnlockRow: {
+  nextUnlockChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 2,
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
   },
   nextUnlockText: {
     fontSize: 11,
     fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
   },
-  metaDivider: { height: 1, marginTop: 8 },
+  sanctuaryMainRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 2,
+  },
+  pebbleCountBlock: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  pebbleGlyphContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pebbleNumberGroup: {
+    gap: 0,
+  },
+  pebbleHeroValue: {
+    fontSize: 28,
+    fontWeight: "900",
+    letterSpacing: -1,
+    lineHeight: 30,
+  },
+  pebbleHeroUnit: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+  },
+  stageBlock: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stageLine: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  progressContainer: {
+    gap: 6,
+  },
+  progressTrack: {
+    width: "100%",
+    height: 6,
+    borderRadius: Radius.pill,
+    overflow: "hidden",
+  },
+  progressFill: { height: "100%", borderRadius: Radius.pill },
+  progressCaption: { fontSize: 12 },
+  metaDivider: {
+    height: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    marginTop: 2,
+  },
   metaRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 16,
   },
-  metaText: { fontSize: 12 },
-  sanctuaryEmpty: { gap: 6, paddingVertical: 8 },
-  sanctuaryEmptyTitle: { fontSize: 17, fontWeight: "700" },
-  sanctuaryEmptyBody: { fontSize: 13, lineHeight: 19 },
-
-  // Gateway rows
-  rows: { gap: 12 },
-  row: {
+  metaInlineItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    minHeight: 64,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: 6,
+  },
+  metaLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  metaDot: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  metaValue: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  sanctuaryEmpty: { alignItems: "center", gap: 6, paddingVertical: 12 },
+  sanctuaryEmptyTitle: { fontSize: 16, fontWeight: "700", textAlign: "center" },
+  sanctuaryEmptyBody: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+
+  // Your Progress — compact navigation tiles
+  progressSection: { gap: 10 },
+  progressEyebrow: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+    paddingHorizontal: 4,
+  },
+  gatewayRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 12,
+  },
+  gatewayTile: {
+    flex: 1,
     borderRadius: Radius.lg,
     borderWidth: 1,
+    padding: 14,
+    minHeight: 96,
+    justifyContent: "space-between",
   },
-  rowText: { flex: 1, gap: 2 },
-  rowTitle: { fontSize: 15, fontWeight: "700" },
-  rowCaption: { fontSize: 12, lineHeight: 16 },
+  gatewayTileTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  gatewayIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gatewayTileBottom: {
+    marginTop: 8,
+  },
+  gatewayTileText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  gatewayCountChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.pill,
+  },
+  gatewayCountText: { fontSize: 12, fontWeight: "700" },
 
   // Sheets
   sheetOverlay: {

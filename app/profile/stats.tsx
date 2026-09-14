@@ -6,6 +6,8 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
+  Platform,
+  StatusBar,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useRouter, Stack } from "expo-router";
@@ -568,7 +570,10 @@ export default function StatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
+  safeArea: {
+    flex: 1,
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 44) : 0,
+  },
   header: {
     height: 56,
     flexDirection: "row",

@@ -28,8 +28,10 @@ jest.mock("@expo/vector-icons", () => ({
   Feather: () => null,
 }));
 
+let mockScheme: "dark" | "light" = "dark";
+
 jest.mock("@/shared/hooks/useColorScheme", () => ({
-  useColorScheme: () => "dark",
+  useColorScheme: () => mockScheme,
 }));
 
 jest.mock("@/features/profile/components/RenderAvatar", () => ({
@@ -131,6 +133,7 @@ describe("Profile screen", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockScheme = "dark";
     storedProfile = { name: "Ada", email: "ada@pebble.app", avatar: "🦉" };
     (getPebbleCounts as jest.Mock).mockResolvedValue({ ...basePebbleCounts });
     (getGemsBalance as jest.Mock).mockResolvedValue(0);
@@ -157,12 +160,12 @@ describe("Profile screen", () => {
   }
 
   describe("identity", () => {
-    it("shows the name and email without a settings gear", async () => {
+    it("shows the name and email with a Settings entry in the header", async () => {
       await renderProfile();
 
       expect(renderedTextContains("Ada")).toBe(true);
       expect(renderedTextContains("ada@pebble.app")).toBe(true);
-      expect(renderedTextContains("Settings")).toBe(false);
+      expect(pressableByLabel("Settings")).not.toBeNull();
     });
   });
 
@@ -178,12 +181,12 @@ describe("Profile screen", () => {
       await renderProfile();
 
       expect(renderedTextContains("42")).toBe(true);
-      expect(renderedTextContains("Pebbles")).toBe(true);
+      expect(renderedTextContains("PEBBLES")).toBe(true);
       // 42 Pebbles sits in the 26-50 band.
       expect(renderedTextContains("Stage 3 · Zen Stream")).toBe(true);
     });
 
-    it("shows monthly Pebbles as informational text and Gems as secondary", async () => {
+    it("shows monthly Pebbles and Gems as a two-part meta footer", async () => {
       (getPebbleCounts as jest.Mock).mockResolvedValue({
         ...basePebbleCounts,
         lifetime: 42,
@@ -193,8 +196,10 @@ describe("Profile screen", () => {
 
       await renderProfile();
 
-      expect(renderedTextContains("This month · 7")).toBe(true);
-      expect(renderedTextContains("Gems · 3")).toBe(true);
+      expect(renderedTextContains("This month")).toBe(true);
+      expect(renderedTextContains("7")).toBe(true);
+      expect(renderedTextContains("Gems")).toBe(true);
+      expect(renderedTextContains("3")).toBe(true);
     });
 
     it("does not render a fabricated /100 monthly target", async () => {
@@ -249,7 +254,7 @@ describe("Profile screen", () => {
     it("derives the unlocked count from the canonical ten achievements", async () => {
       await renderProfile();
 
-      expect(renderedTextContains("6 of 10 unlocked")).toBe(true);
+      expect(renderedTextContains("6 / 10")).toBe(true);
     });
 
     it("never reports a hardcoded six-item count", async () => {
@@ -263,7 +268,7 @@ describe("Profile screen", () => {
 
       await renderProfile();
 
-      expect(renderedTextContains("0 of 10 unlocked")).toBe(true);
+      expect(renderedTextContains("0 / 10")).toBe(true);
     });
   });
 
@@ -272,7 +277,7 @@ describe("Profile screen", () => {
       await renderProfile();
 
       await act(async () => {
-        pressableByLabel("Stats and insights").props.onPress();
+        pressableByLabel("Open Stats & insights").props.onPress();
       });
 
       expect(mockPush).toHaveBeenCalledWith("/profile/stats");
@@ -282,12 +287,20 @@ describe("Profile screen", () => {
       await renderProfile();
 
       await act(async () => {
-        pressableByLabel(
-          "Achievements, 6 of 10 unlocked",
-        ).props.onPress();
+        pressableByLabel("Open Achievements").props.onPress();
       });
 
       expect(mockPush).toHaveBeenCalledWith("/profile/achievements");
+    });
+
+    it("opens Settings from the header gear", async () => {
+      await renderProfile();
+
+      await act(async () => {
+        pressableByLabel("Settings").props.onPress();
+      });
+
+      expect(mockPush).toHaveBeenCalledWith("/settings");
     });
   });
 
@@ -361,6 +374,25 @@ describe("Profile screen", () => {
 
       expect(getPebbleCounts).toHaveBeenCalledTimes(2);
       expect(renderedTextContains("30")).toBe(true);
+    });
+  });
+
+  describe("theme support", () => {
+    it("renders identity and sanctuary in light theme without crashing", async () => {
+      mockScheme = "light";
+      (getPebbleCounts as jest.Mock).mockResolvedValue({
+        ...basePebbleCounts,
+        lifetime: 42,
+        monthly: 5,
+      });
+      (getGemsBalance as jest.Mock).mockResolvedValue(2);
+
+      await renderProfile();
+
+      expect(renderedTextContains("Ada")).toBe(true);
+      expect(renderedTextContains("PEBBLE SANCTUARY")).toBe(true);
+      expect(renderedTextContains("42")).toBe(true);
+      expect(pressableByLabel("Open Achievements")).not.toBeNull();
     });
   });
 });
