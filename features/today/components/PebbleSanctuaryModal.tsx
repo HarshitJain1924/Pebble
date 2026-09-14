@@ -3,6 +3,7 @@ import { Modal, View, Text, Pressable, StyleSheet } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
 import { InteractivePebbleJar } from "@/features/profile/components/InteractivePebbleJar";
 import type { MilestoneInfo } from "@/shared/utils/pebble-milestones";
 
@@ -40,6 +41,14 @@ export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
   profileAvatar,
   getMilestoneInfo,
 }) => {
+  const router = useRouter();
+
+  const handleOpenFullSanctuary = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    onClose();
+    router.push("/sanctuary");
+  };
+
   return (
     <Modal
       visible={visible}
@@ -72,17 +81,31 @@ export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
             >
               Pebble Sanctuary
             </Text>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                  () => {},
-                );
-                onClose();
-              }}
-              style={sanctuaryStyles.closeButton}
-            >
-              <Feather name="x" size={20} color={colors.text} />
-            </Pressable>
+            <View style={sanctuaryStyles.headerActions}>
+              <Pressable
+                onPress={handleOpenFullSanctuary}
+                style={sanctuaryStyles.expandButton}
+                accessibilityRole="button"
+                accessibilityLabel="Open full Sanctuary screen"
+                hitSlop={8}
+              >
+                <Feather name="maximize-2" size={17} color={colors.primary} />
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                    () => {},
+                  );
+                  onClose();
+                }}
+                style={sanctuaryStyles.closeButton}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                hitSlop={8}
+              >
+                <Feather name="x" size={20} color={colors.text} />
+              </Pressable>
+            </View>
           </View>
 
           {/* Pebble Jar in view mode */}
@@ -520,6 +543,67 @@ export const PebbleSanctuaryModal: React.FC<PebbleSanctuaryModalProps> = ({
                       </View>
                     )}
                   </View>
+
+                  {/* Gateway to Full Sanctuary Screen */}
+                  <Pressable
+                    onPress={handleOpenFullSanctuary}
+                    style={({ pressed }) => [
+                      sanctuaryStyles.fullScreenButton,
+                      {
+                        backgroundColor:
+                          colorScheme === "light"
+                            ? "rgba(99,102,241,0.08)"
+                            : "rgba(99,102,241,0.15)",
+                        borderColor:
+                          colorScheme === "light"
+                            ? "rgba(99,102,241,0.2)"
+                            : "rgba(99,102,241,0.3)",
+                        opacity: pressed ? 0.85 : 1,
+                        transform: [{ scale: pressed ? 0.98 : 1 }],
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Explore full Sanctuary screen"
+                  >
+                    <View style={sanctuaryStyles.fullScreenButtonLead}>
+                      <View
+                        style={[
+                          sanctuaryStyles.fullScreenIconBadge,
+                          {
+                            backgroundColor:
+                              colorScheme === "light"
+                                ? "rgba(99,102,241,0.12)"
+                                : "rgba(99,102,241,0.25)",
+                          },
+                        ]}
+                      >
+                        <Feather name="compass" size={13} color={colors.primary} />
+                      </View>
+                      <View style={{ gap: 1 }}>
+                        <Text
+                          style={[
+                            sanctuaryStyles.fullScreenButtonTitle,
+                            { color: colors.text },
+                          ]}
+                        >
+                          Explore Full Sanctuary
+                        </Text>
+                        <Text
+                          style={[
+                            sanctuaryStyles.fullScreenButtonCaption,
+                            { color: colors.textMuted },
+                          ]}
+                        >
+                          Living jar, biomes &amp; milestone map
+                        </Text>
+                      </View>
+                    </View>
+                    <Feather
+                      name="chevron-right"
+                      size={16}
+                      color={colors.primary}
+                    />
+                  </Pressable>
                 </View>
               );
             })()}
@@ -554,11 +638,53 @@ const sanctuaryStyles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  expandButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   closeButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+  fullScreenButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  fullScreenButtonLead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  fullScreenIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fullScreenButtonTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  fullScreenButtonCaption: {
+    fontSize: 10,
+    fontWeight: "500",
   },
 });

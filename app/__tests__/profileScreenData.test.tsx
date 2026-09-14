@@ -302,6 +302,16 @@ describe("Profile screen", () => {
 
       expect(mockPush).toHaveBeenCalledWith("/settings");
     });
+
+    it("opens Pebble Sanctuary from the centerpiece plaque", async () => {
+      await renderProfile();
+
+      await act(async () => {
+        pressableByLabel("Open Pebble Sanctuary").props.onPress();
+      });
+
+      expect(mockPush).toHaveBeenCalledWith("/sanctuary");
+    });
   });
 
   describe("avatar picker", () => {

@@ -109,6 +109,7 @@ export default function RootLayout() {
               <Stack.Screen name="profile" options={{ headerShown: false }} />
               <Stack.Screen name="profile/stats" options={{ headerShown: false }} />
               <Stack.Screen name="profile/achievements" options={{ headerShown: false }} />
+              <Stack.Screen name="sanctuary" options={{ headerShown: false }} />
               <Stack.Screen
                 name="notifications"
                 options={{ headerShown: false }}

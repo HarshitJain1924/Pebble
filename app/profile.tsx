@@ -402,15 +402,25 @@ export default function ProfileScreen() {
 
         {/* ── Pebble Sanctuary — signature centerpiece plaque ───────── */}
         <Animated.View entering={enteringAnim(60, 480)}>
-          <View
-            style={[
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open Pebble Sanctuary"
+            style={({ pressed }) => [
               styles.sanctuary,
               {
                 borderColor: colors.border,
                 backgroundColor: colors.card,
+                transform: [{ scale: pressed ? 0.985 : 1 }],
+                opacity: pressed ? 0.92 : 1,
                 ...Shadows.soft,
               },
             ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                () => {},
+              );
+              router.push("/sanctuary");
+            }}
           >
             {/* Sanctuary Top Row: Label & Next Unlock */}
             <View style={styles.sanctuaryHeaderRow}>
@@ -422,26 +432,34 @@ export default function ProfileScreen() {
                   PEBBLE SANCTUARY
                 </Text>
               </View>
-              {milestone.nextUnlock ? (
-                <View
-                  style={[
-                    styles.nextUnlockTag,
-                    {
-                      backgroundColor:
-                        colorScheme === "dark"
-                          ? "rgba(245, 158, 11, 0.12)"
-                          : "rgba(217, 119, 6, 0.08)",
-                    },
-                  ]}
-                >
-                  <Feather name="star" size={10} color={colors.warning} />
-                  <Text
-                    style={[styles.nextUnlockText, { color: colors.warning }]}
+              <View style={styles.sanctuaryHeaderRight}>
+                {milestone.nextUnlock ? (
+                  <View
+                    style={[
+                      styles.nextUnlockTag,
+                      {
+                        backgroundColor:
+                          colorScheme === "dark"
+                            ? "rgba(245, 158, 11, 0.12)"
+                            : "rgba(217, 119, 6, 0.08)",
+                      },
+                    ]}
                   >
-                    Next: {milestone.nextUnlock}
-                  </Text>
-                </View>
-              ) : null}
+                    <Feather name="star" size={10} color={colors.warning} />
+                    <Text
+                      style={[styles.nextUnlockText, { color: colors.warning }]}
+                    >
+                      Next: {milestone.nextUnlock}
+                    </Text>
+                  </View>
+                ) : null}
+                <Feather
+                  name="chevron-right"
+                  size={14}
+                  color={colors.textMuted}
+                  style={{ marginLeft: 4 }}
+                />
+              </View>
             </View>
 
             {isEmptySanctuary ? (
@@ -620,7 +638,7 @@ export default function ProfileScreen() {
                 </View>
               </>
             )}
-          </View>
+          </Pressable>
         </Animated.View>
 
         {/* ── Your Progress — two compact destination tiles ─────────── */}
@@ -1109,6 +1127,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  sanctuaryHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   sanctuaryHeaderTag: {
     flexDirection: "row",
