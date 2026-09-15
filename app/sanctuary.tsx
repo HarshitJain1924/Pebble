@@ -98,11 +98,13 @@ export default function SanctuaryScreen() {
   const milestone = getMilestoneInfo(lifetime);
   const storyCopy = milestone.isMaxStage
     ? "The jar is full of hard-won water. The Crow has found its Sanctuary."
-    : milestone.stage === 1
+    : milestone.isPrelude
       ? "An empty jar, a thirsty Crow, and a first Pebble."
       : milestone.stage <= 3
         ? "The Crow learned the old trick: drop in Pebbles and let the water rise."
-        : "The water is rising. The Crow's little refuge is becoming a Sanctuary.";
+        : milestone.stage <= 5
+          ? "The water is rising. The Crow's little refuge is becoming a Sanctuary."
+          : "A towering summit of zen. Golden light fills the Sanctuary.";
 
   const handlePress = (action: () => void) => () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});

@@ -39,6 +39,9 @@ describe("milestone consumers", () => {
     const source = read(file);
     expect(source).not.toMatch(/\[0,\s*10,\s*25,\s*50,\s*100,\s*250,\s*500\]/);
     expect(source).not.toMatch(/\[10,\s*25,\s*50,\s*100,\s*250,\s*500\]/);
+    expect(source).not.toMatch(
+      /\[10,\s*25,\s*50,\s*100,\s*250,\s*500,\s*1000\]/,
+    );
   });
 
   it("keeps chapter copy declared in exactly one production file", () => {

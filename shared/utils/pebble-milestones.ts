@@ -11,8 +11,8 @@
  * progression. It is NOT an XP / level / rank system — it does not gate any
  * rewards and does not participate in Pebble or Gem accounting.
  *
- * Thresholds are canonical and must not be altered:
- *   10, 25, 50, 100, 250, 500
+ * Thresholds are canonical:
+ *   10, 25, 50, 100, 250, 500, 1000
  * Each chapter unlocks when its threshold is reached. Before the first
  * threshold, the first chapter is shown as upcoming.
  */
@@ -33,7 +33,7 @@ export interface PebbleMilestone {
 }
 
 /** Pebble counts that complete each stage. Canonical — do not alter. */
-export const PEBBLE_STAGE_THRESHOLDS = [10, 25, 50, 100, 250, 500] as const;
+export const PEBBLE_STAGE_THRESHOLDS = [10, 25, 50, 100, 250, 500, 1000] as const;
 
 /** Full sanctuary stage ladder, in ascending order. */
 export const PEBBLE_MILESTONES: readonly PebbleMilestone[] = [
@@ -75,14 +75,14 @@ export const PEBBLE_MILESTONES: readonly PebbleMilestone[] = [
   {
     stage: 6,
     name: "Peak",
-    range: "500",
+    range: "500-999",
     desc: "An impressive, towering mount of zen.",
-    unlock: null,
+    unlock: "Sanctuary Mastery",
   },
   {
     stage: 7,
     name: "Beyond",
-    range: "501+",
+    range: "1000+",
     desc: "Infinite zen achieved. Master level.",
     unlock: null,
   },
@@ -125,9 +125,7 @@ export function getPebbleStage(pebbles: number): number {
     if (count < PEBBLE_STAGE_THRESHOLDS[i]) return i;
   }
 
-  return count > PEBBLE_STAGE_THRESHOLDS[PEBBLE_STAGE_THRESHOLDS.length - 1]
-    ? MAX_PEBBLE_STAGE
-    : PEBBLE_STAGE_THRESHOLDS.length;
+  return MAX_PEBBLE_STAGE;
 }
 
 /**
@@ -152,9 +150,7 @@ export function getMilestoneInfo(pebbles: number): MilestoneInfo {
     ? null
     : isPrelude
       ? PEBBLE_STAGE_THRESHOLDS[0]
-      : stage === PEBBLE_STAGE_THRESHOLDS.length
-        ? PEBBLE_STAGE_THRESHOLDS[PEBBLE_STAGE_THRESHOLDS.length - 1] + 1
-        : PEBBLE_STAGE_THRESHOLDS[stage];
+      : PEBBLE_STAGE_THRESHOLDS[stage];
   const bandStart = isPrelude
     ? 0
     : PEBBLE_STAGE_THRESHOLDS[stage - 1];
@@ -201,11 +197,12 @@ export function getPebblesToNextStage(pebbles: number): number {
  *   100  → 0.65 (Chapter 4: Home)
  *   250  → 0.80 (Chapter 5: Collection)
  *   500  → 0.90 (Chapter 6: Peak)
- *   501+ → 0.90..0.94 (Chapter 7: Beyond, safely capped below jar opening at 0.94)
+ *   1000 → 0.94 (Chapter 7: Beyond, safely capped below jar opening at 0.94)
+ *   1000+→ 0.94 (Sanctuary Master saturation level)
  *
  * Guaranteed:
  * - Always within safe visual range [0.08, 0.94]
- * - Strictly monotonic as Pebble count increases
+ * - Strictly monotonic as Pebble count increases up to 1000
  * - Handles negative/NaN/invalid counts safely
  * - Water never visually escapes the Jar
  */
@@ -233,9 +230,10 @@ export function calculateJarWaterFill(pebbles: number): number {
   if (count <= 500) {
     return Number((0.80 + ((count - 250) / 250) * 0.10).toFixed(4));
   }
-  const beyondRatio = Math.min(1, (count - 500) / 500);
-  const fill = 0.90 + beyondRatio * 0.04;
-  return Math.min(0.94, Number(fill.toFixed(4)));
+  if (count <= 1000) {
+    return Number((0.90 + ((count - 500) / 500) * 0.04).toFixed(4));
+  }
+  return 0.94;
 }
 
 /**
@@ -249,7 +247,7 @@ export function calculateJarWaterFill(pebbles: number): number {
  *   100  → 32 pebbles (Chapter 4: Home)
  *   250  → 42 pebbles (Chapter 5: Collection)
  *   500  → 50 pebbles (Chapter 6: Peak - full visible pile)
- *   501+ → 50 pebbles (Chapter 7: Beyond)
+ *   1000+→ 50 pebbles (Chapter 7: Beyond)
  *
  * Guaranteed:
  * - Output is always an integer between 0 and 50
