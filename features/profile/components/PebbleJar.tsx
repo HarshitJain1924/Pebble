@@ -88,17 +88,6 @@ export function FloatingNode({ delay, color }: { delay: number; color: string })
   );
 }
 
-/**
- * @deprecated Predefined count thresholds before density scaling.
- * Pebble Jar now uses canonical calculateVisiblePebbleCount from @/shared/utils/pebble-milestones.
- */
-export const PEBBLE_THRESHOLDS = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-  11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-  26, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 46, 48, 49, 50,
-  52, 55, 60, 65, 70, 75, 80, 85, 90, 100,
-];
-
 // Predefined coordinates for pebbles inside the jar (fits within x:32 to 88, y:25 to 94)
 export const PEBBLE_POSITIONS = [
   // --- Layer 1: Base Row / Bottom pile (slots 0 to 9) ---
@@ -242,10 +231,39 @@ export function PebbleJar({
     );
   }, []);
 
+  // Calm ambient water surface breathing and horizontal wave sway
+  const waveY = useSharedValue(0);
+  const waveSway = useSharedValue(0);
+
+  useEffect(() => {
+    waveY.value = withRepeat(
+      withSequence(
+        withTiming(1.2, { duration: 2200 }),
+        withTiming(-1.2, { duration: 2200 }),
+      ),
+      -1,
+      true,
+    );
+    waveSway.value = withRepeat(
+      withSequence(
+        withTiming(2.5, { duration: 3000 }),
+        withTiming(-2.5, { duration: 3000 }),
+      ),
+      -1,
+      true,
+    );
+  }, [waveY, waveSway]);
+
   const animatedFillStyle = useAnimatedStyle(() => {
-    const translateY = 315 - fillPctValue.value * 130;
+    const baseTranslateY = 315 - fillPctValue.value * 130;
     return {
-      transform: [{ translateY }],
+      transform: [{ translateY: baseTranslateY + waveY.value }],
+    };
+  });
+
+  const animatedWaveSwayStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: waveSway.value }],
     };
   });
 
@@ -423,10 +441,59 @@ export function PebbleJar({
             />
           </LinearGradient>
 
-          {/* Liquid Fill Gradient */}
+          {/* Liquid Fill Gradient (Body behind pebbles) */}
           <LinearGradient id="liquidGrad" x1="0%" x2="0%" y1="0%" y2="100%">
-            <Stop offset="0%" stopColor="#0EA5E9" stopOpacity={0.65} />
-            <Stop offset="100%" stopColor="#38BDF8" stopOpacity={0.2} />
+            <Stop
+              offset="0%"
+              stopColor={isMasterStage ? "#F59E0B" : "#0EA5E9"}
+              stopOpacity={0.65}
+            />
+            <Stop
+              offset="50%"
+              stopColor={isMasterStage ? "#D97706" : "#0284C7"}
+              stopOpacity={0.45}
+            />
+            <Stop
+              offset="100%"
+              stopColor={isMasterStage ? "#B45309" : "#0369A1"}
+              stopOpacity={0.25}
+            />
+          </LinearGradient>
+
+          {/* Submerged Liquid Depth Tint (Covers submerged pebble layer) */}
+          <LinearGradient id="submergedTintGrad" x1="0%" x2="0%" y1="0%" y2="100%">
+            <Stop
+              offset="0%"
+              stopColor={isMasterStage ? "#FDE68A" : "#38BDF8"}
+              stopOpacity={0.28}
+            />
+            <Stop
+              offset="30%"
+              stopColor={isMasterStage ? "#F59E0B" : "#0284C7"}
+              stopOpacity={0.38}
+            />
+            <Stop
+              offset="100%"
+              stopColor={isMasterStage ? "#D97706" : "#075985"}
+              stopOpacity={0.52}
+            />
+          </LinearGradient>
+
+          {/* Water Surface Meniscus Highlight */}
+          <LinearGradient id="surfaceHighlightGrad" x1="0%" x2="100%" y1="0%" y2="0%">
+            <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.3} />
+            <Stop
+              offset="25%"
+              stopColor={isMasterStage ? "#FEF08A" : "#BAE6FD"}
+              stopOpacity={0.9}
+            />
+            <Stop offset="50%" stopColor="#FFFFFF" stopOpacity={1.0} />
+            <Stop
+              offset="75%"
+              stopColor={isMasterStage ? "#FEF08A" : "#38BDF8"}
+              stopOpacity={0.9}
+            />
+            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0.3} />
           </LinearGradient>
 
           {/* Glowing Falling Pebble Gradient */}
@@ -532,20 +599,20 @@ export function PebbleJar({
           opacity={colorScheme === "light" ? 0.85 : 0.95}
         />
 
-        {/* Jar Liquid Fill (Clipped & Animated) */}
+        {/* Deep Water Body Fill behind pebbles (Clipped & Animated) */}
         <G clipPath="url(#jarClip)">
           <AnimatedG style={animatedFillStyle}>
             <Rect
-              x={150}
+              x={146}
               y={0}
-              width={100}
-              height={150}
+              width={108}
+              height={160}
               fill="url(#liquidGrad)"
             />
           </AnimatedG>
         </G>
 
-        {/* Submerged Static Pebbles rendered dynamically (Raster PNGs, inside jar cavity) */}
+        {/* Static Pebbles rendered dynamically inside jar cavity */}
         <G clipPath="url(#jarClip)">
           {convertedPebbles.map((pos, index) => {
             const visibleCount = calculateVisiblePebbleCount(totalPebbles);
@@ -600,6 +667,44 @@ export function PebbleJar({
               </G>
             );
           })}
+        </G>
+
+        {/* Submerged Liquid Depth Tint (Renders translucent water depth over submerged stones) */}
+        <G clipPath="url(#jarClip)">
+          <AnimatedG style={animatedFillStyle}>
+            <Rect
+              x={146}
+              y={0}
+              width={108}
+              height={160}
+              fill="url(#submergedTintGrad)"
+            />
+          </AnimatedG>
+        </G>
+
+        {/* Water Surface Meniscus & Wave Highlight at the waterline */}
+        <G clipPath="url(#jarClip)">
+          <AnimatedG style={animatedFillStyle}>
+            <AnimatedG style={animatedWaveSwayStyle}>
+              {/* Soft ambient surface glow */}
+              <Path
+                d="M 144,-1 Q 174,2 200,-0.5 Q 226,-2 256,-1"
+                stroke={isMasterStage ? "#FBBF24" : "#38BDF8"}
+                strokeWidth={5}
+                fill="none"
+                opacity={0.4}
+              />
+              {/* Sharp crisp meniscus highlight */}
+              <Path
+                d="M 144,-1 Q 174,2 200,-0.5 Q 226,-2 256,-1"
+                stroke="url(#surfaceHighlightGrad)"
+                strokeWidth={2}
+                fill="none"
+                strokeLinecap="round"
+                opacity={0.9}
+              />
+            </AnimatedG>
+          </AnimatedG>
         </G>
 
         {/* Falling Pebble when reward mode is active */}
