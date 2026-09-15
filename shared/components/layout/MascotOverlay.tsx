@@ -1400,7 +1400,7 @@ export function MascotOverlay() {
                 }}
                 colors={colors}
                 colorScheme={colorScheme ?? "dark"}
-                monthlyTypes={monthlyTypes}
+                pebbleTypes={monthlyTypes}
                 fallingPebbleType={fallingPebbleType}
                 profileAvatar={profile?.avatar}
               />

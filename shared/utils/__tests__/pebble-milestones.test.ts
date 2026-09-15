@@ -5,6 +5,8 @@ import {
   MAX_PEBBLE_STAGE,
   PEBBLE_MILESTONES,
   PEBBLE_STAGE_THRESHOLDS,
+  calculateJarWaterFill,
+  calculateVisiblePebbleCount,
 } from "../pebble-milestones";
 
 describe("pebble-milestones", () => {
@@ -184,6 +186,86 @@ describe("pebble-milestones", () => {
       [501, "Beyond"],
     ])("maps %i Pebbles to chapter %s", (count, name) => {
       expect(getMilestoneInfo(count).name).toBe(name);
+    });
+  });
+
+  describe("calculateJarWaterFill", () => {
+    const requiredCounts = [0, 1, 9, 10, 25, 50, 100, 101, 250, 499, 500, 501, 1000];
+
+    it.each(requiredCounts)("evaluates required count %i within safe bounds", (count) => {
+      const fill = calculateJarWaterFill(count);
+      expect(fill).toBeGreaterThanOrEqual(0.08);
+      expect(fill).toBeLessThanOrEqual(0.94);
+      expect(Number.isFinite(fill)).toBe(true);
+    });
+
+    it("evaluates exact threshold values", () => {
+      expect(calculateJarWaterFill(0)).toBeCloseTo(0.08, 4);
+      expect(calculateJarWaterFill(10)).toBeCloseTo(0.20, 4);
+      expect(calculateJarWaterFill(25)).toBeCloseTo(0.35, 4);
+      expect(calculateJarWaterFill(50)).toBeCloseTo(0.50, 4);
+      expect(calculateJarWaterFill(100)).toBeCloseTo(0.65, 4);
+      expect(calculateJarWaterFill(250)).toBeCloseTo(0.80, 4);
+      expect(calculateJarWaterFill(500)).toBeCloseTo(0.90, 4);
+      expect(calculateJarWaterFill(1000)).toBeCloseTo(0.94, 4);
+    });
+
+    it("is strictly monotonic as Pebble count increases", () => {
+      for (let i = 0; i < requiredCounts.length - 1; i++) {
+        const prev = calculateJarWaterFill(requiredCounts[i]);
+        const next = calculateJarWaterFill(requiredCounts[i + 1]);
+        expect(next).toBeGreaterThan(prev);
+      }
+    });
+
+    it("safely handles 0, negative, and non-finite counts without NaN", () => {
+      expect(calculateJarWaterFill(0)).toBe(0.08);
+      expect(calculateJarWaterFill(-10)).toBe(0.08);
+      expect(calculateJarWaterFill(NaN)).toBe(0.08);
+      expect(calculateJarWaterFill(Infinity)).toBe(0.08);
+    });
+
+    it("never exceeds the safe visual maximum even for huge counts", () => {
+      expect(calculateJarWaterFill(5000)).toBe(0.94);
+      expect(calculateJarWaterFill(100000)).toBe(0.94);
+    });
+  });
+
+  describe("calculateVisiblePebbleCount", () => {
+    const requiredCounts = [0, 1, 9, 10, 25, 50, 100, 101, 250, 499, 500, 501, 1000];
+
+    it.each(requiredCounts)("produces an integer between 0 and 50 for count %i", (count) => {
+      const visible = calculateVisiblePebbleCount(count);
+      expect(Number.isInteger(visible)).toBe(true);
+      expect(visible).toBeGreaterThanOrEqual(0);
+      expect(visible).toBeLessThanOrEqual(50);
+    });
+
+    it("is non-decreasing (monotonic) across all counts", () => {
+      for (let i = 0; i < requiredCounts.length - 1; i++) {
+        const prev = calculateVisiblePebbleCount(requiredCounts[i]);
+        const next = calculateVisiblePebbleCount(requiredCounts[i + 1]);
+        expect(next).toBeGreaterThanOrEqual(prev);
+      }
+    });
+
+    it("visibly accumulates past 50 and 100 rather than freezing", () => {
+      const at50 = calculateVisiblePebbleCount(50);
+      const at100 = calculateVisiblePebbleCount(100);
+      const at250 = calculateVisiblePebbleCount(250);
+      const at500 = calculateVisiblePebbleCount(500);
+
+      expect(at100).toBeGreaterThan(at50);
+      expect(at250).toBeGreaterThan(at100);
+      expect(at500).toBeGreaterThan(at250);
+      expect(at500).toBe(50);
+    });
+
+    it("safely handles 0, negative, and non-finite counts", () => {
+      expect(calculateVisiblePebbleCount(0)).toBe(0);
+      expect(calculateVisiblePebbleCount(-5)).toBe(0);
+      expect(calculateVisiblePebbleCount(NaN)).toBe(0);
+      expect(calculateVisiblePebbleCount(Infinity)).toBe(0);
     });
   });
 });

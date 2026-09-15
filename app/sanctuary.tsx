@@ -185,7 +185,7 @@ export default function SanctuaryScreen() {
               colors={colors}
               colorScheme={colorScheme ?? "dark"}
               // The jar is a lifetime collection, so its pebble color mix is too.
-              monthlyTypes={pebbleCounts.lifetimeTypes}
+              pebbleTypes={pebbleCounts.lifetimeTypes}
               profileAvatar={profile?.avatar}
             />
           </View>
@@ -240,74 +240,63 @@ export default function SanctuaryScreen() {
 
           {!milestone.isMaxStage ? (
             <>
-              {milestone.isPrelude ? (
-                <View
-                  style={styles.preludeRow}
-                  accessibilityRole="progressbar"
-                  accessibilityLabel="Progress toward chapter 1"
-                  accessibilityValue={{
-                    min: 0,
-                    max: 100,
-                    now: Math.round(milestone.progressRatio * 100),
-                  }}
-                >
+              <View
+                style={styles.milestoneTrail}
+                accessibilityRole="progressbar"
+                accessibilityLabel={
+                  milestone.isPrelude
+                    ? "Progress toward chapter 1"
+                    : `Progress from chapter ${milestone.stage} to chapter ${milestone.nextStage}`
+                }
+                accessibilityValue={{
+                  min: 0,
+                  max: 100,
+                  now: Math.round(milestone.progressRatio * 100),
+                }}
+              >
+                <View style={styles.trailStop}>
+                  <View style={[styles.trailNode, { backgroundColor: colors.primary }]}>
+                    <Feather
+                      name={milestone.isPrelude ? "droplet" : "compass"}
+                      size={16}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                  <Text style={[styles.trailStage, { color: colors.primary }]}>
+                    {milestone.isPrelude ? "Start" : `Chapter ${milestone.stage}`}
+                  </Text>
+                  <Text style={[styles.trailName, { color: colors.text }]} numberOfLines={2}>
+                    {milestone.isPrelude ? "0 Pebbles" : milestone.name}
+                  </Text>
+                </View>
+
+                <View style={[styles.trailConnector, { backgroundColor: colors.cardLight }]}>
+                  <View
+                    style={[
+                      styles.trailConnectorFill,
+                      {
+                        width: `${Math.max(
+                          8,
+                          Math.min(100, milestone.progressRatio * 100),
+                        )}%`,
+                        backgroundColor: colors.primary,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.trailStop}>
                   <View style={[styles.trailNode, styles.nextTrailNode, { borderColor: colors.border }]}>
                     <Feather name="lock" size={15} color={colors.textMuted} />
                   </View>
-                  <View style={styles.preludeCopy}>
-                    <Text style={[styles.trailStage, { color: colors.textMuted }]}>Chapter 1</Text>
-                    <Text style={[styles.trailName, { color: colors.text }]} numberOfLines={2}>
-                      {milestone.name}
-                    </Text>
-                  </View>
+                  <Text style={[styles.trailStage, { color: colors.textMuted }]}>
+                    Chapter {milestone.isPrelude ? 1 : milestone.nextStage}
+                  </Text>
+                  <Text style={[styles.trailName, { color: colors.textMuted }]} numberOfLines={2}>
+                    {milestone.isPrelude ? milestone.name : milestone.nextStageName}
+                  </Text>
                 </View>
-              ) : (
-                <View
-                  style={styles.milestoneTrail}
-                  accessibilityRole="progressbar"
-                  accessibilityLabel={`Progress from chapter ${milestone.stage} to chapter ${milestone.nextStage}`}
-                  accessibilityValue={{
-                    min: 0,
-                    max: 100,
-                    now: Math.round(milestone.progressRatio * 100),
-                  }}
-                >
-                  <View style={styles.trailStop}>
-                    <View style={[styles.trailNode, { backgroundColor: colors.primary }]}>
-                      <Feather name="compass" size={16} color="#FFFFFF" />
-                    </View>
-                    <Text style={[styles.trailStage, { color: colors.primary }]}>Chapter {milestone.stage}</Text>
-                    <Text style={[styles.trailName, { color: colors.text }]} numberOfLines={2}>
-                      {milestone.name}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.trailConnector, { backgroundColor: colors.cardLight }]}>
-                    <View
-                      style={[
-                        styles.trailConnectorFill,
-                        {
-                          width: `${Math.max(
-                            8,
-                            Math.min(100, milestone.progressRatio * 100),
-                          )}%`,
-                          backgroundColor: colors.primary,
-                        },
-                      ]}
-                    />
-                  </View>
-
-                  <View style={styles.trailStop}>
-                    <View style={[styles.trailNode, styles.nextTrailNode, { borderColor: colors.border }]}>
-                      <Feather name="lock" size={15} color={colors.textMuted} />
-                    </View>
-                    <Text style={[styles.trailStage, { color: colors.textMuted }]}>Chapter {milestone.nextStage}</Text>
-                    <Text style={[styles.trailName, { color: colors.textMuted }]} numberOfLines={2}>
-                      {milestone.nextStageName}
-                    </Text>
-                  </View>
-                </View>
-              )}
+              </View>
 
               <View style={styles.progressMetaRow}>
                 <Text style={[styles.progressCaption, { color: colors.textMuted }]}>

@@ -24,6 +24,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { AVATAR_MAP } from "./RenderAvatar";
+import { calculateVisiblePebbleCount } from "@/shared/utils/pebble-milestones";
 
 const isWeb = Platform.OS === "web";
 const AnimatedG = Animated.createAnimatedComponent(G) as any;
@@ -87,20 +88,20 @@ export function FloatingNode({ delay, color }: { delay: number; color: string })
   );
 }
 
+/**
+ * @deprecated Predefined count thresholds before density scaling.
+ * Pebble Jar now uses canonical calculateVisiblePebbleCount from @/shared/utils/pebble-milestones.
+ */
 export const PEBBLE_THRESHOLDS = [
-  // Stage 1 (0-10): 10 pebbles
   1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-  // Stage 2 (11-25): 15 pebbles
   11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-  // Stage 3 (26-50): 15 pebbles
   26, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 46, 48, 49, 50,
-  // Stage 4 (51-100): 10 pebbles
   52, 55, 60, 65, 70, 75, 80, 85, 90, 100,
 ];
 
 // Predefined coordinates for pebbles inside the jar (fits within x:32 to 88, y:25 to 94)
 export const PEBBLE_POSITIONS = [
-  // --- Stage 1: Base Row/Bottom layer (1 to 10) ---
+  // --- Layer 1: Base Row / Bottom pile (slots 0 to 9) ---
   { cx: 60, cy: 90, rx: 6, ry: 4, rot: 15 },
   { cx: 50, cy: 89, rx: 5.5, ry: 3.8, rot: -20 },
   { cx: 70, cy: 89, rx: 5.8, ry: 4, rot: 10 },
@@ -112,7 +113,7 @@ export const PEBBLE_POSITIONS = [
   { cx: 36, cy: 80, rx: 4.8, ry: 3.5, rot: 35 },
   { cx: 84, cy: 80, rx: 4.8, ry: 3.5, rot: -35 },
 
-  // --- Stage 2: Layer 2 (11 to 25) ---
+  // --- Layer 2: Lower-mid pile (slots 10 to 24) ---
   { cx: 60, cy: 78, rx: 6, ry: 4, rot: -10 },
   { cx: 45, cy: 77, rx: 5.5, ry: 3.8, rot: 30 },
   { cx: 75, cy: 77, rx: 5.8, ry: 4, rot: -25 },
@@ -129,7 +130,7 @@ export const PEBBLE_POSITIONS = [
   { cx: 63, cy: 65, rx: 5.2, ry: 3.8, rot: -12 },
   { cx: 50, cy: 61, rx: 5, ry: 3.6, rot: -25 },
 
-  // --- Stage 3: Layer 3 (26 to 50) ---
+  // --- Layer 3: Upper-mid pile (slots 25 to 39) ---
   { cx: 70, cy: 61, rx: 5.2, ry: 3.6, rot: 25 },
   { cx: 36, cy: 58, rx: 4.6, ry: 3.4, rot: 45 },
   { cx: 84, cy: 58, rx: 4.6, ry: 3.4, rot: -45 },
@@ -146,7 +147,7 @@ export const PEBBLE_POSITIONS = [
   { cx: 55, cy: 41, rx: 4.8, ry: 3.5, rot: 15 },
   { cx: 65, cy: 41, rx: 4.8, ry: 3.5, rot: -15 },
 
-  // --- Stage 4: Layer 4 (51 to 100) ---
+  // --- Layer 4: Top pile crest (slots 40 to 49) ---
   { cx: 40, cy: 38, rx: 4.6, ry: 3.4, rot: -30 },
   { cx: 80, cy: 38, rx: 4.6, ry: 3.4, rot: 30 },
   { cx: 60, cy: 36, rx: 5.4, ry: 3.6, rot: 5 },
@@ -171,7 +172,10 @@ export interface PebbleJarProps {
   crowX: SharedValue<number>;
   crowY: SharedValue<number>;
   crowOpacity: SharedValue<number>;
-  crowStage: "beginner" | "advanced" | "power";
+  crowStage?: "beginner" | "advanced" | "power";
+  /** Lifetime Pebble types distribution for color styling. */
+  pebbleTypes?: { task: number; habit: number; focus: number; checklist: number };
+  /** @deprecated Use pebbleTypes instead */
   monthlyTypes?: { task: number; habit: number; focus: number; checklist: number };
   fallingPebbleType?: "task" | "habit" | "focus" | "checklist";
   profileAvatar?: string;
@@ -190,10 +194,12 @@ export function PebbleJar({
   crowY,
   crowOpacity,
   crowStage,
+  pebbleTypes,
   monthlyTypes,
   fallingPebbleType,
   profileAvatar,
 }: PebbleJarProps) {
+  const resolvedPebbleTypes = pebbleTypes ?? monthlyTypes;
   const isMasterStage = totalPebbles >= 500;
   const jarColor = isMasterStage
     ? colors.warning
@@ -331,8 +337,8 @@ export function PebbleJar({
   };
 
   const pebbleTypesList: ("task" | "habit" | "focus" | "checklist")[] = [];
-  if (monthlyTypes) {
-    const { task = 0, habit = 0, focus = 0, checklist = 0 } = monthlyTypes;
+  if (resolvedPebbleTypes) {
+    const { task = 0, habit = 0, focus = 0, checklist = 0 } = resolvedPebbleTypes;
     for (let i = 0; i < task; i++) pebbleTypesList.push("task");
     for (let i = 0; i < habit; i++) pebbleTypesList.push("habit");
     for (let i = 0; i < focus; i++) pebbleTypesList.push("focus");
@@ -539,47 +545,16 @@ export function PebbleJar({
           </AnimatedG>
         </G>
 
-        {/* Falling Pebble (Raster PNG) */}
-        <AnimatedG style={animatedPebbleStyle}>
-          <G transform="rotate(10)">
-            <SvgImage
-              href={pebbleRegular1}
-              x={-9.5}
-              y={-6.5}
-              width={19}
-              height={13}
-            />
-            {fallingPebbleType && (
-              <Ellipse
-                cx={0}
-                cy={0}
-                rx={9.5}
-                ry={6.5}
-                fill={
-                  fallingPebbleType === "focus"
-                    ? "#10B981"
-                    : fallingPebbleType === "habit"
-                      ? "#F59E0B"
-                      : fallingPebbleType === "checklist"
-                        ? "#3B82F6"
-                        : "#6366F1"
-                }
-                opacity={0.35}
-              />
-            )}
-          </G>
-        </AnimatedG>
-
-        {/* Predefined Pebbles rendered dynamically (Raster PNGs) */}
+        {/* Submerged Static Pebbles rendered dynamically (Raster PNGs, inside jar cavity) */}
         <G clipPath="url(#jarClip)">
           {convertedPebbles.map((pos, index) => {
-            const threshold = PEBBLE_THRESHOLDS[index] ?? 1000;
-            if (totalPebbles < threshold) return null;
+            const visibleCount = calculateVisiblePebbleCount(totalPebbles);
+            if (index >= visibleCount) return null;
 
             const isLegendary = totalPebbles >= 500;
             const isShiny = !isLegendary && (
-              (totalPebbles >= 251 && index >= 20) ||
-              (totalPebbles >= 101 && index >= 35)
+              (totalPebbles >= 250 && index >= 20) ||
+              (totalPebbles >= 100 && index >= 28)
             );
 
             // Alternate variant PNG assets to create a natural, varied pile
@@ -626,6 +601,37 @@ export function PebbleJar({
             );
           })}
         </G>
+
+        {/* Falling Pebble when reward mode is active */}
+        <AnimatedG style={animatedPebbleStyle}>
+          <G transform="rotate(10)">
+            <SvgImage
+              href={pebbleRegular1}
+              x={-9.5}
+              y={-6.5}
+              width={19}
+              height={13}
+            />
+            {fallingPebbleType && (
+              <Ellipse
+                cx={0}
+                cy={0}
+                rx={9.5}
+                ry={6.5}
+                fill={
+                  fallingPebbleType === "focus"
+                    ? "#10B981"
+                    : fallingPebbleType === "habit"
+                      ? "#F59E0B"
+                      : fallingPebbleType === "checklist"
+                        ? "#3B82F6"
+                        : "#6366F1"
+                }
+                opacity={0.35}
+              />
+            )}
+          </G>
+        </AnimatedG>
 
         {/* Floating Sparks for stage 7 (500+ pebbles) */}
         {isMasterStage && (

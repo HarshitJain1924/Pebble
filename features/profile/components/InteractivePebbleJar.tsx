@@ -8,6 +8,7 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { PebbleJar } from "./PebbleJar";
+import { calculateJarWaterFill } from "@/shared/utils/pebble-milestones";
 
 export interface InteractivePebbleJarProps {
   mode: "view" | "reward";
@@ -17,6 +18,9 @@ export interface InteractivePebbleJarProps {
   onComplete?: () => void; // callback on reward animation end
   colors: any;
   colorScheme: string;
+  /** Lifetime Pebble types distribution for color styling. */
+  pebbleTypes?: { task: number; habit: number; focus: number; checklist: number };
+  /** @deprecated Use pebbleTypes instead */
   monthlyTypes?: { task: number; habit: number; focus: number; checklist: number };
   fallingPebbleType?: "task" | "habit" | "focus" | "checklist";
   profileAvatar?: string;
@@ -24,11 +28,6 @@ export interface InteractivePebbleJarProps {
 
 const triggerMediumHaptic = () => {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-};
-
-const getFillPct = (pebbles: number) => {
-  const ratio = pebbles / 100;
-  return Math.max(0.02, Math.min(0.95, ratio));
 };
 
 export function InteractivePebbleJar({
@@ -39,18 +38,21 @@ export function InteractivePebbleJar({
   onComplete,
   colors,
   colorScheme,
+  pebbleTypes,
   monthlyTypes,
   fallingPebbleType,
   profileAvatar,
 }: InteractivePebbleJarProps) {
+  const resolvedPebbleTypes = pebbleTypes ?? monthlyTypes;
+
   // Determine starting and ending pebble counts
   const initialPebbles = mode === "reward" ? startCount : totalPebbles;
   const finalPebbles = mode === "reward" ? targetCount : totalPebbles;
 
   const [displayedPebbles, setDisplayedPebbles] = useState(initialPebbles);
 
-  // Shared values for PebbleJar animation
-  const fillPctValue = useSharedValue(getFillPct(initialPebbles));
+  // Shared values for PebbleJar animation using canonical water-fill scale
+  const fillPctValue = useSharedValue(calculateJarWaterFill(initialPebbles));
   const glowScale = useSharedValue(1);
   const glowOpacity = useSharedValue(0);
   const fallingPebbleY = useSharedValue(50);
@@ -59,11 +61,11 @@ export function InteractivePebbleJar({
   const crowY = useSharedValue(280);
   const crowOpacity = useSharedValue(1);
 
-  // Determine crow stage
+  // Determine crow visual stage across lifetime chapters
   let crowStage: "beginner" | "advanced" | "power" = "beginner";
-  if (finalPebbles >= 101) {
+  if (finalPebbles >= 100) {
     crowStage = "power";
-  } else if (finalPebbles >= 26) {
+  } else if (finalPebbles >= 25) {
     crowStage = "advanced";
   }
 
@@ -93,8 +95,8 @@ export function InteractivePebbleJar({
 
   useEffect(() => {
     if (mode === "view") {
-      // Normal display mode
-      const targetFill = getFillPct(totalPebbles);
+      // Normal display mode: scale water across canonical 0..500+ progression
+      const targetFill = calculateJarWaterFill(totalPebbles);
       fillPctValue.value = withTiming(targetFill, { duration: 600 });
       fallingPebbleOpacity.value = 0;
       glowOpacity.value = 0;
@@ -103,8 +105,8 @@ export function InteractivePebbleJar({
       crowOpacity.value = 1;
       setDisplayedPebbles(totalPebbles);
     } else {
-      // Reward animation mode: runs immediately on mount
-      const targetFill = getFillPct(targetCount);
+      // Reward animation mode: lands pebble accurately at the water surface
+      const targetFill = calculateJarWaterFill(targetCount);
       const targetFillY = 315 - targetFill * 130;
 
       // 1. Reset values
@@ -129,9 +131,8 @@ export function InteractivePebbleJar({
         crowY.value = withTiming(140, { duration: 500 });
 
         fallingPebbleY.value = withTiming(135, { duration: 500 }, () => {
-          // Drop pebble to targetFillY
+          // Drop pebble to targetFillY (water surface)
           fallingPebbleOpacity.value = 1;
-          // Pebble falls down straight in the middle (x coordinate is set at 200 in SVGG component, but we drop it to targetFillY)
           fallingPebbleY.value = withTiming(
             targetFillY,
             { duration: 450 },
@@ -184,7 +185,7 @@ export function InteractivePebbleJar({
         crowY={crowY}
         crowOpacity={crowOpacity}
         crowStage={crowStage}
-        monthlyTypes={monthlyTypes}
+        pebbleTypes={resolvedPebbleTypes}
         fallingPebbleType={fallingPebbleType}
         profileAvatar={profileAvatar}
       />

@@ -189,3 +189,96 @@ export function getMilestoneInfo(pebbles: number): MilestoneInfo {
 export function getPebblesToNextStage(pebbles: number): number {
   return getMilestoneInfo(pebbles).remaining;
 }
+
+/**
+ * Canonical water fill ratio for the Sanctuary Jar (0..1).
+ *
+ * Maps lifetime Pebble accumulation across canonical milestone thresholds:
+ *   0    → 0.08 (calm base water line)
+ *   10   → 0.20 (Chapter 1: Beginning)
+ *   25   → 0.35 (Chapter 2: Growth)
+ *   50   → 0.50 (Chapter 3: Flow)
+ *   100  → 0.65 (Chapter 4: Home)
+ *   250  → 0.80 (Chapter 5: Collection)
+ *   500  → 0.90 (Chapter 6: Peak)
+ *   501+ → 0.90..0.94 (Chapter 7: Beyond, safely capped below jar opening at 0.94)
+ *
+ * Guaranteed:
+ * - Always within safe visual range [0.08, 0.94]
+ * - Strictly monotonic as Pebble count increases
+ * - Handles negative/NaN/invalid counts safely
+ * - Water never visually escapes the Jar
+ */
+export function calculateJarWaterFill(pebbles: number): number {
+  if (!Number.isFinite(pebbles) || pebbles <= 0) {
+    return 0.08;
+  }
+  const count = Math.floor(pebbles);
+
+  if (count <= 10) {
+    return Number((0.08 + (count / 10) * 0.12).toFixed(4));
+  }
+  if (count <= 25) {
+    return Number((0.20 + ((count - 10) / 15) * 0.15).toFixed(4));
+  }
+  if (count <= 50) {
+    return Number((0.35 + ((count - 25) / 25) * 0.15).toFixed(4));
+  }
+  if (count <= 100) {
+    return Number((0.50 + ((count - 50) / 50) * 0.15).toFixed(4));
+  }
+  if (count <= 250) {
+    return Number((0.65 + ((count - 100) / 150) * 0.15).toFixed(4));
+  }
+  if (count <= 500) {
+    return Number((0.80 + ((count - 250) / 250) * 0.10).toFixed(4));
+  }
+  const beyondRatio = Math.min(1, (count - 500) / 500);
+  const fill = 0.90 + beyondRatio * 0.04;
+  return Math.min(0.94, Number(fill.toFixed(4)));
+}
+
+/**
+ * Canonical visible Pebble count for the Sanctuary Jar (0..50).
+ *
+ * Scales visual density progressively across the 50 predefined Jar coordinates:
+ *   0    → 0 pebbles
+ *   10   → 8 pebbles (Chapter 1: Beginning)
+ *   25   → 16 pebbles (Chapter 2: Growth)
+ *   50   → 24 pebbles (Chapter 3: Flow)
+ *   100  → 32 pebbles (Chapter 4: Home)
+ *   250  → 42 pebbles (Chapter 5: Collection)
+ *   500  → 50 pebbles (Chapter 6: Peak - full visible pile)
+ *   501+ → 50 pebbles (Chapter 7: Beyond)
+ *
+ * Guaranteed:
+ * - Output is always an integer between 0 and 50
+ * - Monotonic (non-decreasing) as Pebble count increases
+ * - Visibly continues accumulating past 50 and 100 rather than freezing
+ */
+export function calculateVisiblePebbleCount(pebbles: number): number {
+  if (!Number.isFinite(pebbles) || pebbles <= 0) {
+    return 0;
+  }
+  const count = Math.floor(pebbles);
+
+  if (count < 10) {
+    return Math.min(count, Math.max(1, Math.round((count / 10) * 8)));
+  }
+  if (count < 25) {
+    return 8 + Math.round(((count - 10) / 15) * 8);
+  }
+  if (count < 50) {
+    return 16 + Math.round(((count - 25) / 25) * 8);
+  }
+  if (count < 100) {
+    return 24 + Math.round(((count - 50) / 50) * 8);
+  }
+  if (count < 250) {
+    return 32 + Math.round(((count - 100) / 150) * 10);
+  }
+  if (count < 500) {
+    return 42 + Math.round(((count - 250) / 250) * 8);
+  }
+  return 50;
+}
