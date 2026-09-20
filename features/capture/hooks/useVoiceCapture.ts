@@ -1,10 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import {
   ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
+  useNativeSpeechRecognitionEvent,
+  useWebSpeechRecognitionEvent,
   SpeechRecognitionService,
 } from "@/features/capture/services/speech-recognition.service";
+
+/**
+ * The platform branch lives here, at the call site, rather than inside a shared
+ * hook body — so neither `useNativeSpeechRecognitionEvent` nor
+ * `useWebSpeechRecognitionEvent` has to call a hook conditionally.
+ *
+ * `Platform.OS` is invariant for the lifetime of a running app instance, so the
+ * selected hook is the same one on every render and React's hook order stays
+ * stable per component instance.
+ */
+const useSpeechRecognitionEvent =
+  Platform.OS === "web"
+    ? useWebSpeechRecognitionEvent
+    : useNativeSpeechRecognitionEvent;
 
 export type VoiceCaptureStatus = "idle" | "listening" | "processing" | "completed" | "error";
 

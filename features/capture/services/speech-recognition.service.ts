@@ -144,6 +144,21 @@ try {
   console.warn("Native expo-speech-recognition import failed:", e);
 }
 
+/**
+ * Stand-in for `expo-speech-recognition`'s event hook when it is unavailable
+ * (web, or a native build where the module failed to load). It intentionally
+ * calls no hooks, so the slot it fills costs nothing.
+ */
+function useNoopSpeechRecognitionEvent() {
+  /* nothing to subscribe to off-device */
+}
+
+/**
+ * Expo's event hook behind a name that never changes, so the single hook call
+ * inside {@link useNativeSpeechRecognitionEvent} is always the same call.
+ */
+const useNativeEvent = nativeUseEvent ?? useNoopSpeechRecognitionEvent;
+
 // 1. ExpoSpeechRecognitionModule Implementation
 export const ExpoSpeechRecognitionModule = {
   start(options: { lang?: string; interimResults?: boolean; volumeChangeEventOptions?: { enabled: boolean; intervalMillis: number } }) {
@@ -239,27 +254,40 @@ export const SpeechRecognitionService = {
   },
 };
 
-// 3. useSpeechRecognitionEvent Custom Hook
-export function useSpeechRecognitionEvent<K extends keyof EventCallbackMap>(
+// 3. Platform-specific speech event hooks
+//
+// These two hooks are called from a platform branch at the CALL SITE (see
+// `useVoiceCapture`), never from inside a shared hook body. That keeps every
+// hook call in this file unconditional and top-level, so the Rules of Hooks
+// hold by construction rather than by lint blindness.
+
+/**
+ * Native pipeline: forwards straight to `expo-speech-recognition`'s event hook.
+ * Exactly one hook is called, unconditionally. Off-device the module is absent
+ * and this resolves to a no-op hook, but the call site never selects it there.
+ */
+export function useNativeSpeechRecognitionEvent<K extends keyof EventCallbackMap>(
   event: K,
   callback: EventCallbackMap[K]
 ) {
-  // Resolved once per platform: the native bridge is required at module load,
-  // so this value is constant for the lifetime of the app.
-  const isNative = Platform.OS !== "web" && !!nativeUseEvent;
+  useNativeEvent(event, callback);
+}
 
-  // Rules of Hooks: every hook in this hook must run on every render, so all
-  // hook calls come before the platform branch below.
+/**
+ * Web pipeline: subscribes to the browser SpeechRecognition event registry.
+ * The registry is only ever emitted to by the browser implementation, so this
+ * hook is never selected on native.
+ */
+export function useWebSpeechRecognitionEvent<K extends keyof EventCallbackMap>(
+  event: K,
+  callback: EventCallbackMap[K]
+) {
   const callbackRef = useRef(callback);
   useEffect(() => {
     callbackRef.current = callback;
   }, [callback]);
 
   useEffect(() => {
-    // The web listener registry is only ever emitted to by the browser
-    // implementation, so registering on native would be dead weight.
-    if (isNative) return;
-
     const wrapper = (payload: any) => {
       callbackRef.current(payload);
     };
@@ -269,10 +297,5 @@ export function useSpeechRecognitionEvent<K extends keyof EventCallbackMap>(
     return () => {
       listeners[event]?.delete(wrapper as any);
     };
-  }, [event, isNative]);
-
-  // Use native hook if on device
-  if (isNative) {
-    nativeUseEvent(event, callback);
-  }
+  }, [event]);
 }
