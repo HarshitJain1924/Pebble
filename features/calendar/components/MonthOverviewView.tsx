@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { View, Pressable, StyleSheet, ScrollView } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -166,7 +167,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
         style={[
           styles.monthCard,
           {
-            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            backgroundColor: isLight ? Palette.white : colors.card,
             borderColor: colors.border,
           },
         ]}
@@ -181,7 +182,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
             style={[
               styles.navButton,
               {
-                backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.06)",
+                backgroundColor: isLight ? Palette.slate100 : "rgba(255,255,255,0.06)",
                 borderColor: colors.border,
               },
             ]}
@@ -201,7 +202,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
             style={[
               styles.navButton,
               {
-                backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.06)",
+                backgroundColor: isLight ? Palette.slate100 : "rgba(255,255,255,0.06)",
                 borderColor: colors.border,
               },
             ]}
@@ -276,7 +277,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
                       styles.dayNumberText,
                       {
                         color: isSelected
-                          ? "#FFFFFF"
+                          ? Palette.white
                           : isToday
                             ? colors.primary
                             : colors.text,
@@ -311,7 +312,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
         style={[
           styles.agendaCard,
           {
-            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            backgroundColor: isLight ? Palette.white : colors.card,
             borderColor: colors.border,
           },
         ]}
@@ -389,7 +390,7 @@ export const MonthOverviewView: React.FC<MonthOverviewViewProps> = React.memo(({
               const config = getCalendarEntityPresentation(item.type, isLight);
               const accent = item.completed ? colors.textMuted : config.accent;
               const bg = item.completed
-                ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.02)"
+                ? isLight ? Palette.slate100 : "rgba(255,255,255,0.02)"
                 : config.surface;
 
               const timeStr = formatTime(item.startHour!, item.startMinute!);

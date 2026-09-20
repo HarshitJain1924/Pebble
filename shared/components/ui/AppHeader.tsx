@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { AppText as Text, AppTextInput as TextInput } from "@/shared/components/ui/AppText";
 import { RenderAvatar } from "@/features/profile/components/RenderAvatar";
@@ -100,7 +101,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
@@ -119,7 +120,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
@@ -138,7 +139,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
@@ -169,7 +170,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   <Text style={{ fontSize: 13, marginRight: 3 }}>🔥</Text>
                   <Text
                     style={{
-                      color: isLight ? "#D97706" : "#F97316",
+                      color: isLight ? Palette.amber600 : Palette.orange500,
                       fontSize: 12,
                       fontWeight: "800",
                     }}
@@ -185,7 +186,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
@@ -201,7 +202,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                         styles.bellDot,
                         {
                           backgroundColor: colors.primary,
-                          borderColor: isLight ? "#FFFFFF" : "#18181B",
+                          borderColor: isLight ? Palette.white : Palette.zinc900,
                         },
                       ]}
                     />
@@ -222,7 +223,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       styles.profileHeaderCircle,
                       {
                         borderColor: colors.border,
-                        backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                        backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       },
                     ]}
                   >
@@ -313,10 +314,10 @@ const styles = StyleSheet.create({
     paddingVertical: 1.5,
     borderRadius: 8,
     borderWidth: 1.5,
-    borderColor: "#18181B",
+    borderColor: Palette.zinc900,
   },
   profileHeaderBadgeText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 8,
     fontWeight: "800",
   },

@@ -1,5 +1,6 @@
 import React from "react";
 import { Modal, View, Text, Pressable, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { BlurView } from "expo-blur";
 import Animated from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
@@ -78,7 +79,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                 justifyContent: "center",
                 borderWidth: 1.5,
                 borderColor: colors.border,
-                shadowColor: "#000",
+                shadowColor: Palette.black,
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.1,
                 shadowRadius: 4,
@@ -190,7 +191,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                       style={{
                         fontSize: 10,
                         fontWeight: "800",
-                        color: "#F59E0B",
+                        color: Palette.amber500,
                         textTransform: "uppercase",
                         letterSpacing: 1.5,
                         textAlign: "center",
@@ -220,7 +221,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                       style={{
                         fontSize: 13,
                         fontWeight: "700",
-                        color: "#F59E0B",
+                        color: Palette.amber500,
                         marginTop: -12,
                       }}
                     >

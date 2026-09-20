@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import {
   Alert,
   Modal,
@@ -245,7 +246,7 @@ export function TaskDetailContent({
               id: f.id,
               name: f.name,
               emoji: f.emoji || "📁",
-              color: f.color || "#6366F1",
+              color: f.color || Palette.indigo500,
               revision: f.revision || 1,
               lifecycleGeneration: f.lifecycleGeneration || 1,
               createdAt: f.createdAt,
@@ -257,7 +258,7 @@ export function TaskDetailContent({
                 id: INBOX_WORKSPACE_ID,
                 name: "Inbox",
                 emoji: "📥",
-                color: "#6366F1",
+                color: Palette.indigo500,
                 revision: 1,
                 lifecycleGeneration: 1,
                 createdAt: Date.now(),
@@ -795,7 +796,7 @@ export function TaskDetailContent({
         style={styles.headerFlex}
         title={isEditing ? "Edit Task" : "Task Details"}
         onBack={onBack}
-        icon={<Feather name="check-square" size={18} color="#3B82F6" />}
+        icon={<Feather name="check-square" size={18} color={Palette.blue500} />}
         action={
           <TouchableOpacity
             onPress={() => {
@@ -897,15 +898,15 @@ export function TaskDetailContent({
                   styles.badge,
                   {
                     backgroundColor: "rgba(59, 130, 246, 0.12)",
-                    borderColor: "#3B82F6",
+                    borderColor: Palette.blue500,
                   },
                 ]}
               >
-                <Feather name="check-square" size={12} color="#3B82F6" />
+                <Feather name="check-square" size={12} color={Palette.blue500} />
                 <Text
                   style={[
                     styles.badgeText,
-                    { color: "#3B82F6", fontWeight: "700" },
+                    { color: Palette.blue500, fontWeight: "700" },
                   ]}
                 >
                   Task
@@ -1089,7 +1090,7 @@ export function TaskDetailContent({
                     key: "delete",
                     label: "Delete Item",
                     tone: "danger",
-                    icon: <Feather name="trash-2" size={16} color="#FFFFFF" />,
+                    icon: <Feather name="trash-2" size={16} color={Palette.white} />,
                     onPress: handleDeletePress,
                   },
                 ]}
@@ -1160,7 +1161,7 @@ export function TaskDetailContent({
                 ]}
                 onPress={() => saveChanges(false)}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                <Text style={{ color: Palette.white, fontWeight: "700" }}>
                   All occurrences
                 </Text>
               </TouchableOpacity>
@@ -1216,7 +1217,7 @@ export function TaskDetailContent({
                 ]}
                 onPress={() => deleteItem(false)}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                <Text style={{ color: Palette.white, fontWeight: "700" }}>
                   All occurrences
                 </Text>
               </TouchableOpacity>

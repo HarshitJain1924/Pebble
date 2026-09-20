@@ -8,7 +8,7 @@ import Animated, {
 import { Radius } from "@/shared/constants/radii";
 import { Shadows } from "@/shared/constants/shadows";
 import { Spacing } from "@/shared/constants/spacing";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 type AppCardProps = {
@@ -59,7 +59,7 @@ export const AppCard: React.FC<AppCardProps> = ({
 
   const dynamicShadow = colorScheme === "light" ? Platform.select({
     ios: {
-      shadowColor: "#000",
+      shadowColor: Palette.black,
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.05,
       shadowRadius: 12,
@@ -76,7 +76,7 @@ export const AppCard: React.FC<AppCardProps> = ({
   const flatStyle = StyleSheet.flatten([
     styles.card,
     {
-      backgroundColor: colorScheme === "light" ? "#FFFFFF" : "rgba(24, 24, 27, 0.72)",
+      backgroundColor: colorScheme === "light" ? Palette.white : "rgba(24, 24, 27, 0.72)",
       borderColor: colorScheme === "light" ? theme.border : "rgba(255, 255, 255, 0.065)",
     },
     dynamicShadow,

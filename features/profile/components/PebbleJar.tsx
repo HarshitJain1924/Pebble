@@ -24,6 +24,8 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { AVATAR_MAP } from "./RenderAvatar";
+import { PebbleStageVisuals } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import { calculateVisiblePebbleCount } from "@/shared/utils/pebble-milestones";
 
 const isWeb = Platform.OS === "web";
@@ -190,11 +192,20 @@ export function PebbleJar({
 }: PebbleJarProps) {
   const resolvedPebbleTypes = pebbleTypes ?? monthlyTypes;
   const isMasterStage = totalPebbles >= 500;
+  const isLight = colorScheme === "light";
+  const stage = PebbleStageVisuals;
+  const stageKey = isMasterStage ? "master" : "ocean";
+  const jarGlass = isLight ? stage.jarGlassBack.light : stage.jarGlassBack.dark;
+  const staticStops = isLight ? stage.staticPebble.light : stage.staticPebble.dark;
+  const shinyStops = isLight ? stage.shinyPebble.light : stage.shinyPebble.dark;
+  const liquidStops = stage.liquid[stageKey];
+  const submergedStops = stage.submergedTint[stageKey];
+  const surfaceStops = stage.surfaceHighlight[stageKey];
   const jarColor = isMasterStage
     ? colors.warning
-    : colorScheme === "light"
-      ? "#312E81"
-      : "#A5B4FC";
+    : isLight
+      ? stage.jarStroke.light
+      : stage.jarStroke.dark;
   const jarStrokeOpacity = colorScheme === "light" ? 0.25 : 0.45;
   const twigColor =
     colorScheme === "light" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.12)";
@@ -404,7 +415,7 @@ export function PebbleJar({
           <View style={{ position: "absolute", top: 35, left: 120 }}>
             <FloatingNode
               delay={400}
-              color={colorScheme === "light" ? "#000" : "#fff"}
+              color={colorScheme === "light" ? Palette.black : Palette.white}
             />
           </View>
           <View style={{ position: "absolute", top: 20, left: 240 }}>
@@ -431,12 +442,12 @@ export function PebbleJar({
           <LinearGradient id="jarGlassBack" x1="0%" x2="100%" y1="0%" y2="100%">
             <Stop
               offset="0%"
-              stopColor={colorScheme === "light" ? "#818CF8" : "#312E81"}
+              stopColor={jarGlass.top}
               stopOpacity={colorScheme === "light" ? 0.15 : 0.4}
             />
             <Stop
               offset="100%"
-              stopColor={colorScheme === "light" ? "#EEF2F6" : "#1E1B4B"}
+              stopColor={jarGlass.bottom}
               stopOpacity={colorScheme === "light" ? 0.05 : 0.2}
             />
           </LinearGradient>
@@ -445,17 +456,17 @@ export function PebbleJar({
           <LinearGradient id="liquidGrad" x1="0%" x2="0%" y1="0%" y2="100%">
             <Stop
               offset="0%"
-              stopColor={isMasterStage ? "#F59E0B" : "#0EA5E9"}
+              stopColor={liquidStops[0]}
               stopOpacity={0.65}
             />
             <Stop
               offset="50%"
-              stopColor={isMasterStage ? "#D97706" : "#0284C7"}
+              stopColor={liquidStops[1]}
               stopOpacity={0.45}
             />
             <Stop
               offset="100%"
-              stopColor={isMasterStage ? "#B45309" : "#0369A1"}
+              stopColor={liquidStops[2]}
               stopOpacity={0.25}
             />
           </LinearGradient>
@@ -464,47 +475,47 @@ export function PebbleJar({
           <LinearGradient id="submergedTintGrad" x1="0%" x2="0%" y1="0%" y2="100%">
             <Stop
               offset="0%"
-              stopColor={isMasterStage ? "#FDE68A" : "#38BDF8"}
+              stopColor={submergedStops[0]}
               stopOpacity={0.28}
             />
             <Stop
               offset="30%"
-              stopColor={isMasterStage ? "#F59E0B" : "#0284C7"}
+              stopColor={submergedStops[1]}
               stopOpacity={0.38}
             />
             <Stop
               offset="100%"
-              stopColor={isMasterStage ? "#D97706" : "#075985"}
+              stopColor={submergedStops[2]}
               stopOpacity={0.52}
             />
           </LinearGradient>
 
           {/* Water Surface Meniscus Highlight */}
           <LinearGradient id="surfaceHighlightGrad" x1="0%" x2="100%" y1="0%" y2="0%">
-            <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.3} />
+            <Stop offset="0%" stopColor={stage.highlight} stopOpacity={0.3} />
             <Stop
               offset="25%"
-              stopColor={isMasterStage ? "#FEF08A" : "#BAE6FD"}
+              stopColor={surfaceStops[0]}
               stopOpacity={0.9}
             />
-            <Stop offset="50%" stopColor="#FFFFFF" stopOpacity={1.0} />
+            <Stop offset="50%" stopColor={stage.highlight} stopOpacity={1.0} />
             <Stop
               offset="75%"
-              stopColor={isMasterStage ? "#FEF08A" : "#38BDF8"}
+              stopColor={surfaceStops[1]}
               stopOpacity={0.9}
             />
-            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0.3} />
+            <Stop offset="100%" stopColor={stage.highlight} stopOpacity={0.3} />
           </LinearGradient>
 
           {/* Glowing Falling Pebble Gradient */}
           <RadialGradient id="pebbleGrad" cx="30%" cy="30%" r="70%">
             <Stop
               offset="0%"
-              stopColor={isMasterStage ? "#FFE082" : colors.primaryLight}
+              stopColor={isMasterStage ? stage.pebbleGlowMaster : colors.primaryLight}
             />
             <Stop
               offset="100%"
-              stopColor={isMasterStage ? "#D97706" : colors.primary}
+              stopColor={isMasterStage ? stage.pebbleGlowMasterEdge : colors.primary}
             />
           </RadialGradient>
 
@@ -512,15 +523,15 @@ export function PebbleJar({
           <RadialGradient id="staticPebbleGrad" cx="35%" cy="35%" r="65%">
             <Stop
               offset="0%"
-              stopColor={colorScheme === "light" ? "#C7D2FE" : "#818CF8"}
+              stopColor={staticStops[0]}
             />
             <Stop
               offset="70%"
-              stopColor={colorScheme === "light" ? "#6366F1" : "#4F46E5"}
+              stopColor={staticStops[1]}
             />
             <Stop
               offset="100%"
-              stopColor={colorScheme === "light" ? "#312E81" : "#1E1B4B"}
+              stopColor={staticStops[2]}
             />
           </RadialGradient>
 
@@ -528,23 +539,23 @@ export function PebbleJar({
           <RadialGradient id="shinyPebbleGrad" cx="30%" cy="30%" r="70%">
             <Stop
               offset="0%"
-              stopColor={colorScheme === "light" ? "#EEF2F6" : "#C084FC"}
+              stopColor={shinyStops[0]}
             />
             <Stop
               offset="60%"
-              stopColor={colorScheme === "light" ? "#818CF8" : "#7C3AED"}
+              stopColor={shinyStops[1]}
             />
             <Stop
               offset="100%"
-              stopColor={colorScheme === "light" ? "#4C1D95" : "#2E1065"}
+              stopColor={shinyStops[2]}
             />
           </RadialGradient>
 
           {/* Golden/Legendary Pebbles Gradient */}
           <RadialGradient id="goldPebbleGrad" cx="30%" cy="30%" r="70%">
-            <Stop offset="0%" stopColor="#FDE047" />
-            <Stop offset="45%" stopColor="#EC4899" />
-            <Stop offset="100%" stopColor="#4C1D95" />
+            <Stop offset="0%" stopColor={stage.legendary[0]} />
+            <Stop offset="45%" stopColor={stage.legendary[1]} />
+            <Stop offset="100%" stopColor={stage.legendary[2]} />
           </RadialGradient>
 
           {/* Jar ClipPath (Narrowed to fit the interior cavity of the generated jar PNG) */}
@@ -633,14 +644,7 @@ export function PebbleJar({
                 : (isAlt ? pebbleRegular2 : pebbleRegular1);
 
             const pType = getPebbleTypeAtIndex(index);
-            const overlayColor =
-              pType === "focus"
-                ? "#10B981"
-                : pType === "habit"
-                  ? "#F59E0B"
-                  : pType === "checklist"
-                    ? "#3B82F6"
-                    : "#6366F1";
+            const overlayColor = stage.overlay[pType];
 
             return (
               <G
@@ -689,7 +693,7 @@ export function PebbleJar({
               {/* Soft ambient surface glow */}
               <Path
                 d="M 144,-1 Q 174,2 200,-0.5 Q 226,-2 256,-1"
-                stroke={isMasterStage ? "#FBBF24" : "#38BDF8"}
+                stroke={isMasterStage ? stage.meniscus.master : stage.meniscus.ocean}
                 strokeWidth={5}
                 fill="none"
                 opacity={0.4}
@@ -723,15 +727,7 @@ export function PebbleJar({
                 cy={0}
                 rx={9.5}
                 ry={6.5}
-                fill={
-                  fallingPebbleType === "focus"
-                    ? "#10B981"
-                    : fallingPebbleType === "habit"
-                      ? "#F59E0B"
-                      : fallingPebbleType === "checklist"
-                        ? "#3B82F6"
-                        : "#6366F1"
-                }
+                fill={stage.overlay[fallingPebbleType]}
                 opacity={0.35}
               />
             )}

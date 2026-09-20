@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -127,7 +128,7 @@ export const FocusTargetCard: React.FC<FocusTargetCardProps> = ({
           <Feather
             name={isHabit ? "repeat" : "check-square"}
             size={16}
-            color={isHabit ? "#F59E0B" : colors.primary}
+            color={isHabit ? Palette.amber500 : colors.primary}
           />
         </View>
 
@@ -306,6 +307,6 @@ const styles = StyleSheet.create({
   recoveryText: {
     fontSize: 9,
     fontWeight: "700",
-    color: "#EF4444",
+    color: Palette.red500,
   },
 });

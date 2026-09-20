@@ -5,7 +5,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import * as Haptics from "expo-haptics";
@@ -342,7 +342,7 @@ export function HabitSection({
                         borderRadius: 12,
                         borderWidth: 1,
                         borderColor: isLinked ? colors.primary : colors.border,
-                        backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? "#F8FAFC" : "#1E1E24"),
+                        backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? Palette.slate50 : Palette.ink850),
                       }}
                     >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
@@ -378,7 +378,7 @@ export function HabitSection({
                 marginTop: 6,
               }}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 13 }}>Done</Text>
+              <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 13 }}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -412,7 +412,7 @@ export function HabitSection({
               padding: 16,
               gap: 12,
               elevation: 10,
-              shadowColor: "#000",
+              shadowColor: Palette.black,
               shadowOffset: { width: 0, height: 10 },
               shadowOpacity: 0.25,
               shadowRadius: 15,
@@ -431,7 +431,7 @@ export function HabitSection({
                     gap: 10,
                   }}
                 >
-                  <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: isLight ? "#E2E8F0" : "#27272A", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                  <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: isLight ? Palette.slate200 : Palette.zinc800, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
                     {res.type === "image" ? (
                       <Image
                         source={{ uri: res.mediaUri || "https://images.unsplash.com/photo-1544005313-94ddf0286df2" }}

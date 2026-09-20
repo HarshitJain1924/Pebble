@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AllDaySection } from "./AllDaySection";
@@ -195,7 +196,7 @@ export const DayPlannerView: React.FC<DayPlannerViewProps> = React.memo(({
                 <Text
                   style={[
                     styles.dragGuideSubtext,
-                    { color: isLight ? "#475569" : "#94A3B8" },
+                    { color: isLight ? Palette.slate600 : Palette.slate400 },
                   ]}
                   numberOfLines={1}
                 >

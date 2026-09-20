@@ -1,4 +1,6 @@
 import { Feather } from "@expo/vector-icons";
+import { CalendarEntityColors, type CalendarEntityKind } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import { CalendarEntityType } from "../types";
 
 export interface EntityPresentationConfig {
@@ -17,8 +19,8 @@ export const CALENDAR_ENTITY_TOKENS: Record<
 > = {
   dark: {
     task: {
-      accent: "#F59E0B", // Warm Amber
-      accentSecondary: "#FBBF24",
+      accent: CalendarEntityColors.task.dark, // Warm Amber
+      accentSecondary: Palette.amber400,
       surface: "rgba(245, 158, 11, 0.12)",
       surfaceSubtle: "rgba(245, 158, 11, 0.08)",
       borderColor: "rgba(245, 158, 11, 0.25)",
@@ -26,8 +28,8 @@ export const CALENDAR_ENTITY_TOKENS: Record<
       label: "Task",
     },
     habit: {
-      accent: "#10B981", // Emerald Green
-      accentSecondary: "#34D399",
+      accent: CalendarEntityColors.habit.dark, // Emerald Green
+      accentSecondary: Palette.emerald400,
       surface: "rgba(16, 185, 129, 0.12)",
       surfaceSubtle: "rgba(16, 185, 129, 0.08)",
       borderColor: "rgba(16, 185, 129, 0.25)",
@@ -35,8 +37,8 @@ export const CALENDAR_ENTITY_TOKENS: Record<
       label: "Habit",
     },
     checklist: {
-      accent: "#3B82F6", // Deep Blue
-      accentSecondary: "#60A5FA",
+      accent: CalendarEntityColors.checklist.dark, // Deep Blue
+      accentSecondary: Palette.blue400,
       surface: "rgba(59, 130, 246, 0.12)",
       surfaceSubtle: "rgba(59, 130, 246, 0.08)",
       borderColor: "rgba(59, 130, 246, 0.25)",
@@ -46,28 +48,28 @@ export const CALENDAR_ENTITY_TOKENS: Record<
   },
   light: {
     task: {
-      accent: "#D97706", // Crisp Amber
-      accentSecondary: "#B45309",
-      surface: "#FFFBEB",
-      surfaceSubtle: "#FEF3C7",
+      accent: CalendarEntityColors.task.light, // Crisp Amber
+      accentSecondary: Palette.amber700,
+      surface: Palette.amber50,
+      surfaceSubtle: Palette.amber100,
       borderColor: "rgba(217, 119, 6, 0.2)",
       icon: "check-square",
       label: "Task",
     },
     habit: {
-      accent: "#059669", // Crisp Emerald
-      accentSecondary: "#047857",
-      surface: "#F0FDF4",
-      surfaceSubtle: "#DCFCE7",
+      accent: CalendarEntityColors.habit.light, // Crisp Emerald
+      accentSecondary: Palette.emerald700,
+      surface: Palette.green50,
+      surfaceSubtle: Palette.green100,
       borderColor: "rgba(5, 150, 105, 0.2)",
       icon: "rotate-cw",
       label: "Habit",
     },
     checklist: {
-      accent: "#2563EB", // Crisp Blue
-      accentSecondary: "#1D4ED8",
-      surface: "#EFF6FF",
-      surfaceSubtle: "#DBEAFE",
+      accent: CalendarEntityColors.checklist.light, // Crisp Blue
+      accentSecondary: Palette.blue700,
+      surface: Palette.blue50,
+      surfaceSubtle: Palette.blue100,
       borderColor: "rgba(37, 99, 235, 0.2)",
       icon: "list",
       label: "Checklist",
@@ -79,8 +81,8 @@ export function getCalendarEntityPresentation(
   type: string,
   isLight: boolean = false,
 ): EntityPresentationConfig {
-  const themeKey = isLight ? "light" : "dark";
-  const entityType: CalendarEntityType =
+  const themeKey: "light" | "dark" = isLight ? "light" : "dark";
+  const entityType: CalendarEntityKind =
     type === "habit" ? "habit" : type === "checklist" ? "checklist" : "task";
   return CALENDAR_ENTITY_TOKENS[themeKey][entityType];
 }

@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { ResourceKindColors } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import {
   View,
   StyleSheet,
@@ -235,15 +237,15 @@ export const ResourceDetailContent: React.FC<ResourceDetailContentProps> = ({
   const getIcon = () => {
     if (hasAttachment) {
       return isImageAttachment ? (
-        <Feather name="image" size={18} color="#10B981" />
+        <Feather name="image" size={18} color={ResourceKindColors.image.dark} />
       ) : (
-        <Feather name="paperclip" size={18} color="#06B6D4" />
+        <Feather name="paperclip" size={18} color={ResourceKindColors.file.dark} />
       );
     }
     switch (resource.type) {
-      case "idea": return <Feather name={"lightbulb" as any} size={18} color="#EAB308" />;
-      case "link": return <Feather name="link" size={18} color="#3B82F6" />;
-      default: return <Feather name="align-left" size={18} color="#8B5CF6" />;
+      case "idea": return <Feather name={"lightbulb" as any} size={18} color={ResourceKindColors.idea.dark} />;
+      case "link": return <Feather name="link" size={18} color={ResourceKindColors.link.dark} />;
+      default: return <Feather name="align-left" size={18} color={ResourceKindColors.note.dark} />;
     }
   };
 
@@ -361,7 +363,7 @@ export const ResourceDetailContent: React.FC<ResourceDetailContentProps> = ({
                 key: "delete",
                 label: "Delete Resource",
                 tone: "danger",
-                icon: <Feather name="trash-2" size={16} color="#FFFFFF" />,
+                icon: <Feather name="trash-2" size={16} color={Palette.white} />,
                 onPress: handleDelete,
               },
             ]}
@@ -458,7 +460,7 @@ export const ResourceDetailContent: React.FC<ResourceDetailContentProps> = ({
               haptic
               style={[styles.saveBtn, { backgroundColor: colors.primary }]}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 15 }}>Save Changes</Text>
+              <Text style={{ color: Palette.white, fontWeight: "800", fontSize: 15 }}>Save Changes</Text>
             </PressableScale>
           </View>
         </View>

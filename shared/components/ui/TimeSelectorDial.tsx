@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet,  View } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { Palette } from "@/shared/constants/theme";
 
 interface TimeSelectorDialProps {
   initialHour?: number;
@@ -176,7 +177,7 @@ export function TimeSelectorDial({
         onPress={() => onSave(hour, minute)}
         style={[styles.setAlarmBtn, { backgroundColor: colors.primary }]}
       >
-        <Text style={{ color: "#ffffff", fontWeight: "700" }}>{saveLabel}</Text>
+        <Text style={{ color: Palette.white, fontWeight: "700" }}>{saveLabel}</Text>
       </Pressable>
     </View>
   );

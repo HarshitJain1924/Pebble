@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { GestureDetector } from "react-native-gesture-handler";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -53,7 +54,7 @@ export const WeekTimelineItem: React.FC<WeekTimelineItemProps> = React.memo(({
   const config = getCalendarEntityPresentation(type, isLight);
   const accent = item.completed ? colors.textMuted : config.accent;
   const bg = item.completed
-    ? isLight ? "#F1F5F9" : "rgba(255, 255, 255, 0.03)"
+    ? isLight ? Palette.slate100 : "rgba(255, 255, 255, 0.03)"
     : config.surface;
 
   const timeStr = formatBlockTime(item.startHour ?? 0, item.startMinute ?? 0);
@@ -268,11 +269,11 @@ const styles = StyleSheet.create({
     width: 3.5,
     height: 3.5,
     borderRadius: 1.75,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
   },
   priorityText: {
     fontSize: 8,
     fontWeight: "700",
-    color: "#EF4444",
+    color: Palette.red500,
   },
 });

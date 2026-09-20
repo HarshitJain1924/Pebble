@@ -1,4 +1,5 @@
 import { Platform, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { Radius } from "@/shared/constants/radii";
 import { Spacing } from "@/shared/constants/spacing";
 import { Typography } from "@/shared/constants/typography";
@@ -127,7 +128,7 @@ export const styles = StyleSheet.create({
     gap: 16,
     borderRadius: 24,
     borderWidth: 1,
-    shadowColor: "#000000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.5,
     shadowRadius: 24,

@@ -30,7 +30,7 @@ import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { SegmentedSwitcher } from "@/shared/components/ui/SegmentedSwitcher";
 import { styles } from "@/shared/constants/taskStyles";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -309,7 +309,7 @@ export function WorkspacesScreen() {
                       flex: 1,
                       flexDirection: "row",
                       alignItems: "center",
-                      backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#F1F5F9",
+                      backgroundColor: isDark ? "rgba(255,255,255,0.04)" : Palette.slate100,
                       borderRadius: 16,
                       paddingHorizontal: 14,
                       height: 44,
@@ -758,7 +758,7 @@ export function WorkspacesScreen() {
                         justifyContent: "center",
                         paddingVertical: 12,
                         borderRadius: 12,
-                        backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                        backgroundColor: isLight ? Palette.slate100 : Palette.zinc800,
                       }}
                     >
                       <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>Cancel</Text>
@@ -809,7 +809,7 @@ export function WorkspacesScreen() {
                       justifyContent: "center",
                     }}
                   >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 14 }}>Got it</Text>
+                    <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 14 }}>Got it</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1035,7 +1035,7 @@ export function WorkspacesScreen() {
                 marginTop: 6,
               }}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 14 }}>
+              <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 14 }}>
                 {editingChecklistId ? "Save Changes" : "Create Checklist"}
               </Text>
             </TouchableOpacity>
@@ -1106,7 +1106,7 @@ export function WorkspacesScreen() {
               borderColor: "rgba(255,255,255,0.15)",
             }}
           >
-            <Feather name="zap" size={24} color="#FFFFFF" />
+            <Feather name="zap" size={24} color={Palette.white} />
           </TouchableOpacity>
         </Animated.View>
       )}
@@ -1127,7 +1127,7 @@ const localStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-around",
     paddingHorizontal: 10,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
     shadowRadius: 10,

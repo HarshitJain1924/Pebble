@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, ScrollView, Pressable, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -72,7 +73,7 @@ export const AllDaySection: React.FC<AllDaySectionProps> = React.memo(({
             const config = getCalendarEntityPresentation(type, isLight);
             const accent = item.completed ? colors.textMuted : config.accent;
             const bg = item.completed
-              ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.03)"
+              ? isLight ? Palette.slate100 : "rgba(255,255,255,0.03)"
               : config.surface;
 
             const itemCount =

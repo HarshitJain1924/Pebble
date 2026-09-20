@@ -2,7 +2,7 @@ import React from "react";
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { Spacing } from "@/shared/constants/spacing";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
@@ -38,7 +38,7 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ actions, style }) 
         const tone = action.tone ?? "secondary";
         const isPrimary = tone === "primary";
         const isDanger = tone === "danger";
-        const labelColor = isPrimary || isDanger ? "#FFFFFF" : colors.text;
+        const labelColor = isPrimary || isDanger ? Palette.white : colors.text;
 
         return (
           <Pressable

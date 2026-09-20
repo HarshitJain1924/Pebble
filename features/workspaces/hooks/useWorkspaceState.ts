@@ -2,6 +2,8 @@ import {
   globalLists,
   setGlobalLists,
 } from "@/features/tasks/utils/task-formatting";
+import { DefaultWorkspaceColor } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import { UiStateRepository, WorkspaceRepository } from "@/repositories";
 import {
   addStateListener,
@@ -146,7 +148,7 @@ export function useWorkspaceState() {
           emoji: f.iconType === "icon" ? undefined : (f.emoji || (f.icon ? undefined : "📁")),
           icon: f.icon,
           iconType: f.iconType || (f.icon ? "icon" : "emoji"),
-          color: f.color || "#6366F1",
+          color: f.color || DefaultWorkspaceColor.dark,
           description: f.description || (f.id === INBOX_WORKSPACE_ID ? "Quick capture" : f.id === MY_PEBBLES_WORKSPACE_ID ? "Personal space" : undefined),
           revision: f.revision || 1,
           lifecycleGeneration: f.lifecycleGeneration || 1,
@@ -162,7 +164,7 @@ export function useWorkspaceState() {
             id: INBOX_WORKSPACE_ID,
             name: "Inbox",
             emoji: "📥",
-            color: "#6366F1",
+            color: DefaultWorkspaceColor.dark,
             description: "Quick capture",
             revision: 1,
             lifecycleGeneration: 1,
@@ -173,7 +175,7 @@ export function useWorkspaceState() {
             id: MY_PEBBLES_WORKSPACE_ID,
             name: "My Pebbles",
             emoji: "⚡",
-            color: "#8B5CF6",
+            color: Palette.violet500,
             description: "Personal space",
             revision: 1,
             lifecycleGeneration: 1,

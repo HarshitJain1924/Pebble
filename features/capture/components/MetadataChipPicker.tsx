@@ -17,6 +17,7 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import {
   View,
   Text,
@@ -98,11 +99,11 @@ export function MetadataChipPicker({
 
   if (!visible) return null;
 
-  const bgCard = isDark ? "#1E1E24" : "#FFFFFF";
-  const textPrimary = isDark ? "#F3F4F6" : "#111827";
-  const textMuted = isDark ? "#9CA3AF" : "#6B7280";
+  const bgCard = isDark ? Palette.ink850 : Palette.white;
+  const textPrimary = isDark ? Palette.gray100 : Palette.gray900;
+  const textMuted = isDark ? Palette.gray400 : Palette.gray500;
   const borderColor = isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.08)";
-  const accentColor = "#6366F1";
+  const accentColor = Palette.indigo500;
 
   const dialColors = {
     text: textPrimary,
@@ -110,7 +111,7 @@ export function MetadataChipPicker({
     border: borderColor,
     cardLight: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.03)",
     primary: accentColor,
-    error: "#EF4444",
+    error: Palette.red500,
   };
 
   const handleSelect = (id: string) => {
@@ -181,7 +182,7 @@ export function MetadataChipPicker({
                         calendarBackground: bgCard,
                         textSectionTitleColor: textMuted,
                         selectedDayBackgroundColor: accentColor,
-                        selectedDayTextColor: "#FFFFFF",
+                        selectedDayTextColor: Palette.white,
                         todayTextColor: accentColor,
                         dayTextColor: textPrimary,
                         textDisabledColor: `${textMuted}55`,
@@ -354,7 +355,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1.2,
     padding: 16,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
     shadowRadius: 16,
@@ -474,7 +475,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   applyBtnText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "700",
   },

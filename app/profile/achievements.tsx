@@ -15,7 +15,7 @@ import { useRouter, Stack } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { Radius } from "@/shared/constants/radii";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
@@ -480,5 +480,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sheetCloseText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  sheetCloseText: { color: Palette.white, fontSize: 14, fontWeight: "700" },
 });

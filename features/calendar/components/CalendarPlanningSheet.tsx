@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, ScrollView, Pressable, Platform, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -233,7 +234,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                   styles.closeButton,
                   {
                     backgroundColor: isLight
-                      ? "#F1F5F9"
+                      ? Palette.slate100
                       : "rgba(255,255,255,0.06)",
                   },
                 ]}
@@ -477,7 +478,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                     styles.selectedItemBanner,
                     {
                       backgroundColor: isLight
-                        ? "#F8FAFC"
+                        ? Palette.slate50
                         : "rgba(255,255,255,0.04)",
                       borderColor: isLight
                         ? "rgba(0,0,0,0.08)"
@@ -567,7 +568,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                             styles.timeDisplayPill,
                             {
                               backgroundColor: isLight
-                                ? "#FFFFFF"
+                                ? Palette.white
                                 : "rgba(255,255,255,0.06)",
                               borderColor: colors.border,
                             },
@@ -617,7 +618,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                                     backgroundColor: isSelected
                                       ? taskConfig.accent
                                       : isLight
-                                      ? "#FFFFFF"
+                                      ? Palette.white
                                       : "rgba(255,255,255,0.06)",
                                     borderColor: isSelected
                                       ? taskConfig.accent
@@ -629,7 +630,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                                   style={[
                                     styles.durationChipText,
                                     {
-                                      color: isSelected ? "#FFFFFF" : colors.text,
+                                      color: isSelected ? Palette.white : colors.text,
                                       fontWeight: isSelected ? "700" : "600",
                                     },
                                   ]}
@@ -648,7 +649,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                       <View style={styles.validationNoticeRow}>
                         {!fitsInGap ? (
                           <View style={styles.errorBanner}>
-                            <Feather name="alert-circle" size={13} color="#EF4444" />
+                            <Feather name="alert-circle" size={13} color={Palette.red500} />
                             <Text style={styles.errorBannerText}>
                               Doesn't fit in this free time (
                               {formatMinutesToTime(
@@ -670,9 +671,9 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                           </View>
                         ) : (
                           <View style={styles.remainingBanner}>
-                            <Feather name="check" size={12} color="#10B981" />
+                            <Feather name="check" size={12} color={Palette.emerald500} />
                             <Text
-                              style={[styles.remainingBannerText, { color: "#10B981" }]}
+                              style={[styles.remainingBannerText, { color: Palette.emerald500 }]}
                             >
                               Fills the entire free time slot
                             </Text>
@@ -730,7 +731,7 @@ export const CalendarPlanningSheet: React.FC<CalendarPlanningSheetProps> = ({
                       ? "Schedule for All Day"
                       : `Schedule · ${formatMinutesToTime(startTotalMinutes)} – ${formatMinutesToTime(endTotalMinutes)}`}
                   </Text>
-                  <Feather name="check" size={15} color="#FFFFFF" />
+                  <Feather name="check" size={15} color={Palette.white} />
                 </PressableScale>
               </View>
             )}
@@ -967,7 +968,7 @@ const styles = StyleSheet.create({
   },
   errorBannerText: {
     fontSize: 12,
-    color: "#EF4444",
+    color: Palette.red500,
     fontWeight: "600",
     flex: 1,
   },
@@ -990,7 +991,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   schedulePrimaryButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 14,
     fontWeight: "700",
   },

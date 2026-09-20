@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { Feather } from "@expo/vector-icons";
 
 import { TimeSelectorDial } from "@/shared/components/ui/TimeSelectorDial";
@@ -47,7 +48,7 @@ export function HabitDetailForm({
     {
       color: colors.text,
       borderColor: colors.border,
-      backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff",
+      backgroundColor: isDark ? "rgba(255,255,255,0.02)" : Palette.white,
     },
   ];
 
@@ -310,7 +311,7 @@ export function HabitDetailForm({
                   >
                     <Text
                       style={{
-                        color: isDaySelected ? "#fff" : colors.text,
+                        color: isDaySelected ? Palette.white : colors.text,
                         fontSize: 11,
                         fontWeight: "700",
                       }}

@@ -42,6 +42,7 @@ import { palette } from "./utils/palette";
 import { estimateToolbarWidth } from "./utils/toolbar-width";
 
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
+import { Palette } from "@/shared/constants/theme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -320,7 +321,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                   height: 36,
                   borderRadius: 12,
                   elevation: 6,
-                  shadowColor: "#000",
+                  shadowColor: Palette.black,
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: 0.12,
                   shadowRadius: 8,
@@ -350,7 +351,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                   name="layers"
                   size={16}
                   color={
-                    navMode === "workspace" ? "#7C62F0" : colors.foreground
+                    navMode === "workspace" ? Palette.violetVivid : colors.foreground
                   }
                 />
                 <View
@@ -362,7 +363,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                     height: 6,
                     borderRadius: 3,
                     backgroundColor:
-                      navMode === "workspace" ? "#7C62F0" : colors.foreground,
+                      navMode === "workspace" ? Palette.violetVivid : colors.foreground,
                     opacity: 0.85,
                   }}
                 />

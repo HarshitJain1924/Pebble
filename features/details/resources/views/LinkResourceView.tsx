@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet, TextInput, TouchableOpacity, Linking, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
@@ -70,7 +71,7 @@ export const LinkResourceView: React.FC<LinkResourceViewProps> = ({ resource, on
           onPress={handleOpen}
         >
           <Text style={styles.openBtnText}>Open Link</Text>
-          <Feather name="external-link" size={16} color="#FFF" style={{ marginLeft: 8 }} />
+          <Feather name="external-link" size={16} color={Palette.white} style={{ marginLeft: 8 }} />
         </TouchableOpacity>
       </View>
 
@@ -101,7 +102,7 @@ export const LinkResourceView: React.FC<LinkResourceViewProps> = ({ resource, on
                 <Text style={{ color: colors.textMuted, fontWeight: "600" }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleSave} style={[styles.actionBtn, styles.saveBtn, { backgroundColor: colors.primary }]}>
-                <Text style={{ color: "#FFF", fontWeight: "600" }}>Save</Text>
+                <Text style={{ color: Palette.white, fontWeight: "600" }}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -153,7 +154,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   openBtnText: {
-    color: "#FFF",
+    color: Palette.white,
     fontWeight: "700",
     fontSize: 16,
   },
@@ -161,7 +162,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingTop: 24,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E5E5",
+    borderTopColor: Palette.whiteSmoke,
   },
   headerRow: {
     flexDirection: "row",

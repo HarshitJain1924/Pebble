@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { Modal, View, Pressable, ScrollView, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -116,7 +117,7 @@ export const TaskPickerModal: React.FC<TaskPickerModalProps> = ({
                       <Feather
                         name={isSelected ? "check-circle" : "activity"}
                         size={18}
-                        color={isSelected ? "#F59E0B" : colors.textMuted}
+                        color={isSelected ? Palette.amber500 : colors.textMuted}
                       />
                       <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                         <Text style={{ color: colors.text, fontSize: 15, fontWeight: "600" }}>

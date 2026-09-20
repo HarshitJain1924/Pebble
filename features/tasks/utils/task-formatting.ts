@@ -1,3 +1,4 @@
+import { Palette } from "@/shared/constants/theme";
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
 import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
@@ -9,29 +10,29 @@ export const getDateKey = (date = new Date()) => dateKeyFromDate(date);
 
 export const getListColors = (name: string, isSelected: boolean) => {
   const lowercase = name.toLowerCase();
-  let bg = isSelected ? "#dbeafe" : "rgba(59, 130, 246, 0.08)";
-  let text = isSelected ? "#1e3a8a" : "#3B82F6";
+  let bg = isSelected ? Palette.blue100 : "rgba(59, 130, 246, 0.08)";
+  let text = isSelected ? Palette.blue800 : Palette.blue500;
   let icon: any = "list";
 
   if (lowercase.includes("work")) {
-    bg = isSelected ? "#dbeafe" : "rgba(59, 130, 246, 0.08)";
-    text = isSelected ? "#1e3a8a" : "#3B82F6";
+    bg = isSelected ? Palette.blue100 : "rgba(59, 130, 246, 0.08)";
+    text = isSelected ? Palette.blue800 : Palette.blue500;
     icon = "briefcase";
   } else if (lowercase.includes("personal") || lowercase.includes("garden")) {
-    bg = isSelected ? "#d1fae5" : "rgba(16, 185, 129, 0.08)";
-    text = isSelected ? "#064e3b" : "#10B981";
+    bg = isSelected ? Palette.emerald100 : "rgba(16, 185, 129, 0.08)";
+    text = isSelected ? Palette.emerald900 : Palette.emerald500;
     icon = "user";
   } else if (lowercase.includes("habit")) {
-    bg = isSelected ? "#ffedd5" : "rgba(245, 158, 11, 0.08)";
-    text = isSelected ? "#7c2d12" : "#F59E0B";
+    bg = isSelected ? Palette.orange100 : "rgba(245, 158, 11, 0.08)";
+    text = isSelected ? Palette.orange900 : Palette.amber500;
     icon = "activity";
   } else if (lowercase.includes("focus")) {
-    bg = isSelected ? "#f3e8ff" : "rgba(168, 85, 247, 0.08)";
-    text = isSelected ? "#581c87" : "#A855F7";
+    bg = isSelected ? Palette.violet50 : "rgba(168, 85, 247, 0.08)";
+    text = isSelected ? Palette.violet800 : Palette.violet500;
     icon = "clock";
   } else {
-    bg = isSelected ? "#f1f5f9" : "rgba(100, 116, 139, 0.08)";
-    text = isSelected ? "#334155" : "#64748B";
+    bg = isSelected ? Palette.slate100 : "rgba(100, 116, 139, 0.08)";
+    text = isSelected ? Palette.slate700 : Palette.slate500;
     icon = "grid";
   }
 

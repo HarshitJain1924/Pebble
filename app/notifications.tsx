@@ -18,7 +18,7 @@ import * as IntentLauncher from "expo-intent-launcher";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
   AlertCenterService,
@@ -268,13 +268,13 @@ export default function AlertCenterScreen() {
   const getEntityColor = (entityType: string) => {
     switch (entityType) {
       case "habit":
-        return "#10B981"; // Emerald green
+        return Palette.emerald500; // Emerald green
       case "checklist":
-        return "#3B82F6"; // Electric blue
+        return Palette.blue500; // Electric blue
       case "task":
       case "todo":
       default:
-        return "#F59E0B"; // Warm amber
+        return Palette.amber500; // Warm amber
     }
   };
 
@@ -885,7 +885,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   bannerButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 13,
     fontFamily: "Outfit_600SemiBold",
   },

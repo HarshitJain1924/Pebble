@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { GestureDetector } from "react-native-gesture-handler";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -106,7 +107,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
   const accent = item.completed ? colors.textMuted : config.accent;
 
   const cardBg = item.completed
-    ? isLight ? "#F1F5F9" : "rgba(255, 255, 255, 0.03)"
+    ? isLight ? Palette.slate100 : "rgba(255, 255, 255, 0.03)"
     : config.surface;
 
   // Compute end time and duration string
@@ -206,7 +207,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = React.memo(({
             )}
 
             {item.completed && (
-              <Feather name="check-circle" size={13} color={colors.success || "#10B981"} />
+              <Feather name="check-circle" size={13} color={colors.success} />
             )}
           </View>
 
@@ -332,12 +333,12 @@ const styles = StyleSheet.create({
     width: 4.5,
     height: 4.5,
     borderRadius: 2.25,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
   },
   priorityText: {
     fontSize: 9.5,
     fontWeight: "700",
-    color: "#EF4444",
+    color: Palette.red500,
   },
   habitRecurrenceText: {
     fontSize: 10.5,

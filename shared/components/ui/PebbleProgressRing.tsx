@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 export type PebbleProgressRingProps = {
@@ -158,7 +158,7 @@ const ActivePebble: React.FC<ActivePebbleProps> = React.memo(
             strokeLinejoin="round"
           />
           {/* Soft specular catchlight on the upper curve */}
-          <Ellipse cx={-2.6} cy={-2.4} rx={3.6} ry={1.7} fill="#FFFFFF" opacity={0.16} />
+          <Ellipse cx={-2.6} cy={-2.4} rx={3.6} ry={1.7} fill={Palette.white} opacity={0.16} />
         </Svg>
       </Animated.View>
     );

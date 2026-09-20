@@ -3,7 +3,7 @@ import { StyleSheet, View,  Dimensions, Pressable } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { Radius } from "@/shared/constants/radii";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -207,9 +207,9 @@ export function SwipeableCard({
                 accessibilityRole="button"
                 accessibilityLabel="Snooze"
                 hitSlop={8}
-                style={[styles.actionButton, { backgroundColor: "#F59E0B" }]}
+                style={[styles.actionButton, { backgroundColor: Palette.amber500 }]}
               >
-                <Feather name="clock" size={16} color="#FFFFFF" />
+                <Feather name="clock" size={16} color={Palette.white} />
               </Pressable>
             )}
             {onEdit && (
@@ -224,7 +224,7 @@ export function SwipeableCard({
                 hitSlop={8}
                 style={[styles.actionButton, { backgroundColor: colors.primary }]}
               >
-                <Feather name="edit-2" size={16} color="#FFFFFF" />
+                <Feather name="edit-2" size={16} color={Palette.white} />
               </Pressable>
             )}
             {onDelete && (
@@ -239,7 +239,7 @@ export function SwipeableCard({
                 hitSlop={8}
                 style={[styles.actionButton, { backgroundColor: colors.error }]}
               >
-                <Feather name="trash-2" size={16} color="#FFFFFF" />
+                <Feather name="trash-2" size={16} color={Palette.white} />
               </Pressable>
             )}
           </View>
@@ -327,7 +327,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: 9,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: Palette.white,
     textTransform: "uppercase",
     letterSpacing: 0.2,
   },

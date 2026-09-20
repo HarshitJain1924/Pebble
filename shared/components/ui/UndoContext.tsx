@@ -1,5 +1,5 @@
 import { Radius } from "@/shared/constants/radii";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import React, {
     createContext,
@@ -317,7 +317,7 @@ const toastStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     elevation: 8,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,

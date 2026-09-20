@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { Radius } from "@/shared/constants/radii";
@@ -39,7 +40,7 @@ export const ContinueWorkspaceCard: React.FC<ContinueWorkspaceCardProps> = ({
           borderColor: `${accentColor}40`,
           marginHorizontal: 4,
           marginTop: 12,
-          shadowColor: "#000",
+          shadowColor: Palette.black,
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.08,
           shadowRadius: 10,

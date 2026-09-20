@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Animated, {
@@ -200,7 +201,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
             {isSilent ? "Ambient Sound · Off" : soundTitle}
           </Text>
           {!isSilent && isPlaying && (
-            <NowPlayingBars color={colors.primary || "#6366F1"} />
+            <NowPlayingBars color={colors.primary} />
           )}
           <Feather name="chevron-right" size={13} color={colors.textMuted} />
         </PressableScale>
@@ -227,7 +228,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           <Feather
             name={isMuted ? "volume-x" : "volume-2"}
             size={14}
-            color={isMuted ? colors.error || "#EF4444" : colors.textMuted}
+            color={isMuted ? colors.error : colors.textMuted}
           />
         </PressableScale>
       </View>
@@ -266,7 +267,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           style={[
             styles.transportPlayBtn,
             {
-              backgroundColor: colors.primary || "#6366F1",
+              backgroundColor: colors.primary,
             },
           ]}
           contentStyle={styles.iconCenter}
@@ -275,7 +276,7 @@ export const AmbientSoundBar: React.FC<AmbientSoundBarProps> = ({
           <Feather
             name={isPlaying ? "pause" : "play"}
             size={15}
-            color="#ffffff"
+            color={Palette.white}
           />
         </PressableScale>
 

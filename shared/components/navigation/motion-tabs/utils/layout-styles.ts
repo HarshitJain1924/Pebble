@@ -1,4 +1,5 @@
 ﻿import { StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 
 const layoutStyles = StyleSheet.create({
   card: {
@@ -11,7 +12,7 @@ const layoutStyles = StyleSheet.create({
   cardShadow: {
     borderRadius: 28,
     elevation: 8,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.18,
     shadowRadius: 20,

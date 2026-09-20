@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import {
   Platform,
   Pressable,
@@ -387,7 +388,7 @@ export default function CalendarScreen() {
                     style={[
                       styles.iconButton,
                       {
-                        backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
+                        backgroundColor: isLight ? Palette.slate100 : "rgba(255,255,255,0.05)",
                         borderColor: colors.border,
                       },
                     ]}
@@ -407,7 +408,7 @@ export default function CalendarScreen() {
                     style={[
                       styles.iconButton,
                       {
-                        backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.05)",
+                        backgroundColor: isLight ? Palette.slate100 : "rgba(255,255,255,0.05)",
                         borderColor: colors.border,
                       },
                     ]}
@@ -654,22 +655,22 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
     borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-    shadowColor: "#000",
+    borderColor: Palette.white,
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
   },
   dragFloatingTime: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 12,
     fontWeight: "800",
     textTransform: "uppercase",
     marginBottom: 2,
   },
   dragFloatingTitle: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "700",
   },

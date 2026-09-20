@@ -12,7 +12,7 @@ import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Radius } from "@/shared/constants/radii";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 
 export type MascotVariant =
   | "idle"
@@ -134,7 +134,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                 <Feather
                   name={action.icon}
                   size={15}
-                  color="#FFFFFF"
+                  color={Palette.white}
                   style={{ marginRight: 6 }}
                 />
               )}
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     borderStyle: "solid",
     gap: 8,
     marginVertical: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -237,14 +237,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     height: 44,
     borderRadius: Radius.pill,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
     shadowRadius: 4,
     elevation: 3,
   },
   primaryButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "700",
     letterSpacing: -0.1,

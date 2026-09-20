@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Pressable, Platform, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -117,7 +118,7 @@ export const QuickSlotSheet: React.FC<QuickSlotSheetProps> = ({
                   styles.closeButton,
                   {
                     backgroundColor: isLight
-                      ? "#F1F5F9"
+                      ? Palette.slate100
                       : "rgba(255,255,255,0.06)",
                   },
                 ]}
@@ -188,7 +189,7 @@ export const QuickSlotSheet: React.FC<QuickSlotSheetProps> = ({
                       styles.presetChip,
                       {
                         backgroundColor: isLight
-                          ? "#F1F5F9"
+                          ? Palette.slate100
                           : "rgba(255,255,255,0.04)",
                         borderColor: colors.border,
                       },
@@ -216,7 +217,7 @@ export const QuickSlotSheet: React.FC<QuickSlotSheetProps> = ({
                 styles.allDayOption,
                 {
                   backgroundColor: isLight
-                    ? "#F8FAFC"
+                    ? Palette.slate50
                     : "rgba(255,255,255,0.02)",
                   borderColor: colors.border,
                 },

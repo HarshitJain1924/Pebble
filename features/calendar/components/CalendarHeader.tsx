@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, Pressable, StyleSheet } from "react-native";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -103,7 +104,7 @@ export const CalendarHeader: React.FC<CalendarHeaderProps> = ({
           styles.viewToggleButton,
           {
             backgroundColor: isLight
-              ? "#FFFFFF"
+              ? Palette.white
               : "rgba(255,255,255,0.06)",
             borderColor: isLight ? colors.border : "rgba(255,255,255,0.12)",
           },

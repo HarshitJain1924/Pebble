@@ -1,5 +1,6 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 
 interface DayContextSummaryProps {
@@ -35,7 +36,7 @@ export const DayContextSummary: React.FC<DayContextSummaryProps> = React.memo(({
         style={[
           styles.statPill,
           {
-            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            backgroundColor: isLight ? Palette.white : colors.card,
             borderColor: colors.border,
           },
         ]}
@@ -52,7 +53,7 @@ export const DayContextSummary: React.FC<DayContextSummaryProps> = React.memo(({
         style={[
           styles.statPill,
           {
-            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            backgroundColor: isLight ? Palette.white : colors.card,
             borderColor: colors.border,
           },
         ]}
@@ -69,7 +70,7 @@ export const DayContextSummary: React.FC<DayContextSummaryProps> = React.memo(({
         style={[
           styles.statPill,
           {
-            backgroundColor: isLight ? "#FFFFFF" : colors.card,
+            backgroundColor: isLight ? Palette.white : colors.card,
             borderColor: colors.border,
           },
         ]}
@@ -77,7 +78,12 @@ export const DayContextSummary: React.FC<DayContextSummaryProps> = React.memo(({
         <Text
           style={[
             styles.statValue,
-            { color: freeMinutes > 0 ? (isLight ? "#059669" : "#10B981") : colors.text },
+            {
+              color:
+                freeMinutes > 0
+                  ? isLight ? Palette.emerald600 : Palette.emerald500
+                  : colors.text,
+            },
           ]}
         >
           {freeMinutes > 0 ? freeText : "Free"}

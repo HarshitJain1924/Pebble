@@ -26,7 +26,8 @@ import {
   AppText as Text,
   AppTextInput as TextInput,
 } from "@/shared/components/ui/AppText";
-import { type ThemeColors } from "@/shared/constants/theme";
+import { CircadianLegendColors } from "@/shared/constants/categoryColors";
+import { Palette, type ThemeColors } from "@/shared/constants/theme";
 
 const MORNING_LIGHT_ART = require("@/assets/images/today/pebble_morning_light.jpg");
 const MORNING_DARK_ART = require("@/assets/images/today/pebble_morning_dark.jpg");
@@ -173,10 +174,10 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
           <LinearGradient id="circadianTopVignette" x1="0" y1="0" x2="0" y2="1">
             <Stop
               offset="0%"
-              stopColor="#000000"
+              stopColor={Palette.black}
               stopOpacity={isDark ? "0.32" : "0.15"}
             />
-            <Stop offset="100%" stopColor="#000000" stopOpacity="0" />
+            <Stop offset="100%" stopColor={Palette.black} stopOpacity="0" />
           </LinearGradient>
           {/* Bottom fade into background */}
           <LinearGradient id="circadianFade" x1="0" y1="0" x2="0" y2="1">
@@ -269,7 +270,7 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                 style={[
                   styles.kickerText,
                   {
-                    color: isDark ? "rgba(228, 228, 231, 0.9)" : "#4B5563",
+                    color: isDark ? "rgba(228, 228, 231, 0.9)" : Palette.gray600,
                     textShadowColor: isDark
                       ? "rgba(0, 0, 0, 0.85)"
                       : "transparent",
@@ -300,7 +301,7 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                 style={[
                   styles.subtitleText,
                   {
-                    color: isDark ? "rgba(228, 228, 231, 0.8)" : "#6B7280",
+                    color: isDark ? "rgba(228, 228, 231, 0.8)" : Palette.gray500,
                     textShadowColor: isDark
                       ? "rgba(0, 0, 0, 0.85)"
                       : "transparent",
@@ -391,9 +392,9 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
                       strokeLinejoin="round"
                     />
                     {/* Pebbles Inside */}
-                    <Circle cx="9.5" cy="18" r="2.2" fill="#8B5CF6" />
-                    <Circle cx="14.5" cy="18" r="2.2" fill="#F59E0B" />
-                    <Circle cx="12" cy="14.5" r="2" fill="#3B82F6" />
+                    <Circle cx="9.5" cy="18" r="2.2" fill={CircadianLegendColors.task.dark} />
+                    <Circle cx="14.5" cy="18" r="2.2" fill={CircadianLegendColors.habit.dark} />
+                    <Circle cx="12" cy="14.5" r="2" fill={CircadianLegendColors.checklist.dark} />
                   </Svg>
                 </View>
               </Pressable>
@@ -506,7 +507,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 3,
@@ -540,9 +541,9 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
     borderWidth: 1.5,
-    borderColor: "#FFFFFF",
+    borderColor: Palette.white,
   },
   searchContainer: {
     flexDirection: "row",
@@ -552,7 +553,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 14,
     width: "100%",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 4,

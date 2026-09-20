@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { DefaultWorkspaceColor } from "@/shared/constants/categoryColors";
 
 import type {
   Checklist,
@@ -232,7 +233,7 @@ export function useTodaySelectors({
       return {
         id: INBOX_WORKSPACE_ID,
         name: "Inbox",
-        color: "#6366F1",
+        color: DefaultWorkspaceColor.dark,
         revision: 1,
         lifecycleGeneration: 1,
         createdAt: Date.now(),

@@ -1,4 +1,9 @@
 import {
+  DefaultWorkspaceColor,
+  WorkspaceSwatchColors,
+} from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
+import {
   HabitRepository,
   TaskRepository,
   WorkspaceRepository,
@@ -96,7 +101,9 @@ export function WorkspaceModal({
     "emoji" | "icon"
   >("emoji");
   const [workspaceIconInput, setWorkspaceIconInput] = useState("briefcase");
-  const [workspaceColorInput, setWorkspaceColorInput] = useState("#6366F1");
+  const [workspaceColorInput, setWorkspaceColorInput] = useState(
+    DefaultWorkspaceColor.dark,
+  );
   const [workspaceDescriptionInput, setWorkspaceDescriptionInput] = useState("");
 
   // Populate inputs when visible or editingWorkspaceId changes
@@ -110,7 +117,7 @@ export function WorkspaceModal({
           setWorkspaceIconTypeInput(isIcon ? "icon" : "emoji");
           setWorkspaceIconInput(workspace.icon || "briefcase");
           setWorkspaceEmojiInput(workspace.emoji || "📁");
-          setWorkspaceColorInput(workspace.color || "#6366F1");
+          setWorkspaceColorInput(workspace.color || DefaultWorkspaceColor.dark);
           setWorkspaceDescriptionInput(workspace.description || "");
         }
       } else {
@@ -118,7 +125,7 @@ export function WorkspaceModal({
         setWorkspaceIconTypeInput("emoji");
         setWorkspaceEmojiInput("📚");
         setWorkspaceIconInput("briefcase");
-        setWorkspaceColorInput("#6366F1");
+        setWorkspaceColorInput(DefaultWorkspaceColor.dark);
         setWorkspaceDescriptionInput("");
       }
     }
@@ -572,16 +579,7 @@ export function WorkspaceModal({
               flexWrap: "wrap",
             }}
           >
-            {[
-              "#6366F1",
-              "#10B981",
-              "#F59E0B",
-              "#3B82F6",
-              "#EC4899",
-              "#8B5CF6",
-              "#EF4444",
-              "#14B8A6",
-            ].map((col) => {
+            {WorkspaceSwatchColors.map((col) => {
               const isSel = workspaceColorInput === col;
               return (
                 <Pressable
@@ -620,7 +618,7 @@ export function WorkspaceModal({
               >
                 <Text
                   style={{
-                    color: "#EF4444",
+                    color: Palette.red500,
                     fontWeight: "700",
                     fontSize: 13,
                   }}
@@ -646,7 +644,7 @@ export function WorkspaceModal({
             >
               <Text
                 style={{
-                  color: "#FFFFFF",
+                  color: Palette.white,
                   fontWeight: "700",
                   fontSize: 13,
                 }}

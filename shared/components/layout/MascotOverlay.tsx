@@ -1,6 +1,6 @@
 import { InteractivePebbleJar } from "@/features/profile/components/InteractivePebbleJar";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 import {
@@ -1265,7 +1265,7 @@ export function MascotOverlay() {
               y1={68}
               x2={166}
               y2={108}
-              stroke={colorScheme === "light" ? "#A78B68" : "#8C714E"}
+              stroke={colorScheme === "light" ? Palette.brown500 : Palette.brown700}
               strokeWidth={1.5}
             />
             {/* Knot at beak */}
@@ -1273,14 +1273,14 @@ export function MascotOverlay() {
               cx={181}
               cy={68}
               r={2.5}
-              fill={colorScheme === "light" ? "#A78B68" : "#8C714E"}
+              fill={colorScheme === "light" ? Palette.brown500 : Palette.brown700}
             />
             {/* Knot at card hole */}
             <Circle
               cx={166}
               cy={108}
               r={2}
-              fill={colorScheme === "light" ? "#A78B68" : "#8C714E"}
+              fill={colorScheme === "light" ? Palette.brown500 : Palette.brown700}
             />
           </Svg>
 
@@ -1452,7 +1452,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 6,
@@ -1475,7 +1475,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   suggestionButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 9.5,
     fontWeight: "800",
     textAlign: "center",
@@ -1507,7 +1507,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     padding: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: -2, height: 6 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
@@ -1550,7 +1550,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 9.5,
     fontWeight: "800",
     textAlign: "center",
@@ -1568,7 +1568,7 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: "center",
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,

@@ -1,4 +1,5 @@
 import React, { FC, FunctionComponent, useCallback, useEffect, useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import {
   ActivityIndicator,
   Platform,
@@ -344,7 +345,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
               onPress={handleOpenReview}
               haptic
               contentStyle={{
-                backgroundColor: "#F59E0B",
+                backgroundColor: Palette.amber500,
                 borderRadius: 16,
                 paddingVertical: 12,
                 paddingHorizontal: 16,
@@ -354,15 +355,15 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 gap: 8,
                 marginTop: 4,
                 marginBottom: 4,
-                shadowColor: "#F59E0B",
+                shadowColor: Palette.amber500,
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: 0.15,
                 shadowRadius: 6,
                 elevation: 2,
               }}
             >
-              <Feather name="edit-3" size={16} color="#FFFFFF" />
-              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13, letterSpacing: 0.5 }}>
+              <Feather name="edit-3" size={16} color={Palette.white} />
+              <Text style={{ color: Palette.white, fontWeight: "800", fontSize: 13, letterSpacing: 0.5 }}>
                 REVIEW MY DAY
               </Text>
             </PressableScale>
@@ -399,8 +400,8 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 elevation: 2,
               }}
             >
-              <Feather name="target" size={14} color="#FFFFFF" />
-              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12, letterSpacing: 0.5 }}>
+              <Feather name="target" size={14} color={Palette.white} />
+              <Text style={{ color: Palette.white, fontWeight: "800", fontSize: 12, letterSpacing: 0.5 }}>
                 ENTER ZEN MODE
               </Text>
             </PressableScale>
@@ -591,8 +592,8 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
           {[
             { label: "25m Focus", duration: 25, isBreak: false, icon: "zap", accent: colors.accent },
             { label: "50m Focus", duration: 50, isBreak: false, icon: "award", accent: colors.accent },
-            { label: "5m Break", duration: 5, isBreak: true, icon: "coffee", accent: "#10B981" },
-            { label: "15m Break", duration: 15, isBreak: true, icon: "sun", accent: "#F59E0B" },
+            { label: "5m Break", duration: 5, isBreak: true, icon: "coffee", accent: Palette.emerald500 },
+            { label: "15m Break", duration: 15, isBreak: true, icon: "sun", accent: Palette.amber500 },
           ].map((item) => (
             <PressableScale
               key={item.label}

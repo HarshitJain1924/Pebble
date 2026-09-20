@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import {
   Alert,
   Modal,
@@ -684,7 +685,7 @@ export function HabitDetailContent({
         style={styles.headerFlex}
         title={isEditing ? "Edit Habit" : "Habit Details"}
         onBack={onBack}
-        icon={<Feather name="activity" size={18} color="#F59E0B" />}
+        icon={<Feather name="activity" size={18} color={Palette.amber500} />}
         action={
           <TouchableOpacity
             onPress={() => {
@@ -786,15 +787,15 @@ export function HabitDetailContent({
                   styles.badge,
                   {
                     backgroundColor: "rgba(245, 158, 11, 0.12)",
-                    borderColor: "#F59E0B",
+                    borderColor: Palette.amber500,
                   },
                 ]}
               >
-                <Feather name="activity" size={12} color="#F59E0B" />
+                <Feather name="activity" size={12} color={Palette.amber500} />
                 <Text
                   style={[
                     styles.badgeText,
-                    { color: "#F59E0B", fontWeight: "700" },
+                    { color: Palette.amber500, fontWeight: "700" },
                   ]}
                 >
                   Habit
@@ -959,13 +960,13 @@ export function HabitDetailContent({
                 theme={{
                   calendarBackground: colors.card,
                   textSectionTitleColor: colors.textMuted,
-                  selectedDayBackgroundColor: "#F59E0B",
-                  selectedDayTextColor: "#ffffff",
+                  selectedDayBackgroundColor: Palette.amber500,
+                  selectedDayTextColor: Palette.white,
                   todayTextColor: colors.primary,
                   dayTextColor: colors.text,
                   textDisabledColor: `${colors.textMuted}33`,
-                  dotColor: "#F59E0B",
-                  selectedDotColor: "#ffffff",
+                  dotColor: Palette.amber500,
+                  selectedDotColor: Palette.white,
                   arrowColor: colors.primary,
                   monthTextColor: colors.text,
                   textDayFontWeight: "600",
@@ -1017,7 +1018,7 @@ export function HabitDetailContent({
                     key: "delete",
                     label: "Delete Item",
                     tone: "danger",
-                    icon: <Feather name="trash-2" size={16} color="#FFFFFF" />,
+                    icon: <Feather name="trash-2" size={16} color={Palette.white} />,
                     onPress: handleDeletePress,
                   },
                 ]}
@@ -1087,7 +1088,7 @@ export function HabitDetailContent({
                 ]}
                 onPress={() => saveChanges(false)}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                <Text style={{ color: Palette.white, fontWeight: "700" }}>
                   All occurrences
                 </Text>
               </TouchableOpacity>
@@ -1143,7 +1144,7 @@ export function HabitDetailContent({
                 ]}
                 onPress={() => deleteItem(false)}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                <Text style={{ color: Palette.white, fontWeight: "700" }}>
                   All occurrences
                 </Text>
               </TouchableOpacity>

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 
 import { getAllHistory } from "@/services/analytics/productivity-history.service";
 
@@ -24,8 +25,8 @@ export function useHabitStats() {
     completedDates.forEach((dateStr) => {
       marked[dateStr] = {
         selected: true,
-        selectedColor: "#F59E0B",
-        textColor: "#FFFFFF",
+        selectedColor: Palette.amber500,
+        textColor: Palette.white,
       };
     });
     return marked;

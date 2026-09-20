@@ -23,7 +23,7 @@ import {
 } from "@/services/storage/storage.service";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
   type RecycleBinItem
@@ -419,7 +419,7 @@ export default function RecycleBinScreen() {
           accessibilityRole="tablist"
           style={[
             styles.tabsContainer,
-            { backgroundColor: isLight ? "#E2E8F8" : "#27272A" },
+            { backgroundColor: isLight ? Palette.ice100 : Palette.zinc800 },
           ]}
         >
           {(["task", "habit", "workspace", "resource"] as const).map((tab) => {
@@ -454,7 +454,7 @@ export default function RecycleBinScreen() {
                   styles.tabButton,
                   isActive && {
                     backgroundColor: colors.background,
-                    shadowColor: "#000",
+                    shadowColor: Palette.black,
                     shadowOffset: { width: 0, height: 2 },
                     shadowOpacity: 0.1,
                     shadowRadius: 3,
@@ -595,7 +595,7 @@ export default function RecycleBinScreen() {
                           styles.badge,
                           {
                             backgroundColor: isLight
-                              ? "#F1F5F9"
+                              ? Palette.slate100
                               : "rgba(255,255,255,0.03)",
                           },
                         ]}
@@ -616,7 +616,7 @@ export default function RecycleBinScreen() {
                             styles.badge,
                             {
                               backgroundColor: isLight
-                                ? "#F1F5F9"
+                                ? Palette.slate100
                                 : "rgba(255,255,255,0.03)",
                             },
                           ]}
@@ -639,7 +639,7 @@ export default function RecycleBinScreen() {
                             styles.badge,
                             {
                               backgroundColor: isLight
-                                ? "#F1F5F9"
+                                ? Palette.slate100
                                 : "rgba(255,255,255,0.03)",
                             },
                           ]}

@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { Modal, View, Text, Pressable, TextInput, StyleSheet } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
@@ -189,7 +190,7 @@ export const ReviewMyDayModal: React.FC<ReviewMyDayModalProps> = ({
             }}
           >
             <Text
-              style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 15 }}
+              style={{ color: Palette.white, fontWeight: "800", fontSize: 15 }}
             >
               Save & Close
             </Text>

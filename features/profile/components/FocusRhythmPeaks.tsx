@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { Feather } from "@expo/vector-icons";
 
 // Cognitive flow stats interface — previously sourced from cognitive-flow.service.ts
@@ -78,7 +79,7 @@ export function FocusRhythmPeaks({
             height: 44,
             borderRadius: 14,
             backgroundColor:
-              colorScheme === "light" ? "#F1F5F9" : "#18181B",
+              colorScheme === "light" ? Palette.slate100 : Palette.zinc900,
             borderWidth: 1,
             borderColor: colors.border,
             alignItems: "center",
@@ -147,7 +148,7 @@ export function FocusRhythmPeaks({
               height: 6,
               borderRadius: 3,
               backgroundColor:
-                colorScheme === "light" ? "#F1F5F9" : "#18181B",
+                colorScheme === "light" ? Palette.slate100 : Palette.zinc900,
               overflow: "hidden",
             }}
           >
@@ -192,7 +193,7 @@ export function FocusRhythmPeaks({
               height: 6,
               borderRadius: 3,
               backgroundColor:
-                colorScheme === "light" ? "#F1F5F9" : "#18181B",
+                colorScheme === "light" ? Palette.slate100 : Palette.zinc900,
               overflow: "hidden",
             }}
           >
@@ -237,7 +238,7 @@ export function FocusRhythmPeaks({
               height: 6,
               borderRadius: 3,
               backgroundColor:
-                colorScheme === "light" ? "#F1F5F9" : "#18181B",
+                colorScheme === "light" ? Palette.slate100 : Palette.zinc900,
               overflow: "hidden",
             }}
           >
@@ -245,7 +246,7 @@ export function FocusRhythmPeaks({
               style={{
                 height: "100%",
                 width: `${cognitiveFlowStats.eveningPct}%`,
-                backgroundColor: "#F59E0B",
+                backgroundColor: Palette.amber500,
               }}
             />
           </View>

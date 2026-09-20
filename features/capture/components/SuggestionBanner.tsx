@@ -4,7 +4,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { resolveSuggestion, type SmartSuggestion } from "@/features/capture/services/suggestions.service";
 import { Task, type Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
@@ -71,7 +71,7 @@ export function SuggestionBanner({
               gap: 10,
             }}
           >
-            <Feather name="zap" size={18} color="#6366F1" />
+            <Feather name="zap" size={18} color={Palette.indigo500} />
             <View style={{ flex: 1 }}>
               <Text
                 style={{
@@ -166,14 +166,14 @@ export function SuggestionBanner({
                 await loadSuggestions();
               }}
               style={{
-                backgroundColor: "#6366F1",
+                backgroundColor: Palette.indigo500,
                 paddingHorizontal: 12,
                 paddingVertical: 6,
                 borderRadius: 10,
               }}
             >
               <Text
-                style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "700" }}
+                style={{ color: Palette.white, fontSize: 11, fontWeight: "700" }}
               >
                 Accept
               </Text>

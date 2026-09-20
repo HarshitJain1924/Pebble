@@ -17,7 +17,7 @@ import { emitStateChange } from "@/services/events/state-events";
 import type { Task, Habit, Checklist } from "@/shared/types/domain.types";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Spacing } from "@/shared/constants/spacing";
 
@@ -599,7 +599,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   modalDoneBtnText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 14,
     fontWeight: "700",
   },

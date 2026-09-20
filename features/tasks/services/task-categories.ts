@@ -1,3 +1,10 @@
+import {
+  DefaultWorkspaceColor,
+  TaskCategoryColors,
+  UnknownCategoryColor,
+  UnknownCategoryTint,
+} from "@/shared/constants/categoryColors";
+
 export const TASK_CATEGORY_KEYS = [
   "work",
   "personal",
@@ -19,62 +26,34 @@ export type TaskCategoryMeta = {
   tint: string;
 };
 
-const TASK_CATEGORY_META_RECORD: Record<TaskCategory, TaskCategoryMeta> = {
-  work: {
-    label: "Work",
-    icon: "briefcase",
-    color: "#5E81F4",
-    tint: "rgba(94, 129, 244, 0.12)",
-  },
-  personal: {
-    label: "Personal",
-    icon: "user",
-    color: "#8E8CD8",
-    tint: "rgba(142, 140, 216, 0.12)",
-  },
-  health: {
-    label: "Health",
-    icon: "activity",
-    color: "#4CAF7D",
-    tint: "rgba(76, 175, 125, 0.12)",
-  },
-  learning: {
-    label: "Learning",
-    icon: "book-open",
-    color: "#FFB74D",
-    tint: "rgba(255, 183, 77, 0.12)",
-  },
-  finance: {
-    label: "Finance",
-    icon: "wallet",
-    color: "#81C784",
-    tint: "rgba(129, 199, 132, 0.12)",
-  },
-  creative: {
-    label: "Creative",
-    icon: "feather",
-    color: "#E57373",
-    tint: "rgba(229, 115, 115, 0.12)",
-  },
-  travel: {
-    label: "Travel",
-    icon: "map-pin",
-    color: "#64B5F6",
-    tint: "rgba(100, 181, 246, 0.12)",
-  },
-  home: {
-    label: "Home",
-    icon: "home",
-    color: "#A1887F",
-    tint: "rgba(161, 136, 127, 0.12)",
-  },
-  focus: {
-    label: "Focus",
-    icon: "target",
-    color: "#818CF8",
-    tint: "rgba(129, 140, 248, 0.12)",
-  },
+/**
+ * Category presentation = icon/label (local) + color (single source of truth).
+ * Color values live in `shared/constants/categoryColors.ts`; the keys here are
+ * statically checked against that map so the two can never drift apart.
+ */
+const TASK_CATEGORY_PRESENTATION: Record<TaskCategory, { label: string; icon: string }> = {
+  work: { label: "Work", icon: "briefcase" },
+  personal: { label: "Personal", icon: "user" },
+  health: { label: "Health", icon: "activity" },
+  learning: { label: "Learning", icon: "book-open" },
+  finance: { label: "Finance", icon: "wallet" },
+  creative: { label: "Creative", icon: "feather" },
+  travel: { label: "Travel", icon: "map-pin" },
+  home: { label: "Home", icon: "home" },
+  focus: { label: "Focus", icon: "target" },
 };
+
+const TASK_CATEGORY_META_RECORD: Record<TaskCategory, TaskCategoryMeta> = TASK_CATEGORY_KEYS.reduce(
+  (acc, key) => {
+    acc[key] = {
+      ...TASK_CATEGORY_PRESENTATION[key],
+      color: TaskCategoryColors[key].color.dark,
+      tint: TaskCategoryColors[key].tint.dark,
+    };
+    return acc;
+  },
+  {} as Record<TaskCategory, TaskCategoryMeta>,
+);
 
 export const TASK_CATEGORY_META_ARRAY = TASK_CATEGORY_KEYS.map((key) => {
   const meta = TASK_CATEGORY_META_RECORD[key];
@@ -114,7 +93,7 @@ export function getCategoryMeta(category?: string): TaskCategoryMeta | null {
 }
 
 export function getCategoryColor(category?: string): string {
-  return getCategoryMeta(category)?.color ?? "#A1A1AA";
+  return getCategoryMeta(category)?.color ?? UnknownCategoryColor.dark;
 }
 
 export function getCategoryIcon(category?: string): string {
@@ -122,8 +101,11 @@ export function getCategoryIcon(category?: string): string {
 }
 
 export function getCategoryTint(category?: string): string {
-  return getCategoryMeta(category)?.tint ?? "rgba(161, 161, 170, 0.12)";
+  return getCategoryMeta(category)?.tint ?? UnknownCategoryTint.dark;
 }
+
+/** Default accent for a workspace with no explicit color. */
+export const DEFAULT_WORKSPACE_ACCENT = DefaultWorkspaceColor.dark;
 
 // For backwards caller support:
 export function getTaskCategoryMeta(category: TaskCategory) {

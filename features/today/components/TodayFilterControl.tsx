@@ -11,7 +11,7 @@ import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Radius } from "@/shared/constants/radii";
-import type { ThemeColors } from "@/shared/constants/theme";
+import { Palette, type ThemeColors } from "@/shared/constants/theme";
 import type { Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { TodaySearchControl } from "@/features/today/components/TodaySearchControl";
@@ -732,7 +732,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   applyButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "800",
   },

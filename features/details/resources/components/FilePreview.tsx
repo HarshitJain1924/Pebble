@@ -1,4 +1,5 @@
 import React, { useCallback } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet, TouchableOpacity } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { Feather } from "@expo/vector-icons";
@@ -95,7 +96,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ attachments }) => {
               onPress={() => handleOpen(att)}
               activeOpacity={0.85}
             >
-              <Feather name="external-link" size={14} color="#FFF" style={{ marginRight: 6 }} />
+              <Feather name="external-link" size={14} color={Palette.white} style={{ marginRight: 6 }} />
               <Text style={styles.docOpenBtnText}>Open File</Text>
             </TouchableOpacity>
           </View>
@@ -134,7 +135,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   imageName: {
-    color: "#FFF",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "600",
     flex: 1,
@@ -182,7 +183,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   docOpenBtnText: {
-    color: "#FFF",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "700",
   },

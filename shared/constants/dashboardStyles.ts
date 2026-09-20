@@ -1,4 +1,5 @@
 import { Dimensions, Platform, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_GAP = 10;
@@ -85,7 +86,7 @@ export const styles = StyleSheet.create({
   profileHeaderBadgeText: {
     fontSize: 8,
     fontWeight: "800",
-    color: "#ffffff",
+    color: Palette.white,
     lineHeight: 12,
   },
 
@@ -252,7 +253,7 @@ export const styles = StyleSheet.create({
     borderRadius: 12,
   },
   segmentActive: {
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,

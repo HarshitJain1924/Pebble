@@ -1,4 +1,5 @@
 import React, { useRef } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { Modal, View, Pressable, ScrollView, StyleSheet } from "react-native";
 import { Feather, AntDesign } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -199,7 +200,7 @@ export const MusicPlayerModal: React.FC<MusicPlayerModalProps> = ({
             {/* Album Art Cover */}
             <View style={[styles.albumArtContainer, { backgroundColor: metadata.gradient[0] }]}>
               <View style={styles.albumArtOverlay} />
-              <Feather name={metadata.icon as any} size={48} color="#ffffff" />
+              <Feather name={metadata.icon as any} size={48} color={Palette.white} />
             </View>
 
             {/* Metadata Row (Title, Artist, Heart) */}
@@ -293,7 +294,7 @@ export const MusicPlayerModal: React.FC<MusicPlayerModalProps> = ({
                 <Feather
                   name={isPlaying ? "pause" : "play"}
                   size={24}
-                  color="#ffffff"
+                  color={Palette.white}
                   style={{ marginLeft: isPlaying ? 0 : 2 }}
                 />
               </Pressable>
@@ -407,7 +408,7 @@ export const MusicPlayerModal: React.FC<MusicPlayerModalProps> = ({
                 >
                   {/* Mini artwork */}
                   <View style={[styles.miniArtwork, { backgroundColor: soundMeta.gradient[0] }]}>
-                    <Feather name={soundMeta.icon as any} size={16} color="#ffffff" />
+                    <Feather name={soundMeta.icon as any} size={16} color={Palette.white} />
                   </View>
 
                   <View style={{ flex: 1, gap: 2 }}>
@@ -508,7 +509,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
@@ -586,7 +587,7 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -628,7 +629,7 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     elevation: 2,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1.5,

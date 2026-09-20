@@ -9,6 +9,7 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
+import { AmbientColors } from "@/shared/constants/categoryColors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
@@ -222,13 +223,13 @@ export function AnimatedMeshLayer() {
 
   // Dynamic light-safe pastel colors to prevent muddy smudges in light mode
   const orbColors = isLight ? {
-    indigo: "#B0BAFF", // Beautiful rich pastel indigo
-    purple: "#E2C4FF", // Beautiful rich pastel purple
-    cyan: "#AFF5F9",   // Beautiful rich pastel cyan
+    indigo: AmbientColors.indigo.light, // Beautiful rich pastel indigo
+    purple: AmbientColors.purple.light, // Beautiful rich pastel purple
+    cyan: AmbientColors.cyan.light,   // Beautiful rich pastel cyan
   } : {
     indigo: colors.primary,
-    purple: "#8B5CF6",
-    cyan: "#06B6D4",
+    purple: AmbientColors.purple.dark,
+    cyan: AmbientColors.cyan.dark,
   };
 
   const opacities = isLight ? {

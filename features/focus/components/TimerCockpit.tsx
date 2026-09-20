@@ -7,7 +7,7 @@ import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import { PebbleProgressRing } from "@/shared/components/ui/PebbleProgressRing";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 
 /**
  * Safely converts a hex or rgb/rgba color string to rgba with the specified alpha.
@@ -36,7 +36,7 @@ function toRgba(color: string, alpha: number): string {
  * Generates solid editorial surface colors adhering to the theme system.
  */
 function blendSurface(baseHex: string, accentHex: string, opacity: number): string {
-  if (!baseHex || !accentHex) return baseHex || accentHex || "#1C1C21";
+  if (!baseHex || !accentHex) return baseHex || accentHex || Colors.dark.card;
   const parse = (hex: string) => {
     const clean = hex.replace("#", "");
     if (clean.length === 3) {
@@ -148,8 +148,8 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
 
   // Editorial Session Surface Palette derived from theme tokens
   const baseSurface = isDark
-    ? activeColors.background || theme.background || "#121215"
-    : activeColors.card || theme.card || "#FFFFFF";
+    ? activeColors.background || theme.background
+    : activeColors.card || theme.card;
 
   const surfaceBg = isDark
     ? isBreakMode
@@ -262,7 +262,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             showText={false}
             color={
               isCompleted
-                ? activeColors.success || colors.success || "#10B981"
+                ? activeColors.success || colors.success
                 : pomodoroMode === "work"
                 ? activeColors.primary
                 : activeColors.success
@@ -279,12 +279,12 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 <Feather
                   name="check-circle"
                   size={isCompact ? 26 : 32}
-                  color={colors.success || activeColors.success || "#10B981"}
+                  color={colors.success || activeColors.success}
                 />
                 <Text
                   style={[
                     styles.completedTitle,
-                    { color: colors.success || activeColors.success || "#10B981" },
+                    { color: colors.success || activeColors.success },
                   ]}
                 >
                   FOCUS COMPLETE
@@ -417,7 +417,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               },
             ]}
           >
-            <Feather name="rotate-ccw" size={16} color="#ffffff" />
+            <Feather name="rotate-ccw" size={16} color={Palette.white} />
             <Text style={styles.primaryBtnText}>Start next session</Text>
           </Pressable>
           <Pressable
@@ -449,12 +449,12 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             <Feather
               name="coffee"
               size={15}
-              color={colors.success || activeColors.success || "#10B981"}
+              color={colors.success || activeColors.success}
             />
             <Text
               style={[
                 styles.completedBreakText,
-                { color: colors.success || activeColors.success || "#10B981" },
+                { color: colors.success || activeColors.success },
               ]}
             >
               Take a break
@@ -484,7 +484,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 },
               ]}
             >
-              <Feather name={isActive ? "pause" : "play"} size={16} color="#ffffff" />
+              <Feather name={isActive ? "pause" : "play"} size={16} color={Palette.white} />
               <Text style={styles.primaryBtnText}>
                 {isActive ? "Pause" : pomodoroMode === "work" ? "Start Focus" : "Start Break"}
               </Text>
@@ -504,7 +504,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 },
               ]}
             >
-              <Feather name={swRunning ? "pause" : "play"} size={16} color="#ffffff" />
+              <Feather name={swRunning ? "pause" : "play"} size={16} color={Palette.white} />
               <Text style={styles.primaryBtnText}>{swRunning ? "Pause" : "Start"}</Text>
             </Pressable>
           )}
@@ -568,7 +568,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 >
                   <Text
                     style={{
-                      color: isSelected ? "#ffffff" : colors.textMuted,
+                      color: isSelected ? Palette.white : colors.textMuted,
                       fontWeight: isSelected ? "700" : "600",
                       fontSize: 13,
                     }}
@@ -603,7 +603,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
             >
               <Text
                 style={{
-                  color: showCustomInput ? "#ffffff" : colors.textMuted,
+                  color: showCustomInput ? Palette.white : colors.textMuted,
                   fontWeight: showCustomInput ? "700" : "600",
                   fontSize: 13,
                 }}
@@ -708,7 +708,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
                 >
                   <Text
                     style={{
-                      color: isSelected ? "#ffffff" : colors.textMuted,
+                      color: isSelected ? Palette.white : colors.textMuted,
                       fontWeight: isSelected ? "700" : "600",
                       fontSize: 13,
                     }}
@@ -874,7 +874,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   primaryBtnText: {
-    color: "#ffffff",
+    color: Palette.white,
     fontWeight: "700",
     fontSize: 16,
     letterSpacing: 0.3,

@@ -8,7 +8,14 @@ import { type Router } from "expo-router";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Radius } from "@/shared/constants/radii";
-import { type ThemeColors } from "@/shared/constants/theme";
+import {
+  PriorityColors,
+  StreakColors,
+  getCategoryColors,
+  getStreamResourceStyle,
+  resolveColor,
+} from "@/shared/constants/categoryColors";
+import { Palette, type ThemeColors } from "@/shared/constants/theme";
 import { type Checklist, type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
 import {
   isTaskCompleted,
@@ -24,14 +31,14 @@ import {
 
 /**
  * Pebble Canonical Priority Color Scale
- * High: Crimson (#EF4444)
- * Medium: Amber (#F59E0B)
- * Low: Slate (#64748B)
+ * High: Crimson (PriorityColors.high)
+ * Medium: Amber (PriorityColors.medium)
+ * Low: Slate (PriorityColors.low)
  */
 export const PRIORITY_COLORS: Record<"high" | "medium" | "low", string> = {
-  high: "#EF4444",
-  medium: "#F59E0B",
-  low: "#64748B",
+  high: PriorityColors.high.dark,
+  medium: PriorityColors.medium.dark,
+  low: PriorityColors.low.dark,
 };
 
 const getOverdueLabel = (dateStr: string) => {
@@ -191,6 +198,17 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
 }) => {
   const isDark = colorScheme !== "light";
   const priorityColor = priority ? PRIORITY_COLORS[priority] : undefined;
+  const categoryColors = getCategoryColors(isDark);
+  const streamColors = {
+    image: getStreamResourceStyle("image", isDark),
+    pdf: getStreamResourceStyle("pdf", isDark),
+    link: getStreamResourceStyle("link", isDark),
+    note: getStreamResourceStyle("note", isDark),
+  };
+  const streakColors = {
+    accent: resolveColor(StreakColors.accent, isDark),
+    surface: resolveColor(StreakColors.surface, isDark),
+  };
 
   const renderResourceVisual = () => {
     const visual = resourceVisual || { category: "note" as const, label: "Note" };
@@ -223,16 +241,12 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           style={[
             styles.resourceIconBadge,
             {
-              backgroundColor: isDark
-                ? "rgba(14, 165, 233, 0.12)"
-                : "#E0F2FE",
-              borderColor: isDark
-                ? "rgba(14, 165, 233, 0.25)"
-                : "#BAE6FD",
+              backgroundColor: streamColors.image.backgroundColor,
+              borderColor: streamColors.image.borderColor,
             },
           ]}
         >
-          <Feather name="image" size={15} color={isDark ? "#38BDF8" : "#0284C7"} />
+          <Feather name="image" size={15} color={streamColors.image.accent} />
         </View>
       );
     }
@@ -243,16 +257,12 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           style={[
             styles.resourceIconBadge,
             {
-              backgroundColor: isDark
-                ? "rgba(239, 68, 68, 0.12)"
-                : "#FEE2E2",
-              borderColor: isDark
-                ? "rgba(239, 68, 68, 0.25)"
-                : "#FECACA",
+              backgroundColor: streamColors.pdf.backgroundColor,
+              borderColor: streamColors.pdf.borderColor,
             },
           ]}
         >
-          <Feather name="file-text" size={15} color={isDark ? "#F87171" : "#DC2626"} />
+          <Feather name="file-text" size={15} color={streamColors.pdf.accent} />
         </View>
       );
     }
@@ -263,16 +273,12 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           style={[
             styles.resourceIconBadge,
             {
-              backgroundColor: isDark
-                ? "rgba(59, 130, 246, 0.12)"
-                : "#DBEAFE",
-              borderColor: isDark
-                ? "rgba(59, 130, 246, 0.25)"
-                : "#BFDBFE",
+              backgroundColor: streamColors.link.backgroundColor,
+              borderColor: streamColors.link.borderColor,
             },
           ]}
         >
-          <Feather name="link" size={15} color={isDark ? "#60A5FA" : "#2563EB"} />
+          <Feather name="link" size={15} color={streamColors.link.accent} />
         </View>
       );
     }
@@ -283,16 +289,12 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
         style={[
           styles.resourceIconBadge,
           {
-            backgroundColor: isDark
-              ? "rgba(139, 92, 246, 0.12)"
-              : "#EDE9FE",
-            borderColor: isDark
-              ? "rgba(139, 92, 246, 0.25)"
-              : "#DDD6FE",
+            backgroundColor: streamColors.note.backgroundColor,
+            borderColor: streamColors.note.borderColor,
           },
         ]}
       >
-        <Feather name="file-text" size={15} color={isDark ? "#A78BFA" : "#7C3AED"} />
+        <Feather name="file-text" size={15} color={streamColors.note.accent} />
       </View>
     );
   };
@@ -324,13 +326,13 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
             },
           ]}
         >
-          {completed && <Feather name="check" size={12} color="#ffffff" />}
+          {completed && <Feather name="check" size={12} color={Palette.white} />}
         </PressableScale>
       );
     }
 
     // Task or Habit: circular checkbox
-    const checkColor = type === "habit" ? "#10B981" : accentColor;
+    const checkColor = type === "habit" ? categoryColors.calendarEntity.habit : accentColor;
     return (
       <PressableScale
         disabled={checkboxDisabled || !onToggleComplete}
@@ -352,7 +354,7 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           },
         ]}
       >
-        {completed && <Feather name="check" size={12} color="#ffffff" />}
+        {completed && <Feather name="check" size={12} color={Palette.white} />}
       </PressableScale>
     );
   };
@@ -365,16 +367,14 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           style={[
             styles.streakChip,
             {
-              backgroundColor: isDark
-                ? "rgba(249, 115, 22, 0.14)"
-                : "#FFEDD5",
+              backgroundColor: streakColors.surface,
             },
           ]}
         >
           <Text
             style={[
               styles.streakText,
-              { color: isDark ? "#FB923C" : "#C2410C" },
+              { color: streakColors.accent },
             ]}
           >
             {`🔥 ${streak}`}
@@ -562,6 +562,12 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
   toggleChecklistItemFromDashboard,
 }) => {
   const isDark = colorScheme !== "light";
+  const streamColors = {
+    image: getStreamResourceStyle("image", isDark),
+    pdf: getStreamResourceStyle("pdf", isDark),
+    link: getStreamResourceStyle("link", isDark),
+    note: getStreamResourceStyle("note", isDark),
+  };
   const [collapsedMap, setCollapsedMap] = React.useState<Record<string, boolean>>({});
   const [expandedResourceFolders, setExpandedResourceFolders] = React.useState<Record<string, boolean>>({});
 
@@ -820,14 +826,14 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                         backgroundColor: isResourcesExpanded
                           ? isDark
                             ? "rgba(14, 165, 233, 0.18)"
-                            : "#E0F2FE"
+                            : streamColors.image.backgroundColor
                           : isDark
                           ? "rgba(255, 255, 255, 0.05)"
-                          : "#F3F4F6",
+                          : colors.cardLight,
                         borderColor: isResourcesExpanded
                           ? isDark
                             ? "rgba(14, 165, 233, 0.35)"
-                            : "#BAE6FD"
+                            : streamColors.image.borderColor
                           : colors.border,
                       },
                     ]}
@@ -838,9 +844,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                         styles.resourcePillText,
                         {
                           color: isResourcesExpanded
-                            ? isDark
-                              ? "#38BDF8"
-                              : "#0284C7"
+                            ? streamColors.image.accent
                             : colors.textMuted,
                         },
                       ]}
@@ -866,7 +870,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                     {
                       backgroundColor:
                         colorScheme === "light"
-                          ? "#F3F4F6"
+                          ? colors.cardLight
                           : "rgba(255, 255, 255, 0.05)",
                       borderColor: colors.border,
                     },
@@ -890,7 +894,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                     {
                       backgroundColor:
                         colorScheme === "light"
-                          ? "#F3F4F6"
+                          ? colors.cardLight
                           : "rgba(255, 255, 255, 0.05)",
                       borderColor: colors.border,
                     },
@@ -1093,7 +1097,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                                         <Feather
                                           name="check"
                                           size={10}
-                                          color="#ffffff"
+                                          color={Palette.white}
                                         />
                                       )}
                                     </PressableScale>
@@ -1186,7 +1190,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             title={res.title || "Untitled Resource"}
                             subtitle={resSubtitle}
                             resourceVisual={visual}
-                            accentColor="#0EA5E9"
+                            accentColor={Palette.sky500}
                             colors={colors}
                             colorScheme={colorScheme}
                             onPressRow={() => {
@@ -1231,7 +1235,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                       {
                         backgroundColor:
                           colorScheme === "light"
-                            ? "#F3F4F6"
+                            ? colors.cardLight
                             : "rgba(255, 255, 255, 0.05)",
                         borderColor: colors.border,
                       },
@@ -1271,7 +1275,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     borderWidth: 1,
     padding: 16,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
     elevation: 2,

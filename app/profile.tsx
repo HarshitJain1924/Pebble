@@ -22,7 +22,7 @@ import { addStateListener, emitStateChange } from "@/services/events/state-event
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Radius } from "@/shared/constants/radii";
 import { Shadows } from "@/shared/constants/shadows";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
 import { Feather } from "@expo/vector-icons";
@@ -1009,7 +1009,7 @@ export default function ProfileScreen() {
               ]}
             >
               {savingDetails ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={Palette.white} />
               ) : (
                 <Text style={styles.primaryButtonText}>Save</Text>
               )}
@@ -1365,5 +1365,5 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 20,
   },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  primaryButtonText: { color: Palette.white, fontSize: 14, fontWeight: "700" },
 });

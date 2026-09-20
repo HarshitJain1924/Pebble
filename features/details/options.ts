@@ -1,3 +1,4 @@
+import { PriorityOptionColors } from "@/shared/constants/categoryColors";
 import { TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
 
 export interface TaskCategoryOption {
@@ -23,9 +24,9 @@ export const CATEGORY_OPTIONS: TaskCategoryOption[] = TASK_CATEGORY_META.map(
 );
 
 export const PRIORITY_OPTIONS: TaskPriorityOption[] = [
-  { key: "low", label: "Low", color: "#10B981" },
-  { key: "medium", label: "Medium", color: "#F59E0B" },
-  { key: "high", label: "High", color: "#EF4444" },
+  { key: "low", label: "Low", color: PriorityOptionColors.low.dark },
+  { key: "medium", label: "Medium", color: PriorityOptionColors.medium.dark },
+  { key: "high", label: "High", color: PriorityOptionColors.high.dark },
 ];
 
 export function getCategoryMeta(category: string): TaskCategoryOption {

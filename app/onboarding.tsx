@@ -29,7 +29,7 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { ScreenSwipeWrapper } from "@/shared/components/layout/ScreenSwipeWrapper";
 import PressableScale from "@/shared/components/ui/PressableScale";
@@ -248,12 +248,12 @@ function PebbleJarIllustration() {
 
         {/* Existing baseline pebbles */}
         <View style={[styles.pebble, { bottom: 8, left: 10, transform: [{ rotate: "10deg" }], width: 22, height: 14, opacity: 0.4 }]} />
-        <View style={[styles.pebble, { bottom: 6, right: 12, transform: [{ rotate: "-15deg" }], width: 20, height: 13, opacity: 0.4, backgroundColor: "#A78BFA" }]} />
+        <View style={[styles.pebble, { bottom: 6, right: 12, transform: [{ rotate: "-15deg" }], width: 20, height: 13, opacity: 0.4, backgroundColor: Palette.violet400 }]} />
 
         {/* Falling pebbles */}
-        <Animated.View style={[styles.pebble, { left: 35, backgroundColor: "#8B5CF6" }, p1Style]} />
-        <Animated.View style={[styles.pebble, { left: 18, backgroundColor: "#A78BFA" }, p2Style]} />
-        <Animated.View style={[styles.pebble, { left: 48, backgroundColor: "#C4B5FD" }, p3Style]} />
+        <Animated.View style={[styles.pebble, { left: 35, backgroundColor: Palette.violet500 }, p1Style]} />
+        <Animated.View style={[styles.pebble, { left: 18, backgroundColor: Palette.violet400 }, p2Style]} />
+        <Animated.View style={[styles.pebble, { left: 48, backgroundColor: Palette.violet300 }, p3Style]} />
 
         {/* Ripples & Impact Glows */}
         <Animated.View style={[styles.jarRipple, rippleStyle]} />
@@ -355,8 +355,8 @@ function PebbleCaptureIllustration() {
 
     if (t > 0.58) {
       scale = interpolate(t, [0.58, 0.66, 0.74], [0.5, 1.1, 1], "clamp");
-      backgroundColor = "#8B5CF6";
-      borderColor = "#8B5CF6";
+      backgroundColor = Palette.violet500;
+      borderColor = Palette.violet500;
     }
 
     return {
@@ -381,7 +381,7 @@ function PebbleCaptureIllustration() {
       {/* Microphone Waveform */}
       <Animated.View style={[styles.waveContainer, waveContainerStyle]}>
         <View style={styles.micCircle}>
-          <Feather name="mic" size={20} color="#fff" />
+          <Feather name="mic" size={20} color={Palette.white} />
         </View>
         <View style={styles.equalizerRow}>
           <EqBar h={h1} />
@@ -402,7 +402,7 @@ function PebbleCaptureIllustration() {
         <View style={styles.taskCardCheckboxOutline}>
           <Animated.View style={[styles.taskCardCheckboxFill, checkStyle]}>
             <Animated.View style={checkIconStyle}>
-              <Feather name="check" size={10} color="#fff" />
+              <Feather name="check" size={10} color={Palette.white} />
             </Animated.View>
           </Animated.View>
         </View>
@@ -464,20 +464,20 @@ function FocusIllustration() {
 
       {/* Orbit Track 1: Outer (Clockwise) */}
       <Animated.View style={[StyleSheet.absoluteFillObject, orbitStyle, { justifyContent: "center", alignItems: "center" }]}>
-        <View style={[styles.orbitPebble, { top: 10, backgroundColor: "#8B5CF6", width: 10, height: 10, borderRadius: 5 }]} />
+        <View style={[styles.orbitPebble, { top: 10, backgroundColor: Palette.violet500, width: 10, height: 10, borderRadius: 5 }]} />
         <View style={[styles.orbitPebbleTail, { top: 7, left: "53%", width: 6, height: 6, borderRadius: 3, opacity: 0.55 }]} />
         <View style={[styles.orbitPebbleTail, { top: 5, left: "56%", width: 4, height: 4, borderRadius: 2, opacity: 0.25 }]} />
       </Animated.View>
 
       {/* Orbit Track 2: Inner (Counter-Clockwise) */}
       <Animated.View style={[StyleSheet.absoluteFillObject, orbitStyleOpposite, { justifyContent: "center", alignItems: "center" }]}>
-        <View style={[styles.orbitPebble, { bottom: 27, left: 27, backgroundColor: "#C4B5FD", width: 8, height: 8, borderRadius: 4 }]} />
+        <View style={[styles.orbitPebble, { bottom: 27, left: 27, backgroundColor: Palette.violet300, width: 8, height: 8, borderRadius: 4 }]} />
         <View style={[styles.orbitPebbleTail, { bottom: 35, left: 22, width: 5, height: 5, borderRadius: 2.5, opacity: 0.35 }]} />
       </Animated.View>
 
       {/* Central Breathing Orb */}
       <Animated.View style={[styles.innerOrb, orbStyle]}>
-        <Feather name="target" size={24} color="#fff" />
+        <Feather name="target" size={24} color={Palette.white} />
         <Text style={styles.orbText}>25:00</Text>
       </Animated.View>
     </View>
@@ -907,7 +907,7 @@ export default function OnboardingScreen() {
                   haptic
                 >
                   <Text style={styles.nextText}>Next</Text>
-                  <Feather name="arrow-right" size={14} color="#fff" />
+                  <Feather name="arrow-right" size={14} color={Palette.white} />
                 </PressableScale>
               </>
             ) : (
@@ -918,7 +918,7 @@ export default function OnboardingScreen() {
                 haptic
               >
                 <Text style={styles.startText}>Start Building Momentum</Text>
-                <Feather name="check" size={16} color="#fff" />
+                <Feather name="check" size={16} color={Palette.white} />
               </PressableScale>
             )}
           </View>
@@ -982,7 +982,7 @@ const styles = StyleSheet.create({
   dot: {
     height: 6,
     borderRadius: 3,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
   },
@@ -1008,13 +1008,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 24,
     elevation: 2,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
   nextText: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 14,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1026,13 +1026,13 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     elevation: 3,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
   startText: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 15,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1127,10 +1127,10 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: Palette.violet500,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
@@ -1145,7 +1145,7 @@ const styles = StyleSheet.create({
   eqBar: {
     width: 3,
     borderRadius: 1.5,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: Palette.violet500,
   },
   transcribeBubble: {
     position: "absolute",
@@ -1157,14 +1157,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 16,
     borderBottomLeftRadius: 2,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 4,
   },
   transcribeText: {
     fontSize: 12,
-    color: "#C4B5FD",
+    color: Palette.violet300,
     fontWeight: "500", // Maps to Outfit_500Medium
   },
   outputTaskCard: {
@@ -1173,14 +1173,14 @@ const styles = StyleSheet.create({
     width: 190,
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#1C1C21",
+    backgroundColor: Colors.dark.card,
     borderColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 8,
@@ -1191,7 +1191,7 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     borderWidth: 1.5,
-    borderColor: "#8B5CF6",
+    borderColor: Palette.violet500,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -1204,7 +1204,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   taskCardTitle: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1216,7 +1216,7 @@ const styles = StyleSheet.create({
   },
   taskCardTagText: {
     fontSize: 9,
-    color: "#A78BFA",
+    color: Palette.violet400,
     fontWeight: "600", // Maps to Outfit_600SemiBold
   },
   taskCardTime: {
@@ -1243,7 +1243,7 @@ const styles = StyleSheet.create({
   },
   orbitPebble: {
     position: "absolute",
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.65,
     shadowRadius: 4,
@@ -1256,18 +1256,18 @@ const styles = StyleSheet.create({
     width: 90,
     height: 90,
     borderRadius: 45,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: Palette.violet500,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 5,
   },
   orbText: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 15,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1294,7 +1294,7 @@ const styles = StyleSheet.create({
     borderRadius: 70,
     backgroundColor: "rgba(139, 92, 246, 0.15)",
     zIndex: 1,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,
     shadowRadius: 24,
@@ -1304,7 +1304,7 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#C4B5FD",
+    backgroundColor: Palette.violet300,
     zIndex: 3,
   },
 });

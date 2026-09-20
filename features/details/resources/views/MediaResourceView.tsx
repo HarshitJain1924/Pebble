@@ -12,7 +12,7 @@ import * as Haptics from "expo-haptics";
 
 import type { Resource, Attachment } from "@/shared/types/domain.types";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Spacing } from "@/shared/constants/spacing";
 import { openAttachmentFile } from "@/features/resources/utils/fileOpener";
@@ -101,7 +101,7 @@ export const MediaResourceView: React.FC<MediaResourceViewProps> = ({
                 onError={() => setImageError(true)}
               />
               <View style={[styles.zoomPill, { backgroundColor: "rgba(0,0,0,0.65)" }]}>
-                <Feather name="maximize-2" size={13} color="#FFFFFF" />
+                <Feather name="maximize-2" size={13} color={Palette.white} />
                 <Text style={styles.zoomText}>View Full Size</Text>
               </View>
             </View>
@@ -127,7 +127,7 @@ export const MediaResourceView: React.FC<MediaResourceViewProps> = ({
             onPress={handleOpenOriginal}
             activeOpacity={0.85}
           >
-            <Feather name="external-link" size={16} color="#FFFFFF" />
+            <Feather name="external-link" size={16} color={Palette.white} />
             <Text style={styles.openDocBtnText}>Open Document</Text>
           </TouchableOpacity>
         </View>
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 230,
     position: "relative",
-    backgroundColor: "#000000",
+    backgroundColor: Palette.black,
   },
   heroImage: {
     width: "100%",
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   zoomText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 11,
     fontWeight: "700",
   },
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   openDocBtnText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -406,7 +406,7 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   captionSaveText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "700",
   },

@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { StyleSheet, View, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Animated, {
@@ -27,7 +28,7 @@ export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
   onStart,
   onStop,
   onCancel,
-  themePrimary = "#8B5CF6",
+  themePrimary = Palette.violet500,
 }: VoiceCaptureButtonProps) {
   const idleScale = useSharedValue(1);
 
@@ -85,16 +86,16 @@ export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
   const renderIcon = () => {
     switch (status) {
       case "listening":
-        return <Feather name="square" size={18} color="#fff" />;
+        return <Feather name="square" size={18} color={Palette.white} />;
       case "processing":
-        return <ActivityIndicator size="small" color="#fff" />;
+        return <ActivityIndicator size="small" color={Palette.white} />;
       case "completed":
-        return <Feather name="check" size={20} color="#fff" />;
+        return <Feather name="check" size={20} color={Palette.white} />;
       case "error":
-        return <Feather name="alert-circle" size={20} color="#fff" />;
+        return <Feather name="alert-circle" size={20} color={Palette.white} />;
       case "idle":
       default:
-        return <Feather name="mic" size={20} color="#fff" />;
+        return <Feather name="mic" size={20} color={Palette.white} />;
     }
   };
 
@@ -102,13 +103,13 @@ export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
   const getButtonBgColor = () => {
     switch (status) {
       case "listening":
-        return "#EF4444"; // Red for recording
+        return Palette.red500; // Red for recording
       case "error":
-        return "#DC2626"; // Dark Red for error
+        return Palette.red600; // Dark Red for error
       case "completed":
-        return "#10B981"; // Green for completed
+        return Palette.emerald500; // Green for completed
       case "processing":
-        return "#6366F1"; // Indigo/Purple for processing
+        return Palette.indigo500; // Indigo/Purple for processing
       case "idle":
       default:
         return themePrimary; // Brand purple
@@ -214,7 +215,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
@@ -238,6 +239,6 @@ const styles = StyleSheet.create({
   eqBar: {
     width: 2.5,
     borderRadius: 1.25,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
   },
 });

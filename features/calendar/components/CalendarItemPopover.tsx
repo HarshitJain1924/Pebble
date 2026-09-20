@@ -1,4 +1,6 @@
 import React, { useMemo } from "react";
+import { Palette } from "@/shared/constants/theme";
+import { PriorityColors } from "@/shared/constants/categoryColors";
 import { View, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -106,7 +108,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
           style={[
             styles.card,
             {
-              backgroundColor: isLight ? "#FFFFFF" : colors.card,
+              backgroundColor: isLight ? Palette.white : colors.card,
               borderColor: isLight ? "rgba(0,0,0,0.08)" : config.borderColor,
             },
           ]}
@@ -149,7 +151,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
               style={[
                 styles.closeButton,
                 {
-                  backgroundColor: isLight ? "#F1F5F9" : "rgba(255,255,255,0.06)",
+                  backgroundColor: isLight ? Palette.slate100 : "rgba(255,255,255,0.06)",
                 },
               ]}
             >
@@ -178,7 +180,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                 )}
                 {isCompleted && (
                   <View style={styles.completedStatusPill}>
-                    <Feather name="check" size={11} color="#10B981" />
+                    <Feather name="check" size={11} color={Palette.emerald500} />
                     <Text style={styles.completedStatusText}>Completed</Text>
                   </View>
                 )}
@@ -196,7 +198,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                 </View>
                 {isCompleted && (
                   <View style={styles.completedStatusPill}>
-                    <Feather name="check" size={11} color="#10B981" />
+                    <Feather name="check" size={11} color={Palette.emerald500} />
                     <Text style={styles.completedStatusText}>Done today</Text>
                   </View>
                 )}
@@ -237,7 +239,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                         }%`,
                         backgroundColor:
                           isCompleted || (totalItems > 0 && completedItems === totalItems)
-                            ? "#10B981"
+                            ? Palette.emerald500
                             : config.accent,
                       },
                     ]}
@@ -251,7 +253,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                         <Feather
                           name={it.completed ? "check-circle" : "circle"}
                           size={12}
-                          color={it.completed ? "#10B981" : colors.textMuted}
+                          color={it.completed ? Palette.emerald500 : colors.textMuted}
                         />
                         <Text
                           style={[
@@ -322,7 +324,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                   styles.primaryButton,
                   {
                     backgroundColor: isCompleted
-                      ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.1)"
+                      ? isLight ? Palette.slate100 : "rgba(255,255,255,0.1)"
                       : config.accent,
                   },
                 ]}
@@ -330,12 +332,12 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                 <Feather
                   name={isCompleted ? "rotate-ccw" : "check"}
                   size={14}
-                  color={isCompleted ? colors.text : "#FFFFFF"}
+                  color={isCompleted ? colors.text : Palette.white}
                 />
                 <Text
                   style={[
                     styles.primaryButtonText,
-                    { color: isCompleted ? colors.text : "#FFFFFF" },
+                    { color: isCompleted ? colors.text : Palette.white },
                   ]}
                 >
                   {isCompleted ? "Mark incomplete" : "Complete"}
@@ -355,7 +357,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                   styles.primaryButton,
                   {
                     backgroundColor: isCompleted
-                      ? isLight ? "#F1F5F9" : "rgba(255,255,255,0.1)"
+                      ? isLight ? Palette.slate100 : "rgba(255,255,255,0.1)"
                       : config.accent,
                   },
                 ]}
@@ -363,12 +365,12 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                 <Feather
                   name={isCompleted ? "rotate-ccw" : "check"}
                   size={14}
-                  color={isCompleted ? colors.text : "#FFFFFF"}
+                  color={isCompleted ? colors.text : Palette.white}
                 />
                 <Text
                   style={[
                     styles.primaryButtonText,
-                    { color: isCompleted ? colors.text : "#FFFFFF" },
+                    { color: isCompleted ? colors.text : Palette.white },
                   ]}
                 >
                   {isCompleted ? "Mark incomplete" : "Complete today"}
@@ -391,10 +393,10 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
                   },
                 ]}
               >
-                <Text style={[styles.primaryButtonText, { color: "#FFFFFF" }]}>
+                <Text style={[styles.primaryButtonText, { color: Palette.white }]}>
                   Open checklist
                 </Text>
-                <Feather name="arrow-right" size={14} color="#FFFFFF" />
+                <Feather name="arrow-right" size={14} color={Palette.white} />
               </PressableScale>
             )}
           </View>
@@ -414,7 +416,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.18,
     shadowRadius: 16,
@@ -488,12 +490,12 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: "#EF4444",
+    backgroundColor: PriorityColors.high.dark,
   },
   priorityText: {
     fontSize: 10.5,
     fontWeight: "700",
-    color: "#EF4444",
+    color: PriorityColors.high.dark,
   },
   completedStatusPill: {
     flexDirection: "row",
@@ -507,7 +509,7 @@ const styles = StyleSheet.create({
   completedStatusText: {
     fontSize: 10.5,
     fontWeight: "700",
-    color: "#10B981",
+    color: Palette.emerald500,
   },
   habitMetaPill: {
     flexDirection: "row",

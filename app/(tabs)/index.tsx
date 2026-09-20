@@ -9,7 +9,7 @@ import {
 } from "@/services/storage/storage.service";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { styles } from "@/shared/constants/dashboardStyles";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -619,7 +619,7 @@ const localStyles = StyleSheet.create({
     padding: 24,
     alignItems: "center",
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,

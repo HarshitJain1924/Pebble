@@ -6,6 +6,7 @@ import {
 import { MascotOverlay } from "@/shared/components/layout/MascotOverlay";
 import { AnimatedTabBar } from "@/shared/components/navigation/motion-tabs";
 
+import { DefaultWorkspaceColor } from "@/shared/constants/categoryColors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
@@ -58,7 +59,7 @@ export default function TabLayout() {
           emoji: ws.iconType === "icon" ? undefined : (ws.emoji || "📁"),
           icon: ws.icon,
           iconType: ws.iconType,
-          color: ws.color || "#6366F1",
+          color: ws.color || DefaultWorkspaceColor.dark,
           revision: ws.revision || 1,
           lifecycleGeneration: ws.lifecycleGeneration || 1,
           createdAt: ws.createdAt || Date.now(),

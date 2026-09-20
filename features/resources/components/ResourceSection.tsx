@@ -21,7 +21,8 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
-import { Colors } from "@/shared/constants/theme";
+import { ResourceKindColors } from "@/shared/constants/categoryColors";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { Resource, Task, Habit, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 
@@ -323,7 +324,7 @@ export function ResourceSection({
                 <Text
                   style={[
                     styles.filterPillText,
-                    { color: isActive ? "#FFFFFF" : theme.textMuted },
+                    { color: isActive ? Palette.white : theme.textMuted },
                   ]}
                 >
                   {filter.label}
@@ -375,20 +376,20 @@ export function ResourceSection({
                       transition={150}
                     />
                   ) : hasAttachment ? (
-                    <View style={[styles.iconBox, { backgroundColor: "#06B6D415" }]}>
-                      <Feather name="file-text" size={22} color="#06B6D4" />
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.file.dark}15` }]}>
+                      <Feather name="file-text" size={22} color={ResourceKindColors.file.dark} />
                     </View>
                   ) : res.type === "link" ? (
-                    <View style={[styles.iconBox, { backgroundColor: "#3B82F615" }]}>
-                      <Feather name="link" size={22} color="#3B82F6" />
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.link.dark}15` }]}>
+                      <Feather name="link" size={22} color={ResourceKindColors.link.dark} />
                     </View>
                   ) : res.type === "idea" ? (
-                    <View style={[styles.iconBox, { backgroundColor: "#EAB30815" }]}>
-                      <Feather name={"lightbulb" as any} size={22} color="#EAB308" />
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.idea.dark}15` }]}>
+                      <Feather name={"lightbulb" as any} size={22} color={ResourceKindColors.idea.dark} />
                     </View>
                   ) : (
-                    <View style={[styles.iconBox, { backgroundColor: "#8B5CF615" }]}>
-                      <Feather name="align-left" size={22} color="#8B5CF6" />
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.note.dark}15` }]}>
+                      <Feather name="align-left" size={22} color={ResourceKindColors.note.dark} />
                     </View>
                   )}
                 </View>
@@ -399,8 +400,8 @@ export function ResourceSection({
                   <View style={styles.cardTopRow}>
                     <View style={styles.typeBadgeRow}>
                       {hasAttachment ? (
-                        <View style={[styles.typeChip, { backgroundColor: isImage ? "#10B98115" : "#06B6D415" }]}>
-                          <Text style={[styles.typeChipText, { color: isImage ? "#10B981" : "#06B6D4" }]}>
+                        <View style={[styles.typeChip, { backgroundColor: `${isImage ? ResourceKindColors.image.dark : ResourceKindColors.file.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: isImage ? ResourceKindColors.image.dark : ResourceKindColors.file.dark }]}>
                             {isImage ? "Media" : "File"}
                           </Text>
                           {attachment?.size ? (
@@ -410,18 +411,18 @@ export function ResourceSection({
                           ) : null}
                         </View>
                       ) : res.type === "link" ? (
-                        <View style={[styles.typeChip, { backgroundColor: "#3B82F615" }]}>
-                          <Text style={[styles.typeChipText, { color: "#3B82F6" }]}>
+                        <View style={[styles.typeChip, { backgroundColor: `${ResourceKindColors.link.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: ResourceKindColors.link.dark }]}>
                             {attachment?.uri ? getDomain(attachment.uri) : "Link"}
                           </Text>
                         </View>
                       ) : res.type === "idea" ? (
-                        <View style={[styles.typeChip, { backgroundColor: "#EAB30815" }]}>
-                          <Text style={[styles.typeChipText, { color: "#EAB308" }]}>Idea</Text>
+                        <View style={[styles.typeChip, { backgroundColor: `${ResourceKindColors.idea.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: ResourceKindColors.idea.dark }]}>Idea</Text>
                         </View>
                       ) : (
-                        <View style={[styles.typeChip, { backgroundColor: "#8B5CF615" }]}>
-                          <Text style={[styles.typeChipText, { color: "#8B5CF6" }]}>Note</Text>
+                        <View style={[styles.typeChip, { backgroundColor: `${ResourceKindColors.note.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: ResourceKindColors.note.dark }]}>Note</Text>
                         </View>
                       )}
 
@@ -542,12 +543,12 @@ export function ResourceSection({
                     <Feather
                       name={t.icon as any}
                       size={13}
-                      color={isSelected ? "#FFFFFF" : theme.textMuted}
+                      color={isSelected ? Palette.white : theme.textMuted}
                     />
                     <Text
                       style={[
                         styles.typeTabPillText,
-                        { color: isSelected ? "#FFFFFF" : theme.textMuted },
+                        { color: isSelected ? Palette.white : theme.textMuted },
                       ]}
                     >
                       {t.label}
@@ -710,8 +711,8 @@ export function ResourceSection({
                   accessibilityLabel={`Link resource ${selectedResource.title} to task or habit`}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.actionIconPill, { backgroundColor: "#3B82F618" }]}>
-                    <Feather name="link-2" size={15} color="#3B82F6" />
+                  <View style={[styles.actionIconPill, { backgroundColor: `${ResourceKindColors.link.dark}18` }]}>
+                    <Feather name="link-2" size={15} color={ResourceKindColors.link.dark} />
                   </View>
                   <Text style={[styles.actionRowText, { color: theme.text }]}>Link to Task / Habit</Text>
                 </TouchableOpacity>
@@ -742,9 +743,9 @@ export function ResourceSection({
                   activeOpacity={0.7}
                 >
                   <View style={[styles.actionIconPill, { backgroundColor: "rgba(239,68,68,0.15)" }]}>
-                    <Feather name="trash-2" size={15} color="#EF4444" />
+                    <Feather name="trash-2" size={15} color={Palette.red500} />
                   </View>
-                  <Text style={[styles.actionRowText, { color: "#EF4444", fontWeight: "700" }]}>Delete</Text>
+                  <Text style={[styles.actionRowText, { color: Palette.red500, fontWeight: "700" }]}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1117,7 +1118,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   emptyAddBtnText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1199,7 +1200,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   savePillBtnText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 14,
     fontWeight: "800",
   },

@@ -1,5 +1,7 @@
 import React from "react";
 import { View, Platform, StyleSheet } from "react-native";
+import { CalendarFilterColors } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
@@ -27,9 +29,9 @@ export const CalendarFilterSheet: React.FC<CalendarFilterSheetProps> = ({
   isLight,
 }) => {
   const filterOptions = [
-    { key: "task", label: "Tasks", color: "#6C63FF" },
-    { key: "habit", label: "Habits", color: "#10B981" },
-    { key: "checklist", label: "Checklists", color: "#3B82F6" },
+    { key: "task", label: "Tasks", color: CalendarFilterColors.task.dark },
+    { key: "habit", label: "Habits", color: CalendarFilterColors.habit.dark },
+    { key: "checklist", label: "Checklists", color: CalendarFilterColors.checklist.dark },
   ];
 
   return (
@@ -85,7 +87,7 @@ export const CalendarFilterSheet: React.FC<CalendarFilterSheetProps> = ({
                       backgroundColor: isActive
                         ? `${opt.color}18`
                         : isLight
-                          ? "#F1F5F9"
+                          ? Palette.slate100
                           : "rgba(255,255,255,0.02)",
                       borderColor: isActive ? opt.color : colors.border,
                     },

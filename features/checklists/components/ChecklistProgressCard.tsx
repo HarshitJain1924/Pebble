@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet, TextInput, Image, Alert, Modal, ScrollView, Linking, TouchableOpacity, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -376,7 +377,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                           <View
                             style={[
                               styles.thumbnailWrap,
-                              { backgroundColor: isLight ? "#F1F5F9" : "#27272A" },
+                              { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
                             ]}
                           >
                             <Image
@@ -392,7 +393,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                           <View
                             style={[
                               styles.thumbnailWrap,
-                              { backgroundColor: isLight ? "#F1F5F9" : "#27272A" },
+                              { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
                             ]}
                           >
                             <Feather
@@ -518,7 +519,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                         borderRadius: 12,
                         borderWidth: 1,
                         borderColor: isLinked ? colors.primary : colors.border,
-                        backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? "#F8FAFC" : "#1E1E24"),
+                        backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? Palette.slate50 : Palette.ink850),
                       }}
                       contentStyle={{
                         flexDirection: "row",
@@ -558,7 +559,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 marginTop: 6,
               }}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 13 }}>Done</Text>
+              <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 13 }}>Done</Text>
             </PressableScale>
           </View>
         </View>
@@ -713,7 +714,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 justifyContent: "center",
                 paddingVertical: 12,
                 borderRadius: 12,
-                backgroundColor: isLight ? "#F1F5F9" : "#27272A",
+                backgroundColor: isLight ? Palette.slate100 : Palette.zinc800,
               }}
             >
               <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>Cancel</Text>

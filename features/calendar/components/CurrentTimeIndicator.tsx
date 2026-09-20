@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { formatCurrentTimeLabel } from "@/features/calendar/hooks/useCalendarState";
@@ -17,7 +18,7 @@ interface CurrentTimeIndicatorProps {
   isLight: boolean;
 }
 
-const RED = "#EF4444";
+const RED = Palette.red500;
 
 export const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = React.memo(({
   hours,

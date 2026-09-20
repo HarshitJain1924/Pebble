@@ -15,7 +15,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { type Checklist, type Habit, type Resource, Task, INBOX_WORKSPACE_ID, MY_PEBBLES_WORKSPACE_ID } from "@/shared/types/domain.types";
 
@@ -296,7 +296,7 @@ export default function ArchiveScreen() {
                           styles.badge,
                           {
                             backgroundColor: isLight
-                              ? "#E2E8F8"
+                              ? Palette.ice100
                               : "rgba(255,255,255,0.03)",
                           },
                         ]}
@@ -317,7 +317,7 @@ export default function ArchiveScreen() {
                             styles.badge,
                             {
                               backgroundColor: isLight
-                                ? "#F8E2E2"
+                                ? Palette.blush100
                                 : "rgba(255,255,255,0.03)",
                             },
                           ]}
@@ -405,7 +405,7 @@ export default function ArchiveScreen() {
                           styles.badge,
                           {
                             backgroundColor: isLight
-                              ? "#E2E8F8"
+                              ? Palette.ice100
                               : "rgba(255,255,255,0.03)",
                           },
                         ]}
@@ -489,7 +489,7 @@ export default function ArchiveScreen() {
                           styles.badge,
                           {
                             backgroundColor: isLight
-                              ? "#E2E8F8"
+                              ? Palette.ice100
                               : "rgba(255,255,255,0.03)",
                           },
                         ]}
@@ -573,7 +573,7 @@ export default function ArchiveScreen() {
                           styles.badge,
                           {
                             backgroundColor: isLight
-                              ? "#E2E8F8"
+                              ? Palette.ice100
                               : "rgba(255,255,255,0.03)",
                           },
                         ]}

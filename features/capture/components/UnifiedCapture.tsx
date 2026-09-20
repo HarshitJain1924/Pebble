@@ -51,7 +51,12 @@ import * as Clipboard from "expo-clipboard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import CaptureInputBox from "@/features/capture/components/CaptureInputBox";
 import { Radius } from "@/shared/constants/radii";
-import { Colors } from "@/shared/constants/theme";
+import {
+  CaptureCategoryColors,
+  CaptureKindColors,
+  CapturePriorityColors,
+} from "@/shared/constants/categoryColors";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
@@ -97,29 +102,29 @@ const TYPE_META: Record<
   ParsedProductivityItem["type"],
   { label: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string }
 > = {
-  task: { label: "Task", icon: "edit-3", color: "#6366F1" },
-  habit: { label: "Habit", icon: "refresh-cw", color: "#10B981" },
-  checklist: { label: "List", icon: "list", color: "#3B82F6" },
-  note: { label: "Note", icon: "file-text", color: "#A855F7" },
-  link: { label: "Link", icon: "link", color: "#F59E0B" },
-  idea: { label: "Idea", icon: "zap", color: "#EC4899" },
-  file: { label: "File", icon: "paperclip", color: "#EC4899" },
+  task: { label: "Task", icon: "edit-3", color: CaptureKindColors.task.dark },
+  habit: { label: "Habit", icon: "refresh-cw", color: CaptureKindColors.habit.dark },
+  checklist: { label: "List", icon: "list", color: CaptureKindColors.checklist.dark },
+  note: { label: "Note", icon: "file-text", color: CaptureKindColors.note.dark },
+  link: { label: "Link", icon: "link", color: CaptureKindColors.link.dark },
+  idea: { label: "Idea", icon: "zap", color: CaptureKindColors.idea.dark },
+  file: { label: "File", icon: "paperclip", color: CaptureKindColors.file.dark },
 };
 
 const CATEGORY_META: Record<string, { label: string; color: string; icon: React.ComponentProps<typeof Feather>["name"] }> = {
-  work: { label: "Work", color: "#3B82F6", icon: "briefcase" },
-  personal: { label: "Personal", color: "#10B981", icon: "user" },
-  health: { label: "Health", color: "#F59E0B", icon: "activity" },
-  learning: { label: "Learning", color: "#A855F7", icon: "book-open" },
-  creative: { label: "Creative", color: "#EC4899", icon: "feather" },
-  focus: { label: "Focus", color: "#6366F1", icon: "target" },
+  work: { label: "Work", color: CaptureCategoryColors.work.dark, icon: "briefcase" },
+  personal: { label: "Personal", color: CaptureCategoryColors.personal.dark, icon: "user" },
+  health: { label: "Health", color: CaptureCategoryColors.health.dark, icon: "activity" },
+  learning: { label: "Learning", color: CaptureCategoryColors.learning.dark, icon: "book-open" },
+  creative: { label: "Creative", color: CaptureCategoryColors.creative.dark, icon: "feather" },
+  focus: { label: "Focus", color: CaptureCategoryColors.focus.dark, icon: "target" },
 };
 
 const PRIORITY_META: Record<string, { label: string; color: string }> = {
-  high: { label: "High", color: "#EF4444" },
-  medium: { label: "Medium", color: "#F59E0B" },
-  low: { label: "Low", color: "#3B82F6" },
-  none: { label: "None", color: "#9CA3AF" },
+  high: { label: "High", color: CapturePriorityColors.high.dark },
+  medium: { label: "Medium", color: CapturePriorityColors.medium.dark },
+  low: { label: "Low", color: CapturePriorityColors.low.dark },
+  none: { label: "None", color: CapturePriorityColors.none.dark },
 };
 
 function getDomainFromUrl(url: string): string {
@@ -1307,7 +1312,7 @@ export default function UnifiedCapture({
       onChange={handleSheetChange}
       backdropComponent={renderBackdrop}
       backgroundStyle={{
-        backgroundColor: isDark ? "#121215" : "#FAFAFA",
+        backgroundColor: theme.background,
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
       }}
@@ -1374,8 +1379,8 @@ export default function UnifiedCapture({
         {/* ── Voice Error Banner ── */}
         {voiceStatus === "error" && voiceError && (
           <Animated.View entering={FadeInDown.duration(200)} style={[styles.voiceErrorBanner, { backgroundColor: "rgba(239, 68, 68, 0.08)", borderColor: "rgba(239, 68, 68, 0.25)" }]}>
-            <Feather name="alert-circle" size={14} color="#EF4444" />
-            <Text style={{ fontSize: 12, fontWeight: "600", color: "#EF4444", flex: 1 }}>
+            <Feather name="alert-circle" size={14} color={Palette.red500} />
+            <Text style={{ fontSize: 12, fontWeight: "600", color: Palette.red500, flex: 1 }}>
               {voiceError}
             </Text>
           </Animated.View>
@@ -1532,7 +1537,7 @@ export default function UnifiedCapture({
             ]}
           >
             {isSaving ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={Palette.white} />
             ) : (
               <Text style={styles.bottomSaveBtnText}>Add</Text>
             )}
@@ -1955,7 +1960,7 @@ const CaptureSummaryCard = React.memo(function CaptureSummaryCard({
                 style={[styles.primaryActionBtn, { backgroundColor: isSaving ? textMuted : themePrimary, paddingHorizontal: 20, paddingVertical: 12 }]}
               >
                 {isSaving ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={Palette.white} />
                 ) : (
                   <Text style={[styles.primaryActionBtnText, { fontSize: 14 }]}>Add to existing</Text>
                 )}
@@ -2291,7 +2296,7 @@ const styles = StyleSheet.create({
   primaryActionBtnText: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: Palette.white,
     letterSpacing: -0.2,
   },
   secondaryActionBtn: {
@@ -2360,6 +2365,6 @@ const styles = StyleSheet.create({
   bottomSaveBtnText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: Palette.white,
   }
 });

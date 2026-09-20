@@ -2,6 +2,7 @@ import {
   getMainStreakRecoveryInfo,
   StreakRecoveryInfo,
 } from "@/features/profile/services/pebble.service";
+import { DefaultWorkspaceColor } from "@/shared/constants/categoryColors";
 import {
   deduplicateEntities,
   deduplicateEntityMap,
@@ -109,7 +110,7 @@ export function useTodayDashboard(): TodayDashboardStats {
           id: INBOX_WORKSPACE_ID,
           name: "Inbox",
           emoji: "📥",
-          color: "#6366F1",
+          color: DefaultWorkspaceColor.dark,
           revision: 1,
           lifecycleGeneration: 1,
           createdAt: Date.now(),

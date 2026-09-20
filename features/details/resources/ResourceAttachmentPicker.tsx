@@ -4,7 +4,7 @@ import { Feather } from "@expo/vector-icons";
 
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import type { Resource } from "@/shared/types/domain.types";
 
@@ -127,7 +127,7 @@ export const ResourceAttachmentPicker: React.FC<ResourceAttachmentPickerProps> =
             accessibilityRole="button"
             accessibilityLabel="Done linking resources"
           >
-            <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Done</Text>
+            <Text style={{ color: Palette.white, fontWeight: "700" }}>Done</Text>
           </TouchableOpacity>
         </AppCard>
       </View>

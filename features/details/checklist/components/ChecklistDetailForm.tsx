@@ -1,4 +1,5 @@
 import * as Haptics from "expo-haptics";
+import { Palette } from "@/shared/constants/theme";
 import React from "react";
 import {
   StyleSheet,
@@ -385,7 +386,7 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
                 calendarBackground: colors.card,
                 textSectionTitleColor: colors.textMuted,
                 selectedDayBackgroundColor: colors.primary,
-                selectedDayTextColor: "#ffffff",
+                selectedDayTextColor: Palette.white,
                 todayTextColor: colors.primary,
                 dayTextColor: colors.text,
                 textDisabledColor: colors.textMuted + "50",
@@ -735,7 +736,7 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
                   >
                     <Text
                       style={{
-                        color: isDaySelected ? "#fff" : colors.text,
+                        color: isDaySelected ? Palette.white : colors.text,
                         fontSize: 11,
                         fontWeight: "700",
                       }}

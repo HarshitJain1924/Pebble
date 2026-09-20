@@ -1,5 +1,5 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { Feather } from "@expo/vector-icons";
@@ -71,7 +71,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
 
-  const amberColor = "#F59E0B";
+  const amberColor = Palette.amber500;
 
   // Build single line metadata (including streak value flatly without enclosing badge)
   const metaParts = useMemo<MetaPart[]>(() => {
@@ -81,7 +81,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
     parts.push({
       key: "streak",
       text: `🔥 ${streak}`,
-      color: isLight ? "#B45309" : "#F59E0B",
+      color: isLight ? Palette.amber700 : Palette.amber500,
     });
 
     // 2. Schedule / Recurrence — use canonical recurrence.daysOfWeek
@@ -111,7 +111,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
         key: "reminder",
         text: `${displayHour}:${displayMinute} ${ampm}`,
         icon: "clock",
-        color: isLight ? "#4B5563" : "#D1D5DB",
+        color: isLight ? Palette.gray600 : Palette.zinc300,
       });
     }
 
@@ -159,7 +159,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
           />
           {completedToday && (
             <View style={styles.checkTick}>
-              <Feather name="check" size={10} color="#FFFFFF" />
+              <Feather name="check" size={10} color={Palette.white} />
             </View>
           )}
         </Pressable>
@@ -309,7 +309,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
                       <View
                         style={[
                           styles.thumbnailWrap,
-                          { backgroundColor: isLight ? "#F1F5F9" : "#27272A" },
+                          { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
                         ]}
                       >
                         <Image
@@ -325,7 +325,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
                       <View
                         style={[
                           styles.thumbnailWrap,
-                          { backgroundColor: isLight ? "#F1F5F9" : "#27272A" },
+                          { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
                         ]}
                       >
                         <Feather
@@ -492,7 +492,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#F59E0B",
+    backgroundColor: Palette.amber500,
     alignItems: "center",
     justifyContent: "center",
   },

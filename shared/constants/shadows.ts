@@ -1,9 +1,10 @@
 import { Platform } from "react-native";
+import { Palette } from "./theme";
 
 export const Shadows = {
   soft: Platform.select({
     ios: {
-      shadowColor: "#000000",
+      shadowColor: Palette.black,
       shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.35,
       shadowRadius: 20,
@@ -18,7 +19,7 @@ export const Shadows = {
   }),
   glow: Platform.select({
     ios: {
-      shadowColor: "#6366F1",
+      shadowColor: Palette.indigo500,
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.22,
       shadowRadius: 16,

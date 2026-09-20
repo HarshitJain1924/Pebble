@@ -15,7 +15,7 @@ import { Feather } from "@expo/vector-icons";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useUndo } from "@/shared/components/ui/UndoContext";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { Spacing } from "@/shared/constants/spacing";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import type {
@@ -605,7 +605,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
               style={{
                 color: isEditing
                   ? hasChanges
-                    ? "#FFFFFF"
+                    ? Palette.white
                     : colors.textMuted
                   : colors.primary,
                 fontWeight: "700",
@@ -825,7 +825,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
                     key: "delete",
                     label: "Delete Checklist",
                     tone: "danger",
-                    icon: <Feather name="trash-2" size={16} color="#FFFFFF" />,
+                    icon: <Feather name="trash-2" size={16} color={Palette.white} />,
                     onPress: () => {
                       Alert.alert(
                         "Delete Checklist",

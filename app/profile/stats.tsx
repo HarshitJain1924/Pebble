@@ -15,7 +15,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { StatCategoryColors } from "@/shared/constants/categoryColors";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { Radius } from "@/shared/constants/radii";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
@@ -57,10 +58,10 @@ type CategoryStat = {
 };
 
 const PEBBLE_SOURCE_ROWS = [
-  { key: "task", label: "Tasks", color: "#8B5CF6" },
-  { key: "habit", label: "Habits", color: "#F97316" },
-  { key: "checklist", label: "Checklists", color: "#06B6D4" },
-  { key: "focus", label: "Focus", color: "#10B981" },
+  { key: "task", label: "Tasks", color: StatCategoryColors.task.dark },
+  { key: "habit", label: "Habits", color: StatCategoryColors.habit.dark },
+  { key: "checklist", label: "Checklists", color: StatCategoryColors.checklist.dark },
+  { key: "focus", label: "Focus", color: StatCategoryColors.focus.dark },
 ] as const;
 
 export default function StatsScreen() {
@@ -304,7 +305,7 @@ export default function StatsScreen() {
           name: name.charAt(0).toUpperCase() + name.slice(1),
           count,
           pct: count / totalCategoryTasks,
-          color: catColors[name] ?? "#6B7280",
+          color: catColors[name] ?? Palette.gray500,
         }),
       );
       setCategoryStats(breakdowns.sort((a, b) => b.count - a.count));

@@ -10,7 +10,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Workspace, Task } from "@/shared/types/domain.types";
@@ -52,7 +52,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
   const isDark = colorScheme === "dark";
   const colors = Colors[colorScheme ?? "dark"];
 
-  const workspaceColor = workspace.color || "#4F46E5";
+  const workspaceColor = workspace.color || Palette.indigo600;
 
   // Item computations
   const pendingTasks = tasks.filter((t) => !isTaskCompleted(t));
@@ -77,7 +77,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
         label: habitCount === 1 ? "Habit" : "Habits",
         count: habitCount,
         icon: "repeat",
-        color: "#F59E0B",
+        color: Palette.amber500,
       });
     }
     if (checklistCount > 0) {
@@ -86,7 +86,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
         label: checklistCount === 1 ? "Checklist" : "Checklists",
         count: checklistCount,
         icon: "list",
-        color: "#10B981",
+        color: Palette.emerald500,
       });
     }
     if (resourceCount > 0) {
@@ -95,7 +95,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
         label: resourceCount === 1 ? "Resource" : "Resources",
         count: resourceCount,
         icon: "paperclip",
-        color: "#A855F7",
+        color: Palette.violet500,
       });
     }
     return list;
@@ -191,7 +191,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
           style={[
             styles.slipCard,
             {
-              backgroundColor: isDark ? "#171922" : "#FFFFFF",
+              backgroundColor: isDark ? Palette.ink900 : Palette.white,
               borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
             },
           ]}
@@ -201,7 +201,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
             <Text
               style={[
                 styles.paperHeaderLabel,
-                { color: isDark ? "rgba(255,255,255,0.5)" : "#6B7280" },
+                { color: isDark ? "rgba(255,255,255,0.5)" : Palette.gray500 },
               ]}
             >
               CONTENTS
@@ -219,7 +219,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
               <Text
                 style={[
                   styles.totalBadgeText,
-                  { color: isDark ? "#FFFFFF" : "#374151" },
+                  { color: isDark ? Palette.white : Palette.gray700 },
                 ]}
               >
                 {totalItemCount}
@@ -249,7 +249,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
                   <Text
                     style={[
                       styles.inventoryChipText,
-                      { color: isDark ? "rgba(255,255,255,0.9)" : "#334155" },
+                      { color: isDark ? "rgba(255,255,255,0.9)" : Palette.slate700 },
                     ]}
                     numberOfLines={1}
                     adjustsFontSizeToFit
@@ -288,9 +288,9 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
           >
             <Defs>
               <SvgLinearGradient id={`pocketGrad-${workspace.id}`} x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.16} />
-                <Stop offset="0.45" stopColor="#FFFFFF" stopOpacity={0.02} />
-                <Stop offset="1" stopColor="#000000" stopOpacity={0.2} />
+                <Stop offset="0" stopColor={Palette.white} stopOpacity={0.16} />
+                <Stop offset="0.45" stopColor={Palette.white} stopOpacity={0.02} />
+                <Stop offset="1" stopColor={Palette.black} stopOpacity={0.2} />
               </SvgLinearGradient>
             </Defs>
             {/* Base Pocket Shape */}
@@ -309,7 +309,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
                   <Feather
                     name={(workspace.icon || "folder") as any}
                     size={15}
-                    color="#FFFFFF"
+                    color={Palette.white}
                   />
                 ) : workspace.emoji ? (
                   <Text style={styles.workspaceEmoji}>{workspace.emoji}</Text>
@@ -343,7 +343,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
           accessibilityRole="button"
           accessibilityLabel="Workspace settings"
         >
-          <Feather name="settings" size={14} color="#FFFFFF" />
+          <Feather name="settings" size={14} color={Palette.white} />
         </Pressable>
       </View>
     </View>
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
     ...Platform.select({
       ios: {
-        shadowColor: "#000000",
+        shadowColor: Palette.black,
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.16,
         shadowRadius: 10,
@@ -418,7 +418,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
     ...Platform.select({
       ios: {
-        shadowColor: "#000000",
+        shadowColor: Palette.black,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.08,
         shadowRadius: 4,
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     ...Platform.select({
       ios: {
-        shadowColor: "#000000",
+        shadowColor: Palette.black,
         shadowOffset: { width: 0, height: -3 },
         shadowOpacity: 0.16,
         shadowRadius: 5,
@@ -527,7 +527,7 @@ const styles = StyleSheet.create({
   workspaceTitle: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: Palette.white,
     letterSpacing: -0.3,
   },
   workspaceDescription: {

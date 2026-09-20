@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -138,7 +139,7 @@ export const FreeTimeGap: React.FC<FreeTimeGapProps> = React.memo(({
               styles.planPill,
               {
                 backgroundColor: isLight
-                  ? "#FFFFFF"
+                  ? Palette.white
                   : "rgba(255, 255, 255, 0.08)",
                 borderColor: isLight
                   ? colors.border
@@ -213,7 +214,7 @@ export const FreeTimeGap: React.FC<FreeTimeGapProps> = React.memo(({
               styles.planPill,
               {
                 backgroundColor: isLight
-                  ? "#FFFFFF"
+                  ? Palette.white
                   : "rgba(255, 255, 255, 0.06)",
                 borderColor: isLight
                   ? colors.border
@@ -360,12 +361,12 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
   },
   nowText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#EF4444",
+    color: Palette.red500,
     letterSpacing: 0.2,
   },
   collapsedRightActions: {

@@ -1,4 +1,6 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { PebbleTypeColors } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import React from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import Animated, {
@@ -130,7 +132,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
     const backgroundColor = interpolateColor(
       cardScrollX.value,
       [0, INNER_TEXT_WIDTH || 1],
-      [colors.primary, "#F59E0B"],
+      [colors.primary, Palette.amber500],
     );
 
     const opacity = 0.22 + (0.25 - 0.22) * ratio;
@@ -178,7 +180,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
           borderWidth: 1.5,
           borderRadius: 20,
           marginHorizontal: CARD_MARGIN,
-          shadowColor: "#000",
+          shadowColor: Palette.black,
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: colorScheme === "light" ? 0.04 : 0.2,
           shadowRadius: 12,
@@ -280,7 +282,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                   borderRadius: 2.5,
                   backgroundColor:
                     colorScheme === "light"
-                      ? "#E5E7EB"
+                      ? Palette.zinc200
                       : "rgba(255,255,255,0.08)",
                   width: "92%",
                   marginVertical: 3,
@@ -329,7 +331,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                   style={{
                     fontSize: 10,
                     fontWeight: "700",
-                    color: "#F59E0B",
+                    color: Palette.amber500,
                     textTransform: "uppercase",
                     letterSpacing: 0.8,
                   }}
@@ -358,7 +360,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                   borderRadius: 2.5,
                   backgroundColor:
                     colorScheme === "light"
-                      ? "#E5E7EB"
+                      ? Palette.zinc200
                       : "rgba(255,255,255,0.08)",
                   width: "92%",
                   marginVertical: 3,
@@ -369,7 +371,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                   style={{
                     height: "100%",
                     borderRadius: 2.5,
-                    backgroundColor: "#F59E0B",
+                    backgroundColor: Palette.amber500,
                     width: `${Math.min(100, monthlyPebblesCount)}%`,
                   }}
                 />
@@ -516,17 +518,17 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                   }
 
                   const PEBBLE_TYPE_COLORS: Record<string, string> = {
-                    task: "#818CF8",
-                    habit: "#F59E0B",
-                    checklist: "#3B82F6",
-                    focus: "#10B981",
+                    task: PebbleTypeColors.task.dark,
+                    habit: PebbleTypeColors.habit.dark,
+                    checklist: PebbleTypeColors.checklist.dark,
+                    focus: PebbleTypeColors.focus.dark,
                   };
 
                   const pebblesToRender = [];
                   for (let i = 0; i < countToRender; i++) {
                     const slot = slots[i];
                     const pType = typeSequence[i] || "task";
-                    const color = PEBBLE_TYPE_COLORS[pType] || "#818CF8";
+                    const color = PEBBLE_TYPE_COLORS[pType] || PebbleTypeColors.task.dark;
                     pebblesToRender.push(
                       <View
                         key={`today-pebble-${i}`}
@@ -538,7 +540,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                           height: 6,
                           borderRadius: 3,
                           backgroundColor: color,
-                          shadowColor: "#000",
+                          shadowColor: Palette.black,
                           shadowOffset: { width: 0, height: 1 },
                           shadowOpacity: 0.15,
                           shadowRadius: 1,
@@ -582,10 +584,10 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                   }
 
                   const PEBBLE_TYPE_COLORS: Record<string, string> = {
-                    task: "#818CF8",
-                    habit: "#F59E0B",
-                    checklist: "#3B82F6",
-                    focus: "#10B981",
+                    task: PebbleTypeColors.task.dark,
+                    habit: PebbleTypeColors.habit.dark,
+                    checklist: PebbleTypeColors.checklist.dark,
+                    focus: PebbleTypeColors.focus.dark,
                   };
 
                   const pebblesToRender = [];
@@ -596,7 +598,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                         ? i
                         : Math.floor((i / dotsToRender) * typeSequence.length);
                     const pType = typeSequence[typeIdx] || "task";
-                    const color = PEBBLE_TYPE_COLORS[pType] || "#818CF8";
+                    const color = PEBBLE_TYPE_COLORS[pType] || PebbleTypeColors.task.dark;
 
                     pebblesToRender.push(
                       <View
@@ -609,7 +611,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                           height: 6,
                           borderRadius: 3,
                           backgroundColor: color,
-                          shadowColor: "#000",
+                          shadowColor: Palette.black,
                           shadowOffset: { width: 0, height: 1 },
                           shadowOpacity: 0.15,
                           shadowRadius: 1,

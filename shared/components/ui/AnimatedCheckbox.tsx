@@ -7,7 +7,7 @@ import Animated, {
   interpolate,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 type AnimatedCheckboxProps = {
@@ -95,7 +95,7 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
         ]}
       >
         <Animated.View style={[styles.checkmarkWrap, checkMarkStyle]}>
-          <Ionicons name="checkmark" size={size * 0.6} color="#ffffff" />
+          <Ionicons name="checkmark" size={size * 0.6} color={Palette.white} />
         </Animated.View>
       </Animated.View>
     </Pressable>

@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { Calendar } from "react-native-calendars";
 import { Feather } from "@expo/vector-icons";
 
@@ -53,7 +54,7 @@ export function TaskDetailForm({
     {
       color: colors.text,
       borderColor: colors.border,
-      backgroundColor: isDark ? "rgba(255,255,255,0.02)" : "#fff",
+      backgroundColor: isDark ? "rgba(255,255,255,0.02)" : Palette.white,
     },
   ];
 
@@ -303,7 +304,7 @@ export function TaskDetailForm({
                 calendarBackground: colors.card,
                 textSectionTitleColor: colors.textMuted,
                 selectedDayBackgroundColor: colors.primary,
-                selectedDayTextColor: "#ffffff",
+                selectedDayTextColor: Palette.white,
                 todayTextColor: colors.primary,
                 dayTextColor: colors.text,
                 textDisabledColor: colors.textMuted + "50",
@@ -659,7 +660,7 @@ export function TaskDetailForm({
                   >
                     <Text
                       style={{
-                        color: isDaySelected ? "#fff" : colors.text,
+                        color: isDaySelected ? Palette.white : colors.text,
                         fontSize: 11,
                         fontWeight: "700",
                       }}

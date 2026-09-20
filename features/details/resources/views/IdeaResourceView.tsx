@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
@@ -56,7 +57,7 @@ export const IdeaResourceView: React.FC<IdeaResourceViewProps> = ({ resource, on
                 <Text style={{ color: colors.textMuted, fontWeight: "600" }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleSave} style={[styles.actionBtn, styles.saveBtn, { backgroundColor: colors.warning }]}>
-                <Text style={{ color: "#FFF", fontWeight: "700" }}>Save Idea</Text>
+                <Text style={{ color: Palette.white, fontWeight: "700" }}>Save Idea</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -141,7 +142,7 @@ const styles = StyleSheet.create({
     marginTop: 40,
     paddingTop: 24,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E5E5",
+    borderTopColor: Palette.whiteSmoke,
   },
   sectionTitle: {
     fontSize: 11,

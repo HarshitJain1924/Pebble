@@ -1,6 +1,6 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Radius } from "@/shared/constants/radii";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { emitThemeChange, useColorScheme } from "@/shared/hooks/useColorScheme";
 import { exportBackupFile } from "@/features/settings/services/export.service";
 import {
@@ -337,7 +337,7 @@ export default function SettingsScreen() {
                       <Text
                         style={[
                           styles.themeOptionText,
-                          { color: active ? "#FFFFFF" : colors.textMuted },
+                          { color: active ? Palette.white : colors.textMuted },
                         ]}
                       >
                         {option.label}
@@ -1170,7 +1170,7 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Palette.white,
   },
   sheetOverlay: {
     flex: 1,
@@ -1220,7 +1220,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  primaryButtonText: { color: Palette.white, fontSize: 14, fontWeight: "700" },
   secondaryButton: {
     flex: 1,
     minHeight: 48,

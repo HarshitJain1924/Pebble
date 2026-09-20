@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, Pressable, StyleSheet } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
@@ -49,7 +50,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
     }
   };
 
-  const breakActiveBg = colors.success || "#10B981";
+  const breakActiveBg = colors.success;
 
   return (
     <View
@@ -77,7 +78,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
           style={[
             styles.modeText,
             {
-              color: !isBreak ? "#ffffff" : colors.textMuted,
+              color: !isBreak ? Palette.white : colors.textMuted,
               fontWeight: !isBreak ? "700" : "600",
             },
           ]}
@@ -102,7 +103,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
           style={[
             styles.modeText,
             {
-              color: isBreak ? "#ffffff" : colors.textMuted,
+              color: isBreak ? Palette.white : colors.textMuted,
               fontWeight: isBreak ? "700" : "600",
             },
           ]}

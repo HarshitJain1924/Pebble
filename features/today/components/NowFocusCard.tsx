@@ -5,15 +5,16 @@ import { Feather } from "@expo/vector-icons";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Radius } from "@/shared/constants/radii";
-import { type ThemeColors } from "@/shared/constants/theme";
+import { PriorityColors, getCategoryColors } from "@/shared/constants/categoryColors";
+import { Palette, type ThemeColors } from "@/shared/constants/theme";
 import type { Task, Habit, Checklist } from "@/shared/types/domain.types";
 import { type NowFocusResult } from "@/features/today/utils/getNowFocus";
 import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 
 export const PRIORITY_COLORS: Record<"high" | "medium" | "low", string> = {
-  high: "#EF4444",
-  medium: "#F59E0B",
-  low: "#64748B",
+  high: PriorityColors.high.dark,
+  medium: PriorityColors.medium.dark,
+  low: PriorityColors.low.dark,
 };
 
 export interface NowFocusCardProps {
@@ -90,6 +91,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
   style,
 }) => {
   const isDark = colorScheme !== "light";
+  const categoryColors = getCategoryColors(isDark);
 
   // ─────────────────────────────────────────────────────────────
   // 1. EMPTY STATE
@@ -105,7 +107,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
           style={[
             styles.cardSurface,
             {
-              backgroundColor: isDark ? "rgba(24, 24, 27, 0.7)" : "#F8FAFC",
+              backgroundColor: isDark ? "rgba(24, 24, 27, 0.7)" : Palette.slate50,
               borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
             },
           ]}
@@ -124,7 +126,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
               <Feather
                 name="feather"
                 size={18}
-                color={colors.primary || "#6366F1"}
+                color={colors.primary}
                 style={styles.emptyIcon}
               />
             </View>
@@ -277,7 +279,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
         style={[
           styles.cardSurface,
           {
-            backgroundColor: isDark ? "rgba(24, 24, 27, 0.88)" : "#FFFFFF",
+            backgroundColor: isDark ? "rgba(24, 24, 27, 0.88)" : Palette.white,
             borderColor: isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.08)",
           },
         ]}
@@ -290,11 +292,11 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
               backgroundColor:
                 priorityColor ||
                 (state === "active"
-                  ? colors.primary || "#6366F1"
+                  ? colors.primary
                   : state === "recommended"
-                    ? "#10B981"
+                    ? categoryColors.focusState.recommended
                     : state === "upcoming"
-                      ? "#8B5CF6"
+                      ? categoryColors.focusState.upcoming
                       : "transparent"),
             },
           ]}
@@ -322,14 +324,14 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                     <View
                       style={[
                         styles.liveDotInner,
-                        { backgroundColor: colors.primary || "#6366F1" },
+                        { backgroundColor: colors.primary },
                       ]}
                     />
                   </View>
                   <Text
                     style={[
                       styles.eyebrowText,
-                      { color: colors.primary || "#6366F1" },
+                      { color: colors.primary },
                     ]}
                     numberOfLines={1}
                   >
@@ -343,8 +345,8 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                     size={12}
                     color={
                       state === "recommended"
-                        ? "#10B981"
-                        : "#8B5CF6"
+                        ? categoryColors.focusState.recommended
+                        : categoryColors.focusState.upcoming
                     }
                     style={styles.eyebrowIcon}
                   />
@@ -354,8 +356,8 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                       {
                         color:
                           state === "recommended"
-                            ? "#10B981"
-                            : "#8B5CF6",
+                            ? categoryColors.focusState.recommended
+                            : categoryColors.focusState.upcoming,
                       },
                     ]}
                     numberOfLines={1}
@@ -462,8 +464,8 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                       width: `${progressPercent}%`,
                       backgroundColor:
                         state === "recommended"
-                          ? "#10B981"
-                          : colors.primary || "#6366F1",
+                          ? categoryColors.focusState.recommended
+                          : colors.primary,
                     },
                   ]}
                 />
@@ -542,7 +544,7 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 style={[
                   styles.actionPill,
                   styles.completePill,
-                  { backgroundColor: colors.primary || "#6366F1" },
+                  { backgroundColor: colors.primary },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel={`Complete ${item.title}`}
@@ -551,11 +553,11 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
                 <Feather
                   name="check"
                   size={14}
-                  color="#FFFFFF"
+                  color={Palette.white}
                   style={styles.actionButtonIcon}
                 />
                 <Text
-                  style={[styles.actionButtonText, { color: "#FFFFFF" }]}
+                  style={[styles.actionButtonText, { color: Palette.white }]}
                   numberOfLines={1}
                 >
                   Complete
@@ -655,7 +657,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1,
     overflow: "hidden",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,

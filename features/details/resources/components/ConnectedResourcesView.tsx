@@ -1,4 +1,6 @@
 import React from "react";
+import { ResourceKindColors } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import {
   View,
   StyleSheet,
@@ -190,7 +192,7 @@ export const ConnectedResourcesView: React.FC<ConnectedResourcesViewProps> = ({
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       style={styles.cardUnlinkBtn}
                     >
-                      <Feather name="x" size={11} color="#FFFFFF" />
+                      <Feather name="x" size={11} color={Palette.white} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -281,8 +283,8 @@ export const ConnectedResourcesView: React.FC<ConnectedResourcesViewProps> = ({
                     style={styles.linkTouchArea}
                   >
                     <View style={styles.linkTopRow}>
-                      <View style={[styles.linkIconCircle, { backgroundColor: "#3B82F618" }]}>
-                        <Feather name="link" size={13} color="#3B82F6" />
+                      <View style={[styles.linkIconCircle, { backgroundColor: `${ResourceKindColors.link.dark}18` }]}>
+                        <Feather name="link" size={13} color={ResourceKindColors.link.dark} />
                       </View>
                       <Text style={styles.domainChipText} numberOfLines={1}>
                         {domain}
@@ -294,8 +296,8 @@ export const ConnectedResourcesView: React.FC<ConnectedResourcesViewProps> = ({
                     </Text>
 
                     <View style={styles.linkFooterRow}>
-                      <Text style={[styles.linkOpenText, { color: "#3B82F6" }]}>Open Link</Text>
-                      <Feather name="arrow-up-right" size={12} color="#3B82F6" />
+                      <Text style={[styles.linkOpenText, { color: ResourceKindColors.link.dark }]}>Open Link</Text>
+                      <Feather name="arrow-up-right" size={12} color={ResourceKindColors.link.dark} />
                     </View>
                   </TouchableOpacity>
 
@@ -330,19 +332,25 @@ export const ConnectedResourcesView: React.FC<ConnectedResourcesViewProps> = ({
                     <View
                       style={[
                         styles.docIconCircle,
-                        { backgroundColor: isPdf ? "#EF444418" : "#06B6D418" },
+                        {
+                          backgroundColor: `${isPdf ? ResourceKindColors.pdf.dark : ResourceKindColors.file.dark}18`,
+                        },
                       ]}
                     >
                       <Feather
                         name={isPdf ? "file-text" : "file"}
                         size={14}
-                        color={isPdf ? "#EF4444" : "#06B6D4"}
+                        color={isPdf ? ResourceKindColors.pdf.dark : ResourceKindColors.file.dark}
                       />
                     </View>
                     <Text
                       style={[
                         styles.docTypeBadge,
-                        { color: isPdf ? "#EF4444" : "#06B6D4" },
+                        {
+                          color: isPdf
+                            ? ResourceKindColors.pdf.dark
+                            : ResourceKindColors.file.dark,
+                        },
                       ]}
                     >
                       {isPdf ? "PDF" : "FILE"}
@@ -500,7 +508,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   mediaTitleText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -516,7 +524,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   mediaTypePillText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 8,
     fontWeight: "800",
   },
@@ -613,7 +621,7 @@ const styles = StyleSheet.create({
   domainChipText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#3B82F6",
+    color: ResourceKindColors.link.dark,
     flex: 1,
   },
   linkTitle: {

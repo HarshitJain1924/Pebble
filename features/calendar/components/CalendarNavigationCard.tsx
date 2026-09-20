@@ -1,4 +1,6 @@
 import React from "react";
+import { CalendarDotColors } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import { View, Pressable, Platform, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Animated from "react-native-reanimated";
@@ -101,17 +103,26 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
       <View style={styles.indicatorRow}>
         {stats.tasks > 0 && (
           <View
-            style={[styles.indicatorDot, { backgroundColor: "#6C63FF" }]}
+            style={[
+              styles.indicatorDot,
+              { backgroundColor: CalendarDotColors.task.dark },
+            ]}
           />
         )}
         {stats.habits > 0 && (
           <View
-            style={[styles.indicatorDot, { backgroundColor: "#10B981" }]}
+            style={[
+              styles.indicatorDot,
+              { backgroundColor: CalendarDotColors.habit.dark },
+            ]}
           />
         )}
         {stats.checklists > 0 && (
           <View
-            style={[styles.indicatorDot, { backgroundColor: "#F59E0B" }]}
+            style={[
+              styles.indicatorDot,
+              { backgroundColor: CalendarDotColors.checklist.dark },
+            ]}
           />
         )}
       </View>
@@ -123,7 +134,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
       style={[
         styles.navCard,
         {
-          backgroundColor: isLight ? "#FFFFFF" : colors.card,
+          backgroundColor: isLight ? Palette.white : colors.card,
           borderColor: colors.border,
           borderWidth: 1,
           shadowOpacity: isLight ? 0.03 : 0.12,
@@ -143,7 +154,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
               styles.chevronButton,
               {
                 backgroundColor: isLight
-                  ? "#F1F5F9"
+                  ? Palette.slate100
                   : "rgba(255,255,255,0.04)",
                 borderColor: colors.border,
               },
@@ -170,7 +181,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
               styles.chevronButton,
               {
                 backgroundColor: isLight
-                  ? "#F1F5F9"
+                  ? Palette.slate100
                   : "rgba(255,255,255,0.04)",
                 borderColor: colors.border,
               },
@@ -260,7 +271,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
                   <Text
                     style={{
                       color: isSelected
-                        ? "#FFFFFF"
+                        ? Palette.white
                         : isToday
                           ? colors.primary
                           : colors.text,
@@ -324,7 +335,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
                   <Text
                     style={{
                       color: isSelected
-                        ? "#FFFFFF"
+                        ? Palette.white
                         : isToday
                           ? colors.primary
                           : colors.text,
@@ -381,7 +392,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
                   <Text
                     style={{
                       color: isSelected
-                        ? "#FFFFFF"
+                        ? Palette.white
                         : isToday
                           ? colors.primary
                           : colors.text,
@@ -405,7 +416,7 @@ export const CalendarNavigationCard: React.FC<CalendarNavigationCardProps> = ({
 const styles = StyleSheet.create({
   navCard: {
     borderRadius: 16,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 10,
     position: "relative",

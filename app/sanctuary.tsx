@@ -12,7 +12,7 @@ import { addStateListener } from "@/services/events/state-events";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Radius } from "@/shared/constants/radii";
 import { Shadows } from "@/shared/constants/shadows";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
 import { Feather } from "@expo/vector-icons";
@@ -261,7 +261,7 @@ export default function SanctuaryScreen() {
                     <Feather
                       name={milestone.isPrelude ? "droplet" : "compass"}
                       size={16}
-                      color="#FFFFFF"
+                      color={Palette.white}
                     />
                   </View>
                   <Text style={[styles.trailStage, { color: colors.primary }]}>
@@ -318,7 +318,7 @@ export default function SanctuaryScreen() {
           ) : (
             <View style={styles.maxStageRow}>
               <View style={[styles.trailNode, { backgroundColor: colors.success }]}>
-                <Feather name="check" size={16} color="#FFFFFF" />
+                <Feather name="check" size={16} color={Palette.white} />
               </View>
               <Text style={[styles.progressCaption, { color: colors.textMuted }]}>
                 Highest Sanctuary chapter reached.

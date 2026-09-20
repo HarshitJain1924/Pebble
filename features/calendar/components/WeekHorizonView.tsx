@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { Palette } from "@/shared/constants/theme";
 import {
   View,
   ScrollView,
@@ -350,7 +351,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
           styles.spatialCanvasWrapper,
           {
             borderColor: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)",
-            backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.015)",
+            backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.015)",
           },
         ]}
       >
@@ -514,7 +515,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
                           styles.colHeaderDayNum,
                           {
                             color: isSelected
-                              ? "#FFFFFF"
+                              ? Palette.white
                               : isToday
                                 ? colors.primary
                                 : colors.text,
@@ -588,7 +589,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
                           <Text
                             style={[
                               styles.weekDropGuideTitle,
-                              { color: isLight ? "#1E293B" : "#F8FAFC" },
+                              { color: isLight ? Palette.slate800 : Palette.slate50 },
                             ]}
                             numberOfLines={1}
                           >
@@ -625,7 +626,7 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
                     {
                       backgroundColor: currentPage === i
                         ? colors.primary
-                        : isLight ? "#CBD5E1" : "rgba(255,255,255,0.18)",
+                        : isLight ? Palette.slate300 : "rgba(255,255,255,0.18)",
                       width: currentPage === i ? 14 : 5,
                     },
                   ]}
@@ -770,12 +771,12 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
   },
   todayCurrentTimeBar: {
     flex: 1,
     height: 1.5,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
   },
   weekDropGuide: {
     position: "absolute",

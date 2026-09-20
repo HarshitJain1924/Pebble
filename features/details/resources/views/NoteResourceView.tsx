@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -53,7 +54,7 @@ export const NoteResourceView: React.FC<NoteResourceViewProps> = ({ resource, on
               <Text style={{ color: colors.textMuted, fontWeight: "600" }}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={handleSave} style={[styles.actionBtn, styles.saveBtn, { backgroundColor: colors.primary }]}>
-              <Text style={{ color: "#FFF", fontWeight: "700" }}>Save Note</Text>
+              <Text style={{ color: Palette.white, fontWeight: "700" }}>Save Note</Text>
             </TouchableOpacity>
           </View>
         </View>
