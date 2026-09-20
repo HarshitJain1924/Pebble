@@ -244,19 +244,22 @@ export function useSpeechRecognitionEvent<K extends keyof EventCallbackMap>(
   event: K,
   callback: EventCallbackMap[K]
 ) {
-  // Use native hook if on device
-  if (Platform.OS !== "web" && nativeUseEvent) {
-    nativeUseEvent(event, callback);
-    return;
-  }
+  // Resolved once per platform: the native bridge is required at module load,
+  // so this value is constant for the lifetime of the app.
+  const isNative = Platform.OS !== "web" && !!nativeUseEvent;
 
-  // Web fallback hook
+  // Rules of Hooks: every hook in this hook must run on every render, so all
+  // hook calls come before the platform branch below.
   const callbackRef = useRef(callback);
   useEffect(() => {
     callbackRef.current = callback;
   }, [callback]);
 
   useEffect(() => {
+    // The web listener registry is only ever emitted to by the browser
+    // implementation, so registering on native would be dead weight.
+    if (isNative) return;
+
     const wrapper = (payload: any) => {
       callbackRef.current(payload);
     };
@@ -266,5 +269,10 @@ export function useSpeechRecognitionEvent<K extends keyof EventCallbackMap>(
     return () => {
       listeners[event]?.delete(wrapper as any);
     };
-  }, [event]);
+  }, [event, isNative]);
+
+  // Use native hook if on device
+  if (isNative) {
+    nativeUseEvent(event, callback);
+  }
 }
