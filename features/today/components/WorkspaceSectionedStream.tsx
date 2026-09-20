@@ -9,7 +9,6 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Radius } from "@/shared/constants/radii";
 import {
-  PriorityColors,
   StreakColors,
   getCategoryColors,
   getStreamResourceStyle,
@@ -28,18 +27,6 @@ import {
   getCheckboxAction,
   getRowContentAction,
 } from "@/features/today/utils/today-interactions";
-
-/**
- * Pebble Canonical Priority Color Scale
- * High: Crimson (PriorityColors.high)
- * Medium: Amber (PriorityColors.medium)
- * Low: Slate (PriorityColors.low)
- */
-export const PRIORITY_COLORS: Record<"high" | "medium" | "low", string> = {
-  high: PriorityColors.high.dark,
-  medium: PriorityColors.medium.dark,
-  low: PriorityColors.low.dark,
-};
 
 const getOverdueLabel = (dateStr: string) => {
   if (!dateStr) return "Overdue";
@@ -197,8 +184,10 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
   children,
 }) => {
   const isDark = colorScheme !== "light";
-  const priorityColor = priority ? PRIORITY_COLORS[priority] : undefined;
+  // Priority stripe is resolved from the active scheme (was previously a
+  // module-level constant pinned to the dark palette).
   const categoryColors = getCategoryColors(isDark);
+  const priorityColor = priority ? categoryColors.priority[priority] : undefined;
   const streamColors = {
     image: getStreamResourceStyle("image", isDark),
     pdf: getStreamResourceStyle("pdf", isDark),

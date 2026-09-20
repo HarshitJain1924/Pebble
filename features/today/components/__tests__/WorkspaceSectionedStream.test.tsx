@@ -3,6 +3,7 @@ import { act, create } from "react-test-renderer";
 import { WorkspaceSectionedStream, WorkspaceItemRow } from "../WorkspaceSectionedStream";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
+import { PriorityColors } from "@/shared/constants/categoryColors";
 import type { Workspace, Task, Habit, Checklist } from "@/shared/types/domain.types";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
@@ -551,6 +552,76 @@ describe("WorkspaceSectionedStream Component", () => {
 });
 
 describe("WorkspaceItemRow Component", () => {
+  /**
+   * The priority stripe is the only node whose style carries the resolved
+   * priority hue. Collect every backgroundColor rendered in the tree so the
+   * test does not depend on the internal style ordering.
+   */
+  const collectBackgroundColors = (root: any): string[] => {
+    const colors: string[] = [];
+    root.findAll((node: any) => Boolean(node.props?.style)).forEach((node: any) => {
+      const style = Array.isArray(node.props.style) ? node.props.style : [node.props.style];
+      style.forEach((entry: any) => {
+        if (entry && typeof entry === "object" && typeof entry.backgroundColor === "string") {
+          colors.push(entry.backgroundColor);
+        }
+      });
+    });
+    return colors;
+  };
+
+  const renderPriorityRow = (priority: "high" | "medium" | "low", colorScheme: "light" | "dark") => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceItemRow
+          type="task"
+          id="task-priority"
+          title="Ship the migration"
+          subtitle="Today"
+          priority={priority}
+          accentColor="#3B82F6"
+          colors={Colors[colorScheme]}
+          colorScheme={colorScheme}
+        />
+      );
+    });
+    return renderer;
+  };
+
+  it.each(["light", "dark"] as const)(
+    "resolves the priority stripe from the active %s scheme",
+    (scheme) => {
+      (["high", "medium", "low"] as const).forEach((priority) => {
+        const colors = collectBackgroundColors(renderPriorityRow(priority, scheme).root);
+        const expected = PriorityColors[priority][scheme];
+        expect(colors).toContain(expected);
+      });
+    },
+  );
+
+  it("renders no priority stripe for a task without a priority", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceItemRow
+          type="task"
+          id="task-priority-none"
+          title="No priority"
+          subtitle="Today"
+          accentColor="#3B82F6"
+          colors={Colors.dark}
+          colorScheme="dark"
+        />
+      );
+    });
+
+    const rendered = collectBackgroundColors(renderer.root);
+    (["high", "medium", "low"] as const).forEach((priority) => {
+      expect(rendered).not.toContain(PriorityColors[priority].dark);
+    });
+  });
+
   it("renders a task row with two-line layout and reminder icon without priority text badge", () => {
     let renderer: any;
     act(() => {
