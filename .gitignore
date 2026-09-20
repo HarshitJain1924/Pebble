@@ -44,3 +44,6 @@ app-example
 
 # temporary agent scratch folder
 /scratch
+
+# AI coding-agent workspace/scratch output (never shipped)
+.gemini/

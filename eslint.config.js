@@ -15,7 +15,10 @@ const COLOR_TOKEN_FILES = [
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    // Build output plus the AI-agent workspace, which is not shipped and is
+    // excluded from version control (see .gitignore). ESLint does not read
+    // .gitignore, so it has to be listed here explicitly.
+    ignores: ['dist/*', '.gemini/**'],
   },
   {
     // Themable surfaces — app routes, feature modules and shared UI.
