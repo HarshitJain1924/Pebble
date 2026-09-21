@@ -1,6 +1,10 @@
 import React from "react";
 import { act, create } from "react-test-renderer";
-import { WorkspaceSectionedStream, WorkspaceItemRow } from "../WorkspaceSectionedStream";
+import {
+  WorkspaceSectionedStream,
+  WorkspaceItemRow,
+  resolveItemCategorySymbol,
+} from "../WorkspaceSectionedStream";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { PriorityColors } from "@/shared/constants/categoryColors";
@@ -868,7 +872,96 @@ describe("WorkspaceItemRow Component", () => {
     const pdfIcon = root.findByProps({ name: "file-text" });
     expect(pdfIcon).toBeDefined();
   });
+
+  it("renders a row with category symbol badge and structured secondary meta row (max 3 items)", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceItemRow
+          type="task"
+          id="task-symbol-meta"
+          title="Prepare keynote presentation"
+          categorySymbol={{
+            icon: "briefcase",
+            color: "#3B82F6",
+            tint: "rgba(59, 130, 246, 0.16)",
+          }}
+          metaParts={[
+            { text: "Work Projects", icon: "folder", color: "#3B82F6" },
+            { text: "Today · 10:00 AM" },
+            { text: "Daily" },
+            { text: "Extra Fourth Item Should Be Dropped" },
+          ]}
+          priority="high"
+          accentColor="#3B82F6"
+          colors={Colors.dark}
+          colorScheme="dark"
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
+
+    // Verify title and secondary line contents
+    expect(texts).toContain("Prepare keynote presentation");
+    expect(texts).toContain("Work Projects");
+    expect(texts).toContain("Today · 10:00 AM");
+    expect(texts).toContain("Daily");
+    // Fourth item must be dropped (max 3 items)
+    expect(texts).not.toContain("Extra Fourth Item Should Be Dropped");
+
+    // Bullet separator should be present between parts
+    expect(texts).toContain(" • ");
+
+    // Category symbol icon should be rendered
+    const briefcaseIcon = root.findByProps({ name: "briefcase" });
+    expect(briefcaseIcon).toBeDefined();
+  });
 });
 
+describe("resolveItemCategorySymbol Helper", () => {
+  it("resolves category symbols correctly for various entity types", () => {
+    // 1. Task with explicit health category
+    const healthSymbol = resolveItemCategorySymbol(
+      { type: "task", categoryId: "health" },
+      true,
+    );
+    expect(healthSymbol.icon).toBe("activity");
 
+    // 2. Task with explicit finance category
+    const financeSymbol = resolveItemCategorySymbol(
+      { type: "task", categoryId: "finance" },
+      true,
+    );
+    expect(financeSymbol.icon).toBe("wallet");
 
+    // 3. Default task category fallback
+    const defaultTaskSymbol = resolveItemCategorySymbol(
+      { type: "task" },
+      true,
+    );
+    expect(defaultTaskSymbol.icon).toBe("briefcase");
+
+    // 4. Habit entity
+    const habitSymbol = resolveItemCategorySymbol(
+      { type: "habit" },
+      true,
+    );
+    expect(habitSymbol.icon).toBe("activity");
+
+    // 5. Checklist entity
+    const checklistSymbol = resolveItemCategorySymbol(
+      { type: "checklist" },
+      true,
+    );
+    expect(checklistSymbol.icon).toBe("check-square");
+
+    // 6. Resource entity
+    const resourceSymbol = resolveItemCategorySymbol(
+      { type: "resource" },
+      true,
+    );
+    expect(resourceSymbol.icon).toBe("file-text");
+  });
+});
