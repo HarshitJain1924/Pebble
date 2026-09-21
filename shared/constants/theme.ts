@@ -42,7 +42,7 @@ export const Palette = {
   zinc800: "#27272A",
   zinc900: "#18181B",
 
-  // Indigo — brand primary ramp
+  // Indigo — retained for one-off illustration/ambient tints (not the primary)
   indigo200: "#C7D2FE",
   indigo300: "#A5B4FC",
   indigo400: "#818CF8",
@@ -50,6 +50,16 @@ export const Palette = {
   indigo600: "#4F46E5",
   indigo900: "#312E81",
   indigoVivid: "#6C63FF",
+
+  // Clay — brand primary ramp. Each stop is solved to the same relative
+  // luminance as the indigo stop it replaces (same lightness/contrast profile,
+  // different hue), so swapping the primary cannot regress WCAG ratios.
+  clay200: "#EBCDC1",
+  clay300: "#DEAD98",
+  clay400: "#CE8362",
+  clay500: "#B35E39",
+  clay600: "#934D2E",
+  clay900: "#592E1C",
 
   // Violet — note / creative ramp
   violet50: "#F3E8FF",
@@ -152,8 +162,8 @@ export const Colors = {
     background: "#121215",       // Canvas Base
     card: "#1C1C21",             // Soft raised card surface
     cardLight: "#26262B",        // Slightly lighter card
-    primary: "#6366F1",          // Indigo accent
-    primaryLight: "#818cf8",     // Indigo lighter accent
+    primary: "#B35E39",          // Clay accent (clay500)
+    primaryLight: "#CE8362",     // Clay lighter accent (clay400)
     secondary: "#3B82F6",        // Blue accent
     text: "#E4E4E7",             // Highly readable off-white body text
     textMuted: "#A1A1AA",        // desaturated subtext/labels
@@ -161,17 +171,17 @@ export const Colors = {
     warning: "#F59E0B",          // Desaturated warm amber for streaks/alarms
     error: "#EF4444",            // Soft red for delete/warning
     border: "#2B2B32",           // Extremely faint divider/boundary representation
-    tint: "#6366F1",
+    tint: "#B35E39",
     icon: "#A1A1AA",
     tabIconDefault: "#71717A",
-    tabIconSelected: "#6366F1",
+    tabIconSelected: "#B35E39",
   },
   light: {
     background: "#FAFAFA",       // Premium bright canvas base
     card: "#FFFFFF",             // Pure white card pop
     cardLight: "#F3F4F6",        // Soft grey accent
-    primary: "#4F46E5",
-    primaryLight: "#6366F1",
+    primary: "#934D2E",
+    primaryLight: "#B35E39",
     secondary: "#2563EB",
     text: "#111827",
     textMuted: "#4B5563",        // Darker textMuted for high readability
@@ -179,10 +189,10 @@ export const Colors = {
     warning: "#D97706",
     error: "#DC2626",
     border: "#E2E8F0",           // Highly visible borders
-    tint: "#4F46E5",
+    tint: "#934D2E",
     icon: "#4B5563",
     tabIconDefault: "#9CA3AF",
-    tabIconSelected: "#4F46E5",
+    tabIconSelected: "#934D2E",
   },
 };
 
