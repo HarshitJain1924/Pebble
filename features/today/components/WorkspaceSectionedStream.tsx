@@ -646,23 +646,19 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   ? [
                       styles.railTileActive,
                       {
-                        backgroundColor: isDark
-                          ? "rgba(255, 255, 255, 0.12)"
-                          : "rgba(0, 0, 0, 0.08)",
-                        borderColor: isDark
-                          ? "rgba(255, 255, 255, 0.22)"
-                          : "rgba(0, 0, 0, 0.16)",
+                        backgroundColor: colors.primary,
+                        borderColor: colors.primary,
                       },
                     ]
                   : [
                       styles.railTileInactive,
                       {
                         backgroundColor: isDark
-                          ? "rgba(255, 255, 255, 0.03)"
-                          : colors.card,
+                          ? "rgba(255, 255, 255, 0.05)"
+                          : "rgba(0, 0, 0, 0.04)",
                         borderColor: isDark
-                          ? "rgba(255, 255, 255, 0.06)"
-                          : colors.border,
+                          ? "rgba(255, 255, 255, 0.10)"
+                          : "rgba(0, 0, 0, 0.08)",
                       },
                     ],
               ]}
@@ -673,9 +669,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   styles.railIconWrap,
                   {
                     backgroundColor: selectedWorkspaceId === "all"
-                      ? isDark
-                        ? "rgba(255, 255, 255, 0.16)"
-                        : "rgba(0, 0, 0, 0.08)"
+                      ? "rgba(255, 255, 255, 0.22)"
                       : isDark
                       ? "rgba(255, 255, 255, 0.06)"
                       : colors.cardLight,
@@ -685,14 +679,14 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 <Feather
                   name="layers"
                   size={12}
-                  color={selectedWorkspaceId === "all" ? colors.text : colors.textMuted}
+                  color={selectedWorkspaceId === "all" ? Palette.white : colors.textMuted}
                 />
               </View>
               <Text
                 style={[
                   styles.railTileText,
                   {
-                    color: selectedWorkspaceId === "all" ? colors.text : colors.textMuted,
+                    color: selectedWorkspaceId === "all" ? Palette.white : colors.text,
                     fontWeight: selectedWorkspaceId === "all" ? "700" : "500",
                   },
                 ]}
@@ -705,12 +699,10 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   styles.railCountBadge,
                   {
                     backgroundColor: selectedWorkspaceId === "all"
-                      ? isDark
-                        ? "rgba(255, 255, 255, 0.15)"
-                        : "rgba(0, 0, 0, 0.10)"
+                      ? "rgba(255, 255, 255, 0.25)"
                       : isDark
-                      ? "rgba(255, 255, 255, 0.05)"
-                      : "rgba(0, 0, 0, 0.04)",
+                      ? "rgba(255, 255, 255, 0.08)"
+                      : "rgba(0, 0, 0, 0.06)",
                   },
                 ]}
               >
@@ -718,7 +710,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   style={[
                     styles.railCountText,
                     {
-                      color: selectedWorkspaceId === "all" ? colors.text : colors.textMuted,
+                      color: selectedWorkspaceId === "all" ? Palette.white : colors.textMuted,
                     },
                   ]}
                 >
@@ -753,19 +745,19 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                       ? [
                           styles.railTileActive,
                           {
-                            backgroundColor: `${fColor}18`,
-                            borderColor: `${fColor}66`,
+                            backgroundColor: fColor,
+                            borderColor: fColor,
                           },
                         ]
                       : [
                           styles.railTileInactive,
                           {
                             backgroundColor: isDark
-                              ? "rgba(255, 255, 255, 0.03)"
-                              : colors.card,
+                              ? `${fColor}1A`
+                              : `${fColor}10`,
                             borderColor: isDark
-                              ? "rgba(255, 255, 255, 0.06)"
-                              : colors.border,
+                              ? `${fColor}35`
+                              : `${fColor}25`,
                           },
                         ],
                   ]}
@@ -776,8 +768,8 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                       styles.railIconWrap,
                       {
                         backgroundColor: isSelected
-                          ? `${fColor}28`
-                          : `${fColor}14`,
+                          ? "rgba(255, 255, 255, 0.22)"
+                          : `${fColor}22`,
                       },
                     ]}
                   >
@@ -785,7 +777,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                       <Feather
                         name={(f.icon || "folder") as any}
                         size={12}
-                        color={fColor}
+                        color={isSelected ? Palette.white : fColor}
                       />
                     ) : (
                       <Text style={styles.railEmojiText}>
@@ -797,10 +789,8 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                     style={[
                       styles.railTileText,
                       {
-                        color: isSelected
-                          ? colors.text
-                          : colors.textMuted,
-                        fontWeight: isSelected ? "700" : "500",
+                        color: isSelected ? Palette.white : colors.text,
+                        fontWeight: isSelected ? "700" : "600",
                       },
                     ]}
                     numberOfLines={1}
@@ -812,10 +802,10 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                       styles.railCountBadge,
                       {
                         backgroundColor: isSelected
-                          ? `${fColor}28`
+                          ? "rgba(255, 255, 255, 0.25)"
                           : isDark
-                          ? "rgba(255, 255, 255, 0.05)"
-                          : "rgba(0, 0, 0, 0.04)",
+                          ? `${fColor}26`
+                          : `${fColor}1E`,
                       },
                     ]}
                   >
@@ -823,7 +813,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                       style={[
                         styles.railCountText,
                         {
-                          color: isSelected ? fColor : colors.textMuted,
+                          color: isSelected ? Palette.white : fColor,
                         },
                       ]}
                     >
@@ -1005,10 +995,12 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
               {
                 backgroundColor: colors.card,
                 borderColor: isDark
-                  ? `${folderColor}22`
-                  : "rgba(0, 0, 0, 0.07)",
+                  ? `${folderColor}33`
+                  : `${folderColor}24`,
+                borderTopColor: folderColor,
+                borderTopWidth: 2.5,
                 shadowColor: isDark ? folderColor : Palette.black,
-                shadowOpacity: isDark ? 0.08 : 0.03,
+                shadowOpacity: isDark ? 0.10 : 0.04,
               },
             ]}
           >
@@ -1025,7 +1017,11 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 <View
                   style={[
                     styles.folderEmojiWrap,
-                    { backgroundColor: `${folderColor}18` },
+                    {
+                      backgroundColor: `${folderColor}1C`,
+                      borderColor: `${folderColor}35`,
+                      borderWidth: 1,
+                    },
                   ]}
                 >
                   {folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
@@ -1073,13 +1069,13 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             ? "rgba(14, 165, 233, 0.18)"
                             : streamColors.image.backgroundColor
                           : isDark
-                          ? "rgba(255, 255, 255, 0.05)"
-                          : colors.cardLight,
+                          ? `${folderColor}14`
+                          : `${folderColor}0C`,
                         borderColor: isResourcesExpanded
                           ? isDark
                             ? "rgba(14, 165, 233, 0.35)"
                             : streamColors.image.borderColor
-                          : colors.border,
+                          : `${folderColor}28`,
                       },
                     ]}
                   >
@@ -1113,11 +1109,10 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   style={[
                     styles.compactActionBtn,
                     {
-                      backgroundColor:
-                        colorScheme === "light"
-                          ? colors.cardLight
-                          : "rgba(255, 255, 255, 0.05)",
-                      borderColor: colors.border,
+                      backgroundColor: isDark
+                        ? `${folderColor}14`
+                        : `${folderColor}0C`,
+                      borderColor: `${folderColor}2A`,
                     },
                   ]}
                 >
@@ -1137,11 +1132,10 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   style={[
                     styles.compactActionBtn,
                     {
-                      backgroundColor:
-                        colorScheme === "light"
-                          ? colors.cardLight
-                          : "rgba(255, 255, 255, 0.05)",
-                      borderColor: colors.border,
+                      backgroundColor: isDark
+                        ? `${folderColor}14`
+                        : `${folderColor}0C`,
+                      borderColor: `${folderColor}2A`,
                     },
                   ]}
                 >
