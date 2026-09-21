@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { type Router } from "expo-router";
+import Animated, { LinearTransition } from "react-native-reanimated";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
@@ -745,20 +746,31 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
         const displayedItems = sortedActionItems.slice(0, PREVIEW_LIMIT);
         const remainingCount = sortedActionItems.length - PREVIEW_LIMIT;
 
+        const entityParts: string[] = [];
+        if (tasks.length > 0) entityParts.push(`${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`);
+        if (habits.length > 0) entityParts.push(`${habits.length} ${habits.length === 1 ? "habit" : "habits"}`);
+        if (checklists.length > 0) entityParts.push(`${checklists.length} ${checklists.length === 1 ? "list" : "lists"}`);
+        const entitySummary = entityParts.length > 0 ? entityParts.join(" · ") : `${totalItems} items`;
+
         return (
-          <View
+          <Animated.View
             key={folder.id}
+            layout={LinearTransition.springify().damping(16).stiffness(120)}
             style={[
               styles.workspaceCard,
               {
                 backgroundColor: colors.card,
-                borderColor: colors.border,
-                shadowOpacity: colorScheme === "light" ? 0.03 : 0.15,
+                borderColor: isDark ? `${folderColor}33` : `${folderColor}22`,
+                borderTopColor: folderColor,
+                borderTopWidth: 2.5,
+                shadowColor: isDark ? folderColor : Palette.black,
+                shadowOpacity: colorScheme === "light" ? 0.04 : 0.12,
               },
+              isCollapsed && styles.workspaceCardCollapsed,
             ]}
           >
             {/* Clean Workspace Section Header */}
-            <View style={styles.workspaceHeader}>
+            <View style={[styles.workspaceHeader, isCollapsed && styles.workspaceHeaderCollapsed]}>
               <PressableScale
                 onPress={() => toggleCollapse(folder.id)}
                 style={styles.headerLeftPressable}
@@ -770,13 +782,16 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 <View
                   style={[
                     styles.folderEmojiWrap,
-                    { backgroundColor: `${folderColor}18` },
+                    {
+                      backgroundColor: `${folderColor}18`,
+                      borderColor: `${folderColor}30`,
+                    },
                   ]}
                 >
                   {folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
                     <Feather
                       name={(folder.icon || "folder") as any}
-                      size={14}
+                      size={15}
                       color={folderColor}
                     />
                   ) : (
@@ -794,14 +809,54 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   </Text>
                   <Text
                     style={[styles.folderMetaText, { color: colors.textMuted }]}
+                    numberOfLines={1}
                   >
-                    {`${completedItems} / ${totalItems} completed`}
+                    {`${entitySummary} · ${completedItems} / ${totalItems} completed`}
                   </Text>
                 </View>
               </PressableScale>
 
               {/* Compact Header Actions */}
               <View style={styles.headerRightActions}>
+                {isCollapsed && totalItems > 0 && (
+                  <View
+                    style={[
+                      styles.miniStatusChip,
+                      {
+                        backgroundColor:
+                          completedItems === totalItems
+                            ? `${colors.success}18`
+                            : isDark
+                            ? "rgba(255, 255, 255, 0.06)"
+                            : "rgba(0, 0, 0, 0.04)",
+                      },
+                    ]}
+                  >
+                    {completedItems === totalItems ? (
+                      <Feather
+                        name="check"
+                        size={10}
+                        color={colors.success}
+                        style={{ marginRight: 3 }}
+                      />
+                    ) : null}
+                    <Text
+                      style={[
+                        styles.miniStatusText,
+                        {
+                          color:
+                            completedItems === totalItems
+                              ? colors.success
+                              : colors.textMuted,
+                        },
+                      ]}
+                    >
+                      {completedItems === totalItems
+                        ? "Done"
+                        : `${completedItems}/${totalItems}`}
+                    </Text>
+                  </View>
+                )}
                 {resourcesCount > 0 && (
                   <PressableScale
                     onPress={() => toggleResourcesExpanded(folder.id)}
@@ -903,7 +958,11 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
               <View
                 style={[
                   styles.progressBarTrack,
-                  { backgroundColor: colors.border },
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.08)"
+                      : "rgba(0, 0, 0, 0.06)",
+                  },
                 ]}
               >
                 <View
@@ -1248,7 +1307,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 )}
               </>
             )}
-          </View>
+          </Animated.View>
         );
       })}
     </View>
@@ -1257,23 +1316,28 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
 
 const styles = StyleSheet.create({
   streamContainer: {
-    gap: 16,
+    gap: 12,
     marginTop: 16,
   },
   workspaceCard: {
     borderRadius: Radius.xl,
     borderWidth: 1,
     padding: 16,
-    shadowColor: Palette.black,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
+    elevation: 1.5,
+  },
+  workspaceCardCollapsed: {
+    paddingVertical: 12,
   },
   workspaceHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 8,
+  },
+  workspaceHeaderCollapsed: {
+    marginBottom: 0,
   },
   headerLeftPressable: {
     flex: 1,
@@ -1311,6 +1375,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
+  miniStatusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.sm,
+  },
+  miniStatusText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
   resourceCountButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1337,11 +1412,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   progressBarTrack: {
-    height: 2.5,
+    height: 3,
     borderRadius: 1.5,
     overflow: "hidden",
     marginBottom: 10,
-    opacity: 0.6,
   },
   progressBarFill: {
     height: "100%",
