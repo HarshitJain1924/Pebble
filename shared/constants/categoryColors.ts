@@ -77,7 +77,7 @@ export type CaptureKind = "task" | "habit" | "checklist" | "note" | "link" | "id
 
 /** Entity chips in the capture composer. */
 export const CaptureKindColors: Record<CaptureKind, ColorPair> = {
-  task: both(Palette.clay500), // #B35E39
+  task: both(Palette.pine500), // #358366
   habit: both(Palette.emerald500), // #10B981
   checklist: both(Palette.blue500), // #3B82F6
   note: both("#A855F7"),
@@ -99,7 +99,7 @@ export const CaptureCategoryColors: Record<CaptureCategory, ColorPair> = {
   health: both(Palette.amber500), // #F59E0B
   learning: both("#A855F7"),
   creative: both(Palette.pink500), // #EC4899
-  focus: both(Palette.clay500), // #B35E39
+  focus: both(Palette.pine500), // #358366
 };
 
 // ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@ export const TaskCategoryColors: Record<
   creative: { color: both("#E57373"), tint: both("rgba(229, 115, 115, 0.12)") },
   travel: { color: both("#64B5F6"), tint: both("rgba(100, 181, 246, 0.12)") },
   home: { color: both(Palette.brown400), tint: both("rgba(161, 136, 127, 0.12)") },
-  focus: { color: both(Palette.clay400), tint: both("rgba(206, 131, 98, 0.12)") },
+  focus: { color: both(Palette.pine400), tint: both("rgba(68, 167, 130, 0.12)") },
 };
 
 /** Fallback tone when a category is unknown. */
@@ -280,7 +280,7 @@ export type PebbleType = "task" | "habit" | "checklist" | "focus";
 
 /** Pebble jar / progress card type colors. */
 export const PebbleTypeColors: Record<PebbleType, ColorPair> = {
-  task: both(Palette.clay400), // #CE8362
+  task: both(Palette.pine400), // #44A782
   habit: both(Palette.amber500), // #F59E0B
   checklist: both(Palette.blue500), // #3B82F6
   focus: both(Palette.emerald500), // #10B981
@@ -303,7 +303,7 @@ export const CircadianLegendColors: Record<CalendarEntityKind, ColorPair> = {
 
 /** Workspace accent swatch picker. */
 export const WorkspaceSwatchColors: string[] = [
-  Palette.clay500, // #B35E39
+  Palette.pine500, // #358366
   Palette.emerald500, // #10B981
   Palette.amber500, // #F59E0B
   Palette.blue500, // #3B82F6
@@ -314,7 +314,7 @@ export const WorkspaceSwatchColors: string[] = [
 ];
 
 /** Fallback workspace accent when a workspace has no explicit color. */
-export const DefaultWorkspaceColor: ColorPair = both(Palette.clay500); // #B35E39
+export const DefaultWorkspaceColor: ColorPair = both(Palette.pine500); // #358366
 
 // ---------------------------------------------------------------------------
 // Ambient wash
@@ -382,7 +382,7 @@ export const PebbleStageVisuals = {
   legendary: [Palette.amber200, Palette.pink500, Palette.violet900] as const, // #FDE047 / #EC4899 / #4C1D95
   /** Per-type pebble overlay tint (defaults to the task hue). */
   overlay: {
-    task: Palette.clay500, // #B35E39
+    task: Palette.pine500, // #358366
     habit: Palette.amber500, // #F59E0B
     checklist: Palette.blue500, // #3B82F6
     focus: Palette.emerald500, // #10B981

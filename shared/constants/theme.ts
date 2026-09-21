@@ -51,15 +51,14 @@ export const Palette = {
   indigo900: "#312E81",
   indigoVivid: "#6C63FF",
 
-  // Clay — brand primary ramp. Each stop is solved to the same relative
-  // luminance as the indigo stop it replaces (same lightness/contrast profile,
-  // different hue), so swapping the primary cannot regress WCAG ratios.
-  clay200: "#EBCDC1",
-  clay300: "#DEAD98",
-  clay400: "#CE8362",
-  clay500: "#B35E39",
-  clay600: "#934D2E",
-  clay900: "#592E1C",
+  // Pine — brand primary ramp. Grounded, botanical green that shines on dark charcoal
+  // and stays crisp in light mode. Lightness calibrated for WCAG AA compliance.
+  pine200: "#B8DEC9",
+  pine300: "#8AC4A6",
+  pine400: "#44A782",
+  pine500: "#358366",
+  pine600: "#2C6C54",
+  pine900: "#1A4434",
 
   // Violet — note / creative ramp
   violet50: "#F3E8FF",
@@ -162,8 +161,8 @@ export const Colors = {
     background: "#121215",       // Canvas Base
     card: "#1C1C21",             // Soft raised card surface
     cardLight: "#26262B",        // Slightly lighter card
-    primary: "#B35E39",          // Clay accent (clay500)
-    primaryLight: "#CE8362",     // Clay lighter accent (clay400)
+    primary: "#358366",          // Pine accent (pine500)
+    primaryLight: "#44A782",     // Pine lighter accent (pine400)
     secondary: "#3B82F6",        // Blue accent
     text: "#E4E4E7",             // Highly readable off-white body text
     textMuted: "#A1A1AA",        // desaturated subtext/labels
@@ -171,17 +170,17 @@ export const Colors = {
     warning: "#F59E0B",          // Desaturated warm amber for streaks/alarms
     error: "#EF4444",            // Soft red for delete/warning
     border: "#2B2B32",           // Extremely faint divider/boundary representation
-    tint: "#B35E39",
+    tint: "#358366",
     icon: "#A1A1AA",
     tabIconDefault: "#71717A",
-    tabIconSelected: "#B35E39",
+    tabIconSelected: "#358366",
   },
   light: {
     background: "#FAFAFA",       // Premium bright canvas base
     card: "#FFFFFF",             // Pure white card pop
     cardLight: "#F3F4F6",        // Soft grey accent
-    primary: "#934D2E",
-    primaryLight: "#B35E39",
+    primary: "#2C6C54",          // Pine deep accent (pine600)
+    primaryLight: "#358366",     // Pine accent (pine500)
     secondary: "#2563EB",
     text: "#111827",
     textMuted: "#4B5563",        // Darker textMuted for high readability
@@ -189,10 +188,10 @@ export const Colors = {
     warning: "#D97706",
     error: "#DC2626",
     border: "#E2E8F0",           // Highly visible borders
-    tint: "#934D2E",
+    tint: "#2C6C54",
     icon: "#4B5563",
     tabIconDefault: "#9CA3AF",
-    tabIconSelected: "#934D2E",
+    tabIconSelected: "#2C6C54",
   },
 };
 

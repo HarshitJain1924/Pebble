@@ -19,7 +19,7 @@ export const Shadows = {
   }),
   glow: Platform.select({
     ios: {
-      shadowColor: Palette.indigo500,
+      shadowColor: Palette.pine500,
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.22,
       shadowRadius: 16,
@@ -28,7 +28,7 @@ export const Shadows = {
       elevation: 10,
     },
     web: {
-      boxShadow: "0px 6px 16px rgba(99, 102, 241, 0.22)",
+      boxShadow: "0px 6px 16px rgba(53, 131, 102, 0.22)",
     },
     default: {},
   }),

@@ -77,13 +77,18 @@ export default function TabLayout() {
 
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
       <Tabs
         tabBar={(props) => (
           <AnimatedTabBar {...props} onQuickAddPress={openQuickAdd} />
         )}
         screenOptions={{
           headerShown: false,
+          tabBarStyle: {
+            backgroundColor: "transparent",
+            borderTopWidth: 0,
+            elevation: 0,
+          },
         }}
       >
         <Tabs.Screen

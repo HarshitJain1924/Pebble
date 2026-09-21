@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
+import * as SystemUI from "expo-system-ui";
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from "@expo-google-fonts/outfit";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -20,6 +21,7 @@ import "react-native-reanimated";
 
 import UndoProvider from "@/shared/components/ui/UndoContext";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { Colors } from "@/shared/constants/theme";
 import NotificationListener from "@/shared/components/ui/NotificationListener";
 
 import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
@@ -94,13 +96,35 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, isReady]);
 
+  const currentTheme = Colors[colorScheme ?? "dark"];
+
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(currentTheme.background).catch(() => {});
+  }, [currentTheme.background]);
+
+  const navigationTheme = useMemo(() => {
+    const isDark = colorScheme === "dark";
+    const base = isDark ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        background: currentTheme.background,
+        card: currentTheme.card,
+        text: currentTheme.text,
+        border: currentTheme.border,
+        primary: currentTheme.primary,
+      },
+    };
+  }, [colorScheme, currentTheme]);
+
   if (!fontsLoaded || !isReady) {
     return null;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: currentTheme.background }}>
+      <ThemeProvider value={navigationTheme}>
         <BottomSheetModalProvider>
           <UndoProvider>
             <Stack>
