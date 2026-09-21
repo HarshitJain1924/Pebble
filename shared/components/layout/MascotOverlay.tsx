@@ -2,6 +2,7 @@ import { InteractivePebbleJar } from "@/features/profile/components/InteractiveP
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 import {
   getProfile,
@@ -186,6 +187,7 @@ const checkIfDailyClear = async (): Promise<boolean> => {
 export function MascotOverlay() {
   const pathname = usePathname();
   const colorScheme = useColorScheme();
+  const reducedMotion = useReducedMotion();
   const colors = Colors[colorScheme ?? "dark"];
 
   // State Variables
@@ -543,21 +545,30 @@ export function MascotOverlay() {
       springConfig,
     );
 
-    // Apply breathing animation loop dynamically matching the state config
-    breathingY.value = withRepeat(
-      withSequence(
-        withTiming(config.breathingAmplitude, {
-          duration: config.breathingDuration,
-        }),
-        withTiming(0, { duration: config.breathingDuration }),
-      ),
-      -1,
-      true,
-    );
-  }, [mascotState, isDismissed]);
+    // Apply breathing animation loop dynamically matching the state config.
+    // Ambient/idle motion — park the mascot at rest when reduce-motion is on.
+    if (reducedMotion) {
+      breathingY.value = 0;
+    } else {
+      breathingY.value = withRepeat(
+        withSequence(
+          withTiming(config.breathingAmplitude, {
+            duration: config.breathingDuration,
+          }),
+          withTiming(0, { duration: config.breathingDuration }),
+        ),
+        -1,
+        true,
+      );
+    }
+  }, [mascotState, isDismissed, reducedMotion]);
 
   // Micro Animations: Periodic Eye Blinks
   useEffect(() => {
+    // Periodic blinks are ambient personality motion — skip scheduling them
+    // entirely when the user has reduce-motion enabled.
+    if (reducedMotion) return;
+
     let blinkTimeout: ReturnType<typeof setTimeout>;
 
     const triggerBlink = () => {
@@ -578,10 +589,14 @@ export function MascotOverlay() {
     return () => {
       clearTimeout(blinkTimeout);
     };
-  }, [mascotState, isDismissed]);
+  }, [mascotState, isDismissed, reducedMotion]);
 
   // Micro Animations: Occasional Head Tilts
   useEffect(() => {
+    // Occasional head tilts are ambient personality motion — skip when the user
+    // has reduce-motion enabled.
+    if (reducedMotion) return;
+
     let tiltTimeout: ReturnType<typeof setTimeout>;
 
     const triggerTilt = () => {
@@ -604,7 +619,7 @@ export function MascotOverlay() {
     return () => {
       clearTimeout(tiltTimeout);
     };
-  }, [mascotState, isDismissed]);
+  }, [mascotState, isDismissed, reducedMotion]);
 
   // Shake Gesture Summon / Dismiss Detection
   useEffect(() => {

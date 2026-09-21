@@ -31,6 +31,7 @@ import * as Haptics from "expo-haptics";
 
 import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { ScreenSwipeWrapper } from "@/shared/components/layout/ScreenSwipeWrapper";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -80,14 +81,21 @@ function SlideContent({ index, scrollX, containerWidth, children }: SlideContent
 // Slide 1: Pebble Jar Illustration with Falling Pebbles & Water Level Rise
 function PebbleJarIllustration() {
   const timeline = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative looping illustration — hold a settled frame (pebbles landed,
+    // jar filled) instead of animating when reduce-motion is on.
+    if (reducedMotion) {
+      timeline.value = 0.84;
+      return;
+    }
     timeline.value = withRepeat(
       withTiming(1, { duration: 3800 }),
       -1,
       false
     );
-  }, []);
+  }, [reducedMotion]);
 
   // Pebble 1: lands at progress = 0.22
   const p1Style = useAnimatedStyle(() => {
@@ -278,8 +286,16 @@ function PebbleCaptureIllustration() {
   const h3 = useSharedValue(4);
   const h4 = useSharedValue(4);
   const h5 = useSharedValue(4);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative looping illustration — hold the frame where the structured
+    // task card is fully visible and the waveform is hidden.
+    if (reducedMotion) {
+      timeline.value = 0.8;
+      return;
+    }
+
     timeline.value = withRepeat(
       withTiming(1, { duration: 4800 }),
       -1,
@@ -302,7 +318,7 @@ function PebbleCaptureIllustration() {
     animateWave(h3, 5, 40, 480);
     animateWave(h4, 6, 28, 600);
     animateWave(h5, 4, 18, 520);
-  }, []);
+  }, [reducedMotion]);
 
   const waveContainerStyle = useAnimatedStyle(() => {
     const t = timeline.value;
@@ -424,8 +440,17 @@ function PebbleCaptureIllustration() {
 function FocusIllustration() {
   const rotation = useSharedValue(0);
   const breath = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative orbit + breathing orb — hold the orbit still and the orb at
+    // rest scale when reduce-motion is on.
+    if (reducedMotion) {
+      rotation.value = 0;
+      breath.value = 1;
+      return;
+    }
+
     rotation.value = withRepeat(
       withTiming(360, { duration: 8000 }),
       -1,
@@ -440,7 +465,7 @@ function FocusIllustration() {
       -1,
       true
     );
-  }, []);
+  }, [reducedMotion]);
 
   const orbStyle = useAnimatedStyle(() => ({
     transform: [{ scale: breath.value }],
@@ -488,8 +513,16 @@ function FocusIllustration() {
 function WelcomeLogoGlow() {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.2);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative glow pulse — hold the ring at its resting opacity when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      scale.value = 1;
+      opacity.value = 0.2;
+      return;
+    }
     scale.value = withRepeat(
       withSequence(
         withTiming(1.12, { duration: 2200 }),
@@ -506,7 +539,7 @@ function WelcomeLogoGlow() {
       -1,
       true
     );
-  }, []);
+  }, [reducedMotion]);
 
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -534,8 +567,19 @@ function WelcomeParticles() {
   const p4y = useSharedValue(40);
   const p4x = useSharedValue(-40);
   const p4o = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Ambient floating particles — keep them hidden (their resting state) when
+    // reduce-motion is on rather than drifting upward in a loop.
+    if (reducedMotion) {
+      p1o.value = 0;
+      p2o.value = 0;
+      p3o.value = 0;
+      p4o.value = 0;
+      return;
+    }
+
     p1y.value = withRepeat(
       withSequence(
         withTiming(50, { duration: 0 }),
@@ -643,7 +687,7 @@ function WelcomeParticles() {
       -1,
       false
     );
-  }, []);
+  }, [reducedMotion]);
 
   const p1Style = useAnimatedStyle(() => ({
     transform: [{ translateY: p1y.value }, { translateX: p1x.value }],

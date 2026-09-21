@@ -27,6 +27,7 @@ import { AVATAR_MAP } from "./RenderAvatar";
 import { PebbleStageVisuals } from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
 import { calculateVisiblePebbleCount } from "@/shared/utils/pebble-milestones";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 
 const isWeb = Platform.OS === "web";
 const AnimatedG = Animated.createAnimatedComponent(G) as any;
@@ -56,8 +57,16 @@ const pebbleLegendary2 = require("@/assets/images/jar_pebbles/pebble_legendary_2
 export function FloatingNode({ delay, color }: { delay: number; color: string }) {
   const translateY = useSharedValue(0);
   const opacity = useSharedValue(0.3);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Floating fireflies are ambient decoration — hold them still (mid opacity)
+    // when reduce-motion is on.
+    if (reducedMotion) {
+      translateY.value = 0;
+      opacity.value = 0.5;
+      return;
+    }
     translateY.value = withRepeat(
       withSequence(
         withTiming(-8, { duration: 1500 + delay }),
@@ -74,7 +83,7 @@ export function FloatingNode({ delay, color }: { delay: number; color: string })
       -1,
       true,
     );
-  }, [delay, translateY, opacity]);
+  }, [delay, translateY, opacity, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -214,8 +223,17 @@ export function PebbleJar({
   const crowIdleY = useSharedValue(0);
   const crowIdleRot = useSharedValue(0);
   const crowIdleWingScale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Idle crow bob/rotation is ambient decoration — park it at rest when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      crowIdleY.value = 0;
+      crowIdleRot.value = 0;
+      crowIdleWingScale.value = 1;
+      return;
+    }
     crowIdleY.value = withRepeat(
       withSequence(
         withTiming(-1.5, { duration: 2200 }),
@@ -240,13 +258,20 @@ export function PebbleJar({
       -1,
       true,
     );
-  }, []);
+  }, [reducedMotion]);
 
   // Calm ambient water surface breathing and horizontal wave sway
   const waveY = useSharedValue(0);
   const waveSway = useSharedValue(0);
 
   useEffect(() => {
+    // Decorative water surface motion — hold the surface still when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      waveY.value = 0;
+      waveSway.value = 0;
+      return;
+    }
     waveY.value = withRepeat(
       withSequence(
         withTiming(1.2, { duration: 2200 }),
@@ -263,7 +288,7 @@ export function PebbleJar({
       -1,
       true,
     );
-  }, [waveY, waveSway]);
+  }, [waveY, waveSway, reducedMotion]);
 
   const animatedFillStyle = useAnimatedStyle(() => {
     const baseTranslateY = 315 - fillPctValue.value * 130;
@@ -795,8 +820,15 @@ export function CrowMascot({
   size = 100,
 }: CrowMascotProps) {
   const breathing = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Mascot idle breathing is ambient decoration — hold at rest when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      breathing.value = 0;
+      return;
+    }
     breathing.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 2000 }),
@@ -805,7 +837,7 @@ export function CrowMascot({
       -1,
       true,
     );
-  }, []);
+  }, [reducedMotion]);
 
   const scale = size / 50;
 
@@ -844,8 +876,15 @@ export function CrowMascot({
 
 export function CrowStreakMascot({ size = 100 }: { size?: number }) {
   const breathing = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Mascot idle breathing is ambient decoration — hold at rest when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      breathing.value = 0;
+      return;
+    }
     breathing.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 2000 }),
@@ -854,7 +893,7 @@ export function CrowStreakMascot({ size = 100 }: { size?: number }) {
       -1,
       true,
     );
-  }, []);
+  }, [reducedMotion]);
 
   const scale = size / 50;
 

@@ -5,6 +5,7 @@ import Animated, {
   withTiming,
   runOnJS,
 } from "react-native-reanimated";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 
 export interface ProjectilePebbleProps {
   startX: number;
@@ -24,6 +25,7 @@ export const ProjectilePebble: React.FC<ProjectilePebbleProps> = ({
   type,
 }) => {
   const progress = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   // The animation lifecycle must be independent of callback identity. Parent
   // re-renders (dashboard reloads after a completion, another projectile being
@@ -43,6 +45,15 @@ export const ProjectilePebble: React.FC<ProjectilePebbleProps> = ({
   // re-renders cannot restart or duplicate the animation. The `disposed` guard
   // prevents the completion callback from firing after unmount.
   useEffect(() => {
+    // The flying projectile is purely decorative. When reduce-motion is on, jump
+    // straight to the end state and report completion immediately so the parent
+    // still clears the pebble from state (and fires its haptic).
+    if (reducedMotion) {
+      progress.value = 1;
+      callOnComplete();
+      return;
+    }
+
     let disposed = false;
     progress.value = withTiming(1, { duration: 650 }, (finished) => {
       if (finished && !disposed) {
@@ -52,7 +63,7 @@ export const ProjectilePebble: React.FC<ProjectilePebbleProps> = ({
     return () => {
       disposed = true;
     };
-  }, [progress, callOnComplete]);
+  }, [progress, callOnComplete, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => {
     const t = progress.value;

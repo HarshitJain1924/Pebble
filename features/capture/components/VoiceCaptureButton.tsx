@@ -11,6 +11,7 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { VoiceCaptureStatus } from "@/features/capture/hooks/useVoiceCapture"; // Wait! We created hooks/useVoiceCapture.ts. Let's make sure the path is correct.
 
 interface VoiceCaptureButtonProps {
@@ -31,10 +32,12 @@ export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
   themePrimary = Palette.violet500,
 }: VoiceCaptureButtonProps) {
   const idleScale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
-  // Breathing effect when idle
+  // Breathing effect when idle — decorative, so hold the button at rest when
+  // reduce-motion is on.
   useEffect(() => {
-    if (status === "idle") {
+    if (status === "idle" && !reducedMotion) {
       idleScale.value = withRepeat(
         withSequence(
           withTiming(1.06, { duration: 1500 }),
@@ -46,7 +49,7 @@ export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
     } else {
       idleScale.value = withSpring(1);
     }
-  }, [status]);
+  }, [status, reducedMotion]);
 
   // Volume-driven glow ring styles
   const glowStyle = useAnimatedStyle(() => {

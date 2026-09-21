@@ -12,6 +12,7 @@ import Animated, {
 import { AmbientColors } from "@/shared/constants/categoryColors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 
 // -------------------------------------------------------------
 // GradientOrb Component
@@ -47,8 +48,19 @@ export function GradientOrb({
   const transY = useSharedValue(0);
   const scale = useSharedValue(1);
   const pulseOpacity = useSharedValue(opacity);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Ambient background drift is purely decorative — hold every orb static at
+    // its resting opacity when reduce-motion is on.
+    if (reducedMotion) {
+      transX.value = 0;
+      transY.value = 0;
+      scale.value = 1;
+      pulseOpacity.value = opacity;
+      return;
+    }
+
     // Drifts horizontally
     transX.value = withRepeat(
       withSequence(
@@ -88,7 +100,7 @@ export function GradientOrb({
       -1,
       true
     );
-  }, []);
+  }, [opacity, pulseSpeed, pulseRange, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -155,8 +167,17 @@ export function FloatingGlow({
 }: FloatingGlowProps) {
   const scale = useSharedValue(1);
   const breathOpacity = useSharedValue(opacity);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Localized glow breathing is decorative — hold it static at its resting
+    // scale/opacity when reduce-motion is on.
+    if (reducedMotion) {
+      scale.value = 1;
+      breathOpacity.value = opacity;
+      return;
+    }
+
     breathOpacity.value = withTiming(opacity, { duration: 600 });
     scale.value = withRepeat(
       withSequence(
@@ -175,7 +196,7 @@ export function FloatingGlow({
       -1,
       true
     );
-  }, [opacity, pulseSpeed, pulseRange]);
+  }, [opacity, pulseSpeed, pulseRange, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {

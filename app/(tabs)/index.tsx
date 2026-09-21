@@ -11,6 +11,7 @@ import { useUndo } from "@/shared/components/ui/UndoContext";
 import { styles } from "@/shared/constants/dashboardStyles";
 import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -132,9 +133,12 @@ export function TodayScreen() {
     Record<string, Checklist[]>
   >({});
   const breathScale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
-    if (isZenModeActive) {
+    // Ambient breathing guide — purely decorative, so skip the loop and hold a
+    // calm static scale when the OS reduce-motion setting is on.
+    if (isZenModeActive && !reducedMotion) {
       breathScale.value = withRepeat(
         withSequence(
           withTiming(1.25, { duration: 4000 }),
@@ -146,7 +150,7 @@ export function TodayScreen() {
     } else {
       breathScale.value = 1;
     }
-  }, [isZenModeActive]);
+  }, [isZenModeActive, reducedMotion]);
 
   const breathStyle = useAnimatedStyle(() => {
     return {

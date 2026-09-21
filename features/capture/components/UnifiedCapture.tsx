@@ -58,6 +58,7 @@ import {
 } from "@/shared/constants/categoryColors";
 import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
 import { useRouter } from "expo-router";
@@ -415,6 +416,7 @@ export default function UnifiedCapture({
   entryTab,
 }: UnifiedCaptureProps) {
   const colorScheme = useColorScheme();
+  const reducedMotion = useReducedMotion();
   const isDark = colorScheme === "dark";
   const theme = Colors[colorScheme ?? "dark"];
   const { showToast, showUndo } = useUndo();
@@ -607,12 +609,13 @@ export default function UnifiedCapture({
       }
 
       setParsePhase("interpreting");
-      loadingProgress.value = 0;
-      loadingProgress.value = withRepeat(
-        withSequence(withTiming(0.4, { duration: 400 }), withTiming(0.9, { duration: 600 })),
-        -1,
-        true,
-      );
+      loadingProgress.value = reducedMotion
+        ? 0.9
+        : withRepeat(
+            withSequence(withTiming(0.4, { duration: 400 }), withTiming(0.9, { duration: 600 })),
+            -1,
+            true,
+          );
 
       const parsed = applyUserOverrides(parseProductivityText(text.trim()));
 

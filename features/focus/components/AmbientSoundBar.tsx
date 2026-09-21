@@ -13,6 +13,7 @@ import Animated, {
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { AMBIENT_SOUNDS } from "@/shared/constants/sounds";
 
 interface AmbientSoundBarProps {
@@ -32,8 +33,15 @@ interface AmbientSoundBarProps {
 // Single equalizer bar: slow, gentle rise and fall while audio plays.
 const EQBar: React.FC<{ color: string; duration: number }> = ({ color, duration }) => {
   const height = useSharedValue(4);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative equalizer bounce — hold a steady mid-height bar when
+    // reduce-motion is on (the bar still reads as "playing").
+    if (reducedMotion) {
+      height.value = 7;
+      return;
+    }
     height.value = withRepeat(
       withSequence(
         withTiming(10, { duration, easing: Easing.inOut(Easing.ease) }),
@@ -42,7 +50,7 @@ const EQBar: React.FC<{ color: string; duration: number }> = ({ color, duration 
       -1,
       true
     );
-  }, [duration, height]);
+  }, [duration, height, reducedMotion]);
 
   const barStyle = useAnimatedStyle(() => ({
     height: height.value,
