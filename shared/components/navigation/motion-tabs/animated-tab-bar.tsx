@@ -283,11 +283,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                 styles.card,
                 {
                   borderColor: colors.border,
-                  ...Platform.select({
-                    android: {
-                      backgroundColor: colors.surface,
-                    },
-                  }),
+                  backgroundColor: colors.surface,
                 },
               ]}
             >
@@ -355,6 +351,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                   height: "100%",
                   justifyContent: "center",
                   alignItems: "center",
+                  backgroundColor: colors.surface,
                 }}
               >
                 <Feather
