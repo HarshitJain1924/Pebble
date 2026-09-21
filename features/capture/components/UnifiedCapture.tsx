@@ -43,6 +43,7 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
   BottomSheetTextInput,
+  type BottomSheetBackgroundProps,
 } from "@gorhom/bottom-sheet";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
@@ -59,6 +60,7 @@ import {
 import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
+import { GlassSurface } from "@/shared/components/ui/GlassSurface";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { useVoiceCapture } from "@/features/capture/hooks/useVoiceCapture";
 import { useRouter } from "expo-router";
@@ -1217,6 +1219,22 @@ export default function UnifiedCapture({
     [],
   );
 
+  // The sheet floats over the app instead of reading as a flat panel: its
+  // background layer is a blurred glass surface (with a legibility scrim), and
+  // it degrades to a ~85%-opaque solid on devices that skip the blur.
+  const renderSheetBackground = useCallback(
+    (props: BottomSheetBackgroundProps) => (
+      <GlassSurface
+        {...props}
+        intensity={60}
+        style={props.style}
+        scrimColor={isDark ? "rgba(24, 24, 27, 0.62)" : "rgba(255, 255, 255, 0.72)"}
+        solidColor={isDark ? "rgba(24, 24, 27, 0.85)" : "rgba(255, 255, 255, 0.85)"}
+      />
+    ),
+    [isDark],
+  );
+
   const handleSheetChange = useCallback(
     (index: number) => {
       if (index === -1) {
@@ -1314,8 +1332,11 @@ export default function UnifiedCapture({
       snapPoints={SNAP_POINTS}
       onChange={handleSheetChange}
       backdropComponent={renderBackdrop}
+      backgroundComponent={renderSheetBackground}
       backgroundStyle={{
-        backgroundColor: theme.background,
+        // The blur layer paints the surface; keeping this transparent lets the
+        // app show through the glass instead of being covered by a solid slab.
+        backgroundColor: "transparent",
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
       }}
