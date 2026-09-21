@@ -997,15 +997,25 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 borderColor: isDark
                   ? `${folderColor}33`
                   : `${folderColor}24`,
-                borderTopColor: folderColor,
-                borderTopWidth: 2.5,
                 shadowColor: isDark ? folderColor : Palette.black,
-                shadowOpacity: isDark ? 0.10 : 0.04,
+                shadowOpacity: isDark ? 0.08 : 0.03,
               },
             ]}
           >
-            {/* Clean Workspace Section Header */}
-            <View style={styles.workspaceHeader}>
+            {/* Folder Tab Header Bar */}
+            <View
+              style={[
+                styles.folderTabBar,
+                {
+                  backgroundColor: isDark
+                    ? `${folderColor}16`
+                    : `${folderColor}0C`,
+                  borderBottomColor: isDark
+                    ? `${folderColor}2E`
+                    : `${folderColor}1C`,
+                },
+              ]}
+            >
               <PressableScale
                 onPress={() => toggleCollapse(folder.id)}
                 style={styles.headerLeftPressable}
@@ -1016,40 +1026,48 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
               >
                 <View
                   style={[
-                    styles.folderEmojiWrap,
+                    styles.folderTabEar,
                     {
-                      backgroundColor: `${folderColor}1C`,
-                      borderColor: `${folderColor}35`,
-                      borderWidth: 1,
+                      backgroundColor: isDark
+                        ? `${folderColor}24`
+                        : `${folderColor}18`,
+                      borderColor: isDark
+                        ? `${folderColor}48`
+                        : `${folderColor}32`,
                     },
                   ]}
                 >
-                  {folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
-                    <Feather
-                      name={(folder.icon || "folder") as any}
-                      size={14}
-                      color={folderColor}
-                    />
-                  ) : (
-                    <Text style={styles.folderEmojiText}>
-                      {folder.emoji || "📁"}
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.headerTitleWrap}>
+                  <View
+                    style={[
+                      styles.folderEmojiWrap,
+                      { backgroundColor: `${folderColor}22` },
+                    ]}
+                  >
+                    {folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
+                      <Feather
+                        name={(folder.icon || "folder") as any}
+                        size={13}
+                        color={folderColor}
+                      />
+                    ) : (
+                      <Text style={styles.folderEmojiText}>
+                        {folder.emoji || "📁"}
+                      </Text>
+                    )}
+                  </View>
                   <Text
                     style={[styles.folderNameText, { color: colors.text }]}
                     numberOfLines={1}
                   >
                     {folder.name}
                   </Text>
-                  <Text
-                    style={[styles.folderMetaText, { color: colors.textMuted }]}
-                    numberOfLines={1}
-                  >
-                    {summaryMetaText}
-                  </Text>
                 </View>
+                <Text
+                  style={[styles.folderMetaText, { color: colors.textMuted }]}
+                  numberOfLines={1}
+                >
+                  {summaryMetaText}
+                </Text>
               </PressableScale>
 
               {/* Compact Header Actions */}
@@ -1148,29 +1166,31 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
               </View>
             </View>
 
-            {/* Subtle Progress Bar */}
-            {totalItems > 0 && (
-              <View
-                style={[
-                  styles.progressBarTrack,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(255, 255, 255, 0.07)"
-                      : "rgba(0, 0, 0, 0.05)",
-                  },
-                ]}
-              >
+            {/* Folder Interior Body */}
+            <View style={styles.folderBody}>
+              {/* Subtle Progress Bar */}
+              {totalItems > 0 && (
                 <View
                   style={[
-                    styles.progressBarFill,
+                    styles.progressBarTrack,
                     {
-                      width: `${progress * 100}%`,
-                      backgroundColor: folderColor,
+                      backgroundColor: isDark
+                        ? "rgba(255, 255, 255, 0.07)"
+                        : "rgba(0, 0, 0, 0.05)",
                     },
                   ]}
-                />
-              </View>
-            )}
+                >
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        width: `${progress * 100}%`,
+                        backgroundColor: folderColor,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
 
             {!isCollapsed && (
               <>
@@ -1502,6 +1522,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 )}
               </>
             )}
+            </View>
           </View>
         );
       })}
@@ -1566,18 +1587,25 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   workspaceCard: {
-    borderRadius: Radius.xl,
+    borderRadius: Radius.lg,
     borderWidth: 1,
-    padding: 16,
+    overflow: "hidden",
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 8,
     elevation: 1,
   },
-  workspaceHeader: {
+  folderTabBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  folderBody: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 14,
   },
   headerLeftPressable: {
     flex: 1,
@@ -1585,30 +1613,37 @@ const styles = StyleSheet.create({
   headerLeftContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  folderTabEar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
   },
   folderEmojiWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.md,
+    width: 24,
+    height: 24,
+    borderRadius: Radius.sm / 2,
     alignItems: "center",
     justifyContent: "center",
   },
   folderEmojiText: {
-    fontSize: 18,
-  },
-  headerTitleWrap: {
-    flex: 1,
+    fontSize: 13,
   },
   folderNameText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
     letterSpacing: -0.2,
   },
   folderMetaText: {
     fontSize: 11,
     fontWeight: "500",
-    marginTop: 1,
+    marginTop: 0,
   },
   headerRightActions: {
     flexDirection: "row",
