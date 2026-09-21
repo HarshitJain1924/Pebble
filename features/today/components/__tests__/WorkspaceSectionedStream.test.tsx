@@ -549,6 +549,100 @@ describe("WorkspaceSectionedStream Component", () => {
 
     expect(mockCompleteTodo).toHaveBeenCalledWith("task-1", undefined, "ws-work");
   });
+
+  it("renders Workspace Rail when multiple workspaces are active and allows filtering", () => {
+    const secondWorkspace: Workspace = {
+      id: "ws-personal",
+      name: "Personal Life",
+      emoji: "🌱",
+      color: "#10B981",
+      order: 1,
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    };
+
+    const personalTask: Task = {
+      id: "task-p1",
+      title: "Buy groceries for dinner",
+      completed: false,
+      priority: "medium",
+      workspaceId: "ws-personal",
+      createdAt: 1000,
+      updatedAt: 1000,
+    } as any;
+
+    const multiContexts = [
+      {
+        folder: sampleWorkspace,
+        tasks: [sampleTasks[0]],
+        habits: [],
+        checklists: [],
+        totalCount: 1,
+      },
+      {
+        folder: secondWorkspace,
+        tasks: [personalTask],
+        habits: [],
+        checklists: [],
+        totalCount: 1,
+      },
+    ];
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceSectionedStream
+          activeContexts={multiContexts}
+          colors={mockColors}
+          colorScheme="dark"
+          allCollections={{}}
+          expandedChecklistIds={{}}
+          setExpandedChecklistIds={mockSetExpandedChecklistIds}
+          router={mockRouter}
+          completeTodoFromDashboard={mockCompleteTodo}
+          completeHabitFromDashboard={mockCompleteHabit}
+          toggleChecklistItemFromDashboard={mockToggleChecklistItem}
+        />
+      );
+    });
+
+    const root = renderer.root;
+
+    // "All Today" and both workspaces are visible in the rail
+    let texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
+    expect(texts).toContain("All Today");
+    expect(texts).toContain("Work Projects");
+    expect(texts).toContain("Personal Life");
+    expect(texts).toContain("Review quarterly deck");
+    expect(texts).toContain("Buy groceries for dinner");
+
+    // Find the Personal Life tile in the rail and tap it
+    const personalRailTile = root.findByProps({
+      accessibilityLabel: "Filter by Personal Life, 1 items",
+    });
+    act(() => {
+      personalRailTile.props.onPress();
+    });
+
+    // Stream should now be filtered to only Personal Life
+    texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
+    expect(texts).toContain("Buy groceries for dinner");
+    expect(texts).not.toContain("Review quarterly deck");
+
+    // Tap "All Today" to restore both
+    const allRailTile = root.findByProps({
+      accessibilityLabel: "All workspaces, 2 items",
+    });
+    act(() => {
+      allRailTile.props.onPress();
+    });
+
+    texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
+    expect(texts).toContain("Review quarterly deck");
+    expect(texts).toContain("Buy groceries for dinner");
+  });
 });
 
 describe("WorkspaceItemRow Component", () => {

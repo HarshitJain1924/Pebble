@@ -1,10 +1,9 @@
 import React from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { type Router } from "expo-router";
-import Animated, { LinearTransition } from "react-native-reanimated";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
@@ -558,8 +557,34 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
     link: getStreamResourceStyle("link", isDark),
     note: getStreamResourceStyle("note", isDark),
   };
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState<string>("all");
   const [collapsedMap, setCollapsedMap] = React.useState<Record<string, boolean>>({});
   const [expandedResourceFolders, setExpandedResourceFolders] = React.useState<Record<string, boolean>>({});
+
+  // Revert to "all" if selected workspace is no longer present
+  React.useEffect(() => {
+    if (selectedWorkspaceId !== "all") {
+      const exists = activeContexts.some((c) => c.folder.id === selectedWorkspaceId);
+      if (!exists) {
+        setSelectedWorkspaceId("all");
+      }
+    }
+  }, [activeContexts, selectedWorkspaceId]);
+
+  const totalAllItems = React.useMemo(() => {
+    return activeContexts.reduce((sum, c) => {
+      const tasksCount = c.tasks.length;
+      const habitsCount = c.habits.length;
+      const checklistsCount = c.checklists.reduce((s, cl) => s + cl.items.length, 0);
+      return sum + tasksCount + habitsCount + checklistsCount;
+    }, 0);
+  }, [activeContexts]);
+
+  const displayedContexts = React.useMemo(() => {
+    if (selectedWorkspaceId === "all") return activeContexts;
+    const filtered = activeContexts.filter((c) => c.folder.id === selectedWorkspaceId);
+    return filtered.length > 0 ? filtered : activeContexts;
+  }, [activeContexts, selectedWorkspaceId]);
 
   const toggleCollapse = (folderId: string) => {
     setCollapsedMap((prev) => ({
@@ -600,7 +625,219 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
 
   return (
     <View style={styles.streamContainer}>
-      {activeContexts.map((context) => {
+      {/* Pebble Workspace Rail (Avatar / Tile Rail shown when > 1 active workspace) */}
+      {activeContexts.length > 1 && (
+        <View style={styles.railContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.railScrollContent}
+          >
+            {/* "All Today" Rail Tile */}
+            <PressableScale
+              onPress={() => setSelectedWorkspaceId("all")}
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={`All workspaces, ${totalAllItems} items`}
+              accessibilityState={{ selected: selectedWorkspaceId === "all" }}
+              style={[
+                styles.railTile,
+                selectedWorkspaceId === "all"
+                  ? [
+                      styles.railTileActive,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(255, 255, 255, 0.12)"
+                          : "rgba(0, 0, 0, 0.08)",
+                        borderColor: isDark
+                          ? "rgba(255, 255, 255, 0.22)"
+                          : "rgba(0, 0, 0, 0.16)",
+                      },
+                    ]
+                  : [
+                      styles.railTileInactive,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(255, 255, 255, 0.03)"
+                          : colors.card,
+                        borderColor: isDark
+                          ? "rgba(255, 255, 255, 0.06)"
+                          : colors.border,
+                      },
+                    ],
+              ]}
+              contentStyle={styles.railTileContent}
+            >
+              <View
+                style={[
+                  styles.railIconWrap,
+                  {
+                    backgroundColor: selectedWorkspaceId === "all"
+                      ? isDark
+                        ? "rgba(255, 255, 255, 0.16)"
+                        : "rgba(0, 0, 0, 0.08)"
+                      : isDark
+                      ? "rgba(255, 255, 255, 0.06)"
+                      : colors.cardLight,
+                  },
+                ]}
+              >
+                <Feather
+                  name="layers"
+                  size={12}
+                  color={selectedWorkspaceId === "all" ? colors.text : colors.textMuted}
+                />
+              </View>
+              <Text
+                style={[
+                  styles.railTileText,
+                  {
+                    color: selectedWorkspaceId === "all" ? colors.text : colors.textMuted,
+                    fontWeight: selectedWorkspaceId === "all" ? "700" : "500",
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                All Today
+              </Text>
+              <View
+                style={[
+                  styles.railCountBadge,
+                  {
+                    backgroundColor: selectedWorkspaceId === "all"
+                      ? isDark
+                        ? "rgba(255, 255, 255, 0.15)"
+                        : "rgba(0, 0, 0, 0.10)"
+                      : isDark
+                      ? "rgba(255, 255, 255, 0.05)"
+                      : "rgba(0, 0, 0, 0.04)",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.railCountText,
+                    {
+                      color: selectedWorkspaceId === "all" ? colors.text : colors.textMuted,
+                    },
+                  ]}
+                >
+                  {totalAllItems}
+                </Text>
+              </View>
+            </PressableScale>
+
+            {/* Individual Workspace Tiles */}
+            {activeContexts.map((ctx) => {
+              const f = ctx.folder;
+              const fColor = f.color || colors.primary;
+              const isSelected = selectedWorkspaceId === f.id;
+              const itemCount =
+                ctx.tasks.length +
+                ctx.habits.length +
+                ctx.checklists.reduce((s, cl) => s + cl.items.length, 0);
+
+              return (
+                <PressableScale
+                  key={`rail-${f.id}`}
+                  onPress={() =>
+                    setSelectedWorkspaceId(isSelected ? "all" : f.id)
+                  }
+                  haptic
+                  accessibilityRole="button"
+                  accessibilityLabel={`Filter by ${f.name}, ${itemCount} items`}
+                  accessibilityState={{ selected: isSelected }}
+                  style={[
+                    styles.railTile,
+                    isSelected
+                      ? [
+                          styles.railTileActive,
+                          {
+                            backgroundColor: `${fColor}18`,
+                            borderColor: `${fColor}66`,
+                          },
+                        ]
+                      : [
+                          styles.railTileInactive,
+                          {
+                            backgroundColor: isDark
+                              ? "rgba(255, 255, 255, 0.03)"
+                              : colors.card,
+                            borderColor: isDark
+                              ? "rgba(255, 255, 255, 0.06)"
+                              : colors.border,
+                          },
+                        ],
+                  ]}
+                  contentStyle={styles.railTileContent}
+                >
+                  <View
+                    style={[
+                      styles.railIconWrap,
+                      {
+                        backgroundColor: isSelected
+                          ? `${fColor}28`
+                          : `${fColor}14`,
+                      },
+                    ]}
+                  >
+                    {f.iconType === "icon" || (!f.emoji && f.icon) ? (
+                      <Feather
+                        name={(f.icon || "folder") as any}
+                        size={12}
+                        color={fColor}
+                      />
+                    ) : (
+                      <Text style={styles.railEmojiText}>
+                        {f.emoji || "📁"}
+                      </Text>
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.railTileText,
+                      {
+                        color: isSelected
+                          ? colors.text
+                          : colors.textMuted,
+                        fontWeight: isSelected ? "700" : "500",
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {f.name}
+                  </Text>
+                  <View
+                    style={[
+                      styles.railCountBadge,
+                      {
+                        backgroundColor: isSelected
+                          ? `${fColor}28`
+                          : isDark
+                          ? "rgba(255, 255, 255, 0.05)"
+                          : "rgba(0, 0, 0, 0.04)",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.railCountText,
+                        {
+                          color: isSelected ? fColor : colors.textMuted,
+                        },
+                      ]}
+                    >
+                      {itemCount}
+                    </Text>
+                  </View>
+                </PressableScale>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      {displayedContexts.map((context) => {
         const { folder, tasks, habits, checklists } = context;
         const totalItems =
           tasks.length +
@@ -746,31 +983,37 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
         const displayedItems = sortedActionItems.slice(0, PREVIEW_LIMIT);
         const remainingCount = sortedActionItems.length - PREVIEW_LIMIT;
 
-        const entityParts: string[] = [];
-        if (tasks.length > 0) entityParts.push(`${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`);
-        if (habits.length > 0) entityParts.push(`${habits.length} ${habits.length === 1 ? "habit" : "habits"}`);
-        if (checklists.length > 0) entityParts.push(`${checklists.length} ${checklists.length === 1 ? "list" : "lists"}`);
-        const entitySummary = entityParts.length > 0 ? entityParts.join(" · ") : `${totalItems} items`;
+        const entityBreakdown: string[] = [];
+        if (tasks.length > 0) {
+          entityBreakdown.push(`${tasks.length} task${tasks.length > 1 ? "s" : ""}`);
+        }
+        if (habits.length > 0) {
+          entityBreakdown.push(`${habits.length} habit${habits.length > 1 ? "s" : ""}`);
+        }
+        if (checklists.length > 0) {
+          entityBreakdown.push(`${checklists.length} checklist${checklists.length > 1 ? "s" : ""}`);
+        }
+        const summaryMetaText = entityBreakdown.length > 0
+          ? `${entityBreakdown.join(" · ")} · ${completedItems}/${totalItems} done`
+          : `${completedItems} / ${totalItems} completed`;
 
         return (
-          <Animated.View
+          <View
             key={folder.id}
-            layout={LinearTransition.springify().damping(16).stiffness(120)}
             style={[
               styles.workspaceCard,
               {
                 backgroundColor: colors.card,
-                borderColor: isDark ? `${folderColor}33` : `${folderColor}22`,
-                borderTopColor: folderColor,
-                borderTopWidth: 2.5,
+                borderColor: isDark
+                  ? `${folderColor}22`
+                  : "rgba(0, 0, 0, 0.07)",
                 shadowColor: isDark ? folderColor : Palette.black,
-                shadowOpacity: colorScheme === "light" ? 0.04 : 0.12,
+                shadowOpacity: isDark ? 0.08 : 0.03,
               },
-              isCollapsed && styles.workspaceCardCollapsed,
             ]}
           >
             {/* Clean Workspace Section Header */}
-            <View style={[styles.workspaceHeader, isCollapsed && styles.workspaceHeaderCollapsed]}>
+            <View style={styles.workspaceHeader}>
               <PressableScale
                 onPress={() => toggleCollapse(folder.id)}
                 style={styles.headerLeftPressable}
@@ -782,16 +1025,13 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 <View
                   style={[
                     styles.folderEmojiWrap,
-                    {
-                      backgroundColor: `${folderColor}18`,
-                      borderColor: `${folderColor}30`,
-                    },
+                    { backgroundColor: `${folderColor}18` },
                   ]}
                 >
                   {folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
                     <Feather
                       name={(folder.icon || "folder") as any}
-                      size={15}
+                      size={14}
                       color={folderColor}
                     />
                   ) : (
@@ -811,52 +1051,13 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                     style={[styles.folderMetaText, { color: colors.textMuted }]}
                     numberOfLines={1}
                   >
-                    {`${entitySummary} · ${completedItems} / ${totalItems} completed`}
+                    {summaryMetaText}
                   </Text>
                 </View>
               </PressableScale>
 
               {/* Compact Header Actions */}
               <View style={styles.headerRightActions}>
-                {isCollapsed && totalItems > 0 && (
-                  <View
-                    style={[
-                      styles.miniStatusChip,
-                      {
-                        backgroundColor:
-                          completedItems === totalItems
-                            ? `${colors.success}18`
-                            : isDark
-                            ? "rgba(255, 255, 255, 0.06)"
-                            : "rgba(0, 0, 0, 0.04)",
-                      },
-                    ]}
-                  >
-                    {completedItems === totalItems ? (
-                      <Feather
-                        name="check"
-                        size={10}
-                        color={colors.success}
-                        style={{ marginRight: 3 }}
-                      />
-                    ) : null}
-                    <Text
-                      style={[
-                        styles.miniStatusText,
-                        {
-                          color:
-                            completedItems === totalItems
-                              ? colors.success
-                              : colors.textMuted,
-                        },
-                      ]}
-                    >
-                      {completedItems === totalItems
-                        ? "Done"
-                        : `${completedItems}/${totalItems}`}
-                    </Text>
-                  </View>
-                )}
                 {resourcesCount > 0 && (
                   <PressableScale
                     onPress={() => toggleResourcesExpanded(folder.id)}
@@ -960,8 +1161,8 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   styles.progressBarTrack,
                   {
                     backgroundColor: isDark
-                      ? "rgba(255, 255, 255, 0.08)"
-                      : "rgba(0, 0, 0, 0.06)",
+                      ? "rgba(255, 255, 255, 0.07)"
+                      : "rgba(0, 0, 0, 0.05)",
                   },
                 ]}
               >
@@ -1307,7 +1508,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                 )}
               </>
             )}
-          </Animated.View>
+          </View>
         );
       })}
     </View>
@@ -1316,28 +1517,73 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
 
 const styles = StyleSheet.create({
   streamContainer: {
-    gap: 12,
-    marginTop: 16,
+    gap: 14,
+    marginTop: 12,
+  },
+  railContainer: {
+    marginHorizontal: -16,
+    marginBottom: 4,
+  },
+  railScrollContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  railTile: {
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    minHeight: 36,
+  },
+  railTileActive: {},
+  railTileInactive: {},
+  railTileContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    gap: 7,
+  },
+  railIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  railEmojiText: {
+    fontSize: 12,
+  },
+  railTileText: {
+    fontSize: 13,
+    letterSpacing: -0.2,
+  },
+  railCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.pill,
+    minWidth: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  railCountText: {
+    fontSize: 11,
+    fontWeight: "700",
   },
   workspaceCard: {
     borderRadius: Radius.xl,
     borderWidth: 1,
     padding: 16,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 2 },
     shadowRadius: 8,
-    elevation: 1.5,
-  },
-  workspaceCardCollapsed: {
-    paddingVertical: 12,
+    elevation: 1,
   },
   workspaceHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 8,
-  },
-  workspaceHeaderCollapsed: {
-    marginBottom: 0,
   },
   headerLeftPressable: {
     flex: 1,
@@ -1375,17 +1621,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  miniStatusChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Radius.sm,
-  },
-  miniStatusText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
   resourceCountButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1412,14 +1647,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   progressBarTrack: {
-    height: 3,
-    borderRadius: 1.5,
+    height: 2,
+    borderRadius: 1,
     overflow: "hidden",
+    marginTop: 2,
     marginBottom: 10,
   },
   progressBarFill: {
     height: "100%",
-    borderRadius: 1.5,
+    borderRadius: 1,
   },
   itemsListWrap: {
     gap: 2,
