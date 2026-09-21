@@ -7,42 +7,22 @@ import { View } from "react-native";
 import { create, act } from "react-test-renderer";
 import { BlurView } from "expo-blur";
 
-import {
-  ANDROID_LOW_MEMORY_THRESHOLD_BYTES,
-  GlassSurface,
-  canRenderBlur,
-} from "../GlassSurface";
+import { GlassSurface, canRenderBlur } from "../GlassSurface";
 
 describe("canRenderBlur (blur vs solid fallback decision)", () => {
-  it("skips the blur on web, where there is no native blur pass", () => {
-    expect(canRenderBlur("web")).toBe(false);
-  });
-
-  it("skips the blur on low-memory Android", () => {
-    expect(canRenderBlur("android", 1_500_000_000)).toBe(false);
-  });
-
-  it("keeps the blur on capable Android", () => {
-    expect(canRenderBlur("android", 8_000_000_000)).toBe(true);
-  });
-
-  it("keeps the blur on Android when the memory signal is missing", () => {
-    expect(canRenderBlur("android")).toBe(true);
-    expect(canRenderBlur("android", 0)).toBe(true);
-  });
-
-  it("keeps the blur on iOS regardless of the memory signal", () => {
+  it("renders a live blur on iOS", () => {
     expect(canRenderBlur("ios")).toBe(true);
-    expect(canRenderBlur("ios", 1_000_000_000)).toBe(true);
   });
 
-  it("treats the low-memory threshold as the inclusive lower bound", () => {
-    expect(canRenderBlur("android", ANDROID_LOW_MEMORY_THRESHOLD_BYTES)).toBe(
-      true,
-    );
-    expect(
-      canRenderBlur("android", ANDROID_LOW_MEMORY_THRESHOLD_BYTES - 1),
-    ).toBe(false);
+  it("never blurs on Android", () => {
+    // Android's expo-blur path captures the view hierarchy into a software
+    // canvas and crashes with "Software rendering doesn't support hardware
+    // bitmaps" whenever a hardware bitmap is in the tree. Regression guard.
+    expect(canRenderBlur("android")).toBe(false);
+  });
+
+  it("never blurs on web", () => {
+    expect(canRenderBlur("web")).toBe(false);
   });
 });
 
@@ -73,7 +53,14 @@ describe("GlassSurface", () => {
     expect(blur.props.tint).toBe("dark");
   });
 
-  it("keeps the surface clipped so border radii are honoured on Android", () => {
+  it("does not enable expo-blur's Android bitmap-capture path", () => {
+    const renderer = render(<GlassSurface />);
+    const blur = renderer.root.findByType(BlurView);
+
+    expect(blur.props.experimentalBlurMethod).toBeUndefined();
+  });
+
+  it("keeps the surface clipped so border radii are honoured", () => {
     const renderer = render(<GlassSurface style={{ borderRadius: 28 }} />);
     const blur = renderer.root.findByType(BlurView);
     const flat = Object.assign({}, ...[].concat(blur.props.style));
