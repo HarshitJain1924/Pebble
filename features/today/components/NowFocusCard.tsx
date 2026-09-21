@@ -7,7 +7,6 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { Radius } from "@/shared/constants/radii";
 import { PriorityColors, getCategoryColors } from "@/shared/constants/categoryColors";
 import { Palette, type ThemeColors } from "@/shared/constants/theme";
-import { GlassSurface } from "@/shared/components/ui/GlassSurface";
 import type { Task, Habit, Checklist } from "@/shared/types/domain.types";
 import { type NowFocusResult } from "@/features/today/utils/getNowFocus";
 import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
@@ -108,35 +107,11 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
           style={[
             styles.cardSurface,
             {
-              borderColor: isDark
-                ? "rgba(255, 255, 255, 0.12)"
-                : "rgba(0, 0, 0, 0.07)",
+              backgroundColor: isDark ? "rgba(24, 24, 27, 0.7)" : Palette.slate50,
+              borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
             },
           ]}
         >
-          {/* Blurred glass backdrop; solid fallback on low-end devices. */}
-          <GlassSurface
-            pointerEvents="none"
-            style={StyleSheet.absoluteFill}
-            scrimColor={
-              isDark ? "rgba(24, 24, 27, 0.55)" : "rgba(255, 255, 255, 0.62)"
-            }
-            solidColor={
-              isDark ? "rgba(24, 24, 27, 0.85)" : "rgba(255, 255, 255, 0.85)"
-            }
-          />
-          {/* Soft 1px inner highlight so the card reads as elevated glass. */}
-          <View
-            pointerEvents="none"
-            style={[
-              styles.innerHighlight,
-              {
-                backgroundColor: isDark
-                  ? "rgba(255, 255, 255, 0.14)"
-                  : "rgba(0, 0, 0, 0.05)",
-              },
-            ]}
-          />
           <View style={styles.emptyContent}>
             <View
               style={[
@@ -304,35 +279,11 @@ export const NowFocusCard: React.FC<NowFocusCardProps> = ({
         style={[
           styles.cardSurface,
           {
-            borderColor: isDark
-              ? "rgba(255, 255, 255, 0.12)"
-              : "rgba(0, 0, 0, 0.07)",
+            backgroundColor: isDark ? "rgba(24, 24, 27, 0.88)" : Palette.white,
+            borderColor: isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.08)",
           },
         ]}
       >
-        {/* Blurred glass backdrop; solid fallback on low-end devices. */}
-        <GlassSurface
-          pointerEvents="none"
-          style={StyleSheet.absoluteFill}
-          scrimColor={
-            isDark ? "rgba(24, 24, 27, 0.55)" : "rgba(255, 255, 255, 0.62)"
-          }
-          solidColor={
-            isDark ? "rgba(24, 24, 27, 0.85)" : "rgba(255, 255, 255, 0.85)"
-          }
-        />
-        {/* Soft 1px inner highlight so the card reads as elevated glass. */}
-        <View
-          pointerEvents="none"
-          style={[
-            styles.innerHighlight,
-            {
-              backgroundColor: isDark
-                ? "rgba(255, 255, 255, 0.14)"
-                : "rgba(0, 0, 0, 0.05)",
-            },
-          ]}
-        />
         {/* Left priority / status accent stripe */}
         <View
           style={[
@@ -713,13 +664,6 @@ const styles = StyleSheet.create({
     elevation: 3,
     flexDirection: "row",
     alignItems: "stretch",
-  },
-  innerHighlight: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
   },
   leftStripe: {
     width: 4,

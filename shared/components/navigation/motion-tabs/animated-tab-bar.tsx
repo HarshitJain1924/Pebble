@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import {
     memo,
@@ -14,6 +15,7 @@ import {
 } from "react";
 import {
     Dimensions,
+    Platform,
     Pressable,
     StyleSheet,
     View,
@@ -41,7 +43,6 @@ import { estimateToolbarWidth } from "./utils/toolbar-width";
 
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import { Palette } from "@/shared/constants/theme";
-import { GlassSurface } from "@/shared/components/ui/GlassSurface";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -265,10 +266,20 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
           style={[styles.dock, { paddingBottom: Math.max(insets.bottom, 12) }]}
         >
           <Animated.View style={[styles.cardShadow, motion.cardStyle]}>
-            <GlassSurface
+            <BlurView
               intensity={70}
               tint={scheme === "dark" ? "dark" : "light"}
-              style={[styles.card, { borderColor: colors.border }]}
+              style={[
+                styles.card,
+                {
+                  borderColor: colors.border,
+                  ...Platform.select({
+                    android: {
+                      backgroundColor: colors.surface,
+                    },
+                  }),
+                },
+              ]}
             >
               <PanelStack
                 colors={colors}
@@ -293,7 +304,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                 onPress={handlePress}
                 view={currentView}
               />
-            </GlassSurface>
+            </BlurView>
           </Animated.View>
 
           {/* Switch between workspace nav and global nav */}
@@ -321,9 +332,12 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                       : colors.border,
                   overflow: "hidden",
                 },
+                Platform.select({
+                  android: { backgroundColor: colors.surface },
+                }),
               ]}
             >
-              <GlassSurface
+              <BlurView
                 intensity={80}
                 tint={scheme === "dark" ? "dark" : "light"}
                 style={{
@@ -353,7 +367,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                     opacity: 0.85,
                   }}
                 />
-              </GlassSurface>
+              </BlurView>
             </Pressable>
           )}
         </View>
