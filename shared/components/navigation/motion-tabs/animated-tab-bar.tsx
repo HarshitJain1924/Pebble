@@ -19,7 +19,6 @@ import {
     Pressable,
     StyleSheet,
     View,
-    useColorScheme,
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,6 +42,7 @@ import { estimateToolbarWidth } from "./utils/toolbar-width";
 
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import { Palette } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -265,7 +265,17 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
           pointerEvents="box-none"
           style={[styles.dock, { paddingBottom: Math.max(insets.bottom, 12) }]}
         >
-          <Animated.View style={[styles.cardShadow, motion.cardStyle]}>
+          <Animated.View
+            style={[
+              styles.cardShadow,
+              motion.cardStyle,
+              Platform.select({
+                android: {
+                  backgroundColor: colors.surface,
+                },
+              }),
+            ]}
+          >
             <BlurView
               intensity={70}
               tint={scheme === "dark" ? "dark" : "light"}

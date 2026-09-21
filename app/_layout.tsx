@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
+import * as NavigationBar from "expo-navigation-bar";
+import { Platform } from "react-native";
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from "@expo-google-fonts/outfit";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -100,7 +102,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     SystemUI.setBackgroundColorAsync(currentTheme.background).catch(() => {});
-  }, [currentTheme.background]);
+    if (Platform.OS === "android") {
+      NavigationBar.setBackgroundColorAsync(currentTheme.background).catch(() => {});
+      NavigationBar.setButtonStyleAsync(colorScheme === "dark" ? "light" : "dark").catch(() => {});
+      NavigationBar.setBorderColorAsync("transparent").catch(() => {});
+    }
+  }, [currentTheme.background, colorScheme]);
 
   const navigationTheme = useMemo(() => {
     const isDark = colorScheme === "dark";
