@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
+  Image,
   PanResponder,
   Platform,
   Pressable,
@@ -28,6 +29,7 @@ import Svg, {
   LinearGradient as SvgLinearGradient,
   Path,
   RadialGradient,
+  Rect,
   Stop,
 } from "react-native-svg";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
@@ -35,6 +37,9 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Palette, Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+
+const DOCK_SHORELINE_DARK = require("@/assets/images/dock/dock_shoreline_dark.png");
+const DOCK_SHORELINE_LIGHT = require("@/assets/images/dock/dock_shoreline_light.png");
 
 // Geometry constants: Strictly measured from Pebble center (0, 0)
 const RADIAL_RADIUS = 100; // Distance from Pebble center to item center
@@ -125,6 +130,76 @@ const createBladePath = (
   const c2x = bx + lean * 0.6 + w * 0.6;
   return `M ${bx - w / 2},${by} Q ${c1x},${midY} ${tipX},${tipY} Q ${c2x},${midY} ${bx + w / 2},${by} Z`;
 };
+
+/**
+ * Environmental shoreline landscape backdrop across the bottom dock.
+ * Bookends the top PebbleCircadianHeader to complete the zen nature terrarium illusion.
+ */
+const ShorelineSupportBackdrop: React.FC<{
+  screenWidth: number;
+  bottomInset: number;
+  isDark: boolean;
+  backgroundColor: string;
+}> = React.memo(({ screenWidth, bottomInset, isDark, backgroundColor }) => {
+  const SHORELINE_HEIGHT =
+    Math.round(Math.min(270, Math.max(200, screenWidth * 0.52))) + bottomInset;
+  const source = isDark ? DOCK_SHORELINE_DARK : DOCK_SHORELINE_LIGHT;
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.shorelineBackdropContainer,
+        {
+          width: screenWidth,
+          height: SHORELINE_HEIGHT,
+        },
+      ]}
+    >
+      {/* 1. High-Res Shoreline Scenic Artwork */}
+      <Image
+        source={source}
+        style={[
+          StyleSheet.absoluteFillObject,
+          {
+            width: screenWidth,
+            height: SHORELINE_HEIGHT,
+          },
+        ]}
+        resizeMode="cover"
+        accessibilityLabel={`Pebble ${isDark ? "night" : "morning"} dock shoreline artwork`}
+      />
+
+      {/* 2. Atmospheric Gradient Fade smoothly melting the artwork into the app background */}
+      <Svg
+        style={StyleSheet.absoluteFill}
+        width={screenWidth}
+        height={SHORELINE_HEIGHT}
+        pointerEvents="none"
+      >
+        <Defs>
+          <SvgLinearGradient id="dockAtmosphericFade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor={backgroundColor} stopOpacity="1" />
+            <Stop offset="20%" stopColor={backgroundColor} stopOpacity="0.88" />
+            <Stop offset="40%" stopColor={backgroundColor} stopOpacity="0.45" />
+            <Stop offset="65%" stopColor={backgroundColor} stopOpacity="0.12" />
+            <Stop offset="85%" stopColor={backgroundColor} stopOpacity="0" />
+            <Stop offset="100%" stopColor={backgroundColor} stopOpacity="0" />
+          </SvgLinearGradient>
+        </Defs>
+        <Rect
+          x="0"
+          y="0"
+          width={screenWidth}
+          height={SHORELINE_HEIGHT}
+          fill="url(#dockAtmosphericFade)"
+        />
+      </Svg>
+    </View>
+  );
+});
+
+ShorelineSupportBackdrop.displayName = "ShorelineSupportBackdrop";
 
 /**
  * Organic riverbed wave dock background with Bioluminescent Aurora glow
@@ -271,29 +346,29 @@ const RiverbedSupportWave: React.FC<{
             <Stop
               offset="0%"
               stopColor={Palette.pine500}
-              stopOpacity={isDark ? 0.38 : 0.25}
+              stopOpacity={isDark ? 0.30 : 0.20}
             />
             <Stop
               offset="100%"
               stopColor={
-                isDark ? "rgba(15, 23, 42, 0.7)" : "rgba(255, 255, 255, 0.7)"
+                isDark ? "rgba(10, 16, 20, 0.65)" : "rgba(255, 255, 255, 0.65)"
               }
-              stopOpacity={0.8}
+              stopOpacity={0.7}
             />
           </SvgLinearGradient>
 
-          {/* Front Dune Fill (Deep Glassmorphic Slate/White) */}
+          {/* Front Dune Fill (Translucent River Glass with grounded base) */}
           <SvgLinearGradient id="frontWaveFill" x1="0" y1="0" x2="0" y2="1">
             <Stop
               offset="0%"
               stopColor={
-                isDark ? "rgba(17, 24, 39, 0.88)" : "rgba(255, 255, 255, 0.94)"
+                isDark ? "rgba(10, 18, 20, 0.72)" : "rgba(255, 255, 255, 0.78)"
               }
             />
             <Stop
               offset="100%"
               stopColor={
-                isDark ? "rgba(3, 7, 18, 0.98)" : "rgba(248, 250, 252, 0.98)"
+                isDark ? "rgba(4, 8, 10, 0.94)" : "rgba(245, 248, 246, 0.96)"
               }
             />
           </SvgLinearGradient>
@@ -794,6 +869,14 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
         pointerEvents="box-none"
         style={[styles.overlayContainer, { paddingBottom: bottomInset }]}
       >
+        {/* Shoreline Environmental Art Backdrop (Bookending Circadian Header) */}
+        <ShorelineSupportBackdrop
+          screenWidth={screenWidth}
+          bottomInset={bottomInset}
+          isDark={isDark}
+          backgroundColor={theme.background}
+        />
+
         {/* Riverbed Support Wave Dock (Full-width organic shoreline behind the Pebble) */}
         <RiverbedSupportWave
           screenWidth={screenWidth}
@@ -993,6 +1076,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     zIndex: 9999,
+  },
+  // Full-width shoreline landscape backdrop anchored to bottom
+  shorelineBackdropContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    overflow: "hidden",
   },
   // Full-width organic wave container anchored to the bottom edge
   waveContainer: {
