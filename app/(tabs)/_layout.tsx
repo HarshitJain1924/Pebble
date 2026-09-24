@@ -5,6 +5,7 @@ import {
 } from "@/services/events/state-events";
 import { MascotOverlay } from "@/shared/components/layout/MascotOverlay";
 import { AnimatedTabBar } from "@/shared/components/navigation/motion-tabs";
+import { PebbleRadialTabBar } from "@/shared/components/navigation/PebbleRadialTabBar";
 
 import { DefaultWorkspaceColor } from "@/shared/constants/categoryColors";
 import { Colors } from "@/shared/constants/theme";
@@ -80,7 +81,7 @@ export default function TabLayout() {
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <Tabs
         tabBar={(props) => (
-          <AnimatedTabBar {...props} onQuickAddPress={openQuickAdd} />
+          <PebbleRadialTabBar {...props} onQuickAddPress={openQuickAdd} />
         )}
         screenOptions={{
           headerShown: false,
