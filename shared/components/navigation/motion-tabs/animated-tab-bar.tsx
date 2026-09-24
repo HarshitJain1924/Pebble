@@ -83,8 +83,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
     useEffect(() => {
       const unsub = addStateListener("workspace_segment_changed", (seg) => {
         if (seg) {
-          const normalized = seg === "vault" ? "resources" : seg;
-          setActiveSegment(normalized);
+          setActiveSegment(seg as any);
         }
       });
       return unsub;
@@ -177,7 +176,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
         if (activeSegment === "tasks") return "tasks-tasks";
         if (activeSegment === "habits") return "tasks-habits";
         if (activeSegment === "checklists") return "tasks-checklists";
-        if (activeSegment === "resources" || activeSegment === "vault") return "tasks-resources";
+        if (activeSegment === "resources") return "tasks-resources";
         return "tasks-tasks";
       }
       return transition.view;

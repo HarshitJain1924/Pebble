@@ -61,19 +61,17 @@ export function useWorkspaceState() {
     if (
       params.segment === "tasks" ||
       params.segment === "habits" ||
-      params.segment === "resources" ||
-      (params.segment as string) === "vault"
+      params.segment === "resources"
     ) {
-      const seg = params.segment === "vault" ? "resources" : params.segment;
-      setActiveSegment(seg as any);
-      setWorkspaceSegment(seg as any);
+      setActiveSegment(params.segment as any);
+      setWorkspaceSegment(params.segment as any);
     }
   }, [params.segment]);
 
   useEffect(() => {
     const unsub = addStateListener("workspace_segment_request", (seg) => {
       if (seg) {
-        const normalized = (seg === "vault" ? "resources" : seg) as
+        const normalized = seg as
           | "tasks"
           | "habits"
           | "checklists"

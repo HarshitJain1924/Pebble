@@ -38,10 +38,8 @@ import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
 import { PebbleCircadianHeader } from "@/features/today/components/PebbleCircadianHeader";
 import { NowFocusCard } from "@/features/today/components/NowFocusCard";
-import { TodayDayContext } from "@/features/today/components/TodayDayContext";
 import { getNowFocus, type NowFocusResult } from "@/features/today/utils/getNowFocus";
 import { useLiveClock } from "@/features/today/hooks/useLiveClock";
-import { buildTodayDayContext } from "@/features/today/utils/todayDayContext";
 import {
   DEFAULT_TODAY_FILTERS,
   normalizeTodayFilters,
@@ -403,31 +401,6 @@ export function TodayScreen() {
     });
   }, [currentNow, todoStats.pending, pendingHabits, flatChecklists]);
 
-  const todayDayContext = useMemo(
-    () =>
-      buildTodayDayContext({
-        now: currentNow,
-        tasks: [...todoStats.pending, ...(todoStats.completedTasks ?? [])],
-        habits: [...pendingHabits, ...completedHabits],
-        checklists: flatChecklists,
-        nowFocus,
-      }),
-    [
-      currentNow,
-      todoStats.pending,
-      todoStats.completedTasks,
-      pendingHabits,
-      completedHabits,
-      flatChecklists,
-      nowFocus,
-    ],
-  );
-
-  const workspaceNames = useMemo(
-    () => Object.fromEntries(folders.map((folder) => [folder.id, folder.name])),
-    [folders],
-  );
-
   const {
     handleStartNowFocus,
     handleCompleteNowFocus,
@@ -515,13 +488,6 @@ export function TodayScreen() {
             colors={colors}
             colorScheme={colorScheme}
             style={{ marginBottom: 4 }}
-          />
-
-          <TodayDayContext
-            context={todayDayContext}
-            workspaceNames={workspaceNames}
-            colors={colors}
-            onViewFullDay={() => router.push("/calendar")}
           />
 
           <TodayFilterControl

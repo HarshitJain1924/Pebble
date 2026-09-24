@@ -143,7 +143,7 @@ export const UnknownCategoryTint: ColorPair = both("rgba(161, 161, 170, 0.12)");
 
 export type ResourceKind = "note" | "link" | "image" | "pdf" | "file" | "idea";
 
-/** Kind chips / icons for the resource vault (mode-independent). */
+/** Kind chips / icons for resources (mode-independent). */
 export const ResourceKindColors: Record<ResourceKind, ColorPair> = {
   note: both(Palette.violet500), // #8B5CF6
   link: both(Palette.blue500), // #3B82F6

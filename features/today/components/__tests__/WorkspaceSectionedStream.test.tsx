@@ -4,8 +4,10 @@ import {
   WorkspaceSectionedStream,
   WorkspaceItemRow,
   resolveItemCategorySymbol,
+  getTabScrollTarget,
 } from "../WorkspaceSectionedStream";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import { Colors } from "@/shared/constants/theme";
 import { PriorityColors } from "@/shared/constants/categoryColors";
 import type { Workspace, Task, Habit, Checklist } from "@/shared/types/domain.types";
@@ -121,7 +123,7 @@ describe("WorkspaceSectionedStream Component", () => {
     expect(joined).toContain("No active tasks, habits, or checklists");
   });
 
-  it("renders workspace card header with name, emoji, and counts", () => {
+  it("renders workspace context card header with name and emoji", () => {
     const activeContexts = [
       {
         folder: sampleWorkspace,
@@ -213,7 +215,7 @@ describe("WorkspaceSectionedStream Component", () => {
     expect(joined).toMatch(/\+\s*1\s*more in Work Projects/);
   });
 
-  it("navigates to workspace when header gateway arrow is pressed", () => {
+  it("navigates to workspace when the card header is pressed", () => {
     const activeContexts = [
       {
         folder: sampleWorkspace,
@@ -243,14 +245,17 @@ describe("WorkspaceSectionedStream Component", () => {
     });
 
     const root = renderer.root;
-    // Find the arrow-right icon and its pressable parent
-    const arrowIcon = root.findByProps({ name: "arrow-right" });
-    let current: any = arrowIcon;
-    while (current && typeof current.props.onPress !== "function") {
-      current = current.parent;
-    }
+    // The header itself is the single navigation affordance (no arrow button)
+    const header = root.findAll(
+      (n: any) =>
+        typeof n.props?.accessibilityLabel === "string" &&
+        n.props.accessibilityLabel.startsWith("Open Work Projects") &&
+        typeof n.props.onPress === "function",
+    )[0];
+    expect(header).toBeDefined();
+
     act(() => {
-      current.props.onPress();
+      header.props.onPress();
     });
 
     expect(mockRouter.push).toHaveBeenCalledWith({
@@ -309,7 +314,7 @@ describe("WorkspaceSectionedStream Component", () => {
     expect(texts.flat().join(" ")).toContain("Work Projects");
   });
 
-  it("toggles inline resource section when header paperclip button is pressed", () => {
+  it("surfaces workspace resources as visible tiles and opens them on press", () => {
     const activeContexts = [
       {
         folder: sampleWorkspace,
@@ -350,58 +355,34 @@ describe("WorkspaceSectionedStream Component", () => {
 
     const root = renderer.root;
 
-    // Initially resource is not shown inline
+    // Resources are content-forward now: a visible strip, not a hidden toggle
     let texts = root.findAllByType("Text" as any).map((n: any) => n.props.children);
-    expect(texts.flat().join(" ")).not.toContain("WORKSPACE RESOURCES");
-    expect(texts.flat().join(" ")).not.toContain("Q3 Strategy Document");
+    expect(texts.flat().join(" ")).toContain("Resources");
 
-    // Click resource count pill 📎
-    const paperclipText = root.findAllByType("Text" as any).find((n: any) => n.props.children === "📎");
-    expect(paperclipText).toBeDefined();
-
-    let current: any = paperclipText;
-    while (current && typeof current.props.onPress !== "function") {
-      current = current.parent;
-    }
-    expect(current).toBeDefined();
+    const resTile = root.findAll(
+      (n: any) =>
+        typeof n.props?.accessibilityLabel === "string" &&
+        n.props.accessibilityLabel.startsWith("Resource Q3 Strategy Document") &&
+        typeof n.props.onPress === "function",
+    )[0];
+    expect(resTile).toBeDefined();
 
     act(() => {
-      current.props.onPress();
-    });
-
-    // Now resource section and items should be visible inline
-    texts = root.findAllByType("Text" as any).map((n: any) => n.props.children);
-    const joined = texts.flat().join(" ");
-    expect(joined).toContain("Resources · 1");
-    expect(joined).toContain("Q3 Strategy Document");
-    expect(joined).toContain("Note");
-
-    // Click the resource item row to test navigation
-    const resTitleNode = root.findAllByType("Text" as any).find((n: any) => n.props.children === "Q3 Strategy Document");
-    let resPressable: any = resTitleNode;
-    while (resPressable && typeof resPressable.props.onPress !== "function") {
-      resPressable = resPressable.parent;
-    }
-    act(() => {
-      resPressable.props.onPress();
+      resTile.props.onPress();
     });
 
     expect(mockRouter.push).toHaveBeenCalledWith({
       pathname: "/tasks",
       params: {
         workspaceId: "ws-work",
-        segment: "vault",
+        segment: "resources",
         resourceId: "res-doc-1",
       },
     });
 
-    // Click paperclip pill again to collapse resources
-    act(() => {
-      current.props.onPress();
-    });
-
+    // The strip stays visible — it is not a collapse toggle
     texts = root.findAllByType("Text" as any).map((n: any) => n.props.children);
-    expect(texts.flat().join(" ")).not.toContain("Resources · 1");
+    expect(texts.flat().join(" ")).toContain("Resources");
   });
 
   it("renders distinct secondary metadata without redundant text badges", () => {
@@ -616,7 +597,7 @@ describe("WorkspaceSectionedStream Component", () => {
 
     // "All Today" and both workspaces are visible in the rail
     let texts = root.findAllByType("Text" as any).map((n: any) => n.props.children).flat().join(" ");
-    expect(texts).toContain("All Today");
+    expect(texts).toContain("All");
     expect(texts).toContain("Work Projects");
     expect(texts).toContain("Personal Life");
     expect(texts).toContain("Review quarterly deck");
@@ -911,8 +892,8 @@ describe("WorkspaceItemRow Component", () => {
     // Fourth item must be dropped (max 3 items)
     expect(texts).not.toContain("Extra Fourth Item Should Be Dropped");
 
-    // Bullet separator should be present between parts
-    expect(texts).toContain(" • ");
+    // Dot separator should be present between parts
+    expect(texts).toContain(" · ");
 
     // Category symbol icon should be rendered
     const briefcaseIcon = root.findByProps({ name: "briefcase" });
@@ -965,3 +946,191 @@ describe("resolveItemCategorySymbol Helper", () => {
     expect(resourceSymbol.icon).toBe("file-text");
   });
 });
+
+describe("WorkspaceSectionedStream folder drawer", () => {
+  const mockColors = Colors.dark;
+  const mockRouter = {
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+  } as any;
+
+  const makeWorkspace = (index: number): Workspace => ({
+    id: `ws-${index}`,
+    name: `Workspace ${index}`,
+    emoji: "📁",
+    color: "#3B82F6",
+    order: index,
+    revision: 1,
+    lifecycleGeneration: 1,
+    createdAt: 1000,
+    updatedAt: 1000,
+  });
+
+  const makeTask = (workspaceId: string, index: number): Task =>
+    ({
+      id: `${workspaceId}-task-${index}`,
+      title: `${workspaceId} task ${index}`,
+      completed: false,
+      priority: "none",
+      workspaceId,
+      createdAt: 1000,
+      updatedAt: 1000,
+    }) as any;
+
+  const buildContexts = (count: number, tasksPerWorkspace: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      folder: makeWorkspace(i),
+      tasks: Array.from({ length: tasksPerWorkspace }, (_, t) =>
+        makeTask(`ws-${i}`, t),
+      ),
+      habits: [],
+      checklists: [],
+      totalCount: tasksPerWorkspace,
+    }));
+
+  const element = (activeContexts: any[]) => (
+    <WorkspaceSectionedStream
+      activeContexts={activeContexts}
+      colors={mockColors}
+      colorScheme="dark"
+      allCollections={{}}
+      expandedChecklistIds={{}}
+      setExpandedChecklistIds={jest.fn()}
+      router={mockRouter}
+      completeTodoFromDashboard={jest.fn().mockResolvedValue(undefined)}
+      completeHabitFromDashboard={jest.fn().mockResolvedValue(undefined)}
+      toggleChecklistItemFromDashboard={jest.fn().mockResolvedValue(undefined)}
+    />
+  );
+
+  const renderStream = (activeContexts: any[]) => {
+    let renderer: any;
+    act(() => {
+      renderer = create(element(activeContexts));
+    });
+    return {
+      root: renderer.root,
+      update: (next: any[]) => {
+        act(() => {
+          renderer.update(element(next));
+        });
+        return renderer.root;
+      },
+    };
+  };
+
+  const joinedText = (root: any) =>
+    root
+      .findAllByType("Text" as any)
+      .map((n: any) => n.props.children)
+      .flat()
+      .join(" ");
+
+  const labelsWithState = (root: any): string[] => {
+    const raw: string[] = root
+      .findAll((n: any) => n.props?.accessibilityState)
+      .map((n: any) => n.props.accessibilityLabel)
+      .filter((label: any) => typeof label === "string");
+    return Array.from(new Set(raw));
+  };
+
+  const pressTab = (root: any, label: string) => {
+    const tab = root.findAll(
+      (n: any) =>
+        n.props?.accessibilityLabel === label &&
+        typeof n.props.onPress === "function",
+    )[0];
+    expect(tab).toBeDefined();
+    act(() => {
+      tab.props.onPress();
+    });
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("opens exactly one drawer even with 12 workspaces", () => {
+    const root = renderStream(buildContexts(12, 1)).root;
+
+    // One drawer, holding every workspace's item under a single ordering.
+    expect(root.findAllByType(ProgressRing)).toHaveLength(1);
+    expect(root.findAllByType(WorkspaceItemRow)).toHaveLength(12);
+  });
+
+  it("renders one tab per workspace plus the All tab", () => {
+    const root = renderStream(buildContexts(12, 1)).root;
+    const labels = labelsWithState(root);
+
+    expect(labels.filter((l) => l.startsWith("Filter by "))).toHaveLength(12);
+    expect(labels).toContain("Filter by Workspace 11, 1 items");
+    expect(labels).toContain("All workspaces, 12 items");
+  });
+
+  it("swaps the open drawer when another tab is selected", () => {
+    const stream = renderStream(buildContexts(3, 1));
+    let root = stream.root;
+
+    // All drawer spans every workspace.
+    expect(joinedText(root)).toContain("ws-0 task 0");
+    expect(joinedText(root)).toContain("ws-2 task 0");
+
+    pressTab(root, "Filter by Workspace 1, 1 items");
+    root = stream.root;
+
+    // Only that workspace's drawer is open, and the tabs remain to switch back.
+    expect(joinedText(root)).not.toContain("ws-0 task 0");
+    expect(joinedText(root)).toContain("ws-1 task 0");
+    expect(labelsWithState(root)).toContain("All workspaces, 3 items");
+  });
+
+  it("falls back to the All drawer when the open workspace is filtered away", () => {
+    const stream = renderStream(buildContexts(3, 1));
+    pressTab(stream.root, "Filter by Workspace 1, 1 items");
+
+    // Workspace 1 disappears (a Today filter removed it).
+    const remaining = [buildContexts(3, 1)[0], buildContexts(3, 1)[2]];
+    const root = stream.update(remaining);
+
+    const allTab = root.findAll(
+      (n: any) =>
+        typeof n.props?.accessibilityLabel === "string" &&
+        n.props.accessibilityLabel.startsWith("All workspaces,") &&
+        n.props.accessibilityState,
+    )[0];
+    expect(allTab.props.accessibilityState.selected).toBe(true);
+
+    expect(root.findAllByType(ProgressRing)).toHaveLength(1);
+    expect(joinedText(root)).toContain("ws-0 task 0");
+    expect(joinedText(root)).toContain("ws-2 task 0");
+    expect(joinedText(root)).not.toContain("ws-1 task 0");
+  });
+
+  it("caps the All drawer at 12 rows and offers a gateway for the rest", () => {
+    const root = renderStream(buildContexts(2, 9)).root;
+
+    expect(root.findAllByType(WorkspaceItemRow)).toHaveLength(12);
+    expect(joinedText(root)).toContain("+6 more in All");
+  });
+
+  it("keeps the All drawer's rows labelled with their workspace", () => {
+    const root = renderStream(buildContexts(3, 1)).root;
+
+    expect(joinedText(root)).toContain("Workspace 0");
+    expect(joinedText(root)).toContain("Workspace 2");
+  });
+});
+
+describe("getTabScrollTarget", () => {
+  it("centres a tab in the viewport", () => {
+    // 1000 - 390/2 + 80/2
+    expect(getTabScrollTarget(1000, 80, 390)).toBe(845);
+  });
+
+  it("never scrolls past the start of the strip", () => {
+    expect(getTabScrollTarget(0, 80, 390)).toBe(0);
+    expect(getTabScrollTarget(40, 80, 390)).toBe(0);
+  });
+});
+
