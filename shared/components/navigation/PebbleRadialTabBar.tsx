@@ -22,13 +22,8 @@ import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import Svg, {
-  Circle,
   Defs,
-  Ellipse,
-  G,
   LinearGradient as SvgLinearGradient,
-  Path,
-  RadialGradient,
   Rect,
   Stop,
 } from "react-native-svg";
@@ -42,11 +37,26 @@ const DOCK_SHORELINE_DARK = require("@/assets/images/dock/dock_shoreline_dark.pn
 const DOCK_SHORELINE_LIGHT = require("@/assets/images/dock/dock_shoreline_light.png");
 
 // Geometry constants: Strictly measured from Pebble center (0, 0)
-const RADIAL_RADIUS = 100; // Distance from Pebble center to item center
-const ITEM_SIZE = 48; // Uniform diameter for all 5 sectors
-const PEBBLE_SIZE = 54; // Diameter of central resting trigger pebble
-const DEADZONE_RADIUS = 26; // Distance under which touch is neutral/cancel
-const BACKDROP_RADIUS = 138; // Radius of semicircular halo shield
+export const RADIAL_RADIUS = 100; // Distance from Pebble center to item center
+export const ITEM_SIZE = 48; // Uniform diameter for all 5 sectors
+export const PEBBLE_SIZE = 54; // Diameter of central resting trigger pebble
+export const DEADZONE_RADIUS = 26; // Distance under which touch is neutral/cancel
+export const BACKDROP_RADIUS = 138; // Radius of semicircular halo shield
+
+// Breathing room between last content card and Pebble button
+export const PEBBLE_CLEARANCE_BUFFER = 18;
+
+/**
+ * Single source of truth for bottom content clearance across all tab screens.
+ * Ensures the last interactive card rests cleanly above the floating Pebble button
+ * without any arbitrary or double-counted spacing.
+ *
+ * @param safeAreaBottom - insets.bottom from useSafeAreaInsets()
+ */
+export const getPebbleDockClearance = (safeAreaBottom: number): number => {
+  const effectiveBottomInset = Math.max(safeAreaBottom, 16);
+  return PEBBLE_SIZE + PEBBLE_CLEARANCE_BUFFER + effectiveBottomInset;
+};
 
 export interface RadialNavOption {
   key: string;
@@ -114,35 +124,23 @@ export interface PebbleRadialTabBarProps extends BottomTabBarProps {
 }
 
 /**
- * Helper to build an organic, tapered blade of grass with quadratic bezier curve
- */
-const createBladePath = (
-  bx: number,
-  by: number,
-  h: number,
-  lean: number,
-  w = 2.4,
-) => {
-  const tipX = bx + lean;
-  const tipY = by - h;
-  const midY = by - h * 0.52;
-  const c1x = bx + lean * 0.25 - w * 0.6;
-  const c2x = bx + lean * 0.6 + w * 0.6;
-  return `M ${bx - w / 2},${by} Q ${c1x},${midY} ${tipX},${tipY} Q ${c2x},${midY} ${bx + w / 2},${by} Z`;
-};
-
-/**
  * Environmental shoreline landscape backdrop across the bottom dock.
  * Bookends the top PebbleCircadianHeader to complete the zen nature terrarium illusion.
+ *
+ * NOTE: This is a purely visual, absolute background layer with pointerEvents="none".
+ * It has a controlled height based on screen width and does NOT create layout space
+ * or incorporate safe-area insets into its artwork dimensions.
  */
-const ShorelineSupportBackdrop: React.FC<{
+export const ShorelineSupportBackdrop: React.FC<{
   screenWidth: number;
-  bottomInset: number;
   isDark: boolean;
   backgroundColor: string;
-}> = React.memo(({ screenWidth, bottomInset, isDark, backgroundColor }) => {
-  const SHORELINE_HEIGHT =
-    Math.round(Math.min(270, Math.max(200, screenWidth * 0.52))) + bottomInset;
+  style?: any;
+}> = React.memo(({ screenWidth, isDark, backgroundColor, style }) => {
+  // Controlled height based on screen width (preserving visual proportions without arbitrary inflation)
+  const DOCK_ARTWORK_HEIGHT = Math.round(
+    Math.min(220, Math.max(170, screenWidth * 0.46))
+  );
   const source = isDark ? DOCK_SHORELINE_DARK : DOCK_SHORELINE_LIGHT;
 
   return (
@@ -152,8 +150,9 @@ const ShorelineSupportBackdrop: React.FC<{
         styles.shorelineBackdropContainer,
         {
           width: screenWidth,
-          height: SHORELINE_HEIGHT,
+          height: DOCK_ARTWORK_HEIGHT,
         },
+        style,
       ]}
     >
       {/* 1. High-Res Shoreline Scenic Artwork */}
@@ -163,7 +162,7 @@ const ShorelineSupportBackdrop: React.FC<{
           StyleSheet.absoluteFillObject,
           {
             width: screenWidth,
-            height: SHORELINE_HEIGHT,
+            height: DOCK_ARTWORK_HEIGHT,
           },
         ]}
         resizeMode="cover"
@@ -174,16 +173,16 @@ const ShorelineSupportBackdrop: React.FC<{
       <Svg
         style={StyleSheet.absoluteFill}
         width={screenWidth}
-        height={SHORELINE_HEIGHT}
+        height={DOCK_ARTWORK_HEIGHT}
         pointerEvents="none"
       >
         <Defs>
           <SvgLinearGradient id="dockAtmosphericFade" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0%" stopColor={backgroundColor} stopOpacity="1" />
-            <Stop offset="20%" stopColor={backgroundColor} stopOpacity="0.88" />
-            <Stop offset="40%" stopColor={backgroundColor} stopOpacity="0.45" />
-            <Stop offset="65%" stopColor={backgroundColor} stopOpacity="0.12" />
-            <Stop offset="85%" stopColor={backgroundColor} stopOpacity="0" />
+            <Stop offset="22%" stopColor={backgroundColor} stopOpacity="0.88" />
+            <Stop offset="45%" stopColor={backgroundColor} stopOpacity="0.45" />
+            <Stop offset="70%" stopColor={backgroundColor} stopOpacity="0.10" />
+            <Stop offset="88%" stopColor={backgroundColor} stopOpacity="0" />
             <Stop offset="100%" stopColor={backgroundColor} stopOpacity="0" />
           </SvgLinearGradient>
         </Defs>
@@ -191,7 +190,7 @@ const ShorelineSupportBackdrop: React.FC<{
           x="0"
           y="0"
           width={screenWidth}
-          height={SHORELINE_HEIGHT}
+          height={DOCK_ARTWORK_HEIGHT}
           fill="url(#dockAtmosphericFade)"
         />
       </Svg>
@@ -200,289 +199,6 @@ const ShorelineSupportBackdrop: React.FC<{
 });
 
 ShorelineSupportBackdrop.displayName = "ShorelineSupportBackdrop";
-
-/**
- * Organic riverbed wave dock background with Bioluminescent Aurora glow
- * and living botanical grass sprigs cradling the central Pebble button.
- */
-const RiverbedSupportWave: React.FC<{
-  screenWidth: number;
-  bottomInset: number;
-  isDark: boolean;
-}> = React.memo(({ screenWidth, bottomInset, isDark }) => {
-  const cx = screenWidth / 2;
-  const WAVE_CANVAS_HEIGHT = bottomInset + PEBBLE_SIZE + 24;
-
-  const pebbleCenterY = WAVE_CANVAS_HEIGHT - (bottomInset + PEBBLE_SIZE / 2);
-  const pebbleTopY = pebbleCenterY - PEBBLE_SIZE / 2;
-  const crestPeakY = pebbleTopY - 6;
-  const crestSideY = WAVE_CANVAS_HEIGHT - (bottomInset + 12);
-  const hillHalfWidth = 88;
-
-  // Rear atmospheric wave crest (slightly higher, offset for layered depth)
-  const rearPeakY = crestPeakY - 10;
-  const rearSideY = crestSideY - 6;
-  const rearHalfWidth = 104;
-
-  const rearWavePath = useMemo(() => {
-    return `
-      M 0,${rearSideY}
-      L ${cx - rearHalfWidth},${rearSideY}
-      C ${cx - rearHalfWidth * 0.52},${rearSideY} ${cx - rearHalfWidth * 0.4},${rearPeakY} ${cx},${rearPeakY}
-      C ${cx + rearHalfWidth * 0.4},${rearPeakY} ${cx + rearHalfWidth * 0.52},${rearSideY} ${cx + rearHalfWidth},${rearSideY}
-      L ${screenWidth},${rearSideY}
-      L ${screenWidth},${WAVE_CANVAS_HEIGHT + 10}
-      L 0,${WAVE_CANVAS_HEIGHT + 10}
-      Z
-    `;
-  }, [cx, rearHalfWidth, rearPeakY, rearSideY, screenWidth, WAVE_CANVAS_HEIGHT]);
-
-  const frontWavePath = useMemo(() => {
-    return `
-      M 0,${crestSideY}
-      L ${cx - hillHalfWidth},${crestSideY}
-      C ${cx - hillHalfWidth * 0.55},${crestSideY} ${cx - hillHalfWidth * 0.42},${crestPeakY} ${cx},${crestPeakY}
-      C ${cx + hillHalfWidth * 0.42},${crestPeakY} ${cx + hillHalfWidth * 0.55},${crestSideY} ${cx + hillHalfWidth},${crestSideY}
-      L ${screenWidth},${crestSideY}
-      L ${screenWidth},${WAVE_CANVAS_HEIGHT + 10}
-      L 0,${WAVE_CANVAS_HEIGHT + 10}
-      Z
-    `;
-  }, [cx, crestPeakY, crestSideY, hillHalfWidth, screenWidth, WAVE_CANVAS_HEIGHT]);
-
-  const crestStrokePath = useMemo(() => {
-    return `
-      M 0,${crestSideY}
-      L ${cx - hillHalfWidth},${crestSideY}
-      C ${cx - hillHalfWidth * 0.55},${crestSideY} ${cx - hillHalfWidth * 0.42},${crestPeakY} ${cx},${crestPeakY}
-      C ${cx + hillHalfWidth * 0.42},${crestPeakY} ${cx + hillHalfWidth * 0.55},${crestSideY} ${cx + hillHalfWidth},${crestSideY}
-      L ${screenWidth},${crestSideY}
-    `;
-  }, [cx, crestPeakY, crestSideY, hillHalfWidth, screenWidth]);
-
-  // Botanical Grass Blades: Nestled naturally around the Pebble and across the dune
-  const grassPaths = useMemo(() => {
-    const backBlades = [
-      createBladePath(cx - 35, crestPeakY + 18, 16, -6, 2.0),
-      createBladePath(cx + 35, crestPeakY + 18, 16, 6, 2.0),
-      createBladePath(cx - 75, crestSideY + 3, 14, -6, 2.2),
-      createBladePath(cx + 75, crestSideY + 3, 14, 6, 2.2),
-    ].join(" ");
-
-    const foreBlades = [
-      // Left pebble flank
-      createBladePath(cx - 29, crestPeakY + 12, 13, -3, 2.2),
-      createBladePath(cx - 33, crestPeakY + 16, 19, -6, 2.5),
-      createBladePath(cx - 38, crestPeakY + 20, 12, -7, 1.8),
-      // Right pebble flank
-      createBladePath(cx + 29, crestPeakY + 12, 13, 3, 2.2),
-      createBladePath(cx + 33, crestPeakY + 16, 19, 6, 2.5),
-      createBladePath(cx + 38, crestPeakY + 20, 12, 7, 1.8),
-      // Left dune slope tuft
-      createBladePath(cx - 67, crestSideY, 15, -4, 2.2),
-      createBladePath(cx - 71, crestSideY + 2, 20, -5, 2.4),
-      createBladePath(cx - 61, crestSideY - 3, 11, 2, 1.8),
-      // Right dune slope tuft
-      createBladePath(cx + 67, crestSideY, 15, 4, 2.2),
-      createBladePath(cx + 71, crestSideY + 2, 20, 5, 2.4),
-      createBladePath(cx + 61, crestSideY - 3, 11, -2, 1.8),
-      // Solitary shoreline sprigs
-      createBladePath(cx - 122, crestSideY + 1, 10, -3, 1.7),
-      createBladePath(cx + 122, crestSideY + 1, 10, 3, 1.7),
-    ].join(" ");
-
-    return { backBlades, foreBlades };
-  }, [cx, crestPeakY, crestSideY]);
-
-  // Glowing micro dew drops on the tips of the tallest blades
-  const dewdrops = useMemo(() => {
-    return [
-      { cx: cx - 33 - 6, cy: crestPeakY + 16 - 19, r: 1.2 },
-      { cx: cx + 33 + 6, cy: crestPeakY + 16 - 19, r: 1.2 },
-      { cx: cx - 71 - 5, cy: crestSideY + 2 - 20, r: 1.2 },
-      { cx: cx + 71 + 5, cy: crestSideY + 2 - 20, r: 1.2 },
-    ];
-  }, [cx, crestPeakY, crestSideY]);
-
-  return (
-    <View
-      pointerEvents="none"
-      style={[
-        styles.waveContainer,
-        { height: WAVE_CANVAS_HEIGHT, width: screenWidth },
-      ]}
-    >
-      <Svg
-        width={screenWidth}
-        height={WAVE_CANVAS_HEIGHT}
-        viewBox={`0 0 ${screenWidth} ${WAVE_CANVAS_HEIGHT}`}
-      >
-        <Defs>
-          {/* Ambient Bioluminescent Aurora Radial Glow (Elliptical, zero rectangle edges) */}
-          <RadialGradient
-            id="auroraGlow"
-            cx={cx}
-            cy={crestPeakY - 4}
-            rx={120}
-            ry={36}
-            gradientUnits="userSpaceOnUse"
-          >
-            <Stop
-              offset="0%"
-              stopColor={Palette.pine400}
-              stopOpacity={isDark ? 0.32 : 0.20}
-            />
-            <Stop
-              offset="50%"
-              stopColor={Palette.pine500}
-              stopOpacity={isDark ? 0.10 : 0.06}
-            />
-            <Stop offset="82%" stopColor={Palette.pine400} stopOpacity="0.02" />
-            <Stop offset="100%" stopColor={Palette.pine400} stopOpacity="0" />
-          </RadialGradient>
-
-          {/* Rear Dune Fill (Translucent Pine Tint) */}
-          <SvgLinearGradient id="rearWaveFill" x1="0" y1="0" x2="0" y2="1">
-            <Stop
-              offset="0%"
-              stopColor={Palette.pine500}
-              stopOpacity={isDark ? 0.30 : 0.20}
-            />
-            <Stop
-              offset="100%"
-              stopColor={
-                isDark ? "rgba(10, 16, 20, 0.65)" : "rgba(255, 255, 255, 0.65)"
-              }
-              stopOpacity={0.7}
-            />
-          </SvgLinearGradient>
-
-          {/* Front Dune Fill (Translucent River Glass with grounded base) */}
-          <SvgLinearGradient id="frontWaveFill" x1="0" y1="0" x2="0" y2="1">
-            <Stop
-              offset="0%"
-              stopColor={
-                isDark ? "rgba(10, 18, 20, 0.72)" : "rgba(255, 255, 255, 0.78)"
-              }
-            />
-            <Stop
-              offset="100%"
-              stopColor={
-                isDark ? "rgba(4, 8, 10, 0.94)" : "rgba(245, 248, 246, 0.96)"
-              }
-            />
-          </SvgLinearGradient>
-
-          {/* Glowing Crest Highlight Stroke */}
-          <SvgLinearGradient
-            id="crestStrokeGrad"
-            x1="0"
-            y1="0"
-            x2={screenWidth}
-            y2="0"
-            gradientUnits="userSpaceOnUse"
-          >
-            <Stop
-              offset="0%"
-              stopColor={
-                isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.04)"
-              }
-            />
-            <Stop
-              offset={(cx - 80) / screenWidth}
-              stopColor={
-                isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.08)"
-              }
-            />
-            <Stop
-              offset={(cx - 20) / screenWidth}
-              stopColor={Palette.pine400}
-              stopOpacity={0.7}
-            />
-            <Stop
-              offset={cx / screenWidth}
-              stopColor={Palette.pine300}
-              stopOpacity={0.95}
-            />
-            <Stop
-              offset={(cx + 20) / screenWidth}
-              stopColor={Palette.pine400}
-              stopOpacity={0.7}
-            />
-            <Stop
-              offset={(cx + 80) / screenWidth}
-              stopColor={
-                isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.08)"
-              }
-            />
-            <Stop
-              offset="100%"
-              stopColor={
-                isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.04)"
-              }
-            />
-          </SvgLinearGradient>
-
-          {/* Grass Blade Gradient (Deep rooted pine to glowing meadow green tip) */}
-          <SvgLinearGradient id="grassBladeGrad" x1="0" y1="1" x2="0" y2="0">
-            <Stop offset="0%" stopColor={Palette.pine600} />
-            <Stop offset="60%" stopColor={Palette.pine400} />
-            <Stop offset="100%" stopColor={Palette.pine300} />
-          </SvgLinearGradient>
-
-          {/* Background Grass Blade Gradient */}
-          <SvgLinearGradient id="grassBladeBackGrad" x1="0" y1="1" x2="0" y2="0">
-            <Stop offset="0%" stopColor={Palette.pine600} stopOpacity={0.7} />
-            <Stop offset="100%" stopColor={Palette.pine500} stopOpacity={0.65} />
-          </SvgLinearGradient>
-        </Defs>
-
-        {/* 1. Ambient Aurora Light Glow (Organic Ellipse, zero hard edges) */}
-        <Ellipse
-          cx={cx}
-          cy={crestPeakY - 4}
-          rx={120}
-          ry={36}
-          fill="url(#auroraGlow)"
-        />
-
-        {/* 2. Layered Rear Wave */}
-        <Path d={rearWavePath} fill="url(#rearWaveFill)" />
-
-        {/* 3. Background Depth Grass Blades */}
-        <Path d={grassPaths.backBlades} fill="url(#grassBladeBackGrad)" />
-
-        {/* 4. Front Riverbed Dune */}
-        <Path d={frontWavePath} fill="url(#frontWaveFill)" />
-
-        {/* 5. Glowing Crest Stroke */}
-        <Path
-          d={crestStrokePath}
-          fill="none"
-          stroke="url(#crestStrokeGrad)"
-          strokeWidth={1.5}
-        />
-
-        {/* 6. Foreground Living Grass Blades */}
-        <Path d={grassPaths.foreBlades} fill="url(#grassBladeGrad)" />
-
-        {/* 7. Shimmering Dewdrop Specks on Blade Tips */}
-        {dewdrops.map((drop, idx) => (
-          <Circle
-            key={idx}
-            cx={drop.cx}
-            cy={drop.cy}
-            r={drop.r}
-            fill={Palette.pine200}
-            opacity={0.85}
-          />
-        ))}
-      </Svg>
-    </View>
-  );
-});
-
-RiverbedSupportWave.displayName = "RiverbedSupportWave";
 
 /**
  * Individual radial option node, smoothly fanning out from the Pebble center
@@ -847,7 +563,7 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
 
   return (
     <>
-      {/* Fullscreen touch dismiss scrim when opened */}
+      {/* 1. Fullscreen touch dismiss scrim when opened */}
       {isOpen && (
         <Animated.View
           style={[
@@ -865,25 +581,11 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
         </Animated.View>
       )}
 
+      {/* 3. Navigation Controls Layer (Pebble + Radial dial) */}
       <View
         pointerEvents="box-none"
         style={[styles.overlayContainer, { paddingBottom: bottomInset }]}
       >
-        {/* Shoreline Environmental Art Backdrop (Bookending Circadian Header) */}
-        <ShorelineSupportBackdrop
-          screenWidth={screenWidth}
-          bottomInset={bottomInset}
-          isDark={isDark}
-          backgroundColor={theme.background}
-        />
-
-        {/* Riverbed Support Wave Dock (Full-width organic shoreline behind the Pebble) */}
-        <RiverbedSupportWave
-          screenWidth={screenWidth}
-          bottomInset={bottomInset}
-          isDark={isDark}
-        />
-
         {/* Unified Anchor Container: Centers both the Pebble and the Radial Arc at the identical point */}
         <View style={styles.pebbleAnchorContainer} pointerEvents="box-none">
           {/* Radial Arc & Items Anchor: Positioned at the exact (27, 27) center of the Pebble */}
@@ -1077,21 +779,14 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     zIndex: 9999,
   },
-  // Full-width shoreline landscape backdrop anchored to bottom
+  // Full-width shoreline landscape backdrop anchored to bottom (purely visual, zero layout)
   shorelineBackdropContainer: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     overflow: "hidden",
-  },
-  // Full-width organic wave container anchored to the bottom edge
-  waveContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    overflow: "hidden",
+    zIndex: 0,
   },
   // Centered wrapper anchoring both the pebble trigger and the radial arc
   pebbleAnchorContainer: {

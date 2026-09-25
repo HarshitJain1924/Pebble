@@ -15,7 +15,7 @@ import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, {
   FadeInDown,
@@ -40,6 +40,10 @@ import { PebbleCircadianHeader } from "@/features/today/components/PebbleCircadi
 import { NowFocusCard } from "@/features/today/components/NowFocusCard";
 import { getNowFocus, type NowFocusResult } from "@/features/today/utils/getNowFocus";
 import { useLiveClock } from "@/features/today/hooks/useLiveClock";
+import {
+  getPebbleDockClearance,
+  ShorelineSupportBackdrop,
+} from "@/shared/components/navigation/PebbleRadialTabBar";
 import {
   DEFAULT_TODAY_FILTERS,
   normalizeTodayFilters,
@@ -87,6 +91,11 @@ export function TodayScreen() {
   const colors = Colors[colorScheme ?? "dark"];
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const bottomClearance = useMemo(
+    () => getPebbleDockClearance(insets.bottom),
+    [insets.bottom],
+  );
 
   const { showUndo } = useUndo();
 
@@ -433,15 +442,25 @@ export function TodayScreen() {
         translucent
         backgroundColor="transparent"
       />
+
+      {/* Environmental Shoreline Scenic Artwork (Anchored to canvas bottom behind scroll stream) */}
+      <ShorelineSupportBackdrop
+        screenWidth={screenWidth}
+        isDark={colorScheme !== "light"}
+        backgroundColor={colors.background}
+        style={{ zIndex: 0, elevation: 0 }}
+      />
+
       <Animated.View
         entering={FadeInDown.duration(400).springify()}
-        style={{ flex: 1 }}
+        style={{ flex: 1, zIndex: 10, elevation: 10 }}
       >
         <ScrollView
           ref={parentScrollRef}
+          style={{ flex: 1, zIndex: 10 }}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingTop: 0, paddingBottom: 160 },
+            { paddingTop: 0, paddingBottom: bottomClearance },
           ]}
           contentInsetAdjustmentBehavior="never"
           showsVerticalScrollIndicator={false}
