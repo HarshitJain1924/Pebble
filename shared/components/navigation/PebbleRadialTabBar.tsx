@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   PanResponder,
@@ -323,14 +323,24 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
   // States
   const [isOpen, setIsOpen] = useState(false);
   const [activeSector, setActiveSector] = useState<number>(-1);
+  const [selectedSector, setSelectedSector] = useState<number | null>(null);
   const [isStickyOpen, setIsStickyOpen] = useState(false);
 
+  const selectedSectorClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSectorRef = useRef<number>(-1);
   const isOpenRef = useRef<boolean>(false);
   const isStickyOpenRef = useRef<boolean>(false);
   const wasOpenOnGrant = useRef<boolean>(false);
   const touchStartTimestamp = useRef<number>(0);
   const hasDragged = useRef<boolean>(false);
+
+  useEffect(() => {
+    return () => {
+      if (selectedSectorClearTimer.current) {
+        clearTimeout(selectedSectorClearTimer.current);
+      }
+    };
+  }, []);
 
   // Calculate dynamic bottom inset
   const bottomInset = Math.max(insets.bottom, 16);
@@ -390,6 +400,11 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
   // Open dial
   const openDial = useCallback(
     (sticky = false) => {
+      if (selectedSectorClearTimer.current) {
+        clearTimeout(selectedSectorClearTimer.current);
+        selectedSectorClearTimer.current = null;
+      }
+      setSelectedSector(null);
       isOpenRef.current = true;
       isStickyOpenRef.current = sticky;
       setIsOpen(true);
@@ -426,6 +441,15 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
         closeDial();
         return;
       }
+
+      if (selectedSectorClearTimer.current) {
+        clearTimeout(selectedSectorClearTimer.current);
+      }
+      setSelectedSector(sectorIndex);
+      selectedSectorClearTimer.current = setTimeout(() => {
+        setSelectedSector(null);
+        selectedSectorClearTimer.current = null;
+      }, 600);
 
       const selected = RADIAL_NAV_OPTIONS[sectorIndex];
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -768,7 +792,12 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
         </View>
 
         {/* Cairn companion on the left side of dock */}
-        <DockCompanionMascot isDialOpen={isOpen} bottomOffset={bottomInset} />
+        <DockCompanionMascot
+          isDialOpen={isOpen}
+          activeSector={activeSector}
+          selectedSector={selectedSector}
+          bottomOffset={bottomInset}
+        />
       </View>
     </>
   );

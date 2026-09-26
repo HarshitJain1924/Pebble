@@ -27,6 +27,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Palette, Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { InteractivePebbleJar } from "@/features/profile/components/InteractivePebbleJar";
 import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 import {
@@ -39,18 +40,49 @@ import { TaskRepository, HabitRepository, UiStateRepository } from "@/repositori
 import { getTodayDateKey } from "@/shared/utils/date-key";
 import { launchFocusSession } from "@/features/focus/services/FocusLaunchService";
 
+const MASCOT_RIG = {
+  body: require("@/assets/images/mascot/cairn_rig_body.png"),
+  head: require("@/assets/images/mascot/cairn_rig_head.png"),
+};
+
 const MASCOT_POSES = {
-  // 1. Natural idle: Facing RIGHT into the app and center dial
-  lookRight: require("@/assets/images/mascot/new_pose_look_right.png"),
-  // 2. Radial dial open: Looking UP and RIGHT at the blooming options
-  curiousUp: require("@/assets/images/mascot/new_pose_curious_up.png"),
-  // 3. Speaking / Tapped: Facing the user directly with a friendly smile
+  // Front-facing smile when speaking/tapped
   front: require("@/assets/images/mascot/new_pose_front.png"),
 };
 
-// Bold, chunky Duolingo Duo scale (82pt tall)
-const MASCOT_HEIGHT = 82;
-const MASCOT_WIDTH = 61;
+// Subtle, continuous dock reaction targets mapped to radial sector positions
+// Left-to-right arc (165° Today -> 90° Quick Add -> 15° Focus)
+const SECTOR_RIG_REACTIONS: Record<
+  number,
+  {
+    headTilt: number;
+    headTranslateY: number;
+    bodyTilt: number;
+    leanX: number;
+    hop: number;
+  }
+> = {
+  // Neutral curious hover when dial blooms open
+  [-1]: { headTilt: 3.0, headTranslateY: -1.0, bodyTilt: 1.8, leanX: 1.5, hop: -1.0 },
+  // Sector 0: Today (165° low-left, closest to Cairn)
+  0: { headTilt: -4.0, headTranslateY: 0.5, bodyTilt: 1.2, leanX: 1.0, hop: -0.5 },
+  // Sector 1: Workspaces (127.5° mid-left)
+  1: { headTilt: 1.5, headTranslateY: -1.5, bodyTilt: 2.0, leanX: 2.0, hop: -1.5 },
+  // Sector 2: Quick Capture (90° top apex)
+  2: { headTilt: 8.5, headTranslateY: -3.5, bodyTilt: 3.0, leanX: 2.8, hop: -2.5 },
+  // Sector 3: Schedule (52.5° mid-right)
+  3: { headTilt: 5.5, headTranslateY: -2.0, bodyTilt: 4.0, leanX: 3.8, hop: -2.0 },
+  // Sector 4: Focus Mode (15° far-right)
+  4: { headTilt: 11.0, headTranslateY: -1.0, bodyTilt: 5.0, leanX: 4.8, hop: -1.0 },
+};
+
+// Rigged Chunky Chibi scale
+const MASCOT_CONTAINER_WIDTH = 68;
+const MASCOT_CONTAINER_HEIGHT = 84;
+const BODY_WIDTH = 64;
+const BODY_HEIGHT = 55;
+const HEAD_WIDTH = 58;
+const HEAD_HEIGHT = 48;
 
 interface MascotAction {
   label: string;
@@ -99,14 +131,19 @@ const checkIfDailyClear = async (): Promise<boolean> => {
 
 export interface DockCompanionMascotProps {
   isDialOpen?: boolean;
+  activeSector?: number;
+  selectedSector?: number | null;
   bottomOffset?: number;
 }
 
 export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
   isDialOpen = false,
+  activeSector = -1,
+  selectedSector = null,
   bottomOffset = 0,
 }) => {
   const router = useRouter();
+  const reducedMotion = useReducedMotion();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
@@ -121,12 +158,17 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
   const scaleXAnim = useSharedValue(1);
   const scaleYAnim = useSharedValue(1);
   const hopAnim = useSharedValue(0);
-  const tiltAnim = useSharedValue(0);
+  const leanXAnim = useSharedValue(0);
+
+  // Rigged Head & Body Values
+  const headTiltAnim = useSharedValue(0);
+  const headTranslateYAnim = useSharedValue(0);
+  const bodyTiltAnim = useSharedValue(0);
+  const bodyScaleYAnim = useSharedValue(1);
 
   // Interaction State
   const [whisperText, setWhisperText] = useState<string | null>(null);
   const [whisperAction, setWhisperAction] = useState<MascotAction | null>(null);
-  const [currentPose, setCurrentPose] = useState<keyof typeof MASCOT_POSES>("lookRight");
   const whisperTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reward Overlay Modal States (Inherited from former MascotOverlay)
@@ -244,57 +286,201 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
     };
   }, [loadData, checkFocusActive]);
 
-  // Subtle, calm idle breathing when resting (Section 9: suppressed during focus sessions)
+  // Behavior 1: Subtle, calm idle breathing when resting (Section 9: suppressed during focus, dial open, or reduced motion)
   useEffect(() => {
-    if (isFocusActive || isDialOpen || whisperText) {
-      // Still during focus sessions, open dial, or active whisper
+    if (
+      isFocusActive ||
+      isDialOpen ||
+      whisperText ||
+      reducedMotion ||
+      (selectedSector !== null && selectedSector !== undefined)
+    ) {
+      // Still during focus sessions, open dial, active whisper, or reduced motion
+      bodyScaleYAnim.value = withTiming(1, { duration: 180 });
       scaleYAnim.value = withTiming(1, { duration: 180 });
       scaleXAnim.value = withTiming(1, { duration: 180 });
       return;
     }
 
-    scaleYAnim.value = withRepeat(
+    // Gentle chest/body breathing
+    bodyScaleYAnim.value = withRepeat(
       withSequence(
-        withTiming(1.02, { duration: 2400, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1.025, { duration: 2400, easing: Easing.inOut(Easing.quad) }),
         withTiming(1.0, { duration: 2400, easing: Easing.inOut(Easing.quad) })
       ),
       -1,
       true
     );
-    scaleXAnim.value = withRepeat(
-      withSequence(
-        withTiming(0.99, { duration: 2400, easing: Easing.inOut(Easing.quad) }),
-        withTiming(1.0, { duration: 2400, easing: Easing.inOut(Easing.quad) })
-      ),
-      -1,
-      true
-    );
-  }, [isFocusActive, isDialOpen, whisperText, scaleYAnim, scaleXAnim]);
+  }, [
+    isFocusActive,
+    isDialOpen,
+    whisperText,
+    reducedMotion,
+    selectedSector,
+    bodyScaleYAnim,
+    scaleYAnim,
+    scaleXAnim,
+  ]);
 
-  // React when radial navigation dial blooms open or closes
+  // Behavior 2 & 3: While radial menu is open and user drags across sectors
+  // Head rotates expressively tracking dial; body leans subtly in sync
   useEffect(() => {
     if (isFocusActive) {
-      // Cairn becomes still during focus sessions (Section 9)
+      // Focus invariant (Section 9): Cairn becomes still
+      headTiltAnim.value = withTiming(0, { duration: 150 });
+      headTranslateYAnim.value = withTiming(0, { duration: 150 });
+      bodyTiltAnim.value = withTiming(0, { duration: 150 });
+      leanXAnim.value = withTiming(0, { duration: 150 });
       hopAnim.value = withTiming(0, { duration: 150 });
-      tiltAnim.value = withTiming(0, { duration: 150 });
-      setCurrentPose("lookRight");
       return;
     }
 
-    if (isDialOpen) {
-      setCurrentPose("curiousUp");
-      hopAnim.value = withSequence(
-        withTiming(-8, { duration: 150 }),
-        withSpring(0, { damping: 12, stiffness: 220 })
-      );
-      tiltAnim.value = withSpring(4, { damping: 14 });
-    } else {
-      tiltAnim.value = withSpring(0, { damping: 16 });
-      if (!whisperText) {
-        setCurrentPose("lookRight");
-      }
+    if (!isDialOpen) return;
+
+    if (reducedMotion) {
+      headTiltAnim.value = 0;
+      headTranslateYAnim.value = 0;
+      bodyTiltAnim.value = 0;
+      leanXAnim.value = 0;
+      hopAnim.value = 0;
+      return;
     }
-  }, [isDialOpen, isFocusActive, hopAnim, tiltAnim, whisperText]);
+
+    const reaction =
+      SECTOR_RIG_REACTIONS[activeSector] ?? SECTOR_RIG_REACTIONS[-1];
+
+    // Smooth, continuous spring tracking across sectors
+    headTiltAnim.value = withSpring(reaction.headTilt, {
+      damping: 17,
+      stiffness: 170,
+      mass: 0.5,
+    });
+    headTranslateYAnim.value = withSpring(reaction.headTranslateY, {
+      damping: 17,
+      stiffness: 170,
+      mass: 0.5,
+    });
+    bodyTiltAnim.value = withSpring(reaction.bodyTilt, {
+      damping: 19,
+      stiffness: 160,
+      mass: 0.6,
+    });
+    leanXAnim.value = withSpring(reaction.leanX, {
+      damping: 19,
+      stiffness: 160,
+      mass: 0.6,
+    });
+    hopAnim.value = withSpring(reaction.hop, {
+      damping: 19,
+      stiffness: 160,
+      mass: 0.6,
+    });
+  }, [
+    isDialOpen,
+    activeSector,
+    isFocusActive,
+    reducedMotion,
+    headTiltAnim,
+    headTranslateYAnim,
+    bodyTiltAnim,
+    leanXAnim,
+    hopAnim,
+  ]);
+
+  // Behavior 4: Tiny acknowledgment movement on selection, then return to neutral
+  useEffect(() => {
+    if (
+      selectedSector !== null &&
+      selectedSector !== undefined &&
+      selectedSector >= 0
+    ) {
+      if (isFocusActive) return;
+
+      if (reducedMotion) {
+        headTiltAnim.value = 0;
+        headTranslateYAnim.value = 0;
+        bodyTiltAnim.value = 0;
+        leanXAnim.value = 0;
+        hopAnim.value = 0;
+        scaleXAnim.value = 1;
+        scaleYAnim.value = 1;
+        bodyScaleYAnim.value = 1;
+        return;
+      }
+
+      // Small, polite nod & hop acknowledgment
+      headTiltAnim.value = withSequence(
+        withTiming(-4, { duration: 90, easing: Easing.out(Easing.quad) }),
+        withSpring(0, { damping: 14, stiffness: 220 })
+      );
+      hopAnim.value = withSequence(
+        withTiming(-3, { duration: 80, easing: Easing.out(Easing.quad) }),
+        withSpring(0, { damping: 15, stiffness: 220 })
+      );
+      scaleYAnim.value = withSequence(
+        withTiming(1.03, { duration: 70 }),
+        withSpring(1, { damping: 14 })
+      );
+      scaleXAnim.value = withSequence(
+        withTiming(0.98, { duration: 70 }),
+        withSpring(1, { damping: 14 })
+      );
+      bodyTiltAnim.value = withSpring(0, { damping: 16, stiffness: 200 });
+      leanXAnim.value = withSpring(0, { damping: 16, stiffness: 200 });
+    }
+  }, [
+    selectedSector,
+    isFocusActive,
+    reducedMotion,
+    headTiltAnim,
+    hopAnim,
+    scaleYAnim,
+    scaleXAnim,
+    bodyTiltAnim,
+    leanXAnim,
+    bodyScaleYAnim,
+  ]);
+
+  // Behavior 5: Dial closes without selection -> smoothly return to neutral
+  useEffect(() => {
+    if (
+      !isDialOpen &&
+      (selectedSector === null || selectedSector === undefined)
+    ) {
+      if (reducedMotion) {
+        headTiltAnim.value = 0;
+        headTranslateYAnim.value = 0;
+        bodyTiltAnim.value = 0;
+        leanXAnim.value = 0;
+        hopAnim.value = 0;
+        scaleXAnim.value = 1;
+        scaleYAnim.value = 1;
+        bodyScaleYAnim.value = 1;
+        return;
+      }
+
+      headTiltAnim.value = withSpring(0, { damping: 18, stiffness: 180 });
+      headTranslateYAnim.value = withSpring(0, { damping: 18, stiffness: 180 });
+      bodyTiltAnim.value = withSpring(0, { damping: 18, stiffness: 180 });
+      leanXAnim.value = withSpring(0, { damping: 18, stiffness: 180 });
+      hopAnim.value = withSpring(0, { damping: 18, stiffness: 180 });
+      scaleXAnim.value = withSpring(1, { damping: 18 });
+      scaleYAnim.value = withSpring(1, { damping: 18 });
+      bodyScaleYAnim.value = withSpring(1, { damping: 18 });
+    }
+  }, [
+    isDialOpen,
+    selectedSector,
+    reducedMotion,
+    headTiltAnim,
+    headTranslateYAnim,
+    bodyTiltAnim,
+    leanXAnim,
+    hopAnim,
+    scaleXAnim,
+    scaleYAnim,
+    bodyScaleYAnim,
+  ]);
 
   // Tactile press reaction: Duolingo Duo squash, spring jump hop, and dialogue
   const handlePress = useCallback(async () => {
@@ -302,7 +488,6 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
     if (whisperText) {
       setWhisperText(null);
       setWhisperAction(null);
-      setCurrentPose(isDialOpen ? "curiousUp" : "lookRight");
       if (whisperTimerRef.current) clearTimeout(whisperTimerRef.current);
       return;
     }
@@ -316,12 +501,10 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
       );
       setWhisperText("In the zone. Keep going.");
       setWhisperAction(null);
-      setCurrentPose("front");
 
       if (whisperTimerRef.current) clearTimeout(whisperTimerRef.current);
       whisperTimerRef.current = setTimeout(() => {
         setWhisperText(null);
-        setCurrentPose("lookRight");
       }, 4000);
       return;
     }
@@ -340,10 +523,14 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
       withSpring(1, { damping: 12, stiffness: 180 })
     );
 
-    // Playful jump hop upwards
+    // Playful jump hop upwards & head tilt
     hopAnim.value = withSequence(
       withTiming(-16, { duration: 140, easing: Easing.out(Easing.cubic) }),
       withSpring(0, { damping: 11, stiffness: 200 })
+    );
+    headTiltAnim.value = withSequence(
+      withTiming(-6, { duration: 120, easing: Easing.out(Easing.quad) }),
+      withSpring(0, { damping: 12, stiffness: 220 })
     );
 
     // Check live context (Daily clear, streak, focus recommendation)
@@ -397,36 +584,57 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
 
     setWhisperText(text);
     setWhisperAction(action);
-    setCurrentPose("front");
 
     // Auto-dismiss after 6 seconds
     if (whisperTimerRef.current) clearTimeout(whisperTimerRef.current);
     whisperTimerRef.current = setTimeout(() => {
       setWhisperText(null);
       setWhisperAction(null);
-      setCurrentPose(isDialOpen ? "curiousUp" : "lookRight");
     }, 6000);
-  }, [whisperText, isDialOpen, streak, scaleXAnim, scaleYAnim, hopAnim]);
+  }, [whisperText, isFocusActive, streak, scaleXAnim, scaleYAnim, hopAnim, headTiltAnim]);
 
-  // Animated styles for Mascot body
+  // Overall Mascot Container transform (squash, hop, lean)
   const mascotAnimatedStyle = useAnimatedStyle(() => {
     return {
       transform: [
+        { translateX: leanXAnim.value },
         { translateY: hopAnim.value },
         { scaleX: scaleXAnim.value },
         { scaleY: scaleYAnim.value },
-        { rotate: `${tiltAnim.value}deg` },
       ],
     };
   });
 
-  // Animated shadow reacting to hop
+  // Body layer transform (subtle lean & chest breathing)
+  const bodyAnchorAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { rotate: `${bodyTiltAnim.value}deg` },
+        { scaleY: bodyScaleYAnim.value },
+      ],
+    };
+  });
+
+  // Head layer transform (rotates around neck base pivot at 41, 44)
+  const headAnchorAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateY: headTranslateYAnim.value },
+        { rotate: `${headTiltAnim.value}deg` },
+      ],
+    };
+  });
+
+  // Animated shadow reacting to hop & subtle horizontal lean
   const shadowAnimatedStyle = useAnimatedStyle(() => {
     const shadowScale = interpolate(hopAnim.value, [-16, 0], [0.65, 1], "clamp");
     const shadowOpacity = interpolate(hopAnim.value, [-16, 0], [0.15, 0.45], "clamp");
 
     return {
-      transform: [{ scaleX: shadowScale }],
+      transform: [
+        { translateX: leanXAnim.value * 0.4 },
+        { scaleX: shadowScale },
+      ],
       opacity: shadowOpacity,
     };
   });
@@ -444,7 +652,7 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
             bottom: bottomOffset + 4,
           },
         ]}
-        pointerEvents="box-none"
+        pointerEvents={isDialOpen ? "none" : "box-none"}
       >
         {/* Speech Whisper Bubble */}
         {whisperText && (
@@ -540,13 +748,34 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
             ]}
           />
 
-          {/* Freestanding Chunky Chibi Crow */}
+          {/* Freestanding Chunky Chibi Crow (Rigged Body + Head) */}
           <Animated.View style={[styles.mascotWrapper, mascotAnimatedStyle]}>
-            <Image
-              source={MASCOT_POSES[currentPose]}
-              style={styles.mascotImage}
-              resizeMode="contain"
-            />
+            {whisperText ? (
+              <Image
+                source={MASCOT_POSES.front}
+                style={styles.mascotFrontImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={styles.rigContainer}>
+                {/* Body Layer (Anchored at feet pivot: 32, 84) */}
+                <Animated.View style={[styles.bodyAnchor, bodyAnchorAnimatedStyle]}>
+                  <Image
+                    source={MASCOT_RIG.body}
+                    style={styles.rigBodyImage}
+                    resizeMode="contain"
+                  />
+                </Animated.View>
+                {/* Head Layer (Anchored at neck pivot: 41, 44) */}
+                <Animated.View style={[styles.headAnchor, headAnchorAnimatedStyle]}>
+                  <Image
+                    source={MASCOT_RIG.head}
+                    style={styles.rigHeadImage}
+                    resizeMode="contain"
+                  />
+                </Animated.View>
+              </View>
+            )}
           </Animated.View>
         </Pressable>
       </View>
@@ -624,8 +853,8 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   pressableArea: {
-    width: MASCOT_WIDTH + 8,
-    height: MASCOT_HEIGHT + 6,
+    width: MASCOT_CONTAINER_WIDTH + 8,
+    height: MASCOT_CONTAINER_HEIGHT + 6,
     alignItems: "center",
     justifyContent: "flex-end",
     position: "relative",
@@ -640,16 +869,49 @@ const styles = StyleSheet.create({
   mascotWrapper: {
     position: "absolute",
     bottom: 4,
-    alignItems: "center",
-    justifyContent: "center",
+    width: MASCOT_CONTAINER_WIDTH,
+    height: MASCOT_CONTAINER_HEIGHT,
   },
-  mascotImage: {
-    width: MASCOT_WIDTH,
-    height: MASCOT_HEIGHT,
+  rigContainer: {
+    width: MASCOT_CONTAINER_WIDTH,
+    height: MASCOT_CONTAINER_HEIGHT,
+    position: "relative",
+  },
+  bodyAnchor: {
+    position: "absolute",
+    left: 32,
+    top: 84,
+    width: 0,
+    height: 0,
+  },
+  rigBodyImage: {
+    position: "absolute",
+    left: -32,
+    top: -55,
+    width: BODY_WIDTH,
+    height: BODY_HEIGHT,
+  },
+  headAnchor: {
+    position: "absolute",
+    left: 41,
+    top: 44,
+    width: 0,
+    height: 0,
+  },
+  rigHeadImage: {
+    position: "absolute",
+    left: -32,
+    top: -44,
+    width: HEAD_WIDTH,
+    height: HEAD_HEIGHT,
+  },
+  mascotFrontImage: {
+    width: MASCOT_CONTAINER_WIDTH,
+    height: MASCOT_CONTAINER_HEIGHT,
   },
   whisperContainer: {
     position: "absolute",
-    bottom: MASCOT_HEIGHT + 16,
+    bottom: MASCOT_CONTAINER_HEIGHT + 16,
     left: -4,
     width: 220,
     paddingHorizontal: 14,
