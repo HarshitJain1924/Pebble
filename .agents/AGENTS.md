@@ -33,6 +33,7 @@ Keep the workflow direct and focused:
 * **Execution vs. Organization**: Today is strictly for execution; keep Workspace preview cards on Today capped at 5 items with a clear "Continue" gateway.
 * **No Card Nesting**: Never nest cards inside cards (keep surfaces flat at Level 1).
 * **Touch Targets & Feedback**: Maintain 44x44pt minimum hit targets; use `PressableScale` (`scale(0.97)` with light haptics) for pressables.
+* **Mascot Guardrail (Cairn)**: Refer to [docs/cairn_voice_guide.md](file:///docs/cairn_voice_guide.md). Treat as a product behavior specification, not merely a copywriting document. Keep Cairn strictly isolated from core domain logic (presentation/experience layer only); do not introduce Cairn into existing screens arbitrarily or modify domain/persistence logic for mascot presentation.
 
 ---
 

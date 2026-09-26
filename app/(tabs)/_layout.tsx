@@ -3,7 +3,6 @@ import { WorkspaceRepository } from "@/repositories";
 import {
   addStateListener,
 } from "@/services/events/state-events";
-import { MascotOverlay } from "@/shared/components/layout/MascotOverlay";
 import { AnimatedTabBar } from "@/shared/components/navigation/motion-tabs";
 import { PebbleRadialTabBar } from "@/shared/components/navigation/PebbleRadialTabBar";
 
@@ -137,7 +136,6 @@ export default function TabLayout() {
         />
       </Tabs>
 
-      <MascotOverlay />
 
       {/* Unified Capture — replaces Quick Add */}
       <UnifiedCapture

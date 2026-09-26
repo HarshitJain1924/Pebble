@@ -27,7 +27,7 @@ To maintain cognitive consistency, always use these exact terms and mappings:
 *   **Checklist (Checkable List)**: A group of sub-tasks or checkable items.
 *   **Resource (Knowledge Base)**: Passive reference items (links, notes, images) saved inside a workspace.
 *   **Gamification (Progress)**: The central micro-achievement tracker that visually collects Pebbles and Gems.
-*   **Mascot Crow (Emotion)**: The dynamic indicator representing streaks, recovery, and encouragement.
+*   **Cairn (Companion / Mascot)**: Pebble's mascot crow—a warm, curious peer who notices progress and celebrates alongside you without pressure or judgment. Authoritative specification: [docs/cairn_voice_guide.md](file:///docs/cairn_voice_guide.md).
 
 ---
 

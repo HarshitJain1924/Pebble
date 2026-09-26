@@ -32,6 +32,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Palette, Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { DockCompanionMascot } from "@/shared/components/mascot/DockCompanionMascot";
 
 const DOCK_SHORELINE_DARK = require("@/assets/images/dock/dock_shoreline_dark.png");
 const DOCK_SHORELINE_LIGHT = require("@/assets/images/dock/dock_shoreline_light.png");
@@ -43,19 +44,21 @@ export const PEBBLE_SIZE = 54; // Diameter of central resting trigger pebble
 export const DEADZONE_RADIUS = 26; // Distance under which touch is neutral/cancel
 export const BACKDROP_RADIUS = 138; // Radius of semicircular halo shield
 
-// Breathing room between last content card and Pebble button
+export const MASCOT_DOCK_HEIGHT = 82;
+// Breathing room between last content card and dock companion/Pebble button
 export const PEBBLE_CLEARANCE_BUFFER = 18;
 
 /**
  * Single source of truth for bottom content clearance across all tab screens.
- * Ensures the last interactive card rests cleanly above the floating Pebble button
- * without any arbitrary or double-counted spacing.
+ * Ensures the last interactive card rests cleanly above both the floating Pebble button
+ * and the dock companion mascot without any arbitrary or double-counted spacing.
  *
  * @param safeAreaBottom - insets.bottom from useSafeAreaInsets()
  */
 export const getPebbleDockClearance = (safeAreaBottom: number): number => {
   const effectiveBottomInset = Math.max(safeAreaBottom, 16);
-  return PEBBLE_SIZE + PEBBLE_CLEARANCE_BUFFER + effectiveBottomInset;
+  const heroDockHeight = Math.max(PEBBLE_SIZE, MASCOT_DOCK_HEIGHT);
+  return heroDockHeight + PEBBLE_CLEARANCE_BUFFER + effectiveBottomInset;
 };
 
 export interface RadialNavOption {
@@ -763,6 +766,9 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
             </View>
           </Animated.View>
         </View>
+
+        {/* Cairn companion on the left side of dock */}
+        <DockCompanionMascot isDialOpen={isOpen} bottomOffset={bottomInset} />
       </View>
     </>
   );
