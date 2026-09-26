@@ -46,8 +46,10 @@ const MASCOT_RIG = {
 };
 
 const MASCOT_POSES = {
-  // Front-facing smile when speaking/tapped
-  front: require("@/assets/images/mascot/new_pose_front.png"),
+  // Front-facing neutral (closed beak)
+  frontNeutral: require("@/assets/images/mascot/new_pose_front.png"),
+  // Front-facing speaking (open beak)
+  frontSpeaking: require("@/assets/images/mascot/new_pose_front_speaking.png"),
 };
 
 // Subtle, continuous dock reaction targets mapped to radial sector positions
@@ -171,6 +173,16 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
   const [whisperAction, setWhisperAction] = useState<MascotAction | null>(null);
   const whisperTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Front Transition & Speaking State
+  const frontTransitionAnim = useSharedValue(0);
+  const [mouthFrame, setMouthFrame] = useState<"neutral" | "speaking">("neutral");
+  const speakingTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearSpeakingTimers = useCallback(() => {
+    speakingTimersRef.current.forEach((t) => clearTimeout(t));
+    speakingTimersRef.current = [];
+  }, []);
+
   // Reward Overlay Modal States (Inherited from former MascotOverlay)
   const [showRewardOverlay, setShowRewardOverlay] = useState(false);
   const [rewardStartCount, setRewardStartCount] = useState(0);
@@ -283,8 +295,9 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
       unsubFocus();
       unsubPebbles();
       if (whisperTimerRef.current) clearTimeout(whisperTimerRef.current);
+      clearSpeakingTimers();
     };
-  }, [loadData, checkFocusActive]);
+  }, [loadData, checkFocusActive, clearSpeakingTimers]);
 
   // Behavior 1: Subtle, calm idle breathing when resting (Section 9: suppressed during focus, dial open, or reduced motion)
   useEffect(() => {
@@ -482,12 +495,96 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
     bodyScaleYAnim,
   ]);
 
+  // Behavior 6: Speaking mouth loop and smooth front-facing turn
+  useEffect(() => {
+    clearSpeakingTimers();
+
+    if (!whisperText) {
+      setMouthFrame("neutral");
+      if (reducedMotion) {
+        frontTransitionAnim.value = 0;
+      } else {
+        frontTransitionAnim.value = withTiming(0, {
+          duration: 180,
+          easing: Easing.out(Easing.quad),
+        });
+      }
+      return;
+    }
+
+    // Entering speech: transition to front-facing pose
+    if (reducedMotion) {
+      frontTransitionAnim.value = 1;
+      setMouthFrame("neutral");
+      return;
+    }
+
+    frontTransitionAnim.value = withTiming(1, {
+      duration: 160,
+      easing: Easing.out(Easing.quad),
+    });
+
+    // In focus mode, remain calm and still in neutral pose (Section 9)
+    if (isFocusActive) {
+      setMouthFrame("neutral");
+      return;
+    }
+
+    // Recommended Speaking Loop:
+    // front_neutral -> front_speaking -> front_neutral -> front_speaking -> front_neutral
+    // Uses roughly 160–220ms intervals between changes without rapid flickering
+    const textLen = whisperText.trim().length;
+    const isShort = textLen < 22;
+
+    const scheduleFrame = (frame: "neutral" | "speaking", delayMs: number) => {
+      const timer = setTimeout(() => {
+        setMouthFrame(frame);
+      }, delayMs);
+      speakingTimersRef.current.push(timer);
+    };
+
+    // Cycle 1: Open beak at 160ms, close at 380ms
+    scheduleFrame("speaking", 160);
+    scheduleFrame("neutral", 380);
+
+    // Cycle 2: Open beak at 580ms, close at 800ms
+    scheduleFrame("speaking", 580);
+    scheduleFrame("neutral", 800);
+
+    // If message is longer, Cycle 3: Open beak at 1020ms, close at 1240ms
+    if (!isShort) {
+      scheduleFrame("speaking", 1020);
+      scheduleFrame("neutral", 1240);
+    }
+
+    return () => {
+      clearSpeakingTimers();
+    };
+  }, [
+    whisperText,
+    isFocusActive,
+    reducedMotion,
+    clearSpeakingTimers,
+    frontTransitionAnim,
+  ]);
+
+  // Dismiss speech if user opens radial dial to keep dial interaction clean
+  useEffect(() => {
+    if (isDialOpen && whisperText) {
+      setWhisperText(null);
+      setWhisperAction(null);
+      clearSpeakingTimers();
+      if (whisperTimerRef.current) clearTimeout(whisperTimerRef.current);
+    }
+  }, [isDialOpen, whisperText, clearSpeakingTimers]);
+
   // Tactile press reaction: Duolingo Duo squash, spring jump hop, and dialogue
   const handlePress = useCallback(async () => {
     // Toggle whisper off if already open
     if (whisperText) {
       setWhisperText(null);
       setWhisperAction(null);
+      clearSpeakingTimers();
       if (whisperTimerRef.current) clearTimeout(whisperTimerRef.current);
       return;
     }
@@ -591,7 +688,16 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
       setWhisperText(null);
       setWhisperAction(null);
     }, 6000);
-  }, [whisperText, isFocusActive, streak, scaleXAnim, scaleYAnim, hopAnim, headTiltAnim]);
+  }, [
+    whisperText,
+    isFocusActive,
+    streak,
+    scaleXAnim,
+    scaleYAnim,
+    hopAnim,
+    headTiltAnim,
+    clearSpeakingTimers,
+  ]);
 
   // Overall Mascot Container transform (squash, hop, lean)
   const mascotAnimatedStyle = useAnimatedStyle(() => {
@@ -622,6 +728,35 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
         { translateY: headTranslateYAnim.value },
         { rotate: `${headTiltAnim.value}deg` },
       ],
+    };
+  });
+
+  // Front-facing communicating Cairn opacity & subtle scale transition
+  const frontContainerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: frontTransitionAnim.value,
+      transform: [
+        {
+          scale: interpolate(
+            frontTransitionAnim.value,
+            [0, 1],
+            [0.94, 1],
+            "clamp"
+          ),
+        },
+      ],
+    };
+  });
+
+  // Side-facing rigged Cairn fades out when speaking
+  const rigContainerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: interpolate(
+        frontTransitionAnim.value,
+        [0, 0.7, 1],
+        [1, 0.2, 0],
+        "clamp"
+      ),
     };
   });
 
@@ -717,6 +852,7 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
 
             {/* Bubble Pointer Arrow aligned down toward crow's beak */}
             <View
+              pointerEvents="none"
               style={[
                 styles.bubblePointer,
                 {
@@ -735,10 +871,10 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
           style={styles.pressableArea}
           accessibilityRole="button"
           accessibilityLabel="Cairn, your Pebble companion. Tap to interact."
-          hitSlop={{ top: 8, bottom: 8, left: 10, right: 10 }}
         >
           {/* Soft Dynamic Contact Shadow beneath feet */}
           <Animated.View
+            pointerEvents="none"
             style={[
               styles.contactShadow,
               {
@@ -748,34 +884,54 @@ export const DockCompanionMascot: React.FC<DockCompanionMascotProps> = ({
             ]}
           />
 
-          {/* Freestanding Chunky Chibi Crow (Rigged Body + Head) */}
-          <Animated.View style={[styles.mascotWrapper, mascotAnimatedStyle]}>
-            {whisperText ? (
+          {/* Freestanding Chunky Chibi Crow (Rigged Body + Head & Front Speaking System) */}
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.mascotWrapper, mascotAnimatedStyle]}
+          >
+            {/* 1. Side-facing Rigged Cairn (Body + Head) */}
+            <Animated.View
+              style={[styles.rigContainer, rigContainerAnimatedStyle]}
+              pointerEvents="none"
+            >
+              {/* Body Layer (Anchored at feet pivot: 32, 84) */}
+              <Animated.View style={[styles.bodyAnchor, bodyAnchorAnimatedStyle]}>
+                <Image
+                  source={MASCOT_RIG.body}
+                  style={styles.rigBodyImage}
+                  resizeMode="contain"
+                />
+              </Animated.View>
+              {/* Head Layer (Anchored at neck pivot: 41, 44) */}
+              <Animated.View style={[styles.headAnchor, headAnchorAnimatedStyle]}>
+                <Image
+                  source={MASCOT_RIG.head}
+                  style={styles.rigHeadImage}
+                  resizeMode="contain"
+                />
+              </Animated.View>
+            </Animated.View>
+
+            {/* 2. Front-facing Communicating Cairn (Neutral & Speaking) */}
+            <Animated.View
+              style={[styles.frontMascotContainer, frontContainerAnimatedStyle]}
+              pointerEvents="none"
+            >
+              {/* Neutral closed beak base (always loaded) */}
               <Image
-                source={MASCOT_POSES.front}
+                source={MASCOT_POSES.frontNeutral}
                 style={styles.mascotFrontImage}
                 resizeMode="contain"
               />
-            ) : (
-              <View style={styles.rigContainer}>
-                {/* Body Layer (Anchored at feet pivot: 32, 84) */}
-                <Animated.View style={[styles.bodyAnchor, bodyAnchorAnimatedStyle]}>
-                  <Image
-                    source={MASCOT_RIG.body}
-                    style={styles.rigBodyImage}
-                    resizeMode="contain"
-                  />
-                </Animated.View>
-                {/* Head Layer (Anchored at neck pivot: 41, 44) */}
-                <Animated.View style={[styles.headAnchor, headAnchorAnimatedStyle]}>
-                  <Image
-                    source={MASCOT_RIG.head}
-                    style={styles.rigHeadImage}
-                    resizeMode="contain"
-                  />
-                </Animated.View>
-              </View>
-            )}
+              {/* Speaking open beak overlay with zero flicker/jump */}
+              {mouthFrame === "speaking" && (
+                <Image
+                  source={MASCOT_POSES.frontSpeaking}
+                  style={[styles.mascotFrontImage, styles.speakingOverlay]}
+                  resizeMode="contain"
+                />
+              )}
+            </Animated.View>
           </Animated.View>
         </Pressable>
       </View>
@@ -853,29 +1009,38 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   pressableArea: {
-    width: MASCOT_CONTAINER_WIDTH + 8,
-    height: MASCOT_CONTAINER_HEIGHT + 6,
+    width: MASCOT_CONTAINER_WIDTH,
+    height: MASCOT_CONTAINER_HEIGHT,
     alignItems: "center",
     justifyContent: "flex-end",
     position: "relative",
   },
   contactShadow: {
     position: "absolute",
-    bottom: 2,
+    bottom: 0,
     width: 44,
     height: 7,
     borderRadius: 4,
   },
   mascotWrapper: {
     position: "absolute",
-    bottom: 4,
+    bottom: 0,
     width: MASCOT_CONTAINER_WIDTH,
     height: MASCOT_CONTAINER_HEIGHT,
   },
   rigContainer: {
     width: MASCOT_CONTAINER_WIDTH,
     height: MASCOT_CONTAINER_HEIGHT,
-    position: "relative",
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
+  frontMascotContainer: {
+    width: MASCOT_CONTAINER_WIDTH,
+    height: MASCOT_CONTAINER_HEIGHT,
+    position: "absolute",
+    top: 0,
+    left: 0,
   },
   bodyAnchor: {
     position: "absolute",
@@ -908,6 +1073,11 @@ const styles = StyleSheet.create({
   mascotFrontImage: {
     width: MASCOT_CONTAINER_WIDTH,
     height: MASCOT_CONTAINER_HEIGHT,
+  },
+  speakingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
   },
   whisperContainer: {
     position: "absolute",

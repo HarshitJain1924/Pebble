@@ -535,6 +535,94 @@ describe("WorkspaceSectionedStream Component", () => {
     expect(mockCompleteTodo).toHaveBeenCalledWith("task-1", undefined, "ws-work");
   });
 
+  it("Single-workspace Today view: unchecking a completed task calls completeTodoFromDashboard with workspace id", () => {
+    const completedTask: Task = {
+      ...sampleTasks[0],
+      id: "task-completed-1",
+      completed: true,
+      status: "completed",
+    } as any;
+
+    const activeContexts = [
+      {
+        folder: sampleWorkspace,
+        tasks: [completedTask],
+        habits: [],
+        checklists: [],
+        totalCount: 1,
+      },
+    ];
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceSectionedStream
+          activeContexts={activeContexts}
+          colors={mockColors}
+          colorScheme="dark"
+          allCollections={{}}
+          expandedChecklistIds={{}}
+          setExpandedChecklistIds={mockSetExpandedChecklistIds}
+          router={mockRouter}
+          completeTodoFromDashboard={mockCompleteTodo}
+          completeHabitFromDashboard={mockCompleteHabit}
+          toggleChecklistItemFromDashboard={mockToggleChecklistItem}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const checkbox = root.findByProps({ accessibilityRole: "checkbox" });
+    act(() => {
+      checkbox.props.onPress();
+    });
+
+    expect(mockCompleteTodo).toHaveBeenCalledWith("task-completed-1", undefined, "ws-work");
+  });
+
+  it("Single-workspace Today view: checking and unchecking a habit calls completeHabitFromDashboard with workspace id", () => {
+    const habit: Habit = {
+      ...sampleHabits[0],
+      id: "habit-1",
+    };
+
+    const activeContexts = [
+      {
+        folder: sampleWorkspace,
+        tasks: [],
+        habits: [habit],
+        checklists: [],
+        totalCount: 1,
+      },
+    ];
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceSectionedStream
+          activeContexts={activeContexts}
+          colors={mockColors}
+          colorScheme="dark"
+          allCollections={{}}
+          expandedChecklistIds={{}}
+          setExpandedChecklistIds={mockSetExpandedChecklistIds}
+          router={mockRouter}
+          completeTodoFromDashboard={mockCompleteTodo}
+          completeHabitFromDashboard={mockCompleteHabit}
+          toggleChecklistItemFromDashboard={mockToggleChecklistItem}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const checkbox = root.findByProps({ accessibilityRole: "checkbox" });
+    act(() => {
+      checkbox.props.onPress();
+    });
+
+    expect(mockCompleteHabit).toHaveBeenCalledWith("habit-1", undefined, "ws-work");
+  });
+
   it("renders Workspace Rail when multiple workspaces are active and allows filtering", () => {
     const secondWorkspace: Workspace = {
       id: "ws-personal",
@@ -1119,6 +1207,193 @@ describe("WorkspaceSectionedStream folder drawer", () => {
 
     expect(joinedText(root)).toContain("Workspace 0");
     expect(joinedText(root)).toContain("Workspace 2");
+  });
+
+  it("All-workspaces Today view: task checkboxes complete with their owning workspace IDs, not __all_workspaces__", () => {
+    const mockCompleteTodo = jest.fn().mockResolvedValue(undefined);
+    const mockCompleteHabit = jest.fn().mockResolvedValue(undefined);
+    const mockToggleChecklist = jest.fn().mockResolvedValue(undefined);
+
+    const contexts = [
+      {
+        folder: makeWorkspace(0),
+        tasks: [makeTask("ws-0", 0)],
+        habits: [],
+        checklists: [],
+        totalCount: 1,
+      },
+      {
+        folder: makeWorkspace(1),
+        tasks: [makeTask("ws-1", 0)],
+        habits: [],
+        checklists: [],
+        totalCount: 1,
+      },
+    ];
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceSectionedStream
+          activeContexts={contexts}
+          colors={mockColors}
+          colorScheme="dark"
+          allCollections={{}}
+          expandedChecklistIds={{}}
+          setExpandedChecklistIds={jest.fn()}
+          router={mockRouter}
+          completeTodoFromDashboard={mockCompleteTodo}
+          completeHabitFromDashboard={mockCompleteHabit}
+          toggleChecklistItemFromDashboard={mockToggleChecklist}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const taskCheckbox0 = root.findByProps({ accessibilityLabel: "Mark task ws-0 task 0 as complete" });
+    const taskCheckbox1 = root.findByProps({ accessibilityLabel: "Mark task ws-1 task 0 as complete" });
+
+    act(() => {
+      taskCheckbox0.props.onPress();
+    });
+    expect(mockCompleteTodo).toHaveBeenCalledWith("ws-0-task-0", undefined, "ws-0");
+    expect(mockCompleteTodo).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), "__all_workspaces__");
+
+    act(() => {
+      taskCheckbox1.props.onPress();
+    });
+    expect(mockCompleteTodo).toHaveBeenCalledWith("ws-1-task-0", undefined, "ws-1");
+    expect(mockCompleteTodo).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), "__all_workspaces__");
+  });
+
+  it("All-workspaces Today view: habit checkboxes complete with their owning workspace IDs, not __all_workspaces__", () => {
+    const mockCompleteHabit = jest.fn().mockResolvedValue(undefined);
+
+    const makeHabitItem = (wsId: string, index: number): Habit => ({
+      id: `habit-${wsId}-${index}`,
+      title: `Habit ${wsId} ${index}`,
+      workspaceId: wsId,
+      frequency: "daily",
+      completionHistory: [],
+      createdAt: 1000,
+      updatedAt: 1000,
+      revision: 1,
+      lifecycleGeneration: 1,
+    } as any);
+
+    const contexts = [
+      {
+        folder: makeWorkspace(0),
+        tasks: [],
+        habits: [makeHabitItem("ws-0", 0)],
+        checklists: [],
+        totalCount: 1,
+      },
+      {
+        folder: makeWorkspace(1),
+        tasks: [],
+        habits: [makeHabitItem("ws-1", 0)],
+        checklists: [],
+        totalCount: 1,
+      },
+    ];
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceSectionedStream
+          activeContexts={contexts}
+          colors={mockColors}
+          colorScheme="dark"
+          allCollections={{}}
+          expandedChecklistIds={{}}
+          setExpandedChecklistIds={jest.fn()}
+          router={mockRouter}
+          completeTodoFromDashboard={jest.fn().mockResolvedValue(undefined)}
+          completeHabitFromDashboard={mockCompleteHabit}
+          toggleChecklistItemFromDashboard={jest.fn().mockResolvedValue(undefined)}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const habitCheckbox0 = root.findByProps({ accessibilityLabel: "Mark habit Habit ws-0 0 as complete" });
+    const habitCheckbox1 = root.findByProps({ accessibilityLabel: "Mark habit Habit ws-1 0 as complete" });
+
+    act(() => {
+      habitCheckbox0.props.onPress();
+    });
+    expect(mockCompleteHabit).toHaveBeenCalledWith("habit-ws-0-0", undefined, "ws-0");
+    expect(mockCompleteHabit).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), "__all_workspaces__");
+
+    act(() => {
+      habitCheckbox1.props.onPress();
+    });
+    expect(mockCompleteHabit).toHaveBeenCalledWith("habit-ws-1-0", undefined, "ws-1");
+    expect(mockCompleteHabit).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), "__all_workspaces__");
+  });
+
+  it("All-workspaces Today view: checklist sub-item toggle passes the item's owning workspace ID, not __all_workspaces__", () => {
+    const mockToggleChecklistItem = jest.fn().mockResolvedValue(undefined);
+
+    const checklistA: Checklist = {
+      id: "cl-ws-0",
+      title: "Checklist A",
+      workspaceId: "ws-0",
+      items: [{ id: "sub-1", title: "Sub 1", completed: false, order: 0 }],
+      createdAt: 1000,
+      updatedAt: 1000,
+      revision: 1,
+      lifecycleGeneration: 1,
+    } as any;
+
+    const contexts = [
+      {
+        folder: makeWorkspace(0),
+        tasks: [],
+        habits: [],
+        checklists: [checklistA],
+        totalCount: 1,
+      },
+      {
+        folder: makeWorkspace(1),
+        tasks: [],
+        habits: [],
+        checklists: [],
+        totalCount: 0,
+      },
+    ];
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <WorkspaceSectionedStream
+          activeContexts={contexts}
+          colors={mockColors}
+          colorScheme="dark"
+          allCollections={{}}
+          expandedChecklistIds={{ "cl-ws-0": true }}
+          setExpandedChecklistIds={jest.fn()}
+          router={mockRouter}
+          completeTodoFromDashboard={jest.fn().mockResolvedValue(undefined)}
+          completeHabitFromDashboard={jest.fn().mockResolvedValue(undefined)}
+          toggleChecklistItemFromDashboard={mockToggleChecklistItem}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const subCheckbox = root.findByProps({
+      accessibilityLabel: "Checklist item Sub 1",
+    });
+    expect(subCheckbox).toBeDefined();
+
+    act(() => {
+      subCheckbox.props.onPress();
+    });
+
+    expect(mockToggleChecklistItem).toHaveBeenCalledWith("cl-ws-0", "sub-1", "ws-0");
+    expect(mockToggleChecklistItem).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), "__all_workspaces__");
   });
 });
 

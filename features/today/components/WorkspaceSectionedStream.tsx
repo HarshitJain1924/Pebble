@@ -1554,7 +1554,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             colorScheme={colorScheme}
                             checkboxDisabled={checkboxAction === "locked"}
                             onToggleComplete={(e?: any) =>
-                              completeTodoFromDashboard(todo.id, e, folder.id)
+                              completeTodoFromDashboard(todo.id, e, item.folderId)
                             }
                             onPressRow={() => {
                               if (contentAction.action === "open-details") {
@@ -1603,7 +1603,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             colorScheme={colorScheme}
                             checkboxDisabled={checkboxAction === "locked"}
                             onToggleComplete={(e?: any) =>
-                              completeHabitFromDashboard(habit.id, e, folder.id)
+                              completeHabitFromDashboard(habit.id, e, item.folderId)
                             }
                             onPressRow={() => {
                               if (contentAction.action === "open-details") {
@@ -1685,7 +1685,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                                       toggleChecklistItemFromDashboard(
                                         checklist.id,
                                         subItem.id,
-                                        folder.id,
+                                        item.folderId,
                                       )
                                     }
                                     hitSlop={8}
@@ -1697,12 +1697,12 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                                       styles.subItemCheckbox,
                                       {
                                         borderColor: subItem.completed
-                                          ? folderColor
+                                          ? item.folderColor || folderColor
                                           : isDark
                                           ? "rgba(255,255,255,0.2)"
                                           : "rgba(0,0,0,0.2)",
                                         backgroundColor: subItem.completed
-                                          ? folderColor
+                                          ? item.folderColor || folderColor
                                           : "transparent",
                                       },
                                     ]}
