@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import React, { useState, useMemo } from "react";
 import { TaskListPriorityColors } from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
@@ -16,7 +16,9 @@ import { Typography } from "@/shared/constants/typography";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
+import { resolveItemCategorySymbol } from "@/features/today/components/WorkspaceSectionedStream";
 import type { Task, Workspace } from "@/shared/types/domain.types";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 
@@ -126,12 +128,35 @@ export function TodoItem({
     } catch {}
   };
 
+  const isCompleted = isTaskCompleted(item);
+
   const getPriorityColor = () => {
-    if (item.priority === "high") return TaskListPriorityColors.high.dark;
-    if (item.priority === "medium") return TaskListPriorityColors.medium.dark;
-    if (item.priority === "low") return TaskListPriorityColors.low.dark;
-    return TaskListPriorityColors.none.dark;
+    if (item.priority === "high") return "#F97316";
+    if (item.priority === "medium") return "#3B82F6";
+    if (item.priority === "low") return "#94A3B8";
+    return "transparent";
   };
+  const priorityColor = getPriorityColor();
+
+  const categorySymbol = useMemo(() => {
+    return resolveItemCategorySymbol(
+      {
+        type: "task",
+        title: item.title,
+        categoryId: item.categoryId,
+        priority: item.priority,
+      },
+      !isLight
+    );
+  }, [item.title, item.categoryId, item.priority, isLight]);
+
+  const currentWorkspace = useMemo(() => {
+    const wsId = item.workspaceId || selectedWorkspaceId;
+    return lists.find((w) => w.id === wsId);
+  }, [lists, item.workspaceId, selectedWorkspaceId]);
+
+  const folderName = currentWorkspace?.name || "Work";
+  const isInbox = currentWorkspace?.id === INBOX_WORKSPACE_ID || folderName.toLowerCase() === "inbox";
 
   const scheduledDate = item.schedule?.date;
   const durationMinutes = (item.schedule as any)?.durationMinutes;
@@ -139,43 +164,39 @@ export function TodoItem({
   const metaParts = useMemo<MetaPart[]>(() => {
     const parts: MetaPart[] = [];
 
-    // 1. Category
-    if (category?.label) {
-      parts.push({
-        key: "category",
-        text: category.label,
-        icon: "folder",
-      });
-    }
+    // 1. Folder badge
+    parts.push({
+      key: "category",
+      text: folderName,
+      icon: isInbox ? "inbox" : "folder",
+      color: colors.textMuted,
+    });
 
-    // 2. Schedule
+    // 2. Overdue
     if (overdue) {
       parts.push({
         key: "overdue",
         text: "Overdue",
         icon: "alert-circle",
-        color: colors.warning,
-      });
-    } else if (scheduledDate && scheduledDate !== "inbox") {
-      const today = getTodayDateKey();
-      const tomorrow = dateKeyFromDate(addDays(new Date(), 1));
-      const isToday = scheduledDate === today;
-      const isTomorrow = scheduledDate === tomorrow;
-      const dateLabel = isToday
-        ? "Today"
-        : isTomorrow
-        ? "Tomorrow"
-        : scheduledDate;
-
-      parts.push({
-        key: "date",
-        text: dateLabel,
-        icon: "calendar",
-        color: isToday ? colors.primary : (isTomorrow ? colors.text : colors.textMuted),
+        color: "#F97316",
       });
     }
 
-    // 3. Duration
+    // 3. Recurrence
+    if (item.recurrence) {
+      const label = getRecurrenceLabel(item.recurrence);
+      if (label) {
+        const cleanLabel = label.replace(/[↻↻↻]/g, "").trim();
+        parts.push({
+          key: "recurrence",
+          text: cleanLabel,
+          icon: "repeat",
+          color: colors.textMuted,
+        });
+      }
+    }
+
+    // 4. Duration
     if (durationMinutes) {
       const mins = durationMinutes;
       let text = "";
@@ -190,10 +211,11 @@ export function TodoItem({
         key: "duration",
         text,
         icon: "clock",
+        color: colors.textMuted,
       });
     }
 
-    // 4. Reminder
+    // 5. Reminder
     let reminderText = "";
     if (item.reminder && item.reminder.enabled && item.reminder.triggerAt) {
       const d = new Date(item.reminder.triggerAt);
@@ -205,25 +227,12 @@ export function TodoItem({
         key: "reminder",
         text: reminderText,
         icon: "bell",
-        color: isLight ? Palette.gray600 : Palette.zinc300,
+        color: colors.textMuted,
       });
     }
 
-    // 5. Recurrence
-    if (item.recurrence) {
-      const label = getRecurrenceLabel(item.recurrence);
-      if (label) {
-        const cleanLabel = label.replace(/[↻↻↻]/g, "").trim();
-        parts.push({
-          key: "recurrence",
-          text: cleanLabel,
-          icon: "repeat",
-        });
-      }
-    }
-
     return parts;
-  }, [category, overdue, scheduledDate, durationMinutes, item.reminder, item.recurrence, colors, isLight]);
+  }, [folderName, isInbox, overdue, item.recurrence, durationMinutes, item.reminder, colors.textMuted]);
 
   return (
     <SwipeableCard
@@ -231,26 +240,17 @@ export function TodoItem({
       onSwipeLeft={onDeleteTodo}
       disabled={isSelectionMode}
     >
-      <View onLayout={onLayout}>
-        <AppCard
-          style={[
-            styles.todoItemCard,
-            {
-              paddingLeft: 14,
-              paddingRight: 10,
-              paddingTop: 10,
-              paddingBottom: 10,
-              position: "relative",
-              overflow: "hidden",
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-              borderWidth: 1,
-              borderRadius: 14,
-              opacity: isTaskCompleted(item) ? 0.6 : 1, // Satisfying opacity fade on completion
-            },
-          ]}
-        >
-          {/* Thin vertical priority strip */}
+      <View
+        onLayout={onLayout}
+        style={{
+          position: "relative",
+          overflow: "hidden",
+          backgroundColor: "transparent",
+          opacity: isCompleted ? 0.6 : 1,
+        }}
+      >
+        {/* Thin vertical priority strip */}
+        {priorityColor !== "transparent" && (
           <View
             style={{
               position: "absolute",
@@ -258,85 +258,140 @@ export function TodoItem({
               top: 0,
               bottom: 0,
               width: 3.5,
-              backgroundColor: getPriorityColor(),
+              backgroundColor: priorityColor,
             }}
           />
+        )}
 
-          {/* Parent Task Main Info Row */}
-          <View style={styles.todoMainRow}>
-            <View style={styles.todoLeft}>
-              {isSelectionMode ? (
-                <Pressable
-                  onPress={onSelect}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: isSelected }}
-                  accessibilityLabel={`Select task ${item.title}`}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={{ padding: 4 }}
-                >
-                  <Feather
-                    name={isSelected ? "check-circle" : "circle"}
-                    size={18}
-                    color={isSelected ? colors.primary : colors.textMuted}
-                  />
-                </Pressable>
-              ) : (
-                <AnimatedCheckbox
-                  checked={isTaskCompleted(item)}
-                  onToggle={onToggleTodo}
-                  accessibilityLabel={`Mark task as ${isTaskCompleted(item) ? "incomplete" : "completed"}: ${item.title}`}
-                />
-              )}
-              <Pressable
-                onPress={isSelectionMode ? onSelect : onEditTodo}
-                accessibilityRole="button"
-                accessibilityLabel={isSelectionMode ? `Select task ${item.title}` : `Edit task ${item.title}`}
-                style={styles.todoTexts}
-              >
-                <Text
-                  style={[
-                    styles.todoTitle,
-                    {
-                      color: isTaskCompleted(item) ? colors.textMuted : colors.text,
-                      textDecorationLine: isTaskCompleted(item)
-                        ? "line-through"
-                        : "none",
-                    },
-                  ]}
-                >
-                  {item.title}
-                </Text>
-                
-                {/* Single line metadata row with double spaced dot delimiters */}
-                <View style={styles.metaRow}>
-                  {metaParts.map((part, idx) => (
-                    <React.Fragment key={idx}>
-                      {idx > 0 && <Text style={{ color: colors.textMuted, fontSize: 11 }}>   •   </Text>}
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 3.5 }}>
-                        {part.icon && (
-                          <Feather
-                            name={part.icon as any}
-                            size={10}
-                            color={part.color || colors.textMuted}
-                          />
-                        )}
-                        <Text
-                          style={{
-                            color: part.color || colors.textMuted,
-                            fontSize: 11,
-                            fontWeight: part.key === "overdue" || part.text === "Today" ? "700" : "500",
-                          }}
-                        >
-                          {part.text}
-                        </Text>
-                      </View>
-                    </React.Fragment>
-                  ))}
-                </View>
-              </Pressable>
+        {/* Parent Task Main Info Row */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingVertical: 12,
+            paddingHorizontal: 12,
+            paddingLeft: 12,
+          }}
+        >
+          {/* Circular Checkbox */}
+          <PressableScale
+            onPress={isSelectionMode ? onSelect : onToggleTodo}
+            hitSlop={8}
+            haptic
+            scaleTo={0.88}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: isSelectionMode ? isSelected : isCompleted }}
+            accessibilityLabel={
+              isSelectionMode
+                ? `Select task ${item.title}`
+                : `Mark task as ${isCompleted ? "incomplete" : "completed"}: ${item.title}`
+            }
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 11,
+              borderWidth: 1.5,
+              borderColor: (isSelectionMode ? isSelected : isCompleted)
+                ? (priorityColor !== "transparent" ? priorityColor : colors.primary)
+                : (isLight ? "#CBD5E1" : "rgba(255, 255, 255, 0.3)"),
+              backgroundColor: (isSelectionMode ? isSelected : isCompleted)
+                ? (priorityColor !== "transparent" ? priorityColor : colors.primary)
+                : "transparent",
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: 10,
+              marginLeft: 4,
+            }}
+          >
+            {(isSelectionMode ? isSelected : isCompleted) && (
+              <Feather name="check" size={13} color="#FFFFFF" />
+            )}
+          </PressableScale>
+
+          {/* Squircle Category Badge */}
+          <View
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              backgroundColor: categorySymbol.tint,
+              borderWidth: 1,
+              borderColor: `${categorySymbol.color}24`,
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: 12,
+              opacity: isCompleted ? 0.6 : 1,
+            }}
+          >
+            {categorySymbol.iconFamily === "ionicons" ? (
+              <Ionicons
+                name={categorySymbol.icon as any}
+                size={19}
+                color={categorySymbol.color}
+              />
+            ) : (
+              <Feather
+                name={categorySymbol.icon as any}
+                size={19}
+                color={categorySymbol.color}
+              />
+            )}
+          </View>
+
+          {/* Title & Metadata Column */}
+          <PressableScale
+            onPress={isSelectionMode ? onSelect : onEditTodo}
+            haptic
+            style={{ flex: 1, justifyContent: "center" }}
+            accessibilityRole="button"
+            accessibilityLabel={isSelectionMode ? `Select task ${item.title}` : `Edit task ${item.title}`}
+          >
+            <Text
+              style={{
+                fontSize: 15,
+                fontWeight: "700",
+                color: isCompleted ? colors.textMuted : colors.text,
+                textDecorationLine: isCompleted ? "line-through" : "none",
+                letterSpacing: -0.2,
+                marginBottom: 3,
+              }}
+              numberOfLines={1}
+            >
+              {item.title}
+            </Text>
+
+            {/* Single line metadata row with dot delimiters */}
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "nowrap", overflow: "hidden" }}>
+              {metaParts.map((part, idx) => (
+                <React.Fragment key={idx}>
+                  {idx > 0 && <Text style={{ color: colors.textMuted, fontSize: 11, marginHorizontal: 4 }}>•</Text>}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 3.5 }}>
+                    {part.icon && (
+                      <Feather
+                        name={part.icon as any}
+                        size={10}
+                        color={part.color || colors.textMuted}
+                      />
+                    )}
+                    <Text
+                      style={{
+                        color: part.color || colors.textMuted,
+                        fontSize: 11,
+                        fontWeight: part.key === "overdue" ? "700" : "500",
+                      }}
+                      numberOfLines={1}
+                    >
+                      {part.text}
+                    </Text>
+                  </View>
+                </React.Fragment>
+              ))}
             </View>
+          </PressableScale>
 
-            {/* Trailing action button (plain icon / label without container pill) */}
+          {/* Trailing Actions */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginLeft: 6 }}>
+            {/* Paperclip Action Button */}
             <PressableScale
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -351,6 +406,8 @@ export function TodoItem({
                 setIsPeeking(true);
               } : undefined}
               delayLongPress={350}
+              hitSlop={8}
+              haptic
               accessibilityRole="button"
               accessibilityLabel={
                 linkedCount === 0
@@ -361,11 +418,9 @@ export function TodoItem({
               }
               accessibilityState={linkedCount > 0 ? { expanded: isExpanded } : undefined}
               style={{
-                width: 44,
-                height: 44,
+                padding: 6,
                 justifyContent: "center",
                 alignItems: "center",
-                marginRight: -4,
               }}
             >
               {linkedCount === 0 ? (
@@ -374,7 +429,7 @@ export function TodoItem({
                   <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textMuted }}>+</Text>
                 </View>
               ) : (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                   <Feather
                     name="paperclip"
                     size={12}
@@ -386,7 +441,20 @@ export function TodoItem({
                 </View>
               )}
             </PressableScale>
+
+            {/* Chevron Right */}
+            <PressableScale
+              onPress={isSelectionMode ? onSelect : onEditTodo}
+              hitSlop={8}
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={`Details for ${item.title}`}
+              style={{ padding: 4 }}
+            >
+              <Feather name="chevron-right" size={16} color={colors.textMuted} />
+            </PressableScale>
           </View>
+        </View>
 
           {/* Expanded Flat Resource List inside the same card */}
           {isExpanded && linkedResources.length > 0 && (
@@ -498,7 +566,6 @@ export function TodoItem({
               </View>
             </View>
           )}
-        </AppCard>
 
         {/* Resource Link Selector Modal */}
         <Modal

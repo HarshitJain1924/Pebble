@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { View, Pressable } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
@@ -9,6 +9,8 @@ import { styles } from "@/shared/constants/taskStyles";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { Task, Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
+import { getOffsetDateKey, getTodayDateKey } from "@/shared/utils/date-key";
+import PressableScale from "@/shared/components/ui/PressableScale";
 
 interface TaskSectionsProps {
   overdueTodos: Task[];
@@ -61,11 +63,13 @@ export function TaskSections({
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
+  const isDark = colorScheme === "dark";
 
-  // Section expanded states
+  // Section expanded states (Today and Tomorrow default open, Upcoming and Someday collapsed per reference)
   const [todayExpanded, setTodayExpanded] = useState(true);
-  const [upcomingExpanded, setUpcomingExpanded] = useState(true);
-  const [somedayExpanded, setSomedayExpanded] = useState(true);
+  const [tomorrowExpanded, setTomorrowExpanded] = useState(true);
+  const [upcomingExpanded, setUpcomingExpanded] = useState(false);
+  const [somedayExpanded, setSomedayExpanded] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
 
@@ -100,22 +104,42 @@ export function TaskSections({
   };
 
   // Group tasks naturally
-  const todayList = React.useMemo(() => {
+  const todayList = useMemo(() => {
     return [...overdueTodos, ...todayTodos].filter((t) => !isTaskCompleted(t));
   }, [overdueTodos, todayTodos]);
 
-  const upcomingList = React.useMemo(() => {
-    return upcomingTodos.filter((t) => !isTaskCompleted(t));
-  }, [upcomingTodos]);
+  const tomorrowKey = useMemo(() => {
+    return getOffsetDateKey(-1, selectedDate || getTodayDateKey());
+  }, [selectedDate]);
 
-  const somedayList = React.useMemo(() => {
+  const { tomorrowList, upcomingList } = useMemo(() => {
+    const uncompletedUpcoming = upcomingTodos.filter((t) => !isTaskCompleted(t));
+    const tomorrow: Task[] = [];
+    const later: Task[] = [];
+
+    for (const t of uncompletedUpcoming) {
+      const occState = getTaskOccurrenceState(t, selectedDate);
+      const isForTomorrow =
+        t.schedule?.date === tomorrowKey ||
+        occState.nextOccurrenceDate === tomorrowKey;
+
+      if (isForTomorrow) {
+        tomorrow.push(t);
+      } else {
+        later.push(t);
+      }
+    }
+
+    return { tomorrowList: tomorrow, upcomingList: later };
+  }, [upcomingTodos, selectedDate, tomorrowKey]);
+
+  const somedayList = useMemo(() => {
     return inboxTodos.filter((t) => !isTaskCompleted(t));
   }, [inboxTodos]);
 
-  const completedList = React.useMemo(() => {
+  const completedList = useMemo(() => {
     const all = [...todayTodos, ...upcomingTodos, ...inboxTodos, ...overdueTodos];
-    // Filter duplicates just in case
-    const seen = new Set();
+    const seen = new Set<string>();
     return all.filter((t) => {
       if (!isTaskCompleted(t)) return false;
       if (seen.has(t.id)) return false;
@@ -124,7 +148,12 @@ export function TaskSections({
     });
   }, [todayTodos, upcomingTodos, inboxTodos, overdueTodos]);
 
-  const hasAnyTasks = todayList.length > 0 || upcomingList.length > 0 || somedayList.length > 0 || completedList.length > 0;
+  const hasAnyTasks =
+    todayList.length > 0 ||
+    tomorrowList.length > 0 ||
+    upcomingList.length > 0 ||
+    somedayList.length > 0 ||
+    completedList.length > 0;
 
   if (!hasAnyTasks) {
     return (
@@ -138,128 +167,137 @@ export function TaskSections({
     );
   }
 
-  return (
-    <View style={styles.listContent}>
-      {/* Clear Completed trigger */}
-      {completedList.length > 0 && (
-        <View
+  const renderSection = (
+    title: string,
+    list: Task[],
+    isExpanded: boolean,
+    onToggle: () => void,
+    extraHeaderRight?: React.ReactNode,
+  ) => {
+    if (list.length === 0) return null;
+
+    return (
+      <View style={{ marginBottom: 16 }}>
+        {/* Section Header */}
+        <PressableScale
+          onPress={onToggle}
+          haptic
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`${title} section, ${list.length} tasks, ${isExpanded ? "expanded" : "collapsed"}`}
           style={{
             flexDirection: "row",
-            justifyContent: "flex-end",
-            marginBottom: 4,
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingVertical: 6,
+            paddingHorizontal: 4,
+            marginBottom: 8,
           }}
         >
-          <Pressable
-            onPress={onClearCompleted}
-            style={{ paddingHorizontal: 12, paddingVertical: 4 }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
             <Text
               style={{
-                color: colors.primary,
-                fontWeight: "700",
-                fontSize: 12,
+                fontSize: 17,
+                fontWeight: "800",
+                color: colors.text,
+                letterSpacing: -0.3,
               }}
             >
-              Clear completed
+              {title}
             </Text>
-          </Pressable>
-        </View>
-      )}
+            <Text
+              style={{
+                fontSize: 13,
+                fontWeight: "500",
+                color: colors.textMuted,
+              }}
+            >
+              {`${list.length} task${list.length === 1 ? "" : "s"}`}
+            </Text>
+          </View>
 
-      {/* Today Section */}
-      {todayList.length > 0 && (
-        <View style={styles.sectionContainer}>
-          <Pressable
-            onPress={() => setTodayExpanded(!todayExpanded)}
-            style={styles.sectionHeaderPressable}
-          >
-            <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
-              Today
-            </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            {extraHeaderRight}
             <Feather
-              name={todayExpanded ? "chevron-up" : "chevron-down"}
-              size={14}
+              name={isExpanded ? "chevron-up" : "chevron-down"}
+              size={16}
               color={colors.textMuted}
             />
-          </Pressable>
-          {todayExpanded && (
-            <View style={styles.sectionTasksList}>
-              {todayList.map(renderTodoItem)}
-            </View>
-          )}
-        </View>
-      )}
+          </View>
+        </PressableScale>
+
+        {/* Enclosing Card Surface */}
+        {isExpanded && (
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
+              overflow: "hidden",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: isDark ? 0.25 : 0.04,
+              shadowRadius: 8,
+              elevation: 2,
+            }}
+          >
+            {list.map((item, index) => (
+              <React.Fragment key={item.id}>
+                {index > 0 && (
+                  <View
+                    style={{
+                      height: 1,
+                      backgroundColor: isDark
+                        ? "rgba(255, 255, 255, 0.06)"
+                        : "rgba(0, 0, 0, 0.05)",
+                      marginLeft: 42,
+                    }}
+                  />
+                )}
+                {renderTodoItem(item)}
+              </React.Fragment>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.listContent}>
+      {/* Today Section */}
+      {renderSection("Today", todayList, todayExpanded, () => setTodayExpanded(!todayExpanded))}
+
+      {/* Tomorrow Section */}
+      {renderSection("Tomorrow", tomorrowList, tomorrowExpanded, () => setTomorrowExpanded(!tomorrowExpanded))}
 
       {/* Upcoming Section */}
-      {upcomingList.length > 0 && (
-        <View style={styles.sectionContainer}>
-          <Pressable
-            onPress={() => setUpcomingExpanded(!upcomingExpanded)}
-            style={styles.sectionHeaderPressable}
-          >
-            <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
-              Upcoming
-            </Text>
-            <Feather
-              name={upcomingExpanded ? "chevron-up" : "chevron-down"}
-              size={14}
-              color={colors.textMuted}
-            />
-          </Pressable>
-          {upcomingExpanded && (
-            <View style={styles.sectionTasksList}>
-              {upcomingList.map(renderTodoItem)}
-            </View>
-          )}
-        </View>
-      )}
+      {renderSection("Upcoming", upcomingList, upcomingExpanded, () => setUpcomingExpanded(!upcomingExpanded))}
 
       {/* Someday Section */}
-      {somedayList.length > 0 && (
-        <View style={styles.sectionContainer}>
-          <Pressable
-            onPress={() => setSomedayExpanded(!somedayExpanded)}
-            style={styles.sectionHeaderPressable}
-          >
-            <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
-              Someday
-            </Text>
-            <Feather
-              name={somedayExpanded ? "chevron-up" : "chevron-down"}
-              size={14}
-              color={colors.textMuted}
-            />
-          </Pressable>
-          {somedayExpanded && (
-            <View style={styles.sectionTasksList}>
-              {somedayList.map(renderTodoItem)}
-            </View>
-          )}
-        </View>
-      )}
+      {renderSection("Someday", somedayList, somedayExpanded, () => setSomedayExpanded(!somedayExpanded))}
 
       {/* Completed Section */}
-      {completedList.length > 0 && (
-        <View style={styles.sectionContainer}>
+      {renderSection(
+        "Completed",
+        completedList,
+        completedExpanded,
+        () => setCompletedExpanded(!completedExpanded),
+        completedExpanded && completedList.length > 0 ? (
           <Pressable
-            onPress={() => setCompletedExpanded(!completedExpanded)}
-            style={styles.sectionHeaderPressable}
+            onPress={(e) => {
+              e.stopPropagation();
+              onClearCompleted();
+            }}
+            hitSlop={8}
+            style={{ paddingHorizontal: 8, paddingVertical: 2 }}
           >
-            <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
-              Completed
+            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
+              Clear
             </Text>
-            <Feather
-              name={completedExpanded ? "chevron-up" : "chevron-down"}
-              size={14}
-              color={colors.textMuted}
-            />
           </Pressable>
-          {completedExpanded && (
-            <View style={styles.sectionTasksList}>
-              {completedList.map(renderTodoItem)}
-            </View>
-          )}
-        </View>
+        ) : null,
       )}
     </View>
   );

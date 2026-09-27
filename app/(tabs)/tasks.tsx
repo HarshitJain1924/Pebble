@@ -6,6 +6,7 @@ import {
     Alert,
     BackHandler,
     Dimensions,
+    Image as RNImage,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -18,6 +19,8 @@ import {
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
+import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
+import { getCircadianArtSource, getCircadianPeriod } from "@/features/today/components/PebbleCircadianHeader";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -134,120 +137,214 @@ export function WorkspacesScreen() {
           <View style={styles.container}>
             {/* Header */}
             {state.activeWorkspaceId ? (
-              <View style={{ marginBottom: 12 }}>
+              <View style={{ marginBottom: 14, position: "relative" }}>
+                {/* Background Scenic Art */}
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -16,
+                    left: -20,
+                    right: -20,
+                    height: 150,
+                    overflow: "hidden",
+                  }}
+                  pointerEvents="none"
+                >
+                  <RNImage
+                    source={getCircadianArtSource(getCircadianPeriod(), isDark)}
+                    style={{ width: "100%", height: 150 }}
+                    resizeMode="cover"
+                  />
+                  <Svg
+                    style={StyleSheet.absoluteFill}
+                    width="100%"
+                    height={150}
+                  >
+                    <Defs>
+                      <LinearGradient id="wsCircadianFade" x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0%" stopColor={colors.background} stopOpacity="0" />
+                        <Stop offset="30%" stopColor={colors.background} stopOpacity="0.08" />
+                        <Stop offset="70%" stopColor={colors.background} stopOpacity={isDark ? "0.85" : "0.75"} />
+                        <Stop offset="100%" stopColor={colors.background} stopOpacity="1" />
+                      </LinearGradient>
+                    </Defs>
+                    <Rect x="0" y="0" width="100%" height={150} fill="url(#wsCircadianFade)" />
+                  </Svg>
+                </View>
+
+                {/* Top Navigation Bar */}
                 <View
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    marginBottom: 4,
                     paddingHorizontal: 4,
+                    paddingTop: 4,
+                    paddingBottom: 8,
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                    <TouchableOpacity
+                    <PressableScale
                       onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                         state.handleBackToWorkspaces();
                         state.setSearchQuery("");
                         setIsSearchActive(false);
                       }}
+                      haptic
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Back to workspaces"
                       style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 4,
+                        padding: 6,
+                        justifyContent: "center",
+                        alignItems: "center",
                       }}
                     >
                       <Feather name="arrow-left" size={20} color={colors.text} />
-                    </TouchableOpacity>
+                    </PressableScale>
 
                     {(() => {
                       const currentFolder = state.workspaces.find((l) => l.id === state.activeWorkspaceId) as any;
                       const hasIcon = currentFolder?.iconType === "icon";
                       const folderColor = currentFolder?.color || colors.primary;
+                      const isInbox = currentFolder?.id === INBOX_WORKSPACE_ID;
+
+                      // Subtitle computation
+                      const folderTodos = state.todos[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
+                      const totalTasks = folderTodos.filter((t) => !t.archivedAt && t.status !== "completed").length;
+                      const dueToday = folderTodos.filter((t) => {
+                        if (t.archivedAt || t.status === "completed") return false;
+                        const occState = getTaskOccurrenceState(t, getDateKey());
+                        return occState.isOverdue || occState.occurs;
+                      }).length;
+
+                      let subtitle = "";
+                      if (state.workspaceSegment === "tasks") {
+                        subtitle = `${totalTasks} tasks • ${dueToday} due today`;
+                      } else if (state.workspaceSegment === "habits") {
+                        const todayKey = getDateKey();
+                        const activeHabits = state.habits.filter(
+                          (h) => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId
+                        );
+                        const dueTodayCount = activeHabits.filter((h) =>
+                          isRecurringOccurrenceForDate(h, todayKey)
+                        ).length;
+                        subtitle = `${activeHabits.length} active habits • ${dueTodayCount} due today`;
+                      } else if (state.workspaceSegment === "checklists") {
+                        const folderChecklists = (
+                          state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || []
+                        ).filter((c) => !c.archivedAt);
+                        const completed = folderChecklists.filter(
+                          (c) => c.items.length > 0 && c.items.every((i) => i.completed)
+                        ).length;
+                        subtitle = `${folderChecklists.length} checklists • ${completed} completed`;
+                      } else {
+                        subtitle = `${allResources.length} resources`;
+                      }
+
                       return (
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
-                          {hasIcon ? (
-                            <Feather
-                              name={currentFolder?.icon || "briefcase"}
-                              size={18}
-                              color={folderColor}
-                            />
-                          ) : (
-                            <Text style={{ fontSize: 18 }}>{currentFolder?.emoji || "📁"}</Text>
-                          )}
-                          <Text
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                          {/* Squircle Badge */}
+                          <View
                             style={{
-                              fontSize: 18,
-                              fontWeight: "700",
-                              color: colors.text,
+                              width: 38,
+                              height: 38,
+                              borderRadius: 11,
+                              backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.95)",
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              justifyContent: "center",
+                              alignItems: "center",
                             }}
-                            numberOfLines={1}
                           >
-                            {currentFolder?.name}
-                          </Text>
+                            {hasIcon ? (
+                              <Feather
+                                name={currentFolder?.icon || (isInbox ? "inbox" : "folder")}
+                                size={18}
+                                color={folderColor}
+                              />
+                            ) : (
+                              <Text style={{ fontSize: 18 }}>{currentFolder?.emoji || (isInbox ? "📥" : "📁")}</Text>
+                            )}
+                          </View>
+
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={{
+                                fontSize: 19,
+                                fontWeight: "800",
+                                color: colors.text,
+                                letterSpacing: -0.3,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {currentFolder?.name || "Workspace"}
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: "500",
+                                color: colors.textMuted,
+                                marginTop: 1,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {subtitle}
+                            </Text>
+                          </View>
                         </View>
                       );
                     })()}
                   </View>
 
-                  <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-                    <TouchableOpacity
+                  {/* Circular Search + More Options */}
+                  <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                    <PressableScale
                       onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                         setIsSearchActive(!isSearchActive);
                         if (isSearchActive) {
                           state.setSearchQuery("");
                         }
                       }}
-                      style={{ padding: 4 }}
-                    >
-                      <Feather name="search" size={18} color={isSearchActive ? colors.primary : colors.text} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        setWorkspaceMenuVisible(true);
+                      haptic
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel="Search"
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.9)",
+                        borderWidth: 1,
+                        borderColor: isSearchActive ? colors.primary : colors.border,
+                        justifyContent: "center",
+                        alignItems: "center",
                       }}
-                      style={{ padding: 4 }}
                     >
-                      <Feather name="more-horizontal" size={18} color={colors.text} />
-                    </TouchableOpacity>
+                      <Feather name="search" size={16} color={isSearchActive ? colors.primary : colors.text} />
+                    </PressableScale>
+
+                    <PressableScale
+                      onPress={() => setWorkspaceMenuVisible(true)}
+                      haptic
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel="More options"
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.9)",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        justifyContent: "center",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Feather name="more-horizontal" size={16} color={colors.text} />
+                    </PressableScale>
                   </View>
                 </View>
-
-                {/* Subtitle */}
-                {(() => {
-                  const folderTodos = state.todos[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
-                  const totalTasks = folderTodos.filter(t => !t.archivedAt && t.status !== "completed").length;
-                  const dueToday = folderTodos.filter(t => {
-                    if (t.archivedAt || t.status === "completed") return false;
-                    const state = getTaskOccurrenceState(t, getDateKey());
-                    return state.isOverdue || state.occurs;
-                  }).length;
-
-                  let subtitle = "";
-                  if (state.workspaceSegment === "tasks") {
-                    subtitle = `${totalTasks} tasks • ${dueToday} due today`;
-                  } else if (state.workspaceSegment === "habits") {
-                    const todayKey = getDateKey();
-                    const activeHabits = state.habits.filter(h => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId);
-                    const dueTodayCount = activeHabits.filter(h => isRecurringOccurrenceForDate(h, todayKey)).length;
-                    subtitle = `${activeHabits.length} active habits • ${dueTodayCount} due today`;
-                  } else if (state.workspaceSegment === "checklists") {
-                    const folderChecklists = (state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || []).filter(c => !c.archivedAt);
-                    const completed = folderChecklists.filter(c => c.items.length > 0 && c.items.every(i => i.completed)).length;
-                    subtitle = `${folderChecklists.length} checklists • ${completed} completed`;
-                  } else {
-                    subtitle = `${allResources.length} resources`;
-                  }
-
-                  return (
-                    <Text style={{ fontSize: 11, color: colors.textMuted, paddingHorizontal: 6, marginBottom: 8 }}>
-                      {subtitle}
-                    </Text>
-                  );
-                })()}
 
                 {/* Progressive Search Disclosure Input */}
                 {isSearchActive && (
@@ -259,7 +356,7 @@ export function WorkspacesScreen() {
                       borderRadius: 12,
                       paddingHorizontal: 12,
                       height: 38,
-                      marginTop: 4,
+                      marginBottom: 8,
                       borderWidth: 1,
                       borderColor: colors.border,
                       marginHorizontal: 4,
@@ -287,6 +384,77 @@ export function WorkspacesScreen() {
                     )}
                   </View>
                 )}
+
+                {/* 4-Pill Segmented Switcher */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "#FFFFFF",
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    padding: 4,
+                    marginHorizontal: 4,
+                    marginTop: 6,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: isDark ? 0.2 : 0.03,
+                    shadowRadius: 4,
+                    elevation: 1,
+                  }}
+                >
+                  {[
+                    { key: "tasks", label: "Tasks", icon: "clipboard" },
+                    { key: "habits", label: "Habits", icon: "activity" },
+                    { key: "checklists", label: "Checklists", icon: "check-square" },
+                    { key: "resources", label: "Resources", icon: "file-text" },
+                  ].map((seg) => {
+                    const isActive = state.workspaceSegment === seg.key;
+                    const activeBg = isDark ? "rgba(16, 185, 129, 0.18)" : "#EAF5EF";
+                    const activeColor = isDark ? "#34D399" : "#1B5E3C";
+                    const inactiveColor = colors.textMuted;
+
+                    return (
+                      <PressableScale
+                        key={seg.key}
+                        onPress={() => {
+                          state.setWorkspaceSegment(seg.key as any);
+                        }}
+                        haptic
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: isActive }}
+                        accessibilityLabel={`${seg.label} tab`}
+                        style={{
+                          flex: 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 5,
+                          paddingVertical: 8,
+                          paddingHorizontal: 4,
+                          borderRadius: 12,
+                          backgroundColor: isActive ? activeBg : "transparent",
+                        }}
+                      >
+                        <Feather
+                          name={seg.icon as any}
+                          size={13}
+                          color={isActive ? activeColor : inactiveColor}
+                        />
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: isActive ? "700" : "600",
+                            color: isActive ? activeColor : inactiveColor,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {seg.label}
+                        </Text>
+                      </PressableScale>
+                    );
+                  })}
+                </View>
               </View>
             ) : (
               <View style={{ marginBottom: 4 }}>
@@ -389,10 +557,6 @@ export function WorkspacesScreen() {
                 {/* Tasks Section */}
                 {state.workspaceSegment === "tasks" && (
                   <View style={{ gap: 10 }}>
-                    <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
-                      Tasks
-                    </Text>
-
                     {/* Tasks List */}
                     <TaskSections
                       overdueTodos={state.overdueTodos}
@@ -435,10 +599,6 @@ export function WorkspacesScreen() {
                 {/* Habits Section */}
                 {state.workspaceSegment === "habits" && (
                   <View style={{ gap: 10 }}>
-                    <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
-                      Habits
-                    </Text>
-
                     {/* Habits List */}
                     <HabitSection
                       displayedHabits={folderHabits}
@@ -486,9 +646,6 @@ export function WorkspacesScreen() {
                   
                   return (
                     <View style={{ gap: 10, paddingBottom: 24 }}>
-                      <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, paddingHorizontal: 4 }}>
-                        Checklists
-                      </Text>
                       {filteredChecklists.length === 0 ? (
                         <WorkspaceEmptyState
                           context="checklists"

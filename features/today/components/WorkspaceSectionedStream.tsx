@@ -216,6 +216,22 @@ export function resolveItemCategorySymbol(
   }
 
   if (
+    title.includes("review") ||
+    title.includes("doc") ||
+    title.includes("ticket") ||
+    title.includes("pr")
+  ) {
+    const color = Palette.pink500;
+    return {
+      icon: "document-text-outline",
+      iconFamily: "ionicons",
+      color,
+      tint: isDark ? "rgba(244, 63, 94, 0.22)" : "rgba(244, 63, 94, 0.14)",
+      label: "Review",
+    };
+  }
+
+  if (
     title.includes("shop") ||
     title.includes("grocer") ||
     title.includes("buy") ||
@@ -223,12 +239,12 @@ export function resolveItemCategorySymbol(
     title.includes("store") ||
     rawCategory.includes("shop")
   ) {
-    const color = Palette.blue500;
+    const color = Palette.pink500;
     return {
       icon: "cart-outline",
       iconFamily: "ionicons",
       color,
-      tint: isDark ? "rgba(59, 130, 246, 0.22)" : "rgba(59, 130, 246, 0.14)",
+      tint: isDark ? "rgba(244, 63, 94, 0.22)" : "rgba(244, 63, 94, 0.14)",
       label: "Shopping",
     };
   }
@@ -239,12 +255,13 @@ export function resolveItemCategorySymbol(
     title.includes("fitness") ||
     title.includes("exercise") ||
     title.includes("run") ||
+    title.includes("jog") ||
     title.includes("sport") ||
     rawCategory.includes("fitness")
   ) {
     const color = Palette.emerald500;
     return {
-      icon: "barbell-outline",
+      icon: "walk-outline",
       iconFamily: "ionicons",
       color,
       tint: isDark ? "rgba(16, 185, 129, 0.22)" : "rgba(16, 185, 129, 0.14)",
@@ -259,13 +276,30 @@ export function resolveItemCategorySymbol(
     title.includes("learn") ||
     rawCategory.includes("learn")
   ) {
-    const color = Palette.pink500;
+    const color = Palette.blue500;
     return {
       icon: "book-outline",
       iconFamily: "ionicons",
       color,
-      tint: isDark ? "rgba(244, 63, 94, 0.22)" : "rgba(244, 63, 94, 0.14)",
+      tint: isDark ? "rgba(59, 130, 246, 0.22)" : "rgba(59, 130, 246, 0.14)",
       label: "Reading",
+    };
+  }
+
+  if (
+    title.includes("meet") ||
+    title.includes("team") ||
+    title.includes("sync") ||
+    title.includes("standup") ||
+    title.includes("call")
+  ) {
+    const color = Palette.violet500;
+    return {
+      icon: "people-outline",
+      iconFamily: "ionicons",
+      color,
+      tint: isDark ? "rgba(139, 92, 246, 0.22)" : "rgba(139, 92, 246, 0.14)",
+      label: "Meeting",
     };
   }
 
@@ -307,7 +341,6 @@ export function resolveItemCategorySymbol(
 
   if (
     title.includes("work") ||
-    title.includes("meeting") ||
     title.includes("client") ||
     title.includes("deck") ||
     title.includes("code") ||
