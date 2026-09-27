@@ -1,6 +1,6 @@
 import React from "react";
 import { View, StyleSheet, ScrollView, Dimensions } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { type Router } from "expo-router";
@@ -32,6 +32,7 @@ import {
   getCheckboxAction,
   getRowContentAction,
 } from "@/features/today/utils/today-interactions";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 
 /**
  * Relative age of an overdue item, expressed as a single human token.
@@ -165,6 +166,7 @@ export interface ItemMetaPart {
 
 export interface ItemCategorySymbol {
   icon: string;
+  iconFamily?: "feather" | "ionicons";
   color: string;
   tint: string;
   label?: string;
@@ -177,30 +179,167 @@ export interface ItemCategorySymbol {
 export function resolveItemCategorySymbol(
   item: {
     type: WorkspaceItemType;
+    title?: string;
     categoryId?: string;
     original?: any;
+    priority?: string;
   },
   isDark: boolean,
 ): ItemCategorySymbol {
   const original = item.original || {};
-  const rawCategory =
+  const title = (item.title || original.title || "").toLowerCase();
+  const rawCategory = (
     item.categoryId ||
     original.categoryId ||
-    original.category;
+    original.category ||
+    ""
+  ).toLowerCase();
 
+  // 1. Keyword-based matching for rich aesthetic differentiation
+  if (
+    title.includes("meditat") ||
+    title.includes("mindful") ||
+    title.includes("zen") ||
+    title.includes("yoga") ||
+    title.includes("breath") ||
+    rawCategory.includes("mindful") ||
+    rawCategory.includes("wellness")
+  ) {
+    const color = Palette.amber500;
+    return {
+      icon: "flower-outline",
+      iconFamily: "ionicons",
+      color,
+      tint: isDark ? "rgba(245, 158, 11, 0.22)" : "rgba(245, 158, 11, 0.14)",
+      label: "Mindfulness",
+    };
+  }
+
+  if (
+    title.includes("shop") ||
+    title.includes("grocer") ||
+    title.includes("buy") ||
+    title.includes("market") ||
+    title.includes("store") ||
+    rawCategory.includes("shop")
+  ) {
+    const color = Palette.blue500;
+    return {
+      icon: "cart-outline",
+      iconFamily: "ionicons",
+      color,
+      tint: isDark ? "rgba(59, 130, 246, 0.22)" : "rgba(59, 130, 246, 0.14)",
+      label: "Shopping",
+    };
+  }
+
+  if (
+    title.includes("gym") ||
+    title.includes("workout") ||
+    title.includes("fitness") ||
+    title.includes("exercise") ||
+    title.includes("run") ||
+    title.includes("sport") ||
+    rawCategory.includes("fitness")
+  ) {
+    const color = Palette.emerald500;
+    return {
+      icon: "barbell-outline",
+      iconFamily: "ionicons",
+      color,
+      tint: isDark ? "rgba(16, 185, 129, 0.22)" : "rgba(16, 185, 129, 0.14)",
+      label: "Fitness",
+    };
+  }
+
+  if (
+    title.includes("read") ||
+    title.includes("book") ||
+    title.includes("study") ||
+    title.includes("learn") ||
+    rawCategory.includes("learn")
+  ) {
+    const color = Palette.pink500;
+    return {
+      icon: "book-outline",
+      iconFamily: "ionicons",
+      color,
+      tint: isDark ? "rgba(244, 63, 94, 0.22)" : "rgba(244, 63, 94, 0.14)",
+      label: "Reading",
+    };
+  }
+
+  if (
+    title.includes("finance") ||
+    title.includes("bill") ||
+    title.includes("budget") ||
+    title.includes("pay") ||
+    title.includes("tax") ||
+    rawCategory.includes("finance")
+  ) {
+    const color = Palette.teal500;
+    return {
+      icon: "wallet",
+      iconFamily: "feather",
+      color,
+      tint: isDark ? "rgba(6, 182, 212, 0.22)" : "rgba(6, 182, 212, 0.14)",
+      label: "Finance",
+    };
+  }
+
+  if (
+    title.includes("home") ||
+    title.includes("clean") ||
+    title.includes("house") ||
+    title.includes("chore") ||
+    rawCategory.includes("home") ||
+    rawCategory.includes("personal")
+  ) {
+    const color = Palette.violet500;
+    return {
+      icon: "home",
+      iconFamily: "feather",
+      color,
+      tint: isDark ? "rgba(139, 92, 246, 0.22)" : "rgba(139, 92, 246, 0.14)",
+      label: "Personal",
+    };
+  }
+
+  if (
+    title.includes("work") ||
+    title.includes("meeting") ||
+    title.includes("client") ||
+    title.includes("deck") ||
+    title.includes("code") ||
+    rawCategory.includes("work")
+  ) {
+    const color = Palette.indigo500;
+    return {
+      icon: "briefcase",
+      iconFamily: "feather",
+      color,
+      tint: isDark ? "rgba(99, 102, 241, 0.22)" : "rgba(99, 102, 241, 0.14)",
+      label: "Work",
+    };
+  }
+
+  // 2. Explicit task category
   if (rawCategory && isTaskCategory(rawCategory)) {
     const meta = getTaskCategoryMeta(rawCategory);
     return {
       icon: meta.icon,
+      iconFamily: "feather",
       color: meta.color,
       tint: isDark ? `${meta.color}28` : `${meta.color}16`,
       label: meta.label,
     };
   }
 
+  // 3. Fallbacks by domain type
   if (item.type === "habit") {
     return {
       icon: "activity",
+      iconFamily: "feather",
       color: Palette.emerald500,
       tint: isDark ? "rgba(16, 185, 129, 0.22)" : "rgba(16, 185, 129, 0.14)",
       label: "Habit",
@@ -210,6 +349,7 @@ export function resolveItemCategorySymbol(
   if (item.type === "checklist") {
     return {
       icon: "check-square",
+      iconFamily: "feather",
       color: Palette.indigo500,
       tint: isDark ? "rgba(99, 102, 241, 0.22)" : "rgba(99, 102, 241, 0.14)",
       label: "Checklist",
@@ -219,6 +359,7 @@ export function resolveItemCategorySymbol(
   if (item.type === "resource") {
     return {
       icon: "file-text",
+      iconFamily: "feather",
       color: Palette.sky500,
       tint: isDark ? "rgba(14, 165, 233, 0.22)" : "rgba(14, 165, 233, 0.14)",
       label: "Resource",
@@ -229,6 +370,7 @@ export function resolveItemCategorySymbol(
   const defaultMeta = getTaskCategoryMeta("work");
   return {
     icon: defaultMeta.icon,
+    iconFamily: "feather",
     color: defaultMeta.color,
     tint: isDark ? `${defaultMeta.color}28` : `${defaultMeta.color}16`,
     label: defaultMeta.label,
@@ -261,19 +403,18 @@ export interface WorkspaceItemRowProps {
   checkboxDisabled?: boolean;
   accessibilityLabel?: string;
   children?: React.ReactNode;
+  folderName?: string;
+  folderId?: string;
+  folderColor?: string;
+  timeText?: string;
+  frequencyText?: string;
 }
 
 /**
- * Consolidated WorkspaceItemRow Component
+ * Redesigned WorkspaceItemRow Component
  *
- * Enforces a clean two-line typography hierarchy:
- *   TITLE
- *   secondary context
- *
- * Priority is communicated exclusively via the left vertical stripe.
- * The right column carries only state that is *not* already implied by the
- * title or the secondary line (streak, checklist progress, reminder bell).
- * Workspace identity is deliberately absent — it belongs to the section.
+ * Implements the premium left-to-right item anatomy:
+ *   [ Vertical Stripe ]  [ ○ Checkbox ]  [ Squircle Icon Badge ]  [ Title & Subtitle ]  [ Trailing ]  [ > ]
  */
 export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
   type,
@@ -298,14 +439,18 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
   checkboxDisabled = false,
   accessibilityLabel,
   children,
+  folderName,
+  folderId,
+  folderColor,
+  timeText,
+  frequencyText,
 }) => {
   const isDark = colorScheme !== "light";
-  // Priority stripe is resolved from the active scheme (was previously a
-  // module-level constant pinned to the dark palette).
   const categoryColors = getCategoryColors(isDark);
   const priorityColor = priority ? categoryColors.priority[priority] : undefined;
   const resolvedCategorySymbol =
-    categorySymbol || resolveItemCategorySymbol({ type }, isDark);
+    categorySymbol || resolveItemCategorySymbol({ type, title, priority }, isDark);
+  const stripeColor = priorityColor || resolvedCategorySymbol.color || accentColor;
   const streamColors = {
     image: getStreamResourceStyle("image", isDark),
     pdf: getStreamResourceStyle("pdf", isDark),
@@ -411,53 +556,29 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
       return renderResourceVisual();
     }
 
-    if (type === "checklist") {
-      return (
-        <PressableScale
-          disabled={checkboxDisabled || !onToggleComplete}
-          onPress={onToggleComplete}
-          hitSlop={12}
-          haptic
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: completed }}
-          accessibilityLabel={`Toggle checklist ${title}`}
-          style={[
-            styles.checklistSquare,
-            {
-              borderColor: completed
-                ? accentColor
-                : isDark
-                ? "rgba(255,255,255,0.2)"
-                : "rgba(0,0,0,0.2)",
-              backgroundColor: completed ? accentColor : "transparent",
-            },
-          ]}
-        >
-          {completed && <Feather name="check" size={12} color={Palette.white} />}
-        </PressableScale>
-      );
-    }
-
-    // Task or Habit: circular checkbox
-    const checkColor = type === "habit" ? categoryColors.calendarEntity.habit : accentColor;
+    // Task, Habit, and Checklist: clean circular checkbox as shown in the redesign
     return (
       <PressableScale
         disabled={checkboxDisabled || !onToggleComplete}
         onPress={onToggleComplete}
         hitSlop={12}
         haptic
+        scaleTo={0.88}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: completed }}
-        accessibilityLabel={`Mark ${type} ${title} as ${completed ? "incomplete" : "complete"}`}
+        accessibilityLabel={
+          accessibilityLabel ||
+          `Mark ${type} ${title} as ${completed ? "incomplete" : "complete"}`
+        }
         style={[
-          styles.checkboxBase,
+          styles.circularCheckbox,
           {
             borderColor: completed
-              ? checkColor
+              ? stripeColor
               : isDark
-              ? "rgba(255,255,255,0.2)"
-              : "rgba(0,0,0,0.2)",
-            backgroundColor: completed ? checkColor : "transparent",
+              ? "rgba(255, 255, 255, 0.28)"
+              : "#CBD5E1",
+            backgroundColor: completed ? stripeColor : "transparent",
           },
         ]}
       >
@@ -488,10 +609,7 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
                     />
                   ) : null}
                   <Text
-                    style={[
-                      styles.itemSubtitleText,
-                      { color: partColor },
-                    ]}
+                    style={[styles.itemSubtitleText, { color: partColor }]}
                     numberOfLines={1}
                   >
                     {part.text}
@@ -499,12 +617,9 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
                 </View>
                 {!isLastPart && (
                   <Text
-                    style={[
-                      styles.metaDotSeparator,
-                      { color: colors.textMuted },
-                    ]}
+                    style={[styles.metaDotSeparator, { color: colors.textMuted }]}
                   >
-                    {" · "}
+                    {" • "}
                   </Text>
                 )}
               </React.Fragment>
@@ -514,26 +629,83 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
       );
     }
 
-    if (subtitle) {
-      return (
-        <Text
-          style={[
-            styles.itemSubtitleText,
-            {
-              color:
-                isOverdue && !completed
-                  ? colors.error
-                  : colors.textMuted,
-            },
-          ]}
-          numberOfLines={1}
-        >
-          {subtitle}
-        </Text>
-      );
-    }
+    const displayFolderName = folderName;
+    const isInbox =
+      folderId === INBOX_WORKSPACE_ID ||
+      displayFolderName?.toLowerCase() === "inbox";
+    const displayFolderColor =
+      folderColor || (isInbox ? Palette.blue500 : Palette.violet500);
 
-    return null;
+    return (
+      <View style={styles.metaLineRow}>
+        {displayFolderName ? (
+          <View style={styles.metaPartItem}>
+            <Feather
+              name={isInbox ? "inbox" : "folder"}
+              size={11}
+              color={displayFolderColor}
+              style={styles.metaPartIcon}
+            />
+            <Text
+              style={[
+                styles.folderBadgeText,
+                { color: displayFolderColor },
+              ]}
+              numberOfLines={1}
+            >
+              {displayFolderName}
+            </Text>
+            <Text style={[styles.metaDotSeparator, { color: colors.textMuted }]}>
+              {" • "}
+            </Text>
+          </View>
+        ) : null}
+
+        {isOverdue && !completed ? (
+          <View style={styles.metaPartItem}>
+            <Feather
+              name="alert-circle"
+              size={11}
+              color={colors.error}
+              style={styles.metaPartIcon}
+            />
+            <Text style={[styles.itemSubtitleText, { color: colors.error }]}>
+              {subtitle || "Overdue"}
+            </Text>
+          </View>
+        ) : timeText ? (
+          <View style={styles.metaPartItem}>
+            <Feather
+              name="clock"
+              size={11}
+              color={colors.textMuted}
+              style={styles.metaPartIcon}
+            />
+            <Text style={[styles.itemSubtitleText, { color: colors.textMuted }]}>
+              {timeText}
+            </Text>
+          </View>
+        ) : frequencyText ? (
+          <View style={styles.metaPartItem}>
+            <Feather
+              name="repeat"
+              size={11}
+              color={colors.textMuted}
+              style={styles.metaPartIcon}
+            />
+            <Text style={[styles.itemSubtitleText, { color: colors.textMuted }]}>
+              {frequencyText}
+            </Text>
+          </View>
+        ) : subtitle ? (
+          <View style={styles.metaPartItem}>
+            <Text style={[styles.itemSubtitleText, { color: colors.textMuted }]}>
+              {subtitle}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+    );
   };
 
   const renderTrailingMeta = () => {
@@ -548,12 +720,7 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
             },
           ]}
         >
-          <Text
-            style={[
-              styles.streakText,
-              { color: streakColors.accent },
-            ]}
-          >
+          <Text style={[styles.streakText, { color: streakColors.accent }]}>
             {`🔥 ${streak}`}
           </Text>
         </View>
@@ -574,7 +741,7 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
       return (
         <Feather
           name="bell"
-          size={12}
+          size={14}
           color={colors.textMuted}
           style={styles.bellIcon}
         />
@@ -607,25 +774,28 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
 
   return (
     <View style={styles.rowWrapper}>
-      <View style={styles.itemRow}>
-        {/* Priority cap on the left edge only */}
+      <View
+        style={[
+          styles.itemRow,
+          {
+            borderBottomColor: isDark
+              ? "rgba(255, 255, 255, 0.05)"
+              : "rgba(0, 0, 0, 0.05)",
+          },
+        ]}
+      >
+        {/* Priority stripe on the far left edge */}
         <View style={styles.priorityIndicatorContainer}>
-          {priorityColor ? (
-            <View
-              style={[
-                styles.priorityBar,
-                { backgroundColor: priorityColor },
-              ]}
-            />
-          ) : (
-            <View style={styles.prioritySpacer} />
-          )}
+          <View
+            style={[
+              styles.priorityBar,
+              { backgroundColor: stripeColor },
+            ]}
+          />
         </View>
 
         {/* Completion Control or Resource Visual */}
         {renderControl()}
-
-        <View style={styles.controlSpacer} />
 
         {/* Clickable Content Area */}
         <PressableScale
@@ -637,54 +807,66 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
           style={styles.flexOne}
           contentStyle={styles.rowContentStyle}
         >
+          {/* Squircle category/type icon badge */}
+          {type !== "resource" && resolvedCategorySymbol && (
+            <View
+              style={[
+                styles.squircleBadge,
+                {
+                  backgroundColor: resolvedCategorySymbol.tint,
+                  borderColor: `${resolvedCategorySymbol.color}28`,
+                  opacity: completed ? 0.6 : 1,
+                },
+              ]}
+            >
+              {resolvedCategorySymbol.iconFamily === "ionicons" ? (
+                <Ionicons
+                  name={resolvedCategorySymbol.icon as any}
+                  size={19}
+                  color={resolvedCategorySymbol.color}
+                />
+              ) : (
+                <Feather
+                  name={resolvedCategorySymbol.icon as any}
+                  size={19}
+                  color={resolvedCategorySymbol.color}
+                />
+              )}
+            </View>
+          )}
+
           {/* Two-line title + secondary context */}
           <View style={styles.rowTextContainer}>
-            <View style={styles.itemTitleRow}>
-              {type !== "resource" && resolvedCategorySymbol && (
-                <View
-                  style={[
-                    styles.categorySymbolBadge,
-                    { backgroundColor: resolvedCategorySymbol.tint },
-                  ]}
-                >
-                  <Feather
-                    name={resolvedCategorySymbol.icon as any}
-                    size={11}
-                    color={resolvedCategorySymbol.color}
-                  />
-                </View>
-              )}
-              <Text
-                style={[
-                  styles.itemTitleText,
-                  {
-                    color: completed ? colors.textMuted : colors.text,
-                    textDecorationLine: completed ? "line-through" : "none",
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {title}
-              </Text>
-            </View>
+            <Text
+              style={[
+                styles.itemTitleText,
+                {
+                  color: completed ? colors.textMuted : colors.text,
+                  textDecorationLine: completed ? "line-through" : "none",
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {title}
+            </Text>
             {renderSecondaryLine()}
           </View>
 
-          {/* Right side: state that the title does not already imply */}
+          {/* Right side: state and chevron */}
           <View style={styles.rowRightWrap}>
             {renderTrailingMeta()}
 
             {type === "checklist" ? (
               <Feather
-                name={isExpanded ? "chevron-up" : "chevron-down"}
-                size={14}
+                name={isExpanded ? "chevron-up" : "chevron-right"}
+                size={15}
                 color={colors.textMuted}
                 style={styles.rowChevron}
               />
             ) : (
               <Feather
                 name="chevron-right"
-                size={14}
+                size={15}
                 color={colors.textMuted}
                 style={styles.rowChevron}
               />
@@ -758,6 +940,8 @@ interface StreamActionItem {
   completed: boolean;
   title: string;
   subtitle: string;
+  timeText?: string;
+  frequencyText?: string;
   categorySymbol: ItemCategorySymbol;
   isOverdue?: boolean;
   hasReminder?: boolean;
@@ -956,14 +1140,22 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
         const recurrenceLabel = todo.recurrence?.frequency
           ? formatFrequency(todo.recurrence.frequency)
           : null;
+        let timeText: string | undefined = undefined;
+        if (triggerAt !== undefined) {
+          timeText = formatTime(triggerAt);
+        } else if (todo.schedule?.startTime) {
+          timeText = todo.schedule.startTime;
+        } else if (todo.schedule?.durationMinutes) {
+          timeText = `${todo.schedule.durationMinutes} min`;
+        }
 
         let subtitle = "Today";
         if (isCompleted) {
           subtitle = "Completed";
         } else if (isOverdue) {
           subtitle = `Overdue · ${getOverdueLabel(daysOverdue)}`;
-        } else if (hasReminder && triggerAt !== undefined) {
-          subtitle = formatTime(triggerAt);
+        } else if (timeText) {
+          subtitle = timeText;
         } else if (recurrenceLabel) {
           subtitle = recurrenceLabel;
         }
@@ -993,8 +1185,9 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
           completed: isCompleted,
           title: todo.title,
           subtitle,
+          timeText,
           categorySymbol: resolveItemCategorySymbol(
-            { type: "task", categoryId: todo.categoryId, original: todo },
+            { type: "task", title: todo.title, categoryId: todo.categoryId, original: todo },
             isDark,
           ),
           isOverdue,
@@ -1037,8 +1230,9 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
           completed: isCompletedHabit,
           title: habit.title,
           subtitle,
+          frequencyText: recurrenceLabel || undefined,
           categorySymbol: resolveItemCategorySymbol(
-            { type: "habit", categoryId: habit.categoryId, original: habit },
+            { type: "habit", title: habit.title, categoryId: habit.categoryId, original: habit },
             isDark,
           ),
           streak: currentStreak,
@@ -1079,7 +1273,7 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
           title: checklist.title,
           subtitle,
           categorySymbol: resolveItemCategorySymbol(
-            { type: "checklist", categoryId: checklist.categoryId, original: checklist },
+            { type: "checklist", title: checklist.title, categoryId: checklist.categoryId, original: checklist },
             isDark,
           ),
           completedCount,
@@ -1302,21 +1496,31 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
           ref={tabScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabStrip}
+          style={styles.tabScrollView}
+          contentContainerStyle={[
+            styles.tabStrip,
+            tabs.length <= 4 && styles.tabStripFlex,
+          ]}
           onContentSizeChange={() => setTabsMeasured(true)}
         >
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
             const isSelected = openDrawerId === tab.id;
             const openFill = isDark ? `${tab.color}0F` : `${tab.color}08`;
             const openStroke = isDark ? `${tab.color}4A` : `${tab.color}30`;
             const idleStroke = isDark
               ? "rgba(255, 255, 255, 0.08)"
               : "rgba(0, 0, 0, 0.06)";
+            const isFirstTab = index === 0;
+            const isLastTab = index === tabs.length - 1;
+            const isFlex = tabs.length <= 4;
 
             return (
               <View
                 key={`tab-${tab.id}`}
-                style={styles.tabSlot}
+                style={[
+                  styles.tabSlot,
+                  isFlex ? styles.tabSlotFlex : styles.tabSlotScroll,
+                ]}
                 onLayout={(event) => {
                   const { x, width } = event.nativeEvent.layout;
                   tabLayouts.current[tab.id] = { x, width };
@@ -1342,9 +1546,19 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   accessibilityState={{ selected: isSelected }}
                   style={[
                     styles.tab,
+                    isFlex && styles.tabFlex,
+                    {
+                      borderTopLeftRadius: isFirstTab ? 10 : 6,
+                      borderTopRightRadius: isLastTab ? 10 : 6,
+                    },
                     isSelected ? styles.tabOpen : styles.tabClosed,
                     isSelected
-                      ? { backgroundColor: openFill, borderColor: openStroke }
+                      ? {
+                          backgroundColor: openFill,
+                          borderColor: openStroke,
+                          borderTopColor: tab.color,
+                          borderTopWidth: 2,
+                        }
                       : {
                           backgroundColor: isDark
                             ? "rgba(255, 255, 255, 0.03)"
@@ -1385,6 +1599,34 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                   >
                     {tab.name}
                   </Text>
+                  {tab.itemCount > 0 && (
+                    <View
+                      style={[
+                        styles.tabBadge,
+                        {
+                          backgroundColor: isSelected
+                            ? isDark
+                              ? `${tab.color}35`
+                              : `${tab.color}22`
+                            : isDark
+                            ? "rgba(255, 255, 255, 0.08)"
+                            : "rgba(0, 0, 0, 0.06)",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.tabBadgeText,
+                          {
+                            color: isSelected ? tab.color : colors.textMuted,
+                            fontWeight: isSelected ? "700" : "600",
+                          },
+                        ]}
+                      >
+                        {tab.itemCount}
+                      </Text>
+                    </View>
+                  )}
                 </PressableScale>
               </View>
             );
@@ -1410,6 +1652,9 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
           } = section;
           const isCollapsed = !!collapsedMap[folder.id];
           const isAggregate = folder.id === AGGREGATE_KEY;
+          // The aggregate drawer reads "All Work"; the internal folder keeps
+          // its "All" id/name so navigation and gateway copy are unchanged.
+          const displayName = isAggregate ? "All Work" : folder.name;
           // The All drawer gets its own, larger budget than a single workspace.
           const displayedItems = items.slice(
             0,
@@ -1430,51 +1675,76 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
               ]}
             >
               {/* Header: identity, point of view, completion ring, one affordance */}
-              <View style={styles.cardHeaderRow}>
+              <View
+                style={[
+                  styles.cardHeaderRow,
+                  {
+                    borderBottomColor: isDark
+                      ? "rgba(255, 255, 255, 0.07)"
+                      : "rgba(0, 0, 0, 0.06)",
+                  },
+                ]}
+              >
                 <PressableScale
                   onPress={() => openWorkspace(folder.id)}
                   haptic
                   accessibilityRole="button"
-                  accessibilityLabel={`Open ${folder.name}, ${completedItems} of ${totalItems} done. ${stateText}`}
+                  accessibilityLabel={`Open ${displayName}, ${completedItems} of ${totalItems} done. ${stateText}`}
                   style={styles.headerMain}
                   contentStyle={styles.headerMainContent}
                 >
-                  <View style={styles.headerTitleRow}>
-                    {folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
+                  <View
+                    style={[
+                      styles.headerSquircleBadge,
+                      {
+                        backgroundColor: isDark ? `${folderColor}25` : `${folderColor}16`,
+                        borderColor: isDark ? `${folderColor}45` : `${folderColor}2E`,
+                      },
+                    ]}
+                  >
+                    {isAggregate ? (
+                      <Feather name="layers" size={19} color={folderColor} />
+                    ) : folder.iconType === "icon" || (!folder.emoji && folder.icon) ? (
                       <Feather
                         name={(folder.icon || "folder") as any}
-                        size={15}
+                        size={19}
                         color={folderColor}
                       />
                     ) : (
-                      <Text style={styles.folderMarkText}>{folder.emoji || "📁"}</Text>
+                      <Text style={styles.headerEmojiMark}>{folder.emoji || "📁"}</Text>
                     )}
+                  </View>
+
+                  <View style={styles.headerTextStack}>
                     <Text
                       style={[styles.folderNameText, { color: colors.text }]}
                       numberOfLines={1}
                     >
-                      {folder.name}
+                      {displayName}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.stateText,
+                        { color: toneColor(stateTone) },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {totalItems - completedItems > 0
+                        ? `${totalItems - completedItems} ${
+                            totalItems - completedItems === 1 ? "open item" : "open items"
+                          }`
+                        : stateText}
                     </Text>
                   </View>
-                  <Text
-                    style={[
-                      styles.stateText,
-                      { color: toneColor(stateTone) },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {stateText}
-                  </Text>
                 </PressableScale>
 
-                {/* Progress ring carries completion in both states, so the card
-                    never grows a full-width bar when its body collapses. */}
+                {/* Progress ring carries completion in both states */}
                 {totalItems > 0 && (
                   <View style={styles.ringWrap}>
                     <ProgressRing
                       progress={progress}
                       size={26}
-                      strokeWidth={3}
+                      strokeWidth={2.5}
                       showText={false}
                       color={folderColor}
                       trackColor={`${folderColor}26`}
@@ -1489,6 +1759,27 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                     )}
                   </View>
                 )}
+
+                <PressableScale
+                  onPress={() =>
+                    isAggregate
+                      ? router.push({ pathname: "/tasks" } as any)
+                      : openWorkspace(folder.id)
+                  }
+                  hitSlop={8}
+                  haptic
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isAggregate ? "See all work" : `See all in ${folder.name}`
+                  }
+                  style={styles.headerSeeAllBtn}
+                  contentStyle={styles.headerSeeAllContent}
+                >
+                  <Text style={[styles.headerSeeAllText, { color: folderColor }]}>
+                    See all
+                  </Text>
+                  <Feather name="chevron-right" size={13} color={folderColor} />
+                </PressableScale>
 
                 <PressableScale
                   onPress={() => toggleCollapse(folder.id)}
@@ -1526,24 +1817,10 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             id={todo.id}
                             title={todo.title}
                             subtitle={item.subtitle}
-                            metaParts={
-                              isAggregate
-                                ? [
-                                    {
-                                      text: item.folderName,
-                                      icon: "folder",
-                                      color: item.folderColor,
-                                    },
-                                    {
-                                      text: item.subtitle,
-                                      color:
-                                        item.isOverdue && !item.completed
-                                          ? colors.error
-                                          : undefined,
-                                    },
-                                  ]
-                                : undefined
-                            }
+                            folderName={isAggregate ? item.folderName : undefined}
+                            folderId={item.folderId}
+                            folderColor={item.folderColor}
+                            timeText={item.timeText}
                             categorySymbol={item.categorySymbol}
                             isOverdue={item.isOverdue}
                             completed={item.completed}
@@ -1577,24 +1854,10 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                             id={habit.id}
                             title={habit.title}
                             subtitle={item.subtitle}
-                            metaParts={
-                              isAggregate
-                                ? [
-                                    {
-                                      text: item.folderName,
-                                      icon: "folder",
-                                      color: item.folderColor,
-                                    },
-                                    {
-                                      text: item.subtitle,
-                                      color:
-                                        item.isOverdue && !item.completed
-                                          ? colors.error
-                                          : undefined,
-                                    },
-                                  ]
-                                : undefined
-                            }
+                            folderName={isAggregate ? item.folderName : undefined}
+                            folderId={item.folderId}
+                            folderColor={item.folderColor}
+                            frequencyText={item.frequencyText}
                             categorySymbol={item.categorySymbol}
                             completed={item.completed}
                             streak={item.streak}
@@ -1636,24 +1899,9 @@ export const WorkspaceSectionedStream: React.FC<WorkspaceSectionedStreamProps> =
                           id={checklist.id}
                           title={checklist.title}
                           subtitle={item.subtitle}
-                          metaParts={
-                            isAggregate
-                              ? [
-                                  {
-                                    text: item.folderName,
-                                    icon: "folder",
-                                    color: item.folderColor,
-                                  },
-                                  {
-                                    text: item.subtitle,
-                                    color:
-                                      item.isOverdue && !item.completed
-                                        ? colors.error
-                                        : undefined,
-                                  },
-                                ]
-                              : undefined
-                          }
+                          folderName={isAggregate ? item.folderName : undefined}
+                          folderId={item.folderId}
+                          folderColor={item.folderColor}
                           categorySymbol={item.categorySymbol}
                           completed={item.completed}
                           checklistProgress={{
@@ -1878,37 +2126,67 @@ const styles = StyleSheet.create({
   streamContainer: {
     // No gap: the open tab's fill must run straight into the drawer below.
     marginTop: 14,
+    marginBottom: 12,
+  },
+  tabScrollView: {
+    width: "100%",
   },
   tabStrip: {
     flexDirection: "row",
     // Closed tabs sit lower, so every tab bottom meets the drawer's top edge.
     alignItems: "flex-end",
     gap: 3,
-    paddingRight: 24,
+    paddingLeft: 0,
+    paddingRight: 0,
+  },
+  tabStripFlex: {
+    width: "100%",
   },
   tabSlot: {},
+  tabSlotFlex: {
+    flex: 1,
+  },
+  tabSlotScroll: {
+    flexShrink: 0,
+  },
   tab: {
     borderWidth: 1,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
+  },
+  tabFlex: {
+    width: "100%",
   },
   tabOpen: {
     // No bottom border and no bottom radius: the fill runs into the drawer.
     borderBottomWidth: 0,
     paddingTop: 11,
-    paddingBottom: 8,
-    paddingHorizontal: 13,
+    paddingBottom: 9,
+    paddingHorizontal: 8,
   },
   tabClosed: {
     borderBottomWidth: 1,
     paddingTop: 7,
     paddingBottom: 8,
-    paddingHorizontal: 13,
+    paddingHorizontal: 8,
+  },
+  tabBadge: {
+    minWidth: 17,
+    height: 17,
+    borderRadius: 8.5,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    marginLeft: 2,
+    flexShrink: 0,
+  },
+  tabBadgeText: {
+    fontSize: 10,
+    letterSpacing: -0.1,
   },
   tabContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+    gap: 5,
   },
   tabEmoji: {
     fontSize: 12,
@@ -1916,9 +2194,11 @@ const styles = StyleSheet.create({
   tabName: {
     fontSize: 12,
     letterSpacing: -0.15,
+    flexShrink: 1,
   },
   deck: {
     gap: 10,
+    marginTop: -1,
   },
   folderBody: {
     borderWidth: 1,
@@ -1939,32 +2219,41 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 14,
-    paddingRight: 8,
-    paddingVertical: 11,
-    gap: 8,
+    paddingRight: 10,
+    paddingVertical: 14,
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerMain: {
     flex: 1,
   },
   headerMainContent: {
-    gap: 3,
-  },
-  headerTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 12,
   },
-  folderMarkText: {
-    fontSize: 14,
+  headerSquircleBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerEmojiMark: {
+    fontSize: 19,
+  },
+  headerTextStack: {
+    flex: 1,
+    gap: 2,
   },
   folderNameText: {
-    fontSize: 16,
+    fontSize: 16.5,
     fontWeight: "700",
     letterSpacing: -0.3,
-    flex: 1,
   },
   stateText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: "500",
     letterSpacing: -0.1,
   },
@@ -1983,6 +2272,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerSeeAllBtn: {
+    minHeight: 30,
+    justifyContent: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  headerSeeAllContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  headerSeeAllText: {
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: -0.2,
+  },
   sectionBody: {
     paddingLeft: 8,
     paddingRight: 8,
@@ -1997,27 +2303,47 @@ const styles = StyleSheet.create({
   itemRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 7,
-    minHeight: 44,
+    paddingVertical: 12,
+    minHeight: 56,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingRight: 6,
   },
   priorityIndicatorContainer: {
-    width: 3,
-    height: 20,
+    width: 3.5,
+    height: 34,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 9,
+    marginRight: 10,
   },
   priorityBar: {
-    width: 3,
-    height: 20,
-    borderRadius: 1.5,
+    width: 3.5,
+    height: 34,
+    borderRadius: 2,
   },
   prioritySpacer: {
-    width: 3,
-    height: 20,
+    width: 3.5,
+    height: 34,
   },
   controlSpacer: {
     width: 10,
+  },
+  circularCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  squircleBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
   checkboxBase: {
     width: 20,
@@ -2064,7 +2390,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 44,
+    minHeight: 48,
   },
   rowTextContainer: {
     flex: 1,
@@ -2077,17 +2403,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categorySymbolBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 8,
+    marginRight: 9,
+  },
+  folderBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: -0.1,
   },
   itemTitleText: {
-    fontSize: 15,
+    fontSize: 15.5,
     fontWeight: "600",
-    letterSpacing: -0.2,
+    letterSpacing: -0.25,
     flex: 1,
   },
   metaLineRow: {
@@ -2110,8 +2441,7 @@ const styles = StyleSheet.create({
   },
   itemSubtitleText: {
     fontSize: 12,
-    fontWeight: "400",
-    marginTop: 1,
+    fontWeight: "500",
     letterSpacing: -0.1,
   },
   rowRightWrap: {
@@ -2121,12 +2451,12 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   rowChevron: {
-    opacity: 0.28,
+    opacity: 0.45,
   },
   streakChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radius.sm - 2,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2135,8 +2465,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   trailingCounterText: {
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
   },
   bellIcon: {
     marginRight: 2,

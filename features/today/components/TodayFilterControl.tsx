@@ -5,7 +5,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -45,13 +45,15 @@ export interface TodayFilterControlProps {
 interface FilterOption<T extends string> {
   value: T;
   label: string;
+  icon?: string;
+  iconFamily?: "feather" | "ionicons";
 }
 
 const TYPE_OPTIONS: FilterOption<TodayFilterType>[] = [
-  { value: "all", label: "All" },
-  { value: "tasks", label: "Tasks" },
-  { value: "habits", label: "Habits" },
-  { value: "checklists", label: "Checklists" },
+  { value: "all", label: "All", icon: "grid", iconFamily: "feather" },
+  { value: "tasks", label: "Tasks", icon: "check-circle", iconFamily: "feather" },
+  { value: "habits", label: "Habits", icon: "leaf-outline", iconFamily: "ionicons" },
+  { value: "checklists", label: "Checklists", icon: "list", iconFamily: "feather" },
 ];
 
 const PRIORITY_OPTIONS: FilterOption<TodayFilterPriority>[] = [
@@ -223,14 +225,6 @@ function TodayFilterSheet({
             contentContainerStyle={styles.sheetScrollContent}
           >
             <FilterChipGroup
-              label="Type"
-              options={TYPE_OPTIONS}
-              selectedValue={draft.type}
-              colors={colors}
-              onSelect={(val) => setFilter("type", val)}
-            />
-
-            <FilterChipGroup
               label="Priority"
               options={PRIORITY_OPTIONS}
               selectedValue={draft.priority}
@@ -336,9 +330,9 @@ export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => 
           />
         </View>
       ) : (
-        <View style={styles.controlWrap}>
-          <Text style={[styles.availableWorkLabel, { color: props.colors.textMuted }]}>
-            Available work
+        <View style={styles.controlBar}>
+          <Text style={[styles.availableWorkLabel, { color: props.colors.text }]}>
+            TODAY&apos;S WORK
           </Text>
           <View style={styles.controlActions}>
             <TodaySearchControl
@@ -388,6 +382,18 @@ export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => 
         >
           {TYPE_OPTIONS.map((option) => {
             const isSelected = props.value.type === option.value;
+            const isDark = props.colors.background === "#0F172A" || (props.colors as any).isDark;
+            const selectedBg = isDark ? "rgba(16, 185, 129, 0.18)" : "#EAF5EF";
+            const selectedBorder = isDark ? "rgba(16, 185, 129, 0.35)" : "#C7E6D7";
+            const selectedColor = isDark ? "#34D399" : "#1B5E3C";
+
+            const unselectedBg = props.colors.card;
+            const unselectedBorder = props.colors.border;
+            const unselectedColor = props.colors.text;
+
+            const iconColor = isSelected ? selectedColor : unselectedColor;
+            const textColor = isSelected ? selectedColor : unselectedColor;
+
             return (
               <PressableScale
                 key={option.value}
@@ -405,18 +411,33 @@ export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => 
                 style={[
                   styles.quickTypePill,
                   {
-                    backgroundColor: isSelected ? `${props.colors.primary}18` : props.colors.card,
-                    borderColor: isSelected ? props.colors.primary : props.colors.border,
+                    backgroundColor: isSelected ? selectedBg : unselectedBg,
+                    borderColor: isSelected ? selectedBorder : unselectedBorder,
                   },
                 ]}
                 contentStyle={styles.quickTypePillContent}
               >
+                {option.iconFamily === "ionicons" ? (
+                  <Ionicons
+                    name={option.icon as any}
+                    size={14}
+                    color={iconColor}
+                    style={styles.quickTypeIcon}
+                  />
+                ) : option.icon ? (
+                  <Feather
+                    name={option.icon as any}
+                    size={14}
+                    color={iconColor}
+                    style={styles.quickTypeIcon}
+                  />
+                ) : null}
                 <Text
                   style={[
                     styles.quickTypePillText,
                     {
-                      color: isSelected ? props.colors.primary : props.colors.textMuted,
-                      fontWeight: isSelected ? "700" : "500",
+                      color: textColor,
+                      fontWeight: isSelected ? "700" : "600",
                     },
                   ]}
                 >
@@ -480,6 +501,10 @@ export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => 
         </View>
       ) : null}
 
+      <View
+        style={[styles.divider, { backgroundColor: props.colors.border }]}
+      />
+
       <TodayFilterSheet
         {...props}
         visible={visible}
@@ -491,29 +516,37 @@ export const TodayFilterControl: React.FC<TodayFilterControlProps> = (props) => 
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 8,
+    marginTop: 16,
+    marginBottom: 6,
   },
-  controlWrap: {
-    marginTop: 20,
-    marginHorizontal: 16,
+  controlBar: {
+    marginHorizontal: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 44,
+    gap: 12,
+    minHeight: 38,
   },
   activeSearchWrap: {
-    marginTop: 20,
-    marginHorizontal: 16,
+    marginHorizontal: 0,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 44,
+    minHeight: 38,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 12,
+    marginBottom: 2,
+    marginHorizontal: 0,
+    opacity: 0.6,
   },
   availableWorkLabel: {
     flexShrink: 1,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "800",
-    letterSpacing: 1.1,
+    letterSpacing: 0.9,
     textTransform: "uppercase",
+    opacity: 0.85,
   },
   controlActions: {
     flexDirection: "row",
@@ -523,24 +556,26 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   filterButton: {
-    minHeight: 44,
+    minHeight: 38,
     borderWidth: 1,
-    borderRadius: Radius.md,
+    borderRadius: 14,
+    overflow: "hidden",
   },
   filterButtonContent: {
-    minHeight: 42,
+    minHeight: 38,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 12,
+    gap: 6,
+    paddingHorizontal: 13,
   },
   filterButtonText: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
+    letterSpacing: -0.2,
   },
   countBadge: {
-    minWidth: 20,
-    height: 20,
+    minWidth: 19,
+    height: 19,
     borderRadius: Radius.pill,
     alignItems: "center",
     justifyContent: "center",
@@ -551,31 +586,38 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   quickTypeRow: {
-    marginTop: 10,
-    marginHorizontal: 16,
+    marginTop: 12,
+    marginHorizontal: 0,
   },
   quickTypeScrollContent: {
     flexDirection: "row",
     gap: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
   },
   quickTypePill: {
-    minHeight: 34,
+    minHeight: 36,
     borderWidth: 1,
     borderRadius: Radius.pill,
+    overflow: "hidden",
   },
   quickTypePillContent: {
-    minHeight: 34,
-    paddingHorizontal: 14,
+    minHeight: 36,
+    paddingHorizontal: 15,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 6,
+  },
+  quickTypeIcon: {
+    marginRight: 2,
   },
   quickTypePillText: {
-    fontSize: 12,
+    fontSize: 13,
+    letterSpacing: -0.15,
   },
   activePillsRow: {
     marginTop: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 0,
   },
   activePillsScrollContent: {
     flexDirection: "row",
