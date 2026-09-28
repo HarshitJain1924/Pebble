@@ -16,7 +16,7 @@ import { Typography } from "@/shared/constants/typography";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
-import { resolveItemCategorySymbol } from "@/features/today/components/WorkspaceSectionedStream";
+import { resolveItemCategorySymbol } from "@/features/today/utils/item-presentation";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";

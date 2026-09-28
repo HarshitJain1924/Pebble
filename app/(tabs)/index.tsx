@@ -534,7 +534,7 @@ export function TodayScreen() {
               activeContexts={activeContexts}
               colors={colors}
               colorScheme={colorScheme}
-              allCollections={allResources}
+              allResources={allResources}
               expandedChecklistIds={expandedChecklistIds}
               setExpandedChecklistIds={setExpandedChecklistIds}
               router={router}

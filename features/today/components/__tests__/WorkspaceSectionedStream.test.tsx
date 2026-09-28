@@ -1,16 +1,14 @@
 import React from "react";
 import { act, create } from "react-test-renderer";
-import {
-  WorkspaceSectionedStream,
-  WorkspaceItemRow,
-  resolveItemCategorySymbol,
-  getTabScrollTarget,
-} from "../WorkspaceSectionedStream";
+import { WorkspaceSectionedStream } from "../WorkspaceSectionedStream";
+import { WorkspaceItemRow } from "../workspace-stream/WorkspaceItemRow";
+import { resolveItemCategorySymbol } from "../../utils/item-presentation";
+import { getTabScrollTarget } from "../../utils/stream-formatting";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import { Colors } from "@/shared/constants/theme";
 import { PriorityColors } from "@/shared/constants/categoryColors";
-import type { Workspace, Task, Habit, Checklist } from "@/shared/types/domain.types";
+import type { Workspace, Task, Habit, Checklist, Resource } from "@/shared/types/domain.types";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
@@ -105,7 +103,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={[]}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -141,7 +139,20 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{ "ws-work": [{ id: "res-1" }] }}
+          allResources={{
+            "ws-work": [
+              {
+                id: "res-1",
+                title: "Reference note",
+                type: "note",
+                workspaceId: "ws-work",
+                revision: 1,
+                lifecycleGeneration: 1,
+                createdAt: 1000,
+                updatedAt: 1000,
+              } as Resource,
+            ],
+          }}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -191,7 +202,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -233,7 +244,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -282,7 +293,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -325,13 +336,17 @@ describe("WorkspaceSectionedStream Component", () => {
       },
     ];
 
-    const sampleResources = [
+    const sampleResources: Resource[] = [
       {
         id: "res-doc-1",
         title: "Q3 Strategy Document",
         type: "note",
         content: "Drafting the Q3 goals for team review.",
         workspaceId: "ws-work",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
       },
     ];
 
@@ -342,7 +357,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{ "ws-work": sampleResources }}
+          allResources={{ "ws-work": sampleResources }}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -417,7 +432,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -467,7 +482,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -515,7 +530,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -560,7 +575,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -603,7 +618,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={activeContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -670,7 +685,7 @@ describe("WorkspaceSectionedStream Component", () => {
           activeContexts={multiContexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={mockSetExpandedChecklistIds}
           router={mockRouter}
@@ -1082,7 +1097,7 @@ describe("WorkspaceSectionedStream folder drawer", () => {
       activeContexts={activeContexts}
       colors={mockColors}
       colorScheme="dark"
-      allCollections={{}}
+      allResources={{}}
       expandedChecklistIds={{}}
       setExpandedChecklistIds={jest.fn()}
       router={mockRouter}
@@ -1238,7 +1253,7 @@ describe("WorkspaceSectionedStream folder drawer", () => {
           activeContexts={contexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={jest.fn()}
           router={mockRouter}
@@ -1305,7 +1320,7 @@ describe("WorkspaceSectionedStream folder drawer", () => {
           activeContexts={contexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{}}
           setExpandedChecklistIds={jest.fn()}
           router={mockRouter}
@@ -1371,7 +1386,7 @@ describe("WorkspaceSectionedStream folder drawer", () => {
           activeContexts={contexts}
           colors={mockColors}
           colorScheme="dark"
-          allCollections={{}}
+          allResources={{}}
           expandedChecklistIds={{ "cl-ws-0": true }}
           setExpandedChecklistIds={jest.fn()}
           router={mockRouter}
