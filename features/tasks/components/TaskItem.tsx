@@ -34,7 +34,8 @@ interface TodoItemProps {
   colorScheme: "light" | "dark" | null;
   isOverdue: boolean;
   lists: Workspace[];
-  selectedWorkspaceId: string;
+  selectedWorkspaceId?: string;
+  showWorkspaceBadge?: boolean;
   onToggleTodo: () => void;
   onDeleteTodo: () => void;
   onEditTodo?: () => void;
@@ -62,6 +63,7 @@ export function TodoItem({
   isOverdue: overdue,
   lists,
   selectedWorkspaceId,
+  showWorkspaceBadge,
   onToggleTodo,
   onDeleteTodo,
   onEditTodo,
@@ -161,16 +163,25 @@ export function TodoItem({
   const scheduledDate = item.schedule?.date;
   const durationMinutes = (item.schedule as any)?.durationMinutes;
 
+  // Contextual folder/workspace badge:
+  // Rendered in global/all-workspaces stream; hidden when inside an open workspace
+  const shouldShowWorkspace =
+    showWorkspaceBadge !== undefined
+      ? showWorkspaceBadge
+      : (!selectedWorkspaceId || selectedWorkspaceId === "all");
+
   const metaParts = useMemo<MetaPart[]>(() => {
     const parts: MetaPart[] = [];
 
-    // 1. Folder badge
-    parts.push({
-      key: "category",
-      text: folderName,
-      icon: isInbox ? "inbox" : "folder",
-      color: colors.textMuted,
-    });
+    // 1. Folder badge (contextual)
+    if (shouldShowWorkspace) {
+      parts.push({
+        key: "category",
+        text: folderName,
+        icon: isInbox ? "inbox" : "folder",
+        color: colors.textMuted,
+      });
+    }
 
     // 2. Overdue
     if (overdue) {
@@ -232,7 +243,7 @@ export function TodoItem({
     }
 
     return parts;
-  }, [folderName, isInbox, overdue, item.recurrence, durationMinutes, item.reminder, colors.textMuted]);
+  }, [shouldShowWorkspace, folderName, isInbox, overdue, item.recurrence, durationMinutes, item.reminder, colors.textMuted]);
 
   return (
     <SwipeableCard
@@ -360,33 +371,35 @@ export function TodoItem({
               {item.title}
             </Text>
 
-            {/* Single line metadata row with dot delimiters */}
-            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "nowrap", overflow: "hidden" }}>
-              {metaParts.map((part, idx) => (
-                <React.Fragment key={idx}>
-                  {idx > 0 && <Text style={{ color: colors.textMuted, fontSize: 11, marginHorizontal: 4 }}>•</Text>}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 3.5 }}>
-                    {part.icon && (
-                      <Feather
-                        name={part.icon as any}
-                        size={10}
-                        color={part.color || colors.textMuted}
-                      />
-                    )}
-                    <Text
-                      style={{
-                        color: part.color || colors.textMuted,
-                        fontSize: 11,
-                        fontWeight: part.key === "overdue" ? "700" : "500",
-                      }}
-                      numberOfLines={1}
-                    >
-                      {part.text}
-                    </Text>
-                  </View>
-                </React.Fragment>
-              ))}
-            </View>
+            {/* Single line metadata row with dot delimiters (only rendered if there is metadata) */}
+            {metaParts.length > 0 && (
+              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "nowrap", overflow: "hidden" }}>
+                {metaParts.map((part, idx) => (
+                  <React.Fragment key={idx}>
+                    {idx > 0 && <Text style={{ color: colors.textMuted, fontSize: 11, marginHorizontal: 4 }}>•</Text>}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 3.5 }}>
+                      {part.icon && (
+                        <Feather
+                          name={part.icon as any}
+                          size={10}
+                          color={part.color || colors.textMuted}
+                        />
+                      )}
+                      <Text
+                        style={{
+                          color: part.color || colors.textMuted,
+                          fontSize: 11,
+                          fontWeight: part.key === "overdue" ? "700" : "500",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {part.text}
+                      </Text>
+                    </View>
+                  </React.Fragment>
+                ))}
+              </View>
+            )}
           </PressableScale>
 
           {/* Trailing Actions */}

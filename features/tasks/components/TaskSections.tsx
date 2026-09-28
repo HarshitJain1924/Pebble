@@ -35,6 +35,7 @@ interface TaskSectionsProps {
   searchQuery?: string;
   onClearSearch?: () => void;
   onCreateTask?: () => void;
+  showWorkspaceBadge?: boolean;
 }
 
 export function TaskSections({
@@ -60,6 +61,7 @@ export function TaskSections({
   searchQuery,
   onClearSearch,
   onCreateTask,
+  showWorkspaceBadge,
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -83,6 +85,7 @@ export function TaskSections({
         isOverdue={getTaskOccurrenceState(item, selectedDate).isOverdue}
         lists={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
+        showWorkspaceBadge={showWorkspaceBadge}
         onToggleTodo={() => onToggleTodo(item.id)}
         onDeleteTodo={() => onDeleteTodo(item.id)}
         onEditTodo={() => onEditTodo(item)}

@@ -20,6 +20,8 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
+import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getCircadianArtSource, getCircadianPeriod } from "@/features/today/components/PebbleCircadianHeader";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -59,8 +61,12 @@ export function WorkspacesScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
-
-  // Debug: log render count with current todos state
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === "android" ? 44 : 20,
+  );
+  const scenicHeight = 180 + topInset;
 
   const isDark = colorScheme === "dark";
   const isLight = colorScheme === "light";
@@ -131,47 +137,81 @@ export function WorkspacesScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <Animated.View entering={FadeInDown.duration(450).springify()} style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar
+        style={colorScheme === "dark" ? "light" : "dark"}
+        translucent
+        backgroundColor="transparent"
+      />
+
+      {/* Background Scenic Art extending full bleed under status bar & camera */}
+      {state.activeWorkspaceId ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: scenicHeight,
+            overflow: "hidden",
+            zIndex: 0,
+          }}
+          pointerEvents="none"
+        >
+          <RNImage
+            source={getCircadianArtSource(getCircadianPeriod(), isDark)}
+            style={{ width: "100%", height: scenicHeight }}
+            resizeMode="cover"
+            accessibilityLabel="Workspace scenic artwork"
+          />
+          <Svg
+            style={StyleSheet.absoluteFill}
+            width="100%"
+            height={scenicHeight}
+          >
+            <Defs>
+              {/* Subtle top vignette for front camera punch-hole and status bar readability */}
+              <LinearGradient id="wsCircadianTopVignette" x1="0" y1="0" x2="0" y2="1">
+                <Stop
+                  offset="0%"
+                  stopColor={Palette.black}
+                  stopOpacity={isDark ? "0.32" : "0.15"}
+                />
+                <Stop offset="100%" stopColor={Palette.black} stopOpacity="0" />
+              </LinearGradient>
+              {/* Bottom fade into background */}
+              <LinearGradient id="wsCircadianFade" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0%" stopColor={colors.background} stopOpacity="0" />
+                <Stop offset="30%" stopColor={colors.background} stopOpacity="0.08" />
+                <Stop offset="65%" stopColor={colors.background} stopOpacity={isDark ? "0.7" : "0.55"} />
+                <Stop offset="85%" stopColor={colors.background} stopOpacity={isDark ? "0.92" : "0.85"} />
+                <Stop offset="100%" stopColor={colors.background} stopOpacity="1" />
+              </LinearGradient>
+            </Defs>
+            <Rect
+              x="0"
+              y="0"
+              width="100%"
+              height={scenicHeight * 0.4}
+              fill="url(#wsCircadianTopVignette)"
+            />
+            <Rect
+              x="0"
+              y="0"
+              width="100%"
+              height={scenicHeight}
+              fill="url(#wsCircadianFade)"
+            />
+          </Svg>
+        </View>
+      ) : null}
+
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: "transparent" }]}>
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={styles.container}>
+          <View style={[styles.container, { paddingTop: 6 }]}>
             {/* Header */}
             {state.activeWorkspaceId ? (
-              <View style={{ marginBottom: 14, position: "relative" }}>
-                {/* Background Scenic Art */}
-                <View
-                  style={{
-                    position: "absolute",
-                    top: -16,
-                    left: -20,
-                    right: -20,
-                    height: 150,
-                    overflow: "hidden",
-                  }}
-                  pointerEvents="none"
-                >
-                  <RNImage
-                    source={getCircadianArtSource(getCircadianPeriod(), isDark)}
-                    style={{ width: "100%", height: 150 }}
-                    resizeMode="cover"
-                  />
-                  <Svg
-                    style={StyleSheet.absoluteFill}
-                    width="100%"
-                    height={150}
-                  >
-                    <Defs>
-                      <LinearGradient id="wsCircadianFade" x1="0" y1="0" x2="0" y2="1">
-                        <Stop offset="0%" stopColor={colors.background} stopOpacity="0" />
-                        <Stop offset="30%" stopColor={colors.background} stopOpacity="0.08" />
-                        <Stop offset="70%" stopColor={colors.background} stopOpacity={isDark ? "0.85" : "0.75"} />
-                        <Stop offset="100%" stopColor={colors.background} stopOpacity="1" />
-                      </LinearGradient>
-                    </Defs>
-                    <Rect x="0" y="0" width="100%" height={150} fill="url(#wsCircadianFade)" />
-                  </Svg>
-                </View>
-
+              <View style={{ marginBottom: 14 }}>
                 {/* Top Navigation Bar */}
                 <View
                   style={{
@@ -565,6 +605,7 @@ export function WorkspacesScreen() {
                       inboxTodos={state.inboxTodos}
                       workspaces={state.workspaces}
                       selectedWorkspaceId={state.selectedWorkspaceId}
+                      showWorkspaceBadge={!state.activeWorkspaceId || state.activeWorkspaceId === "all"}
                       selectedDate={state.selectedDate}
                       completedCount={state.completedCount}
                       onClearCompleted={state.clearCompleted}
@@ -988,7 +1029,6 @@ export function WorkspacesScreen() {
         {/* Task Editor — routed to full-screen task-details.tsx */}
         {/* Habit Editor — routed to full-screen task-details.tsx */}
         {/* NLPCapture deprecated in favor of global UnifiedCapture */}
-      </Animated.View>
 
       {/* Workspace Picker Modal for Move Action */}
       <Modal visible={state.isMoveModalVisible} transparent animationType="fade">
@@ -1267,7 +1307,8 @@ export function WorkspacesScreen() {
           </TouchableOpacity>
         </Animated.View>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
