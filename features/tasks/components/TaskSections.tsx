@@ -299,13 +299,9 @@ export function TaskSections({
                 e.stopPropagation();
                 onSaveEarlierForLater();
               }}
-              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+              hitSlop={{ top: 12, bottom: 12, left: 10, right: 10 }}
               accessibilityRole="button"
               accessibilityLabel="Move all earlier tasks to Someday"
-              style={{
-                minHeight: 44,
-                justifyContent: "center",
-              }}
             >
               <View
                 style={{

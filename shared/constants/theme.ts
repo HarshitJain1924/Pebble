@@ -217,3 +217,17 @@ export const Fonts = Platform.select({
 });
 export type ThemeColors = typeof Colors.dark;
 export const getTheme = (isDark = true): ThemeColors => (isDark ? Colors.dark : Colors.light);
+
+/**
+ * Derives an rgba color string from a hex color token and an alpha value (0-1).
+ */
+export function colorWithAlpha(hexColor: string, alpha: number): string {
+  const clean = hexColor.replace("#", "").trim();
+  if (clean.length === 6) {
+    const r = parseInt(clean.substring(0, 2), 16);
+    const g = parseInt(clean.substring(2, 4), 16);
+    const b = parseInt(clean.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return hexColor;
+}

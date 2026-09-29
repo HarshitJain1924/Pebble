@@ -522,14 +522,9 @@ export function TodoItem({
                         if (isLink) {
                           handleOpenUrl(res.url || res.content);
                         } else {
-                          router.push({
-                            pathname: "/tasks",
-                            params: {
-                              workspaceId: res.workspaceId || item.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID,
-                              segment: "resources",
-                              resourceId: res.id,
-                            },
-                          } as any);
+                          const targetWs =
+                            res.workspaceId || item.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+                          router.push(`/resource-details?id=${res.id}&workspaceId=${targetWs}`);
                         }
                       }}
                       accessibilityRole={isLink ? "link" : "button"}

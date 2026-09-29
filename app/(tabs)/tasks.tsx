@@ -34,9 +34,8 @@ import { AppCard } from "@/shared/components/ui/AppCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 
 import { AppHeader } from "@/shared/components/ui/AppHeader";
-import { SegmentedSwitcher } from "@/shared/components/ui/SegmentedSwitcher";
 import { styles } from "@/shared/constants/taskStyles";
-import { Colors, Palette } from "@/shared/constants/theme";
+import { Colors, Palette, colorWithAlpha } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -452,7 +451,7 @@ export function WorkspacesScreen() {
                     { key: "resources", label: "Resources", icon: "file-text" },
                   ].map((seg) => {
                     const isActive = state.workspaceSegment === seg.key;
-                    const activeBg = isDark ? "rgba(53, 131, 102, 0.22)" : "rgba(44, 108, 84, 0.12)";
+                    const activeBg = colorWithAlpha(colors.primary, isDark ? 0.22 : 0.12);
                     const activeColor = isDark ? colors.primaryLight : colors.primary;
                     const inactiveColor = colors.textMuted;
 

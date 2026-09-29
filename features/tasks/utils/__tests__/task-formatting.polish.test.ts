@@ -36,14 +36,14 @@ describe("formatRelativeTaskDate", () => {
     expect(res5).toEqual({ label: "5d ago", isWarning: true, daysAgo: 5 });
   });
 
-  it("formats 7+ days ago with weekday and day number and warning", () => {
-    // 2026-09-21 is Monday, Sept 21 (8 days ago)
+  it("formats 7+ days ago with MMM D and warning", () => {
+    // 2026-09-21 is Sept 21 (8 days ago)
     const res8 = formatRelativeTaskDate("2026-09-21", referenceDateStr);
-    expect(res8).toEqual({ label: "Mon 21", isWarning: true, daysAgo: 8 });
+    expect(res8).toEqual({ label: "Sep 21", isWarning: true, daysAgo: 8 });
 
-    // 2026-09-15 is Tuesday, Sept 15 (14 days ago)
+    // 2026-09-15 is Sept 15 (14 days ago)
     const res14 = formatRelativeTaskDate("2026-09-15", referenceDateStr);
-    expect(res14).toEqual({ label: "Tue 15", isWarning: true, daysAgo: 14 });
+    expect(res14).toEqual({ label: "Sep 15", isWarning: true, daysAgo: 14 });
   });
 });
 

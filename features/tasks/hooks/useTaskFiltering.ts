@@ -9,6 +9,60 @@ import {
 import { getPriorityWeight } from "@/features/tasks/utils/task-formatting";
 import { isRecurringOccurrenceForDate, getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 
+/**
+ * Resolves time of day in minutes from midnight for a task.
+ * Prioritizes `schedule.startTime`, then falls back to `reminder.triggerAt`.
+ */
+export function getTaskTimeMinutes(task: Task): number | null {
+  if (task.schedule?.startTime) {
+    const [h, m] = task.schedule.startTime.split(":").map(Number);
+    if (!isNaN(h) && !isNaN(m)) return h * 60 + m;
+  }
+  if (task.reminder?.triggerAt) {
+    const d = new Date(task.reminder.triggerAt);
+    return d.getHours() * 60 + d.getMinutes();
+  }
+  return null;
+}
+
+/**
+ * Stable task comparator:
+ * 1. Priority (high -> medium/none -> low)
+ * 2. schedule.date ascending
+ * 3. Time of day ascending (timed tasks before untimed)
+ * 4. Stable tiebreaker (task.id)
+ */
+export function compareTasks(a: Task, b: Task): number {
+  // 1. Priority
+  const pA = getPriorityWeight(a.priority);
+  const pB = getPriorityWeight(b.priority);
+  if (pA !== pB) return pA - pB;
+
+  // 2. Schedule Date
+  const dateA = a.schedule?.date || "";
+  const dateB = b.schedule?.date || "";
+  if (dateA !== dateB) {
+    if (!dateA || dateA === "inbox") return 1;
+    if (!dateB || dateB === "inbox") return -1;
+    const dateComp = dateA.localeCompare(dateB);
+    if (dateComp !== 0) return dateComp;
+  }
+
+  // 3. Time
+  const timeA = getTaskTimeMinutes(a);
+  const timeB = getTaskTimeMinutes(b);
+  if (timeA !== null && timeB !== null) {
+    if (timeA !== timeB) return timeA - timeB;
+  } else if (timeA !== null) {
+    return -1;
+  } else if (timeB !== null) {
+    return 1;
+  }
+
+  // 4. Stable tiebreak
+  return a.id.localeCompare(b.id);
+}
+
 export function useTaskFiltering(
   todos: Record<string, Task[]>,
   habits: Habit[],
@@ -41,6 +95,7 @@ export function useTaskFiltering(
     });
   }, [todos, selectedWorkspaceId, searchQuery, workspaces]);
 
+
   // All task buckets consume the single authoritative classification path
   // (getTaskOccurrenceState) so recurring tasks are bucketed by their
   // occurrence on the selected date, never by their base schedule date.
@@ -55,7 +110,7 @@ export function useTaskFiltering(
       selectedWorkspacePriorityFilter === "all"
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
-    return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
+    return [...matched].sort(compareTasks);
   }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   // `occurs` is completion-independent: TaskSections routes completed items
@@ -72,7 +127,7 @@ export function useTaskFiltering(
       selectedWorkspacePriorityFilter === "all"
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
-    return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
+    return [...matched].sort(compareTasks);
   }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const upcomingTodos = useMemo(() => {
@@ -88,7 +143,7 @@ export function useTaskFiltering(
       selectedWorkspacePriorityFilter === "all"
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
-    return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
+    return [...matched].sort(compareTasks);
   }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const inboxTodos = useMemo(() => {
@@ -100,7 +155,7 @@ export function useTaskFiltering(
       selectedWorkspacePriorityFilter === "all"
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
-    return [...matched].sort((a, b) => getPriorityWeight(a.priority) - getPriorityWeight(b.priority));
+    return [...matched].sort(compareTasks);
   }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter]);
 
   const remainingCount = useMemo(() => currentTodos.filter((todo) => !isTaskCompleted(todo)).length, [currentTodos]);

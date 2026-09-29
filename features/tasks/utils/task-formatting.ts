@@ -83,6 +83,10 @@ export const getSelectedDateLabel = (selectedDate: string) => {
 };
 
 export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+];
 
 /**
  * Relative date formatter for tasks in Earlier / backlog.
@@ -90,7 +94,7 @@ export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * - 1 day ago: "Yesterday" (muted)
  * - 2 days ago: "2d ago" (muted)
  * - 3-6 days ago: "3d ago", ... (warning)
- * - 7+ days ago: "Mon 28" (warning)
+ * - 7+ days ago: "Sep 11" (warning)
  */
 export function formatRelativeTaskDate(
   dateStr?: string,
@@ -117,9 +121,9 @@ export function formatRelativeTaskDate(
     return { label: `${daysAgo}d ago`, isWarning: daysAgo >= 3, daysAgo };
   }
 
-  const weekday = WEEKDAY_NAMES[taskDate.getDay()];
+  const monthName = MONTH_NAMES[taskDate.getMonth()];
   const dayNum = taskDate.getDate();
-  return { label: `${weekday} ${dayNum}`, isWarning: true, daysAgo };
+  return { label: `${monthName} ${dayNum}`, isWarning: true, daysAgo };
 }
 
 export interface TaskSectionCounts {
