@@ -7,13 +7,15 @@ import Animated, {
     withSpring,
 } from "react-native-reanimated";
 
-type Props = Omit<PressableProps, "children"> & {
+type Props = Omit<PressableProps, "children" | "style"> & {
   children?: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
+  style?: StyleProp<ViewStyle> | ((state: any) => StyleProp<ViewStyle>);
   contentStyle?: StyleProp<ViewStyle>;
   scaleTo?: number;
   haptic?: boolean;
 };
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export const PressableScale: React.FC<Props> = ({
   children,
@@ -56,8 +58,12 @@ export const PressableScale: React.FC<Props> = ({
       ? { disabled: Boolean(rest.disabled), ...accessibilityState }
       : undefined;
 
+  const resolvedStyle = typeof style === "function"
+    ? (state: any) => [style(state), contentStyle, aStyle]
+    : [style, contentStyle, aStyle];
+
   return (
-    <Pressable
+    <AnimatedPressable
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={onPress}
@@ -66,10 +72,10 @@ export const PressableScale: React.FC<Props> = ({
       accessibilityRole={resolvedRole}
       accessibilityState={resolvedState}
       {...rest}
-      style={style}
+      style={resolvedStyle as any}
     >
-      <Animated.View pointerEvents="none" style={[StyleSheet.flatten(contentStyle), aStyle]}>{children}</Animated.View>
-    </Pressable>
+      {children}
+    </AnimatedPressable>
   );
 };
 

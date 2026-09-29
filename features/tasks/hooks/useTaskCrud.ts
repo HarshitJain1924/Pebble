@@ -374,6 +374,43 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
     [todos, setTodos, showToast],
   );
 
+  const saveEarlierForLater = useCallback(
+    async (earlierTasks: Task[]) => {
+      const activeTasks = earlierTasks.filter((t) => !isTaskCompleted(t));
+      if (activeTasks.length === 0) return;
+
+      const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+      const nextTodos = { ...todos };
+
+      for (const task of activeTasks) {
+        const wsId = task.workspaceId || INBOX_WORKSPACE_ID;
+        const currentList = nextTodos[wsId] ?? [];
+        nextTodos[wsId] = currentList.map((t) =>
+          t.id === task.id
+            ? { ...t, schedule: { ...t.schedule, date: "inbox" }, updatedAt: Date.now() }
+            : t,
+        );
+      }
+      setTodos(nextTodos);
+
+      for (const task of activeTasks) {
+        const wsId = task.workspaceId || INBOX_WORKSPACE_ID;
+        await EntityCommandService.updateTask(
+          task.id,
+          wsId,
+          { schedule: { ...task.schedule, date: "inbox" } },
+          { source: "tasks_screen", skipAnalytics: true },
+        );
+      }
+
+      finalizeMutation();
+      showToast(
+        `✓ Saved ${activeTasks.length} task${activeTasks.length === 1 ? "" : "s"} for later`,
+      );
+    },
+    [todos, setTodos, finalizeMutation, showToast],
+  );
+
   return {
     persistState,
     onSaveNewTask,
@@ -384,5 +421,6 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
     updateTodoCategory,
     clearCompleted,
     convertCollectionItemToTask,
+    saveEarlierForLater,
   };
 }

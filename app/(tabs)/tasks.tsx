@@ -633,6 +633,7 @@ export function WorkspacesScreen() {
                       searchQuery={state.searchQuery}
                       onClearSearch={() => state.setSearchQuery("")}
                       onCreateTask={() => emitStateChange("open_quick_add")}
+                      onSaveEarlierForLater={state.handleSaveEarlierForLater}
                     />
                   </View>
                 )}

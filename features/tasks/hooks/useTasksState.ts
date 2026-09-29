@@ -266,6 +266,7 @@ export function useTasksState() {
     updateTodoCategory,
     clearCompleted,
     convertCollectionItemToTask,
+    saveEarlierForLater,
   } = useTaskCrud({
     todos,
     setTodos,
@@ -602,6 +603,10 @@ export function useTasksState() {
   const toggleHabit = async (id: string) => {
     await baseToggleHabit(id);
   };
+
+  const handleSaveEarlierForLater = useCallback(async () => {
+    await saveEarlierForLater(overdueTodos);
+  }, [saveEarlierForLater, overdueTodos]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1355,6 +1360,7 @@ export function useTasksState() {
     updateTodoCategory,
     toggleExpand,
     clearCompleted,
+    handleSaveEarlierForLater,
     scheduleAlarm,
     scheduleAlarmWithDays,
     cancelAlarm,

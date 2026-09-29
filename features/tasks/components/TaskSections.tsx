@@ -36,6 +36,7 @@ interface TaskSectionsProps {
   onClearSearch?: () => void;
   onCreateTask?: () => void;
   showWorkspaceBadge?: boolean;
+  onSaveEarlierForLater?: () => void;
 }
 
 export function TaskSections({
@@ -62,12 +63,14 @@ export function TaskSections({
   onClearSearch,
   onCreateTask,
   showWorkspaceBadge,
+  onSaveEarlierForLater,
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
 
-  // Section expanded states (Today and Tomorrow default open, Upcoming and Someday collapsed per reference)
+  // Section expanded states (Earlier, Today and Tomorrow default open, Upcoming and Someday collapsed per reference)
+  const [earlierExpanded, setEarlierExpanded] = useState(true);
   const [todayExpanded, setTodayExpanded] = useState(true);
   const [tomorrowExpanded, setTomorrowExpanded] = useState(true);
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
@@ -107,9 +110,13 @@ export function TaskSections({
   };
 
   // Group tasks naturally
+  const earlierList = useMemo(() => {
+    return overdueTodos.filter((t) => !isTaskCompleted(t));
+  }, [overdueTodos]);
+
   const todayList = useMemo(() => {
-    return [...overdueTodos, ...todayTodos].filter((t) => !isTaskCompleted(t));
-  }, [overdueTodos, todayTodos]);
+    return todayTodos.filter((t) => !isTaskCompleted(t));
+  }, [todayTodos]);
 
   const tomorrowKey = useMemo(() => {
     return getOffsetDateKey(-1, selectedDate || getTodayDateKey());
@@ -152,6 +159,7 @@ export function TaskSections({
   }, [todayTodos, upcomingTodos, inboxTodos, overdueTodos]);
 
   const hasAnyTasks =
+    earlierList.length > 0 ||
     todayList.length > 0 ||
     tomorrowList.length > 0 ||
     upcomingList.length > 0 ||
@@ -189,6 +197,7 @@ export function TaskSections({
           accessibilityRole="button"
           accessibilityLabel={`${title} section, ${list.length} tasks, ${isExpanded ? "expanded" : "collapsed"}`}
           style={{
+            width: "100%",
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
@@ -269,6 +278,42 @@ export function TaskSections({
 
   return (
     <View style={styles.listContent}>
+      {/* Earlier Section (tasks carried over from previous days — pressure-free triage) */}
+      {earlierList.length > 0 &&
+        renderSection(
+          "Earlier",
+          earlierList,
+          earlierExpanded,
+          () => setEarlierExpanded(!earlierExpanded),
+          earlierExpanded && onSaveEarlierForLater ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                onSaveEarlierForLater();
+              }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Save earlier tasks for later"
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 2,
+                borderRadius: 6,
+                backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
+              }}
+            >
+              <Text
+                style={{
+                  color: isDark ? colors.primaryLight : colors.primary,
+                  fontWeight: "600",
+                  fontSize: 11,
+                }}
+              >
+                Save for Later
+              </Text>
+            </Pressable>
+          ) : null,
+        )}
+
       {/* Today Section */}
       {renderSection("Today", todayList, todayExpanded, () => setTodayExpanded(!todayExpanded))}
 
