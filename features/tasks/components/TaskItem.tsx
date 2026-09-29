@@ -2,6 +2,7 @@ import { Feather, Ionicons } from "@expo/vector-icons";
 import React, { useState, useMemo } from "react";
 import { getCategoryColors } from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
+import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import {
   LayoutChangeEvent,
   Pressable,
@@ -147,10 +148,6 @@ export function TodoItem({
 
   const isCompleted = isTaskCompleted(item);
 
-  // Priority stripe carries information only: rendered for high priority only.
-  // Uses canonical priority tokens distinct from warning/overdue.
-  const priorityColor = item.priority === "high" ? categoryColors.priority.high : "transparent";
-
   // Category badge: neutral badge in task list unless categoryId is set explicitly
   const categorySymbol = useMemo(() => {
     if (item.categoryId) {
@@ -221,8 +218,7 @@ export function TodoItem({
           parts.push({
             key: "date",
             text: displayText,
-            icon: item.reminder?.enabled ? "bell" : "calendar",
-            color: relativeDate.isWarning ? colors.warning : colors.textMuted,
+            color: colors.textMuted,
           });
         }
       } else if (reminderText) {
@@ -314,38 +310,26 @@ export function TodoItem({
         style={{
           position: "relative",
           overflow: "hidden",
-          backgroundColor: "transparent",
+          backgroundColor: colors.card,
           opacity: isCompleted ? 0.6 : 1,
         }}
       >
-        {/* Thin vertical priority strip */}
-        {priorityColor !== "transparent" && (
-          <View
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: 3.5,
-              backgroundColor: priorityColor,
-            }}
-          />
-        )}
-
         {/* Parent Task Main Info Row */}
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
-            paddingVertical: 12,
-            paddingHorizontal: 12,
-            paddingLeft: 12,
+            paddingTop: ROW_SPEC.row.paddingTop,
+            paddingBottom: ROW_SPEC.row.paddingBottom,
+            paddingLeft: ROW_SPEC.row.paddingLeft,
+            paddingRight: ROW_SPEC.row.paddingRight,
+            gap: ROW_SPEC.row.gap,
           }}
         >
           {/* Circular Checkbox */}
           <PressableScale
             onPress={isSelectionMode ? onSelect : onToggleTodo}
-            hitSlop={12}
+            hitSlop={10}
             haptic
             scaleTo={0.88}
             accessibilityRole="checkbox"
@@ -356,51 +340,49 @@ export function TodoItem({
                 : `Mark task as ${isCompleted ? "incomplete" : "completed"}: ${item.title}`
             }
             style={{
-              width: 22,
-              height: 22,
-              borderRadius: 11,
-              borderWidth: 1.5,
+              width: ROW_SPEC.checkbox.visual,
+              height: ROW_SPEC.checkbox.visual,
+              borderRadius: ROW_SPEC.checkbox.visual / 2,
+              borderWidth: ROW_SPEC.checkbox.ring,
               borderColor: (isSelectionMode ? isSelected : isCompleted)
-                ? (priorityColor !== "transparent" ? priorityColor : colors.primary)
+                ? (isSelectionMode ? colors.primary : colors.success)
                 : (isLight ? Palette.slate300 : "rgba(255, 255, 255, 0.3)"),
               backgroundColor: (isSelectionMode ? isSelected : isCompleted)
-                ? (priorityColor !== "transparent" ? priorityColor : colors.primary)
+                ? (isSelectionMode ? colors.primary : colors.success)
                 : "transparent",
               alignItems: "center",
               justifyContent: "center",
-              marginRight: 10,
             }}
           >
             {(isSelectionMode ? isSelected : isCompleted) && (
-              <Feather name="check" size={13} color={Palette.white} />
+              <Feather name="check" size={14} color={Palette.white} />
             )}
           </PressableScale>
 
           {/* Squircle Category Badge */}
           <View
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
+              width: ROW_SPEC.badge.size,
+              height: ROW_SPEC.badge.size,
+              borderRadius: ROW_SPEC.badge.radius,
               backgroundColor: categorySymbol.tint,
               borderWidth: 1,
               borderColor: `${categorySymbol.color}24`,
               alignItems: "center",
               justifyContent: "center",
-              marginRight: 12,
               opacity: isCompleted ? 0.6 : 1,
             }}
           >
             {categorySymbol.iconFamily === "ionicons" ? (
               <Ionicons
                 name={categorySymbol.icon as any}
-                size={19}
+                size={ROW_SPEC.badge.icon}
                 color={categorySymbol.color}
               />
             ) : (
               <Feather
                 name={categorySymbol.icon as any}
-                size={19}
+                size={ROW_SPEC.badge.icon}
                 color={categorySymbol.color}
               />
             )}
@@ -414,45 +396,45 @@ export function TodoItem({
             accessibilityRole="button"
             accessibilityLabel={isSelectionMode ? `Select task ${item.title}` : `Edit task ${item.title}`}
           >
-            <Text
-              style={{
-                fontSize: 15.5,
-                fontWeight: "600",
-                color: isCompleted ? colors.textMuted : colors.text,
-                textDecorationLine: isCompleted ? "line-through" : "none",
-                letterSpacing: -0.25,
-                marginBottom: 3,
-              }}
-              numberOfLines={1}
-            >
-              {item.title}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
+              <Text
+                style={{
+                  fontSize: ROW_SPEC.type.title,
+                  fontWeight: ROW_SPEC.type.titleWeight,
+                  color: isCompleted ? colors.textMuted : colors.text,
+                  textDecorationLine: isCompleted ? "line-through" : "none",
+                  letterSpacing: -0.25,
+                  flexShrink: 1,
+                }}
+                numberOfLines={1}
+              >
+                {item.title}
+              </Text>
+              {item.priority === "high" && (
+                <Feather name="flag" size={14} color={categoryColors.priority.high} />
+              )}
+            </View>
 
             {/* Single line metadata row with dot delimiters (only rendered if there is metadata) */}
             {metaParts.length > 0 && (
               <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "nowrap", overflow: "hidden" }}>
                 {metaParts.map((part, idx) => (
                   <React.Fragment key={idx}>
-                    {idx > 0 && <Text style={{ color: colors.textMuted, fontSize: 12, marginHorizontal: 4 }}>•</Text>}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 3.5 }}>
-                      {part.icon && (
-                        <Feather
-                          name={part.icon as any}
-                          size={11}
-                          color={part.color || colors.textMuted}
-                        />
-                      )}
-                      <Text
-                        style={{
-                          color: part.color || colors.textMuted,
-                          fontSize: 12,
-                          fontWeight: part.key === "overdue" || part.color === colors.warning ? "600" : "500",
-                        }}
-                        numberOfLines={1}
-                      >
-                        {part.text}
+                    {idx > 0 && (
+                      <Text style={{ color: colors.textMuted, fontSize: ROW_SPEC.type.meta, marginHorizontal: 4 }}>
+                        ·
                       </Text>
-                    </View>
+                    )}
+                    <Text
+                      style={{
+                        color: part.color || colors.textMuted,
+                        fontSize: ROW_SPEC.type.meta,
+                        fontWeight: part.key === "overdue" ? "600" : "500",
+                      }}
+                      numberOfLines={1}
+                    >
+                      {part.text}
+                    </Text>
                   </React.Fragment>
                 ))}
               </View>

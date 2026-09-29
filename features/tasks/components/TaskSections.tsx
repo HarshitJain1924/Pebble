@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { View, Pressable } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
@@ -7,6 +7,7 @@ import { TodoItem } from "@/features/tasks/components/TaskItem";
 import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
+import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { Task, Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
@@ -267,11 +268,11 @@ export function TaskSections({
                 {index > 0 && (
                   <View
                     style={{
-                      height: 1,
+                      height: StyleSheet.hairlineWidth,
                       backgroundColor: isDark
-                        ? "rgba(255, 255, 255, 0.06)"
-                        : "rgba(0, 0, 0, 0.05)",
-                      marginLeft: 42,
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : "rgba(0, 0, 0, 0.06)",
+                      marginLeft: ROW_SPEC.dividerInset,
                     }}
                   />
                 )}
