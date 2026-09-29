@@ -202,4 +202,104 @@ describe("TaskItem Contextual Workspace Rendering", () => {
     expect(renderedTexts).toContain("45m");
     expect(renderedTexts).not.toContain("Work");
   });
+
+  it("does not render trailing chevron", () => {
+    let root: any;
+    act(() => {
+      root = create(
+        <TodoItem
+          item={baseTask}
+          colors={mockColors}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          showWorkspaceBadge={false}
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const featherIcons = root.root.findAllByType("FeatherIcon" as any);
+    const chevronIcon = featherIcons.find((icon: any) => icon.props.name === "chevron-right");
+    expect(chevronIcon).toBeUndefined();
+  });
+
+  it("hides paperclip when linkedCount is 0, and shows it when resources are linked", () => {
+    let rootEmpty: any;
+    act(() => {
+      rootEmpty = create(
+        <TodoItem
+          item={{ ...baseTask, resourceIds: [] }}
+          colors={mockColors}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          showWorkspaceBadge={false}
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const featherIconsEmpty = rootEmpty.root.findAllByType("FeatherIcon" as any);
+    const paperclipEmpty = featherIconsEmpty.find((icon: any) => icon.props.name === "paperclip");
+    expect(paperclipEmpty).toBeUndefined();
+
+    let rootWithResource: any;
+    act(() => {
+      rootWithResource = create(
+        <TodoItem
+          item={{ ...baseTask, resourceIds: ["res-1", "res-2"] }}
+          colors={mockColors}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          showWorkspaceBadge={false}
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const featherIconsWithRes = rootWithResource.root.findAllByType("FeatherIcon" as any);
+    const paperclipWithRes = featherIconsWithRes.find((icon: any) => icon.props.name === "paperclip");
+    expect(paperclipWithRes).toBeDefined();
+  });
+
+  it("renders relative date and omits overdue label when omitOverdueLabel is true", () => {
+    const taskEarlier: Task = {
+      ...baseTask,
+      schedule: {
+        date: "2026-09-28", // Yesterday relative to 2026-09-29
+      } as any,
+    };
+
+    let root: any;
+    act(() => {
+      root = create(
+        <TodoItem
+          item={taskEarlier}
+          colors={mockColors}
+          colorScheme="dark"
+          isOverdue={true}
+          omitOverdueLabel={true}
+          selectedDate="2026-09-29"
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          showWorkspaceBadge={false}
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const textNodes = root.root.findAllByType("Text" as any);
+    const renderedTexts = textNodes.map((t: any) => t.props.children);
+    expect(renderedTexts).not.toContain("Overdue");
+    expect(renderedTexts).toContain("Yesterday");
+  });
 });

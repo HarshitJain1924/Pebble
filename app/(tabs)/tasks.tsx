@@ -17,17 +17,18 @@ import {
     TouchableOpacity,
     View
 } from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getCircadianArtSource, getCircadianPeriod } from "@/features/today/components/PebbleCircadianHeader";
+import { getPebbleDockClearance } from "@/shared/components/navigation/PebbleRadialTabBar";
+import { getTasksSubtitleBreakdown } from "@/features/tasks/utils/task-formatting";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 import { Task, Habit, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
+import { getTaskOccurrenceState, isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { generateId } from "@/shared/utils/id";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
@@ -184,7 +185,7 @@ export function WorkspacesScreen() {
                 <Stop offset="0%" stopColor={colors.background} stopOpacity="0" />
                 <Stop offset="30%" stopColor={colors.background} stopOpacity="0.08" />
                 <Stop offset="65%" stopColor={colors.background} stopOpacity={isDark ? "0.7" : "0.55"} />
-                <Stop offset="85%" stopColor={colors.background} stopOpacity={isDark ? "0.92" : "0.85"} />
+                <Stop offset="85%" stopColor={colors.background} stopOpacity="1" />
                 <Stop offset="100%" stopColor={colors.background} stopOpacity="1" />
               </LinearGradient>
             </Defs>
@@ -250,17 +251,18 @@ export function WorkspacesScreen() {
                       const isInbox = currentFolder?.id === INBOX_WORKSPACE_ID;
 
                       // Subtitle computation
-                      const folderTodos = state.todos[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
-                      const totalTasks = folderTodos.filter((t) => !t.archivedAt && t.status !== "completed").length;
-                      const dueToday = folderTodos.filter((t) => {
-                        if (t.archivedAt || t.status === "completed") return false;
-                        const occState = getTaskOccurrenceState(t, getDateKey());
-                        return occState.isOverdue || occState.occurs;
-                      }).length;
-
                       let subtitle = "";
                       if (state.workspaceSegment === "tasks") {
-                        subtitle = `${totalTasks} tasks • ${dueToday} due today`;
+                        const todayCount = state.todayTodos.filter((t) => !isTaskCompleted(t)).length;
+                        const earlierCount = state.overdueTodos.filter((t) => !isTaskCompleted(t)).length;
+                        const upcomingCount = state.upcomingTodos.filter((t) => !isTaskCompleted(t)).length;
+                        const somedayCount = state.inboxTodos.filter((t) => !isTaskCompleted(t)).length;
+                        subtitle = getTasksSubtitleBreakdown({
+                          today: todayCount,
+                          earlier: earlierCount,
+                          upcoming: upcomingCount,
+                          someday: somedayCount,
+                        });
                       } else if (state.workspaceSegment === "habits") {
                         const todayKey = getDateKey();
                         const activeHabits = state.habits.filter(
@@ -429,14 +431,14 @@ export function WorkspacesScreen() {
                 <View
                   style={{
                     flexDirection: "row",
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "#FFFFFF",
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Palette.white,
                     borderRadius: 16,
                     borderWidth: 1,
                     borderColor: colors.border,
                     padding: 4,
                     marginHorizontal: 4,
                     marginTop: 6,
-                    shadowColor: "#000",
+                    shadowColor: Palette.black,
                     shadowOffset: { width: 0, height: 1 },
                     shadowOpacity: isDark ? 0.2 : 0.03,
                     shadowRadius: 4,
@@ -450,8 +452,8 @@ export function WorkspacesScreen() {
                     { key: "resources", label: "Resources", icon: "file-text" },
                   ].map((seg) => {
                     const isActive = state.workspaceSegment === seg.key;
-                    const activeBg = isDark ? "rgba(16, 185, 129, 0.18)" : "#EAF5EF";
-                    const activeColor = isDark ? "#34D399" : "#1B5E3C";
+                    const activeBg = isDark ? "rgba(53, 131, 102, 0.22)" : "rgba(44, 108, 84, 0.12)";
+                    const activeColor = isDark ? colors.primaryLight : colors.primary;
                     const inactiveColor = colors.textMuted;
 
                     return (
@@ -466,6 +468,7 @@ export function WorkspacesScreen() {
                         accessibilityLabel={`${seg.label} tab`}
                         style={{
                           flex: 1,
+                          minHeight: 44,
                           flexDirection: "row",
                           alignItems: "center",
                           justifyContent: "center",
@@ -476,11 +479,13 @@ export function WorkspacesScreen() {
                           backgroundColor: isActive ? activeBg : "transparent",
                         }}
                       >
-                        <Feather
-                          name={seg.icon as any}
-                          size={13}
-                          color={isActive ? activeColor : inactiveColor}
-                        />
+                        {isActive && (
+                          <Feather
+                            name={seg.icon as any}
+                            size={13}
+                            color={activeColor}
+                          />
+                        )}
                         <Text
                           style={{
                             fontSize: 12,
@@ -552,7 +557,7 @@ export function WorkspacesScreen() {
 
             {/* Active Content Screens */}
             {state.activeWorkspaceId === null ? (
-              <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: getPebbleDockClearance(insets.bottom) }} showsVerticalScrollIndicator={false}>
                 <SuggestionBanner
                   activeSuggestions={state.activeSuggestions}
                   loadSuggestions={state.loadSuggestions}
@@ -591,7 +596,7 @@ export function WorkspacesScreen() {
               <ScrollView
                 ref={state.scrollViewRef}
                 style={styles.flex}
-                contentContainerStyle={{ gap: 20, paddingBottom: 120 }}
+                contentContainerStyle={{ gap: 20, paddingBottom: getPebbleDockClearance(insets.bottom) }}
                 showsVerticalScrollIndicator={false}
               >
                 {/* Tasks Section */}
@@ -1271,43 +1276,6 @@ export function WorkspacesScreen() {
         </View>
       )}
 
-      {/* Premium Floating NLP Button */}
-      {!state.isBulkSelectActive && (
-        <Animated.View
-          entering={FadeInDown.delay(600).duration(400)}
-          style={{
-            position: "absolute",
-            right: 20,
-            bottom: Platform.OS === "ios" ? 110 : 96,
-            zIndex: 99,
-          }}
-        >
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-              emitStateChange("open_quick_add");
-            }}
-            activeOpacity={0.85}
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 28,
-              backgroundColor: colors.primary,
-              alignItems: "center",
-              justifyContent: "center",
-              shadowColor: colors.primary,
-              shadowOffset: { width: 0, height: 6 },
-              shadowOpacity: 0.35,
-              shadowRadius: 10,
-              elevation: 8,
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.15)",
-            }}
-          >
-            <Feather name="zap" size={24} color={Palette.white} />
-          </TouchableOpacity>
-        </Animated.View>
-      )}
       </SafeAreaView>
     </View>
   );

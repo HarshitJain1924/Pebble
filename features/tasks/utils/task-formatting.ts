@@ -2,7 +2,7 @@ import { Palette } from "@/shared/constants/theme";
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
 import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
-import { DAY_MS } from "@/services/storage/storage.service";
+const DAY_MS = 86_400_000;
 
 // Public API preserved for the many callers of this module; implementation
 // delegates to the canonical date-key helper (local YYYY-MM-DD).
@@ -83,6 +83,64 @@ export const getSelectedDateLabel = (selectedDate: string) => {
 };
 
 export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Relative date formatter for tasks in Earlier / backlog.
+ * Returns human-friendly relative date and whether it escalates to warning (3+ days old).
+ * - 1 day ago: "Yesterday" (muted)
+ * - 2 days ago: "2d ago" (muted)
+ * - 3-6 days ago: "3d ago", ... (warning)
+ * - 7+ days ago: "Mon 28" (warning)
+ */
+export function formatRelativeTaskDate(
+  dateStr?: string,
+  referenceDateStr?: string,
+): { label: string; isWarning: boolean; daysAgo: number } | null {
+  if (!dateStr || dateStr === "inbox") return null;
+
+  const [ry, rm, rd] = (referenceDateStr || getDateKey()).split("-").map(Number);
+  const [dy, dm, dd] = dateStr.split("-").map(Number);
+  if (!dy || !dm || !dd) return null;
+
+  const refDate = new Date(ry, (rm || 1) - 1, rd || 1);
+  const taskDate = new Date(dy, (dm || 1) - 1, dd || 1);
+  const diffTime = refDate.getTime() - taskDate.getTime();
+  const daysAgo = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (daysAgo <= 0) {
+    return { label: "Today", isWarning: false, daysAgo };
+  }
+  if (daysAgo === 1) {
+    return { label: "Yesterday", isWarning: false, daysAgo: 1 };
+  }
+  if (daysAgo >= 2 && daysAgo < 7) {
+    return { label: `${daysAgo}d ago`, isWarning: daysAgo >= 3, daysAgo };
+  }
+
+  const weekday = WEEKDAY_NAMES[taskDate.getDay()];
+  const dayNum = taskDate.getDate();
+  return { label: `${weekday} ${dayNum}`, isWarning: true, daysAgo };
+}
+
+export interface TaskSectionCounts {
+  today: number;
+  earlier: number;
+  upcoming?: number;
+  someday: number;
+}
+
+/**
+ * Subtitle breakdown consistent with task sections (e.g. "2 today · 5 earlier · 1 someday").
+ * Omits zero-count sections.
+ */
+export function getTasksSubtitleBreakdown(counts: TaskSectionCounts): string {
+  const parts: string[] = [];
+  if (counts.today > 0) parts.push(`${counts.today} today`);
+  if (counts.earlier > 0) parts.push(`${counts.earlier} earlier`);
+  if (counts.upcoming && counts.upcoming > 0) parts.push(`${counts.upcoming} upcoming`);
+  if (counts.someday > 0) parts.push(`${counts.someday} someday`);
+  return parts.length > 0 ? parts.join(" · ") : "No tasks";
+}
 
 export const initialTodos: Task[] = [];
 

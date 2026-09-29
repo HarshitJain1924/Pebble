@@ -1,38 +1,45 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import React, { useState, useMemo } from "react";
-import { TaskListPriorityColors } from "@/shared/constants/categoryColors";
+import { getCategoryColors } from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
-import { LayoutChangeEvent, Pressable, StyleSheet, View, Modal, ScrollView, TouchableOpacity, Image, Alert, Dimensions, Linking } from "react-native";
+import {
+  LayoutChangeEvent,
+  Pressable,
+  StyleSheet,
+  View,
+  Modal,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  useWindowDimensions,
+  Linking,
+} from "react-native";
+import { useRouter } from "expo-router";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import * as Haptics from "expo-haptics";
 import PressableScale from "@/shared/components/ui/PressableScale";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
-import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
-import { AppCard } from "@/shared/components/ui/AppCard";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
 import { Typography } from "@/shared/constants/typography";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
+import { formatRelativeTaskDate } from "@/features/tasks/utils/task-formatting";
 import { resolveItemCategorySymbol } from "@/features/today/utils/item-presentation";
+import {
+  getStreamResourcePalette,
+  resolveResourceVisual,
+} from "@/features/today/utils/resource-presentation";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
-import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
-
-const addDays = (date: Date, days: number) => {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-};
 
 interface TodoItemProps {
   item: Task;
   colors: any;
-  colorScheme: "light" | "dark" | null;
+  colorScheme: "light" | "dark" | null | undefined;
   isOverdue: boolean;
+  omitOverdueLabel?: boolean;
+  selectedDate?: string;
   lists: Workspace[];
   selectedWorkspaceId?: string;
   showWorkspaceBadge?: boolean;
@@ -61,6 +68,8 @@ export function TodoItem({
   colors,
   colorScheme,
   isOverdue: overdue,
+  omitOverdueLabel = false,
+  selectedDate,
   lists,
   selectedWorkspaceId,
   showWorkspaceBadge,
@@ -76,8 +85,13 @@ export function TodoItem({
   isExpanded: isExpandedProp,
   onToggleExpand,
 }: TodoItemProps) {
+  const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
   const category = getTaskCategoryMeta(normalizeTaskCategory(item.categoryId));
   const isLight = colorScheme === "light";
+  const isDark = colorScheme !== "light";
+  const categoryColors = getCategoryColors(isDark);
+  const streamColors = getStreamResourcePalette(isDark);
 
   // Context Linkage States
   const [localExpanded, setLocalExpanded] = useState(false);
@@ -87,8 +101,8 @@ export function TodoItem({
   const [isPeeking, setIsPeeking] = useState(false);
   const [showAllResources, setShowAllResources] = useState(false);
 
-  const linkedResourceIds = item.resourceIds || [];
-  const linkedCount = linkedResourceIds.length;
+  const linkedResourceIds = item.resourceIds;
+  const linkedCount = linkedResourceIds?.length ?? 0;
 
   // Automatically collapse when no resources are left
   React.useEffect(() => {
@@ -109,6 +123,7 @@ export function TodoItem({
   }, [isExpanded]);
 
   const linkedResources = useMemo(() => {
+    if (!linkedResourceIds || linkedResourceIds.length === 0) return [];
     return linkedResourceIds
       .map((id) => allResources.find((r) => r.id === id))
       .filter(Boolean);
@@ -132,25 +147,31 @@ export function TodoItem({
 
   const isCompleted = isTaskCompleted(item);
 
-  const getPriorityColor = () => {
-    if (item.priority === "high") return "#F97316";
-    if (item.priority === "medium") return "#3B82F6";
-    if (item.priority === "low") return "#94A3B8";
-    return "transparent";
-  };
-  const priorityColor = getPriorityColor();
+  // Priority stripe carries information only: rendered for high priority only.
+  // Uses canonical priority tokens distinct from warning/overdue.
+  const priorityColor = item.priority === "high" ? categoryColors.priority.high : "transparent";
 
+  // Category badge: neutral badge in task list unless categoryId is set explicitly
   const categorySymbol = useMemo(() => {
-    return resolveItemCategorySymbol(
-      {
-        type: "task",
-        title: item.title,
-        categoryId: item.categoryId,
-        priority: item.priority,
-      },
-      !isLight
-    );
-  }, [item.title, item.categoryId, item.priority, isLight]);
+    if (item.categoryId) {
+      return resolveItemCategorySymbol(
+        {
+          type: "task",
+          title: item.title,
+          categoryId: item.categoryId,
+          priority: item.priority,
+        },
+        isDark,
+      );
+    }
+    return {
+      icon: "clipboard",
+      iconFamily: "feather" as const,
+      color: colors.textMuted,
+      tint: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.04)",
+      label: "Task",
+    };
+  }, [item.title, item.categoryId, item.priority, isDark, colors.textMuted]);
 
   const currentWorkspace = useMemo(() => {
     const wsId = item.workspaceId || selectedWorkspaceId;
@@ -160,7 +181,6 @@ export function TodoItem({
   const folderName = currentWorkspace?.name || "Work";
   const isInbox = currentWorkspace?.id === INBOX_WORKSPACE_ID || folderName.toLowerCase() === "inbox";
 
-  const scheduledDate = item.schedule?.date;
   const durationMinutes = (item.schedule as any)?.durationMinutes;
 
   // Contextual folder/workspace badge:
@@ -183,14 +203,54 @@ export function TodoItem({
       });
     }
 
-    // 2. Overdue
-    if (overdue) {
-      parts.push({
-        key: "overdue",
-        text: "Overdue",
-        icon: "alert-circle",
-        color: "#F97316",
-      });
+    // 2. Overdue & Relative Date formatting
+    let reminderText = "";
+    if (item.reminder && item.reminder.enabled && item.reminder.triggerAt) {
+      const d = new Date(item.reminder.triggerAt);
+      reminderText = formatReminderTime(d.getHours(), d.getMinutes()) || "";
+    }
+
+    if (omitOverdueLabel) {
+      // Earlier section: drop "Overdue" text, show relative date (Yesterday, 3d ago, Mon 28)
+      if (item.schedule?.date) {
+        const relativeDate = formatRelativeTaskDate(item.schedule.date, selectedDate);
+        if (relativeDate) {
+          const displayText = reminderText
+            ? `${relativeDate.label} · ${reminderText}`
+            : relativeDate.label;
+          parts.push({
+            key: "date",
+            text: displayText,
+            icon: item.reminder?.enabled ? "bell" : "calendar",
+            color: relativeDate.isWarning ? colors.warning : colors.textMuted,
+          });
+        }
+      } else if (reminderText) {
+        parts.push({
+          key: "reminder",
+          text: reminderText,
+          icon: "bell",
+          color: colors.textMuted,
+        });
+      }
+    } else {
+      // Outside Earlier (e.g. Today): keep standard overdue behavior with semantic theme token
+      if (overdue) {
+        parts.push({
+          key: "overdue",
+          text: "Overdue",
+          icon: "alert-circle",
+          color: colors.error,
+        });
+      }
+      if (reminderText) {
+        parts.push({
+          key: "reminder",
+          text: reminderText,
+          icon: "bell",
+          color: colors.textMuted,
+        });
+      }
     }
 
     // 3. Recurrence
@@ -226,24 +286,22 @@ export function TodoItem({
       });
     }
 
-    // 5. Reminder
-    let reminderText = "";
-    if (item.reminder && item.reminder.enabled && item.reminder.triggerAt) {
-      const d = new Date(item.reminder.triggerAt);
-      reminderText = formatReminderTime(d.getHours(), d.getMinutes()) || "";
-    }
-
-    if (reminderText) {
-      parts.push({
-        key: "reminder",
-        text: reminderText,
-        icon: "bell",
-        color: colors.textMuted,
-      });
-    }
-
     return parts;
-  }, [shouldShowWorkspace, folderName, isInbox, overdue, item.recurrence, durationMinutes, item.reminder, colors.textMuted]);
+  }, [
+    shouldShowWorkspace,
+    folderName,
+    isInbox,
+    omitOverdueLabel,
+    item.schedule?.date,
+    selectedDate,
+    overdue,
+    item.reminder,
+    item.recurrence,
+    durationMinutes,
+    colors.textMuted,
+    colors.warning,
+    colors.error,
+  ]);
 
   return (
     <SwipeableCard
@@ -287,7 +345,7 @@ export function TodoItem({
           {/* Circular Checkbox */}
           <PressableScale
             onPress={isSelectionMode ? onSelect : onToggleTodo}
-            hitSlop={8}
+            hitSlop={12}
             haptic
             scaleTo={0.88}
             accessibilityRole="checkbox"
@@ -304,27 +362,26 @@ export function TodoItem({
               borderWidth: 1.5,
               borderColor: (isSelectionMode ? isSelected : isCompleted)
                 ? (priorityColor !== "transparent" ? priorityColor : colors.primary)
-                : (isLight ? "#CBD5E1" : "rgba(255, 255, 255, 0.3)"),
+                : (isLight ? Palette.slate300 : "rgba(255, 255, 255, 0.3)"),
               backgroundColor: (isSelectionMode ? isSelected : isCompleted)
                 ? (priorityColor !== "transparent" ? priorityColor : colors.primary)
                 : "transparent",
               alignItems: "center",
               justifyContent: "center",
               marginRight: 10,
-              marginLeft: 4,
             }}
           >
             {(isSelectionMode ? isSelected : isCompleted) && (
-              <Feather name="check" size={13} color="#FFFFFF" />
+              <Feather name="check" size={13} color={Palette.white} />
             )}
           </PressableScale>
 
           {/* Squircle Category Badge */}
           <View
             style={{
-              width: 38,
-              height: 38,
-              borderRadius: 10,
+              width: 40,
+              height: 40,
+              borderRadius: 12,
               backgroundColor: categorySymbol.tint,
               borderWidth: 1,
               borderColor: `${categorySymbol.color}24`,
@@ -359,11 +416,11 @@ export function TodoItem({
           >
             <Text
               style={{
-                fontSize: 15,
-                fontWeight: "700",
+                fontSize: 15.5,
+                fontWeight: "600",
                 color: isCompleted ? colors.textMuted : colors.text,
                 textDecorationLine: isCompleted ? "line-through" : "none",
-                letterSpacing: -0.2,
+                letterSpacing: -0.25,
                 marginBottom: 3,
               }}
               numberOfLines={1}
@@ -376,20 +433,20 @@ export function TodoItem({
               <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "nowrap", overflow: "hidden" }}>
                 {metaParts.map((part, idx) => (
                   <React.Fragment key={idx}>
-                    {idx > 0 && <Text style={{ color: colors.textMuted, fontSize: 11, marginHorizontal: 4 }}>•</Text>}
+                    {idx > 0 && <Text style={{ color: colors.textMuted, fontSize: 12, marginHorizontal: 4 }}>•</Text>}
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 3.5 }}>
                       {part.icon && (
                         <Feather
                           name={part.icon as any}
-                          size={10}
+                          size={11}
                           color={part.color || colors.textMuted}
                         />
                       )}
                       <Text
                         style={{
                           color: part.color || colors.textMuted,
-                          fontSize: 11,
-                          fontWeight: part.key === "overdue" ? "700" : "500",
+                          fontSize: 12,
+                          fontWeight: part.key === "overdue" || part.color === colors.warning ? "600" : "500",
                         }}
                         numberOfLines={1}
                       >
@@ -402,46 +459,34 @@ export function TodoItem({
             )}
           </PressableScale>
 
-          {/* Trailing Actions */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginLeft: 6 }}>
-            {/* Paperclip Action Button */}
-            <PressableScale
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                if (linkedCount > 0) {
+          {/* Trailing Actions: Render paperclip only when resources are linked; trailing chevron removed */}
+          {linkedCount > 0 && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginLeft: 6 }}>
+              <PressableScale
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                   setIsExpanded(!isExpanded);
-                } else {
-                  setShowLinkSelector(true);
+                }}
+                onLongPress={() => {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                  setIsPeeking(true);
+                }}
+                delayLongPress={350}
+                hitSlop={8}
+                haptic
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isExpanded
+                    ? `Collapse ${linkedCount} linked resources for ${item.title}`
+                    : `Expand ${linkedCount} linked resources for ${item.title}`
                 }
-              }}
-              onLongPress={linkedCount > 0 ? () => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                setIsPeeking(true);
-              } : undefined}
-              delayLongPress={350}
-              hitSlop={8}
-              haptic
-              accessibilityRole="button"
-              accessibilityLabel={
-                linkedCount === 0
-                  ? `Attach resource to ${item.title}`
-                  : isExpanded
-                  ? `Collapse ${linkedCount} linked resources for ${item.title}`
-                  : `Expand ${linkedCount} linked resources for ${item.title}`
-              }
-              accessibilityState={linkedCount > 0 ? { expanded: isExpanded } : undefined}
-              style={{
-                padding: 6,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              {linkedCount === 0 ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 1 }}>
-                  <Feather name="paperclip" size={13} color={colors.textMuted} />
-                  <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textMuted }}>+</Text>
-                </View>
-              ) : (
+                accessibilityState={{ expanded: isExpanded }}
+                style={{
+                  padding: 6,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                   <Feather
                     name="paperclip"
@@ -452,100 +497,101 @@ export function TodoItem({
                     {linkedCount}
                   </Text>
                 </View>
-              )}
-            </PressableScale>
-
-            {/* Chevron Right */}
-            <PressableScale
-              onPress={isSelectionMode ? onSelect : onEditTodo}
-              hitSlop={8}
-              haptic
-              accessibilityRole="button"
-              accessibilityLabel={`Details for ${item.title}`}
-              style={{ padding: 4 }}
-            >
-              <Feather name="chevron-right" size={16} color={colors.textMuted} />
-            </PressableScale>
-          </View>
+              </PressableScale>
+            </View>
+          )}
         </View>
 
-          {/* Expanded Flat Resource List inside the same card */}
-          {isExpanded && linkedResources.length > 0 && (
-            <View style={styles.expandedContent}>
-              {/* Subtle divider before the resources section */}
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        {/* Expanded Flat Resource List inside the same card */}
+        {isExpanded && linkedResources.length > 0 && (
+          <View style={styles.expandedContent}>
+            {/* Subtle divider before the resources section */}
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-              {/* Flat List (Apple Notes attachment style) */}
-              <View style={styles.resourcesList}>
-                {displayedResources.map((res: any, idx: number) => {
-                  const isImage = res.type === "image";
-                  const isNote = res.type === "note";
-                  const isLink = res.type === "link";
-                  const isVideo = isLink && (res.url?.toLowerCase().includes("youtube") || res.url?.toLowerCase().includes("video"));
+            {/* Flat List (Apple Notes attachment style) */}
+            <View style={styles.resourcesList}>
+              {displayedResources.map((res: any, idx: number) => {
+                const visual = resolveResourceVisual(res);
+                const stream = streamColors[visual.category] || streamColors.note;
+                const isLink = visual.category === "link";
 
-                  return (
-                    <View key={res.id}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (isLink) {
-                            handleOpenUrl(res.url);
-                          } else if (isNote) {
-                            Alert.alert(res.title, res.content || "No details available.");
-                          } else {
-                            Alert.alert(res.title, "Image attachment");
-                          }
-                        }}
-                        accessibilityRole={isLink ? "link" : "button"}
-                        accessibilityLabel={`${res.title}, ${isLink ? "link" : isNote ? "note" : "image"}`}
-                        style={styles.resourceRow}
-                      >
-                        {/* Icon or Thumbnail */}
-                        {isImage ? (
-                          <View style={[styles.thumbnailWrap, { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 }]}>
-                            <Image
-                              source={{ uri: res.mediaUri || "https://images.unsplash.com/photo-1544005313-94ddf0286df2" }}
-                              style={{ width: "100%", height: "100%" }}
-                            />
-                          </View>
+                return (
+                  <View key={res.id}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (isLink) {
+                          handleOpenUrl(res.url || res.content);
+                        } else {
+                          router.push({
+                            pathname: "/tasks",
+                            params: {
+                              workspaceId: res.workspaceId || item.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID,
+                              segment: "resources",
+                              resourceId: res.id,
+                            },
+                          } as any);
+                        }
+                      }}
+                      accessibilityRole={isLink ? "link" : "button"}
+                      accessibilityLabel={`${res.title}, ${visual.label}`}
+                      style={[styles.resourceRow, { minHeight: 44 }]}
+                    >
+                      {/* Icon or Thumbnail */}
+                      <View style={[styles.thumbnailWrap, { backgroundColor: stream.backgroundColor, borderColor: stream.borderColor, borderWidth: 1 }]}>
+                        {visual.category === "image" && (visual.thumbnailUri || res.mediaUri) ? (
+                          <Image
+                            source={{ uri: visual.thumbnailUri || res.mediaUri }}
+                            style={{ width: "100%", height: "100%" }}
+                          />
                         ) : (
-                          <View style={[styles.thumbnailWrap, { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 }]}>
-                            <Feather
-                              name={isVideo ? "play-circle" : isLink ? "globe" : isNote ? "file-text" : "file"}
-                              size={13}
-                              color={colors.primary}
-                            />
-                          </View>
+                          <Feather
+                            name={
+                              visual.category === "link"
+                                ? "link"
+                                : visual.category === "image"
+                                ? "image"
+                                : "file-text"
+                            }
+                            size={14}
+                            color={stream.accent}
+                          />
                         )}
+                      </View>
 
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 13, fontWeight: "600", color: colors.text }} numberOfLines={1}>
-                            {res.title}
+                      <View style={{ flex: 1, justifyContent: "center" }}>
+                        <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text }} numberOfLines={1}>
+                          {res.title}
+                        </Text>
+                        {isLink && (res.url || res.content) && (
+                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
+                            {(res.url || res.content).replace(/https?:\/\/(www\.)?/, "").split("/")[0]}
                           </Text>
-                          {isLink && res.url && (
-                            <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
-                              {res.url.replace(/https?:\/\/(www\.)?/, "").split("/")[0]}
-                            </Text>
-                          )}
-                          {isNote && res.content && (
-                            <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
-                              {res.content.trim().split("\n")[0]}
-                            </Text>
-                          )}
-                          {isImage && (
-                            <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 1 }}>
-                              Image attachment
-                            </Text>
-                          )}
-                        </View>
-                      </TouchableOpacity>
+                        )}
+                        {visual.category === "note" && (res.content || res.body) && (
+                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
+                            {(res.content || res.body).trim().split("\n")[0]}
+                          </Text>
+                        )}
+                        {visual.category === "image" && (
+                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
+                            Image attachment
+                          </Text>
+                        )}
+                        {visual.category === "pdf" && (
+                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
+                            PDF document
+                          </Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
 
-                      {/* Inner row separator divider */}
-                      {idx < displayedResources.length - 1 && (
-                        <View style={[styles.innerDivider, { backgroundColor: colors.border + "40" }]} />
-                      )}
-                    </View>
-                  );
-                })}
+                    {/* Inner row separator divider */}
+                    {idx < displayedResources.length - 1 && (
+                      <View style={[styles.innerDivider, { backgroundColor: colors.border + "40" }]} />
+                    )}
+                  </View>
+                );
+              })}
 
                 {/* Show More/Less Gate */}
                 {hasHiddenResources && (
@@ -622,7 +668,7 @@ export function TodoItem({
               ) : (
                 <ScrollView contentContainerStyle={{ gap: 8 }} showsVerticalScrollIndicator={false}>
                   {allResources.map((res) => {
-                    const isLinked = linkedResourceIds.includes(res.id);
+                    const isLinked = linkedResourceIds?.includes(res.id) ?? false;
                     return (
                       <TouchableOpacity
                         key={res.id}
@@ -698,7 +744,7 @@ export function TodoItem({
           >
             <View
               style={{
-                width: SCREEN_WIDTH * 0.8,
+                width: screenWidth * 0.8,
                 backgroundColor: colors.card,
                 borderRadius: 20,
                 borderColor: colors.border,
@@ -716,41 +762,64 @@ export function TodoItem({
                 Glance Resources
               </Text>
               <View style={{ gap: 10 }}>
-                {linkedResources.map((res: any) => (
-                  <View
-                    key={res.id}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: isLight ? Palette.slate200 : Palette.zinc800, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                      {res.type === "image" ? (
-                        <Image
-                          source={{ uri: res.mediaUri || "https://images.unsplash.com/photo-1544005313-94ddf0286df2" }}
-                          style={{ width: "100%", height: "100%" }}
-                        />
-                      ) : (
-                        <Feather
-                          name={res.type === "link" ? "link-2" : "file-text"}
-                          size={12}
-                          color={colors.textMuted}
-                        />
-                      )}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text }} numberOfLines={1}>
-                        {res.title}
-                      </Text>
-                      {res.type === "link" && (
-                        <Text style={{ fontSize: 9, color: colors.textMuted }} numberOfLines={1}>
-                          {res.url}
+                {linkedResources.map((res: any) => {
+                  const visual = resolveResourceVisual(res);
+                  const stream = streamColors[visual.category] || streamColors.note;
+
+                  return (
+                    <View
+                      key={res.id}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 6,
+                          backgroundColor: stream.backgroundColor,
+                          borderColor: stream.borderColor,
+                          borderWidth: 1,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {visual.category === "image" && (visual.thumbnailUri || res.mediaUri) ? (
+                          <Image
+                            source={{ uri: visual.thumbnailUri || res.mediaUri }}
+                            style={{ width: "100%", height: "100%" }}
+                          />
+                        ) : (
+                          <Feather
+                            name={
+                              visual.category === "link"
+                                ? "link"
+                                : visual.category === "image"
+                                ? "image"
+                                : "file-text"
+                            }
+                            size={12}
+                            color={stream.accent}
+                          />
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text }} numberOfLines={1}>
+                          {res.title}
                         </Text>
-                      )}
+                        {visual.category === "link" && (res.url || res.content) && (
+                          <Text style={{ fontSize: 9, color: colors.textMuted }} numberOfLines={1}>
+                            {(res.url || res.content).replace(/https?:\/\/(www\.)?/, "").split("/")[0]}
+                          </Text>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             </View>
           </Pressable>
@@ -829,12 +898,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 8,
+    minHeight: 44,
     gap: 12,
   },
   thumbnailWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",

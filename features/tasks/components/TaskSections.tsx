@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from "react";
 import { View, Pressable } from "react-native";
+import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { TodoItem } from "@/features/tasks/components/TaskItem";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
@@ -67,7 +68,7 @@ export function TaskSections({
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
-  const isDark = colorScheme === "dark";
+  const isDark = colorScheme !== "light";
 
   // Section expanded states (Earlier, Today and Tomorrow default open, Upcoming and Someday collapsed per reference)
   const [earlierExpanded, setEarlierExpanded] = useState(true);
@@ -78,7 +79,7 @@ export function TaskSections({
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
 
-  const renderTodoItem = (item: Task) => {
+  const renderTodoItem = (item: Task, isEarlier = false) => {
     return (
       <TodoItem
         key={item.id}
@@ -86,6 +87,8 @@ export function TaskSections({
         colors={colors}
         colorScheme={colorScheme}
         isOverdue={getTaskOccurrenceState(item, selectedDate).isOverdue}
+        omitOverdueLabel={isEarlier}
+        selectedDate={selectedDate}
         lists={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
         showWorkspaceBadge={showWorkspaceBadge}
@@ -184,6 +187,7 @@ export function TaskSections({
     isExpanded: boolean,
     onToggle: () => void,
     extraHeaderRight?: React.ReactNode,
+    isEarlier = false,
   ) => {
     if (list.length === 0) return null;
 
@@ -247,7 +251,7 @@ export function TaskSections({
               borderWidth: 1,
               borderColor: colors.border,
               overflow: "hidden",
-              shadowColor: "#000",
+              shadowColor: Palette.black,
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: isDark ? 0.25 : 0.04,
               shadowRadius: 8,
@@ -255,7 +259,11 @@ export function TaskSections({
             }}
           >
             {list.map((item, index) => (
-              <React.Fragment key={item.id}>
+              <Animated.View
+                key={item.id}
+                exiting={FadeOut.duration(180)}
+                layout={LinearTransition.duration(200)}
+              >
                 {index > 0 && (
                   <View
                     style={{
@@ -267,8 +275,8 @@ export function TaskSections({
                     }}
                   />
                 )}
-                {renderTodoItem(item)}
-              </React.Fragment>
+                {renderTodoItem(item, isEarlier)}
+              </Animated.View>
             ))}
           </View>
         )}
@@ -291,27 +299,37 @@ export function TaskSections({
                 e.stopPropagation();
                 onSaveEarlierForLater();
               }}
-              hitSlop={8}
+              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
               accessibilityRole="button"
-              accessibilityLabel="Save earlier tasks for later"
+              accessibilityLabel="Move all earlier tasks to Someday"
               style={{
-                paddingHorizontal: 8,
-                paddingVertical: 2,
-                borderRadius: 6,
-                backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
+                minHeight: 44,
+                justifyContent: "center",
               }}
             >
-              <Text
+              <View
                 style={{
-                  color: isDark ? colors.primaryLight : colors.primary,
-                  fontWeight: "600",
-                  fontSize: 11,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 8,
+                  backgroundColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.06)",
+                  borderWidth: 1,
+                  borderColor: isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(0, 0, 0, 0.08)",
                 }}
               >
-                Save for Later
-              </Text>
+                <Text
+                  style={{
+                    color: isDark ? colors.primaryLight : colors.primary,
+                    fontWeight: "600",
+                    fontSize: 11,
+                  }}
+                >
+                  Move all to Someday
+                </Text>
+              </View>
             </Pressable>
           ) : null,
+          true,
         )}
 
       {/* Today Section */}
