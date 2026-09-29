@@ -1,8 +1,20 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import React, { useState, useMemo } from "react";
+import { Image as ExpoImage } from "expo-image";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+  interpolate,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from "react-native-reanimated";
 import { getCategoryColors } from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
-import { ROW_SPEC } from "@/shared/constants/rowSpec";
+import { RESOURCE_STACK_COLOR_MODE, ROW_SPEC } from "@/shared/constants/rowSpec";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import {
   LayoutChangeEvent,
   Pressable,
@@ -102,6 +114,34 @@ export function TodoItem({
   const [isPeeking, setIsPeeking] = useState(false);
   const [showAllResources, setShowAllResources] = useState(false);
 
+  const reducedMotion = useReducedMotion();
+  const progress = useSharedValue(isExpanded ? 1 : 0);
+
+  React.useEffect(() => {
+    if (reducedMotion) {
+      progress.value = isExpanded ? 1 : 0;
+    } else {
+      progress.value = withTiming(isExpanded ? 1 : 0, {
+        duration: 280,
+        easing: Easing.out(Easing.quad),
+      });
+    }
+  }, [isExpanded, reducedMotion, progress]);
+
+  const fanAnimatedStyle = useAnimatedStyle(() => {
+    if (reducedMotion) {
+      return { marginLeft: -ROW_SPEC.stack.overlap };
+    }
+    const ml = interpolate(
+      progress.value,
+      [0, 1],
+      [-ROW_SPEC.stack.overlap, ROW_SPEC.stack.openGap],
+    );
+    return {
+      marginLeft: ml,
+    };
+  });
+
   const linkedResourceIds = item.resourceIds;
   const linkedCount = linkedResourceIds?.length ?? 0;
 
@@ -126,9 +166,103 @@ export function TodoItem({
   const linkedResources = useMemo(() => {
     if (!linkedResourceIds || linkedResourceIds.length === 0) return [];
     return linkedResourceIds
-      .map((id) => allResources.find((r) => r.id === id))
+      .map((id) => {
+        const found = allResources.find((r) => r.id === id);
+        if (found) return found;
+        return { id, title: "Resource", type: "file" };
+      })
       .filter(Boolean);
   }, [linkedResourceIds, allResources]);
+
+  const totalResources = linkedResources.length;
+
+  const visibleTiles = useMemo(() => {
+    if (totalResources === 0) return [];
+    if (totalResources <= 3) return linkedResources;
+    return linkedResources.slice(0, 2);
+  }, [linkedResources, totalResources]);
+
+  const hasPlusChip = totalResources >= 4;
+  const plusChipCount = totalResources - 2;
+
+  const renderStackTile = (res: any, index: number) => {
+    const visual = resolveResourceVisual(res);
+    const stream = streamColors[visual.category] || streamColors.note;
+    const isImageWithThumb = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
+
+    const isNeutral = RESOURCE_STACK_COLOR_MODE === "neutral";
+    const tileBg = isNeutral
+      ? (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)")
+      : stream.backgroundColor;
+    const iconColor = stream.accent;
+
+    return (
+      <View
+        key={res.id || `tile-${index}`}
+        testID={`resource-stack-tile-${index}`}
+        style={{
+          width: ROW_SPEC.stack.tile,
+          height: ROW_SPEC.stack.tile,
+          borderRadius: ROW_SPEC.stack.tileRadius,
+          borderWidth: ROW_SPEC.stack.ring,
+          borderColor: colors.card,
+          backgroundColor: tileBg,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {isImageWithThumb ? (
+          <ExpoImage
+            source={{ uri: visual.thumbnailUri || res.mediaUri }}
+            style={{ width: "100%", height: "100%" }}
+            contentFit="cover"
+          />
+        ) : (
+          <Feather
+            name={
+              visual.category === "link"
+                ? "link"
+                : visual.category === "image"
+                ? "image"
+                : "file-text"
+            }
+            size={14}
+            color={iconColor}
+          />
+        )}
+      </View>
+    );
+  };
+
+  const renderPlusChip = (count: number) => {
+    return (
+      <View
+        key="plus-chip"
+        testID="resource-stack-plus-chip"
+        style={{
+          width: ROW_SPEC.stack.tile,
+          height: ROW_SPEC.stack.tile,
+          borderRadius: ROW_SPEC.stack.tileRadius,
+          borderWidth: ROW_SPEC.stack.ring,
+          borderColor: colors.card,
+          backgroundColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text
+          style={{
+            fontSize: ROW_SPEC.stack.chipFont,
+            fontWeight: "600",
+            color: colors.textMuted,
+          }}
+        >
+          {`+${count}`}
+        </Text>
+      </View>
+    );
+  };
 
   const hasHiddenResources = linkedResources.length > 3;
   const displayedResources = useMemo(() => {
@@ -441,9 +575,9 @@ export function TodoItem({
             )}
           </PressableScale>
 
-          {/* Trailing Actions: Render paperclip only when resources are linked; trailing chevron removed */}
-          {linkedCount > 0 && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginLeft: 6 }}>
+          {/* Resource Stack (Trailing) */}
+          {totalResources > 0 && (
+            <View style={{ justifyContent: "center", alignItems: "center" }}>
               <PressableScale
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -454,30 +588,44 @@ export function TodoItem({
                   setIsPeeking(true);
                 }}
                 delayLongPress={350}
-                hitSlop={8}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 haptic
                 accessibilityRole="button"
-                accessibilityLabel={
-                  isExpanded
-                    ? `Collapse ${linkedCount} linked resources for ${item.title}`
-                    : `Expand ${linkedCount} linked resources for ${item.title}`
-                }
+                accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
                 accessibilityState={{ expanded: isExpanded }}
                 style={{
-                  padding: 6,
-                  justifyContent: "center",
+                  flexDirection: "row",
                   alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 44,
                 }}
               >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                  <Feather
-                    name="paperclip"
-                    size={12}
-                    color={isExpanded ? colors.primary : colors.textMuted}
-                  />
-                  <Text style={{ fontSize: 11, fontWeight: "700", color: isExpanded ? colors.primary : colors.textMuted }}>
-                    {linkedCount}
-                  </Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  {visibleTiles.map((res: any, index: number) => {
+                    if (index === 0) {
+                      return (
+                        <View key={res.id || `tile-${index}`}>
+                          {renderStackTile(res, index)}
+                        </View>
+                      );
+                    }
+                    return (
+                      <Animated.View
+                        key={res.id || `tile-${index}`}
+                        style={fanAnimatedStyle}
+                      >
+                        {renderStackTile(res, index)}
+                      </Animated.View>
+                    );
+                  })}
+                  {hasPlusChip && (
+                    <Animated.View
+                      key="plus-chip"
+                      style={fanAnimatedStyle}
+                    >
+                      {renderPlusChip(plusChipCount)}
+                    </Animated.View>
+                  )}
                 </View>
               </PressableScale>
             </View>
@@ -485,20 +633,48 @@ export function TodoItem({
         </View>
 
         {/* Expanded Flat Resource List inside the same card */}
-        {isExpanded && linkedResources.length > 0 && (
-          <View style={styles.expandedContent}>
+        {isExpanded && totalResources > 0 && (
+          <Animated.View
+            entering={reducedMotion ? undefined : FadeIn.duration(200)}
+            exiting={reducedMotion ? undefined : FadeOut.duration(180)}
+            layout={reducedMotion ? undefined : LinearTransition.duration(280)}
+            style={{
+              paddingLeft: ROW_SPEC.dividerInset,
+              paddingRight: ROW_SPEC.row.paddingRight,
+              marginTop: 4,
+              paddingBottom: 8,
+            }}
+          >
             {/* Subtle divider before the resources section */}
-            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            <View
+              style={{
+                height: StyleSheet.hairlineWidth,
+                backgroundColor: colors.border,
+                marginBottom: 8,
+                opacity: 0.5,
+              }}
+            />
 
-            {/* Flat List (Apple Notes attachment style) */}
-            <View style={styles.resourcesList}>
+            {/* Flat List */}
+            <View style={{ gap: 4 }}>
               {displayedResources.map((res: any, idx: number) => {
                 const visual = resolveResourceVisual(res);
                 const stream = streamColors[visual.category] || streamColors.note;
                 const isLink = visual.category === "link";
 
+                let secondaryText = "";
+                if (isLink && (res.url || res.content)) {
+                  secondaryText = (res.url || res.content).replace(/https?:\/\/(www\.)?/, "").split("/")[0];
+                } else if (visual.category === "note" && (res.content || res.body)) {
+                  secondaryText = (res.content || res.body).trim().split("\n")[0];
+                } else if (visual.category === "image") {
+                  secondaryText = "Image attachment";
+                } else if (visual.category === "pdf") {
+                  secondaryText = "PDF document";
+                }
+
                 return (
-                  <View key={res.id}>
+                  <View key={res.id || idx}>
                     <TouchableOpacity
                       onPress={() => {
                         if (isLink) {
@@ -511,14 +687,33 @@ export function TodoItem({
                       }}
                       accessibilityRole={isLink ? "link" : "button"}
                       accessibilityLabel={`${res.title}, ${visual.label}`}
-                      style={[styles.resourceRow, { minHeight: 44 }]}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        minHeight: ROW_SPEC.listRow.minHeight,
+                        gap: 12,
+                        paddingVertical: 6,
+                      }}
                     >
                       {/* Icon or Thumbnail */}
-                      <View style={[styles.thumbnailWrap, { backgroundColor: stream.backgroundColor, borderColor: stream.borderColor, borderWidth: 1 }]}>
+                      <View
+                        style={{
+                          width: ROW_SPEC.listRow.tile,
+                          height: ROW_SPEC.listRow.tile,
+                          borderRadius: ROW_SPEC.stack.tileRadius,
+                          backgroundColor: stream.backgroundColor,
+                          borderColor: stream.borderColor,
+                          borderWidth: 1,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                        }}
+                      >
                         {visual.category === "image" && (visual.thumbnailUri || res.mediaUri) ? (
-                          <Image
+                          <ExpoImage
                             source={{ uri: visual.thumbnailUri || res.mediaUri }}
                             style={{ width: "100%", height: "100%" }}
+                            contentFit="cover"
                           />
                         ) : (
                           <Feather
@@ -536,72 +731,91 @@ export function TodoItem({
                       </View>
 
                       <View style={{ flex: 1, justifyContent: "center" }}>
-                        <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text }} numberOfLines={1}>
+                        <Text
+                          style={{
+                            fontSize: ROW_SPEC.listRow.title,
+                            fontWeight: "600",
+                            color: colors.text,
+                          }}
+                          numberOfLines={1}
+                        >
                           {res.title}
                         </Text>
-                        {isLink && (res.url || res.content) && (
-                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
-                            {(res.url || res.content).replace(/https?:\/\/(www\.)?/, "").split("/")[0]}
+                        {secondaryText ? (
+                          <Text
+                            style={{
+                              fontSize: ROW_SPEC.listRow.secondary,
+                              color: colors.textMuted,
+                              marginTop: 1,
+                            }}
+                            numberOfLines={1}
+                          >
+                            {secondaryText}
                           </Text>
-                        )}
-                        {visual.category === "note" && (res.content || res.body) && (
-                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
-                            {(res.content || res.body).trim().split("\n")[0]}
-                          </Text>
-                        )}
-                        {visual.category === "image" && (
-                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
-                            Image attachment
-                          </Text>
-                        )}
-                        {visual.category === "pdf" && (
-                          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
-                            PDF document
-                          </Text>
-                        )}
+                        ) : null}
                       </View>
                     </TouchableOpacity>
 
                     {/* Inner row separator divider */}
                     {idx < displayedResources.length - 1 && (
-                      <View style={[styles.innerDivider, { backgroundColor: colors.border + "40" }]} />
+                      <View
+                        style={{
+                          height: StyleSheet.hairlineWidth,
+                          backgroundColor: isDark
+                            ? "rgba(255, 255, 255, 0.08)"
+                            : "rgba(0, 0, 0, 0.06)",
+                        }}
+                      />
                     )}
                   </View>
                 );
               })}
 
-                {/* Show More/Less Gate */}
-                {hasHiddenResources && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                      setShowAllResources(!showAllResources);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={showAllResources ? "Show fewer resources" : `Show ${linkedResources.length - 2} more resources`}
-                    style={styles.showMoreBtn}
-                  >
-                    <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>
-                      {showAllResources ? "Show less" : `Show ${linkedResources.length - 2} more`}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Flat Link Resource Action button (no dashed border) */}
+              {/* Show More/Less Gate */}
+              {hasHiddenResources && (
                 <TouchableOpacity
-                  onPress={() => setShowLinkSelector(true)}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    setShowAllResources(!showAllResources);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   accessibilityRole="button"
-                  accessibilityLabel={`Link resource to ${item.title}`}
-                  style={styles.addResourceBtn}
+                  accessibilityLabel={showAllResources ? "Show fewer resources" : `Show ${linkedResources.length - 2} more resources`}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    minHeight: 36,
+                    paddingVertical: 6,
+                  }}
                 >
-                  <Feather name="plus" size={14} color={colors.primary} />
-                  <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>
-                    Link Resource
+                  <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>
+                    {showAllResources ? "Show less" : `Show ${linkedResources.length - 2} more`}
                   </Text>
                 </TouchableOpacity>
-              </View>
+              )}
+
+              {/* Flat Link Resource Action button (quiet text action) */}
+              <TouchableOpacity
+                onPress={() => setShowLinkSelector(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Link resource to ${item.title}`}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  minHeight: 36,
+                  paddingVertical: 6,
+                  gap: 6,
+                }}
+              >
+                <Feather name="plus" size={14} color={colors.primary} />
+                <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>
+                  Link resource
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
+          </Animated.View>
+        )}
 
         {/* Resource Link Selector Modal */}
         <Modal
