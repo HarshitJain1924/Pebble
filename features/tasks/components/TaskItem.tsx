@@ -10,6 +10,7 @@ import Animated, {
   FadeIn,
   FadeOut,
   LinearTransition,
+  withSequence,
 } from "react-native-reanimated";
 import { getCategoryColors } from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
@@ -280,7 +281,55 @@ export function TodoItem({
     } catch {}
   };
 
-  const isCompleted = isTaskCompleted(item);
+  // Completion moment states
+  const [isLocallyCompleting, setIsLocallyCompleting] = useState(false);
+  const isCompleted = isTaskCompleted(item) || isLocallyCompleting;
+  const checkboxScale = useSharedValue(1);
+  const completionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (completionTimerRef.current) {
+        clearTimeout(completionTimerRef.current);
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (isTaskCompleted(item)) {
+      setIsLocallyCompleting(false);
+    }
+  }, [item]);
+
+  const animatedCheckboxStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: checkboxScale.value }],
+  }));
+
+  const handleCheckboxPress = () => {
+    if (isSelectionMode) {
+      onSelect?.();
+      return;
+    }
+    if (isLocallyCompleting) return;
+
+    if (!isCompleted) {
+      // Transition to completed: spring scale + show strike-through for ~400ms before collapse
+      setIsLocallyCompleting(true);
+      if (!reducedMotion) {
+        checkboxScale.value = withSequence(
+          withTiming(0.82, { duration: 90, easing: Easing.out(Easing.quad) }),
+          withTiming(1.18, { duration: 130, easing: Easing.out(Easing.quad) }),
+          withTiming(1, { duration: 120, easing: Easing.out(Easing.quad) }),
+        );
+      }
+      completionTimerRef.current = setTimeout(() => {
+        onToggleTodo();
+      }, 400);
+    } else {
+      // Uncompleting an already completed task
+      onToggleTodo();
+    }
+  };
 
   // Category badge: neutral badge in task list unless categoryId is set explicitly
   const categorySymbol = useMemo(() => {
@@ -435,7 +484,7 @@ export function TodoItem({
 
   return (
     <SwipeableCard
-      onSwipeRight={onToggleTodo}
+      onSwipeRight={handleCheckboxPress}
       onSwipeLeft={onDeleteTodo}
       disabled={isSelectionMode}
     >
@@ -460,38 +509,40 @@ export function TodoItem({
             gap: ROW_SPEC.row.gap,
           }}
         >
-          {/* Circular Checkbox */}
-          <PressableScale
-            onPress={isSelectionMode ? onSelect : onToggleTodo}
-            hitSlop={10}
-            haptic
-            scaleTo={0.88}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: isSelectionMode ? isSelected : isCompleted }}
-            accessibilityLabel={
-              isSelectionMode
-                ? `Select task ${item.title}`
-                : `Mark task as ${isCompleted ? "incomplete" : "completed"}: ${item.title}`
-            }
-            style={{
-              width: ROW_SPEC.checkbox.visual,
-              height: ROW_SPEC.checkbox.visual,
-              borderRadius: ROW_SPEC.checkbox.visual / 2,
-              borderWidth: ROW_SPEC.checkbox.ring,
-              borderColor: (isSelectionMode ? isSelected : isCompleted)
-                ? (isSelectionMode ? colors.primary : colors.success)
-                : (isLight ? Palette.slate300 : "rgba(255, 255, 255, 0.3)"),
-              backgroundColor: (isSelectionMode ? isSelected : isCompleted)
-                ? (isSelectionMode ? colors.primary : colors.success)
-                : "transparent",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {(isSelectionMode ? isSelected : isCompleted) && (
-              <Feather name="check" size={14} color={Palette.white} />
-            )}
-          </PressableScale>
+          {/* Circular Checkbox with completion spring */}
+          <Animated.View style={animatedCheckboxStyle}>
+            <PressableScale
+              onPress={handleCheckboxPress}
+              hitSlop={10}
+              haptic
+              scaleTo={0.88}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isSelectionMode ? isSelected : isCompleted }}
+              accessibilityLabel={
+                isSelectionMode
+                  ? `Select task ${item.title}`
+                  : `Mark task as ${isCompleted ? "incomplete" : "completed"}: ${item.title}`
+              }
+              style={{
+                width: ROW_SPEC.checkbox.visual,
+                height: ROW_SPEC.checkbox.visual,
+                borderRadius: ROW_SPEC.checkbox.visual / 2,
+                borderWidth: ROW_SPEC.checkbox.ring,
+                borderColor: (isSelectionMode ? isSelected : isCompleted)
+                  ? (isSelectionMode ? colors.primary : colors.success)
+                  : (isLight ? Palette.slate300 : "rgba(255, 255, 255, 0.3)"),
+                backgroundColor: (isSelectionMode ? isSelected : isCompleted)
+                  ? (isSelectionMode ? colors.primary : colors.success)
+                  : "transparent",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {(isSelectionMode ? isSelected : isCompleted) && (
+                <Feather name="check" size={14} color={Palette.white} />
+              )}
+            </PressableScale>
+          </Animated.View>
 
           {/* Squircle Category Badge */}
           <View

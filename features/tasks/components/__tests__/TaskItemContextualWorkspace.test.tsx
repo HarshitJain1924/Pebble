@@ -498,4 +498,56 @@ describe("TaskItem Contextual Workspace Rendering", () => {
     expect(renderedTexts).not.toContain("Overdue");
     expect(renderedTexts).toContain("Yesterday");
   });
+
+  describe("Completion moment behavior", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("triggers local complete state and fires onToggleTodo after delay", () => {
+      const onToggle = jest.fn();
+      let root: any;
+      act(() => {
+        root = create(
+          <TodoItem
+            item={baseTask}
+            colors={mockColors}
+            colorScheme="dark"
+            isOverdue={false}
+            lists={mockWorkspaces}
+            selectedWorkspaceId="ws-work"
+            showWorkspaceBadge={false}
+            onToggleTodo={onToggle}
+            onDeleteTodo={jest.fn()}
+          />
+        );
+      });
+
+      const checkbox = root.root.findByProps({
+        accessibilityRole: "checkbox",
+      });
+      expect(checkbox.props.accessibilityState).toEqual({ checked: false });
+
+      // Press to complete
+      act(() => {
+        checkbox.props.onPress();
+      });
+
+      // Immediately reflects checked state optimistically
+      expect(checkbox.props.accessibilityState).toEqual({ checked: true });
+      // onToggleTodo has not fired yet
+      expect(onToggle).not.toHaveBeenCalled();
+
+      // Advance timers by 400ms
+      act(() => {
+        jest.advanceTimersByTime(400);
+      });
+
+      expect(onToggle).toHaveBeenCalledTimes(1);
+    });
+  });
 });
