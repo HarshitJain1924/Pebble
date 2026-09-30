@@ -151,12 +151,20 @@ export function useTodayActions({
   const completeTodoFromDashboard = useCallback(
     async (todoId: string, event?: any, workspaceId?: string) => {
       try {
-        const prevTodo: any = allTodos.find((t) => t.id === todoId) || null;
-        const wsIdFound: string =
+        let prevTodo: any = allTodos.find((t) => t.id === todoId) || null;
+        let wsIdFound: string =
           workspaceId ||
           prevTodo?.workspaceId ||
           prevTodo?.folderId ||
           INBOX_WORKSPACE_ID;
+
+        if (!prevTodo) {
+          const directTask = await TaskRepository.getTask(todoId, wsIdFound);
+          if (directTask) {
+            prevTodo = directTask;
+            wsIdFound = directTask.workspaceId || wsIdFound;
+          }
+        }
 
         const isCompleting = prevTodo ? prevTodo.status !== "completed" : true;
 

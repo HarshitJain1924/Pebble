@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from "react";
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { TodoItem } from "@/features/tasks/components/TaskItem";
-import { Colors, Palette } from "@/shared/constants/theme";
+import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
@@ -96,6 +96,8 @@ export function TaskSections({
         onToggleTodo={() => onToggleTodo(item.id)}
         onDeleteTodo={() => onDeleteTodo(item.id)}
         onEditTodo={() => onEditTodo(item)}
+        onSetAlarm={() => onSetAlarm(item.id)}
+        onSchedule={() => onEditTodo(item)}
         isSelectionMode={isSelectionMode}
         isSelected={selectedItemIds.has(item.id)}
         onSelect={() => onToggleSelectItem?.(item.id)}
@@ -193,8 +195,8 @@ export function TaskSections({
     if (list.length === 0) return null;
 
     return (
-      <View style={{ marginBottom: 16 }}>
-        {/* Section Header */}
+      <View style={{ marginBottom: 18 }}>
+        {/* Lightweight Section Header */}
         <PressableScale
           onPress={onToggle}
           haptic
@@ -206,15 +208,15 @@ export function TaskSections({
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
-            paddingVertical: 6,
-            paddingHorizontal: 4,
-            marginBottom: 8,
+            paddingVertical: 8,
+            paddingHorizontal: 6,
+            marginBottom: 2,
           }}
         >
           <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
             <Text
               style={{
-                fontSize: 17,
+                fontSize: 18,
                 fontWeight: "800",
                 color: colors.text,
                 letterSpacing: -0.3,
@@ -233,7 +235,7 @@ export function TaskSections({
             </Text>
           </View>
 
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             {extraHeaderRight}
             <Feather
               name={isExpanded ? "chevron-up" : "chevron-down"}
@@ -243,42 +245,33 @@ export function TaskSections({
           </View>
         </PressableScale>
 
-        {/* Enclosing Card Surface */}
+        {/* Spatial Task Stream (No heavy enclosing card around entire section) */}
         {isExpanded && (
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: colors.border,
-              overflow: "hidden",
-              shadowColor: Palette.black,
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: isDark ? 0.25 : 0.04,
-              shadowRadius: 8,
-              elevation: 2,
-            }}
-          >
-            {list.map((item, index) => (
-              <Animated.View
-                key={item.id}
-                exiting={FadeOut.duration(180)}
-                layout={LinearTransition.duration(200)}
-              >
-                {index > 0 && (
-                  <View
-                    style={{
-                      height: StyleSheet.hairlineWidth,
-                      backgroundColor: isDark
-                        ? "rgba(255, 255, 255, 0.08)"
-                        : "rgba(0, 0, 0, 0.06)",
-                      marginLeft: ROW_SPEC.dividerInset,
-                    }}
-                  />
-                )}
-                {renderTodoItem(item, isEarlier)}
-              </Animated.View>
-            ))}
+          <View style={{ marginTop: 2 }}>
+            {list.map((item, index) => {
+              const isItemExpanded = expandedTodoId === item.id;
+              return (
+                <Animated.View
+                  key={item.id}
+                  exiting={FadeOut.duration(180)}
+                  layout={LinearTransition.duration(200)}
+                >
+                  {/* Subtle divider only between collapsed consecutive rows */}
+                  {index > 0 && !isItemExpanded && expandedTodoId !== list[index - 1]?.id && (
+                    <View
+                      style={{
+                        height: StyleSheet.hairlineWidth,
+                        backgroundColor: isDark
+                          ? "rgba(255, 255, 255, 0.07)"
+                          : "rgba(0, 0, 0, 0.05)",
+                        marginLeft: ROW_SPEC.dividerInset,
+                      }}
+                    />
+                  )}
+                  {renderTodoItem(item, isEarlier)}
+                </Animated.View>
+              );
+            })}
           </View>
         )}
       </View>
@@ -295,36 +288,34 @@ export function TaskSections({
           earlierExpanded,
           () => setEarlierExpanded(!earlierExpanded),
           earlierExpanded && onSaveEarlierForLater ? (
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation();
+            <PressableScale
+              onPress={(e: any) => {
+                e?.stopPropagation?.();
                 onSaveEarlierForLater();
               }}
-              hitSlop={{ top: 12, bottom: 12, left: 10, right: 10 }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              haptic
               accessibilityRole="button"
               accessibilityLabel="Move all earlier tasks to Someday"
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 8,
+                backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.04)",
+                borderWidth: 1,
+                borderColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
+              }}
             >
-              <View
+              <Text
                 style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 8,
-                  backgroundColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.06)",
-                  borderWidth: 1,
-                  borderColor: isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(0, 0, 0, 0.08)",
+                  color: isDark ? colors.primaryLight : colors.primary,
+                  fontWeight: "600",
+                  fontSize: 12,
                 }}
               >
-                <Text
-                  style={{
-                    color: isDark ? colors.primaryLight : colors.primary,
-                    fontWeight: "600",
-                    fontSize: 11,
-                  }}
-                >
-                  Move all to Someday
-                </Text>
-              </View>
-            </Pressable>
+                Move all to Someday
+              </Text>
+            </PressableScale>
           ) : null,
           true,
         )}
@@ -348,18 +339,19 @@ export function TaskSections({
         completedExpanded,
         () => setCompletedExpanded(!completedExpanded),
         completedExpanded && completedList.length > 0 ? (
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
+          <PressableScale
+            onPress={(e: any) => {
+              e?.stopPropagation?.();
               onClearCompleted();
             }}
             hitSlop={8}
+            haptic
             style={{ paddingHorizontal: 8, paddingVertical: 2 }}
           >
             <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
               Clear
             </Text>
-          </Pressable>
+          </PressableScale>
         ) : null,
       )}
     </View>

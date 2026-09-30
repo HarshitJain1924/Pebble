@@ -1,20 +1,20 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Image as ExpoImage } from "expo-image";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withSequence,
   Easing,
   interpolate,
   FadeIn,
   FadeOut,
   LinearTransition,
-  withSequence,
 } from "react-native-reanimated";
 import { getCategoryColors } from "@/shared/constants/categoryColors";
-import { Palette } from "@/shared/constants/theme";
-import { RESOURCE_STACK_COLOR_MODE, ROW_SPEC } from "@/shared/constants/rowSpec";
+import { Palette, colorWithAlpha } from "@/shared/constants/theme";
+import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import {
   LayoutChangeEvent,
@@ -24,7 +24,6 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
-  Image,
   useWindowDimensions,
   Linking,
 } from "react-native";
@@ -33,7 +32,6 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import * as Haptics from "expo-haptics";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
-import { Typography } from "@/shared/constants/typography";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
@@ -60,6 +58,8 @@ interface TodoItemProps {
   onToggleTodo: () => void;
   onDeleteTodo: () => void;
   onEditTodo?: () => void;
+  onSetAlarm?: () => void;
+  onSchedule?: () => void;
   onLayout?: (event: LayoutChangeEvent) => void;
   isSelectionMode?: boolean;
   isSelected?: boolean;
@@ -90,6 +90,8 @@ export function TodoItem({
   onToggleTodo,
   onDeleteTodo,
   onEditTodo,
+  onSetAlarm,
+  onSchedule,
   onLayout,
   isSelectionMode = false,
   isSelected = false,
@@ -100,70 +102,72 @@ export function TodoItem({
   onToggleExpand,
 }: TodoItemProps) {
   const router = useRouter();
-  const { width: screenWidth } = useWindowDimensions();
-  const category = getTaskCategoryMeta(normalizeTaskCategory(item.categoryId));
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isLight = colorScheme === "light";
   const isDark = colorScheme !== "light";
   const categoryColors = getCategoryColors(isDark);
   const streamColors = getStreamResourcePalette(isDark);
 
-  // Context Linkage States
+  // Expansion and fanning states
   const [localExpanded, setLocalExpanded] = useState(false);
   const isExpanded = isExpandedProp !== undefined ? isExpandedProp : localExpanded;
-  const setIsExpanded = onToggleExpand !== undefined ? onToggleExpand : setLocalExpanded;
+  const toggleExpanded = onToggleExpand !== undefined ? onToggleExpand : () => setLocalExpanded(!localExpanded);
+
   const [showLinkSelector, setShowLinkSelector] = useState(false);
-  const [isPeeking, setIsPeeking] = useState(false);
-  const [showAllResources, setShowAllResources] = useState(false);
+  const [isFanning, setIsFanning] = useState(false);
 
   const reducedMotion = useReducedMotion();
-  const progress = useSharedValue(isExpanded ? 1 : 0);
 
-  React.useEffect(() => {
-    if (reducedMotion) {
-      progress.value = isExpanded ? 1 : 0;
-    } else {
-      progress.value = withTiming(isExpanded ? 1 : 0, {
-        duration: 280,
-        easing: Easing.out(Easing.quad),
-      });
-    }
-  }, [isExpanded, reducedMotion, progress]);
+  // Completion animation
+  const [isLocallyCompleting, setIsLocallyCompleting] = useState(false);
+  const isCompleted = isTaskCompleted(item) || isLocallyCompleting;
+  const checkboxScale = useSharedValue(1);
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fanAnimatedStyle = useAnimatedStyle(() => {
-    if (reducedMotion) {
-      return { marginLeft: -ROW_SPEC.stack.overlap };
-    }
-    const ml = interpolate(
-      progress.value,
-      [0, 1],
-      [-ROW_SPEC.stack.overlap, ROW_SPEC.stack.openGap],
-    );
-    return {
-      marginLeft: ml,
-    };
-  });
-
-  const linkedResourceIds = item.resourceIds;
-  const linkedCount = linkedResourceIds?.length ?? 0;
-
-  // Automatically collapse when no resources are left
-  React.useEffect(() => {
-    if (linkedCount === 0 && isExpanded) {
-      if (onToggleExpand) {
-        onToggleExpand();
-      } else {
-        setLocalExpanded(false);
+  useEffect(() => {
+    return () => {
+      if (completionTimerRef.current) {
+        clearTimeout(completionTimerRef.current);
       }
-    }
-  }, [linkedCount, isExpanded, onToggleExpand]);
+    };
+  }, []);
 
-  // Reset showAllResources state when drawer is collapsed
-  React.useEffect(() => {
-    if (!isExpanded) {
-      setShowAllResources(false);
+  useEffect(() => {
+    if (isTaskCompleted(item)) {
+      setIsLocallyCompleting(false);
     }
-  }, [isExpanded]);
+  }, [item]);
 
+  const animatedCheckboxStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: checkboxScale.value }],
+  }));
+
+  const handleCheckboxPress = () => {
+    if (isSelectionMode) {
+      onSelect?.();
+      return;
+    }
+    if (isLocallyCompleting) return;
+
+    if (!isCompleted) {
+      setIsLocallyCompleting(true);
+      if (!reducedMotion) {
+        checkboxScale.value = withSequence(
+          withTiming(0.82, { duration: 90, easing: Easing.out(Easing.quad) }),
+          withTiming(1.18, { duration: 130, easing: Easing.out(Easing.quad) }),
+          withTiming(1, { duration: 120, easing: Easing.out(Easing.quad) }),
+        );
+      }
+      completionTimerRef.current = setTimeout(() => {
+        onToggleTodo();
+      }, 380);
+    } else {
+      onToggleTodo();
+    }
+  };
+
+  // Linked resources resolution
+  const linkedResourceIds = item.resourceIds;
   const linkedResources = useMemo(() => {
     if (!linkedResourceIds || linkedResourceIds.length === 0) return [];
     return linkedResourceIds
@@ -186,92 +190,18 @@ export function TodoItem({
   const hasPlusChip = totalResources >= 4;
   const plusChipCount = totalResources - 2;
 
-  const renderStackTile = (res: any, index: number) => {
-    const visual = resolveResourceVisual(res);
-    const stream = streamColors[visual.category] || streamColors.note;
-    const isImageWithThumb = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
+  // Resource Fanning Reanimated Progress
+  const fanProgress = useSharedValue(0);
 
-    const isNeutral = RESOURCE_STACK_COLOR_MODE === "neutral";
-    const tileBg = isNeutral
-      ? (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)")
-      : stream.backgroundColor;
-    const iconColor = stream.accent;
-
-    return (
-      <View
-        key={res.id || `tile-${index}`}
-        testID={`resource-stack-tile-${index}`}
-        style={{
-          width: ROW_SPEC.stack.tile,
-          height: ROW_SPEC.stack.tile,
-          borderRadius: ROW_SPEC.stack.tileRadius,
-          borderWidth: ROW_SPEC.stack.ring,
-          borderColor: colors.card,
-          backgroundColor: tileBg,
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-        }}
-      >
-        {isImageWithThumb ? (
-          <ExpoImage
-            source={{ uri: visual.thumbnailUri || res.mediaUri }}
-            style={{ width: "100%", height: "100%" }}
-            contentFit="cover"
-          />
-        ) : (
-          <Feather
-            name={
-              visual.category === "link"
-                ? "link"
-                : visual.category === "image"
-                ? "image"
-                : "file-text"
-            }
-            size={14}
-            color={iconColor}
-          />
-        )}
-      </View>
-    );
-  };
-
-  const renderPlusChip = (count: number) => {
-    return (
-      <View
-        key="plus-chip"
-        testID="resource-stack-plus-chip"
-        style={{
-          width: ROW_SPEC.stack.tile,
-          height: ROW_SPEC.stack.tile,
-          borderRadius: ROW_SPEC.stack.tileRadius,
-          borderWidth: ROW_SPEC.stack.ring,
-          borderColor: colors.card,
-          backgroundColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Text
-          style={{
-            fontSize: ROW_SPEC.stack.chipFont,
-            fontWeight: "600",
-            color: colors.textMuted,
-          }}
-        >
-          {`+${count}`}
-        </Text>
-      </View>
-    );
-  };
-
-  const hasHiddenResources = linkedResources.length > 3;
-  const displayedResources = useMemo(() => {
-    if (hasHiddenResources && !showAllResources) {
-      return linkedResources.slice(0, 2);
+  useEffect(() => {
+    if (isFanning) {
+      fanProgress.value = reducedMotion
+        ? 1
+        : withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) });
+    } else {
+      fanProgress.value = 0;
     }
-    return linkedResources;
-  }, [linkedResources, hasHiddenResources, showAllResources]);
+  }, [isFanning, reducedMotion, fanProgress]);
 
   const handleOpenUrl = async (url?: string) => {
     if (!url) return;
@@ -281,57 +211,18 @@ export function TodoItem({
     } catch {}
   };
 
-  // Completion moment states
-  const [isLocallyCompleting, setIsLocallyCompleting] = useState(false);
-  const isCompleted = isTaskCompleted(item) || isLocallyCompleting;
-  const checkboxScale = useSharedValue(1);
-  const completionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  React.useEffect(() => {
-    return () => {
-      if (completionTimerRef.current) {
-        clearTimeout(completionTimerRef.current);
-      }
-    };
-  }, []);
-
-  React.useEffect(() => {
-    if (isTaskCompleted(item)) {
-      setIsLocallyCompleting(false);
-    }
-  }, [item]);
-
-  const animatedCheckboxStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: checkboxScale.value }],
-  }));
-
-  const handleCheckboxPress = () => {
-    if (isSelectionMode) {
-      onSelect?.();
-      return;
-    }
-    if (isLocallyCompleting) return;
-
-    if (!isCompleted) {
-      // Transition to completed: spring scale + show strike-through for ~400ms before collapse
-      setIsLocallyCompleting(true);
-      if (!reducedMotion) {
-        checkboxScale.value = withSequence(
-          withTiming(0.82, { duration: 90, easing: Easing.out(Easing.quad) }),
-          withTiming(1.18, { duration: 130, easing: Easing.out(Easing.quad) }),
-          withTiming(1, { duration: 120, easing: Easing.out(Easing.quad) }),
-        );
-      }
-      completionTimerRef.current = setTimeout(() => {
-        onToggleTodo();
-      }, 400);
+  const handleOpenResource = (res: any) => {
+    const visual = resolveResourceVisual(res);
+    if (visual.category === "link" && (res.url || res.content)) {
+      handleOpenUrl(res.url || res.content);
     } else {
-      // Uncompleting an already completed task
-      onToggleTodo();
+      const targetWs =
+        res.workspaceId || item.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      router.push(`/resource-details?id=${res.id}&workspaceId=${targetWs}`);
     }
   };
 
-  // Category badge: neutral badge in task list unless categoryId is set explicitly
+  // Category badge resolution
   const categorySymbol = useMemo(() => {
     if (item.categoryId) {
       return resolveItemCategorySymbol(
@@ -360,16 +251,14 @@ export function TodoItem({
 
   const folderName = currentWorkspace?.name || "Work";
   const isInbox = currentWorkspace?.id === INBOX_WORKSPACE_ID || folderName.toLowerCase() === "inbox";
-
   const durationMinutes = (item.schedule as any)?.durationMinutes;
 
-  // Contextual folder/workspace badge:
-  // Rendered in global/all-workspaces stream; hidden when inside an open workspace
   const shouldShowWorkspace =
     showWorkspaceBadge !== undefined
       ? showWorkspaceBadge
       : (!selectedWorkspaceId || selectedWorkspaceId === "all");
 
+  // Metadata formatting
   const metaParts = useMemo<MetaPart[]>(() => {
     const parts: MetaPart[] = [];
 
@@ -391,7 +280,6 @@ export function TodoItem({
     }
 
     if (omitOverdueLabel) {
-      // Earlier section: drop "Overdue" text, show relative date (Yesterday, 3d ago, Mon 28)
       if (item.schedule?.date) {
         const relativeDate = formatRelativeTaskDate(item.schedule.date, selectedDate);
         if (relativeDate) {
@@ -413,7 +301,6 @@ export function TodoItem({
         });
       }
     } else {
-      // Outside Earlier (e.g. Today): keep standard overdue behavior with semantic theme token
       if (overdue) {
         parts.push({
           key: "overdue",
@@ -422,11 +309,29 @@ export function TodoItem({
           color: colors.error,
         });
       }
-      if (reminderText) {
+      if (item.schedule?.date) {
+        const relativeDate = formatRelativeTaskDate(item.schedule.date, selectedDate);
+        if (relativeDate) {
+          const displayText = reminderText
+            ? `${relativeDate.label} · ${reminderText}`
+            : relativeDate.label;
+          parts.push({
+            key: "date",
+            text: displayText,
+            color: colors.textMuted,
+          });
+        }
+      } else if (reminderText) {
         parts.push({
           key: "reminder",
           text: reminderText,
           icon: "bell",
+          color: colors.textMuted,
+        });
+      } else {
+        parts.push({
+          key: "date",
+          text: "No date",
           color: colors.textMuted,
         });
       }
@@ -478,38 +383,124 @@ export function TodoItem({
     item.recurrence,
     durationMinutes,
     colors.textMuted,
-    colors.warning,
     colors.error,
   ]);
+
+  // Render a compact tile in the collapsed trailing stack
+  const renderStackTile = (res: any, index: number) => {
+    const visual = resolveResourceVisual(res);
+    const stream = streamColors[visual.category] || streamColors.note;
+    const isImageWithThumb = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
+
+    return (
+      <View
+        key={res.id || `tile-${index}`}
+        testID={`resource-stack-tile-${index}`}
+        style={{
+          width: ROW_SPEC.stack.tile,
+          height: ROW_SPEC.stack.tile,
+          borderRadius: ROW_SPEC.stack.tileRadius,
+          borderWidth: ROW_SPEC.stack.ring,
+          borderColor: isExpanded ? colors.card : (isDark ? colors.background : Palette.white),
+          backgroundColor: stream.backgroundColor,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          marginLeft: index === 0 ? 0 : -ROW_SPEC.stack.overlap,
+        }}
+      >
+        {isImageWithThumb ? (
+          <ExpoImage
+            source={{ uri: visual.thumbnailUri || res.mediaUri }}
+            style={{ width: "100%", height: "100%" }}
+            contentFit="cover"
+          />
+        ) : (
+          <Feather
+            name={
+              visual.category === "link"
+                ? "link"
+                : visual.category === "image"
+                ? "image"
+                : visual.category === "pdf"
+                ? "file"
+                : "file-text"
+            }
+            size={13}
+            color={stream.accent}
+          />
+        )}
+      </View>
+    );
+  };
+
+  const renderPlusChip = (count: number) => {
+    return (
+      <View
+        key="plus-chip"
+        testID="resource-stack-plus-chip"
+        style={{
+          width: ROW_SPEC.stack.tile,
+          height: ROW_SPEC.stack.tile,
+          borderRadius: ROW_SPEC.stack.tileRadius,
+          borderWidth: ROW_SPEC.stack.ring,
+          borderColor: isExpanded ? colors.card : (isDark ? colors.background : Palette.white),
+          backgroundColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.08)",
+          alignItems: "center",
+          justifyContent: "center",
+          marginLeft: -ROW_SPEC.stack.overlap,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: ROW_SPEC.stack.chipFont,
+            fontWeight: "700",
+            color: colors.textMuted,
+          }}
+        >
+          {`+${count}`}
+        </Text>
+      </View>
+    );
+  };
+
+  // Trailing stack tap triggers fanning
+  const handleOpenFanning = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setIsFanning(true);
+  };
 
   return (
     <SwipeableCard
       onSwipeRight={handleCheckboxPress}
       onSwipeLeft={onDeleteTodo}
-      disabled={isSelectionMode}
+      disabled={isSelectionMode || isExpanded}
     >
       <View
         onLayout={onLayout}
-        style={{
-          position: "relative",
-          overflow: "hidden",
-          backgroundColor: colors.card,
-          opacity: isCompleted ? 0.6 : 1,
-        }}
+        style={[
+          styles.rowContainer,
+          isExpanded
+            ? [
+                styles.expandedCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  shadowColor: Palette.black,
+                  shadowOpacity: isDark ? 0.28 : 0.06,
+                },
+              ]
+            : {
+                backgroundColor: "transparent",
+              },
+          {
+            opacity: isCompleted ? 0.6 : 1,
+          },
+        ]}
       >
-        {/* Parent Task Main Info Row */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingTop: ROW_SPEC.row.paddingTop,
-            paddingBottom: ROW_SPEC.row.paddingBottom,
-            paddingLeft: ROW_SPEC.row.paddingLeft,
-            paddingRight: ROW_SPEC.row.paddingRight,
-            gap: ROW_SPEC.row.gap,
-          }}
-        >
-          {/* Circular Checkbox with completion spring */}
+        {/* Main Header / Collapsed Row */}
+        <View style={styles.mainRow}>
+          {/* Circular Checkbox with bounce */}
           <Animated.View style={animatedCheckboxStyle}>
             <PressableScale
               onPress={handleCheckboxPress}
@@ -523,40 +514,40 @@ export function TodoItem({
                   ? `Select task ${item.title}`
                   : `Mark task as ${isCompleted ? "incomplete" : "completed"}: ${item.title}`
               }
-              style={{
-                width: ROW_SPEC.checkbox.visual,
-                height: ROW_SPEC.checkbox.visual,
-                borderRadius: ROW_SPEC.checkbox.visual / 2,
-                borderWidth: ROW_SPEC.checkbox.ring,
-                borderColor: (isSelectionMode ? isSelected : isCompleted)
-                  ? (isSelectionMode ? colors.primary : colors.success)
-                  : (isLight ? Palette.slate300 : "rgba(255, 255, 255, 0.3)"),
-                backgroundColor: (isSelectionMode ? isSelected : isCompleted)
-                  ? (isSelectionMode ? colors.primary : colors.success)
-                  : "transparent",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
+              style={[
+                styles.checkbox,
+                {
+                  width: ROW_SPEC.checkbox.visual,
+                  height: ROW_SPEC.checkbox.visual,
+                  borderRadius: ROW_SPEC.checkbox.visual / 2,
+                  borderWidth: ROW_SPEC.checkbox.ring,
+                  borderColor: (isSelectionMode ? isSelected : isCompleted)
+                    ? (isSelectionMode ? colors.primary : colors.success)
+                    : (isLight ? Palette.slate300 : "rgba(255, 255, 255, 0.28)"),
+                  backgroundColor: (isSelectionMode ? isSelected : isCompleted)
+                    ? (isSelectionMode ? colors.primary : colors.success)
+                    : "transparent",
+                },
+              ]}
             >
               {(isSelectionMode ? isSelected : isCompleted) && (
-                <Feather name="check" size={14} color={Palette.white} />
+                <Feather name="check" size={13} color={Palette.white} />
               )}
             </PressableScale>
           </Animated.View>
 
           {/* Squircle Category Badge */}
           <View
-            style={{
-              width: ROW_SPEC.badge.size,
-              height: ROW_SPEC.badge.size,
-              borderRadius: ROW_SPEC.badge.radius,
-              backgroundColor: categorySymbol.tint,
-              borderWidth: 1,
-              borderColor: `${categorySymbol.color}24`,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: isCompleted ? 0.6 : 1,
-            }}
+            style={[
+              styles.categoryBadge,
+              {
+                width: ROW_SPEC.badge.size,
+                height: ROW_SPEC.badge.size,
+                borderRadius: ROW_SPEC.badge.radius,
+                backgroundColor: categorySymbol.tint,
+                borderColor: `${categorySymbol.color}24`,
+              },
+            ]}
           >
             {categorySymbol.iconFamily === "ionicons" ? (
               <Ionicons
@@ -573,49 +564,53 @@ export function TodoItem({
             )}
           </View>
 
-          {/* Title & Metadata Column */}
+          {/* Title & Metadata (Pressing triggers expansion or selection) */}
           <PressableScale
-            onPress={isSelectionMode ? onSelect : onEditTodo}
+            onPress={isSelectionMode ? onSelect : toggleExpanded}
             haptic
-            style={{ flex: 1, justifyContent: "center" }}
+            style={styles.textContainer}
             accessibilityRole="button"
-            accessibilityLabel={isSelectionMode ? `Select task ${item.title}` : `Edit task ${item.title}`}
+            accessibilityLabel={
+              isSelectionMode
+                ? `Select task ${item.title}`
+                : `${isExpanded ? "Collapse" : "Expand"} task ${item.title}`
+            }
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
+            <View style={styles.titleRow}>
               <Text
-                style={{
-                  fontSize: ROW_SPEC.type.title,
-                  fontWeight: ROW_SPEC.type.titleWeight,
-                  color: isCompleted ? colors.textMuted : colors.text,
-                  textDecorationLine: isCompleted ? "line-through" : "none",
-                  letterSpacing: -0.25,
-                  flexShrink: 1,
-                }}
-                numberOfLines={1}
+                style={[
+                  styles.titleText,
+                  {
+                    fontSize: isExpanded ? 17 : ROW_SPEC.type.title,
+                    fontWeight: isExpanded ? "700" : ROW_SPEC.type.titleWeight,
+                    color: isCompleted ? colors.textMuted : colors.text,
+                    textDecorationLine: isCompleted ? "line-through" : "none",
+                  },
+                ]}
+                numberOfLines={isExpanded ? 2 : 1}
               >
                 {item.title}
               </Text>
-              {item.priority === "high" && (
-                <Feather name="flag" size={14} color={categoryColors.priority.high} />
-              )}
             </View>
 
-            {/* Single line metadata row with dot delimiters (only rendered if there is metadata) */}
+            {/* Single line metadata row with dot separators */}
             {metaParts.length > 0 && (
-              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "nowrap", overflow: "hidden" }}>
+              <View style={styles.metaRow}>
                 {metaParts.map((part, idx) => (
                   <React.Fragment key={idx}>
                     {idx > 0 && (
-                      <Text style={{ color: colors.textMuted, fontSize: ROW_SPEC.type.meta, marginHorizontal: 4 }}>
+                      <Text style={[styles.metaDot, { color: colors.textMuted }]}>
                         ·
                       </Text>
                     )}
                     <Text
-                      style={{
-                        color: part.color || colors.textMuted,
-                        fontSize: ROW_SPEC.type.meta,
-                        fontWeight: part.key === "overdue" ? "600" : "500",
-                      }}
+                      style={[
+                        styles.metaText,
+                        {
+                          color: part.color || colors.textMuted,
+                          fontWeight: part.key === "overdue" ? "700" : "500",
+                        },
+                      ]}
                       numberOfLines={1}
                     >
                       {part.text}
@@ -626,144 +621,116 @@ export function TodoItem({
             )}
           </PressableScale>
 
-          {/* Resource Stack (Trailing) */}
-          {totalResources > 0 && (
-            <View style={{ justifyContent: "center", alignItems: "center" }}>
+          {/* Trailing Priority Flag / Pinned icon in Expanded Mode */}
+          {isExpanded && item.priority === "high" && (
+            <View style={{ marginRight: 2 }}>
+              <Feather name="bookmark" size={16} color={categoryColors.priority.high} />
+            </View>
+          )}
+
+          {/* Trailing Resource Stack & Badges */}
+          <View style={styles.trailingArea}>
+            {totalResources > 0 ? (
               <PressableScale
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setIsExpanded(!isExpanded);
-                }}
-                onLongPress={() => {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                  setIsPeeking(true);
-                }}
-                delayLongPress={350}
+                onPress={handleOpenFanning}
+                scaleTo={0.93}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 haptic
                 accessibilityRole="button"
                 accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
                 accessibilityState={{ expanded: isExpanded }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minHeight: 44,
-                }}
+                style={styles.resourceStackPressable}
               >
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  {visibleTiles.map((res: any, index: number) => {
-                    if (index === 0) {
-                      return (
-                        <View key={res.id || `tile-${index}`}>
-                          {renderStackTile(res, index)}
-                        </View>
-                      );
-                    }
-                    return (
-                      <Animated.View
-                        key={res.id || `tile-${index}`}
-                        style={fanAnimatedStyle}
-                      >
-                        {renderStackTile(res, index)}
-                      </Animated.View>
-                    );
-                  })}
-                  {hasPlusChip && (
-                    <Animated.View
-                      key="plus-chip"
-                      style={fanAnimatedStyle}
-                    >
-                      {renderPlusChip(plusChipCount)}
-                    </Animated.View>
-                  )}
+                <View style={styles.stackRow}>
+                  {visibleTiles.map((res: any, index: number) => renderStackTile(res, index))}
+                  {hasPlusChip && renderPlusChip(plusChipCount)}
                 </View>
               </PressableScale>
-            </View>
-          )}
+            ) : item.recurrence ? (
+              <Feather name="repeat" size={14} color={colors.textMuted} />
+            ) : item.priority === "high" && !isExpanded ? (
+              <Feather name="flag" size={14} color={categoryColors.priority.high} />
+            ) : null}
+          </View>
         </View>
 
-        {/* Expanded Flat Resource List inside the same card */}
-        {isExpanded && totalResources > 0 && (
+        {/* INLINE EXPANDED CONTEXTUAL SURFACE (Phase 3) */}
+        {isExpanded && (
           <Animated.View
             entering={reducedMotion ? undefined : FadeIn.duration(200)}
-            exiting={reducedMotion ? undefined : FadeOut.duration(180)}
-            layout={reducedMotion ? undefined : LinearTransition.duration(280)}
-            style={{
-              paddingLeft: ROW_SPEC.dividerInset,
-              paddingRight: ROW_SPEC.row.paddingRight,
-              marginTop: 4,
-              paddingBottom: 8,
-            }}
+            exiting={reducedMotion ? undefined : FadeOut.duration(160)}
+            layout={reducedMotion ? undefined : LinearTransition.duration(240)}
+            style={styles.expandedBody}
           >
-            {/* Subtle divider before the resources section */}
-            <View
-              style={{
-                height: StyleSheet.hairlineWidth,
-                backgroundColor: colors.border,
-                marginBottom: 8,
-                opacity: 0.5,
-              }}
-            />
+            {/* Task Description / Note (if present) */}
+            {Boolean(item.description && item.description.trim().length > 0) && (
+              <View style={styles.descriptionContainer}>
+                <Text style={[styles.descriptionText, { color: colors.textMuted }]}>
+                  {item.description}
+                </Text>
+              </View>
+            )}
 
-            {/* Flat List */}
-            <View style={{ gap: 4 }}>
-              {displayedResources.map((res: any, idx: number) => {
-                const visual = resolveResourceVisual(res);
-                const stream = streamColors[visual.category] || streamColors.note;
-                const isLink = visual.category === "link";
+            {/* Linked Resources Section */}
+            <View style={styles.resourcesSection}>
+              <View style={styles.resourcesHeaderRow}>
+                <Text style={[styles.resourcesHeaderTitle, { color: colors.text }]}>
+                  {`Resources (${totalResources})`}
+                </Text>
+                {totalResources > 0 && (
+                  <PressableScale
+                    onPress={handleOpenFanning}
+                    haptic
+                    accessibilityRole="button"
+                    accessibilityLabel="View fanned resources"
+                  >
+                    <Text style={[styles.viewAllText, { color: isDark ? colors.primaryLight : colors.primary }]}>
+                      View all
+                    </Text>
+                  </PressableScale>
+                )}
+              </View>
 
-                let secondaryText = "";
-                if (isLink && (res.url || res.content)) {
-                  secondaryText = (res.url || res.content).replace(/https?:\/\/(www\.)?/, "").split("/")[0];
-                } else if (visual.category === "note" && (res.content || res.body)) {
-                  secondaryText = (res.content || res.body).trim().split("\n")[0];
-                } else if (visual.category === "image") {
-                  secondaryText = "Image attachment";
-                } else if (visual.category === "pdf") {
-                  secondaryText = "PDF document";
-                }
+              {/* Horizontal Scroll of Resource Preview Cards */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.horizontalResourceScroll}
+              >
+                {linkedResources.map((res: any) => {
+                  const visual = resolveResourceVisual(res);
+                  const stream = streamColors[visual.category] || streamColors.note;
+                  const isImage = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
 
-                return (
-                  <View key={res.id || idx}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (isLink) {
-                          handleOpenUrl(res.url || res.content);
-                        } else {
-                          const targetWs =
-                            res.workspaceId || item.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
-                          router.push(`/resource-details?id=${res.id}&workspaceId=${targetWs}`);
-                        }
-                      }}
-                      accessibilityRole={isLink ? "link" : "button"}
+                  return (
+                    <PressableScale
+                      key={res.id}
+                      onPress={() => handleOpenResource(res)}
+                      haptic
+                      scaleTo={0.96}
+                      accessibilityRole="button"
                       accessibilityLabel={`${res.title}, ${visual.label}`}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        minHeight: ROW_SPEC.listRow.minHeight,
-                        gap: 12,
-                        paddingVertical: 6,
-                      }}
+                      style={[
+                        styles.resourceCard,
+                        {
+                          backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Palette.slate50,
+                          borderColor: colors.border,
+                        },
+                      ]}
                     >
-                      {/* Icon or Thumbnail */}
+                      {/* Top Preview Area */}
                       <View
-                        style={{
-                          width: ROW_SPEC.listRow.tile,
-                          height: ROW_SPEC.listRow.tile,
-                          borderRadius: ROW_SPEC.stack.tileRadius,
-                          backgroundColor: stream.backgroundColor,
-                          borderColor: stream.borderColor,
-                          borderWidth: 1,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          overflow: "hidden",
-                        }}
+                        style={[
+                          styles.cardPreviewArea,
+                          {
+                            backgroundColor: stream.backgroundColor,
+                          },
+                        ]}
                       >
-                        {visual.category === "image" && (visual.thumbnailUri || res.mediaUri) ? (
+                        {isImage ? (
                           <ExpoImage
                             source={{ uri: visual.thumbnailUri || res.mediaUri }}
-                            style={{ width: "100%", height: "100%" }}
+                            style={styles.cardImage}
                             contentFit="cover"
                           />
                         ) : (
@@ -773,142 +740,368 @@ export function TodoItem({
                                 ? "link"
                                 : visual.category === "image"
                                 ? "image"
+                                : visual.category === "pdf"
+                                ? "file"
                                 : "file-text"
                             }
-                            size={14}
+                            size={20}
                             color={stream.accent}
                           />
                         )}
                       </View>
 
-                      <View style={{ flex: 1, justifyContent: "center" }}>
+                      {/* Card Title & Type Label */}
+                      <View style={styles.cardInfoArea}>
                         <Text
-                          style={{
-                            fontSize: ROW_SPEC.listRow.title,
-                            fontWeight: "600",
-                            color: colors.text,
-                          }}
+                          style={[styles.cardTitle, { color: colors.text }]}
                           numberOfLines={1}
                         >
-                          {res.title}
+                          {res.title || "Resource"}
                         </Text>
-                        {secondaryText ? (
-                          <Text
-                            style={{
-                              fontSize: ROW_SPEC.listRow.secondary,
-                              color: colors.textMuted,
-                              marginTop: 1,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {secondaryText}
-                          </Text>
-                        ) : null}
+                        <Text style={[styles.cardType, { color: colors.textMuted }]}>
+                          {visual.label}
+                        </Text>
                       </View>
-                    </TouchableOpacity>
+                    </PressableScale>
+                  );
+                })}
 
-                    {/* Inner row separator divider */}
-                    {idx < displayedResources.length - 1 && (
-                      <View
-                        style={{
-                          height: StyleSheet.hairlineWidth,
-                          backgroundColor: isDark
-                            ? "rgba(255, 255, 255, 0.08)"
-                            : "rgba(0, 0, 0, 0.06)",
-                        }}
-                      />
-                    )}
-                  </View>
-                );
-              })}
-
-              {/* Show More/Less Gate */}
-              {hasHiddenResources && (
-                <TouchableOpacity
+                {/* "+ Add" Resource Card */}
+                <PressableScale
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    setShowAllResources(!showAllResources);
+                    setShowLinkSelector(true);
                   }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  haptic
+                  scaleTo={0.96}
                   accessibilityRole="button"
-                  accessibilityLabel={showAllResources ? "Show fewer resources" : `Show ${linkedResources.length - 2} more resources`}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    minHeight: 36,
-                    paddingVertical: 6,
-                  }}
+                  accessibilityLabel="Link a new resource to this task"
+                  style={[
+                    styles.addResourceCard,
+                    {
+                      borderColor: isDark ? "rgba(255, 255, 255, 0.16)" : colors.border,
+                      backgroundColor: isDark ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)",
+                    },
+                  ]}
                 >
-                  <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>
-                    {showAllResources ? "Show less" : `Show ${linkedResources.length - 2} more`}
+                  <View
+                    style={[
+                      styles.addIconCircle,
+                      {
+                        backgroundColor: colorWithAlpha(colors.primary, isDark ? 0.2 : 0.1),
+                      },
+                    ]}
+                  >
+                    <Feather name="plus" size={18} color={isDark ? colors.primaryLight : colors.primary} />
+                  </View>
+                  <Text
+                    style={[
+                      styles.addCardText,
+                      {
+                        color: colors.textMuted,
+                      },
+                    ]}
+                  >
+                    Add
                   </Text>
-                </TouchableOpacity>
-              )}
+                </PressableScale>
+              </ScrollView>
+            </View>
 
-              {/* Flat Link Resource Action button (quiet text action) */}
-              <TouchableOpacity
-                onPress={() => setShowLinkSelector(true)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            {/* Quick Action Pills Row (4 Buttons) */}
+            <View style={styles.quickActionsRow}>
+              {/* 1. Complete */}
+              <PressableScale
+                onPress={handleCheckboxPress}
+                haptic
+                scaleTo={0.95}
                 accessibilityRole="button"
-                accessibilityLabel={`Link resource to ${item.title}`}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  minHeight: 36,
-                  paddingVertical: 6,
-                  gap: 6,
-                }}
+                accessibilityLabel={isCompleted ? "Mark incomplete" : "Complete task"}
+                style={[
+                  styles.quickActionBtn,
+                  {
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
+                    borderColor: colors.border,
+                  },
+                ]}
               >
-                <Feather name="plus" size={14} color={colors.primary} />
-                <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>
-                  Link resource
+                <View
+                  style={[
+                    styles.quickActionIconCircle,
+                    { backgroundColor: colorWithAlpha(colors.success, 0.16) },
+                  ]}
+                >
+                  <Feather name="check" size={14} color={colors.success} />
+                </View>
+                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
+                  {isCompleted ? "Completed" : "Complete"}
                 </Text>
-              </TouchableOpacity>
+              </PressableScale>
+
+              {/* 2. Schedule */}
+              <PressableScale
+                onPress={() => {
+                  if (onSchedule) onSchedule();
+                  else onEditTodo?.();
+                }}
+                haptic
+                scaleTo={0.95}
+                accessibilityRole="button"
+                accessibilityLabel="Schedule task"
+                style={[
+                  styles.quickActionBtn,
+                  {
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.quickActionIconCircle,
+                    { backgroundColor: colorWithAlpha(Palette.blue500, 0.16) },
+                  ]}
+                >
+                  <Feather name="calendar" size={14} color={Palette.blue500} />
+                </View>
+                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
+                  Schedule
+                </Text>
+              </PressableScale>
+
+              {/* 3. Reminder */}
+              <PressableScale
+                onPress={() => {
+                  if (onSetAlarm) onSetAlarm();
+                  else onEditTodo?.();
+                }}
+                haptic
+                scaleTo={0.95}
+                accessibilityRole="button"
+                accessibilityLabel="Set reminder alarm"
+                style={[
+                  styles.quickActionBtn,
+                  {
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.quickActionIconCircle,
+                    { backgroundColor: colorWithAlpha(Palette.amber500, 0.16) },
+                  ]}
+                >
+                  <Feather name="bell" size={14} color={Palette.amber500} />
+                </View>
+                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
+                  Reminder
+                </Text>
+              </PressableScale>
+
+              {/* 4. More */}
+              <PressableScale
+                onPress={onEditTodo}
+                haptic
+                scaleTo={0.95}
+                accessibilityRole="button"
+                accessibilityLabel="Open full task details"
+                style={[
+                  styles.quickActionBtn,
+                  {
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.quickActionIconCircle,
+                    { backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)" },
+                  ]}
+                >
+                  <Feather name="more-horizontal" size={14} color={colors.textMuted} />
+                </View>
+                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
+                  More
+                </Text>
+              </PressableScale>
             </View>
           </Animated.View>
         )}
 
-        {/* Resource Link Selector Modal */}
+        {/* RESOURCE FAN DECK MODAL (Phase 4) */}
+        <Modal
+          visible={isFanning}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsFanning(false)}
+        >
+          <View style={styles.fanModalBackdrop}>
+            {/* Backdrop Tap to close */}
+            <Pressable
+              onPress={() => setIsFanning(false)}
+              style={StyleSheet.absoluteFill}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss fanned resources"
+            />
+
+            {/* Fanned Cards Deck */}
+            <View style={styles.fanDeckContainer} pointerEvents="box-none">
+              {linkedResources.map((res: any, idx: number) => {
+                const visual = resolveResourceVisual(res);
+                const stream = streamColors[visual.category] || streamColors.note;
+                const isImage = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
+
+                const count = linkedResources.length;
+                // Calculate rotation and horizontal offset for fan arc
+                const angleStep = count > 1 ? Math.min(10, 36 / (count - 1)) : 0;
+                const startAngle = -(angleStep * (count - 1)) / 2;
+                const targetAngle = startAngle + idx * angleStep;
+
+                const targetX = (idx - (count - 1) / 2) * 36;
+                const targetY = -Math.sin(((idx + 0.5) / count) * Math.PI) * 18;
+
+                return (
+                  <PressableScale
+                    key={res.id || idx}
+                    onPress={() => {
+                      setIsFanning(false);
+                      handleOpenResource(res);
+                    }}
+                    scaleTo={0.96}
+                    haptic
+                    accessibilityRole="button"
+                    accessibilityLabel={`${res.title}, ${visual.label}`}
+                    style={[
+                      styles.fannedCard,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                        transform: [
+                          { translateX: targetX },
+                          { translateY: targetY },
+                          { rotate: reducedMotion ? "0deg" : `${targetAngle}deg` },
+                        ],
+                        zIndex: 10 + idx,
+                        shadowColor: Palette.black,
+                      },
+                    ]}
+                  >
+                    {/* Top Preview Graphic */}
+                    <View
+                      style={[
+                        styles.fannedCardPreview,
+                        {
+                          backgroundColor: stream.backgroundColor,
+                        },
+                      ]}
+                    >
+                      {isImage ? (
+                        <ExpoImage
+                          source={{ uri: visual.thumbnailUri || res.mediaUri }}
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View style={{ alignItems: "center", justifyContent: "center" }}>
+                          <Feather
+                            name={
+                              visual.category === "link"
+                                ? "link"
+                                : visual.category === "image"
+                                ? "image"
+                                : visual.category === "pdf"
+                                ? "file"
+                                : "file-text"
+                            }
+                            size={28}
+                            color={stream.accent}
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Bottom Metadata Info */}
+                    <View style={styles.fannedCardMeta}>
+                      <Text
+                        style={[styles.fannedCardTitle, { color: colors.text }]}
+                        numberOfLines={1}
+                      >
+                        {res.title || "Resource"}
+                      </Text>
+                      <Text style={[styles.fannedCardType, { color: colors.textMuted }]}>
+                        {visual.label}
+                      </Text>
+                    </View>
+                  </PressableScale>
+                );
+              })}
+            </View>
+
+            {/* Floating (X) Dismiss Button at Bottom-Right */}
+            <View style={styles.fanCloseContainer} pointerEvents="box-none">
+              <PressableScale
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setIsFanning(false);
+                }}
+                scaleTo={0.92}
+                haptic
+                accessibilityRole="button"
+                accessibilityLabel="Close resources fan"
+                style={[
+                  styles.fanCloseBtn,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    shadowColor: Palette.black,
+                  },
+                ]}
+              >
+                <Feather name="x" size={20} color={colors.text} />
+              </PressableScale>
+            </View>
+          </View>
+        </Modal>
+
+        {/* RESOURCE LINK SELECTOR MODAL */}
         <Modal
           visible={showLinkSelector}
           transparent
           animationType="fade"
           onRequestClose={() => setShowLinkSelector(false)}
         >
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.5)",
-              justifyContent: "center",
-              alignItems: "center",
-              padding: 20,
-            }}
-          >
+          <View style={styles.selectorModalBackdrop}>
             <View
-              style={{
-                width: "90%",
-                maxHeight: "70%",
-                backgroundColor: colors.card,
-                borderRadius: 24,
-                borderColor: colors.border,
-                borderWidth: 1.5,
-                padding: 20,
-                gap: 12,
-              }}
+              style={[
+                styles.selectorModalCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                },
+              ]}
             >
-              <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text }}>
+              <Text style={[styles.selectorTitle, { color: colors.text }]}>
                 Link Resources
               </Text>
-              <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: -4 }}>
+              <Text style={[styles.selectorSubtitle, { color: colors.textMuted }]}>
                 Select resources to link to this task:
               </Text>
 
               {allResources.length === 0 ? (
-                <View style={{ paddingVertical: 40, alignItems: "center" }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>No resources in this workspace.</Text>
+                <View style={{ paddingVertical: 32, alignItems: "center" }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    No resources in this workspace.
+                  </Text>
                 </View>
               ) : (
-                <ScrollView contentContainerStyle={{ gap: 8 }} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  contentContainerStyle={{ gap: 8 }}
+                  showsVerticalScrollIndicator={false}
+                  style={{ maxHeight: screenHeight * 0.45 }}
+                >
                   {allResources.map((res) => {
                     const isLinked = linkedResourceIds?.includes(res.id) ?? false;
                     return (
@@ -918,30 +1111,40 @@ export function TodoItem({
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: isLinked }}
                         accessibilityLabel={`${res.title}, ${isLinked ? "linked" : "not linked"}`}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: 10,
-                          borderRadius: 12,
-                          borderWidth: 1,
-                          borderColor: isLinked ? colors.primary : colors.border,
-                          backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? Palette.slate50 : Palette.ink850),
-                        }}
+                        style={[
+                          styles.resourcePickerRow,
+                          {
+                            borderColor: isLinked ? colors.primary : colors.border,
+                            backgroundColor: isLinked
+                              ? `${colors.primary}12`
+                              : isLight
+                              ? Palette.slate50
+                              : "rgba(255, 255, 255, 0.03)",
+                          },
+                        ]}
                       >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
                           <Feather
-                            name={res.type === "link" ? "link-2" : res.type === "image" ? "image" : "file-text"}
-                            size={14}
+                            name={
+                              res.type === "link"
+                                ? "link"
+                                : res.type === "image"
+                                ? "image"
+                                : "file-text"
+                            }
+                            size={15}
                             color={colors.textMuted}
                           />
-                          <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text }} numberOfLines={1}>
+                          <Text
+                            style={{ fontSize: 13, fontWeight: "600", color: colors.text, flex: 1 }}
+                            numberOfLines={1}
+                          >
                             {res.title}
                           </Text>
                         </View>
                         <Feather
                           name={isLinked ? "check-circle" : "circle"}
-                          size={16}
+                          size={18}
                           color={isLinked ? colors.primary : colors.textMuted}
                         />
                       </TouchableOpacity>
@@ -953,118 +1156,13 @@ export function TodoItem({
               <TouchableOpacity
                 onPress={() => setShowLinkSelector(false)}
                 accessibilityRole="button"
-                accessibilityLabel="Close resource linker"
-                style={{
-                  backgroundColor: colors.primary,
-                  paddingVertical: 10,
-                  borderRadius: 12,
-                  alignItems: "center",
-                  marginTop: 6,
-                }}
+                accessibilityLabel="Done linking resources"
+                style={[styles.doneBtn, { backgroundColor: colors.primary }]}
               >
-                <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 13 }}>Done</Text>
+                <Text style={styles.doneBtnText}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-
-        {/* iOS-style Long Press Peek Modal */}
-        <Modal
-          visible={isPeeking}
-          transparent
-          animationType="none"
-          onRequestClose={() => setIsPeeking(false)}
-        >
-          <Pressable
-            onPress={() => setIsPeeking(false)}
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.6)",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            <View
-              style={{
-                width: screenWidth * 0.8,
-                backgroundColor: colors.card,
-                borderRadius: 20,
-                borderColor: colors.border,
-                borderWidth: 1.5,
-                padding: 16,
-                gap: 12,
-                elevation: 10,
-                shadowColor: Palette.black,
-                shadowOffset: { width: 0, height: 10 },
-                shadowOpacity: 0.25,
-                shadowRadius: 15,
-              }}
-            >
-              <Text style={{ fontSize: 11, fontWeight: "800", color: colors.primary, textTransform: "uppercase" }}>
-                Glance Resources
-              </Text>
-              <View style={{ gap: 10 }}>
-                {linkedResources.map((res: any) => {
-                  const visual = resolveResourceVisual(res);
-                  const stream = streamColors[visual.category] || streamColors.note;
-
-                  return (
-                    <View
-                      key={res.id}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 6,
-                          backgroundColor: stream.backgroundColor,
-                          borderColor: stream.borderColor,
-                          borderWidth: 1,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {visual.category === "image" && (visual.thumbnailUri || res.mediaUri) ? (
-                          <Image
-                            source={{ uri: visual.thumbnailUri || res.mediaUri }}
-                            style={{ width: "100%", height: "100%" }}
-                          />
-                        ) : (
-                          <Feather
-                            name={
-                              visual.category === "link"
-                                ? "link"
-                                : visual.category === "image"
-                                ? "image"
-                                : "file-text"
-                            }
-                            size={12}
-                            color={stream.accent}
-                          />
-                        )}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text }} numberOfLines={1}>
-                          {res.title}
-                        </Text>
-                        {visual.category === "link" && (res.url || res.content) && (
-                          <Text style={{ fontSize: 9, color: colors.textMuted }} numberOfLines={1}>
-                            {(res.url || res.content).replace(/https?:\/\/(www\.)?/, "").split("/")[0]}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-          </Pressable>
         </Modal>
       </View>
     </SwipeableCard>
@@ -1072,98 +1170,303 @@ export function TodoItem({
 }
 
 const styles = StyleSheet.create({
-  todoItemCard: {
-    flexDirection: "column",
+  rowContainer: {
+    position: "relative",
+    overflow: "hidden",
   },
-  todoMainRow: {
+  expandedCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    marginVertical: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  mainRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    paddingTop: ROW_SPEC.row.paddingTop,
+    paddingBottom: ROW_SPEC.row.paddingBottom,
+    paddingLeft: ROW_SPEC.row.paddingLeft,
+    paddingRight: ROW_SPEC.row.paddingRight,
+    gap: ROW_SPEC.row.gap,
   },
-  todoLeft: {
+  checkbox: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryBadge: {
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  textContainer: {
     flex: 1,
+    justifyContent: "center",
+  },
+  titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
+    marginBottom: 3,
   },
-  todoTexts: {
-    flex: 1,
-    gap: 1,
-  },
-  todoTitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: "600",
+  titleText: {
+    letterSpacing: -0.25,
+    flexShrink: 1,
   },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 1,
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    overflow: "hidden",
   },
-  tagBadge: {
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 6,
-    alignSelf: "flex-start",
+  metaDot: {
+    fontSize: ROW_SPEC.type.meta,
+    marginHorizontal: 4,
   },
-  tagBadgeText: {
-    fontSize: 8,
-    fontWeight: "700",
-    textTransform: "uppercase",
+  metaText: {
+    fontSize: ROW_SPEC.type.meta,
   },
-  reminderRow: {
+  trailingArea: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    justifyContent: "flex-end",
+    minWidth: 44,
   },
-  reminderText: {
-    fontSize: 10,
+  resourceStackPressable: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  stackRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  // Expanded contextual section styles
+  expandedBody: {
+    marginTop: 6,
+    gap: 14,
+  },
+  descriptionContainer: {
+    paddingTop: 2,
+    paddingBottom: 2,
+  },
+  descriptionText: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "400",
+  },
+  resourcesSection: {
+    gap: 10,
+  },
+  resourcesHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  resourcesHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  viewAllText: {
+    fontSize: 12,
     fontWeight: "600",
   },
-  expandedContent: {
-    marginTop: 10,
-    paddingBottom: 4,
+  horizontalResourceScroll: {
+    gap: 10,
+    paddingRight: 4,
   },
-  divider: {
-    height: 1,
+  resourceCard: {
+    width: 108,
+    height: 108,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 8,
+    justifyContent: "space-between",
+  },
+  cardPreviewArea: {
     width: "100%",
-    marginBottom: 12,
-    opacity: 0.5,
-  },
-  resourcesList: {
-    paddingLeft: 26, // Align nicely with content text offset
-    gap: 4,
-  },
-  resourceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    minHeight: 44,
-    gap: 12,
-  },
-  thumbnailWrap: {
-    width: 32,
-    height: 32,
+    height: 54,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
-  innerDivider: {
-    height: 1,
+  cardImage: {
     width: "100%",
+    height: "100%",
   },
-  showMoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
+  cardInfoArea: {
+    gap: 1,
   },
-  addResourceBtn: {
-    flexDirection: "row",
+  cardTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  cardType: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  addResourceCard: {
+    width: 76,
+    height: 108,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
     alignItems: "center",
-    paddingVertical: 10,
+    justifyContent: "center",
     gap: 6,
+  },
+  addIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addCardText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  // Quick Actions 4-Pills Row
+  quickActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 4,
+  },
+  quickActionBtn: {
+    flex: 1,
+    minHeight: 56,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 4,
+  },
+  quickActionIconCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickActionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: -0.1,
+  },
+  // Fan Deck Modal
+  fanModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.58)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fanDeckContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    height: 280,
+  },
+  fannedCard: {
+    position: "absolute",
+    width: 144,
+    height: 190,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    padding: 10,
+    justifyContent: "space-between",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  fannedCardPreview: {
+    width: "100%",
+    height: 114,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  fannedCardMeta: {
+    gap: 2,
+    paddingHorizontal: 2,
+  },
+  fannedCardTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  fannedCardType: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  fanCloseContainer: {
+    position: "absolute",
+    bottom: 60,
+    right: 32,
+  },
+  fanCloseBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  // Resource Selector Modal
+  selectorModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  selectorModalCard: {
+    width: "90%",
+    maxHeight: "75%",
+    borderRadius: 22,
+    borderWidth: 1.5,
+    padding: 20,
+    gap: 12,
+  },
+  selectorTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  selectorSubtitle: {
+    fontSize: 12,
+    marginTop: -4,
+  },
+  resourcePickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  doneBtn: {
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 6,
+  },
+  doneBtnText: {
+    color: Palette.white,
+    fontWeight: "700",
+    fontSize: 14,
   },
 });

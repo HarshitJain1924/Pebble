@@ -150,19 +150,39 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
 
   const updateTodoTitle = useCallback(
     async (id: string, newTitle: string) => {
-      const listTodos = todos[selectedWorkspaceId] ?? [];
-      const updatedList = listTodos.map((todo) =>
-        todo.id === id
-          ? { ...todo, title: newTitle, updatedAt: Date.now() }
-          : todo,
-      );
-      const updated = { ...todos, [selectedWorkspaceId]: updatedList };
-      setTodos(updated);
+      let targetWorkspaceId = selectedWorkspaceId;
+      let targetTask = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
+      if (!targetTask) {
+        for (const [wsId, list] of Object.entries(todos)) {
+          const found = list.find((t) => t.id === id);
+          if (found) {
+            targetTask = found;
+            targetWorkspaceId = wsId;
+            break;
+          }
+        }
+      }
+      if (!targetTask) return;
+      targetWorkspaceId = targetTask.workspaceId || targetWorkspaceId;
+
+      const updatedTodos: Record<string, Task[]> = {};
+      for (const [wsId, list] of Object.entries(todos)) {
+        if (list.some((t) => t.id === id)) {
+          updatedTodos[wsId] = list.map((todo) =>
+            todo.id === id
+              ? { ...todo, title: newTitle, updatedAt: Date.now() }
+              : todo,
+          );
+        } else {
+          updatedTodos[wsId] = list;
+        }
+      }
+      setTodos(updatedTodos);
       
-      await EntityCommandService.updateTask(id, selectedWorkspaceId, { title: newTitle }, { skipEvents: true });
+      await EntityCommandService.updateTask(id, targetWorkspaceId, { title: newTitle }, { skipEvents: true });
       finalizeMutation();
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, finalizeMutation],
+    [todos, selectedWorkspaceId, setTodos, finalizeMutation],
   );
 
   const moveTodoToList = useCallback(
@@ -197,71 +217,123 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
 
   const toggleTodo = useCallback(
     async (id: string) => {
-      const listTodos = todos[selectedWorkspaceId] ?? [];
-      const todo = listTodos.find((t) => t.id === id);
+      let targetWorkspaceId = selectedWorkspaceId;
+      let todo = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
+      if (!todo) {
+        for (const [wsId, list] of Object.entries(todos)) {
+          const found = list.find((t) => t.id === id);
+          if (found) {
+            todo = found;
+            targetWorkspaceId = wsId;
+            break;
+          }
+        }
+      }
       if (!todo) return;
+      targetWorkspaceId = todo.workspaceId || targetWorkspaceId;
+
       const currentlyCompleted = isTaskCompleted(todo);
       const nextCompleted = !currentlyCompleted;
 
+      // 1. Optimistic local state update for instant UI feedback
+      const optimisticTodo: Task = {
+        ...todo,
+        status: nextCompleted ? "completed" : "todo",
+        completedAt: nextCompleted ? Date.now() : undefined,
+        updatedAt: Date.now(),
+      };
+
+      const optimisticTodos: Record<string, Task[]> = {};
+      for (const [wsId, list] of Object.entries(todos)) {
+        if (list.some((t) => t.id === id)) {
+          optimisticTodos[wsId] = list.map((t) =>
+            t.id === id ? optimisticTodo : t,
+          );
+        } else {
+          optimisticTodos[wsId] = list;
+        }
+      }
+      setTodos(optimisticTodos);
+
+      // 2. Delegate persistence and side-effects to EntityCommandService
       let result;
-      if (nextCompleted) {
-        result = await EntityCommandService.completeTask(id, selectedWorkspaceId, {
-          source: "tasks_screen",
-          skipAnalytics: true,
-          skipEvents: true,
-        });
-      } else {
-        result = await EntityCommandService.uncompleteTask(id, selectedWorkspaceId, {
-          source: "tasks_screen",
-          skipAnalytics: true,
-          skipEvents: true,
-        });
+      try {
+        if (nextCompleted) {
+          result = await EntityCommandService.completeTask(id, targetWorkspaceId, {
+            source: "tasks_screen",
+            skipAnalytics: true,
+            skipEvents: true,
+          });
+        } else {
+          result = await EntityCommandService.uncompleteTask(id, targetWorkspaceId, {
+            source: "tasks_screen",
+            skipAnalytics: true,
+            skipEvents: true,
+          });
+        }
+      } catch (err) {
+        console.warn("[useTaskCrud] EntityCommandService toggleTask failed", err);
       }
 
-      if (!result) return;
+      if (!result) {
+        // Rollback to prior state if command handler rejected
+        setTodos(todos);
+        return;
+      }
+
       const updatedTodo = result.updated;
+      const committedTodos: Record<string, Task[]> = {};
+      for (const [wsId, list] of Object.entries(todos)) {
+        if (list.some((t) => t.id === id)) {
+          committedTodos[wsId] = list.map((t) =>
+            t.id === id ? updatedTodo : t,
+          );
+        } else {
+          committedTodos[wsId] = list;
+        }
+      }
+      setTodos(committedTodos);
 
-      const currentListTodos = todos[selectedWorkspaceId] ?? [];
-      const updatedList = currentListTodos.map((t) =>
-        t.id === id ? updatedTodo : t,
-      );
-      const updatedTodos = { ...todos, [selectedWorkspaceId]: updatedList };
-      setTodos(updatedTodos);
-
-      // Removed duplicate `persistState` write since ECS handles persistence natively.
       emitStateChange("tasks_changed", "tasks_screen");
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, persistState],
+    [todos, selectedWorkspaceId, setTodos],
   );
 
   const deleteTodo = useCallback(
     async (id: string) => {
-      const listTodos = todos[selectedWorkspaceId] ?? [];
-      const toDelete = listTodos.find((t) => t.id === id);
+      let targetWorkspaceId = selectedWorkspaceId;
+      let toDelete = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
+      if (!toDelete) {
+        for (const [wsId, list] of Object.entries(todos)) {
+          const found = list.find((t) => t.id === id);
+          if (found) {
+            toDelete = found;
+            targetWorkspaceId = wsId;
+            break;
+          }
+        }
+      }
       if (!toDelete) return;
+      targetWorkspaceId = toDelete.workspaceId || targetWorkspaceId;
 
       const originalWorkspace =
-        workspaces.find((l) => l.id === selectedWorkspaceId)?.name || "Inbox";
+        workspaces.find((l) => l.id === targetWorkspaceId)?.name || "Inbox";
 
       // Delegate repository mutation and side effects to ECS
       await EntityCommandService.recycleTask(
         id,
-        selectedWorkspaceId,
+        targetWorkspaceId,
         originalWorkspace,
         { source: "useTaskCrud" }
       );
 
-      const currentListTodos = todos[selectedWorkspaceId] ?? [];
-      const updatedTodos = {
-        ...todos,
-        [selectedWorkspaceId]: currentListTodos.filter((todo) => todo.id !== id),
-      };
+      const updatedTodos: Record<string, Task[]> = {};
+      for (const [wsId, list] of Object.entries(todos)) {
+        updatedTodos[wsId] = list.filter((todo) => todo.id !== id);
+      }
       setTodos(updatedTodos);
 
       pluginManager.dispatchTaskDeleted(id);
-      // We still update local state in React, but do not push the array back to TaskRepository via persistState 
-      // since recycleTask has already mutated the repository.
-      
       finalizeMutation();
 
       showUndo({
@@ -290,22 +362,41 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         },
       });
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, persistState, showUndo],
+    [todos, selectedWorkspaceId, setTodos, workspaces, showUndo, showToast, finalizeMutation],
   );
 
   const updateTodoCategory = useCallback(
     async (todoId: string, newCategory: TaskCategory) => {
-      const listTodos = todos[selectedWorkspaceId] ?? [];
-      const updatedList = listTodos.map((todo) =>
-        todo.id === todoId ? { ...todo, category: newCategory as any } : todo,
-      );
-      const updated = { ...todos, [selectedWorkspaceId]: updatedList };
-      setTodos(updated);
+      let targetWorkspaceId = selectedWorkspaceId;
+      let targetTask = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === todoId);
+      if (!targetTask) {
+        for (const [wsId, list] of Object.entries(todos)) {
+          const found = list.find((t) => t.id === todoId);
+          if (found) {
+            targetTask = found;
+            targetWorkspaceId = wsId;
+            break;
+          }
+        }
+      }
+      targetWorkspaceId = targetTask?.workspaceId || targetWorkspaceId;
+
+      const updatedTodos: Record<string, Task[]> = {};
+      for (const [wsId, list] of Object.entries(todos)) {
+        if (list.some((t) => t.id === todoId)) {
+          updatedTodos[wsId] = list.map((todo) =>
+            todo.id === todoId ? { ...todo, category: newCategory as any } : todo,
+          );
+        } else {
+          updatedTodos[wsId] = list;
+        }
+      }
+      setTodos(updatedTodos);
       
-      await EntityCommandService.updateTask(todoId, selectedWorkspaceId, { categoryId: newCategory }, { skipEvents: true });
+      await EntityCommandService.updateTask(todoId, targetWorkspaceId, { categoryId: newCategory }, { skipEvents: true });
       finalizeMutation();
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, finalizeMutation],
+    [todos, selectedWorkspaceId, setTodos, finalizeMutation],
   );
 
   const clearCompleted = useCallback(async () => {

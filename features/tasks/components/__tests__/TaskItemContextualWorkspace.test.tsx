@@ -4,6 +4,13 @@ import { TodoItem } from "@/features/tasks/components/TaskItem";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { Colors } from "@/shared/constants/theme";
 
+jest.mock("expo-router", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+  }),
+}));
+
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
 );

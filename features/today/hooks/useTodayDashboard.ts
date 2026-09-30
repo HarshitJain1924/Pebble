@@ -94,14 +94,15 @@ export function useTodayDashboard(): TodayDashboardStats {
     null,
   );
   const [isLoading, setIsLoading] = useState(true);
-
+  const hasLoadedOnceRef = useRef(false);
   const loadRequestIdRef = useRef(0);
 
   const loadDashboard = useCallback(async () => {
     const requestId = ++loadRequestIdRef.current;
-    console.log("[INSTRUMENT] [useTodayDashboard] loadDashboard() CALLED, requestId =", requestId);
     try {
-      setIsLoading(true);
+      if (!hasLoadedOnceRef.current) {
+        setIsLoading(true);
+      }
       const todayStr = getDateKey();
       const loadedFolders = await WorkspaceRepository.getWorkspaces();
       const allFolders = [...loadedFolders];
@@ -127,26 +128,27 @@ export function useTodayDashboard(): TodayDashboardStats {
       const checklistsMap: Record<string, Checklist[]> = {};
       const resourcesMap: Record<string, Resource[]> = {};
 
-      for (const wsId of workspaceIds) {
-        const tasks = await TaskRepository.getTasks(wsId);
-        Object.values(tasks).forEach((t) => {
-          if (!t.archivedAt) {
-            allTasks.push(t);
-          }
+      const partitionResults = await Promise.all(
+        workspaceIds.map(async (wsId) => {
+          const [tasks, habits, chks, resources] = await Promise.all([
+            TaskRepository.getTasks(wsId),
+            HabitRepository.getHabits(wsId),
+            ChecklistRepository.getChecklists(wsId),
+            ResourceRepository.getResources(wsId),
+          ]);
+          return { wsId, tasks, habits, chks, resources };
+        }),
+      );
+
+      for (const res of partitionResults) {
+        Object.values(res.tasks).forEach((t) => {
+          if (!t.archivedAt) allTasks.push(t);
         });
-
-        const habits = await HabitRepository.getHabits(wsId);
-        Object.values(habits).forEach((h) => {
-          if (!h.archivedAt) {
-            allHabitsList.push(h);
-          }
+        Object.values(res.habits).forEach((h) => {
+          if (!h.archivedAt) allHabitsList.push(h);
         });
-
-        const chks = await ChecklistRepository.getChecklists(wsId);
-        checklistsMap[wsId] = Object.values(chks).filter((c) => !c.archivedAt);
-
-        const resources = await ResourceRepository.getResources(wsId);
-        resourcesMap[wsId] = Object.values(resources).filter(
+        checklistsMap[res.wsId] = Object.values(res.chks).filter((c) => !c.archivedAt);
+        resourcesMap[res.wsId] = Object.values(res.resources).filter(
           (r) => !r.archivedAt,
         );
       }
@@ -159,7 +161,6 @@ export function useTodayDashboard(): TodayDashboardStats {
 
       // Stale load request check — do not commit if superseded by a newer request
       if (requestId !== loadRequestIdRef.current) {
-        console.log(`[useTodayDashboard] loadDashboard() request #${requestId} superseded by #${loadRequestIdRef.current} — skipping commit`);
         return;
       }
 
@@ -250,6 +251,7 @@ export function useTodayDashboard(): TodayDashboardStats {
       console.warn("Failed to load today dashboard", e);
     } finally {
       if (requestId === loadRequestIdRef.current) {
+        hasLoadedOnceRef.current = true;
         setIsLoading(false);
       }
     }

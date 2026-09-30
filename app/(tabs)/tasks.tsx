@@ -45,6 +45,7 @@ import { ReminderModal } from "@/features/calendar/components/ReminderModal";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskSections } from "@/features/tasks/components/TaskSections";
+import { TemporalHorizonStrip } from "@/features/tasks/components/TemporalHorizonStrip";
 import { HabitSection } from "@/features/habits/components/HabitSection";
 import { SuggestionBanner } from "@/features/capture/components/SuggestionBanner";
 import { ProgressSection } from "@/features/profile/components/ProgressSection";
@@ -96,6 +97,10 @@ export function WorkspacesScreen() {
   const allResources = React.useMemo(() => {
     return state.resources[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
   }, [state.resources, state.activeWorkspaceId]);
+
+  const folderTodos = React.useMemo(() => {
+    return state.todos[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
+  }, [state.todos, state.activeWorkspaceId]);
 
   const searchPlaceholder = React.useMemo(() => {
     switch (state.workspaceSegment) {
@@ -497,6 +502,17 @@ export function WorkspacesScreen() {
                     );
                   })}
                 </View>
+
+                {/* Compact Temporal Horizon Date Strip */}
+                {state.workspaceSegment === "tasks" && (
+                  <TemporalHorizonStrip
+                    selectedDate={state.selectedDate}
+                    onSelectDate={state.setSelectedDate}
+                    todos={folderTodos}
+                    colors={colors}
+                    isDark={isDark}
+                  />
+                )}
               </View>
             ) : (
               <View style={{ marginBottom: 4 }}>

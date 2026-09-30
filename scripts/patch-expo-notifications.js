@@ -53,3 +53,24 @@ for (const { file, moduleName } of nativeModuleFiles) {
     }
   }
 }
+
+// 3. Patch getAllScheduledNotificationsAsync to handle null/undefined from NotificationScheduler
+const schedulerFiles = [
+  path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'build', 'getAllScheduledNotificationsAsync.js'),
+  path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'src', 'getAllScheduledNotificationsAsync.ts'),
+];
+
+for (const file of schedulerFiles) {
+  if (fs.existsSync(file)) {
+    let content = fs.readFileSync(file, 'utf8');
+    if (content.includes("(await NotificationScheduler.getAllScheduledNotificationsAsync()).map")) {
+      content = content.replace(
+        "(await NotificationScheduler.getAllScheduledNotificationsAsync()).map",
+        "((await NotificationScheduler.getAllScheduledNotificationsAsync()) ?? []).map"
+      );
+      fs.writeFileSync(file, content, 'utf8');
+      console.log(`[patch-expo-notifications] Patched ${path.basename(file)} to safely fallback to empty array.`);
+    }
+  }
+}
+

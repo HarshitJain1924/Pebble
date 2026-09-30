@@ -203,10 +203,17 @@ export class NotificationReconcilerService {
           });
         }
       } else {
-        const Notifications = await import("expo-notifications");
-        if (typeof Notifications.getAllScheduledNotificationsAsync !== "function") return;
-        const nativeNotifs = await Notifications.getAllScheduledNotificationsAsync();
-        allOsNotifications.push(...nativeNotifs);
+        try {
+          const Notifications = await import("expo-notifications");
+          if (typeof Notifications.getAllScheduledNotificationsAsync === "function") {
+            const nativeNotifs = await Notifications.getAllScheduledNotificationsAsync();
+            if (Array.isArray(nativeNotifs)) {
+              allOsNotifications.push(...nativeNotifs);
+            }
+          }
+        } catch (notifErr) {
+          console.warn("[NotificationReconcilerService] Failed to query OS scheduled notifications:", notifErr);
+        }
       }
       
       const workspaces = await WorkspaceRepository.getWorkspaces();
