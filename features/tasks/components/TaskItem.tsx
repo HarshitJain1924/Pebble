@@ -12,7 +12,7 @@ import Animated, {
   FadeOut,
   LinearTransition,
 } from "react-native-reanimated";
-import { getCategoryColors } from "@/shared/constants/categoryColors";
+import { getCategoryColors, TaskListPriorityColors } from "@/shared/constants/categoryColors";
 import { Palette, colorWithAlpha } from "@/shared/constants/theme";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
@@ -35,7 +35,7 @@ import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
-import { formatRelativeTaskDate } from "@/features/tasks/utils/task-formatting";
+import { formatRelativeTaskDate, formatTimeRange } from "@/features/tasks/utils/task-formatting";
 import { resolveItemCategorySymbol } from "@/features/today/utils/item-presentation";
 import {
   getStreamResourcePalette,
@@ -43,7 +43,8 @@ import {
 } from "@/features/today/utils/resource-presentation";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 interface TodoItemProps {
   item: Task;
@@ -258,7 +259,15 @@ export function TodoItem({
       ? showWorkspaceBadge
       : (!selectedWorkspaceId || selectedWorkspaceId === "all");
 
-  // Metadata formatting
+  const priorityStripeColor = useMemo(() => {
+    const prio = item.priority || "none";
+    if (prio === "high") return TaskListPriorityColors.high.dark;
+    if (prio === "medium") return TaskListPriorityColors.medium.dark;
+    if (prio === "low") return TaskListPriorityColors.low.dark;
+    return isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(0, 0, 0, 0.12)";
+  }, [item.priority, isDark]);
+
+  // Context-aware metadata formatting
   const metaParts = useMemo<MetaPart[]>(() => {
     const parts: MetaPart[] = [];
 
@@ -272,69 +281,71 @@ export function TodoItem({
       });
     }
 
-    // 2. Overdue & Relative Date formatting
+    // 2. Schedule and Reminder Context
+    const scheduleDate = item.schedule?.date;
+    const isInboxTask = !scheduleDate || scheduleDate === "inbox";
+    const timeRange = formatTimeRange(
+      item.schedule?.startTime,
+      item.schedule?.endTime,
+      durationMinutes
+    );
+
     let reminderText = "";
     if (item.reminder && item.reminder.enabled && item.reminder.triggerAt) {
       const d = new Date(item.reminder.triggerAt);
       reminderText = formatReminderTime(d.getHours(), d.getMinutes()) || "";
     }
 
-    if (omitOverdueLabel) {
-      if (item.schedule?.date) {
-        const relativeDate = formatRelativeTaskDate(item.schedule.date, selectedDate);
-        if (relativeDate) {
-          const displayText = reminderText
-            ? `${relativeDate.label} · ${reminderText}`
-            : relativeDate.label;
-          parts.push({
-            key: "date",
-            text: displayText,
-            color: colors.textMuted,
-          });
-        }
-      } else if (reminderText) {
+    const referenceDate = selectedDate || item.schedule?.date || getTodayDateKey();
+    const occState = getTaskOccurrenceState(item, referenceDate);
+    const isTaskOverdue = overdue || (occState.isOverdue && !isCompleted);
+
+    // 2. Overdue label
+    if (isTaskOverdue && !omitOverdueLabel) {
+      parts.push({
+        key: "overdue",
+        text: "Overdue",
+        icon: "alert-circle",
+        color: colors.error,
+      });
+    }
+
+    // 3. Date & Time context
+    if (isInboxTask) {
+      parts.push({
+        key: "date",
+        text: "No schedule",
+        color: colors.textMuted,
+      });
+    } else if (occState.occurs) {
+      // Occurs on selected date
+      if (timeRange) {
         parts.push({
-          key: "reminder",
-          text: reminderText,
-          icon: "bell",
+          key: "date",
+          text: timeRange,
           color: colors.textMuted,
         });
       }
     } else {
-      if (overdue) {
-        parts.push({
-          key: "overdue",
-          text: "Overdue",
-          icon: "alert-circle",
-          color: colors.error,
-        });
-      }
-      if (item.schedule?.date) {
-        const relativeDate = formatRelativeTaskDate(item.schedule.date, selectedDate);
-        if (relativeDate) {
-          const displayText = reminderText
-            ? `${relativeDate.label} · ${reminderText}`
-            : relativeDate.label;
-          parts.push({
-            key: "date",
-            text: displayText,
-            color: colors.textMuted,
-          });
-        }
-      } else if (reminderText) {
-        parts.push({
-          key: "reminder",
-          text: reminderText,
-          icon: "bell",
-          color: colors.textMuted,
-        });
-      } else {
-        parts.push({
-          key: "date",
-          text: "No date",
-          color: colors.textMuted,
-        });
-      }
+      // Relative date (Earlier / Tomorrow / Upcoming)
+      const relDate = formatRelativeTaskDate(scheduleDate, referenceDate);
+      const dateLabel = relDate?.label || scheduleDate;
+      const displayText = timeRange ? `${dateLabel} · ${timeRange}` : (dateLabel || "No date");
+      parts.push({
+        key: "date",
+        text: displayText,
+        color: isTaskOverdue && !omitOverdueLabel ? colors.error : colors.textMuted,
+      });
+    }
+
+    // 4. Reminder (strictly independent from schedule)
+    if (reminderText) {
+      parts.push({
+        key: "reminder",
+        text: reminderText,
+        icon: "bell",
+        color: colors.textMuted,
+      });
     }
 
     // 3. Recurrence
@@ -351,8 +362,8 @@ export function TodoItem({
       }
     }
 
-    // 4. Duration
-    if (durationMinutes) {
+    // 4. Duration (if duration exists and not already captured in timeRange)
+    if (durationMinutes && !item.schedule?.startTime) {
       const mins = durationMinutes;
       let text = "";
       if (mins < 60) {
@@ -377,8 +388,10 @@ export function TodoItem({
     isInbox,
     omitOverdueLabel,
     item.schedule?.date,
+    item.schedule?.startTime,
+    item.schedule?.endTime,
     selectedDate,
-    overdue,
+    isCompleted,
     item.reminder,
     item.recurrence,
     durationMinutes,
@@ -498,6 +511,17 @@ export function TodoItem({
           },
         ]}
       >
+        {/* Visual Priority Edge Strip */}
+        <View
+          style={[
+            styles.priorityEdgeStrip,
+            isExpanded && styles.priorityEdgeStripExpanded,
+            {
+              backgroundColor: priorityStripeColor,
+            },
+          ]}
+        />
+
         {/* Main Header / Collapsed Row */}
         <View style={styles.mainRow}>
           {/* Circular Checkbox with bounce */}
@@ -621,13 +645,6 @@ export function TodoItem({
             )}
           </PressableScale>
 
-          {/* Trailing Priority Flag / Pinned icon in Expanded Mode */}
-          {isExpanded && item.priority === "high" && (
-            <View style={{ marginRight: 2 }}>
-              <Feather name="bookmark" size={16} color={categoryColors.priority.high} />
-            </View>
-          )}
-
           {/* Trailing Resource Stack & Badges */}
           <View style={styles.trailingArea}>
             {totalResources > 0 ? (
@@ -648,8 +665,6 @@ export function TodoItem({
               </PressableScale>
             ) : item.recurrence ? (
               <Feather name="repeat" size={14} color={colors.textMuted} />
-            ) : item.priority === "high" && !isExpanded ? (
-              <Feather name="flag" size={14} color={categoryColors.priority.high} />
             ) : null}
           </View>
         </View>
@@ -1174,10 +1189,26 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "hidden",
   },
+  priorityEdgeStrip: {
+    position: "absolute",
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 3.5,
+    borderRadius: 2,
+    zIndex: 2,
+  },
+  priorityEdgeStripExpanded: {
+    top: 10,
+    bottom: 10,
+    width: 4,
+    borderTopLeftRadius: 18,
+    borderBottomLeftRadius: 18,
+  },
   expandedCard: {
     borderRadius: 18,
     borderWidth: 1,
-    padding: 16,
+    padding: 14,
     marginVertical: 4,
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 10,

@@ -63,6 +63,11 @@ export function compareTasks(a: Task, b: Task): number {
   return a.id.localeCompare(b.id);
 }
 
+export type TaskStatusFilter = "all" | "active" | "completed";
+export type TaskPriorityFilter = "all" | "high" | "medium" | "low";
+export type TaskScheduleFilter = "all" | "scheduled" | "unscheduled";
+export type TaskReminderFilter = "all" | "has_reminder" | "no_reminder";
+
 export function useTaskFiltering(
   todos: Record<string, Task[]>,
   habits: Habit[],
@@ -74,6 +79,9 @@ export function useTaskFiltering(
   const [selectedWorkspacePriorityFilter, setSelectedWorkspacePriorityFilter] = useState("all");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all");
   const [selectedWorkspaceHabitPriorityFilter, setSelectedWorkspaceHabitPriorityFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("all");
+  const [scheduleFilter, setScheduleFilter] = useState<TaskScheduleFilter>("all");
+  const [reminderFilter, setReminderFilter] = useState<TaskReminderFilter>("all");
 
   const currentTodos = useMemo(
     () => (todos[selectedWorkspaceId] ?? []).filter((t) => !t.archivedAt),
@@ -95,12 +103,32 @@ export function useTaskFiltering(
     });
   }, [todos, selectedWorkspaceId, searchQuery, workspaces]);
 
+  // Context-aware filter composition (status, schedule, reminder)
+  const contextFilteredTodos = useMemo(() => {
+    return filteredTodos.filter((todo) => {
+      // 1. Status Filter
+      if (statusFilter === "active" && isTaskCompleted(todo)) return false;
+      if (statusFilter === "completed" && !isTaskCompleted(todo)) return false;
+
+      // 2. Schedule Filter
+      const isScheduled = !!(todo.schedule?.date && todo.schedule.date !== "inbox");
+      if (scheduleFilter === "scheduled" && !isScheduled) return false;
+      if (scheduleFilter === "unscheduled" && isScheduled) return false;
+
+      // 3. Reminder Filter
+      const hasReminder = !!(todo.reminder?.enabled && todo.reminder?.triggerAt);
+      if (reminderFilter === "has_reminder" && !hasReminder) return false;
+      if (reminderFilter === "no_reminder" && hasReminder) return false;
+
+      return true;
+    });
+  }, [filteredTodos, statusFilter, scheduleFilter, reminderFilter]);
 
   // All task buckets consume the single authoritative classification path
   // (getTaskOccurrenceState) so recurring tasks are bucketed by their
   // occurrence on the selected date, never by their base schedule date.
   const overdueTodos = useMemo(() => {
-    let filtered = filteredTodos.filter(
+    let filtered = contextFilteredTodos.filter(
       (todo) => todo.schedule?.date !== "inbox" && getTaskOccurrenceState(todo, selectedDate).isOverdue
     );
     if (selectedCategoryFilter !== "all") {
@@ -111,12 +139,12 @@ export function useTaskFiltering(
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort(compareTasks);
-  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
+  }, [contextFilteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   // `occurs` is completion-independent: TaskSections routes completed items
   // to the Completed section while keeping them visible for that date.
   const todayTodos = useMemo(() => {
-    let filtered = filteredTodos.filter((todo) => {
+    let filtered = contextFilteredTodos.filter((todo) => {
       if (todo.schedule?.date === "inbox") return false;
       return getTaskOccurrenceState(todo, selectedDate).occurs;
     });
@@ -128,10 +156,10 @@ export function useTaskFiltering(
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort(compareTasks);
-  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
+  }, [contextFilteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const upcomingTodos = useMemo(() => {
-    let filtered = filteredTodos.filter((todo) => {
+    let filtered = contextFilteredTodos.filter((todo) => {
       if (todo.schedule?.date === "inbox") return false;
       const state = getTaskOccurrenceState(todo, selectedDate);
       return !state.occurs && state.nextOccurrenceDate !== null;
@@ -144,10 +172,10 @@ export function useTaskFiltering(
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort(compareTasks);
-  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
+  }, [contextFilteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter, selectedDate]);
 
   const inboxTodos = useMemo(() => {
-    let filtered = filteredTodos.filter((todo) => todo.schedule?.date === "inbox");
+    let filtered = contextFilteredTodos.filter((todo) => todo.schedule?.date === "inbox");
     if (selectedCategoryFilter !== "all") {
       filtered = filtered.filter((todo) => todo.categoryId === selectedCategoryFilter);
     }
@@ -156,10 +184,28 @@ export function useTaskFiltering(
         ? filtered
         : filtered.filter((todo) => todo.priority === selectedWorkspacePriorityFilter);
     return [...matched].sort(compareTasks);
-  }, [filteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter]);
+  }, [contextFilteredTodos, selectedWorkspacePriorityFilter, selectedCategoryFilter]);
 
   const remainingCount = useMemo(() => currentTodos.filter((todo) => !isTaskCompleted(todo)).length, [currentTodos]);
   const completedCount = currentTodos.length - remainingCount;
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedWorkspacePriorityFilter !== "all") count++;
+    if (statusFilter !== "all") count++;
+    if (scheduleFilter !== "all") count++;
+    if (reminderFilter !== "all") count++;
+    if (selectedCategoryFilter !== "all") count++;
+    return count;
+  }, [selectedWorkspacePriorityFilter, statusFilter, scheduleFilter, reminderFilter, selectedCategoryFilter]);
+
+  const resetFilters = () => {
+    setSelectedWorkspacePriorityFilter("all");
+    setStatusFilter("all");
+    setScheduleFilter("all");
+    setReminderFilter("all");
+    setSelectedCategoryFilter("all");
+  };
 
   // Habit Memos
   const unfinishedHabitCount = useMemo(() => habits.filter((habit) => !isHabitCompletedToday(habit)).length, [habits]);
@@ -205,6 +251,16 @@ export function useTaskFiltering(
     setSearchQuery,
     selectedWorkspacePriorityFilter,
     setSelectedWorkspacePriorityFilter,
+    priorityFilter: selectedWorkspacePriorityFilter as TaskPriorityFilter,
+    setPriorityFilter: setSelectedWorkspacePriorityFilter as (p: TaskPriorityFilter) => void,
+    statusFilter,
+    setStatusFilter,
+    scheduleFilter,
+    setScheduleFilter,
+    reminderFilter,
+    setReminderFilter,
+    activeFilterCount,
+    resetFilters,
     selectedCategoryFilter,
     setSelectedCategoryFilter,
     selectedWorkspaceHabitPriorityFilter,
@@ -213,6 +269,7 @@ export function useTaskFiltering(
     // Memos
     currentTodos,
     filteredTodos,
+    contextFilteredTodos,
     overdueTodos,
     todayTodos,
     upcomingTodos,

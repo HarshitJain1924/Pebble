@@ -235,12 +235,15 @@ export class TaskRepository {
    * Unlocked persistence primitive required specifically for TaskCommandHandler.updateTask
    * to perform a safe workspace-partition read-modify-write without nested deadlocking.
    */
-  static async saveTaskUnlocked(task: any): Promise<Task> {
+  static async saveTaskUnlocked(
+    task: any,
+    existingRecords?: Record<string, Task>,
+  ): Promise<Task> {
     this.validateId(task?.id, "saveTaskUnlocked");
     const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(workspaceId);
     
-    const records = await this.getTasks(workspaceId);
+    const records = existingRecords ?? (await this.getTasks(workspaceId));
 
     const cleanTask: Task = normalizeTask(task, workspaceId);
     cleanTask.updatedAt = Date.now();

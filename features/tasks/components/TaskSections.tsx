@@ -4,14 +4,15 @@ import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { TodoItem } from "@/features/tasks/components/TaskItem";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette, colorWithAlpha } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { Task, Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
-import { getOffsetDateKey, getTodayDateKey } from "@/shared/utils/date-key";
+import { getOffsetDateKey, getTodayDateKey, parseDateKey } from "@/shared/utils/date-key";
+import { WEEKDAY_NAMES, MONTH_NAMES } from "@/features/tasks/utils/task-formatting";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
 interface TaskSectionsProps {
@@ -71,49 +72,47 @@ export function TaskSections({
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme !== "light";
 
-  // Section expanded states (Earlier, Today and Tomorrow default open, Upcoming and Someday collapsed per reference)
-  const [earlierExpanded, setEarlierExpanded] = useState(true);
+  // Section expanded states: Today, Earlier and Tomorrow default open; Upcoming, Someday and Completed collapsed
   const [todayExpanded, setTodayExpanded] = useState(true);
+  const [earlierExpanded, setEarlierExpanded] = useState(true);
   const [tomorrowExpanded, setTomorrowExpanded] = useState(true);
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
   const [somedayExpanded, setSomedayExpanded] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
 
-  const renderTodoItem = (item: Task, isEarlier = false) => {
-    return (
-      <TodoItem
-        key={item.id}
-        item={item}
-        colors={colors}
-        colorScheme={colorScheme}
-        isOverdue={getTaskOccurrenceState(item, selectedDate).isOverdue}
-        omitOverdueLabel={isEarlier}
-        selectedDate={selectedDate}
-        lists={workspaces}
-        selectedWorkspaceId={selectedWorkspaceId}
-        showWorkspaceBadge={showWorkspaceBadge}
-        onToggleTodo={() => onToggleTodo(item.id)}
-        onDeleteTodo={() => onDeleteTodo(item.id)}
-        onEditTodo={() => onEditTodo(item)}
-        onSetAlarm={() => onSetAlarm(item.id)}
-        onSchedule={() => onEditTodo(item)}
-        isSelectionMode={isSelectionMode}
-        isSelected={selectedItemIds.has(item.id)}
-        onSelect={() => onToggleSelectItem?.(item.id)}
-        onLayout={(event) => {
-          if (onTaskLayout) {
-            const { y } = event.nativeEvent.layout;
-            onTaskLayout(item.id, y);
-          }
-        }}
-        allResources={allResources}
-        onToggleLinkResource={onToggleLinkResource}
-        isExpanded={expandedTodoId === item.id}
-        onToggleExpand={() => setExpandedTodoId(expandedTodoId === item.id ? null : item.id)}
-      />
-    );
-  };
+  const todayKey = useMemo(() => getTodayDateKey(), []);
+
+  // Determine section title relative to selected date
+  const { primaryTitle, isSelectedDateToday } = useMemo(() => {
+    const sDate = selectedDate || todayKey;
+    const isToday = sDate === todayKey;
+    const tomorrowDateKey = getOffsetDateKey(-1, todayKey);
+    const yesterdayDateKey = getOffsetDateKey(1, todayKey);
+    const isTomorrow = sDate === tomorrowDateKey;
+    const isYesterday = sDate === yesterdayDateKey;
+
+    let title = "Today";
+
+    if (!isToday) {
+      if (isTomorrow) {
+        title = "Tomorrow";
+      } else if (isYesterday) {
+        title = "Yesterday";
+      } else {
+        const parsed = parseDateKey(sDate);
+        const weekday = WEEKDAY_NAMES[parsed.getDay()] ?? "";
+        const month = MONTH_NAMES[parsed.getMonth()] ?? "";
+        const dayNum = parsed.getDate();
+        title = `${weekday}, ${month} ${dayNum}`;
+      }
+    }
+
+    return {
+      primaryTitle: title,
+      isSelectedDateToday: isToday,
+    };
+  }, [selectedDate, todayKey]);
 
   // Group tasks naturally
   const earlierList = useMemo(() => {
@@ -124,9 +123,34 @@ export function TaskSections({
     return todayTodos.filter((t) => !isTaskCompleted(t));
   }, [todayTodos]);
 
+  const todayCompletedCount = useMemo(() => {
+    return todayTodos.filter(isTaskCompleted).length;
+  }, [todayTodos]);
+
+  const totalTodayTasks = todayList.length + todayCompletedCount;
+
+  const todayProgressText = useMemo(() => {
+    if (totalTodayTasks === 0) return null;
+    if (todayList.length === 0 && todayCompletedCount > 0) {
+      return "All done";
+    }
+    if (todayCompletedCount > 0) {
+      return `${todayCompletedCount}/${totalTodayTasks} done`;
+    }
+    return `${todayList.length} task${todayList.length === 1 ? "" : "s"}`;
+  }, [totalTodayTasks, todayList.length, todayCompletedCount]);
+
   const tomorrowKey = useMemo(() => {
-    return getOffsetDateKey(-1, selectedDate || getTodayDateKey());
-  }, [selectedDate]);
+    return getOffsetDateKey(-1, selectedDate || todayKey);
+  }, [selectedDate, todayKey]);
+
+  const tomorrowFormattedDate = useMemo(() => {
+    const parsed = parseDateKey(tomorrowKey);
+    const weekday = WEEKDAY_NAMES[parsed.getDay()] ?? "";
+    const month = MONTH_NAMES[parsed.getMonth()] ?? "";
+    const dayNum = parsed.getDate();
+    return `${weekday}, ${month} ${dayNum}`;
+  }, [tomorrowKey]);
 
   const { tomorrowList, upcomingList } = useMemo(() => {
     const uncompletedUpcoming = upcomingTodos.filter((t) => !isTaskCompleted(t));
@@ -167,6 +191,7 @@ export function TaskSections({
   const hasAnyTasks =
     earlierList.length > 0 ||
     todayList.length > 0 ||
+    todayCompletedCount > 0 ||
     tomorrowList.length > 0 ||
     upcomingList.length > 0 ||
     somedayList.length > 0 ||
@@ -184,176 +209,616 @@ export function TaskSections({
     );
   }
 
-  const renderSection = (
-    title: string,
-    list: Task[],
-    isExpanded: boolean,
-    onToggle: () => void,
-    extraHeaderRight?: React.ReactNode,
-    isEarlier = false,
-  ) => {
-    if (list.length === 0) return null;
+  const renderTodoItem = (item: Task, isEarlier = false) => {
+    return (
+      <TodoItem
+        key={item.id}
+        item={item}
+        colors={colors}
+        colorScheme={colorScheme}
+        isOverdue={getTaskOccurrenceState(item, selectedDate).isOverdue}
+        omitOverdueLabel={isEarlier}
+        selectedDate={selectedDate}
+        lists={workspaces}
+        selectedWorkspaceId={selectedWorkspaceId}
+        showWorkspaceBadge={showWorkspaceBadge}
+        onToggleTodo={() => onToggleTodo(item.id)}
+        onDeleteTodo={() => onDeleteTodo(item.id)}
+        onEditTodo={() => onEditTodo(item)}
+        onSetAlarm={() => onSetAlarm(item.id)}
+        onSchedule={() => onEditTodo(item)}
+        isSelectionMode={isSelectionMode}
+        isSelected={selectedItemIds.has(item.id)}
+        onSelect={() => onToggleSelectItem?.(item.id)}
+        onLayout={(event) => {
+          if (onTaskLayout) {
+            const { y } = event.nativeEvent.layout;
+            onTaskLayout(item.id, y);
+          }
+        }}
+        allResources={allResources}
+        onToggleLinkResource={onToggleLinkResource}
+        isExpanded={expandedTodoId === item.id}
+        onToggleExpand={() => setExpandedTodoId(expandedTodoId === item.id ? null : item.id)}
+      />
+    );
+  };
+
+  const renderTaskList = (list: Task[], isEarlier = false) => {
+    return (
+      <View style={{ marginTop: 2 }}>
+        {list.map((item, index) => {
+          const isItemExpanded = expandedTodoId === item.id;
+          return (
+            <Animated.View
+              key={item.id}
+              exiting={FadeOut.duration(180)}
+              layout={LinearTransition.duration(200)}
+            >
+              {/* Subtle divider only between collapsed consecutive rows */}
+              {index > 0 && !isItemExpanded && expandedTodoId !== list[index - 1]?.id && (
+                <View
+                  style={{
+                    height: StyleSheet.hairlineWidth,
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.07)"
+                      : "rgba(0, 0, 0, 0.05)",
+                    marginLeft: ROW_SPEC.dividerInset,
+                  }}
+                />
+              )}
+              {renderTodoItem(item, isEarlier)}
+            </Animated.View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  // 1. TODAY: Primary Active Zone (Anchor of the screen)
+  const renderTodaySection = () => {
+    const isAllDone = todayList.length === 0 && todayCompletedCount > 0;
 
     return (
-      <View style={{ marginBottom: 18 }}>
-        {/* Lightweight Section Header */}
+      <View style={sectionStyles.todaySectionContainer}>
         <PressableScale
-          onPress={onToggle}
+          onPress={() => setTodayExpanded(!todayExpanded)}
           haptic
           hitSlop={6}
           accessibilityRole="button"
-          accessibilityLabel={`${title} section, ${list.length} tasks, ${isExpanded ? "expanded" : "collapsed"}`}
-          style={{
-            width: "100%",
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingVertical: 8,
-            paddingHorizontal: 6,
-            marginBottom: 2,
-          }}
+          accessibilityLabel={`${primaryTitle} section, ${todayList.length} active tasks, ${todayExpanded ? "expanded" : "collapsed"}`}
+          style={sectionStyles.todayHeaderRow}
         >
-          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-            <Text
-              style={{
-                fontSize: 18,
-                fontWeight: "800",
-                color: colors.text,
-                letterSpacing: -0.3,
-              }}
-            >
-              {title}
-            </Text>
-            <Text
-              style={{
-                fontSize: 13,
-                fontWeight: "500",
-                color: colors.textMuted,
-              }}
-            >
-              {`${list.length} task${list.length === 1 ? "" : "s"}`}
-            </Text>
+          <View style={sectionStyles.todayTitleLeft}>
+            {/* Visual anchor accent pip */}
+            <View
+              style={[
+                sectionStyles.todayAccentPip,
+                { backgroundColor: isDark ? colors.primaryLight : colors.primary },
+              ]}
+            />
+            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
+              <Text
+                style={[
+                  sectionStyles.todayTitleText,
+                  { color: colors.text },
+                ]}
+              >
+                {primaryTitle}
+              </Text>
+              {todayProgressText ? (
+                <Text
+                  style={[
+                    sectionStyles.todayProgressText,
+                    {
+                      color: isAllDone
+                        ? isDark
+                          ? Palette.emerald400
+                          : Palette.emerald600
+                        : colors.textMuted,
+                    },
+                  ]}
+                >
+                  {todayProgressText}
+                </Text>
+              ) : null}
+            </View>
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {extraHeaderRight}
             <Feather
-              name={isExpanded ? "chevron-up" : "chevron-down"}
-              size={16}
+              name={todayExpanded ? "chevron-up" : "chevron-down"}
+              size={18}
               color={colors.textMuted}
             />
           </View>
         </PressableScale>
 
-        {/* Spatial Task Stream (No heavy enclosing card around entire section) */}
-        {isExpanded && (
-          <View style={{ marginTop: 2 }}>
-            {list.map((item, index) => {
-              const isItemExpanded = expandedTodoId === item.id;
-              return (
-                <Animated.View
-                  key={item.id}
-                  exiting={FadeOut.duration(180)}
-                  layout={LinearTransition.duration(200)}
-                >
-                  {/* Subtle divider only between collapsed consecutive rows */}
-                  {index > 0 && !isItemExpanded && expandedTodoId !== list[index - 1]?.id && (
-                    <View
-                      style={{
-                        height: StyleSheet.hairlineWidth,
-                        backgroundColor: isDark
-                          ? "rgba(255, 255, 255, 0.07)"
-                          : "rgba(0, 0, 0, 0.05)",
-                        marginLeft: ROW_SPEC.dividerInset,
-                      }}
-                    />
-                  )}
-                  {renderTodoItem(item, isEarlier)}
-                </Animated.View>
-              );
-            })}
+        {todayExpanded && (
+          <View>
+            {todayList.length === 0 ? (
+              <View style={sectionStyles.todayQuietEmptyRow}>
+                <Feather
+                  name={isAllDone ? "check-circle" : "calendar"}
+                  size={14}
+                  color={isAllDone ? (isDark ? Palette.emerald400 : Palette.emerald500) : colors.textMuted}
+                />
+                <Text style={[sectionStyles.todayEmptyText, { color: colors.textMuted }]}>
+                  {isAllDone
+                    ? "All tasks completed for today"
+                    : "No tasks scheduled for today"}
+                </Text>
+              </View>
+            ) : (
+              renderTaskList(todayList, false)
+            )}
           </View>
         )}
       </View>
     );
   };
 
-  return (
-    <View style={styles.listContent}>
-      {/* Earlier Section (tasks carried over from previous days — pressure-free triage) */}
-      {earlierList.length > 0 &&
-        renderSection(
-          "Earlier",
-          earlierList,
-          earlierExpanded,
-          () => setEarlierExpanded(!earlierExpanded),
-          earlierExpanded && onSaveEarlierForLater ? (
-            <PressableScale
-              onPress={(e: any) => {
-                e?.stopPropagation?.();
-                onSaveEarlierForLater();
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              haptic
-              accessibilityRole="button"
-              accessibilityLabel="Move all earlier tasks to Someday"
-              style={{
-                paddingHorizontal: 10,
-                paddingVertical: 4,
-                borderRadius: 8,
-                backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.04)",
-                borderWidth: 1,
-                borderColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
-              }}
+  // 2. EARLIER: Past / Unfinished carryovers triage (Restrained amber treatment)
+  const renderEarlierSection = () => {
+    if (earlierList.length === 0) return null;
+
+    return (
+      <View style={sectionStyles.earlierSectionContainer}>
+        <PressableScale
+          onPress={() => setEarlierExpanded(!earlierExpanded)}
+          haptic
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`Earlier section, ${earlierList.length} tasks, ${earlierExpanded ? "expanded" : "collapsed"}`}
+          style={sectionStyles.earlierHeaderRow}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text
+              style={[
+                sectionStyles.earlierTitleText,
+                { color: colors.text },
+              ]}
+            >
+              Earlier
+            </Text>
+            <View
+              style={[
+                sectionStyles.earlierBadge,
+                {
+                  backgroundColor: isDark ? "rgba(245, 158, 11, 0.14)" : "#FEF3C7",
+                },
+              ]}
             >
               <Text
                 style={{
-                  color: isDark ? colors.primaryLight : colors.primary,
-                  fontWeight: "600",
                   fontSize: 12,
+                  fontWeight: "600",
+                  color: isDark ? Palette.amber400 : Palette.amber700,
                 }}
               >
-                Move all to Someday
+                {`${earlierList.length} task${earlierList.length === 1 ? "" : "s"}`}
               </Text>
-            </PressableScale>
-          ) : null,
-          true,
-        )}
+            </View>
+          </View>
 
-      {/* Today Section */}
-      {renderSection("Today", todayList, todayExpanded, () => setTodayExpanded(!todayExpanded))}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {earlierExpanded && onSaveEarlierForLater ? (
+              <PressableScale
+                onPress={(e: any) => {
+                  e?.stopPropagation?.();
+                  onSaveEarlierForLater();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                haptic
+                accessibilityRole="button"
+                accessibilityLabel="Move all earlier tasks to Someday"
+                style={[
+                  sectionStyles.triageButton,
+                  {
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.04)",
+                    borderColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: isDark ? colors.primaryLight : colors.primary,
+                    fontWeight: "600",
+                    fontSize: 12,
+                  }}
+                >
+                  Move all to Someday
+                </Text>
+              </PressableScale>
+            ) : null}
 
-      {/* Tomorrow Section */}
-      {renderSection("Tomorrow", tomorrowList, tomorrowExpanded, () => setTomorrowExpanded(!tomorrowExpanded))}
+            <Feather
+              name={earlierExpanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.textMuted}
+            />
+          </View>
+        </PressableScale>
 
-      {/* Upcoming Section */}
-      {renderSection("Upcoming", upcomingList, upcomingExpanded, () => setUpcomingExpanded(!upcomingExpanded))}
+        {earlierExpanded && renderTaskList(earlierList, true)}
+      </View>
+    );
+  };
 
-      {/* Someday Section */}
-      {renderSection("Someday", somedayList, somedayExpanded, () => setSomedayExpanded(!somedayExpanded))}
+  // 3. TOMORROW: Secondary Horizon preview
+  const renderTomorrowSection = () => {
+    if (tomorrowList.length === 0) return null;
 
-      {/* Completed Section */}
-      {renderSection(
-        "Completed",
-        completedList,
-        completedExpanded,
-        () => setCompletedExpanded(!completedExpanded),
-        completedExpanded && completedList.length > 0 ? (
-          <PressableScale
-            onPress={(e: any) => {
-              e?.stopPropagation?.();
-              onClearCompleted();
-            }}
-            hitSlop={8}
-            haptic
-            style={{ paddingHorizontal: 8, paddingVertical: 2 }}
-          >
-            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
-              Clear
+    return (
+      <View style={sectionStyles.tomorrowSectionContainer}>
+        <PressableScale
+          onPress={() => setTomorrowExpanded(!tomorrowExpanded)}
+          haptic
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`Tomorrow section, ${tomorrowList.length} tasks, ${tomorrowExpanded ? "expanded" : "collapsed"}`}
+          style={sectionStyles.tomorrowHeaderRow}
+        >
+          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
+            <Text
+              style={[
+                sectionStyles.tomorrowTitleText,
+                { color: colors.text },
+              ]}
+            >
+              Tomorrow
             </Text>
-          </PressableScale>
-        ) : null,
-      )}
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "500",
+                color: colors.textMuted,
+              }}
+            >
+              {`· ${tomorrowList.length} task${tomorrowList.length === 1 ? "" : "s"}`}
+            </Text>
+          </View>
+
+          <Feather
+            name={tomorrowExpanded ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={colors.textMuted}
+          />
+        </PressableScale>
+
+        {tomorrowExpanded && renderTaskList(tomorrowList, false)}
+      </View>
+    );
+  };
+
+  // 4. UPCOMING: Future Backlog (Compressed, collapsed by default)
+  const renderUpcomingSection = () => {
+    if (upcomingList.length === 0) return null;
+
+    return (
+      <View style={sectionStyles.compressedSectionContainer}>
+        <PressableScale
+          onPress={() => setUpcomingExpanded(!upcomingExpanded)}
+          haptic
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`Upcoming section, ${upcomingList.length} tasks, ${upcomingExpanded ? "expanded" : "collapsed"}`}
+          style={sectionStyles.compressedHeaderRow}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+            <Feather name="calendar" size={13} color={colors.textMuted} />
+            <Text
+              style={[
+                sectionStyles.compressedTitleText,
+                { color: colors.textMuted },
+              ]}
+            >
+              Upcoming
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "500",
+                color: colors.textMuted,
+              }}
+            >
+              {`${upcomingList.length} task${upcomingList.length === 1 ? "" : "s"}`}
+            </Text>
+          </View>
+
+          <Feather
+            name={upcomingExpanded ? "chevron-up" : "chevron-down"}
+            size={15}
+            color={colors.textMuted}
+          />
+        </PressableScale>
+
+        {upcomingExpanded && renderTaskList(upcomingList, false)}
+      </View>
+    );
+  };
+
+  // 5. SOMEDAY: Unscheduled Backlog / Inbox (Compressed, collapsed by default)
+  const renderSomedaySection = () => {
+    if (somedayList.length === 0) return null;
+
+    return (
+      <View style={sectionStyles.compressedSectionContainer}>
+        <PressableScale
+          onPress={() => setSomedayExpanded(!somedayExpanded)}
+          haptic
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`Someday section, ${somedayList.length} tasks, ${somedayExpanded ? "expanded" : "collapsed"}`}
+          style={sectionStyles.compressedHeaderRow}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+            <Feather name="inbox" size={13} color={colors.textMuted} />
+            <Text
+              style={[
+                sectionStyles.compressedTitleText,
+                { color: colors.textMuted },
+              ]}
+            >
+              Someday
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "500",
+                color: colors.textMuted,
+              }}
+            >
+              {`${somedayList.length} task${somedayList.length === 1 ? "" : "s"}`}
+            </Text>
+          </View>
+
+          <Feather
+            name={somedayExpanded ? "chevron-up" : "chevron-down"}
+            size={15}
+            color={colors.textMuted}
+          />
+        </PressableScale>
+
+        {somedayExpanded && renderTaskList(somedayList, false)}
+      </View>
+    );
+  };
+
+  // 6. COMPLETED: History Drawer (Quiet archive at the bottom, collapsed by default)
+  const renderCompletedSection = () => {
+    if (completedList.length === 0) return null;
+
+    return (
+      <View
+        style={[
+          sectionStyles.completedSectionContainer,
+          {
+            borderTopColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
+          },
+        ]}
+      >
+        <PressableScale
+          onPress={() => setCompletedExpanded(!completedExpanded)}
+          haptic
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`Completed section, ${completedList.length} tasks, ${completedExpanded ? "expanded" : "collapsed"}`}
+          style={sectionStyles.completedHeaderRow}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+            <Feather name="check-circle" size={13} color={colors.textMuted} />
+            <Text
+              style={[
+                sectionStyles.completedTitleText,
+                { color: colors.textMuted },
+              ]}
+            >
+              Completed
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "500",
+                color: colors.textMuted,
+              }}
+            >
+              {`${completedList.length}`}
+            </Text>
+          </View>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {completedExpanded && completedList.length > 0 ? (
+              <PressableScale
+                onPress={(e: any) => {
+                  e?.stopPropagation?.();
+                  onClearCompleted();
+                }}
+                hitSlop={8}
+                haptic
+                style={{ paddingHorizontal: 8, paddingVertical: 2 }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
+                  Clear
+                </Text>
+              </PressableScale>
+            ) : null}
+
+            <Feather
+              name={completedExpanded ? "chevron-up" : "chevron-down"}
+              size={15}
+              color={colors.textMuted}
+            />
+          </View>
+        </PressableScale>
+
+        {completedExpanded && renderTaskList(completedList, false)}
+      </View>
+    );
+  };
+
+  return (
+    <View style={[styles.listContent, { paddingBottom: 0 }]}>
+      {/* 1. Today (Primary Active Zone / Visual Anchor) */}
+      {renderTodaySection()}
+
+      {/* 2. Earlier (Past uncompleted carryovers) */}
+      {renderEarlierSection()}
+
+      {/* 3. Tomorrow (Next day preview) */}
+      {renderTomorrowSection()}
+
+      {/* 4. Upcoming (Future schedule) */}
+      {renderUpcomingSection()}
+
+      {/* 5. Someday (Unscheduled backlog) */}
+      {renderSomedaySection()}
+
+      {/* 6. Completed (History drawer) */}
+      {renderCompletedSection()}
     </View>
   );
 }
+
+const sectionStyles = StyleSheet.create({
+  todaySectionContainer: {
+    marginBottom: 20,
+  },
+  todayHeaderRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    marginBottom: 4,
+  },
+  todayTitleLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  todayAccentPip: {
+    width: 3.5,
+    height: 20,
+    borderRadius: 2,
+  },
+  todayTitleText: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+  },
+  todayProgressText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  todayQuietEmptyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    opacity: 0.75,
+  },
+  todayDateContext: {
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 1,
+  },
+  todayEmptyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  todayEmptyText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  earlierSectionContainer: {
+    marginBottom: 18,
+  },
+  earlierHeaderRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    marginBottom: 2,
+  },
+  earlierTitleText: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  earlierBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  triageButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  tomorrowSectionContainer: {
+    marginBottom: 18,
+  },
+  tomorrowHeaderRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    marginBottom: 2,
+  },
+  tomorrowTitleText: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  compressedSectionContainer: {
+    marginBottom: 10,
+  },
+  compressedHeaderRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    marginBottom: 1,
+  },
+  compressedTitleText: {
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: -0.1,
+  },
+  completedSectionContainer: {
+    marginTop: 8,
+    marginBottom: 16,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  completedHeaderRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+  },
+  completedTitleText: {
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: -0.1,
+  },
+});
+

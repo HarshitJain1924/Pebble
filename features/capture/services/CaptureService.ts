@@ -103,11 +103,7 @@ export async function saveParsedItem(
   }
 
   // Record analytics snapshot (fire-and-forget)
-  try {
-    await recordDailyHistorySnapshot();
-  } catch {
-    // Analytics failure is non-blocking
-  }
+  void recordDailyHistorySnapshot().catch(() => {});
 
   return entity;
 }
@@ -125,9 +121,5 @@ export async function mergeParsedChecklist(
   }
   await EntityCommandService.mergeChecklistItems(targetChecklistId, workspaceId, item.items);
 
-  try {
-    await recordDailyHistorySnapshot();
-  } catch {
-    // Analytics failure is non-blocking
-  }
+  void recordDailyHistorySnapshot().catch(() => {});
 }

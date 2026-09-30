@@ -126,6 +126,43 @@ export function formatRelativeTaskDate(
   return { label: `${monthName} ${dayNum}`, isWarning: true, daysAgo };
 }
 
+export function formatTimeString(timeStr?: string): string | null {
+  if (!timeStr) return null;
+  const [h, m] = timeStr.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const displayHour = h % 12 === 0 ? 12 : h % 12;
+  const displayMinute = String(m).padStart(2, "0");
+  return `${displayHour}:${displayMinute} ${ampm}`;
+}
+
+export function formatTimeRange(
+  startTime?: string,
+  endTime?: string,
+  durationMinutes?: number
+): string | null {
+  const start = formatTimeString(startTime);
+  if (!start) return null;
+
+  if (endTime) {
+    const end = formatTimeString(endTime);
+    if (end) return `${start} – ${end}`;
+  } else if (durationMinutes && durationMinutes > 0) {
+    const [h, m] = (startTime || "").split(":").map(Number);
+    if (!isNaN(h) && !isNaN(m)) {
+      const totalMinutes = h * 60 + m + durationMinutes;
+      const endH = Math.floor(totalMinutes / 60) % 24;
+      const endM = totalMinutes % 60;
+      const endAmPm = endH >= 12 ? "PM" : "AM";
+      const displayEndH = endH % 12 === 0 ? 12 : endH % 12;
+      const displayEndM = String(endM).padStart(2, "0");
+      return `${start} – ${displayEndH}:${displayEndM} ${endAmPm}`;
+    }
+  }
+
+  return start;
+}
+
 export interface TaskSectionCounts {
   today: number;
   earlier: number;

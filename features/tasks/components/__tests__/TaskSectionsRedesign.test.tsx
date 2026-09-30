@@ -102,6 +102,51 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
       expect(renderedTexts).toContain("1 task");
       expect(renderedTexts).toContain("Move all to Someday");
     });
+
+    it("renders Today as primary visual anchor with date context and progress", () => {
+      const mockTodayTask: Task = {
+        id: "task-today-1",
+        title: "Focus on task",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        workspaceId: "ws-1",
+        revision: 1,
+        lifecycleGeneration: 1,
+        status: "todo",
+        priority: "none",
+        schedule: { date: "2026-09-30" },
+        resourceIds: [],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <TaskSections
+            overdueTodos={[]}
+            todayTodos={[mockTodayTask]}
+            upcomingTodos={[]}
+            inboxTodos={[]}
+            workspaces={mockWorkspaces}
+            selectedWorkspaceId="ws-1"
+            selectedDate="2026-09-30"
+            completedCount={0}
+            onClearCompleted={jest.fn()}
+            onToggleTodo={jest.fn()}
+            onDeleteTodo={jest.fn()}
+            onEditTodo={jest.fn()}
+            onSetAlarm={jest.fn()}
+            allResources={mockResources}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const textNodes = root.findAllByType("Text");
+      const renderedTexts = textNodes.map((n: any) => n.props.children);
+
+      expect(renderedTexts).toContain("Focus on task");
+      expect(renderedTexts).toContain("1 task");
+    });
   });
 
   describe("TodoItem (TaskItem)", () => {

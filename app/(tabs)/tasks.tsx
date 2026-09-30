@@ -22,7 +22,10 @@ import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getCircadianArtSource, getCircadianPeriod } from "@/features/today/components/PebbleCircadianHeader";
-import { getPebbleDockClearance } from "@/shared/components/navigation/PebbleRadialTabBar";
+import {
+  getPebbleDockClearance,
+  ShorelineSupportBackdrop,
+} from "@/shared/components/navigation/PebbleRadialTabBar";
 import { getTasksSubtitleBreakdown } from "@/features/tasks/utils/task-formatting";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -53,6 +56,7 @@ import { ResourceSection } from "@/features/resources/components/ResourceSection
 import { ChecklistSection } from "@/features/checklists/components/ChecklistSection";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
+import { TaskFilterModal } from "@/features/tasks/components/TaskFilterModal";
 
 import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
 import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
@@ -82,6 +86,7 @@ export function WorkspacesScreen() {
   const [isSearchActive, setIsSearchActive] = React.useState(false);
   const [workspaceMenuVisible, setWorkspaceMenuVisible] = React.useState(false);
   const [inboxProtectionVisible, setInboxProtectionVisible] = React.useState(false);
+  const [isFilterModalVisible, setIsFilterModalVisible] = React.useState(false);
 
   const folderHabits = React.useMemo(() => {
     const raw = state.habits.filter((h) => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId);
@@ -145,6 +150,14 @@ export function WorkspacesScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar
         style={colorScheme === "dark" ? "light" : "dark"}
+      />
+
+      {/* Environmental Shoreline Scenic Artwork (Anchored to canvas bottom behind scroll stream) */}
+      <ShorelineSupportBackdrop
+        screenWidth={SCREEN_WIDTH}
+        isDark={colorScheme !== "light"}
+        backgroundColor={colors.background}
+        style={{ zIndex: 0, elevation: 0 }}
       />
 
       {/* Background Scenic Art extending full bleed under status bar & camera */}
@@ -615,6 +628,101 @@ export function WorkspacesScreen() {
                 {/* Tasks Section */}
                 {state.workspaceSegment === "tasks" && (
                   <View style={{ gap: 10 }}>
+                    {/* Compact Tasks & Filter Control Bar */}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingHorizontal: 8,
+                        paddingTop: 4,
+                        paddingBottom: 2,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: "700",
+                            color: colors.text,
+                            letterSpacing: -0.3,
+                          }}
+                        >
+                          Tasks
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: "500",
+                            color: colors.textMuted,
+                          }}
+                        >
+                          {state.remainingCount}
+                        </Text>
+                      </View>
+
+                      <PressableScale
+                        onPress={() => setIsFilterModalVisible(true)}
+                        haptic
+                        scaleTo={0.94}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Filter tasks, ${state.activeFilterCount} active filters`}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 10,
+                          borderWidth: 1,
+                          backgroundColor: state.activeFilterCount > 0
+                            ? (isDark ? "rgba(99, 102, 241, 0.16)" : "#EEF2FF")
+                            : (isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)"),
+                          borderColor: state.activeFilterCount > 0
+                            ? (isDark ? Palette.indigo400 : Palette.indigo500)
+                            : colors.border,
+                        }}
+                      >
+                        <Feather
+                          name="filter"
+                          size={12}
+                          color={state.activeFilterCount > 0 ? (isDark ? Palette.indigo300 : Palette.indigo600) : colors.textMuted}
+                        />
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: state.activeFilterCount > 0 ? "700" : "600",
+                            color: state.activeFilterCount > 0 ? (isDark ? Palette.indigo300 : Palette.indigo600) : colors.text,
+                          }}
+                        >
+                          Filter
+                        </Text>
+                        {state.activeFilterCount > 0 && (
+                          <View
+                            style={{
+                              minWidth: 16,
+                              height: 16,
+                              borderRadius: 8,
+                              paddingHorizontal: 4,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              backgroundColor: isDark ? Palette.indigo500 : Palette.indigo600,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: "#FFFFFF",
+                                fontSize: 10,
+                                fontWeight: "700",
+                              }}
+                            >
+                              {state.activeFilterCount}
+                            </Text>
+                          </View>
+                        )}
+                      </PressableScale>
+                    </View>
+
                     {/* Tasks List */}
                     <TaskSections
                       overdueTodos={state.overdueTodos}
@@ -1288,6 +1396,22 @@ export function WorkspacesScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Task Filters Modal */}
+      <TaskFilterModal
+        visible={isFilterModalVisible}
+        onClose={() => setIsFilterModalVisible(false)}
+        statusFilter={state.statusFilter}
+        onSelectStatus={state.setStatusFilter}
+        priorityFilter={state.priorityFilter}
+        onSelectPriority={state.setPriorityFilter}
+        scheduleFilter={state.scheduleFilter}
+        onSelectSchedule={state.setScheduleFilter}
+        reminderFilter={state.reminderFilter}
+        onSelectReminder={state.setReminderFilter}
+        activeFilterCount={state.activeFilterCount}
+        onResetFilters={state.resetFilters}
+      />
 
       </SafeAreaView>
     </View>

@@ -51,9 +51,9 @@ export function TemporalHorizonStrip({
       const isToday = dKey === todayKey;
       const isSelected = dKey === selectedDate;
 
-      // Count uncompleted tasks for this date
+      // Count uncompleted, active tasks for this date
       const taskCount = todos.reduce((count, task) => {
-        if (isTaskCompleted(task)) return count;
+        if (task.archivedAt || isTaskCompleted(task)) return count;
         const occ = getTaskOccurrenceState(task, dKey);
         return occ.occurs ? count + 1 : count;
       }, 0);
@@ -87,7 +87,7 @@ export function TemporalHorizonStrip({
           const isSelected = day.isSelected;
           const isToday = day.isToday;
 
-          // Capsule styling matching the modern mockup
+          // Capsule styling matching Pebble design language
           const capsuleBg = isSelected
             ? isDark
               ? colorWithAlpha(colors.primary, 0.22)
@@ -142,6 +142,7 @@ export function TemporalHorizonStrip({
                 {
                   backgroundColor: capsuleBg,
                   borderColor: capsuleBorder,
+                  borderWidth: isSelected ? 1.5 : 1,
                   shadowColor: isSelected ? colors.primary : Palette.black,
                   shadowOpacity: isSelected ? (isDark ? 0.25 : 0.08) : (isDark ? 0.15 : 0.03),
                 },

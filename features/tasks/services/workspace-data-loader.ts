@@ -40,58 +40,61 @@ export async function loadWorkspaceData(
   const checklistsMap: Record<string, Checklist[]> = {};
   const resourcesMap: Record<string, Resource[]> = {};
 
-  for (const folder of workspaces) {
-    const folderId = folder.id;
+  const workspaceResults = await Promise.all(
+    workspaces.map(async (folder) => {
+      const folderId = folder.id;
+      const [folderTasksMap, folderHabitsMap, checklists, resourcesMapForFolder] =
+        await Promise.all([
+          TaskRepository.getTasks(folderId),
+          HabitRepository.getHabits(folderId),
+          ChecklistRepository.getChecklists(folderId),
+          ResourceRepository.getResources(folderId),
+        ]);
 
-    // Load tasks
-    const folderTasksMap = await TaskRepository.getTasks(folderId);
-    todosMap[folderId] = Object.values(folderTasksMap);
+      return {
+        folderId,
+        tasks: Object.values(folderTasksMap),
+        habits: Object.values(folderHabitsMap),
+        checklists: Object.values(checklists),
+        resources: Object.values(resourcesMapForFolder).map((r: any) => ({
+          id: r.id,
+          workspaceId: r.workspaceId || folderId,
+          type: (r.resourceType || r.type || "note") as any,
+          kind:
+            r.kind ||
+            (r.resourceType === "idea" || r.type === "idea"
+              ? "idea"
+              : undefined),
+          title: r.title,
+          content:
+            r.content !== undefined
+              ? r.content
+              : r.payload?.content || r.body?.content,
+          url: r.url !== undefined ? r.url : r.payload?.url || r.body?.url,
+          mediaUri: r.mediaUri,
+          previewImageUrl: r.previewImageUrl,
+          archived: r.archived || false,
+          pinned: r.pinned || false,
+          linkedItemIds: r.linkedItemIds || [],
+          tags: r.tags || [],
+          createdAt: r.createdAt || Date.now(),
+          updatedAt: r.updatedAt || Date.now(),
+          revision: r.revision || 1,
+          lifecycleGeneration: r.lifecycleGeneration || 1,
+          fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
+          fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
+          mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,
+          localUri: r.localUri || r.payload?.localUri || r.body?.localUri,
+        })),
+      };
+    }),
+  );
 
-    // Load habits
-    const folderHabitsMap = await HabitRepository.getHabits(folderId);
-    habits.push(...Object.values(folderHabitsMap));
-
-    // Load checklists
-    const checklists = await ChecklistRepository.getChecklists(folderId);
-    checklistsMap[folderId] = Object.values(checklists);
-
-    // Load flat resources directly from ResourceRepository (legacy shape
-    // normalization preserved verbatim from useTasksState).
-    const resourcesMapForFolder = await ResourceRepository.getResources(
-      folderId,
-    );
-    resourcesMap[folderId] = Object.values(resourcesMapForFolder).map(
-      (r: any) => ({
-        id: r.id,
-        workspaceId: r.workspaceId || folderId,
-        type: (r.resourceType || r.type || "note") as any,
-        kind:
-          r.kind ||
-          (r.resourceType === "idea" || r.type === "idea"
-            ? "idea"
-            : undefined),
-        title: r.title,
-        content:
-          r.content !== undefined
-            ? r.content
-            : r.payload?.content || r.body?.content,
-        url: r.url !== undefined ? r.url : r.payload?.url || r.body?.url,
-        mediaUri: r.mediaUri,
-        previewImageUrl: r.previewImageUrl,
-        archived: r.archived || false,
-        pinned: r.pinned || false,
-        linkedItemIds: r.linkedItemIds || [],
-        tags: r.tags || [],
-        createdAt: r.createdAt || Date.now(),
-        updatedAt: r.updatedAt || Date.now(),
-        revision: r.revision || 1,
-        lifecycleGeneration: r.lifecycleGeneration || 1,
-        fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
-        fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
-        mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,
-        localUri: r.localUri || r.payload?.localUri || r.body?.localUri,
-      }),
-    );
+  for (const res of workspaceResults) {
+    todosMap[res.folderId] = res.tasks;
+    habits.push(...res.habits);
+    checklistsMap[res.folderId] = res.checklists;
+    resourcesMap[res.folderId] = res.resources;
   }
 
   return {

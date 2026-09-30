@@ -430,19 +430,42 @@ export async function analyzeDuplicate(
     }
 
     const allEntities: any[] = [];
+    const isTaskOrHabit = candidate.type === "task" || candidate.type === "habit";
+    const isChecklist = candidate.type === "checklist";
+    const isResource =
+      candidate.type === "note" ||
+      candidate.type === "idea" ||
+      candidate.type === "link" ||
+      candidate.type === "file";
 
     for (const wsId of workspacesToScan) {
-      const [tasksMap, habitsMap, checklistsMap, resourcesMap] = await Promise.all([
-        TaskRepository.getTasks(wsId).catch(() => ({})),
-        HabitRepository.getHabits(wsId).catch(() => ({})),
-        ChecklistRepository.getChecklists(wsId).catch(() => ({})),
-        ResourceRepository.getResources(wsId).catch(() => ({})),
-      ]);
+      const promises: Promise<Record<string, any>>[] = [];
+      if (isTaskOrHabit || isChecklist) {
+        promises.push(TaskRepository.getTasks(wsId).catch(() => ({})));
+      }
+      if (isTaskOrHabit) {
+        promises.push(HabitRepository.getHabits(wsId).catch(() => ({})));
+      }
+      if (isChecklist) {
+        promises.push(ChecklistRepository.getChecklists(wsId).catch(() => ({})));
+      }
+      if (isResource) {
+        promises.push(ResourceRepository.getResources(wsId).catch(() => ({})));
+      }
+      if (!isTaskOrHabit && !isChecklist && !isResource) {
+        // Fallback for untyped candidates
+        promises.push(
+          TaskRepository.getTasks(wsId).catch(() => ({})),
+          HabitRepository.getHabits(wsId).catch(() => ({})),
+          ChecklistRepository.getChecklists(wsId).catch(() => ({})),
+          ResourceRepository.getResources(wsId).catch(() => ({})),
+        );
+      }
 
-      allEntities.push(...Object.values(tasksMap));
-      allEntities.push(...Object.values(habitsMap));
-      allEntities.push(...Object.values(checklistsMap));
-      allEntities.push(...Object.values(resourcesMap));
+      const entityMaps = await Promise.all(promises);
+      for (const m of entityMaps) {
+        allEntities.push(...Object.values(m));
+      }
     }
 
     const dedupedEntities = deduplicateEntities(allEntities);

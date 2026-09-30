@@ -1528,7 +1528,7 @@ static async reorderTasks(
       candidate.revision = candidate.revision || 1;
 
       // 1. Domain persistence FIRST
-      return await TaskRepository.saveTaskUnlocked(candidate);
+      return await TaskRepository.saveTaskUnlocked(candidate, activeTasks);
     });
 
     // 2. OS Notification Scheduling SECOND (isolated)

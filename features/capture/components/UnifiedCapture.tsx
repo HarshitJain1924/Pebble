@@ -832,54 +832,59 @@ export default function UnifiedCapture({
       }
 
       setIsSaving(true);
-      try {
-        const saved = await saveParsedItem(finalParsedItem, wsId, { bypassDuplicateCheck: true });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      sheetRef.current?.dismiss();
 
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
-        const typeLabel = TYPE_META[finalParsedItem.type].label;
+      const wsName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name || "My Pebbles";
+      const typeLabel = TYPE_META[finalParsedItem.type].label;
 
-        // Offer Undo for a few seconds: permanently delete the just-created entity
-        // (this also cancels its reminders) and restore the capture text for re-editing.
-        showUndo({
-          message: `${typeLabel} added to ${wsName}`,
-          actionLabel: "Undo",
-          duration: 5000,
-          onUndo: async () => {
-            try {
-              const kind = getSavedEntityKind(saved);
-              if (kind === "task") {
-                await EntityCommandService.permanentlyDeleteTask(saved.id, saved.workspaceId);
-              } else if (kind === "habit") {
-                await EntityCommandService.permanentlyDeleteHabit(saved.id, saved.workspaceId);
-              } else if (kind === "checklist") {
-                await EntityCommandService.permanentlyDeleteChecklist(saved.id, saved.workspaceId);
-              } else {
-                await EntityCommandService.permanentlyDeleteResource(saved.id, saved.workspaceId);
-              }
-              // Put the text back so the user can re-edit instead of retyping.
-              inputRef.current?.setValue(liveText ?? "");
-            } catch (err) {
-              console.warn("Quick Capture undo failed:", err);
+      // Reset capture UI immediately so the sheet dismisses smoothly
+      userOverridesRef.current = {};
+      inputRef.current?.setValue("");
+      setParsedItem(null);
+      setDuplicateResult(null);
+      setTopSuggestion(null);
+      setAttachedFile(null);
+      AsyncStorage.removeItem(QUICK_CAPTURE_DRAFT_KEY).catch(() => {});
+
+      // Execute save concurrently
+      const savePromise = saveParsedItem(finalParsedItem, wsId, { bypassDuplicateCheck: true });
+
+      // Offer Undo for a few seconds: permanently delete the just-created entity
+      // (this also cancels its reminders) and restore the capture text for re-editing.
+      showUndo({
+        message: `${typeLabel} added to ${wsName}`,
+        actionLabel: "Undo",
+        duration: 5000,
+        onUndo: async () => {
+          try {
+            const saved = await savePromise;
+            const kind = getSavedEntityKind(saved);
+            if (kind === "task") {
+              await EntityCommandService.permanentlyDeleteTask(saved.id, saved.workspaceId);
+            } else if (kind === "habit") {
+              await EntityCommandService.permanentlyDeleteHabit(saved.id, saved.workspaceId);
+            } else if (kind === "checklist") {
+              await EntityCommandService.permanentlyDeleteChecklist(saved.id, saved.workspaceId);
+            } else {
+              await EntityCommandService.permanentlyDeleteResource(saved.id, saved.workspaceId);
             }
-          },
-        });
+            // Put the text back so the user can re-edit instead of retyping.
+            inputRef.current?.setValue(liveText ?? "");
+          } catch (err) {
+            console.warn("Quick Capture undo failed:", err);
+          }
+        },
+      });
 
-        // Reset
-        userOverridesRef.current = {};
-        inputRef.current?.setValue("");
-        setParsedItem(null);
-        setDuplicateResult(null);
-        setTopSuggestion(null);
-        setAttachedFile(null);
-        AsyncStorage.removeItem(QUICK_CAPTURE_DRAFT_KEY).catch(() => {});
-        sheetRef.current?.dismiss();
-        // Disable re-enables after dismiss is triggered (not awaited)
-        setTimeout(() => setIsSaving(false), 300);
-      } catch (e) {
-        console.warn("UnifiedCapture save failed:", e);
-        setIsSaving(false);
-      }
+      savePromise
+        .catch((e) => {
+          console.warn("UnifiedCapture save failed:", e);
+          showToast(`Failed to add ${typeLabel.toLowerCase()}`);
+        })
+        .finally(() => {
+          setTimeout(() => setIsSaving(false), 300);
+        });
     },
     [parsedItem, selectedWorkspaceId, workspaces, isSaving, showToast, showUndo, attachedFile, applyUserOverrides],
   );
