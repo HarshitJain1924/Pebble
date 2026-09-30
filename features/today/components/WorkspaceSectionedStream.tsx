@@ -2,7 +2,7 @@ import React from "react";
 import { View, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { type Router } from "expo-router";
+import { type ImperativeRouter as Router } from "expo-router";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import type { ThemeColors } from "@/shared/constants/theme";

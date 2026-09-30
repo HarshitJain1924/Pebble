@@ -488,14 +488,14 @@ function FocusIllustration() {
       <View style={[styles.orbitRing, { width: 106, height: 106, borderRadius: 53, opacity: 0.25 }]} />
 
       {/* Orbit Track 1: Outer (Clockwise) */}
-      <Animated.View style={[StyleSheet.absoluteFillObject, orbitStyle, { justifyContent: "center", alignItems: "center" }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, orbitStyle, { justifyContent: "center", alignItems: "center" }]}>
         <View style={[styles.orbitPebble, { top: 10, backgroundColor: Palette.violet500, width: 10, height: 10, borderRadius: 5 }]} />
         <View style={[styles.orbitPebbleTail, { top: 7, left: "53%", width: 6, height: 6, borderRadius: 3, opacity: 0.55 }]} />
         <View style={[styles.orbitPebbleTail, { top: 5, left: "56%", width: 4, height: 4, borderRadius: 2, opacity: 0.25 }]} />
       </Animated.View>
 
       {/* Orbit Track 2: Inner (Counter-Clockwise) */}
-      <Animated.View style={[StyleSheet.absoluteFillObject, orbitStyleOpposite, { justifyContent: "center", alignItems: "center" }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, orbitStyleOpposite, { justifyContent: "center", alignItems: "center" }]}>
         <View style={[styles.orbitPebble, { bottom: 27, left: 27, backgroundColor: Palette.violet300, width: 8, height: 8, borderRadius: 4 }]} />
         <View style={[styles.orbitPebbleTail, { bottom: 35, left: 22, width: 5, height: 5, borderRadius: 2.5, opacity: 0.35 }]} />
       </Animated.View>
@@ -707,7 +707,7 @@ function WelcomeParticles() {
   }));
 
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Animated.View style={[styles.particle, { left: "28%" }, p1Style]} />
       <Animated.View style={[styles.particle, { left: "44%", width: 3, height: 3 }, p2Style]} />
       <Animated.View style={[styles.particle, { left: "58%" }, p3Style]} />

@@ -252,7 +252,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               size={glowSize}
               opacity={isImmersiveWork ? 0.18 : (isActive || isCompleted ? 0.15 : 0.04)}
               pulseSpeed={isImmersiveWork ? 3000 : (isActive ? 3500 : 8000)}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
           )}
           <PebbleProgressRing
@@ -361,7 +361,7 @@ export const TimerCockpit: React.FC<TimerCockpitProps> = ({
               size={glowSize}
               opacity={swRunning ? 0.15 : 0.04}
               pulseSpeed={swRunning ? 3500 : 8000}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
           )}
           <ProgressRing

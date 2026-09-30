@@ -439,8 +439,6 @@ export function TodayScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar
         style={colorScheme === "dark" ? "light" : "dark"}
-        translucent
-        backgroundColor="transparent"
       />
 
       {/* Environmental Shoreline Scenic Artwork (Anchored to canvas bottom behind scroll stream) */}

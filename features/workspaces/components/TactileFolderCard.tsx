@@ -183,7 +183,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
             },
           ]}
         >
-          <View style={[StyleSheet.absoluteFillObject, styles.backFlapInnerShade]} />
+          <View style={[StyleSheet.absoluteFill, styles.backFlapInnerShade]} />
         </View>
 
         {/* ─── LAYER 2: SLIP-IN NOTE CARD (PEEKING FROM POCKET) ─── */}
@@ -284,7 +284,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
           <Svg
             width={FOLDER_CARD_WIDTH}
             height={FOLDER_POCKET_HEIGHT}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           >
             <Defs>
               <SvgLinearGradient id={`pocketGrad-${workspace.id}`} x1="0" y1="0" x2="0" y2="1">

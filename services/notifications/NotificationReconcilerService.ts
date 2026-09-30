@@ -10,7 +10,6 @@ import {
   cancelReminderIds,
   getWebReminderLoops,
 } from "@/services/scheduling/reminders.service";
-import * as Notifications from "expo-notifications";
 import { Task, Habit, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import {
   isMatchingPhysicalNotification,
@@ -204,6 +203,7 @@ export class NotificationReconcilerService {
           });
         }
       } else {
+        const Notifications = await import("expo-notifications");
         if (typeof Notifications.getAllScheduledNotificationsAsync !== "function") return;
         const nativeNotifs = await Notifications.getAllScheduledNotificationsAsync();
         allOsNotifications.push(...nativeNotifs);

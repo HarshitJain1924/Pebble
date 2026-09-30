@@ -34,7 +34,6 @@ import {
 import { deduplicateEntities } from "@/shared/utils/deduplication";
 import { withLock } from "@/shared/utils/mutex";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
 import {
   isPebbleOwnedKey,
   RESTORE_INTENT_KEY,
@@ -846,6 +845,7 @@ export class BackupService {
     try {
       const { clearWebReminderLoops } = await import("@/services/scheduling/reminders.service");
       clearWebReminderLoops();
+      const Notifications = await import("expo-notifications");
       if (
         typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
       ) {
@@ -970,6 +970,7 @@ export class BackupService {
     try {
       const { clearWebReminderLoops } = await import("@/services/scheduling/reminders.service");
       clearWebReminderLoops();
+      const Notifications = await import("expo-notifications");
       if (
         typeof Notifications.cancelAllScheduledNotificationsAsync === "function"
       ) {

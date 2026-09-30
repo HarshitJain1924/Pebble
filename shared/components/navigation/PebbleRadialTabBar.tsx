@@ -27,7 +27,7 @@ import Svg, {
   Rect,
   Stop,
 } from "react-native-svg";
-import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import type { BottomTabBarProps } from "expo-router/js-tabs";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Palette, Colors } from "@/shared/constants/theme";
@@ -162,7 +162,7 @@ export const ShorelineSupportBackdrop: React.FC<{
       <Image
         source={source}
         style={[
-          StyleSheet.absoluteFillObject,
+          StyleSheet.absoluteFill,
           {
             width: screenWidth,
             height: DOCK_ARTWORK_HEIGHT,

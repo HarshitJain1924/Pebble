@@ -23,7 +23,7 @@ const tabStyles = StyleSheet.create({
     justifyContent: "center",
   },
   iconLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
   },

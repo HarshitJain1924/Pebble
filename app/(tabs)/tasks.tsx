@@ -140,8 +140,6 @@ export function WorkspacesScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar
         style={colorScheme === "dark" ? "light" : "dark"}
-        translucent
-        backgroundColor="transparent"
       />
 
       {/* Background Scenic Art extending full bleed under status bar & camera */}

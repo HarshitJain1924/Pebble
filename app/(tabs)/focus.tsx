@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   atmosphereWrapper: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     zIndex: 0,
   },

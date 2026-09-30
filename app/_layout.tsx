@@ -9,8 +9,6 @@ import {
     DarkTheme,
     DefaultTheme,
     ThemeProvider,
-} from "@react-navigation/native";
-import {
     Stack,
     useRootNavigationState,
     useRouter,
@@ -103,9 +101,7 @@ export default function RootLayout() {
   useEffect(() => {
     SystemUI.setBackgroundColorAsync(currentTheme.background).catch(() => {});
     if (Platform.OS === "android") {
-      NavigationBar.setBackgroundColorAsync(currentTheme.background).catch(() => {});
-      NavigationBar.setButtonStyleAsync(colorScheme === "dark" ? "light" : "dark").catch(() => {});
-      NavigationBar.setBorderColorAsync("transparent").catch(() => {});
+      NavigationBar.setStyle(colorScheme === "dark" ? "light" : "dark");
     }
   }, [currentTheme.background, colorScheme]);
 
@@ -168,7 +164,7 @@ export default function RootLayout() {
             </Stack>
             {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
             <NotificationListener />
-            <StatusBar style="auto" translucent backgroundColor="transparent" />
+            <StatusBar style="auto" />
           </UndoProvider>
         </BottomSheetModalProvider>
       </ThemeProvider>

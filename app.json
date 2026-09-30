@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "pebble",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -21,7 +20,6 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.augstun.pebble",
       "permissions": [
@@ -31,10 +29,6 @@
         "android.permission.VIBRATE",
         "android.permission.RECORD_AUDIO"
       ]
-    },
-    "androidNavigationBar": {
-      "backgroundColor": "#00000000",
-      "barStyle": "dark-content"
     },
     "web": {
       "output": "static",
@@ -66,7 +60,11 @@
         }
       ],
       "expo-audio",
-      "expo-asset"
+      "expo-asset",
+      "expo-image",
+      "expo-sharing",
+      "expo-web-browser",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true,

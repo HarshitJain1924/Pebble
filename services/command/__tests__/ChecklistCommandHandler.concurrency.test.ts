@@ -8,6 +8,8 @@ function defer() {
   });
   return { promise, resolve };
 }
+
+const flushImmediate = () => new Promise<void>((r) => setImmediate(() => r()));
 import { WorkspaceRepository } from "@/repositories/WorkspaceRepository";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -74,7 +76,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
 
     // Wait for A to enter getChecklists (and thus acquire lock)
     while (!aReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     // Start Operation B
@@ -89,7 +91,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     // B must NOT have started reading because A holds the partition lock
     expect(bReadStarted).toBe(false);
@@ -153,7 +155,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
 
     // Wait for A to enter getChecklists (and thus acquire lock)
     while (!aReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     // Start Operation B (updateChecklist)
@@ -168,7 +170,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     // B must NOT have started reading because A holds the partition lock
     expect(bReadStarted).toBe(false);
@@ -234,7 +236,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
 
     // Wait for A to enter getChecklists (and thus acquire lock)
     while (!aReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     // Start Operation B (updateChecklist)
@@ -249,7 +251,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     // B must NOT have started reading because A holds the partition lock
     expect(bReadStarted).toBe(false);
@@ -316,7 +318,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
 
     // Wait for A to enter getChecklists (and thus acquire lock)
     while (!aReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     // Start Operation B (updateChecklist)
@@ -331,7 +333,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     // B must NOT have started reading because A holds the partition lock
     expect(bReadStarted).toBe(false);
@@ -398,7 +400,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
 
     // Wait for A to enter getChecklists (and thus acquire lock)
     while (!aReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     // Start Operation B (updateChecklist)
@@ -413,7 +415,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     // B must NOT have started reading because A holds the partition lock
     expect(bReadStarted).toBe(false);
@@ -487,7 +489,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     );
 
     while (!aReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     const promiseB = ChecklistCommandHandler.updateChecklist(
@@ -500,7 +502,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     expect(bReadStarted).toBe(false);
 
@@ -582,7 +584,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     );
 
     while (!aReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     const promiseB = ChecklistCommandHandler.updateChecklist(
@@ -595,7 +597,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     expect(bReadStarted).toBe(false);
 
@@ -660,7 +662,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     );
 
     while (!aRbReadStarted) {
-      await new Promise(r => setImmediate(r));
+      await flushImmediate();
     }
 
     // This will block trying to acquire the workspace lock if both are in workspaceA.
@@ -680,7 +682,7 @@ describe("ChecklistCommandHandler Concurrency", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(r => setImmediate(r));
+    await flushImmediate();
 
     resolveBarrier!();
     await Promise.all([promiseA, promiseB]);
