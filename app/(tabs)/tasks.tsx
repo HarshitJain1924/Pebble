@@ -49,6 +49,7 @@ import { ChecklistSection } from "@/features/checklists/components/ChecklistSect
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { TaskFilterModal } from "@/features/tasks/components/TaskFilterModal";
+import { TaskDatePickerModal } from "@/features/tasks/components/TaskDatePickerModal";
 
 import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
 import { getTodayDateKey, getOffsetDateKey, parseDateKey } from "@/shared/utils/date-key";
@@ -78,12 +79,14 @@ function ScreenDateHeader({
   isDark,
   onPrevDay,
   onNextDay,
+  onOpenDatePicker,
 }: {
   dateKey: string;
   colors: any;
   isDark: boolean;
   onPrevDay: () => void;
   onNextDay: () => void;
+  onOpenDatePicker?: () => void;
 }) {
   const dragX = React.useMemo(() => new Animated.Value(0), []);
   const enterX = React.useMemo(() => new Animated.Value(0), []);
@@ -200,7 +203,7 @@ function ScreenDateHeader({
   );
 
   return (
-    <View style={{ marginTop: 14 }}>
+    <View style={dateHeaderStyles.container}>
       <Animated.View
         {...panResponder.panHandlers}
         accessibilityLabel={`${weekday}, ${monthLabel} ${dayNumber}${isToday ? ", today" : ""}`}
@@ -211,12 +214,18 @@ function ScreenDateHeader({
         <View style={dateHeaderStyles.row}>
           {renderNeighbour(prevParsed, leftOpacity, onPrevDay, "Previous day")}
 
-          <View style={dateHeaderStyles.centerCell}>
+          <PressableScale
+            onPress={onOpenDatePicker}
+            haptic
+            accessibilityRole="button"
+            accessibilityLabel={`${weekday}, ${monthLabel} ${dayNumber}${isToday ? ", today" : ""}. Tap to open date picker.`}
+            style={dateHeaderStyles.centerCell}
+          >
             <Text
               style={[dateHeaderStyles.centerDate, { color: colors.text }]}
               numberOfLines={1}
               adjustsFontSizeToFit
-              minimumFontScale={0.78}
+              minimumFontScale={0.75}
             >
               {monthLabel} {dayNumber}
             </Text>
@@ -228,7 +237,7 @@ function ScreenDateHeader({
             >
               {isToday ? `${weekday} · Today` : weekday}
             </Text>
-          </View>
+          </PressableScale>
 
           {renderNeighbour(nextParsed, rightOpacity, onNextDay, "Next day")}
         </View>
@@ -244,7 +253,7 @@ function ScreenDateHeader({
           { opacity: leftHintOpacity },
         ]}
       >
-        <Feather name="chevron-left" size={15} color={colors.textMuted} />
+        <Feather name="chevron-left" size={17} color={colors.textMuted} />
       </Animated.View>
       <Animated.View
         pointerEvents="none"
@@ -255,13 +264,17 @@ function ScreenDateHeader({
           { opacity: rightHintOpacity },
         ]}
       >
-        <Feather name="chevron-right" size={15} color={colors.textMuted} />
+        <Feather name="chevron-right" size={17} color={colors.textMuted} />
       </Animated.View>
     </View>
   );
 }
 
 const dateHeaderStyles = StyleSheet.create({
+  container: {
+    marginTop: 16,
+    marginBottom: 4,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -271,57 +284,60 @@ const dateHeaderStyles = StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
-    width: 22,
+    width: 24,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
   },
   hintEdgeLeft: {
-    left: 4,
+    left: 2,
   },
   hintEdgeRight: {
-    right: 4,
+    right: 2,
   },
   neighbourCell: {
-    width: 84,
+    width: 88,
   },
   neighbourPress: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 44,
+    minHeight: 48,
   },
   neighbourInner: {
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   neighbourWeekday: {
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: "600",
     letterSpacing: 0.2,
   },
   neighbourDay: {
-    fontSize: 15,
+    fontSize: 17.5,
     fontWeight: "700",
     letterSpacing: -0.2,
+    marginTop: 1,
   },
   centerCell: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4,
+    minHeight: 52,
   },
   centerDate: {
-    fontSize: 28,
+    fontSize: 34,
     fontWeight: "800",
-    letterSpacing: -0.6,
+    letterSpacing: -0.7,
   },
   centerSub: {
-    fontSize: 13,
-    fontWeight: "500",
-    marginTop: 2,
+    fontSize: 14.5,
+    fontWeight: "600",
+    marginTop: 3,
+    letterSpacing: -0.1,
   },
 });
 
@@ -419,6 +435,7 @@ export function WorkspacesScreen() {
   const [workspaceMenuVisible, setWorkspaceMenuVisible] = React.useState(false);
   const [inboxProtectionVisible, setInboxProtectionVisible] = React.useState(false);
   const [isFilterModalVisible, setIsFilterModalVisible] = React.useState(false);
+  const [isDatePickerVisible, setIsDatePickerVisible] = React.useState(false);
 
   const folderHabits = React.useMemo(() => {
     const raw = state.habits.filter((h) => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId);
@@ -565,18 +582,35 @@ export function WorkspacesScreen() {
                       }}
                       haptic
                       accessibilityRole="button"
-                      accessibilityLabel={`${currentFolder?.name || "Workspace"}, switch workspace`}
+                      accessibilityLabel={`${currentFolder?.name || "Workspace"}, back to workspaces`}
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        gap: 3,
+                        gap: 7,
                         flexShrink: 1,
                         paddingRight: 8,
                       }}
                     >
+                      {currentFolder?.emoji || (state.activeWorkspaceId === INBOX_WORKSPACE_ID) ? (
+                        <Text style={{ fontSize: 18 }}>
+                          {currentFolder?.emoji || "📥"}
+                        </Text>
+                      ) : currentFolder?.icon ? (
+                        <Feather
+                          name={currentFolder.icon as any}
+                          size={18}
+                          color={currentFolder.color || colors.primary}
+                        />
+                      ) : (
+                        <Feather
+                          name="folder"
+                          size={18}
+                          color={currentFolder?.color || colors.primary}
+                        />
+                      )}
                       <Text
                         style={{
-                          fontSize: 19,
+                          fontSize: 21,
                           fontWeight: "800",
                           color: colors.text,
                           letterSpacing: -0.3,
@@ -586,12 +620,28 @@ export function WorkspacesScreen() {
                       >
                         {currentFolder?.name || "Workspace"}
                       </Text>
-                      <Feather name="chevron-down" size={16} color={colors.textMuted} />
                     </PressableScale>
                   </View>
 
-                  {/* Circular Search + More Options */}
-                  <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                  {/* Circular Calendar Date Picker + Search + More Options */}
+                  <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+                    <PressableScale
+                      onPress={() => setIsDatePickerVisible(true)}
+                      haptic
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel="Choose date"
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
+                        justifyContent: "center",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Feather name="calendar" size={20} color={colors.text} />
+                    </PressableScale>
+
                     <PressableScale
                       onPress={() => {
                         setIsSearchActive(!isSearchActive);
@@ -636,12 +686,12 @@ export function WorkspacesScreen() {
                 {/* Workspace context */}
                 <Text
                   style={{
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: "500",
                     color: colors.textMuted,
                     paddingHorizontal: 6,
                     marginTop: 2,
-                    marginBottom: 8,
+                    marginBottom: 6,
                   }}
                   numberOfLines={1}
                 >
@@ -694,6 +744,7 @@ export function WorkspacesScreen() {
                   isDark={isDark}
                   onPrevDay={() => state.setSelectedDate((d) => getOffsetDateKey(1, d))}
                   onNextDay={() => state.setSelectedDate((d) => getOffsetDateKey(-1, d))}
+                  onOpenDatePicker={() => setIsDatePickerVisible(true)}
                 />
 
                 {/* Domain changer — peer pages, lightweight underline tabs.
@@ -1613,6 +1664,16 @@ export function WorkspacesScreen() {
         onSelectReminder={state.setReminderFilter}
         activeFilterCount={state.activeFilterCount}
         onResetFilters={state.resetFilters}
+      />
+
+      {/* Task Date Picker Modal */}
+      <TaskDatePickerModal
+        visible={isDatePickerVisible}
+        onClose={() => setIsDatePickerVisible(false)}
+        selectedDate={state.selectedDate}
+        onSelectDate={(dateKey) => state.setSelectedDate(dateKey)}
+        colors={colors}
+        isDark={isDark}
       />
 
       </SafeAreaView>
