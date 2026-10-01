@@ -100,7 +100,7 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
 
       expect(renderedTexts).toContain("Earlier");
       expect(renderedTexts).toContain("1 task");
-      expect(renderedTexts).toContain("Move all to Someday");
+      expect(renderedTexts).toContain("Move to Someday");
     });
 
     it("renders Today as primary visual anchor with date context and progress", () => {
@@ -165,7 +165,6 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
             onToggleTodo={jest.fn()}
             onDeleteTodo={jest.fn()}
             allResources={mockResources}
-            isExpanded={false}
           />
         );
       });
@@ -183,7 +182,7 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
       expect(tile1).toBeDefined();
     });
 
-    it("renders expanded contextual surface with description, resources strip, and 4 quick actions without any subtasks", () => {
+    it("stays collapsed by default and reveals resources only on demand (no quick-action toolbar)", () => {
       const onScheduleMock = jest.fn();
       const onSetAlarmMock = jest.fn();
       const onToggleTodoMock = jest.fn();
@@ -203,29 +202,46 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
             onSchedule={onScheduleMock}
             onSetAlarm={onSetAlarmMock}
             allResources={mockResources}
-            isExpanded={true}
           />
         );
       });
 
       const root = renderer.root;
-      const textNodes = root.findAllByType("Text");
-      const renderedTexts = textNodes.map((n: any) => n.props.children);
+      const collapsedTexts = root.findAllByType("Text").map((n: any) => n.props.children);
 
-      // Verify description
-      expect(renderedTexts).toContain("Read the design article and make notes...");
+      // The collapsed row keeps the title and the restrained resource preview
+      expect(collapsedTexts).toContain("Read design article");
+      expect(root.findByProps({ testID: "resource-stack-tile-0" })).toBeDefined();
 
-      // Verify Resources section header
-      expect(renderedTexts).toContain("Resources (2)");
+      // The old giant card is gone: no description, no resource header, no toolbar
+      expect(collapsedTexts).not.toContain("Read the design article and make notes...");
+      expect(collapsedTexts).not.toContain("Resources (2)");
+      expect(collapsedTexts).not.toContain("Schedule");
+      expect(collapsedTexts).not.toContain("Reminder");
+      expect(collapsedTexts).not.toContain("More");
 
-      // Verify Quick Action Pills: Complete, Schedule, Reminder, More
-      expect(renderedTexts).toContain("Complete");
-      expect(renderedTexts).toContain("Schedule");
-      expect(renderedTexts).toContain("Reminder");
-      expect(renderedTexts).toContain("More");
+      // Secondary actions now live behind a compact overflow affordance
+      expect(
+        root.findByProps({ accessibilityLabel: "More options for Read design article" })
+      ).toBeDefined();
+
+      // Tapping the resource area expands ONLY the resource section
+      const stackPressable = root.findByProps({
+        accessibilityLabel: "2 linked resources for Read design article",
+      });
+      act(() => {
+        stackPressable.props.onPress();
+      });
+
+      const expandedTexts = root.findAllByType("Text").map((n: any) => n.props.children);
+      expect(expandedTexts).toContain("Resources (2)");
+      // Expanding resources must NOT surface the old quick-action toolbar
+      expect(expandedTexts).not.toContain("Schedule");
+      expect(expandedTexts).not.toContain("Reminder");
+      expect(expandedTexts).not.toContain("More");
 
       // Verify GUARANTEE: absolutely NO subtask UI or keywords exist
-      const allTextJoined = renderedTexts.join(" ").toLowerCase();
+      const allTextJoined = expandedTexts.join(" ").toLowerCase();
       expect(allTextJoined).not.toContain("subtask");
       expect(allTextJoined).not.toContain("sub-task");
     });

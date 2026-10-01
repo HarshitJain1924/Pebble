@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "react-native-developer": {
+      "source": "AtulPurohit/Antigravity-Awesome-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-native-developer/SKILL.md",
+      "computedHash": "8183b4e8121164bfd59480334b8f0d3fec86b0b246157cc03c8957c35f424a51"
+    },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
       "sourceType": "github",

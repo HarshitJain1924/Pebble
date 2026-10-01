@@ -4,11 +4,12 @@ import { Feather } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
     Alert,
+    Animated,
     BackHandler,
-    Dimensions,
-    Image as RNImage,
+    Easing,
     KeyboardAvoidingView,
     Modal,
+    PanResponder,
     Platform,
     Pressable,
     SafeAreaView,
@@ -18,27 +19,19 @@ import {
     View
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getCircadianArtSource, getCircadianPeriod } from "@/features/today/components/PebbleCircadianHeader";
-import {
-  getPebbleDockClearance,
-  ShorelineSupportBackdrop,
-} from "@/shared/components/navigation/PebbleRadialTabBar";
-import { getTasksSubtitleBreakdown } from "@/features/tasks/utils/task-formatting";
+import { getPebbleDockClearance } from "@/shared/components/navigation/PebbleRadialTabBar";
+import { MONTH_NAMES } from "@/features/tasks/utils/task-formatting";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
-import { Task, Habit, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { getTaskOccurrenceState, isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { Task, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { generateId } from "@/shared/utils/id";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { styles } from "@/shared/constants/taskStyles";
-import { Colors, Palette, colorWithAlpha } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -48,7 +41,6 @@ import { ReminderModal } from "@/features/calendar/components/ReminderModal";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskSections } from "@/features/tasks/components/TaskSections";
-import { TemporalHorizonStrip } from "@/features/tasks/components/TemporalHorizonStrip";
 import { HabitSection } from "@/features/habits/components/HabitSection";
 import { SuggestionBanner } from "@/features/capture/components/SuggestionBanner";
 import { ProgressSection } from "@/features/profile/components/ProgressSection";
@@ -59,24 +51,364 @@ import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceE
 import { TaskFilterModal } from "@/features/tasks/components/TaskFilterModal";
 
 import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
+import { getTodayDateKey, getOffsetDateKey, parseDateKey } from "@/shared/utils/date-key";
 import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
-import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+
+const DATE_DAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+/**
+ * Centered date header used as the primary context on the Tasks page. The
+ * previous/next days peek in from the edges (softly blurred/frosted) with static
+ * chevron hints, so the row reads as horizontally swipeable. Swiping — or
+ * tapping a neighbour — moves the selected day with a smooth, direction-aware
+ * transition. Only the existing day selection state (owned by useTasksState) is
+ * mutated.
+ */
+function ScreenDateHeader({
+  dateKey,
+  colors,
+  isDark,
+  onPrevDay,
+  onNextDay,
+}: {
+  dateKey: string;
+  colors: any;
+  isDark: boolean;
+  onPrevDay: () => void;
+  onNextDay: () => void;
+}) {
+  const dragX = React.useMemo(() => new Animated.Value(0), []);
+  const enterX = React.useMemo(() => new Animated.Value(0), []);
+  const directionRef = React.useRef(1);
+  const previousKeyRef = React.useRef(dateKey);
+
+  React.useEffect(() => {
+    if (previousKeyRef.current === dateKey) return;
+    previousKeyRef.current = dateKey;
+    enterX.setValue(directionRef.current * 32);
+    Animated.timing(enterX, {
+      toValue: 0,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [dateKey, enterX]);
+
+  const panResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Math.abs(gesture.dx) > 10 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4,
+        onPanResponderMove: (_event, gesture) => {
+          dragX.setValue(gesture.dx * 0.35);
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dx <= -36) {
+            directionRef.current = 1;
+            onNextDay();
+          } else if (gesture.dx >= 36) {
+            directionRef.current = -1;
+            onPrevDay();
+          }
+          Animated.spring(dragX, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 20,
+            stiffness: 220,
+            mass: 0.6,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(dragX, { toValue: 0, useNativeDriver: true }).start();
+        },
+      }),
+    [dragX, onPrevDay, onNextDay],
+  );
+
+  const translateX = React.useMemo(
+    () => Animated.add(dragX, enterX),
+    [dragX, enterX],
+  );
+
+  // Drag feedback: the neighbour you're moving toward gets brighter.
+  const leftOpacity = dragX.interpolate({
+    inputRange: [-90, 0, 90],
+    outputRange: [0.16, 0.4, 0.9],
+    extrapolate: "clamp",
+  });
+  const rightOpacity = dragX.interpolate({
+    inputRange: [-90, 0, 90],
+    outputRange: [0.9, 0.4, 0.16],
+    extrapolate: "clamp",
+  });
+
+  // Static edge chevrons: quiet at rest, brighten toward the swipe direction.
+  const leftHintOpacity = dragX.interpolate({
+    inputRange: [-90, 0, 90],
+    outputRange: [0.12, 0.4, 0.85],
+    extrapolate: "clamp",
+  });
+  const rightHintOpacity = dragX.interpolate({
+    inputRange: [-90, 0, 90],
+    outputRange: [0.85, 0.4, 0.12],
+    extrapolate: "clamp",
+  });
+
+  const todayKey = getTodayDateKey();
+  const parsed = parseDateKey(dateKey);
+  const isToday = dateKey === todayKey;
+  const monthLabel = MONTH_NAMES[parsed.getMonth()];
+  const dayNumber = parsed.getDate();
+  const weekday = DATE_DAY_NAMES[parsed.getDay()];
+
+  const prevParsed = parseDateKey(getOffsetDateKey(1, dateKey));
+  const nextParsed = parseDateKey(getOffsetDateKey(-1, dateKey));
+
+  const renderNeighbour = (
+    parsedDate: Date,
+    opacity: any,
+    onPress: () => void,
+    accessibilityLabel: string,
+  ) => (
+    <Animated.View style={[dateHeaderStyles.neighbourCell, { opacity }]}>
+      <PressableScale
+        onPress={onPress}
+        haptic
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        style={dateHeaderStyles.neighbourPress}
+      >
+        <View style={dateHeaderStyles.neighbourInner}>
+          <Text style={[dateHeaderStyles.neighbourWeekday, { color: colors.textMuted }]}>
+            {DATE_DAY_NAMES[parsedDate.getDay()].slice(0, 3)}
+          </Text>
+          <Text style={[dateHeaderStyles.neighbourDay, { color: colors.textMuted }]}>
+            {parsedDate.getDate()}
+          </Text>
+        </View>
+      </PressableScale>
+    </Animated.View>
+  );
+
+  return (
+    <View style={{ marginTop: 14 }}>
+      <Animated.View
+        {...panResponder.panHandlers}
+        accessibilityLabel={`${weekday}, ${monthLabel} ${dayNumber}${isToday ? ", today" : ""}`}
+        style={{
+          transform: [{ translateX }],
+        }}
+      >
+        <View style={dateHeaderStyles.row}>
+          {renderNeighbour(prevParsed, leftOpacity, onPrevDay, "Previous day")}
+
+          <View style={dateHeaderStyles.centerCell}>
+            <Text
+              style={[dateHeaderStyles.centerDate, { color: colors.text }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.78}
+            >
+              {monthLabel} {dayNumber}
+            </Text>
+            <Text
+              style={[
+                dateHeaderStyles.centerSub,
+                { color: isToday ? colors.primary : colors.textMuted },
+              ]}
+            >
+              {isToday ? `${weekday} · Today` : weekday}
+            </Text>
+          </View>
+
+          {renderNeighbour(nextParsed, rightOpacity, onNextDay, "Next day")}
+        </View>
+      </Animated.View>
+
+      {/* Static swipe-direction hints; the date content slides beneath them */}
+      <Animated.View
+        pointerEvents="none"
+        accessibilityLabel="Swipe left for next day"
+        style={[
+          dateHeaderStyles.hintEdge,
+          dateHeaderStyles.hintEdgeLeft,
+          { opacity: leftHintOpacity },
+        ]}
+      >
+        <Feather name="chevron-left" size={15} color={colors.textMuted} />
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        accessibilityLabel="Swipe right for previous day"
+        style={[
+          dateHeaderStyles.hintEdge,
+          dateHeaderStyles.hintEdgeRight,
+          { opacity: rightHintOpacity },
+        ]}
+      >
+        <Feather name="chevron-right" size={15} color={colors.textMuted} />
+      </Animated.View>
+    </View>
+  );
+}
+
+const dateHeaderStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  hintEdge: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
+  hintEdgeLeft: {
+    left: 4,
+  },
+  hintEdgeRight: {
+    right: 4,
+  },
+  neighbourCell: {
+    width: 84,
+  },
+  neighbourPress: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  neighbourInner: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  neighbourWeekday: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  neighbourDay: {
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  centerCell: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  centerDate: {
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+  },
+  centerSub: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+});
+
+const controlRowStyles = StyleSheet.create({
+  filterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    minHeight: 44,
+    paddingHorizontal: 6,
+  },
+  filterLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: -0.1,
+  },
+});
+
+/**
+ * Domain tab metrics — constant heights across all four peer pages so
+ * switching Tasks/Habits/Checklists/Resources never shifts the layout.
+ */
+const domainTabStyles = StyleSheet.create({
+  tab: {
+    flex: 1,
+    paddingTop: 10,
+    paddingBottom: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabLabel: {
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  indicator: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 2,
+    borderRadius: 1,
+  },
+});
 
 export function WorkspacesScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(
-    insets.top,
-    Platform.OS === "android" ? 44 : 20,
-  );
-  const scenicHeight = 180 + topInset;
-
   const isDark = colorScheme === "dark";
   const isLight = colorScheme === "light";
 
   const state = useTasksState();
+
+  // Domain pager — the same order as the tabs. A swipe that starts on empty
+  // content space moves between peer pages via the EXISTING
+  // setWorkspaceSegment state (no duplicate domain state).
+  const DOMAIN_ORDER = ["tasks", "habits", "checklists", "resources"];
+
+  const goToAdjacentDomain = React.useCallback(
+    (dir: 1 | -1) => {
+      const currentIndex = DOMAIN_ORDER.indexOf(state.workspaceSegment);
+      const nextIndex = (currentIndex + dir + DOMAIN_ORDER.length) % DOMAIN_ORDER.length;
+      state.setWorkspaceSegment(DOMAIN_ORDER[nextIndex] as any);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.workspaceSegment],
+  );
+
+  const domainSwipePan = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Math.abs(gesture.dx) > 12 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.6,
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dx <= -48) {
+            Haptics.selectionAsync().catch(() => {});
+            goToAdjacentDomain(1);
+          } else if (gesture.dx >= 48) {
+            Haptics.selectionAsync().catch(() => {});
+            goToAdjacentDomain(-1);
+          }
+        },
+      }),
+    [goToAdjacentDomain],
+  );
 
   const [newChecklistTitle, setNewChecklistTitle] = React.useState("");
   const [newChecklistItems, setNewChecklistItems] = React.useState("");
@@ -103,9 +435,37 @@ export function WorkspacesScreen() {
     return state.resources[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
   }, [state.resources, state.activeWorkspaceId]);
 
-  const folderTodos = React.useMemo(() => {
-    return state.todos[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
-  }, [state.todos, state.activeWorkspaceId]);
+  const currentFolder = React.useMemo(
+    () => state.workspaces.find((l) => l.id === state.activeWorkspaceId) as any,
+    [state.workspaces, state.activeWorkspaceId],
+  );
+
+  const workspaceContextLabel = React.useMemo(() => {
+    const name = currentFolder?.name || "Workspace";
+    switch (state.workspaceSegment) {
+      case "habits":
+        return `${name} · ${folderHabits.length} ${folderHabits.length === 1 ? "habit" : "habits"}`;
+      case "checklists": {
+        const folderChecklists = (
+          state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || []
+        ).filter((c) => !c.archivedAt);
+        return `${name} · ${folderChecklists.length} ${folderChecklists.length === 1 ? "checklist" : "checklists"}`;
+      }
+      case "resources":
+        return `${name} · ${allResources.length} ${allResources.length === 1 ? "resource" : "resources"}`;
+      case "tasks":
+      default:
+        return `${name} · ${state.remainingCount} ${state.remainingCount === 1 ? "task" : "tasks"}`;
+    }
+  }, [
+    currentFolder,
+    state.workspaceSegment,
+    state.checklists,
+    state.activeWorkspaceId,
+    state.remainingCount,
+    folderHabits.length,
+    allResources.length,
+  ]);
 
   const searchPlaceholder = React.useMemo(() => {
     switch (state.workspaceSegment) {
@@ -152,82 +512,20 @@ export function WorkspacesScreen() {
         style={colorScheme === "dark" ? "light" : "dark"}
       />
 
-      {/* Environmental Shoreline Scenic Artwork (Anchored to canvas bottom behind scroll stream) */}
-      <ShorelineSupportBackdrop
-        screenWidth={SCREEN_WIDTH}
-        isDark={colorScheme !== "light"}
-        backgroundColor={colors.background}
-        style={{ zIndex: 0, elevation: 0 }}
-      />
-
-      {/* Background Scenic Art extending full bleed under status bar & camera */}
-      {state.activeWorkspaceId ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: scenicHeight,
-            overflow: "hidden",
-            zIndex: 0,
-          }}
-          pointerEvents="none"
-        >
-          <RNImage
-            source={getCircadianArtSource(getCircadianPeriod(), isDark)}
-            style={{ width: "100%", height: scenicHeight }}
-            resizeMode="cover"
-            accessibilityLabel="Workspace scenic artwork"
-          />
-          <Svg
-            style={StyleSheet.absoluteFill}
-            width="100%"
-            height={scenicHeight}
-          >
-            <Defs>
-              {/* Subtle top vignette for front camera punch-hole and status bar readability */}
-              <LinearGradient id="wsCircadianTopVignette" x1="0" y1="0" x2="0" y2="1">
-                <Stop
-                  offset="0%"
-                  stopColor={Palette.black}
-                  stopOpacity={isDark ? "0.32" : "0.15"}
-                />
-                <Stop offset="100%" stopColor={Palette.black} stopOpacity="0" />
-              </LinearGradient>
-              {/* Bottom fade into background */}
-              <LinearGradient id="wsCircadianFade" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor={colors.background} stopOpacity="0" />
-                <Stop offset="30%" stopColor={colors.background} stopOpacity="0.08" />
-                <Stop offset="65%" stopColor={colors.background} stopOpacity={isDark ? "0.7" : "0.55"} />
-                <Stop offset="85%" stopColor={colors.background} stopOpacity="1" />
-                <Stop offset="100%" stopColor={colors.background} stopOpacity="1" />
-              </LinearGradient>
-            </Defs>
-            <Rect
-              x="0"
-              y="0"
-              width="100%"
-              height={scenicHeight * 0.4}
-              fill="url(#wsCircadianTopVignette)"
-            />
-            <Rect
-              x="0"
-              y="0"
-              width="100%"
-              height={scenicHeight}
-              fill="url(#wsCircadianFade)"
-            />
-          </Svg>
-        </View>
-      ) : null}
-
       <SafeAreaView style={[styles.safeArea, { backgroundColor: "transparent" }]}>
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={[styles.container, { paddingTop: 6 }]}>
+          <View
+            style={[
+              styles.container,
+              { paddingTop: 6 },
+              // Active-workspace layout: the header + content ScrollView must
+              // read as one continuous stack, so no parent gap between them.
+              state.activeWorkspaceId ? { gap: 0 } : null,
+            ]}
+          >
             {/* Header */}
             {state.activeWorkspaceId ? (
-              <View style={{ marginBottom: 14 }}>
+              <View style={{ marginBottom: 0 }}>
                 {/* Top Navigation Bar */}
                 <View
                   style={{
@@ -259,99 +557,37 @@ export function WorkspacesScreen() {
                       <Feather name="arrow-left" size={20} color={colors.text} />
                     </PressableScale>
 
-                    {(() => {
-                      const currentFolder = state.workspaces.find((l) => l.id === state.activeWorkspaceId) as any;
-                      const hasIcon = currentFolder?.iconType === "icon";
-                      const folderColor = currentFolder?.color || colors.primary;
-                      const isInbox = currentFolder?.id === INBOX_WORKSPACE_ID;
-
-                      // Subtitle computation
-                      let subtitle = "";
-                      if (state.workspaceSegment === "tasks") {
-                        const todayCount = state.todayTodos.filter((t) => !isTaskCompleted(t)).length;
-                        const earlierCount = state.overdueTodos.filter((t) => !isTaskCompleted(t)).length;
-                        const upcomingCount = state.upcomingTodos.filter((t) => !isTaskCompleted(t)).length;
-                        const somedayCount = state.inboxTodos.filter((t) => !isTaskCompleted(t)).length;
-                        subtitle = getTasksSubtitleBreakdown({
-                          today: todayCount,
-                          earlier: earlierCount,
-                          upcoming: upcomingCount,
-                          someday: somedayCount,
-                        });
-                      } else if (state.workspaceSegment === "habits") {
-                        const todayKey = getDateKey();
-                        const activeHabits = state.habits.filter(
-                          (h) => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId
-                        );
-                        const dueTodayCount = activeHabits.filter((h) =>
-                          isRecurringOccurrenceForDate(h, todayKey)
-                        ).length;
-                        subtitle = `${activeHabits.length} active habits • ${dueTodayCount} due today`;
-                      } else if (state.workspaceSegment === "checklists") {
-                        const folderChecklists = (
-                          state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || []
-                        ).filter((c) => !c.archivedAt);
-                        const completed = folderChecklists.filter(
-                          (c) => c.items.length > 0 && c.items.every((i) => i.completed)
-                        ).length;
-                        subtitle = `${folderChecklists.length} checklists • ${completed} completed`;
-                      } else {
-                        subtitle = `${allResources.length} resources`;
-                      }
-
-                      return (
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                          {/* Squircle Badge */}
-                          <View
-                            style={{
-                              width: 38,
-                              height: 38,
-                              borderRadius: 11,
-                              backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.95)",
-                              borderWidth: 1,
-                              borderColor: colors.border,
-                              justifyContent: "center",
-                              alignItems: "center",
-                            }}
-                          >
-                            {hasIcon ? (
-                              <Feather
-                                name={currentFolder?.icon || (isInbox ? "inbox" : "folder")}
-                                size={18}
-                                color={folderColor}
-                              />
-                            ) : (
-                              <Text style={{ fontSize: 18 }}>{currentFolder?.emoji || (isInbox ? "📥" : "📁")}</Text>
-                            )}
-                          </View>
-
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              style={{
-                                fontSize: 19,
-                                fontWeight: "800",
-                                color: colors.text,
-                                letterSpacing: -0.3,
-                              }}
-                              numberOfLines={1}
-                            >
-                              {currentFolder?.name || "Workspace"}
-                            </Text>
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                fontWeight: "500",
-                                color: colors.textMuted,
-                                marginTop: 1,
-                              }}
-                              numberOfLines={1}
-                            >
-                              {subtitle}
-                            </Text>
-                          </View>
-                        </View>
-                      );
-                    })()}
+                    <PressableScale
+                      onPress={() => {
+                        state.handleBackToWorkspaces();
+                        state.setSearchQuery("");
+                        setIsSearchActive(false);
+                      }}
+                      haptic
+                      accessibilityRole="button"
+                      accessibilityLabel={`${currentFolder?.name || "Workspace"}, switch workspace`}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 3,
+                        flexShrink: 1,
+                        paddingRight: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 19,
+                          fontWeight: "800",
+                          color: colors.text,
+                          letterSpacing: -0.3,
+                          flexShrink: 1,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {currentFolder?.name || "Workspace"}
+                      </Text>
+                      <Feather name="chevron-down" size={16} color={colors.textMuted} />
+                    </PressableScale>
                   </View>
 
                   {/* Circular Search + More Options */}
@@ -368,17 +604,14 @@ export function WorkspacesScreen() {
                       accessibilityRole="button"
                       accessibilityLabel="Search"
                       style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.9)",
-                        borderWidth: 1,
-                        borderColor: isSearchActive ? colors.primary : colors.border,
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
                         justifyContent: "center",
                         alignItems: "center",
                       }}
                     >
-                      <Feather name="search" size={16} color={isSearchActive ? colors.primary : colors.text} />
+                      <Feather name="search" size={20} color={isSearchActive ? colors.primary : colors.text} />
                     </PressableScale>
 
                     <PressableScale
@@ -388,20 +621,32 @@ export function WorkspacesScreen() {
                       accessibilityRole="button"
                       accessibilityLabel="More options"
                       style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.9)",
-                        borderWidth: 1,
-                        borderColor: colors.border,
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
                         justifyContent: "center",
                         alignItems: "center",
                       }}
                     >
-                      <Feather name="more-horizontal" size={16} color={colors.text} />
+                      <Feather name="more-horizontal" size={20} color={colors.text} />
                     </PressableScale>
                   </View>
                 </View>
+
+                {/* Workspace context */}
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: "500",
+                    color: colors.textMuted,
+                    paddingHorizontal: 6,
+                    marginTop: 2,
+                    marginBottom: 8,
+                  }}
+                  numberOfLines={1}
+                >
+                  {workspaceContextLabel}
+                </Text>
 
                 {/* Progressive Search Disclosure Input */}
                 {isSearchActive && (
@@ -442,34 +687,34 @@ export function WorkspacesScreen() {
                   </View>
                 )}
 
-                {/* 4-Pill Segmented Switcher */}
+                {/* Date header — global first-class context for every peer page */}
+                <ScreenDateHeader
+                  dateKey={state.selectedDate}
+                  colors={colors}
+                  isDark={isDark}
+                  onPrevDay={() => state.setSelectedDate((d) => getOffsetDateKey(1, d))}
+                  onNextDay={() => state.setSelectedDate((d) => getOffsetDateKey(-1, d))}
+                />
+
+                {/* Domain changer — peer pages, lightweight underline tabs.
+                    Fixed rhythm so switching pages never shifts the layout. */}
                 <View
                   style={{
                     flexDirection: "row",
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Palette.white,
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    padding: 4,
-                    marginHorizontal: 4,
-                    marginTop: 6,
-                    shadowColor: Palette.black,
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: isDark ? 0.2 : 0.03,
-                    shadowRadius: 4,
-                    elevation: 1,
+                    alignItems: "flex-end",
+                    paddingHorizontal: 4,
+                    marginTop: 12,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: colors.border,
                   }}
                 >
                   {[
-                    { key: "tasks", label: "Tasks", icon: "clipboard" },
-                    { key: "habits", label: "Habits", icon: "activity" },
-                    { key: "checklists", label: "Checklists", icon: "check-square" },
-                    { key: "resources", label: "Resources", icon: "file-text" },
+                    { key: "tasks", label: "Tasks" },
+                    { key: "habits", label: "Habits" },
+                    { key: "checklists", label: "Checklists" },
+                    { key: "resources", label: "Resources" },
                   ].map((seg) => {
                     const isActive = state.workspaceSegment === seg.key;
-                    const activeBg = colorWithAlpha(colors.primary, isDark ? 0.22 : 0.12);
-                    const activeColor = isDark ? colors.primaryLight : colors.primary;
-                    const inactiveColor = colors.textMuted;
 
                     return (
                       <PressableScale
@@ -481,51 +726,30 @@ export function WorkspacesScreen() {
                         accessibilityRole="tab"
                         accessibilityState={{ selected: isActive }}
                         accessibilityLabel={`${seg.label} tab`}
-                        style={{
-                          flex: 1,
-                          minHeight: 44,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: 5,
-                          paddingVertical: 8,
-                          paddingHorizontal: 4,
-                          borderRadius: 12,
-                          backgroundColor: isActive ? activeBg : "transparent",
-                        }}
+                        style={domainTabStyles.tab}
                       >
-                        {isActive && (
-                          <Feather
-                            name={seg.icon as any}
-                            size={13}
-                            color={activeColor}
-                          />
-                        )}
                         <Text
-                          style={{
-                            fontSize: 12,
-                            fontWeight: isActive ? "700" : "600",
-                            color: isActive ? activeColor : inactiveColor,
-                          }}
+                          style={[
+                            domainTabStyles.tabLabel,
+                            {
+                              color: isActive ? colors.text : colors.textMuted,
+                              fontWeight: isActive ? "700" : "600",
+                            },
+                          ]}
                           numberOfLines={1}
                         >
                           {seg.label}
                         </Text>
+                        <View
+                          style={[
+                            domainTabStyles.indicator,
+                            { backgroundColor: isActive ? colors.primary : "transparent" },
+                          ]}
+                        />
                       </PressableScale>
                     );
                   })}
                 </View>
-
-                {/* Compact Temporal Horizon Date Strip */}
-                {state.workspaceSegment === "tasks" && (
-                  <TemporalHorizonStrip
-                    selectedDate={state.selectedDate}
-                    onSelectDate={state.setSelectedDate}
-                    todos={folderTodos}
-                    colors={colors}
-                    isDark={isDark}
-                  />
-                )}
               </View>
             ) : (
               <View style={{ marginBottom: 4 }}>
@@ -622,44 +846,35 @@ export function WorkspacesScreen() {
               <ScrollView
                 ref={state.scrollViewRef}
                 style={styles.flex}
-                contentContainerStyle={{ gap: 20, paddingBottom: getPebbleDockClearance(insets.bottom) }}
+                contentContainerStyle={{ gap: 2, paddingBottom: getPebbleDockClearance(insets.bottom) }}
                 showsVerticalScrollIndicator={false}
+                {...domainSwipePan.panHandlers}
               >
                 {/* Tasks Section */}
                 {state.workspaceSegment === "tasks" && (
-                  <View style={{ gap: 10 }}>
-                    {/* Compact Tasks & Filter Control Bar */}
+                  <View style={{ gap: 0 }}>
+                    {/* Quiet utility row: task count + Filter (no date label — the
+                        date header above the tabs already owns that context) */}
                     <View
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
                         justifyContent: "space-between",
                         paddingHorizontal: 8,
-                        paddingTop: 4,
-                        paddingBottom: 2,
+                        paddingTop: 0,
+                        paddingBottom: 0,
                       }}
                     >
-                      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
-                        <Text
-                          style={{
-                            fontSize: 16,
-                            fontWeight: "700",
-                            color: colors.text,
-                            letterSpacing: -0.3,
-                          }}
-                        >
-                          Tasks
-                        </Text>
-                        <Text
-                          style={{
-                            fontSize: 12,
-                            fontWeight: "500",
-                            color: colors.textMuted,
-                          }}
-                        >
-                          {state.remainingCount}
-                        </Text>
-                      </View>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "500",
+                          color: colors.textMuted,
+                          letterSpacing: -0.1,
+                        }}
+                      >
+                        {`${state.remainingCount} task${state.remainingCount === 1 ? "" : "s"}`}
+                      </Text>
 
                       <PressableScale
                         onPress={() => setIsFilterModalVisible(true)}
@@ -667,58 +882,45 @@ export function WorkspacesScreen() {
                         scaleTo={0.94}
                         accessibilityRole="button"
                         accessibilityLabel={`Filter tasks, ${state.activeFilterCount} active filters`}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 6,
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
-                          borderRadius: 10,
-                          borderWidth: 1,
-                          backgroundColor: state.activeFilterCount > 0
-                            ? (isDark ? "rgba(99, 102, 241, 0.16)" : "#EEF2FF")
-                            : (isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)"),
-                          borderColor: state.activeFilterCount > 0
-                            ? (isDark ? Palette.indigo400 : Palette.indigo500)
-                            : colors.border,
-                        }}
+                        style={controlRowStyles.filterButton}
                       >
                         <Feather
                           name="filter"
-                          size={12}
-                          color={state.activeFilterCount > 0 ? (isDark ? Palette.indigo300 : Palette.indigo600) : colors.textMuted}
+                          size={13}
+                          color={
+                            state.activeFilterCount > 0
+                              ? isDark
+                                ? colors.primaryLight
+                                : colors.primary
+                              : colors.textMuted
+                          }
                         />
                         <Text
-                          style={{
-                            fontSize: 12,
-                            fontWeight: state.activeFilterCount > 0 ? "700" : "600",
-                            color: state.activeFilterCount > 0 ? (isDark ? Palette.indigo300 : Palette.indigo600) : colors.text,
-                          }}
+                          style={[
+                            controlRowStyles.filterLabel,
+                            {
+                              color: state.activeFilterCount > 0
+                                ? isDark
+                                  ? colors.primaryLight
+                                  : colors.primary
+                                : colors.textMuted,
+                            },
+                          ]}
                         >
                           Filter
                         </Text>
                         {state.activeFilterCount > 0 && (
-                          <View
-                            style={{
-                              minWidth: 16,
-                              height: 16,
-                              borderRadius: 8,
-                              paddingHorizontal: 4,
-                              alignItems: "center",
-                              justifyContent: "center",
-                              backgroundColor: isDark ? Palette.indigo500 : Palette.indigo600,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: "#FFFFFF",
-                                fontSize: 10,
+                          <Text
+                            style={[
+                              controlRowStyles.filterLabel,
+                              {
+                                color: isDark ? colors.primaryLight : colors.primary,
                                 fontWeight: "700",
-                              }}
-                            >
-                              {state.activeFilterCount}
-                            </Text>
-                          </View>
+                              },
+                            ]}
+                          >
+                            {`· ${state.activeFilterCount}`}
+                          </Text>
                         )}
                       </PressableScale>
                     </View>

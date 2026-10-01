@@ -56,6 +56,7 @@ jest.mock("@expo/vector-icons", () => ({
 
 jest.mock("expo-haptics", () => ({
   impactAsync: jest.fn().mockResolvedValue(undefined),
+  selectionAsync: jest.fn().mockResolvedValue(undefined),
   notificationAsync: jest.fn().mockResolvedValue(undefined),
   ImpactFeedbackStyle: { Light: 0, Medium: 1, Heavy: 2 },
   NotificationFeedbackType: { Success: 0, Warning: 1, Error: 2 },
@@ -420,7 +421,7 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       expect(chipTexts).toContain("+5");
     });
 
-    it("reflects expanded state and renders expanded list", () => {
+    it("reports collapsed resource state until the resource area is tapped", () => {
       let root: any;
       act(() => {
         root = create(
@@ -429,7 +430,6 @@ describe("TaskItem Contextual Workspace Rendering", () => {
             colors={mockColors}
             colorScheme="dark"
             isOverdue={false}
-            isExpanded={true}
             lists={mockWorkspaces}
             selectedWorkspaceId="ws-work"
             showWorkspaceBadge={false}
@@ -442,6 +442,12 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       const stackPressable = root.root.findByProps({
         accessibilityLabel: "2 linked resources for Finish Pebble redesign",
       });
+      expect(stackPressable.props.accessibilityState).toEqual({ expanded: false });
+
+      act(() => {
+        stackPressable.props.onPress();
+      });
+
       expect(stackPressable.props.accessibilityState).toEqual({ expanded: true });
     });
 
@@ -455,7 +461,6 @@ describe("TaskItem Contextual Workspace Rendering", () => {
             colors={mockColors}
             colorScheme="dark"
             isOverdue={false}
-            isExpanded={true}
             lists={mockWorkspaces}
             selectedWorkspaceId="ws-work"
             showWorkspaceBadge={false}

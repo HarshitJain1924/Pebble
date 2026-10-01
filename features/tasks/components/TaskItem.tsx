@@ -32,6 +32,7 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import * as Haptics from "expo-haptics";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
+import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
@@ -67,8 +68,6 @@ interface TodoItemProps {
   onSelect?: () => void;
   allResources?: any[];
   onToggleLinkResource?: (itemId: string, itemType: "task", resourceId: string) => void;
-  isExpanded?: boolean;
-  onToggleExpand?: () => void;
 }
 
 type MetaPart = {
@@ -99,8 +98,6 @@ export function TodoItem({
   onSelect,
   allResources = [],
   onToggleLinkResource,
-  isExpanded: isExpandedProp,
-  onToggleExpand,
 }: TodoItemProps) {
   const router = useRouter();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -109,11 +106,9 @@ export function TodoItem({
   const categoryColors = getCategoryColors(isDark);
   const streamColors = getStreamResourcePalette(isDark);
 
-  // Expansion and fanning states
-  const [localExpanded, setLocalExpanded] = useState(false);
-  const isExpanded = isExpandedProp !== undefined ? isExpandedProp : localExpanded;
-  const toggleExpanded = onToggleExpand !== undefined ? onToggleExpand : () => setLocalExpanded(!localExpanded);
-
+  // Independent disclosures — the row itself never becomes a giant card.
+  const [resourcesExpanded, setResourcesExpanded] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showLinkSelector, setShowLinkSelector] = useState(false);
   const [isFanning, setIsFanning] = useState(false);
 
@@ -414,7 +409,7 @@ export function TodoItem({
           height: ROW_SPEC.stack.tile,
           borderRadius: ROW_SPEC.stack.tileRadius,
           borderWidth: ROW_SPEC.stack.ring,
-          borderColor: isExpanded ? colors.card : (isDark ? colors.background : Palette.white),
+          borderColor: isDark ? colors.background : Palette.white,
           backgroundColor: stream.backgroundColor,
           alignItems: "center",
           justifyContent: "center",
@@ -457,7 +452,7 @@ export function TodoItem({
           height: ROW_SPEC.stack.tile,
           borderRadius: ROW_SPEC.stack.tileRadius,
           borderWidth: ROW_SPEC.stack.ring,
-          borderColor: isExpanded ? colors.card : (isDark ? colors.background : Palette.white),
+          borderColor: isDark ? colors.background : Palette.white,
           backgroundColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.08)",
           alignItems: "center",
           justifyContent: "center",
@@ -487,25 +482,13 @@ export function TodoItem({
     <SwipeableCard
       onSwipeRight={handleCheckboxPress}
       onSwipeLeft={onDeleteTodo}
-      disabled={isSelectionMode || isExpanded}
+      disabled={isSelectionMode}
     >
       <View
         onLayout={onLayout}
         style={[
           styles.rowContainer,
-          isExpanded
-            ? [
-                styles.expandedCard,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                  shadowColor: Palette.black,
-                  shadowOpacity: isDark ? 0.28 : 0.06,
-                },
-              ]
-            : {
-                backgroundColor: "transparent",
-              },
+          { backgroundColor: "transparent" },
           {
             opacity: isCompleted ? 0.6 : 1,
           },
@@ -515,7 +498,6 @@ export function TodoItem({
         <View
           style={[
             styles.priorityEdgeStrip,
-            isExpanded && styles.priorityEdgeStripExpanded,
             {
               backgroundColor: priorityStripeColor,
             },
@@ -588,16 +570,16 @@ export function TodoItem({
             )}
           </View>
 
-          {/* Title & Metadata (Pressing triggers expansion or selection) */}
+          {/* Title & Metadata (tap opens the existing Task Details flow) */}
           <PressableScale
-            onPress={isSelectionMode ? onSelect : toggleExpanded}
+            onPress={isSelectionMode ? onSelect : () => onEditTodo?.()}
             haptic
             style={styles.textContainer}
             accessibilityRole="button"
             accessibilityLabel={
               isSelectionMode
                 ? `Select task ${item.title}`
-                : `${isExpanded ? "Collapse" : "Expand"} task ${item.title}`
+                : `Open task details: ${item.title}`
             }
           >
             <View style={styles.titleRow}>
@@ -605,13 +587,13 @@ export function TodoItem({
                 style={[
                   styles.titleText,
                   {
-                    fontSize: isExpanded ? 17 : ROW_SPEC.type.title,
-                    fontWeight: isExpanded ? "700" : ROW_SPEC.type.titleWeight,
+                    fontSize: ROW_SPEC.type.title,
+                    fontWeight: ROW_SPEC.type.titleWeight,
                     color: isCompleted ? colors.textMuted : colors.text,
                     textDecorationLine: isCompleted ? "line-through" : "none",
                   },
                 ]}
-                numberOfLines={isExpanded ? 2 : 1}
+                numberOfLines={1}
               >
                 {item.title}
               </Text>
@@ -645,17 +627,20 @@ export function TodoItem({
             )}
           </PressableScale>
 
-          {/* Trailing Resource Stack & Badges */}
+          {/* Trailing Resource Stack & Overflow */}
           <View style={styles.trailingArea}>
-            {totalResources > 0 ? (
+            {totalResources > 0 && (
               <PressableScale
-                onPress={handleOpenFanning}
+                onPress={() => {
+                  Haptics.selectionAsync().catch(() => {});
+                  setResourcesExpanded((prev) => !prev);
+                }}
                 scaleTo={0.93}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 haptic
                 accessibilityRole="button"
                 accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
-                accessibilityState={{ expanded: isExpanded }}
+                accessibilityState={{ expanded: resourcesExpanded }}
                 style={styles.resourceStackPressable}
               >
                 <View style={styles.stackRow}>
@@ -663,36 +648,49 @@ export function TodoItem({
                   {hasPlusChip && renderPlusChip(plusChipCount)}
                 </View>
               </PressableScale>
-            ) : item.recurrence ? (
-              <Feather name="repeat" size={14} color={colors.textMuted} />
-            ) : null}
+            )}
+
+            {!isSelectionMode && (
+              <PressableScale
+                onPress={() => {
+                  Haptics.selectionAsync().catch(() => {});
+                  setIsMenuOpen(true);
+                }}
+                scaleTo={0.9}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                haptic
+                accessibilityRole="button"
+                accessibilityLabel={`More options for ${item.title}`}
+                style={styles.overflowButton}
+              >
+                <Feather name="more-vertical" size={18} color={colors.textMuted} />
+              </PressableScale>
+            )}
           </View>
         </View>
 
-        {/* INLINE EXPANDED CONTEXTUAL SURFACE (Phase 3) */}
-        {isExpanded && (
+        {/* INLINE RESOURCE DISCLOSURE (independent from the task row) */}
+        {resourcesExpanded && (
           <Animated.View
             entering={reducedMotion ? undefined : FadeIn.duration(200)}
             exiting={reducedMotion ? undefined : FadeOut.duration(160)}
             layout={reducedMotion ? undefined : LinearTransition.duration(240)}
-            style={styles.expandedBody}
+            style={styles.resourcesSection}
           >
-            {/* Task Description / Note (if present) */}
-            {Boolean(item.description && item.description.trim().length > 0) && (
-              <View style={styles.descriptionContainer}>
-                <Text style={[styles.descriptionText, { color: colors.textMuted }]}>
-                  {item.description}
-                </Text>
-              </View>
-            )}
-
-            {/* Linked Resources Section */}
-            <View style={styles.resourcesSection}>
-              <View style={styles.resourcesHeaderRow}>
+            <View style={styles.resourcesHeaderRow}>
+              <PressableScale
+                onPress={() => setResourcesExpanded(false)}
+                haptic
+                accessibilityRole="button"
+                accessibilityLabel={`Collapse resources for ${item.title}`}
+                style={styles.resourcesHeaderLeft}
+              >
                 <Text style={[styles.resourcesHeaderTitle, { color: colors.text }]}>
                   {`Resources (${totalResources})`}
                 </Text>
-                {totalResources > 0 && (
+                <Feather name="chevron-down" size={15} color={colors.textMuted} />
+              </PressableScale>
+              {totalResources > 0 && (
                   <PressableScale
                     onPress={handleOpenFanning}
                     haptic
@@ -821,130 +819,110 @@ export function TodoItem({
                   </Text>
                 </PressableScale>
               </ScrollView>
-            </View>
-
-            {/* Quick Action Pills Row (4 Buttons) */}
-            <View style={styles.quickActionsRow}>
-              {/* 1. Complete */}
-              <PressableScale
-                onPress={handleCheckboxPress}
-                haptic
-                scaleTo={0.95}
-                accessibilityRole="button"
-                accessibilityLabel={isCompleted ? "Mark incomplete" : "Complete task"}
-                style={[
-                  styles.quickActionBtn,
-                  {
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.quickActionIconCircle,
-                    { backgroundColor: colorWithAlpha(colors.success, 0.16) },
-                  ]}
-                >
-                  <Feather name="check" size={14} color={colors.success} />
-                </View>
-                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
-                  {isCompleted ? "Completed" : "Complete"}
-                </Text>
-              </PressableScale>
-
-              {/* 2. Schedule */}
-              <PressableScale
-                onPress={() => {
-                  if (onSchedule) onSchedule();
-                  else onEditTodo?.();
-                }}
-                haptic
-                scaleTo={0.95}
-                accessibilityRole="button"
-                accessibilityLabel="Schedule task"
-                style={[
-                  styles.quickActionBtn,
-                  {
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.quickActionIconCircle,
-                    { backgroundColor: colorWithAlpha(Palette.blue500, 0.16) },
-                  ]}
-                >
-                  <Feather name="calendar" size={14} color={Palette.blue500} />
-                </View>
-                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
-                  Schedule
-                </Text>
-              </PressableScale>
-
-              {/* 3. Reminder */}
-              <PressableScale
-                onPress={() => {
-                  if (onSetAlarm) onSetAlarm();
-                  else onEditTodo?.();
-                }}
-                haptic
-                scaleTo={0.95}
-                accessibilityRole="button"
-                accessibilityLabel="Set reminder alarm"
-                style={[
-                  styles.quickActionBtn,
-                  {
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.quickActionIconCircle,
-                    { backgroundColor: colorWithAlpha(Palette.amber500, 0.16) },
-                  ]}
-                >
-                  <Feather name="bell" size={14} color={Palette.amber500} />
-                </View>
-                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
-                  Reminder
-                </Text>
-              </PressableScale>
-
-              {/* 4. More */}
-              <PressableScale
-                onPress={onEditTodo}
-                haptic
-                scaleTo={0.95}
-                accessibilityRole="button"
-                accessibilityLabel="Open full task details"
-                style={[
-                  styles.quickActionBtn,
-                  {
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.quickActionIconCircle,
-                    { backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)" },
-                  ]}
-                >
-                  <Feather name="more-horizontal" size={14} color={colors.textMuted} />
-                </View>
-                <Text style={[styles.quickActionLabel, { color: colors.text }]}>
-                  More
-                </Text>
-              </PressableScale>
-            </View>
           </Animated.View>
         )}
+
+        {/* COMPACT TASK ACTIONS (bottom action sheet) */}
+        <AnimatedOverlay
+          visible={isMenuOpen}
+          onClose={() => setIsMenuOpen(false)}
+          type="bottom-sheet"
+        >
+          {(close) => (
+            <View
+              style={[
+                styles.actionSheet,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.actionSheetTitle, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {item.title}
+              </Text>
+
+              <TouchableOpacity
+                onPress={() => {
+                  close();
+                  (onSchedule || onEditTodo)?.();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Schedule task"
+                style={styles.actionSheetRow}
+              >
+                <Feather name="calendar" size={17} color={colors.textMuted} />
+                <Text style={[styles.actionSheetRowLabel, { color: colors.text }]}>
+                  Schedule
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  close();
+                  (onSetAlarm || onEditTodo)?.();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Set reminder"
+                style={styles.actionSheetRow}
+              >
+                <Feather name="bell" size={17} color={colors.textMuted} />
+                <Text style={[styles.actionSheetRowLabel, { color: colors.text }]}>
+                  Reminder
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  close();
+                  onEditTodo?.();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Open task details"
+                style={styles.actionSheetRow}
+              >
+                <Feather name="edit-3" size={17} color={colors.textMuted} />
+                <Text style={[styles.actionSheetRowLabel, { color: colors.text }]}>
+                  Open details
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  close();
+                  onDeleteTodo();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Delete task"
+                style={styles.actionSheetRow}
+              >
+                <Feather name="trash-2" size={17} color={colors.error} />
+                <Text style={[styles.actionSheetRowLabel, { color: colors.error }]}>
+                  Delete
+                </Text>
+              </TouchableOpacity>
+
+              <View style={[styles.actionSheetDivider, { backgroundColor: colors.border }]} />
+
+              <TouchableOpacity
+                onPress={close}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel"
+                style={[
+                  styles.actionSheetCancel,
+                  { backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : Palette.slate100 },
+                ]}
+              >
+                <Text style={[styles.actionSheetCancelText, { color: colors.text }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </AnimatedOverlay>
 
         {/* RESOURCE FAN DECK MODAL (Phase 4) */}
         <Modal
@@ -1198,22 +1176,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     zIndex: 2,
   },
-  priorityEdgeStripExpanded: {
-    top: 10,
-    bottom: 10,
-    width: 4,
-    borderTopLeftRadius: 18,
-    borderBottomLeftRadius: 18,
-  },
-  expandedCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 14,
-    marginVertical: 4,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 10,
-    elevation: 3,
-  },
   mainRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1271,26 +1233,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 44,
   },
+  overflowButton: {
+    width: 32,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   stackRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-  // Expanded contextual section styles
-  expandedBody: {
-    marginTop: 6,
-    gap: 14,
-  },
-  descriptionContainer: {
-    paddingTop: 2,
-    paddingBottom: 2,
-  },
-  descriptionText: {
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: "400",
-  },
+  // Inline resource disclosure styles
   resourcesSection: {
     gap: 10,
+    paddingLeft: ROW_SPEC.row.paddingLeft,
+    paddingRight: ROW_SPEC.row.paddingRight,
+    paddingBottom: 14,
+  },
+  resourcesHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   resourcesHeaderRow: {
     flexDirection: "row",
@@ -1362,35 +1325,45 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
-  // Quick Actions 4-Pills Row
-  quickActionsRow: {
+  // Task action sheet (secondary actions)
+  actionSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1.5,
+    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+    gap: 2,
+  },
+  actionSheetTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+    marginBottom: 10,
+  },
+  actionSheetRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingTop: 4,
+    gap: 12,
+    paddingVertical: 14,
   },
-  quickActionBtn: {
-    flex: 1,
-    minHeight: 56,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    gap: 4,
-  },
-  quickActionIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  quickActionLabel: {
-    fontSize: 11,
+  actionSheetRowLabel: {
+    fontSize: 15,
     fontWeight: "600",
-    letterSpacing: -0.1,
+  },
+  actionSheetDivider: {
+    height: 1.5,
+    marginVertical: 8,
+  },
+  actionSheetCancel: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  actionSheetCancelText: {
+    fontSize: 15,
+    fontWeight: "700",
   },
   // Fan Deck Modal
   fanModalBackdrop: {

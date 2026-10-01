@@ -79,7 +79,6 @@ export function TaskSections({
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
   const [somedayExpanded, setSomedayExpanded] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
-  const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
 
   const todayKey = useMemo(() => getTodayDateKey(), []);
 
@@ -238,25 +237,22 @@ export function TaskSections({
         }}
         allResources={allResources}
         onToggleLinkResource={onToggleLinkResource}
-        isExpanded={expandedTodoId === item.id}
-        onToggleExpand={() => setExpandedTodoId(expandedTodoId === item.id ? null : item.id)}
       />
     );
   };
 
   const renderTaskList = (list: Task[], isEarlier = false) => {
     return (
-      <View style={{ marginTop: 2 }}>
+      <View style={{ marginTop: 0 }}>
         {list.map((item, index) => {
-          const isItemExpanded = expandedTodoId === item.id;
           return (
             <Animated.View
               key={item.id}
               exiting={FadeOut.duration(180)}
               layout={LinearTransition.duration(200)}
             >
-              {/* Subtle divider only between collapsed consecutive rows */}
-              {index > 0 && !isItemExpanded && expandedTodoId !== list[index - 1]?.id && (
+              {/* Hairline divider between consecutive rows */}
+              {index > 0 && (
                 <View
                   style={{
                     height: StyleSheet.hairlineWidth,
@@ -372,7 +368,7 @@ export function TaskSections({
           accessibilityLabel={`Earlier section, ${earlierList.length} tasks, ${earlierExpanded ? "expanded" : "collapsed"}`}
           style={sectionStyles.earlierHeaderRow}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={sectionStyles.sectionTitleLeft}>
             <Text
               style={[
                 sectionStyles.earlierTitleText,
@@ -381,24 +377,9 @@ export function TaskSections({
             >
               Earlier
             </Text>
-            <View
-              style={[
-                sectionStyles.earlierBadge,
-                {
-                  backgroundColor: isDark ? "rgba(245, 158, 11, 0.14)" : "#FEF3C7",
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: "600",
-                  color: isDark ? Palette.amber400 : Palette.amber700,
-                }}
-              >
-                {`${earlierList.length} task${earlierList.length === 1 ? "" : "s"}`}
-              </Text>
-            </View>
+            <Text style={[sectionStyles.sectionCountText, { color: colors.textMuted }]}>
+              {`${earlierList.length} task${earlierList.length === 1 ? "" : "s"}`}
+            </Text>
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -412,22 +393,15 @@ export function TaskSections({
                 haptic
                 accessibilityRole="button"
                 accessibilityLabel="Move all earlier tasks to Someday"
-                style={[
-                  sectionStyles.triageButton,
-                  {
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.04)",
-                    borderColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
-                  },
-                ]}
+                style={sectionStyles.quietAction}
               >
                 <Text
-                  style={{
-                    color: isDark ? colors.primaryLight : colors.primary,
-                    fontWeight: "600",
-                    fontSize: 12,
-                  }}
+                  style={[
+                    sectionStyles.quietActionText,
+                    { color: isDark ? colors.primaryLight : colors.primary },
+                  ]}
                 >
-                  Move all to Someday
+                  Move to Someday
                 </Text>
               </PressableScale>
             ) : null}
@@ -515,13 +489,7 @@ export function TaskSections({
             >
               Upcoming
             </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: "500",
-                color: colors.textMuted,
-              }}
-            >
+            <Text style={[sectionStyles.sectionCountText, { color: colors.textMuted }]}>
               {`${upcomingList.length} task${upcomingList.length === 1 ? "" : "s"}`}
             </Text>
           </View>
@@ -562,13 +530,7 @@ export function TaskSections({
             >
               Someday
             </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: "500",
-                color: colors.textMuted,
-              }}
-            >
+            <Text style={[sectionStyles.sectionCountText, { color: colors.textMuted }]}>
               {`${somedayList.length} task${somedayList.length === 1 ? "" : "s"}`}
             </Text>
           </View>
@@ -623,7 +585,7 @@ export function TaskSections({
                 color: colors.textMuted,
               }}
             >
-              {`${completedList.length}`}
+              {`· ${completedList.length}`}
             </Text>
           </View>
 
@@ -658,7 +620,7 @@ export function TaskSections({
   };
 
   return (
-    <View style={[styles.listContent, { paddingBottom: 0 }]}>
+    <View style={[styles.listContent, { gap: 0, paddingBottom: 0 }]}>
       {/* 1. Today (Primary Active Zone / Visual Anchor) */}
       {renderTodaySection()}
 
@@ -682,16 +644,16 @@ export function TaskSections({
 
 const sectionStyles = StyleSheet.create({
   todaySectionContainer: {
-    marginBottom: 20,
+    marginBottom: 8,
   },
   todayHeaderRow: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingHorizontal: 6,
-    marginBottom: 4,
+    marginBottom: 0,
   },
   todayTitleLeft: {
     flexDirection: "row",
@@ -740,44 +702,54 @@ const sectionStyles = StyleSheet.create({
     fontWeight: "500",
   },
   earlierSectionContainer: {
-    marginBottom: 18,
+    marginBottom: 8,
   },
   earlierHeaderRow: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 6,
-    marginBottom: 2,
+    marginBottom: 0,
   },
   earlierTitleText: {
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: -0.2,
   },
-  earlierBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
+  // Shared section-header grammar: title + optional muted count
+  sectionTitleLeft: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
   },
-  triageButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
+  sectionCountText: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  // Text-only quiet action (no pill container)
+  quietAction: {
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  quietActionText: {
+    fontSize: 12,
+    fontWeight: "500",
+    opacity: 0.85,
   },
   tomorrowSectionContainer: {
-    marginBottom: 18,
+    marginBottom: 8,
   },
   tomorrowHeaderRow: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 6,
-    marginBottom: 2,
+    marginBottom: 0,
   },
   tomorrowTitleText: {
     fontSize: 16,
@@ -785,7 +757,7 @@ const sectionStyles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   compressedSectionContainer: {
-    marginBottom: 10,
+    marginBottom: 8,
   },
   compressedHeaderRow: {
     width: "100%",
@@ -794,7 +766,7 @@ const sectionStyles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 6,
     paddingHorizontal: 6,
-    marginBottom: 1,
+    marginBottom: 0,
   },
   compressedTitleText: {
     fontSize: 14,
@@ -802,9 +774,9 @@ const sectionStyles = StyleSheet.create({
     letterSpacing: -0.1,
   },
   completedSectionContainer: {
-    marginTop: 8,
-    marginBottom: 16,
-    paddingTop: 12,
+    marginTop: 4,
+    marginBottom: 8,
+    paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   completedHeaderRow: {
