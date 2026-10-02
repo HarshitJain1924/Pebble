@@ -1,8 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
-import * as DocumentPicker from "expo-document-picker";
 import { useRouter } from "expo-router";
+import { emitStateChange } from "@/services/events/state-events";
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Alert,
@@ -67,17 +67,9 @@ export function ResourceSection({
   const theme = Colors[themeName];
 
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
-  const [isAddingResource, setIsAddingResource] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [linkingResource, setLinkingResource] = useState<Resource | null>(null);
-
-  // New Resource Form state
-  const [newResTitle, setNewResTitle] = useState("");
-  const [newResType, setNewResType] = useState<"note" | "link" | "file" | "media" | "idea">("note");
-  const [newResUrl, setNewResUrl] = useState("");
-  const [newResContent, setNewResContent] = useState("");
-  const [pickedFile, setPickedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
 
   // Edit Form state
   const [editTitle, setEditTitle] = useState("");
@@ -141,51 +133,7 @@ export function ResourceSection({
     return list;
   }, [folderResources, activeFilter, searchQuery]);
 
-  const handlePickDocument = useCallback(async (isMediaOnly = false) => {
-    try {
-      const res = await DocumentPicker.getDocumentAsync({
-        type: isMediaOnly ? ["image/*", "video/*"] : "*/*",
-        copyToCacheDirectory: true,
-      });
-      if (!res.canceled && res.assets && res.assets.length > 0) {
-        setPickedFile(res.assets[0]);
-        if (!newResTitle) {
-          setNewResTitle(res.assets[0].name);
-        }
-      }
-    } catch (e) {
-      console.warn("DocumentPicker error", e);
-    }
-  }, [newResTitle]);
 
-  const handleSaveResource = useCallback(async () => {
-    if (!newResTitle.trim()) {
-      Alert.alert("Required", "Please provide a resource title.");
-      return;
-    }
-
-    const wsId = activeFolderId || INBOX_WORKSPACE_ID;
-    const resolvedType = (newResType === "file" || newResType === "media") ? "note" : newResType;
-    const newItemData: Partial<Resource> = {
-      type: resolvedType,
-      title: newResTitle.trim(),
-      body: newResContent.trim() || undefined,
-      attachments: pickedFile || newResUrl ? [
-        ...(newResUrl ? [{ id: `att-${Date.now()}-url`, name: newResUrl, uri: newResUrl, mimeType: "text/plain" }] : []),
-        ...(pickedFile ? [{ id: `att-${Date.now()}-file`, name: pickedFile.name, uri: pickedFile.uri, mimeType: pickedFile.mimeType || "application/octet-stream", size: pickedFile.size }] : []),
-      ] : undefined,
-    };
-
-    if (createResource) {
-      await createResource(wsId, newItemData);
-    }
-
-    setIsAddingResource(false);
-    setNewResTitle("");
-    setNewResUrl("");
-    setNewResContent("");
-    setPickedFile(null);
-  }, [newResTitle, newResType, newResUrl, newResContent, pickedFile, activeFolderId, createResource]);
 
   const handleOpenEdit = useCallback((res: Resource) => {
     setEditingResource(res);
@@ -347,7 +295,7 @@ export function ResourceSection({
                 setActiveFilter("all");
               }
             }}
-            onCreateItem={() => setIsAddingResource(true)}
+            onCreateItem={() => emitStateChange("open_quick_add")}
             style={{ marginVertical: 8 }}
           />
         ) : (
@@ -494,164 +442,7 @@ export function ResourceSection({
         )}
       </View>
 
-      {/* Add Resource Modal (Level 2 Sheet) */}
-      <AnimatedOverlay visible={isAddingResource} onClose={() => setIsAddingResource(false)} type="bottom-sheet">
-        {() => (
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.sheetHandleBar} />
-            <View style={styles.modalHeader}>
-              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>Add Resource</Text>
-              <TouchableOpacity
-                onPress={() => setIsAddingResource(false)}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityRole="button"
-                accessibilityLabel="Close add resource sheet"
-              >
-                <Feather name="x" size={20} color={theme.textMuted} />
-              </TouchableOpacity>
-            </View>
 
-            {/* Type Selector Tabs */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeSelectorDeck}>
-              {(
-                [
-                  { type: "note", label: "Note", icon: "align-left" },
-                  { type: "link", label: "Link", icon: "link" },
-                  { type: "file", label: "File", icon: "file-text" },
-                  { type: "media", label: "Media", icon: "image" },
-                  { type: "idea", label: "Idea", icon: "zap" },
-                ] as const
-              ).map((t) => {
-                const isSelected = newResType === t.type;
-                return (
-                  <PressableScale
-                    key={t.type}
-                    onPress={() => {
-                      Haptics.selectionAsync().catch(() => {});
-                      setNewResType(t.type);
-                    }}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: isSelected }}
-                    accessibilityLabel={`${t.label} resource type`}
-                    style={[
-                      styles.typeTabPill,
-                      {
-                        backgroundColor: isSelected ? theme.primary : `${theme.border}30`,
-                      },
-                    ]}
-                  >
-                    <Feather
-                      name={t.icon as any}
-                      size={13}
-                      color={isSelected ? Palette.white : theme.textMuted}
-                    />
-                    <Text
-                      style={[
-                        styles.typeTabPillText,
-                        { color: isSelected ? Palette.white : theme.textMuted },
-                      ]}
-                    >
-                      {t.label}
-                    </Text>
-                  </PressableScale>
-                );
-              })}
-            </ScrollView>
-
-            {/* Title Input */}
-            <TextInput
-              style={[
-                styles.modalInput,
-                { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
-              ]}
-              placeholder={newResType === "media" || newResType === "file" ? "Title or caption..." : "Title..."}
-              placeholderTextColor={theme.textMuted}
-              value={newResTitle}
-              onChangeText={setNewResTitle}
-              autoFocus
-            />
-
-            {/* Link URL Input */}
-            {newResType === "link" && (
-              <TextInput
-                style={[
-                  styles.modalInput,
-                  { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
-                ]}
-                placeholder="https://example.com"
-                placeholderTextColor={theme.textMuted}
-                value={newResUrl}
-                onChangeText={setNewResUrl}
-                keyboardType="url"
-                autoCapitalize="none"
-              />
-            )}
-
-            {/* Note/Idea Multiline Body */}
-            {(newResType === "note" || newResType === "idea" || newResType === "file" || newResType === "media") && (
-              <TextInput
-                style={[
-                  styles.modalInput,
-                  styles.textArea,
-                  { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
-                ]}
-                placeholder={newResType === "media" || newResType === "file" ? "Optional notes or caption..." : "Write notes, specs, or thoughts..."}
-                placeholderTextColor={theme.textMuted}
-                multiline
-                numberOfLines={3}
-                value={newResContent}
-                onChangeText={setNewResContent}
-              />
-            )}
-
-            {/* File / Media Picker */}
-            {(newResType === "file" || newResType === "media") && (
-              <TouchableOpacity
-                style={[
-                  styles.filePickerBox,
-                  {
-                    borderColor: pickedFile ? theme.primary : theme.border,
-                    backgroundColor: pickedFile ? `${theme.primary}0C` : theme.background,
-                  },
-                ]}
-                onPress={() => handlePickDocument(newResType === "media")}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  pickedFile
-                    ? `Selected file ${pickedFile.name}. Tap to change.`
-                    : newResType === "media"
-                    ? "Choose image or video"
-                    : "Choose document"
-                }
-                activeOpacity={0.8}
-              >
-                <Feather
-                  name={pickedFile ? "check-circle" : newResType === "media" ? "image" : "upload-cloud"}
-                  size={20}
-                  color={pickedFile ? theme.primary : theme.textMuted}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.filePickerTitle, { color: theme.text }]} numberOfLines={1}>
-                    {pickedFile ? pickedFile.name : newResType === "media" ? "Choose Image or Video" : "Choose Document (PDF, Doc, Zip)"}
-                  </Text>
-                  <Text style={[styles.filePickerSub, { color: theme.textMuted }]}>
-                    {pickedFile ? `${formatSize(pickedFile.size)} • Ready to save` : "Tap to browse files"}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
-
-            {/* Save CTA */}
-            <PressableScale
-              onPress={handleSaveResource}
-              haptic
-              style={[styles.savePillBtn, { backgroundColor: theme.primary }]}
-            >
-              <Text style={styles.savePillBtnText}>Save Resource</Text>
-            </PressableScale>
-          </View>
-        )}
-      </AnimatedOverlay>
 
       {/* Redesigned Polished Bottom Action Menu Sheet */}
       <AnimatedOverlay visible={!!selectedResource} onClose={() => setSelectedResource(null)} type="bottom-sheet">
@@ -1082,46 +873,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
   },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 28,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 6,
-  },
-  emptyIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  emptySubtitle: {
-    fontSize: 12,
-    textAlign: "center",
-    paddingHorizontal: 12,
-    lineHeight: 17,
-  },
-  emptyAddBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    marginTop: 6,
-  },
-  emptyAddBtnText: {
-    color: Palette.white,
-    fontSize: 12,
-    fontWeight: "700",
-  },
   sheetHandleBar: {
     width: 36,
     height: 4,
@@ -1146,24 +897,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
   },
-  typeSelectorDeck: {
-    flexDirection: "row",
-    gap: 6,
-    paddingVertical: 2,
-  },
-  typeTabPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
-  },
-  typeTabPillText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
   modalInput: {
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -1174,23 +907,6 @@ const styles = StyleSheet.create({
   textArea: {
     height: 80,
     textAlignVertical: "top",
-  },
-  filePickerBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-  },
-  filePickerTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  filePickerSub: {
-    fontSize: 11,
-    marginTop: 2,
   },
   savePillBtn: {
     paddingVertical: 12,

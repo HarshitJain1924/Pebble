@@ -426,10 +426,6 @@ export function WorkspacesScreen() {
     [goToAdjacentDomain],
   );
 
-  const [newChecklistTitle, setNewChecklistTitle] = React.useState("");
-  const [newChecklistItems, setNewChecklistItems] = React.useState("");
-  const [isAddingChecklist, setIsAddingChecklist] = React.useState(false);
-  const [editingChecklistId, setEditingChecklistId] = React.useState<string | null>(null);
   const [expandedChecklistIds, setExpandedChecklistIds] = React.useState<Record<string, boolean>>({});
   const [isSearchActive, setIsSearchActive] = React.useState(false);
   const [workspaceMenuVisible, setWorkspaceMenuVisible] = React.useState(false);
@@ -1044,9 +1040,7 @@ export function WorkspacesScreen() {
                       onEditHabit={(item) => {
                         router.push(`/task-details?id=${item.id}&type=habit`);
                       }}
-                      onCreateHabit={() => {
-                        state.setIsAddingHabit(true);
-                      }}
+                      onCreateHabit={() => emitStateChange("open_quick_add")}
                       searchQuery={state.searchQuery}
                       onClearSearch={() => state.setSearchQuery("")}
                     />
@@ -1072,7 +1066,7 @@ export function WorkspacesScreen() {
                           context="checklists"
                           searchQuery={state.searchQuery}
                           onClearSearch={() => state.setSearchQuery("")}
-                          onCreateItem={() => setIsAddingChecklist(true)}
+                          onCreateItem={() => emitStateChange("open_quick_add")}
                           style={{ marginVertical: 16 }}
                         />
                       ) : (
@@ -1477,148 +1471,7 @@ export function WorkspacesScreen() {
         </View>
       </Modal>
 
-      {/* Create/Edit Checklist Modal */}
-      <Modal
-        visible={isAddingChecklist}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setIsAddingChecklist(false);
-          setEditingChecklistId(null);
-          setNewChecklistTitle("");
-          setNewChecklistItems("");
-        }}
-      >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.5)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 20,
-          }}
-        >
-          <AppCard
-            style={{
-              width: "100%",
-              padding: 20,
-              gap: 16,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.card,
-            }}
-          >
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontSize: 18, fontWeight: "800", color: colors.text }}>
-                {editingChecklistId ? "Edit Checklist" : "Create Checklist"}
-              </Text>
-              <TouchableOpacity onPress={() => {
-                setIsAddingChecklist(false);
-                setEditingChecklistId(null);
-                setNewChecklistTitle("");
-                setNewChecklistItems("");
-              }}>
-                <Feather name="x" size={20} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
 
-            <View style={{ gap: 12 }}>
-              <TextInput
-                value={newChecklistTitle}
-                onChangeText={setNewChecklistTitle}
-                placeholder="Checklist title (e.g. Packing list)..."
-                placeholderTextColor={colors.textMuted}
-                style={{
-                  backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)",
-                  color: colors.text,
-                  borderRadius: 12,
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  fontSize: 14,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-              />
-              <TextInput
-                value={newChecklistItems}
-                onChangeText={setNewChecklistItems}
-                placeholder="Items (comma-separated, e.g. Bread, Milk, Eggs)..."
-                placeholderTextColor={colors.textMuted}
-                multiline
-                style={{
-                  backgroundColor: colorScheme === "light" ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)",
-                  color: colors.text,
-                  borderRadius: 12,
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  fontSize: 14,
-                  minHeight: 80,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-              />
-            </View>
-
-            <TouchableOpacity
-              onPress={() => {
-                if (newChecklistTitle.trim()) {
-                  const itemsArray = newChecklistItems
-                    .split(",")
-                    .map(i => i.trim())
-                    .filter(i => i.length > 0);
-
-                  if (editingChecklistId) {
-                    const folderChecklists = state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
-                    const target = folderChecklists.find(c => c.id === editingChecklistId);
-                    if (target) {
-                      const updatedItems = itemsArray.map((title) => {
-                        const existing = target.items.find(i => i.title.toLowerCase() === title.toLowerCase());
-                        return {
-                          id: existing?.id || `checklist-item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                          title,
-                          completed: existing?.completed || false
-                        };
-                      });
-                      state.updateChecklist({
-                        ...target,
-                        title: newChecklistTitle.trim(),
-                        items: updatedItems
-                      });
-                    }
-                    setEditingChecklistId(null);
-                  } else {
-                    state.addChecklist(
-                      newChecklistTitle.trim(),
-                      itemsArray,
-                      state.activeWorkspaceId || INBOX_WORKSPACE_ID
-                    );
-                  }
-
-                  setNewChecklistTitle("");
-                  setNewChecklistItems("");
-                  setIsAddingChecklist(false);
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                } else {
-                  Alert.alert("Title Required", "Please enter a checklist title.");
-                }
-              }}
-              style={{
-                backgroundColor: colors.primary,
-                paddingVertical: 12,
-                borderRadius: 12,
-                alignItems: "center",
-                justifyContent: "center",
-                marginTop: 6,
-              }}
-            >
-              <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 14 }}>
-                {editingChecklistId ? "Save Changes" : "Create Checklist"}
-              </Text>
-            </TouchableOpacity>
-          </AppCard>
-        </View>
-      </Modal>
 
       {/* Floating Bulk Actions Bar */}
       {state.isBulkSelectActive && state.selectedItemIds.size > 0 && (
