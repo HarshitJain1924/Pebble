@@ -1,88 +1,75 @@
-# AI Context: Pebble Productivity App
+# AI Context: Pebble
 
-This file is a compressed memory layer optimized for future AI sessions. It serves as a navigation map and architectural primer.
+This file is a **navigation map for AI sessions**, not a second implementation specification.
 
----
+## 0. Truth Hierarchy
 
-## 1. Project Summary
-Pebble is a premium, local-first productivity app. It integrates daily task planning, habit consistency tracking, Pomodoro focus timers, localized reminders, and a completely offline natural language capture engine. The visual experience is gamified through earning Pebbles and Gems, guided by a responsive Crow mascot companion.
+When information conflicts:
 
----
+1. Active source code in the checked-out branch.
+2. `docs/current_state.md` and `docs/integrity_status.md`.
+3. Active ADRs/decisions under `docs/architecture/`.
+4. Relevant `.agents/skills/`.
+5. This file.
+6. `PRD.md` and `README.md` for product intent only.
+7. `docs/archive/` for historical context only.
 
-## 2. Current Terminology & Domain Model
-The current canonical terminology established by the codebase:
-- **Workspace**: The top-level organizational folder.
-- **Task**: A one-off actionable item (status: `todo` or `completed`).
-- **Habit**: A recurring item tracked via a `completionHistory` array and streaks.
-- **Checklist**: A list of sub-items.
-- **Resource**: Passive reference items (links, notes, images) saved inside a workspace.
-- **Recycle Bin**: A soft-delete safety net for entities and workspaces.
-- **Gamification**: Users earn **Pebbles** (Task = 1, Habit = 1, Focus = 1) which convert to **Gems** (45 Pebbles = 1 Gem).
-- **Move Journal**: Logs pending cross-workspace moves to recover from crashes.
-- **Conversion Journal**: Logs pending task<->habit conversions to recover from crashes.
-- **Unified Capture**: The natural language capture engine.
+Do not infer current behavior from historical prose when code can answer it.
 
-*(Note: Legacy terminology such as XP, Vault, Collections, Todo, TodoList, and TaskList are obsolete and must not be used).*
+## 1. Product Model
 
----
+Pebble is a local-first productivity app using Expo SDK 54, React Native, Expo Router, TypeScript, and AsyncStorage.
 
-## 3. Current Architecture Snapshot
+Canonical domains:
+- **Workspace** — organizational container.
+- **Task** — one-off actionable item.
+- **Habit** — recurring item with completion history/streaks.
+- **Checklist** — independent checkable-list entity.
+- **Resource** — passive reference material.
+- **Today** — day-focused execution surface.
+- **Calendar / Schedule** — scheduled placement.
+- **Reminders** — notification behavior separate from schedule.
+- **Focus** — focused timer/workflow.
+- **Cairn** — Pebble's mascot/companion.
 
-> **IMPORTANT**: The architecture described here is a summary. For the definitive, authoritative state of the data integrity, locking, and persistence model, ALWAYS read:
-> 1. `docs/current_state.md`
-> 2. `docs/integrity_status.md`
+Do not resurrect `Vault`, `Collections`, `TodoList`, `TaskList`, or XP-era terminology in new work.
 
-### 3.1 Repository & Storage Model
-- **Storage**: 100% local-first client database via `@react-native-async-storage/async-storage`.
-- **Partitioning**: Data is strictly partitioned by entity type and workspace ID (e.g., `pebble:v1:tasks:${workspaceId}`).
-- **Repositories**: Pure data-access objects (e.g., `TaskRepository`, `HabitRepository`) that enforce exact storage keys and structural normalizations.
-- **Owned-Key Registry**: `services/storage/storage-keys.ts` (`isPebbleOwnedKey`) is the single definition of the Pebble storage surface used by backup/restore/clear-all.
-- **Startup Recovery**: `services/startup/startup-recovery.ts` (`runStartupRecovery`) is the single startup sequence: interrupted-restore recovery → MoveReconciler → ConversionReconciler → ghost pruning → recycle-bin cleanup → **GraphReconciler** → NotificationReconciler.
-- **Notification Permission**: OS permission is requested only after explicit user intent (Alert Center "Enable Alerts") via `services/notifications/notification-permission.ts`; permanent denials route to system Settings.
+## 2. Architecture Map
 
-### 3.2 Command Handler Architecture
-- **Command Handlers**: All complex mutations, side-effects, and cross-partition logic are centralized in Command Handlers (`TaskCommandHandler`, `HabitCommandHandler`, `WorkspaceCommandHandler`, etc.).
-- **Events**: Handlers emit events via a lightweight state emitter (`state-events.ts`) which triggers UI re-renders.
+- `/app/` — Expo Router screens/routes.
+- `/features/` — vertical feature slices.
+- `/services/command/` — mutation orchestration and command handlers.
+- `/repositories/` — persistence/data-access boundaries.
+- `/shared/` — shared types, theme, UI, and utilities.
+- `/docs/` — architecture, decisions, integrity records, and historical material.
 
-### 3.3 Concurrency & Data Integrity Model
-- Operations performing Read-Modify-Write (RMW) cycles across partitions use a deterministic mutex locking system (`withLock`).
-- **Known Data-Integrity Work Completed**:
-  - The `Task` mutation surface (update, complete, uncomplete, move, recycle, restore, bulk operations) has received substantial lock-boundary hardening.
-  - `Workspace` lifecycle (delete/restore) is hardened with a strict 5-lock acquisition sequence (`tasks`, `habits`, `checklists`, `resources`, `ws_lifecycle`).
-  - `HabitCommandHandler.updateHabit` and `completeHabits` are hardened with `withLock` and failure isolation.
-  - `ChecklistCommandHandler` item-level dual-state mutations (`toggleChecklistItem`, `deleteChecklistItem`, `addChecklistItem`) and lifecycle boundaries are verified under workspace partition locks with zero lost updates.
-  - `ResourceCommandHandler` permanent deletion (`permanentlyDeleteResource`) and multi-repository boundaries (Active, RecycleBin, Tombstone, Graph relationships, and `resourceIds` reconciliation) are verified under hostile concurrency.
-  - `GraphReconcilerService` secondary resource reference (`resourceIds`) mutation paths across Task, Habit, and Checklist are hardened against stale prunes and concurrent user linking.
-  - `MoveJournalRepository` and `MoveReconcilerService` removal durability and idempotent crash recovery across multi-partition workspace boundaries are verified safe under hostile crash/restart conditions.
-- **Known Remaining Areas Requiring Audit/Hardening**:
-  - Conversion journal-removal atomicity and remaining secondary task/habit operations (see `docs/integrity_status.md` OPEN items).
+Exact persistence ownership/storage keys are defined by the active storage implementation.
 
----
+Complex mutations belong in command handlers; repositories remain data-access boundaries.
 
-## 4. Folder Structure Overview
-* `/app/` — Expo Router tab layout and subscreen routing.
-* `/features/` — Encapsulated vertical feature slices (e.g., `capture`, `today`, `details`, `profile`).
-* `/services/command/` — Centralized Command Handlers for all data mutations.
-* `/repositories/` — Raw AsyncStorage data access objects.
-* `/shared/` — Common types, utilities, and generic UI components.
-* `/docs/` — Full-length documentation references.
+## 3. Important Invariants
 
----
+- Entity creation flows through `CaptureService`.
+- `EntityFactory` remains pure.
+- RMW command operations respect the established mutex/`*Unlocked` pattern.
+- **Schedule placement and reminder notification semantics are separate.**
+- Do not use a reminder timestamp as a substitute for a schedule timestamp.
+- Do not introduce direct UI AsyncStorage access where an existing repository/service boundary exists.
+- Treat `docs/integrity_status.md` as the current list of open integrity concerns.
 
-## 5. Active Product Features
-1. **Unified Capture**: Client-side natural language text extraction (`chrono-node`, `compromise`) with live cycle-on-tap pills.
-2. **Focus Timer**: Pomodoro timer with animated breathing rings and gamification rewards.
-3. **Mascot Companion**: Responsive crow mascot that recommends actions and provides visual feedback.
-4. **Alarms & Reminders**: Local reminders using `expo-notifications`.
-5. **Resources**: Save passive reference items (links, notes, images) nested inside workspaces.
-6. **Manual Data Export**: User-facing export flow in Settings that generates a full local backup JSON via authoritative `BackupService` and presents the platform-native share/save sheet (`expo-sharing`).
-7. **Contextual Empty-State System**: Reusable, accessible `EmptyState` component with Pebble mascot integration (`idle`, `sleeping`, `focus`, `peek`), concise explanatory messaging, and immediate action triggers (`open_quick_add`, `setIsAddingResource`) across Checklists, Resources, Calendar, Focus target picking, and Archive.
-8. **Accessibility Hardening**: Standardized semantic roles, state exposure (`checked`, `selected`, `expanded`, `busy`, `disabled`), contextual accessible labels on icon-only controls, expanded baseline hit areas on core interactive components (`PressableScale`, `AnimatedCheckbox`, `SegmentedSwitcher`, `AppCard`), and explicit touch-target hardening across high-risk controls.
+## 4. UI Guidance
 
----
+For UI work:
+- Inspect the actual screen/component first.
+- Preserve established information architecture unless explicitly asked to change it.
+- Use existing Pebble theme/tokens/components.
+- `pebble-design` and `design-tokens` are supporting guidance, not authority over code.
+- Other skills are specialist lenses, not product truth.
+- Do not invent sections, badges, navigation patterns, domain concepts, or product terminology unsupported by current code or an explicit request.
 
-## 6. Important Architectural Constraints
-1. **Source Code is Truth**: If existing documentation conflicts with active code, trust the code.
-2. **Lock Order**: When acquiring multiple locks (e.g., cross-workspace moves), lock keys must generally be sorted alphabetically via `withLocks`. However, specific hierarchical paths (e.g. Partition -> MoveJournal -> Recycle Bin) must explicitly bypass alphabetical sorting to prevent global hierarchy deadlocks.
-3. **Unlocked Primitives**: Command handlers using `withLock` must call `*Unlocked` repository methods (e.g., `saveTasksUnlocked`) to prevent re-entrant deadlocks, since the mutex is non-reentrant.
-4. **Worklet Thread Boundary**: UI animations run on the native UI thread. React state updates or Ref mutations within worklets must be routed to the JS thread via Reanimated's `runOnJS()`.
+## 5. Verification
+
+For engineering changes:
+- Run `npx tsc --noEmit`.
+- Run relevant tests.
+- For architecture/integrity changes, consult the current integrity documentation.
