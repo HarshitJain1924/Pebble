@@ -1,99 +1,87 @@
-# Pebble Productivity App (Expo SDK 54)
+# Pebble
 
-A local-first, premium productivity suite built with Expo Router. It seamlessly combines day-focused task planning, daily habit tracking, streak consistency analytics, customizable time alarms, deep-focus Pomodoro timers, and an advanced **Local Heuristic Pebble Capture Engine**—requiring no backend databases or paid cloud APIs.
+Pebble is a local-first productivity app built with Expo SDK 54, React Native, Expo Router, and TypeScript.
 
-Pebble is inspired by the classic crow-and-pebbles story: a crow raises the water level one pebble at a time until it reaches its goal.
-Our philosophy is simple:
-* One task
-* One habit
-* One focus session
-* One reminder
-* Small actions create big progress.
+It brings together:
+- task planning
+- habit tracking
+- checklists
+- resources
+- scheduling and reminders
+- focus workflows
+- local-first capture
 
-> 📖 **Project PRD:** View the full [Product Requirements Document (PRD.md)](./PRD.md) for detailed feature flowcharts, specs, and technical requirements.
+Pebble's philosophy is based on small actions accumulating into meaningful progress.
 
----
+## Where to Look
 
-## ⚡ Key Highlights
+This README is orientation only. It is **not** implementation truth.
 
-Pebble integrates a completely offline-ready, lightning-fast natural language engine alongside modern UX principles:
+For engineering work:
+1. Read the active code.
+2. Read `docs/current_state.md` and `docs/integrity_status.md` when architecture/integrity matters.
+3. Read active decisions/ADRs under `docs/architecture/`.
+4. Read the relevant `.agents/skills/` skill for specialized guidance.
+5. Treat `docs/archive/` as historical only.
 
-1. **Pebble Capture:** Type naturally (e.g. *"Gym every morning at 7am"* or *"Study React tomorrow at 8pm high priority"*). Pebble uses `chrono-node` and `compromise` client-side to extract dates, times, categories, and priorities in **<12ms**.
-2. **Rotating Placeholders:** Fades between plain text examples to naturally guide users on input possibilities.
-3. **✨ Detection Badges:** Displays glowing `Smartly detected` or `Draft schedule` badges based on extraction confidence.
-4. **🔄 Cycle-on-Tap Editing:** Tapping the parsed badges in the preview card lets you cycle categories, priorities, dates, and times on-the-go with **haptic feedback** before saving.
-5. **🔔 Local Notifications:** Parses phrases like *"and remind me 15 minutes before"*, automatically scheduling exact alarms via `expo-notifications`.
-6. **🧠 Local Behavior Suggestions:** Tracks creation frequencies and prompts suggestion banners to *"Convert Gym into a recurring habit?"* after repeated manual entries.
+For AI sessions, see `AI_CONTEXT.md`.
 
----
+## Product Domains
 
-## 📱 Core Screens & Navigation
+### Today
+Day-focused execution.
 
-Built on **Expo Router** with seamless transitions:
+### Workspaces
+Organization of tasks, habits, checklists, and resources.
 
-### 1. Today Dashboard (`app/(tabs)/index.tsx`)
-The entry point of the app, providing an authoritative, borderless summary of your day:
-- **Universal Metrics**: Real-time progress meters tracking completed tasks and active habits.
-- **Category Shortlinks**: High-fidelity graphical shortcuts to filter and create tasks in various contexts.
-- **Alarms Preview**: Spotlights the next upcoming exact alarm notification so you stay ahead.
+### Tasks
+One-off actionable items with the behavior implemented by the current code.
 
-### 2. Tasks & Habits Planner (`app/(tabs)/tasks.tsx`)
-Features a unified segmented switcher to toggle between **Tasks** and **Habits**:
-- **Calendar Strip**: Scrollable weekday strip using `react-native-calendars` to filter active tasks.
-- **Suggestions Banner**: Displays active local suggestions to convert repetitive tasks into habits.
-- **Streak Statistics**: Track habit consistency with density bars and weekly progress grids.
+### Habits
+Recurring activities with completion history and streak behavior.
 
-### 3. Focus Console (`app/(tabs)/focus.tsx`)
-An immersive deep-work console designed to optimize cognitive flow:
-- **Preset Focus Sessions**: Presets for 15, 25, 45, or 60-minute Pomodoros.
-- **Liquid Timers**: Features visual gradient rings that breathe and animate using `react-native-reanimated`.
-- **Gamification**: Awards pebbles for task completions and habit runs.
+### Checklists
+Independent checkable-list entities.
 
-### 4. Pebble Capture Modal
-- **Access:** Tap the `⚡ Pebble Capture` pill or FAB to trigger a Bottom Sheet (`@gorhom/bottom-sheet`).
-- **Glassmorphism Overlay:** Implements beautiful blurred glass backdrops using `expo-blur`.
-- **Interactive Review:** Tweak parsed items instantly by tapping pills.
+### Resources
+Passive reference material such as links, notes, images, or files.
 
----
+### Calendar / Schedule
+Calendar placement is driven by an item's schedule. Reminder behavior is separate and drives notifications.
 
-## 🎨 Hardware Gestures & Fluid Motion
+### Focus
+Focus/timer workflows connected to productivity progress.
 
-The Pebble system incorporates smooth transitions powered by **React Native Gesture Handler** and **React Native Reanimated**:
-1. **Interactive Tab Swiping**: Swipe left or right anywhere to slide between tab views (Today ⇄ Planner ⇄ Analytics ⇄ Focus).
-2. **Directional Card Swipes**: Swipe items horizontally in lists:
-   - **Swipe Right**: Checks off and completes the item (Success Haptic + Emerald Green splash overlay).
-   - **Swipe Left**: Deletes the item (Medium Haptic + Crimson Red delete overlay).
-3. **Dynamic Premium Shadows**: Softens shadows dynamically based on theme (opacity `0.03`-`0.05` in light mode).
+### Capture
+Local-first natural-language capture. The active implementation is authoritative for parser behavior and capture UI.
 
----
+### Cairn
+Pebble's companion/mascot. See `docs/cairn_voice_guide.md`.
 
-## Architecture Documentation
+## Architecture
 
-For the authoritative source of truth on Pebble's crash recovery, persistence, and integrity mechanisms, refer to:
-- [Current State Architecture](docs/current_state.md)
-- [Integrity Status](docs/integrity_status.md)
+The repository is organized broadly as:
 
----
+- `/app/` — Expo Router screens/routes
+- `/features/` — vertical feature slices
+- `/services/command/` — mutation orchestration and command handlers
+- `/repositories/` — persistence/data-access boundaries
+- `/shared/` — shared types, theme, UI, and utilities
+- `/docs/` — architecture, decisions, integrity records, and historical material
 
-## 🛠️ Technical Stack
-- **React Native 0.81** (New Architecture & React Compiler enabled)
-- **Expo SDK 54** (Expo Router, expo-notifications, expo-blur, expo-haptics)
-- **State Management**: `@react-native-async-storage/async-storage`
-- **UI Components**: `@gorhom/bottom-sheet`, `react-native-calendars`
+Pebble is local-first and uses AsyncStorage. Exact storage keys are defined by the active storage implementation.
 
----
+## Development
 
-## 🚀 Run Locally
+```bash
+npm install
+npx expo start
+npx tsc --noEmit
+npm test
+```
 
-1. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
-2. **Start Development Server**:
-   ```bash
-   npx expo start
-   ```
-3. **Start Web Server**:
-   ```bash
-   npx expo start --web
-   ```
+## Legacy Documentation
+
+Some historical documents and compatibility code may contain older terms. Do not treat those terms as current product requirements.
+
+Historical material should live under `docs/archive/` where possible.
