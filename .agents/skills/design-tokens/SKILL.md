@@ -104,6 +104,12 @@ screen side gutter; `ux` (32) is the spacious gutter for hero surfaces.
 area; where the visual is smaller, expand with transparent padding or `hitSlop`
 (`PressableScale` defaults `hitSlop={8}`).
 
+### Card Usage Rule (Surface Primitive, NOT Default Layout Primitive)
+*   **Cards are a surface primitive, not the default layout primitive.**
+*   Prefer flat lists, rows, sections, whitespace, dividers, tabs, and tonal grouping when they communicate hierarchy better.
+*   **Never nest cards inside cards.** Surfaces remain flat at Level 1.
+*   **Never wrap every individual piece of information in its own card.**
+
 ---
 
 ## 5. Shadows / Elevation
@@ -128,7 +134,7 @@ token module.** Motion is authored inline with Reanimated:
 
 *   **Springs for translation, scale, and gesture release** — e.g. the dial open uses
     `withSpring(1, { damping: 17, stiffness: 220, mass: 0.65 })`; press feedback uses
-    springs in `PressableScale`.
+    springs in `PressableScale` (`damping: 12, stiffness: 200`, scale to `0.97`).
 *   **Timings for fades/color transitions** — `withTiming` under ~200ms with an
     out easing.
 *   Respect `useReducedMotion()` (`shared/hooks/useReducedMotion`) for any ambient or
@@ -139,23 +145,48 @@ existing component or `PressableScale` instead.
 
 ---
 
-## 7. Design Stance (2026)
+## 7. Row Specifications
+
+Task and checklist rows follow `ROW_SPEC` (`shared/constants/rowSpec.ts`):
+*   `row`: padding vertical 14, horizontal 16/14, gap 12.
+*   `checkbox`: 24pt visual ring, 1.5 ring width, 44pt effective hit area.
+*   `badge`: 36pt tile, 11pt radius, 18pt icon.
+*   `type`: title 16 (weight 600), meta 13.
+*   `dividerInset`: 52pt (aligned to the badge left edge).
+*   `listRow`: minHeight 44pt.
+
+---
+
+## 8. Design Stance (2026)
 
 Pebble targets a **clean, modern 2026 mobile aesthetic**: calm and intentional, high
 information clarity, generous purposeful whitespace, content-first surfaces, strong
 visual hierarchy, and restrained motion. Identity comes from the Outfit type scale,
 the Pine accent, workspace hues, and spacing rhythm — not decoration.
 
-When choosing tokens:
-
-*   Prefer **tonal layering and soft shadows** for depth. Reach for `expo-blur` only
-    where it genuinely improves hierarchy/depth/context and stays performant/readable;
-    it is not a required treatment.
-*   Prefer **fewer, stronger elements** over dense grids of equal-weight widgets.
-*   Keep **state feedback** immediate (spring press + haptics) and **transitions**
+### Token Selection Guidelines:
+*   **Token Authority**: `shared/constants/*` is the absolute implementation authority.
+    *   **Never invent tokens.** Never invent colors, spacing, typography, radii, or motion tokens.
+    *   If documentation conflicts with code, **code wins**.
+    *   Do not prescribe or import values that do not exist in `shared/constants/*`.
+*   **Surface Depth**: Prefer **tonal layering and soft shadows** for depth. Reach for `expo-blur`
+    only where it genuinely improves hierarchy/depth/context and stays performant/readable;
+    it is never a mandatory style rule.
+*   **Layout Focus & Hero Rule**: "1 Hero, 3 Supporting" is strictly an **optional heuristic for overview surfaces** (Today).
+    *   **Never force a hero component onto functional screens** (workspaces, task lists, calendar timeline, forms, detail screens, planners).
+    *   Do not turn every screen into a dashboard.
+*   **Tactile Interaction**: Keep **state feedback** immediate (spring press + haptics) and **transitions**
     fast (<200ms), and honor `useReducedMotion`.
-*   Design real **empty/loading/error** states, not placeholders.
+*   **States**: Design real **empty/loading/error** states with `EmptyState`, not generic placeholders.
 
-This is directional, not prescriptive: no mandated gradients, glass, oversized rounded
-cards, hero ratios, or floating action buttons. Trends yield to the product model in
-`.agents/skills/pebble-design` §10.5.
+### Anti-Patterns to Avoid (What Modern 2026 is NOT):
+*   ❌ Glassmorphism everywhere.
+*   ❌ Gradients everywhere.
+*   ❌ Giant hero cards on functional screens.
+*   ❌ Excessive rounded cards or wrapping every element in a card.
+*   ❌ Bento / dashboard grids.
+*   ❌ Floating action buttons everywhere (capture is in the central radial dial).
+*   ❌ Excessive pills and decorative badges.
+*   ❌ Excessive animation (>300ms, ease-in, unnecessary looping).
+*   ❌ Generic corporate SaaS dashboard aesthetics.
+

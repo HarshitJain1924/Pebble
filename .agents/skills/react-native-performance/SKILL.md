@@ -11,7 +11,7 @@ This skill governs codebase performance, rendering efficiency, and list optimiza
 
 ## 1. List Rendering Optimization
 
-When rendering long lists of tasks, workspaces, or logs, avoid standard `ScrollView.map` arrays if the list can grow beyond **20 items**. Instead, use `FlatList` or `FlashList` with these optimization parameters:
+When rendering long lists of tasks, workspaces, or logs, avoid standard `ScrollView.map` arrays if the list can grow beyond **20 items**. Instead, use `FlatList` (do not import `FlashList` as it is not a dependency in Pebble) with these optimization parameters:
 
 *   **Key Extractor**: Always provide a stable, unique `keyExtractor` (e.g. `item.id`) to prevent layout rebuilds.
 *   **Item Dimensions**: Use fixed-height rows if possible and specify `getItemLayout` to bypass layout measuring passes.

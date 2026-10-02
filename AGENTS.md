@@ -6,8 +6,36 @@ Pebble is a local-first React Native app built on **Expo SDK 57** (React Native 
 
 - **Primary Project Guidelines**: Refer to [.agents/AGENTS.md](file:///.agents/AGENTS.md) for active engineering guardrails and workflow.
 - **Current Product & Architecture Map**: Refer to [AI_CONTEXT.md](file:///AI_CONTEXT.md) first, then [docs/current_state.md](file:///docs/current_state.md) and [docs/integrity_status.md](file:///docs/integrity_status.md).
+- **Design Constitution & Tokens**: Refer to [.agents/skills/pebble-design/SKILL.md](file:///.agents/skills/pebble-design/SKILL.md) and [.agents/skills/design-tokens/SKILL.md](file:///.agents/skills/design-tokens/SKILL.md).
 - **Mascot & Voice System**: Refer to [docs/cairn_voice_guide.md](file:///docs/cairn_voice_guide.md) for Cairn's product behavior specification, presence rules, and voice constraints.
 - **Expo SDK 57 Documentation**: Check versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing Expo code.
+
+## Core Design & Architecture Invariants
+
+* **Pebble Identity**: A calm, tactile 2026 productivity app defined by its Pine accent (`#358366`), Outfit typography, 4px spacing rhythm, tactile `PressableScale` (0.97 + haptics), calm tonal surfaces, and Cairn mascot companion. Not a derivative collage of other apps.
+* **Domain Model**:
+  * **Today is Execution**: Workspace-grouped execution stream.
+  * **Workspaces are Organization**: Primary organizational container (peer domain tabs: Tasks, Habits, Checklists, Resources).
+  * **Schedule is Calendar Placement**: Time planning with drag-to-reschedule.
+  * **Reminder is Notification Only**: Local trigger only (`triggerAt` epoch ms), not a domain entity.
+  * **Focus is Focused Work/Timer**: Dedicated deep-work cockpit.
+  * **Checklist Canonical Definition**: "Checklist is an independent collection of checkable items. It is not a task with subtasks."
+* **Card & Surface Discipline**:
+  * Cards are a surface primitive, not the default layout primitive. Prefer flat lists, rows, dividers, and whitespace.
+  * **Never nest cards inside cards.** Never wrap every piece of information in its own card.
+* **Hero Rule**: "1 Hero, 3 Supporting" is strictly an **optional heuristic for overview surfaces** (Today). Never force a hero card onto functional screens (workspaces, task lists, calendar timeline, forms, detail screens). Do not turn every screen into a dashboard.
+* **Token Authority**: `shared/constants/*` is the absolute implementation authority. Never invent tokens.
+* **Terminology Boundaries**:
+  * Current: Workspace, Task, Habit, Checklist, Resource, Schedule, Reminder, Focus, Pebble, Gem, Cairn.
+  * Internal compatibility: `folderId`, `activeFolderId`, `collections`, `stateTodos` (never surface to users).
+  * Archived / obsolete: ❌ Vault, Collections as a product concept, TodoList/TaskList, subtasks, nested folders, sidebar navigation, mandatory glassmorphism, XP.
+* **Agent Behavior Protocol**:
+  * Inspect the existing screen before proposing a redesign.
+  * Preserve working interaction patterns and accessibility.
+  * Identify the actual problem before changing structure.
+  * Propose the smallest coherent design change.
+  * Avoid inventing product concepts or redesigning unrelated areas.
+  * Use existing components/tokens and verify implementation after changes.
 
 ## Source of Truth (read this before trusting any document)
 
@@ -27,3 +55,4 @@ Evidence hierarchy, strongest first:
 
 An old README or archived audit is never more authoritative than the code it
 describes. `docs/archive/**` is history, not current state.
+

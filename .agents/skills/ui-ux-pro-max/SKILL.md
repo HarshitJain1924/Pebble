@@ -7,7 +7,15 @@ description: "UI/UX design intelligence for web, mobile, and desktop. This skill
 
 Searchable local UI/UX guidance: 79 searchable styles (50 active), 192 product palettes and exact reasoning profiles, 74 font pairings, 119 UX guidelines, 105 curated icons, 17 GSAP presets, 25 chart types, and 22 technology stacks.
 
-> **Pebble scope note:** This is generic, multi-stack guidance. In this repository, Pebble-specific truth lives in `.agents/skills/pebble-design` and `.agents/skills/design-tokens` and in `shared/constants/*`. Pebble's primary accent is **Pine**, not any palette entry suggested here, and the product is a local-first React Native / Expo app — not a web stack. Treat every recommendation below as a suggestion that must yield to Pebble's actual tokens, components, and architecture.
+> **CRITICAL PEBBLE SCOPE & OVERRIDE PROHIBITION:**
+> This skill is a **generic supporting reference only**.
+> - **Strictly Prohibited from Overriding Pebble Rules**: In this repository, Pebble-specific truth lives in `.agents/skills/pebble-design`, `.agents/skills/design-tokens`, and `shared/constants/*`. When any recommendation from this skill conflicts with Pebble guidelines or active code, **Pebble guidelines and code strictly win**.
+> - **No Web / SaaS Dashboard Leakage**: Generic web/desktop recommendations (such as bento grids, SaaS metric cards, complex GSAP web choreography, hover states, HTML/CSS utilities, Tailwind, arbitrary gradient meshes, or mandatory glassmorphism) **MUST NEVER leak into Pebble's React Native mobile UI**.
+> - **Pebble Identity**: Pebble is a calm, tactile 2026 mobile app powered by the Pine accent ramp (`#358366`), Outfit typography, disciplined 4px spacing, tactile `PressableScale` (0.97 + haptics), calm tonal surfaces, and Cairn companion.
+> - **Card Rule**: Cards are a surface primitive, not the default layout primitive. Prefer flat lists, rows, sections, and dividers. Never nest cards.
+> - **Checklist Rule**: Checklist is an independent collection of checkable items, NOT a task with subtasks.
+> - **Hero Rule**: "1 Hero, 3 Supporting" is only an optional heuristic for overview surfaces (Today). Never force a hero card onto functional screens.
+
 
 ## When to Apply
 

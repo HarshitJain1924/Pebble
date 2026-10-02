@@ -58,11 +58,14 @@ graph TD
 - **Current status (2026-10-02): ⚠️ NOT WIRED.** The suggestion generator (`logTaskCreation`) is only reachable from the orphaned `useTasksState.handleSaveParsedItem`, which has no callers; `CaptureService` never logs suggestions. The banner therefore never appears. This is deferred work, not a shipped feature.
 - **Action Loops:** Accept (automatically creates habit, schedules it, and awards pebbles) or Dismiss.
 
-### 4.3 Today Dashboard & Workspaces
-- **Universal Metrics:** Progress meters for active tasks and completed habits.
-- **Workspaces:** A workspace grid plus per-workspace Tasks / Habits / Checklists / Resources tabs with due-today indicators, bulk selection, and search.
-- **Schedule:** Day / week / month planner with drag-to-reschedule and drop-to-plan; `react-native-calendars` powers date pickers and detail calendars.
-- **Focus Timer:** Immersive Pomodoro/stopwatch cockpit with `react-native-reanimated` motion, ambient sound, a linked task/habit, and Pebble rewards.
+### 4.3 Today, Workspaces & Domain Boundaries
+- **Today (Execution)**: The day's execution surface — a workspace-grouped stream of today's work previewing at most 5 items per workspace with a "+N more" gateway, not an organizational browser or generic dashboard.
+- **Workspaces (Organization)**: The primary organizational container. Each workspace exposes four peer domain tabs: **Tasks, Habits, Checklists, Resources** with due-today indicators, bulk selection, and search.
+- **Checklist (Independent Checkable List)**: An independent collection of checkable items. It is not a task with subtasks.
+- **Schedule (Calendar Placement)**: Day / week / month planner with drag-to-reschedule and drop-to-plan; `react-native-calendars` powers date pickers and detail calendars.
+- **Focus Timer (Focused Work)**: Immersive Pomodoro/stopwatch cockpit with `react-native-reanimated` motion, ambient sound, a linked task/habit, and Pebble rewards.
+- **Card Usage**: Cards are a surface primitive, not the default layout primitive. Never nest cards inside cards. Never wrap every row in its own card.
+- **Hero Rule**: "1 Hero, 3 Supporting" is strictly an optional heuristic for overview surfaces (Today). Never force a hero component onto functional screens.
 
 ---
 

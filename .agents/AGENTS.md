@@ -48,19 +48,54 @@ Keep the workflow direct and focused:
 
 ## 3. UI & Design Guardrails
 
-* **Execution vs. Organization**: Today is for execution, not organization. It renders a workspace-grouped stream (one drawer per workspace) where each workspace previews at most 5 items (`PREVIEW_LIMIT`) with a "+N more" gateway, plus a capped resource strip. Keep it flat: never turn Today into a nested workspace/file browser.
-* **No Card Nesting**: Never nest cards inside cards (keep surfaces flat at Level 1).
-* **Touch Targets & Feedback**: Maintain 44x44pt minimum hit targets; use `PressableScale` (`scale(0.97)` with light haptics) for pressables.
+* **Domain Boundaries (Execution vs. Organization vs. Temporal vs. Notification vs. Timer)**:
+  * **Today is Execution**: Renders a workspace-grouped stream (one drawer per workspace) where each workspace previews at most 5 items (`PREVIEW_LIMIT`) with a "+N more" gateway, plus a capped resource strip. Keep it flat: never turn Today into a nested workspace/file browser.
+  * **Workspaces are Organization**: The primary organizational container. Each workspace exposes four peer domain tabs: **Tasks, Habits, Checklists, Resources** (never nested folders or "collections").
+  * **Schedule is Calendar Placement**: Dedicated time planning (day/week/month planner with drag-to-reschedule).
+  * **Reminder is Notification Only**: A scheduled OS notification trigger (`triggerAt` epoch ms), not a separate domain entity or execution task.
+  * **Focus is Focused Work/Timer**: A Pomodoro/stopwatch cockpit with linked task/habit and ambient audio.
+* **Checklist Canonical Definition**: "Checklist is an independent collection of checkable items. It is not a task with subtasks."
+* **Card Usage (Surface Primitive, NOT Default Layout Primitive)**:
+  * Cards are a surface primitive, not the default layout primitive.
+  * Prefer flat lists, rows, sections, whitespace, dividers, tabs, and tonal grouping when they communicate hierarchy better.
+  * **Never nest cards inside cards** (keep surfaces flat at Level 1).
+  * **Never wrap every individual piece of information in its own card** ("card soup").
+* **Hero Rule (Overview Heuristic Only)**:
+  * "1 Hero, 3 Supporting" is strictly an **optional heuristic for overview surfaces** (Today).
+  * **Never force a hero component onto functional screens** (workspaces, task lists, calendar timeline, forms, detail screens, planners).
+  * **Do not turn every screen into a dashboard.**
+* **Pebble Identity (Not a Derivative Collage)**:
+  * Do not instruct agents to visually combine Things, Linear, Apple Reminders, Arc, Nintendo.
+  * Define identity through: **Pine accent** (`Colors[scheme].primary`, dark `#358366`, light `#2C6C54`), **Outfit typography** via `AppText`, **4px spacing scale** (`Spacing.*`), **tactile interaction** (`PressableScale` scale(0.97) with light haptics), **calm tonal surfaces**, **workspace/category color**, **Cairn personality**, **purposeful motion**, and **clear hierarchy**.
+* **Modern 2026 Mobile Design Stance**:
+  * *Promote*: Calm, intentional hierarchy; content-first interfaces; strong typography and spacing; restrained visual effects; tactile interaction; meaningful motion; progressive disclosure; native mobile ergonomics; accessibility (WCAG AA, 44×44pt targets); excellent empty/loading/error states; responsive/adaptive layouts.
+  * *Do NOT equate modern with*: Glassmorphism everywhere, gradients everywhere, giant hero cards, excessive rounded cards, bento/dashboard grids, floating action buttons everywhere, excessive pills, decorative badges, excessive animation, generic SaaS dashboard aesthetics.
+* **Design-Token Authority**:
+  * `shared/constants/*` is the absolute implementation authority (`theme.ts`, `typography.ts`, `spacing.ts`, `radii.ts`, `shadows.ts`, `rowSpec.ts`, `categoryColors.ts`).
+  * **Never invent tokens.** Never invent colors, spacing, typography, radii, or motion tokens (there is no central `Motion` module; use inline Reanimated springs/timings).
+  * If documentation conflicts with code, **code wins**.
+  * Do not prescribe or import values that do not exist in the implementation.
+* **Legacy vs. Compatibility vs. Current Terminology**:
+  * *Current product concepts*: `Workspace`, `Task`, `Habit`, `Checklist`, `Resource`, `Schedule`, `Reminder`, `Focus`, `Pebble`, `Gem`, `Cairn`.
+  * *Compatibility / internal legacy names*: `folderId` / `activeFolderId` (storage/code alias for `workspaceId`), `collections`, `stateTodos`. Keep strictly internal; never surface as product concepts.
+  * *Archived / obsolete concepts*: ❌ `Vault`, `Collections` as a product concept, `TodoList` / `TaskList`, `subtasks`, `nested folders`, `sidebar navigation`, `mandatory glassmorphism`, `XP`. Never reintroduce.
+* **Touch Targets & Feedback**: Maintain 44×44pt minimum hit targets; use `PressableScale` (`scale(0.97)` with light haptics) for pressables. Follow `ROW_SPEC` for list rows.
 * **Mascot Guardrail (Cairn)**: Refer to [docs/cairn_voice_guide.md](file:///docs/cairn_voice_guide.md). Treat as a product behavior specification, not merely a copywriting document. Keep Cairn strictly isolated from core domain logic (presentation/experience layer only); do not introduce Cairn into existing screens arbitrarily or modify domain/persistence logic for mascot presentation.
 
 ---
 
-## 4. Code Change Protocol
+## 4. Code Change Protocol & Agent Behavior
 
-* Make the smallest possible production-ready change.
-* Do not touch unrelated files or perform unrequested refactors.
-* Verify TypeScript compilation (`npx tsc --noEmit`) and relevant unit tests.
-* Ensure regression checklist passes:
+Future agents must adhere to the following workflow:
+
+* **Inspect Before Proposing**: Inspect the existing screen and components before proposing a redesign.
+* **Preserve Working Interactions**: Preserve working interaction patterns, gestures, hooks, state listeners, and accessible structures.
+* **Identify the Real Problem**: Identify the actual UX or layout problem before changing structure.
+* **Smallest Coherent Change**: Propose and implement the minimal production-ready change needed.
+* **No Speculative Rewrites**: Do not touch unrelated files, perform unrequested refactors, or invent product concepts.
+* **Use Existing Primitives**: Use existing components (`AppCard`, `AppText`, `PressableScale`, `EmptyState`, `AppHeader`) and tokens from `shared/constants/*`.
+* **Verify Implementation**: Verify TypeScript compilation (`npx tsc --noEmit`) and relevant unit tests.
+* **Regression Checklist**:
   - Existing public APIs unchanged
   - No new entity creation paths bypassing `CaptureService`
   - `EntityFactory` remains pure

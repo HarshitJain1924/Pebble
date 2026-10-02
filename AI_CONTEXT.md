@@ -19,22 +19,38 @@ Pebble is a premium, local-first productivity app built on **Expo SDK 57 / React
 
 ---
 
-## 2. Current Terminology & Domain Model
+## 2. Current Terminology, Domain Model & Design Identity
+
+### 2.1 Canonical Product Concepts
 The current canonical terminology established by the codebase:
-- **Workspace**: The top-level organizational folder.
+- **Today**: The day's execution surface — a workspace-grouped stream of today's work, not an organizational browser.
+- **Workspace**: The primary organizational container. Each workspace exposes four peer domain tabs: Tasks, Habits, Checklists, and Resources.
 - **Task**: A one-off actionable item (status: `todo` or `completed`).
 - **Habit**: A recurring item tracked via a `completionHistory` array and streaks.
-- **Checklist**: A list of sub-items.
-- **Resource**: Passive reference items (links, notes, images) saved inside a workspace.
+- **Checklist**: An independent collection of checkable items. It is not a task with subtasks.
+- **Resource**: Passive reference items (notes, links, ideas, attachments) saved inside a workspace.
+- **Schedule**: Calendar placement and time planning (day/week/month planner with drag-to-reschedule).
+- **Reminder**: Notification only (`triggerAt` epoch ms), not a separate domain entity or execution task.
+- **Focus**: Focused work session cockpit (Pomodoro and stopwatch) with ambient sound and linked task/habit.
 - **Recycle Bin**: A soft-delete safety net for entities and workspaces.
 - **Gamification**: Users earn **Pebbles** on eligible completion of a Task, Habit, Focus session, or Checklist (1 Pebble per event, capped at **15/day globally**). Lifetime Pebbles derive **Gems** at **45:1**; Gems are the only spendable currency (bonus Gems are also awarded for a first daily Pebble and are spendable on streak recovery). Source: `features/profile/services/pebble.service.ts`.
+- **Cairn**: Pebble's mascot crow (`docs/cairn_voice_guide.md`) — a warm, curious peer observing at natural edges of activity without pressure or judgment.
 - **Move Journal**: Logs pending cross-workspace moves to recover from crashes.
 - **Conversion Journal**: Logs pending task<->habit conversions to recover from crashes.
-- **Unified Capture**: The natural language capture engine.
+- **Unified Capture**: The offline natural language capture engine.
 
-*(Note: Legacy terminology such as XP, Vault, Collections, Todo, TodoList, and TaskList are obsolete and must not be used).*
+### 2.2 Terminology Boundaries: Current vs. Compatibility vs. Archived
+Agents must strictly distinguish:
+1. **Current Product Concepts**: `Workspace`, `Task`, `Habit`, `Checklist`, `Resource`, `Schedule`, `Reminder`, `Focus`, `Today`, `Pebble`, `Gem`, `Cairn`.
+2. **Compatibility / Internal Legacy Names**: `folderId` / `activeFolderId` (storage/code alias for `workspaceId`), `collections`, `stateTodos`. Permitted only for backward-compatible internal code; never surface as product concepts.
+3. **Archived / Obsolete Concepts**: ❌ `Vault`, `Collections` as a product concept, `TodoList` / `TaskList`, `subtasks`, `nested folders`, `sidebar navigation`, `mandatory glassmorphism`, `XP`. Strictly forbidden; never reintroduce.
 
----
+### 2.3 Visual Identity & Token Authority
+- **Pebble Identity**: Calm, tactile 2026 mobile app defined by its **Pine accent** (`Colors[scheme].primary`, dark `#358366`, light `#2C6C54`), **Outfit typography** via `AppText`, **4px spacing scale** (`Spacing.*`), **tactile interaction** (`PressableScale` scale(0.97) + haptics), **calm tonal surfaces**, and **Cairn companion**. Not a derivative collage of other apps.
+- **Token Authority**: `shared/constants/*` is the absolute implementation authority. Never invent tokens.
+- **Card Usage**: Cards are a surface primitive, not the default layout primitive. Prefer flat lists, rows, sections, and dividers. **Never nest cards inside cards.** Never wrap every piece of information in its own card.
+- **Hero Rule**: "1 Hero, 3 Supporting" is strictly an **optional heuristic for overview surfaces** (Today). Never force a hero card onto functional screens (workspaces, task lists, calendar timeline, forms, detail screens). Do not turn every screen into a dashboard.
+
 
 ## 3. Current Architecture Snapshot
 

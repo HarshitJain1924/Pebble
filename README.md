@@ -12,7 +12,7 @@ Our philosophy is simple:
 * One reminder
 * Small actions create big progress.
 
-**Design direction:** a calm, modern 2026 mobile aesthetic — strong hierarchy, purposeful whitespace, content-first surfaces, restrained motion, and subtle depth. Blur/translucency is used only where it improves hierarchy, not as a style mandate. See `.agents/skills/pebble-design` §10.5.
+**Design direction:** A calm, tactile, modern 2026 mobile aesthetic — strong hierarchy, purposeful whitespace, content-first surfaces, restrained motion, and subtle depth. Powered by Pebble's Pine brand accent (`#358366`), Outfit typography, 4px spacing scale, and tactile Reanimated physics. Cards are a surface primitive (never nested; flat lists and rows preferred). Checklist is an independent collection of checkable items, not subtasks. Blur/translucency is used only where it improves hierarchy, not as a style mandate. See [.agents/skills/pebble-design](file:///.agents/skills/pebble-design/SKILL.md) §10.
 
 > 📖 **Project PRD:** View the full [Product Requirements Document (PRD.md)](./PRD.md) for detailed feature flowcharts, specs, and technical requirements.
 
