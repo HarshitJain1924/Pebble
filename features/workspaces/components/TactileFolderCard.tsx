@@ -11,6 +11,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { Colors, Palette } from "@/shared/constants/theme";
+import { DefaultWorkspaceColor } from "@/shared/constants/categoryColors";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Workspace, Task } from "@/shared/types/domain.types";
@@ -52,7 +53,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
   const isDark = colorScheme === "dark";
   const colors = Colors[colorScheme ?? "dark"];
 
-  const workspaceColor = workspace.color || Palette.indigo600;
+  const workspaceColor = workspace.color || DefaultWorkspaceColor.dark;
 
   // Item computations
   const pendingTasks = tasks.filter((t) => !isTaskCompleted(t));
@@ -206,25 +207,6 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
             >
               CONTENTS
             </Text>
-            <View
-              style={[
-                styles.totalBadge,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(255,255,255,0.12)"
-                    : "rgba(0,0,0,0.06)",
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.totalBadgeText,
-                  { color: isDark ? Palette.white : Palette.gray700 },
-                ]}
-              >
-                {totalItemCount}
-              </Text>
-            </View>
           </View>
 
           {/* Item Quantities Breakdown (Tasks, Habits, Checklists, Resources) */}
@@ -273,7 +255,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
                   { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" },
                 ]}
               >
-                Empty folder
+                Empty workspace
               </Text>
             </View>
           )}
@@ -441,15 +423,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 0.6,
-  },
-  totalBadge: {
-    paddingHorizontal: 5.5,
-    paddingVertical: 1.5,
-    borderRadius: 6,
-  },
-  totalBadgeText: {
-    fontSize: 9.5,
-    fontWeight: "800",
   },
   inventoryGrid: {
     flexDirection: "row",

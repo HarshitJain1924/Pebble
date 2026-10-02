@@ -5,6 +5,8 @@
 **Author:** Architecture Review Board  
 **Applies to:** `features/capture/*`, `services/scheduling/*`, `repositories/*`, `shared/types/*`
 
+> **Implementation note (2026-10-02).** This ADR is forward-looking. As of this date the Phase 2 suggestion engine is **not wired**: `SuggestionBanner` never receives suggestions because its only data writer, `logTaskCreation()`, is reachable solely from the orphaned `useTasksState.handleSaveParsedItem()` (no callers), and `CaptureService.saveParsedItem()` does not log suggestions. The `SuggestionBanner` bypass described below is therefore currently inert rather than dangerous. See §22 of `docs/current_state.md`.
+
 ---
 
 ## 1. Scope

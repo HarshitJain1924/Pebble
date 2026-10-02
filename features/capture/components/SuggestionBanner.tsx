@@ -1,10 +1,18 @@
+/**
+ * SuggestionBanner — CURRENTLY NOT RENDERED IN PRACTICE.
+ *
+ * Mounted on the Workspaces landing screen, but it returns null because nothing
+ * populates the suggestion store (see `features/capture/services/suggestions.service.ts`).
+ * Retained for the planned capture suggestion work; see §22 of
+ * `docs/current_state.md` before treating this as a live feature.
+ */
 import React from "react";
 import { View, TouchableOpacity, Alert } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import { Colors, Palette } from "@/shared/constants/theme";
+import { Colors, Palette, colorWithAlpha } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { resolveSuggestion, type SmartSuggestion } from "@/features/capture/services/suggestions.service";
 import { Task, type Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
@@ -38,12 +46,10 @@ export function SuggestionBanner({
 
   if (activeSuggestions.length === 0) return null;
 
-  const bannerBg = isDark
-    ? "rgba(99, 102, 241, 0.15)"
-    : "rgba(99, 102, 241, 0.08)";
-  const borderColor = isDark
-    ? "rgba(99, 102, 241, 0.3)"
-    : "rgba(99, 102, 241, 0.2)";
+  // Brand accent (Pine). Kept as a brand-toned card rather than the legacy
+  // hardcoded Indigo so it matches the rest of Pebble's surfaces.
+  const bannerBg = colorWithAlpha(colors.primary, isDark ? 0.15 : 0.08);
+  const borderColor = colorWithAlpha(colors.primary, isDark ? 0.3 : 0.2);
 
   return (
     <View style={{ gap: 8, marginVertical: 8, paddingHorizontal: 4 }}>
@@ -71,7 +77,7 @@ export function SuggestionBanner({
               gap: 10,
             }}
           >
-            <Feather name="zap" size={18} color={Palette.indigo500} />
+            <Feather name="zap" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
               <Text
                 style={{
@@ -166,7 +172,7 @@ export function SuggestionBanner({
                 await loadSuggestions();
               }}
               style={{
-                backgroundColor: Palette.indigo500,
+                backgroundColor: colors.primary,
                 paddingHorizontal: 12,
                 paddingVertical: 6,
                 borderRadius: 10,

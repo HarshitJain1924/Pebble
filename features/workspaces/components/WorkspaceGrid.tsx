@@ -260,7 +260,7 @@ export function WorkspaceGrid({
                 marginBottom: 2,
               }}
             >
-              New Folder
+              New Workspace
             </Text>
             <Text
               style={{
@@ -273,7 +273,7 @@ export function WorkspaceGrid({
               }}
               numberOfLines={2}
             >
-              Create workspace
+              Organize tasks & notes
             </Text>
           </PressableScale>
         </View>

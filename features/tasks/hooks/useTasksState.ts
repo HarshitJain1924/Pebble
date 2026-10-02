@@ -479,6 +479,15 @@ export function useTasksState() {
     } catch {}
   }, []);
 
+  /**
+   * ORPHANED legacy entity-creation path — exported but never called.
+   *
+   * This bypasses `CaptureService` and is the only caller of
+   * `logTaskCreation()`. Because it has no callers, the suggestion engine is
+   * effectively dormant. Do not wire new features to it; the ADR
+   * (`docs/architecture/smart_capture_adr.md`) intends this path to be
+   * deprecated in favor of `CaptureService`. See §22 of `docs/current_state.md`.
+   */
   const handleSaveParsedItem = async (
     parsed: ParsedProductivityItem,
     targetWorkspaceId?: string,

@@ -55,6 +55,7 @@ graph TD
 ### 4.2 Behavior Suggestion Engine
 - **Local Analytics:** Frequency tracking based on task creations.
 - **Auto-Suggestions:** If a task is created multiple times, prompts to convert to a recurring habit.
+- **Current status (2026-10-02): ⚠️ NOT WIRED.** The suggestion generator (`logTaskCreation`) is only reachable from the orphaned `useTasksState.handleSaveParsedItem`, which has no callers; `CaptureService` never logs suggestions. The banner therefore never appears. This is deferred work, not a shipped feature.
 - **Action Loops:** Accept (automatically creates habit, schedules it, and awards pebbles) or Dismiss.
 
 ### 4.3 Today Dashboard & Workspaces

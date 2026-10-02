@@ -27,7 +27,7 @@ Pebble integrates a completely offline-ready, lightning-fast natural language en
 3. **✨ Detection Badges:** Displays glowing `Smartly detected` or `Draft schedule` badges based on extraction confidence.
 4. **🔄 Tap-to-Adjust Editing:** The live parse preview exposes detected type, date/time, priority, category, recurrence, and reminder as tappable chips, so you can correct the parser before saving.
 5. **🔔 Local Notifications:** Parses phrases like *"and remind me 15 minutes before"*, automatically scheduling exact alarms via `expo-notifications`.
-6. **🧠 Local Behavior Suggestions:** Tracks creation frequencies and prompts suggestion banners to *"Convert Gym into a recurring habit?"* after repeated manual entries.
+6. **🧠 Local Behavior Suggestions — ⚠️ NOT CURRENTLY WIRED:** Designed to prompt *"Convert Gym into a recurring habit?"* after a title is created 3+ times, but its generation path is orphaned today — nothing in the live capture flow calls `logTaskCreation`, so the banner never appears. See "Known inactive / orphaned systems" in `AI_CONTEXT.md`.
 
 ---
 

@@ -1,3 +1,13 @@
+/**
+ * LOCAL SUGGESTION ENGINE — CURRENTLY NOT WIRED.
+ *
+ * `logTaskCreation()` is the only writer of the suggestion store, and it is
+ * called exclusively by `useTasksState.handleSaveParsedItem()`, which has no
+ * callers. The live capture path (`CaptureService.saveParsedItem`) never logs
+ * suggestions, so `getActiveSuggestions()` always resolves to `[]` in normal
+ * use and `SuggestionBanner` never renders. Do not assume suggestion data
+ * exists. See §22 of `docs/current_state.md`.
+ */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getRecycleBinItems } from "@/services/storage/storage.service";
 

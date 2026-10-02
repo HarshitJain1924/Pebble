@@ -570,15 +570,10 @@ export function WorkspacesScreen() {
                       <Feather name="arrow-left" size={20} color={colors.text} />
                     </PressableScale>
 
-                    <PressableScale
-                      onPress={() => {
-                        state.handleBackToWorkspaces();
-                        state.setSearchQuery("");
-                        setIsSearchActive(false);
-                      }}
-                      haptic
-                      accessibilityRole="button"
-                      accessibilityLabel={`${currentFolder?.name || "Workspace"}, back to workspaces`}
+                    {/* Workspace identity — non-interactive; the back arrow owns navigation. */}
+                    <View
+                      accessible
+                      accessibilityLabel={`${currentFolder?.name || "Workspace"} workspace`}
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
@@ -616,28 +611,11 @@ export function WorkspacesScreen() {
                       >
                         {currentFolder?.name || "Workspace"}
                       </Text>
-                    </PressableScale>
+                    </View>
                   </View>
 
-                  {/* Circular Calendar Date Picker + Search + More Options */}
+                  {/* Search + More Options. The date is owned by the date header below. */}
                   <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-                    <PressableScale
-                      onPress={() => setIsDatePickerVisible(true)}
-                      haptic
-                      hitSlop={6}
-                      accessibilityRole="button"
-                      accessibilityLabel="Choose date"
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 22,
-                        justifyContent: "center",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Feather name="calendar" size={20} color={colors.text} />
-                    </PressableScale>
-
                     <PressableScale
                       onPress={() => {
                         setIsSearchActive(!isSearchActive);

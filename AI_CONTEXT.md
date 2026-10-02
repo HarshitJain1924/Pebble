@@ -93,7 +93,7 @@ Stack routes (modals/screens, `app/_layout.tsx`): `onboarding`, `profile`, `prof
 ---
 
 ## 5. Active Product Features
-1. **Unified Capture**: Client-side natural language text extraction (`chrono-node`, `compromise`) with live cycle-on-tap pills.
+1. **Unified Capture**: Client-side natural language text extraction (`chrono-node` + regex/pattern heuristics) with a live parse preview. Includes a **workspace-routing suggestion** (suggests an existing workspace for the item, accept/dismiss) — see note below.
 2. **Focus Timer**: Pomodoro timer with animated breathing rings and gamification rewards.
 3. **Mascot Companion (Cairn)**: A calm crow companion docked beside the navigation dial that reacts at edges of activity (completion, milestones, empty states) without judging or pressuring the user. Authoritative spec: `docs/cairn_voice_guide.md`.
 4. **Alarms & Reminders**: Local reminders using `expo-notifications`.
@@ -101,6 +101,15 @@ Stack routes (modals/screens, `app/_layout.tsx`): `onboarding`, `profile`, `prof
 6. **Manual Data Export**: User-facing export flow in Settings that generates a full local backup JSON via authoritative `BackupService` and presents the platform-native share/save sheet (`expo-sharing`).
 7. **Contextual Empty-State System**: Reusable, accessible `EmptyState` component with Pebble mascot integration (`idle`, `sleeping`, `focus`, `peek`), concise explanatory messaging, and immediate action triggers (`open_quick_add`, `setIsAddingResource`) across Checklists, Resources, Calendar, Focus target picking, and Archive.
 8. **Accessibility Hardening**: Standardized semantic roles, state exposure (`checked`, `selected`, `expanded`, `busy`, `disabled`), contextual accessible labels on icon-only controls, expanded baseline hit areas on core interactive components (`PressableScale`, `AnimatedCheckbox`, `SegmentedSwitcher`, `AppCard`), and explicit touch-target hardening across high-risk controls.
+
+### 5.1 Known inactive / orphaned systems (as of 2026-10-02)
+
+These are documented features or code paths that are **not currently operational**. Do not present them as working, and do not assume their data exists.
+
+- **Behavior Suggestion Banner (`features/capture/components/SuggestionBanner.tsx`) — NOT WIRED.** The banner is mounted on the Workspaces landing screen (`app/(tabs)/tasks.tsx`) but is effectively unreachable. It renders `null` unless `getActiveSuggestions()` returns items from `PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS`, and the only writer of that key — `logTaskCreation()` — is called solely by `useTasksState.handleSaveParsedItem()`, which has **no callers**. The live capture path, `CaptureService.saveParsedItem()`, never logs suggestions. Unless the key is seeded by other means, the banner never appears.
+- **`useTasksState.handleSaveParsedItem()` — ORPHANED.** This is a second, legacy entity-creation path (bypassing `CaptureService`) that is exported from the hook but never invoked. The Smart Capture ADR (`docs/architecture/smart_capture_adr.md`) already flags it as a bypass to be deprecated; it is currently dead code.
+- **Suggestion "create this workspace" in Quick Capture — NOT IMPLEMENTED.** Quick Capture can suggest *routing into an existing workspace* (`workspace-suggestions.service.ts`, surfaced in `UnifiedCapture`), but there is no behavior that proposes *creating a new workspace* from a capture.
+- **Dead files / modules (no production importers).** `shared/components/navigation/motion-tabs/**` (entire tree; imported once as `AnimatedTabBar` but never rendered — the live bar is `PebbleRadialTabBar`), `services/events/domain-events.ts`, and several orphaned components: `CalendarNavigationCard`, `FocusStatsCard`, `FocusRhythmPeaks`, `ContinueWorkspaceCard`, plus test-only `TemporalHorizonStrip`, `PebbleJarProgressCard`, `StreakBanner`, `SegmentedSwitcher`. Full list + the "do NOT delete" exceptions (`useColorScheme.web.ts`, routes, scripts) in `docs/current_state.md` §22.1.
 
 ---
 

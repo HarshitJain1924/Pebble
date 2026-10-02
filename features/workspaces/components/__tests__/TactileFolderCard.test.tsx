@@ -135,7 +135,7 @@ describe("TactileFolderCard Component", () => {
 
     expect(texts).toContain("May");
     expect(texts).toContain("0 items");
-    expect(texts).toContain("Empty folder");
+    expect(texts).toContain("Empty workspace");
   });
 
   it("renders Feather icon when workspace has iconType 'icon'", () => {

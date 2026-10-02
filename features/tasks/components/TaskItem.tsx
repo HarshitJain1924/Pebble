@@ -71,7 +71,7 @@ interface TodoItemProps {
 }
 
 type MetaPart = {
-  key: "category" | "date" | "duration" | "reminder" | "recurrence" | "overdue";
+  key: "category" | "priority" | "date" | "duration" | "reminder" | "recurrence" | "overdue";
   text: string;
   icon?: string;
   color?: string;
@@ -276,6 +276,19 @@ export function TodoItem({
       });
     }
 
+    // 1b. Priority — text cue so priority is not communicated by the edge
+    // strip's color alone.
+    const priority = item.priority || "none";
+    if (priority !== "none") {
+      parts.push({
+        key: "priority",
+        text:
+          priority === "high" ? "High" : priority === "medium" ? "Medium" : "Low",
+        icon: "flag",
+        color: TaskListPriorityColors[priority].dark,
+      });
+    }
+
     // 2. Schedule and Reminder Context
     const scheduleDate = item.schedule?.date;
     const isInboxTask = !scheduleDate || scheduleDate === "inbox";
@@ -381,6 +394,7 @@ export function TodoItem({
     shouldShowWorkspace,
     folderName,
     isInbox,
+    item.priority,
     omitOverdueLabel,
     item.schedule?.date,
     item.schedule?.startTime,

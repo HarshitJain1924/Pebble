@@ -200,4 +200,38 @@ permission.
 - Stateful controls (task/habit/checklist completion, accordion expanded/collapsed states, filter pills, calendar day selections, timer presets, voice recording states, ambient mute) expose explicit `accessibilityState` (`checked`, `selected`, `expanded`, `busy`, `disabled`).
 - Decorative illustrations and mascots (e.g. `EmptyState`) are marked `accessible={false}` and `importantForAccessibility="no"` to avoid screen-reader noise.
 
+## 22. Known Inactive / Orphaned Systems
+
+These are real, shipped-looking surfaces or code paths that are **not currently operational**. Document them as inactive; do not assume their backing data exists.
+
+- **Behavior Suggestion Banner — NOT WIRED.** `features/capture/components/SuggestionBanner.tsx` is rendered on the Workspaces landing screen (`app/(tabs)/tasks.tsx`), but it returns `null` unless `PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS` is populated. The only writer, `logTaskCreation()` (`features/capture/services/suggestions.service.ts`), is called exclusively by `useTasksState.handleSaveParsedItem()`, which has no callers. `CaptureService.saveParsedItem()` — the live capture entry point — never logs suggestions, so the banner never appears in normal use.
+- **`useTasksState.handleSaveParsedItem()` — ORPHANED.** A second, legacy entity-creation path that bypasses `CaptureService`; exported by the hook but never invoked. Flagged for deprecation by `docs/architecture/smart_capture_adr.md`.
+- **`create this workspace` suggestion in Quick Capture — NOT IMPLEMENTED.** Quick Capture suggests routing a capture into an *existing* workspace (`workspace-suggestions.service.ts`), but no path proposes creating a *new* workspace.
+- **`suggestions.service.ts` storage keys** (`PEBBLE_CAPTURE_CREATION_HISTORY`, `PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS`) are registered in the owned-key registry for backup/clear-all, but are otherwise unwritten in normal use.
+
+### 22.1 Dead files / modules (no production importers, as of 2026-10-02)
+
+Discovered by scanning every module under `features/`, `services/`, `repositories/`, and `shared/` for importers (excluding tests). These files are **not reachable from the running app**. Do not spend time "fixing" UI in them; confirm with the team before deleting or repurposing.
+
+**Wholly orphaned module tree**
+- `shared/components/navigation/motion-tabs/**` (~20 files). It is imported exactly once — as `AnimatedTabBar` in `app/(tabs)/_layout.tsx` — and **never rendered**. The live tab bar is `PebbleRadialTabBar`. Treat the entire folder as dead.
+
+**Orphaned modules (zero importers, zero tests)**
+- `services/events/domain-events.ts` — no importers anywhere.
+- `shared/components/navigation/motion-tabs/utils/popup-body-styles.ts` — no references.
+- `features/calendar/components/CalendarNavigationCard.tsx`
+- `features/focus/components/FocusStatsCard.tsx`
+- `features/profile/components/FocusRhythmPeaks.tsx`
+- `features/today/components/ContinueWorkspaceCard.tsx`
+
+**Orphaned modules that still have tests (tested but unused in production)**
+- `features/tasks/components/TemporalHorizonStrip.tsx`
+- `features/today/components/PebbleJarProgressCard.tsx`
+- `features/today/components/StreakBanner.tsx`
+- `shared/components/ui/SegmentedSwitcher.tsx` (note: still cited as an accessibility baseline in §21 — the pattern is documented even though the component is no longer mounted)
+
+**Do NOT delete (not dead — platform/Tooling resolution):**
+- `shared/hooks/useColorScheme.web.ts` is the web platform override resolved by Metro for `useColorScheme`; it has no explicit importer by design.
+- `script`, `plugin`, `test-utils`, and `app/**` route files are entry points resolved by convention/tooling, not by imports.
+
 
