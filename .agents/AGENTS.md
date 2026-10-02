@@ -1,50 +1,54 @@
 # Pebble Development and Engineering Guidelines
 
-This document establishes the project rules, workflow, and engineering guardrails for Pebble.
+## 0. Source-of-Truth Hierarchy
+
+Resolve conflicts in this order:
+
+1. **Active source code** in the checked-out branch.
+2. **`docs/current_state.md` + `docs/integrity_status.md`** for current architecture/integrity.
+3. **Active decisions/ADRs** under `docs/architecture/`.
+4. **Relevant Pebble skills** under `.agents/skills/`.
+5. **`AI_CONTEXT.md`** as navigation context only.
+6. **`PRD.md` / `README.md`** for product intent/orientation, not implementation truth.
+7. **`docs/archive/`** as historical context only.
+
+If documentation conflicts with code, follow the code. Do not invent a compromise behavior.
+
+Legacy terminology may still exist in migration/compatibility code and historical documents. It is not evidence of a current product concept.
 
 ---
 
 ## 1. Development Workflow
 
-Keep the workflow direct and focused:
+1. Inspect the relevant active code first.
+2. Read current architecture/integrity docs when the change touches architecture, persistence, concurrency, or domain behavior.
+3. Consult only the relevant skill(s).
+4. Implement the smallest production-ready change.
+5. Verify with `npx tsc --noEmit` and relevant tests.
 
-1. **Inspect Relevant Context**: Read `AI_CONTEXT.md` and authoritative docs (`docs/current_state.md`, `docs/integrity_status.md`).
-2. **Consult Skills on Demand**: Inspect only the skill relevant to the task (e.g. `pebble-design` / `design-tokens` for UI styling, `emil-design-eng` for animation craft, `react-native-performance` for list/thread optimization). Do not require every skill for every task.
-3. **Reason**: Understand existing patterns and architecture before modifying code.
-4. **Implement Surgically**: Make the minimal production-ready change needed.
-5. **Verify**: Run `npx tsc --noEmit` and relevant tests.
-
----
+Do not design from screenshots, PRD prose, or historical docs when current code can answer the question.
 
 ## 2. Core Engineering Invariants
 
-* **CaptureService is the Single Entry Point**: All entity creation must flow through `CaptureService`. No screen, hook, or component creates tasks/habits/resources directly.
-* **EntityFactory Remains Pure**: `EntityFactory` must remain pure—no side-effects, no storage writes, no notification scheduling.
-* **Repository Boundaries & Locking**:
-  * Repositories are pure data-access objects.
-  * Mutex-protected Read-Modify-Write (RMW) operations must call `*Unlocked` repository primitives within command handlers to prevent re-entrant deadlocks.
-  * Follow established lock ordering (`withLocks` / canonical lifecycle sequences in `docs/current_state.md`).
-* **Expo SDK Versioning**: Read versioned docs at https://docs.expo.dev/versions/v54.0.0/ when working with Expo APIs.
-
----
+- **CaptureService is the Single Entry Point**: Entity creation flows through `CaptureService`.
+- **EntityFactory Remains Pure**: No storage writes, notifications, or other side effects.
+- **Repository Boundaries & Locking**: Repositories remain data-access boundaries. Mutex-protected RMW operations use `*Unlocked` primitives inside command handlers.
+- **Locking**: Follow established `withLocks` and lifecycle sequences documented in `docs/current_state.md`.
+- **Expo SDK**: Use the Expo SDK 54 documentation when working with Expo APIs.
 
 ## 3. UI & Design Guardrails
 
-* **Execution vs. Organization**: Today is strictly for execution; keep Workspace preview cards on Today capped at 5 items with a clear "Continue" gateway.
-* **No Card Nesting**: Never nest cards inside cards (keep surfaces flat at Level 1).
-* **Touch Targets & Feedback**: Maintain 44x44pt minimum hit targets; use `PressableScale` (`scale(0.97)` with light haptics) for pressables.
-* **Mascot Guardrail (Cairn)**: Refer to [docs/cairn_voice_guide.md](file:///docs/cairn_voice_guide.md). Treat as a product behavior specification, not merely a copywriting document. Keep Cairn strictly isolated from core domain logic (presentation/experience layer only); do not introduce Cairn into existing screens arbitrarily or modify domain/persistence logic for mascot presentation.
-
----
+- Today is for execution; Workspaces are for organization.
+- Do not invent nested workspace-management UI, folders, collections, members, or other legacy structure unless the current code or an active decision establishes it.
+- Do not nest cards inside cards unless the current implementation has an explicit documented exception.
+- Preserve 44x44pt minimum touch targets and existing Pebble interaction primitives.
+- Cairn belongs to the presentation/experience layer only. See `docs/cairn_voice_guide.md`.
+- Use the actual theme/style/token implementation in `shared/constants/` and existing shared components. Skills must not invent runtime token names or colors.
 
 ## 4. Code Change Protocol
 
-* Make the smallest possible production-ready change.
-* Do not touch unrelated files or perform unrequested refactors.
-* Verify TypeScript compilation (`npx tsc --noEmit`) and relevant unit tests.
-* Ensure regression checklist passes:
-  - Existing public APIs unchanged
-  - No new entity creation paths bypassing `CaptureService`
-  - `EntityFactory` remains pure
-  - Repository boundaries unchanged
-  - No debug logging or dead code introduced
+- Do not touch unrelated files or perform unrequested refactors.
+- Keep existing public APIs and repository boundaries stable.
+- Do not introduce new entity-creation paths bypassing `CaptureService`.
+- Do not introduce debug logging or dead code.
+- Verify TypeScript and relevant tests before considering the change complete.
