@@ -17,6 +17,14 @@ last_updated: "2026-07-10"
 ## Purpose
 Build high-quality cross-platform mobile apps using React Native with proper architecture, navigation, and performance optimization.
 
+> **Pebble scope note (this repo):** This is a generic external skill (`skills-lock.json`, source `AtulPurohit/Antigravity-Awesome-Skills`). Pebble has already made its choices, which supersede the generic examples below:
+> - **Expo SDK 57 / React Native 0.86 / React 19.2**, Expo Router with typed routes.
+> - **Navigation** is a custom radial dial (`shared/components/navigation/PebbleRadialTabBar.tsx`), not the stock `<Tabs>` example.
+> - **State/storage** is local-first `@react-native-async-storage/async-storage` behind repositories + command handlers. Pebble does **not** use Zustand.
+> - **Lists** use `ScrollView`/mapped rows and `FlatList` patterns as found in the code; `FlashList` is not a dependency.
+> - **Colors** come from `shared/constants/theme.ts` + `categoryColors.ts` (primary is Pine `#358366`). Ignore the hardcoded `#6366F1` accent in the example below.
+> - Push notifications are used for local reminders; there is no backend. For all of the above, Pebble-specific skills and code win.
+
 ## Project Setup
 
 ### Expo (Recommended for most apps)

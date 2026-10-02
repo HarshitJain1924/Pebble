@@ -1,8 +1,10 @@
 # Product Requirements Document (PRD) — Pebble Productivity App
 
+> **Truth as of 2026-10-02.** Product *requirements* describe intent and may lead the code; any statement presented as current behavior was verified against the codebase on this date. When requirements and code conflict about what exists today, the code wins.
+
 ## 1. Overview
 **Product Name:** Pebble  
-**Platform:** React Native (Expo SDK 54) - iOS, Android, Web  
+**Platform:** React Native (Expo SDK 57, React Native 0.86, React 19.2) - iOS, Android, Web  
 **Core Value Proposition:** A local-first, premium productivity suite combining daily task planning, habit tracking, focus timers (Pomodoro), localized alarms, and a fully offline-compatible **Pebble Capture Engine** without requiring a backend database or cloud AI APIs.
 
 ---
@@ -11,8 +13,8 @@
 - **Target Audience:** Professionals, students, and power users who seek an integrated productivity suite.
 - **Privacy Focus:** Users who value absolute privacy and offline capability (local-first state via AsyncStorage).
 - **Design Philosophy:** Inspired by the classic crow-and-pebbles story (raising the water level one pebble at a time). One task, one habit, one focus session, one reminder. Small actions create big progress.
-- **Visual Identity:** Friendly, calm, premium, modern, trustworthy, and personal. Minimal crow holding a purple pebble.
-- **Design Language:** Focuses on fluid gesture motion, premium glassmorphism overlays (via expo-blur), soft dynamic shadows, high-fidelity micro-interactions (expo-haptics), and a clean, borderless aesthetic leveraging modern fonts (@expo-google-fonts/outfit).
+- **Visual Identity:** Friendly, calm, premium, modern, trustworthy, and personal. Pebble targets a clean, modern 2026 mobile aesthetic: content-first surfaces, strong hierarchy, purposeful whitespace, restrained motion, and subtle depth. Minimal crow (Cairn) holding a pebble.
+- **Design Language:** Fluid gesture motion, tonal surface layering over a calm canvas, soft dynamic shadows, high-fidelity micro-interactions (expo-haptics), and a clean, borderless aesthetic over the Outfit type family (`@expo-google-fonts/outfit`). Targeted `expo-blur` translucency is used only where it improves depth/context; glassmorphism is deliberately not a design rule (see `docs/architecture/decision_log.md`).
 
 ---
 
@@ -23,7 +25,7 @@ The central interaction loop for creating structured tasks, reminders, and habit
 
 ```mermaid
 graph TD
-    A[Tap FAB or Header Capture Pill] --> B[Open Premium Glassmorphic Pebble Capture Modal (Bottom Sheet)]
+    A[Tap the Quick Capture sector on the Pebble navigation dial] --> B[Open the UnifiedCapture Bottom Sheet]
     B --> C[Fading Rotating Placeholders Teach Users NLP Syntax]
     C --> D[User Types: 'Study React tomorrow at 8pm and remind me 30 mins before']
     D --> E[100% Offline Parser (Chrono + Pattern Heuristics) Runs in <12ms]
@@ -57,17 +59,17 @@ graph TD
 
 ### 4.3 Today Dashboard & Workspaces
 - **Universal Metrics:** Progress meters for active tasks and completed habits.
-- **Workspaces:** Segmented folder grids with due-today task indicators.
-- **Focus Timer:** Immersive Pomodoro timer with `react-native-reanimated` breathing rings, gamification (awards pebbles).
-- **Calendar Integration:** Leverages `react-native-calendars` for rich streak and schedule viewing.
+- **Workspaces:** A workspace grid plus per-workspace Tasks / Habits / Checklists / Resources tabs with due-today indicators, bulk selection, and search.
+- **Schedule:** Day / week / month planner with drag-to-reschedule and drop-to-plan; `react-native-calendars` powers date pickers and detail calendars.
+- **Focus Timer:** Immersive Pomodoro/stopwatch cockpit with `react-native-reanimated` motion, ambient sound, a linked task/habit, and Pebble rewards.
 
 ---
 
 ## 5. Technical Stack & Non-Functional Requirements
-- **Framework:** Expo SDK 54, React Native 0.81 (New Architecture & React Compiler enabled), Expo Router with Typed Routes.
-- **Core Libraries:** `chrono-node` (date/time parser), pattern heuristics.
+- **Framework:** Expo SDK 57, React Native 0.86, React 19.2 (New Architecture & React Compiler enabled), Expo Router with Typed Routes.
+- **Core Libraries:** `chrono-node` (date/time parser) plus regex/pattern heuristics. (`compromise` remains listed in `package.json` but is no longer imported by any module — see the Smart Capture ADR.)
 - **Storage:** `@react-native-async-storage/async-storage` (100% offline local-first state).
-- **UI & Transitions:** `react-native-reanimated` (animations), `react-native-gesture-handler` (interactions), `expo-blur` (glassmorphism), `@gorhom/bottom-sheet` (bottom sheet modals).
+- **UI & Transitions:** `react-native-reanimated` (animations), `react-native-gesture-handler` (interactions), `expo-blur` (targeted translucency), `@gorhom/bottom-sheet` (bottom sheet modals).
 - **Performance Thresholds:**
   - Parsing execution time: **<15ms** (runs on main or background thread efficiently).
   - UI frame rate: **60fps** continuous UI render for gestures and modal sheets.

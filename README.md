@@ -1,4 +1,6 @@
-# Pebble Productivity App (Expo SDK 54)
+# Pebble Productivity App (Expo SDK 57)
+
+> **Truth as of 2026-10-02.** Verified against the active codebase on this date. If the code has changed since, the code wins — see `AGENTS.md` for the source-of-truth order.
 
 A local-first, premium productivity suite built with Expo Router. It seamlessly combines day-focused task planning, daily habit tracking, streak consistency analytics, customizable time alarms, deep-focus Pomodoro timers, and an advanced **Local Heuristic Pebble Capture Engine**—requiring no backend databases or paid cloud APIs.
 
@@ -10,6 +12,8 @@ Our philosophy is simple:
 * One reminder
 * Small actions create big progress.
 
+**Design direction:** a calm, modern 2026 mobile aesthetic — strong hierarchy, purposeful whitespace, content-first surfaces, restrained motion, and subtle depth. Blur/translucency is used only where it improves hierarchy, not as a style mandate. See `.agents/skills/pebble-design` §10.5.
+
 > 📖 **Project PRD:** View the full [Product Requirements Document (PRD.md)](./PRD.md) for detailed feature flowcharts, specs, and technical requirements.
 
 ---
@@ -18,10 +22,10 @@ Our philosophy is simple:
 
 Pebble integrates a completely offline-ready, lightning-fast natural language engine alongside modern UX principles:
 
-1. **Pebble Capture:** Type naturally (e.g. *"Gym every morning at 7am"* or *"Study React tomorrow at 8pm high priority"*). Pebble uses `chrono-node` and `compromise` client-side to extract dates, times, categories, and priorities in **<12ms**.
+1. **Pebble Capture:** Type naturally (e.g. *"Gym every morning at 7am"* or *"Study React tomorrow at 8pm high priority"*). Pebble uses `chrono-node` plus client-side regex/pattern heuristics to extract dates, times, categories, and priorities **fully offline**.
 2. **Rotating Placeholders:** Fades between plain text examples to naturally guide users on input possibilities.
 3. **✨ Detection Badges:** Displays glowing `Smartly detected` or `Draft schedule` badges based on extraction confidence.
-4. **🔄 Cycle-on-Tap Editing:** Tapping the parsed badges in the preview card lets you cycle categories, priorities, dates, and times on-the-go with **haptic feedback** before saving.
+4. **🔄 Tap-to-Adjust Editing:** The live parse preview exposes detected type, date/time, priority, category, recurrence, and reminder as tappable chips, so you can correct the parser before saving.
 5. **🔔 Local Notifications:** Parses phrases like *"and remind me 15 minutes before"*, automatically scheduling exact alarms via `expo-notifications`.
 6. **🧠 Local Behavior Suggestions:** Tracks creation frequencies and prompts suggestion banners to *"Convert Gym into a recurring habit?"* after repeated manual entries.
 
@@ -29,41 +33,42 @@ Pebble integrates a completely offline-ready, lightning-fast natural language en
 
 ## 📱 Core Screens & Navigation
 
-Built on **Expo Router** with seamless transitions:
+Built on **Expo Router** with typed routes. Navigation is **not** a conventional tab bar:
+the bottom dock is a radial **Pebble dial** (`shared/components/navigation/PebbleRadialTabBar.tsx`)
+with five sectors, opened by tap (sticky) or hold-drag (release-to-launch). Cairn,
+the mascot, sits docked beside it.
 
-### 1. Today Dashboard (`app/(tabs)/index.tsx`)
-The entry point of the app, providing an authoritative, borderless summary of your day:
-- **Universal Metrics**: Real-time progress meters tracking completed tasks and active habits.
-- **Category Shortlinks**: High-fidelity graphical shortcuts to filter and create tasks in various contexts.
-- **Alarms Preview**: Spotlights the next upcoming exact alarm notification so you stay ahead.
+### 1. Today (`app/(tabs)/index.tsx`)
+The execution surface. Renders a **workspace-grouped stream** (one drawer per workspace)
+with an aggregate "All" context tab, a circadian scenic header, a Now Focus card, and
+filter/search controls. Each workspace previews at most 5 items before a "+N more" gateway.
 
-### 2. Tasks & Habits Planner (`app/(tabs)/tasks.tsx`)
-Features a unified segmented switcher to toggle between **Tasks** and **Habits**:
-- **Calendar Strip**: Scrollable weekday strip using `react-native-calendars` to filter active tasks.
-- **Suggestions Banner**: Displays active local suggestions to convert repetitive tasks into habits.
-- **Streak Statistics**: Track habit consistency with density bars and weekly progress grids.
+### 2. Workspaces (`app/(tabs)/tasks.tsx`)
+The organization surface. A workspace grid plus, once a workspace is open, peer domain
+tabs for **Tasks / Habits / Checklists / Resources**, with a swipeable date header and
+per-domain search. Habit streaks are tracked across these surfaces.
 
-### 3. Focus Console (`app/(tabs)/focus.tsx`)
-An immersive deep-work console designed to optimize cognitive flow:
-- **Preset Focus Sessions**: Presets for 15, 25, 45, or 60-minute Pomodoros.
-- **Liquid Timers**: Features visual gradient rings that breathe and animate using `react-native-reanimated`.
-- **Gamification**: Awards pebbles for task completions and habit runs.
+### 3. Schedule (`app/(tabs)/calendar.tsx`)
+A day / week / month planner with drag-to-reschedule and drop-to-plan, all-day sections,
+a current-time indicator, planning sheets, and free-time gaps.
 
-### 4. Pebble Capture Modal
-- **Access:** Tap the `⚡ Pebble Capture` pill or FAB to trigger a Bottom Sheet (`@gorhom/bottom-sheet`).
-- **Glassmorphism Overlay:** Implements beautiful blurred glass backdrops using `expo-blur`.
-- **Interactive Review:** Tweak parsed items instantly by tapping pills.
+### 4. Focus (`app/(tabs)/focus.tsx`)
+A Pomodoro/stopwatch cockpit with a linked task or habit, ambient sound, a music player,
+and an optional atmospheric glow. Completions award Pebbles.
+
+### 5. Quick Capture (center dial sector)
+Tapping the centre **Quick Capture** sector opens the `UnifiedCapture` bottom sheet
+(`@gorhom/bottom-sheet`) — the single natural-language entry point. There is no FAB and
+no standalone capture pill.
 
 ---
 
 ## 🎨 Hardware Gestures & Fluid Motion
 
 The Pebble system incorporates smooth transitions powered by **React Native Gesture Handler** and **React Native Reanimated**:
-1. **Interactive Tab Swiping**: Swipe left or right anywhere to slide between tab views (Today ⇄ Planner ⇄ Analytics ⇄ Focus).
-2. **Directional Card Swipes**: Swipe items horizontally in lists:
-   - **Swipe Right**: Checks off and completes the item (Success Haptic + Emerald Green splash overlay).
-   - **Swipe Left**: Deletes the item (Medium Haptic + Crimson Red delete overlay).
-3. **Dynamic Premium Shadows**: Softens shadows dynamically based on theme (opacity `0.03`-`0.05` in light mode).
+1. **Radial navigation**: Tap the dock Pebble to open the dial in sticky mode, or hold and drag to a sector and release to launch.
+2. **Directional Card Swipes**: Swipe items horizontally in lists to reveal secondary actions.
+3. **Targeted translucency**: `expo-blur` is used sparingly for hierarchy/depth (the dock shield, zen/review overlays, mascot surfaces). Glassmorphism is deliberately *not* a design rule — see `docs/architecture/decision_log.md`.
 
 ---
 
@@ -76,10 +81,10 @@ For the authoritative source of truth on Pebble's crash recovery, persistence, a
 ---
 
 ## 🛠️ Technical Stack
-- **React Native 0.81** (New Architecture & React Compiler enabled)
-- **Expo SDK 54** (Expo Router, expo-notifications, expo-blur, expo-haptics)
-- **State Management**: `@react-native-async-storage/async-storage`
-- **UI Components**: `@gorhom/bottom-sheet`, `react-native-calendars`
+- **React Native 0.86** on **React 19.2** (New Architecture & React Compiler enabled)
+- **Expo SDK 57** (Expo Router, expo-notifications, expo-blur, expo-haptics)
+- **Storage**: `@react-native-async-storage/async-storage` (local-first, no backend)
+- **UI Components**: `@gorhom/bottom-sheet`, `react-native-calendars` (date pickers/detail calendars), `react-native-reanimated`, `react-native-gesture-handler`
 
 ---
 

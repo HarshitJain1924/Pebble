@@ -1,5 +1,7 @@
 # Cairn — Personality & Voice Guide
 
+> **Truth as of 2026-10-02.** This is a product *behavior specification* (intent), verified against the current Cairn surfaces on this date. Where it describes what the mascot does today, the code wins if they diverge.
+
 **Mascot for Pebble**
 
 This document defines who Cairn is, how Cairn speaks, and when Cairn appears in the product. It is the source of truth for mascot copy, interactions, notifications, empty states, milestones, onboarding, and future animation behavior.

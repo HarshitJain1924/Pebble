@@ -1,5 +1,7 @@
 # Current State of the Pebble Architecture
 
+> **Truth as of 2026-10-02.** Verified against the active codebase on this date. If the code has changed since, the code wins — update this document instead of trusting the date. (Section 19's test counts carry their own earlier snapshot date.)
+
 This document is the **single authoritative engineering snapshot** for the current Pebble codebase. It supersedes all historical audit reports and reflects the implementation as it currently exists.
 
 ## 1. Persistence Architecture

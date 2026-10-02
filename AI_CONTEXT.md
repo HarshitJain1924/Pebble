@@ -1,11 +1,21 @@
 # AI Context: Pebble Productivity App
 
+> **Truth as of 2026-10-02.** Verified against the active codebase on this date. If the code has changed since, the code wins — update this document instead of trusting the date.
+
 This file is a compressed memory layer optimized for future AI sessions. It serves as a navigation map and architectural primer.
+
+> **Source of truth**: Active code and tests outrank every document, including this one.
+> Evidence order: (1) code + tests, (2) tokens/components, (3) `docs/architecture/*`,
+> (4) `docs/current_state.md` / `docs/integrity_status.md` / this file, (5) `AGENTS.md`
+> & `.agents/skills/*`, (6) README/PRD, (7) `docs/archive/**` (historical only).
+> If documentation conflicts with code, inspect the code and update the document — do
+> not invent a third interpretation. Verify claims against `app/`, `features/`,
+> `services/`, `repositories/`, and `shared/constants/` before trusting prose anywhere.
 
 ---
 
 ## 1. Project Summary
-Pebble is a premium, local-first productivity app. It integrates daily task planning, habit consistency tracking, Pomodoro focus timers, localized reminders, and a completely offline natural language capture engine. The visual experience is gamified through earning Pebbles and Gems, guided by a responsive Crow mascot companion.
+Pebble is a premium, local-first productivity app built on **Expo SDK 57 / React Native 0.86 / React 19.2** (New Architecture + React Compiler). It integrates daily task planning, habit consistency tracking, Pomodoro and stopwatch focus timers, localized reminders, a calendar/schedule planner, and a completely offline natural language capture engine. The visual experience is gamified through earning Pebbles and Gems, guided by a calm crow companion named **Cairn** (`docs/cairn_voice_guide.md`).
 
 ---
 
@@ -17,7 +27,7 @@ The current canonical terminology established by the codebase:
 - **Checklist**: A list of sub-items.
 - **Resource**: Passive reference items (links, notes, images) saved inside a workspace.
 - **Recycle Bin**: A soft-delete safety net for entities and workspaces.
-- **Gamification**: Users earn **Pebbles** (Task = 1, Habit = 1, Focus = 1) which convert to **Gems** (45 Pebbles = 1 Gem).
+- **Gamification**: Users earn **Pebbles** on eligible completion of a Task, Habit, Focus session, or Checklist (1 Pebble per event, capped at **15/day globally**). Lifetime Pebbles derive **Gems** at **45:1**; Gems are the only spendable currency (bonus Gems are also awarded for a first daily Pebble and are spendable on streak recovery). Source: `features/profile/services/pebble.service.ts`.
 - **Move Journal**: Logs pending cross-workspace moves to recover from crashes.
 - **Conversion Journal**: Logs pending task<->habit conversions to recover from crashes.
 - **Unified Capture**: The natural language capture engine.
@@ -59,8 +69,21 @@ The current canonical terminology established by the codebase:
 
 ---
 
+## 3.4 Current Navigation (verify in `app/(tabs)/_layout.tsx` + `shared/components/navigation/PebbleRadialTabBar.tsx`)
+Pebble does **not** use a conventional tab bar. The bottom dock is a **radial "Pebble dial"** (`PebbleRadialTabBar`) with five sectors, opened by tap (sticky) or hold-drag (release-to-launch):
+
+1. **Today** (`app/(tabs)/index.tsx`) — workspace-grouped execution stream.
+2. **Workspaces** (`app/(tabs)/tasks.tsx`) — workspace grid + per-workspace Tasks/Habits/Checklists/Resources domain tabs.
+3. **Quick Capture** (center hero sector) — opens the `UnifiedCapture` bottom sheet (there is no FAB and no separate capture pill).
+4. **Schedule** (`app/(tabs)/calendar.tsx`) — day/week/month planner with drag-drop scheduling.
+5. **Focus** (`app/(tabs)/focus.tsx`) — Pomodoro/stopwatch cockpit with linked task/habit and ambient sound.
+
+Stack routes (modals/screens, `app/_layout.tsx`): `onboarding`, `profile`, `profile/stats`, `profile/achievements`, `sanctuary`, `notifications`, `task-details` (modal), `checklist-details` (modal), `resource-details` (modal), `archive`, `recycle-bin`. `settings` exists as a route but is hidden (`href: null`) from the dial.
+
+---
+
 ## 4. Folder Structure Overview
-* `/app/` — Expo Router tab layout and subscreen routing.
+* `/app/` — Expo Router routes (tab group + modal/subscreens).
 * `/features/` — Encapsulated vertical feature slices (e.g., `capture`, `today`, `details`, `profile`).
 * `/services/command/` — Centralized Command Handlers for all data mutations.
 * `/repositories/` — Raw AsyncStorage data access objects.
@@ -72,7 +95,7 @@ The current canonical terminology established by the codebase:
 ## 5. Active Product Features
 1. **Unified Capture**: Client-side natural language text extraction (`chrono-node`, `compromise`) with live cycle-on-tap pills.
 2. **Focus Timer**: Pomodoro timer with animated breathing rings and gamification rewards.
-3. **Mascot Companion**: Responsive crow mascot that recommends actions and provides visual feedback.
+3. **Mascot Companion (Cairn)**: A calm crow companion docked beside the navigation dial that reacts at edges of activity (completion, milestones, empty states) without judging or pressuring the user. Authoritative spec: `docs/cairn_voice_guide.md`.
 4. **Alarms & Reminders**: Local reminders using `expo-notifications`.
 5. **Resources**: Save passive reference items (links, notes, images) nested inside workspaces.
 6. **Manual Data Export**: User-facing export flow in Settings that generates a full local backup JSON via authoritative `BackupService` and presents the platform-native share/save sheet (`expo-sharing`).

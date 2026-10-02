@@ -5,7 +5,11 @@ description: Pebble's permanent product philosophy and design constitution. Defi
 
 # Pebble Design Constitution & Component System
 
-This skill is Pebble's primary source of design and product truth. It consolidates product philosophy, surface rendering rules, component layouts, screen flow, hierarchy logic, and motion physics.
+> **Truth as of 2026-10-02.** Verified against the active UI code (`app/`, `features/`, `shared/components/`) on this date. If the code has changed since, the code wins.
+
+This skill encodes Pebble's product philosophy and surface rules. It consolidates product philosophy, surface rendering rules, component layouts, screen flow, hierarchy logic, and motion physics.
+
+> **Authority note:** active code and the token constants outrank this document. When this skill and the implementation disagree, inspect `app/`, `features/`, and `shared/constants/*`, then update this skill. Do not treat prose — here or in the README/PRD — as more authoritative than the code.
 
 ---
 
@@ -20,8 +24,8 @@ Pebble should feel like:
 
 To maintain cognitive consistency, always use these exact terms and mappings:
 
-*   **Today (Execution)**: The focused, workspace-free day checklist.
-*   **Workspace (Organization)**: The container layer for managing tasks, habits, checklists, and resources.
+*   **Today (Execution)**: The day's execution surface — a workspace-grouped stream of today's work, not an organizational browser.
+*   **Workspace (Organization)**: The container layer for managing tasks, habits, checklists, and resources. Each workspace exposes these four domains as peer tabs.
 *   **Task (Execution)**: A one-off actionable item.
 *   **Habit (Consistency)**: A recurring item tracked via completion history and streaks.
 *   **Checklist (Checkable List)**: A group of sub-tasks or checkable items.
@@ -33,9 +37,11 @@ To maintain cognitive consistency, always use these exact terms and mappings:
 
 ## 3. Product Philosophy: Execution vs. Organization
 
-*   **Workspaces are Organization**: Users organize, group, categorize, list resources, and manage folders inside Workspaces. Workspaces have nested sections, settings, and collections.
-*   **Today is Execution**: The Today screen is for execution. It must never feel like a file browser or nested workspace. It is a calm, flat checklist of things to get done today.
+*   **Workspaces are Organization**: Users organize, group, categorize, and store resources inside Workspaces. A Workspace owns four domains — Tasks, Habits, Checklists, Resources — not nested folders or "collections".
+*   **Today is Execution**: The Today screen is for execution. It renders one drawer per workspace (a grouped stream), never a file browser or nested workspace browser. Each workspace previews at most 5 items before a "+N more" gateway.
 *   **Previews, Not Screens**: Today cards are *previews* of Workspaces. They cap display lists to a maximum of **5 items** and show a remaining count.
+
+> **Legacy naming:** `folderId` still appears in code as a backward-compatibility alias for `workspaceId`, and `collections` survives as an internal prop/key name. Neither is a current product concept — do not surface or extend them.
 
 ### 3.1. Evolution over Revolution
 *   **Iterate, Don't Rewrite**: Prefer evolving an existing screen or component over replacing it entirely.
@@ -57,9 +63,10 @@ For high-level dashboard and summary screens (such as Today), use this layout he
 ## 5. Screen Flow & Navigation
 
 Pebble does not exist as isolated screens. Optimize navigation layouts to reflect these core user flows:
-*   *Task Execution*: `Today → Workspace (Folders) → Task Details → Back`
+*   *Task Execution*: `Today → open workspace (or see-all) → Task Details → Back`
 *   *Routine Completion*: `Today → Focus Session → Complete Task → Pebble Jar Drop`
-*   *Setup*: `Sidebar → Workspace Settings → Add Members/Checklists → Save → Return`
+*   *Setup*: `Workspaces → open/create a workspace → add Tasks/Habits/Checklists/Resources → Return`
+*   *Navigation*: the radial Pebble dial (Today · Workspaces · Quick Capture · Schedule · Focus) is the only top-level surface switcher.
 
 ---
 
@@ -79,7 +86,7 @@ Pebble's elevation system uses tonal layering to create physical depth. (For exa
 All component styling parameters (colors, spacing margins, fonts, radii) must be retrieved from the `design-tokens` skill rather than being hardcoded as absolute values.
 
 ### Cards (Level 1 Surface)
-*   *Specs*: Radius `radii.md` or `radii.lg`, padding `spacing.lg` internally. Faint, precise borders.
+*   *Specs*: Radius `Radius.lg` (16), padding `Spacing.lg` internally. Faint, precise borders.
 *   *Nesting Rule*: **Never nest cards inside cards.**
 
 ### Lists & Checklists
@@ -127,6 +134,25 @@ A design is complete when it meets these qualitative and quantitative constraint
 *   **Today Preview Cap**: Today workspace preview cards cap at a maximum of **5 items** before displaying a remaining count indicator.
 *   **No Card Nesting**: Card counts on screen represent flat surfaces (Level 1). Nesting check = **0**.
 *   **Purposeful Motion**: Every animation has a functional rationale (e.g., establishing depth, directing visual attention).
+
+---
+
+## 10.5. Modern 2026 Design Direction
+
+Pebble should read as a calm, contemporary 2026 mobile product — not a trend collage. Treat the following as judgment calls, not mandates:
+
+*   **Calm, intentional hierarchy**: one clear focal action per surface; supporting content fades in weight, not in importance.
+*   **Content-first surfaces**: typography, spacing, and workspace hue carry identity; decorations are optional.
+*   **Progressive disclosure**: keep secondary metadata behind a tap/chip; never dump every attribute into the first view.
+*   **Adaptive composition**: respect safe areas, small-screen height (`isCompact` patterns in Focus/Today), reduced-motion, and system light/dark.
+*   **Gesture-aware, low-friction interaction**: quick capture and one-tap completion beat navigation; inline edit beats a new screen.
+*   **Meaningful motion**: springs for anything physical (press, drag, reveal), fast timings (<200ms) for fades; ambient loops only when content sits still and only when reduced-motion is off.
+*   **Subtle depth**: tonal layering and soft shadows first; **use blur/translucency only when it improves hierarchy, depth, or context and stays performant and readable** (system blur on iOS, solid fallback elsewhere). Never make glass a requirement.
+*   **Excellent empty / loading / error states**: every list and stream needs a designed zero-state (see `EmptyState`).
+*   **Accessibility and touch ergonomics**: 44×44pt targets, `accessibilityRole`/`accessibilityState`, legible contrast.
+*   **Fast perceived performance**: avoid janky work — memoize list rows, avoid heavy layout springs, keep first render cheap.
+
+Explicitly **do not** prescribe arbitrary hero-card ratios, universal card or gradient layouts, mandatory glass, oversized rounded cards everywhere, floating buttons, decorative dashboards, or gamification for its own sake. Trends must yield to Pebble's actual product model above.
 
 ---
 

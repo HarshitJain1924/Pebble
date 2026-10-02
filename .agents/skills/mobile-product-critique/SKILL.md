@@ -7,9 +7,13 @@ description: Mobile product design critique. Reviews information hierarchy, visu
 
 This skill is designed strictly for critique. It is prohibited from generating code or building UI. Its purpose is to evaluate existing or proposed screens and explain *why* they do or do not feel premium, indicating areas of design debt, cognitive load, and generic patterns.
 
+> **Pebble scope note:** These are generic critique heuristics. They do **not** override Pebble-specific truth in `.agents/skills/pebble-design` / `design-tokens` or the active code. Apply the "1 Hero, 3 Supporting" rule as a heuristic for overview surfaces only — planners, timelines, editors, and workspaces legitimately show multiple sections at once. Today is a **workspace-grouped** execution stream, not a flat list.
+
 ---
 
 ## Evaluation Criteria
+
+> **2026 modern-clean lens:** Judge against Pebble's target stance in `.agents/skills/pebble-design` §10.5 — calm hierarchy, content-first surfaces, purposeful whitespace, progressive disclosure, meaningful (not decorative) motion, restraint with blur/gradients, and excellent empty/loading/error states. The dimensions below are how you test that stance, not a separate checklist that overrides it.
 
 Evaluate every screen against these 9 dimensions:
 

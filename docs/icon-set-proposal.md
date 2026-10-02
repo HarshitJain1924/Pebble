@@ -3,6 +3,11 @@
 **Status:** proposal only. **No icons have been changed.** This document exists so the
 decision is recorded before any code is touched.
 
+> **Point-in-time snapshot.** The counts and dependency versions below were measured
+> when this proposal was written and will drift. Treat them as a historical snapshot,
+> not current truth — re-measure against the code and `package.json` before relying on
+> any number here.
+
 ## Inventory (measured, not estimated)
 
 | Metric | Value |
@@ -11,8 +16,8 @@ decision is recorded before any code is touched.
 | Files importing `Feather` from `@expo/vector-icons` | **101** |
 | Distinct icon names (literal `name="…"`) | **97** |
 | Central `Icon` wrapper component | **none** — every file imports `Feather` directly |
-| Installed `@expo/vector-icons` | `15.1.1` |
-| Already-installed deps that matter | `react-native-svg 15.12.1`, `expo-symbols ~1.0.8` |
+| Installed `@expo/vector-icons` | `~15.0.3` (see `package.json`) |
+| Already-installed deps that matter | `react-native-svg 15.15.4`, `expo-symbols ~57.0.3` (see `package.json`) |
 
 Two facts that shape everything below:
 

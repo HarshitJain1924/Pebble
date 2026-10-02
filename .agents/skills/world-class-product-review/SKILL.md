@@ -7,6 +7,8 @@ description: Critique framework simulating the design standards of Alan Dye (App
 
 This skill operates as a high-quality product review overlay. Before implementing *any* design, review the proposed layout through the lens of history's and today's design pioneers:
 
+> **Pebble scope note:** This is a generic creative overlay. It must not override Pebble's actual product model or tokens (`.agents/skills/pebble-design`, `design-tokens`, `shared/constants/*`). Pebble is intentionally calm and execution-focused; do not push it toward mascot/streak-driven gamification or decorative density beyond what the code already does.
+
 *   **Alan Dye (Apple)**: Fluidity, physicality, tactile feedback, Safe Area harmony, and visual premiumness.
 *   **Dieter Rams (Braun)**: "Less, but better." Functional honesty. No decorative lines or meaningless buttons.
 *   **Linear**: Hyper-efficient keyboard pathways, clean grid boundaries, micro-contrast, and technical focus.
@@ -14,6 +16,10 @@ This skill operates as a high-quality product review overlay. Before implementin
 *   **Arc Browser**: Translucency, custom themes, playful mascot moments, and spatial personality.
 
 ---
+
+## Modern 2026 Stance
+
+Before running the filter, hold Pebble's target stance (`.agents/skills/pebble-design` §10.5): calm and intentional, content-first, purposeful whitespace, progressive disclosure, meaningful motion, subtle depth, excellent empty/loading/error states, accessible touch ergonomics. Prefer restraint over trend-chasing — do not recommend decorative glass, gradients, oversized cards, or gamification just because they are current.
 
 ## The Critique Filter
 

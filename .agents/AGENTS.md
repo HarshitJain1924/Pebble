@@ -1,6 +1,24 @@
 # Pebble Development and Engineering Guidelines
 
+> **Truth as of 2026-10-02.** Verified against the active codebase on this date. If the code has changed since, the code wins — update this document instead of trusting the date.
+
 This document establishes the project rules, workflow, and engineering guardrails for Pebble.
+
+---
+
+## 0. Source of Truth
+
+When documentation conflicts with active code, **code wins**. Inspect the
+implementation and update the documentation; never invent a compromise. Evidence
+order (strongest first):
+
+1. Active source code and runtime/tests
+2. Actual design tokens/components (`shared/constants/*`, `shared/components/*`)
+3. Active architecture decisions (`docs/architecture/*.md`)
+4. Current-state docs (`docs/current_state.md`, `docs/integrity_status.md`, `AI_CONTEXT.md`)
+5. AI context (`AGENTS.md`, `.agents/AGENTS.md`, `.agents/skills/*`)
+6. README / PRD
+7. Historical/archive (`docs/archive/**`) — context only, never current state
 
 ---
 
@@ -24,13 +42,13 @@ Keep the workflow direct and focused:
   * Repositories are pure data-access objects.
   * Mutex-protected Read-Modify-Write (RMW) operations must call `*Unlocked` repository primitives within command handlers to prevent re-entrant deadlocks.
   * Follow established lock ordering (`withLocks` / canonical lifecycle sequences in `docs/current_state.md`).
-* **Expo SDK Versioning**: Read versioned docs at https://docs.expo.dev/versions/v54.0.0/ when working with Expo APIs.
+* **Expo SDK Versioning**: This project runs Expo SDK 57 (React Native 0.86, React 19.2). Read versioned docs at https://docs.expo.dev/versions/v57.0.0/ when working with Expo APIs.
 
 ---
 
 ## 3. UI & Design Guardrails
 
-* **Execution vs. Organization**: Today is strictly for execution; keep Workspace preview cards on Today capped at 5 items with a clear "Continue" gateway.
+* **Execution vs. Organization**: Today is for execution, not organization. It renders a workspace-grouped stream (one drawer per workspace) where each workspace previews at most 5 items (`PREVIEW_LIMIT`) with a "+N more" gateway, plus a capped resource strip. Keep it flat: never turn Today into a nested workspace/file browser.
 * **No Card Nesting**: Never nest cards inside cards (keep surfaces flat at Level 1).
 * **Touch Targets & Feedback**: Maintain 44x44pt minimum hit targets; use `PressableScale` (`scale(0.97)` with light haptics) for pressables.
 * **Mascot Guardrail (Cairn)**: Refer to [docs/cairn_voice_guide.md](file:///docs/cairn_voice_guide.md). Treat as a product behavior specification, not merely a copywriting document. Keep Cairn strictly isolated from core domain logic (presentation/experience layer only); do not introduce Cairn into existing screens arbitrarily or modify domain/persistence logic for mascot presentation.

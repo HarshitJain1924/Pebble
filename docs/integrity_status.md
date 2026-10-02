@@ -1,5 +1,7 @@
 # Pebble Integrity Status
 
+> **Truth as of 2026-10-02.** Verified against the active codebase on this date. If the code has changed since, the code wins.
+
 This document tracks the verified state of data-integrity vulnerabilities in the current codebase.
 
 ## CLOSED
