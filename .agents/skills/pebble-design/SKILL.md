@@ -11,6 +11,16 @@ This skill encodes Pebble's product philosophy and surface rules. It consolidate
 
 > **Authority note:** active code and the token constants outrank this document. When this skill and the implementation disagree, inspect `app/`, `features/`, and `shared/constants/*`, then update this skill. Do not treat prose — here or in the README/PRD — as more authoritative than the code.
 
+### Design System & Guidance Hierarchy
+All skills and agents must respect this strict authority sequence:
+1. `shared/constants/*` + active component implementations are the **absolute styling authority**.
+2. `pebble-design` defines Pebble's visual and product philosophy.
+3. `design-tokens` describes actual available visual primitives.
+4. `emil-design-eng` provides interaction, motion, and craft guidance (translated to React Native / Reanimated).
+5. Critique and review skills (`mobile-product-critique`, `world-class-product-review`) evaluate against the above.
+6. Generic UI/UX references (`ui-ux-pro-max`, `react-native-developer`) must **never** override Pebble-specific rules or leak web/dashboard patterns into Pebble.
+
+
 ---
 
 ## 1. The Pebble Identity (Not a Derivative Collage)
@@ -86,7 +96,17 @@ The **"1 Hero, 3 Supporting"** guideline is an **optional heuristic strictly for
 
 ### Functional Surface Rule (CRITICAL)
 *   **Never force a hero component onto functional screens.**
-*   Workspace views, task lists, calendar timelines, forms, detail screens, settings, and planners should use the layout and hierarchy appropriate to their specific task.
+*   Specifically, never force a hero onto:
+    1. **Workspace**
+    2. **Task lists**
+    3. **Habit lists**
+    4. **Checklists**
+    5. **Resources**
+    6. **Calendar/timeline**
+    7. **Forms**
+    8. **Detail screens**
+    9. **Planners**
+    10. **Settings**
 *   **Do not turn every screen into a dashboard.** Functional screens prioritize efficiency, scannability, and direct manipulation over large decorative cards.
 
 ---
@@ -184,12 +204,14 @@ Pebble reads as a calm, tactile, modern 2026 mobile product — not an AI trend 
 *   ❌ **Glassmorphism everywhere**: Never make frosted glass the default background or card style.
 *   ❌ **Gradients everywhere**: Avoid rainbow, aurora, or high-saturation gradient meshes that distract from text.
 *   ❌ **Giant hero cards on functional screens**: Do not force a massive hero card onto task lists, calendars, or detail views.
-*   ❌ **Excessive rounded cards & card soup**: Cards inside cards, cards wrapping every individual row, or border radii exceeding `Radius.xl`.
+*   ❌ **Excessive rounded cards**: Border radii exceeding `Radius.xl` or exaggerated bubble styling.
 *   ❌ **Bento / SaaS dashboard grids**: Competing grids of unequal metric boxes designed for desktop monitors, not mobile phones.
-*   ❌ **Floating action buttons (FABs) everywhere**: Pebble captures via the central radial dial sector; do not add ad-hoc FABs.
+*   ❌ **Generic corporate SaaS dashboards**: Stiff, corporate dashboard widgets with tiny labels and oversized numbers.
 *   ❌ **Excessive pills & decorative badges**: Avoid floating pills for standard actions or empty decorative dots with no counts.
+*   ❌ **Floating action buttons (FABs) everywhere**: Pebble captures via the central radial dial sector; do not add ad-hoc FABs.
 *   ❌ **Excessive or sluggish animation**: Avoid animations over 300ms, ease-in curves, or animations on frequent actions.
-*   ❌ **Generic corporate SaaS aesthetics**: Stiff, corporate dashboard widgets with tiny labels and oversized numbers.
+*   ❌ **Card-wrapped-everything ("card soup")**: Wrapping every individual row or piece of information in its own card.
+*   ❌ **Copying another product's visual identity**: Collaging or copying Things, Linear, Apple Reminders, Arc, or Nintendo rather than honoring Pebble's distinct identity.
 
 ---
 
@@ -211,25 +233,29 @@ Pebble reads as a calm, tactile, modern 2026 mobile product — not an AI trend 
 
 ### Blacklist Anti-Patterns (NEVER DO THESE)
 *   ❌ **Nested cards**: Cards inside cards.
+*   ❌ **Card-wrapped-everything**: Every row or piece of data inside its own card ("card soup").
 *   ❌ **Dashboard grids**: Multiple columns of unequal boxes competing for attention.
 *   ❌ **Equal-weight widgets**: Multiple elements styled with identical heavy weight and color on overview screens.
 *   ❌ **Decorative-only badges**: Badges containing no information or numeric count.
 *   ❌ **Generic KPI cards**: Plain blocks with huge numbers and tiny labels underneath.
 *   ❌ **Random gradients**: Colored backgrounds with no branding, purpose, or depth function.
 *   ❌ **Settings options inside Today**: Bleeding configuration or workspace management widgets into the daily execution stream (settings belong in Workspaces or Profile).
+*   ❌ **Copying another product's visual identity**: Collaging visual identities from Things, Linear, Apple, etc. References are craft standards only.
 
 ---
 
 ## 12. Agent Behavior Protocol
 
-When working on Pebble's design or user interface, future agents MUST adhere to this protocol:
+When working on Pebble's design or user interface, future agents MUST adhere to this 10-point protocol:
 
-1.  **Inspect Before Redesigning**: Read the existing screen and component implementation before proposing or writing changes.
-2.  **Preserve Working Interaction Patterns**: Maintain working gestures, hooks, state listeners, and accessible structures.
-3.  **Identify the Actual Problem**: Pinpoint the specific layout, contrast, or hierarchy flaw before proposing structural alterations.
-4.  **Propose the Smallest Coherent Change**: Deliver surgical, production-ready improvements rather than broad speculative rewrites.
-5.  **Avoid Inventing Product Concepts**: Stick strictly to current domain concepts (`Workspace`, `Task`, `Habit`, `Checklist`, `Resource`, `Schedule`, `Reminder`, `Focus`).
-6.  **Avoid Redesigning Unrelated Areas**: Confine modifications strictly to the components and views requested.
-7.  **Use Existing Components & Tokens**: Reference `shared/constants/*` for all tokens and reuse established primitives (`AppCard`, `AppText`, `PressableScale`, `EmptyState`, `AppHeader`).
-8.  **Verify Implementation**: Always verify changes via `npx tsc --noEmit` and relevant tests.
+1.  **Inspect the existing screen first**: Read the existing screen and component implementation before proposing or writing changes.
+2.  **Identify the screen's actual job**: Determine what job the screen does (execution, organization, calendar placement, focused work, detail view).
+3.  **Identify what already works**: Understand existing working interaction patterns, gestures, hooks, state listeners, and accessible structures.
+4.  **Identify the real UX/design problem**: Pinpoint the specific layout, contrast, cognitive load, or hierarchy flaw before proposing structural alterations.
+5.  **Reuse existing primitives**: Use existing components (`AppCard`, `AppText`, `PressableScale`, `EmptyState`, `AppHeader`) and tokens from `shared/constants/*`.
+6.  **Propose the smallest coherent change**: Deliver surgical, production-ready improvements rather than broad speculative rewrites.
+7.  **Avoid speculative redesigns**: Do not touch unrelated files or perform unrequested refactors.
+8.  **Avoid inventing product concepts**: Stick strictly to Pebble's current domain concepts (`Workspace`, `Task`, `Habit`, `Checklist`, `Resource`, `Schedule`, `Reminder`, `Focus`).
+9.  **Avoid changing unrelated screens**: Confine modifications strictly to the components and views requested.
+10. **Verify the implementation after changes**: Always verify TypeScript compilation (`npx tsc --noEmit`) and relevant unit tests.
 

@@ -23,6 +23,7 @@ Build high-quality cross-platform mobile apps using React Native with proper arc
 > - **State/storage** is local-first `@react-native-async-storage/async-storage` behind repositories + command handlers. Pebble does **not** use Zustand.
 > - **Lists** use `ScrollView`/mapped rows and `FlatList` patterns as found in the code; `FlashList` is not a dependency.
 > - **Colors** come from `shared/constants/theme.ts` + `categoryColors.ts` (primary is Pine `#358366`). Ignore the hardcoded `#6366F1` accent in the example below.
+> - **Design Authority**: Pebble design rules in `pebble-design` and `design-tokens` supersede all generic UI patterns. Never use cards as default layout primitives, never nest cards, and never force hero cards on functional screens.
 > - Push notifications are used for local reminders; there is no backend. For all of the above, Pebble-specific skills and code win.
 
 ## Project Setup
