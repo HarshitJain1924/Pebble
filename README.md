@@ -1,87 +1,169 @@
 # Pebble
 
-Pebble is a local-first productivity app built with Expo SDK 54, React Native, Expo Router, and TypeScript.
+Pebble is a local-first productivity app for turning daily intentions into action without making planning feel like administration.
 
-It brings together:
-- task planning
-- habit tracking
-- checklists
-- resources
-- scheduling and reminders
-- focus workflows
-- local-first capture
+Built with **Expo SDK 54, React Native 0.81, React 19, Expo Router, and TypeScript**.
 
-Pebble's philosophy is based on small actions accumulating into meaningful progress.
+## Current product
 
-## Where to Look
-
-This README is orientation only. It is **not** implementation truth.
-
-For engineering work:
-1. Read the active code.
-2. Read `docs/current_state.md` and `docs/integrity_status.md` when architecture/integrity matters.
-3. Read active decisions/ADRs under `docs/architecture/`.
-4. Read the relevant `.agents/skills/` skill for specialized guidance.
-5. Treat `docs/archive/` as historical only.
-
-For AI sessions, see `AI_CONTEXT.md`.
-
-## Product Domains
+Pebble is organized around four primary app surfaces:
 
 ### Today
-Day-focused execution.
+The execution surface for the current day.
+
+Today currently brings together:
+- a circadian-style header and current-focus area
+- a workspace-grouped stream of today's work
+- task, habit, and checklist activity
+- filters and search
+- overdue/carry-over context
+- Zen Mode
+- end-of-day review
+- Pebble/Cairn progress and reward interactions
+
+Today is about **doing**, not managing the underlying structure.
 
 ### Workspaces
-Organization of tasks, habits, checklists, and resources.
+The organization surface.
 
-### Tasks
-One-off actionable items with the behavior implemented by the current code.
+A workspace contains four domain areas:
 
-### Habits
-Recurring activities with completion history and streak behavior.
+- **Tasks** — one-off actionable work
+- **Habits** — recurring activities and streak history
+- **Checklists** — independent checkable lists
+- **Resources** — passive reference material
 
-### Checklists
-Independent checkable-list entities.
+The current workspace screen also provides date navigation, domain tabs, search, bulk selection, workspace rename/settings, archive, and moving items between workspaces.
 
-### Resources
-Passive reference material such as links, notes, images, or files.
+Do not interpret internal legacy variable names such as `folder` as a separate product concept. The product concept is **Workspace**.
 
-### Calendar / Schedule
-Calendar placement is driven by an item's schedule. Reminder behavior is separate and drives notifications.
+### Schedule
+The calendar/scheduling surface.
+
+The current calendar supports:
+- day/timeline planning
+- week horizon
+- month overview
+- scheduled all-day and timed items
+- current-time indication
+- filters
+- drag-to-reschedule interaction
+- quick planning actions for pending work
+- free-time/planned-time context
+
+**Schedule placement and reminders are separate concepts.**
+
+An item's schedule determines where it appears on the calendar. A reminder determines notification behavior.
 
 ### Focus
-Focus/timer workflows connected to productivity progress.
+The dedicated focus-session workspace.
 
-### Capture
-Local-first natural-language capture. The active implementation is authoritative for parser behavior and capture UI.
+Focus currently supports:
+- focus and break modes
+- Pomodoro sessions
+- a timer cockpit
+- linking a task or habit to the active session
+- ambient sound
+- music controls
+- optional atmospheric/glow treatment
 
-### Cairn
-Pebble's companion/mascot. See `docs/cairn_voice_guide.md`.
+## Global capture
 
-## Architecture
+Pebble has a global **Unified Capture** entry point available from the main tab layout.
 
-The repository is organized broadly as:
+Capture is local-first and can target a workspace. The active capture implementation is the authority for parsing, creation behavior, and UI details.
 
-- `/app/` — Expo Router screens/routes
-- `/features/` — vertical feature slices
-- `/services/command/` — mutation orchestration and command handlers
-- `/repositories/` — persistence/data-access boundaries
-- `/shared/` — shared types, theme, UI, and utilities
-- `/docs/` — architecture, decisions, integrity records, and historical material
+Do not reintroduce the old "Quick Add", rotating-placeholder, detection-badge, or capture-pill designs unless the active code and product decisions explicitly bring them back.
 
-Pebble is local-first and uses AsyncStorage. Exact storage keys are defined by the active storage implementation.
+## Core domain model
+
+Pebble's active domain vocabulary is:
+
+| Concept | Meaning |
+| --- | --- |
+| **Workspace** | Organizational container for related work |
+| **Task** | One-off actionable item |
+| **Habit** | Recurring activity with completion history |
+| **Checklist** | Independent collection of checkable items |
+| **Resource** | Passive reference material such as notes, links, images, or files |
+| **Schedule** | Calendar placement for an item |
+| **Reminder** | Notification timing; not calendar placement |
+| **Today** | Execution-oriented view of current work |
+| **Focus** | Active timed work/break session |
+| **Cairn** | Pebble's companion/mascot and product voice |
+
+A **Checklist is not a Task with subtasks**. Do not introduce a nested-subtask model unless the active domain model explicitly changes.
+
+## Product principles
+
+- **Local-first:** core productivity data works without requiring a remote backend.
+- **Action over administration:** surfaces should help the user start or continue work.
+- **Progress without pressure:** completion should feel visible and rewarding without adding unnecessary gamification.
+- **Flat, scannable hierarchy:** avoid deep nested cards and duplicated containers.
+- **Progressive disclosure:** keep secondary controls out of the primary path until needed.
+- **Respect the current domain model:** do not revive retired concepts because they appear in historical code or documents.
+- **Implementation beats memory:** when documentation and code disagree, inspect the active implementation before changing product behavior.
+
+## Architecture at a glance
+
+The repository is broadly organized as:
+
+- `/app/` — Expo Router screens and routes
+- `/features/` — feature-specific UI, hooks, and domain-facing logic
+- `/services/command/` — command orchestration and domain command handlers
+- `/repositories/` — persistence and data-access boundaries
+- `/shared/` — domain types, theme, shared UI, hooks, and utilities
+- `/docs/` — decisions, architecture/integrity records, product guidance, and historical material
+
+Pebble is local-first and currently persists through AsyncStorage-backed repositories/services. Runtime storage keys and persistence details are defined by the active implementation.
+
+### Important engineering boundaries
+
+- UI should not bypass repository/service boundaries to manipulate persistence directly.
+- Domain mutations go through the command/service layer.
+- Scheduling and reminder behavior must remain distinct.
+- Workspace terminology is canonical even where legacy source names remain.
+- Active source code is the authority for behavior.
+
+## Documentation hierarchy for AI/code work
+
+Use these sources in this order:
+
+1. **Active source code** — actual behavior and current UI
+2. `docs/current_state.md` and `docs/integrity_status.md` — current architecture/integrity context
+3. Active decisions/ADRs under `docs/architecture/`
+4. Relevant `.agents/skills/` guidance
+5. `AI_CONTEXT.md` — compact navigation/context map
+6. `PRD.md` and this README — product orientation
+7. `docs/archive/` — historical only
+
+If two sources conflict, **do not average them or invent a compromise**. Inspect the active implementation and the relevant decision record.
 
 ## Development
 
+Install dependencies:
+
 ```bash
 npm install
-npx expo start
-npx tsc --noEmit
-npm test
 ```
 
-## Legacy Documentation
+Start Expo:
 
-Some historical documents and compatibility code may contain older terms. Do not treat those terms as current product requirements.
+```npx expo start
+```
 
-Historical material should live under `docs/archive/` where possible.
+Type-check:
+
+```npx tsc --noEmit
+```
+
+Run tests:
+
+```npm test
+```
+
+## Historical documentation
+
+Pebble has gone through multiple product and architecture iterations. Older documents may mention concepts such as folders, collections, subtasks, glassmorphism-first UI, old capture flows, XP systems, or other retired designs.
+
+Those documents are useful for history and migration context only. They are **not current product requirements** unless the active code or a current decision explicitly restores the concept.
