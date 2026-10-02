@@ -1,74 +1,85 @@
-# Product Requirements Document (PRD) — Pebble Productivity App
+# Product Requirements Document — Pebble
 
-## 1. Overview
-**Product Name:** Pebble  
-**Platform:** React Native (Expo SDK 54) - iOS, Android, Web  
-**Core Value Proposition:** A local-first, premium productivity suite combining daily task planning, habit tracking, focus timers (Pomodoro), localized alarms, and a fully offline-compatible **Pebble Capture Engine** without requiring a backend database or cloud AI APIs.
+> **Status:** Active product intent. This document is not implementation truth.
+>
+> For exact current behavior, read the active source code first. For architecture/integrity, use `docs/current_state.md`, `docs/integrity_status.md`, and active decisions under `docs/architecture/`.
 
----
+## 1. Product
 
-## 2. Target Audience & Design Vision
-- **Target Audience:** Professionals, students, and power users who seek an integrated productivity suite.
-- **Privacy Focus:** Users who value absolute privacy and offline capability (local-first state via AsyncStorage).
-- **Design Philosophy:** Inspired by the classic crow-and-pebbles story (raising the water level one pebble at a time). One task, one habit, one focus session, one reminder. Small actions create big progress.
-- **Visual Identity:** Friendly, calm, premium, modern, trustworthy, and personal. Minimal crow holding a purple pebble.
-- **Design Language:** Focuses on fluid gesture motion, premium glassmorphism overlays (via expo-blur), soft dynamic shadows, high-fidelity micro-interactions (expo-haptics), and a clean, borderless aesthetic leveraging modern fonts (@expo-google-fonts/outfit).
+**Product:** Pebble  
+**Platform:** React Native / Expo SDK 54
 
----
+Pebble is a local-first productivity app for tasks, habits, checklists, resources, scheduling, reminders, focus, and lightweight capture.
 
-## 3. Product Architecture & User Flow
+The product philosophy is based on small actions accumulating into meaningful progress.
 
-### 3.1 Global Natural Language Capture Flow
-The central interaction loop for creating structured tasks, reminders, and habits using plain text:
+## 2. Product Principles
 
-```mermaid
-graph TD
-    A[Tap FAB or Header Capture Pill] --> B[Open Premium Glassmorphic Pebble Capture Modal (Bottom Sheet)]
-    B --> C[Fading Rotating Placeholders Teach Users NLP Syntax]
-    C --> D[User Types: 'Study React tomorrow at 8pm and remind me 30 mins before']
-    D --> E[100% Offline Parser (Chrono + Pattern Heuristics) Runs in <12ms]
-    E --> F[Display Interactive Real-Time Preview Card]
-    F --> G{Smart Detection Badge: '✨ Smartly detected' or '📝 Draft'}
-    G --> H[Interactive Cycle-on-Tap Badges for Rapid Fine-tuning]
-    H --> I[Tap Badge: Category, Priority, Date, or Time cycles instantly with Haptics]
-    I --> J[Confirm & Save to Workspace (AsyncStorage)]
-    J --> K[Alarm scheduled via expo-notifications]
-```
+- **Local-first:** core user data remains usable offline.
+- **Execution over administration:** organization should support action rather than become work itself.
+- **Progress without pressure:** Pebbles/Cairn should encourage without becoming noisy or judgmental.
+- **Clear separation of concerns:** scheduling and reminders are different concepts.
+- **Progressive disclosure:** keep common actions obvious and secondary complexity contextual.
+- **Accessibility:** preserve semantic states and adequate touch targets.
+- **Consistency:** use existing Pebble components, theme, and domain vocabulary.
+- **Evolution over reinvention:** improve established flows before replacing their information architecture.
 
----
+## 3. Core Domains
 
-## 4. Feature Specifications
+### Tasks
+One-off actionable items. Exact fields and behavior are defined by the active task/domain implementation.
 
-### 4.1 Pebble Capture Engine
-- **Heuristic Parsing:** Centralized client-side parsing using `chrono-node` and regex pattern heuristics.
-- **Habit/Recurrence Detection:** Matches recurring keywords (`daily`, `every day`, `every morning`, `weekdays`, `weekends`) and automatically classifies the item as a `"habit"`.
-- **Smart Date & Time Extraction:** Extracts date/time phrases, combines them into actionable timestamps, and strips them from the task title.
-- **Smart Lead Reminders Offset:** Detects phrases like *"remind me 30 minutes before"* to compute offset and set accurate local notifications using `expo-notifications`.
-- **Cycle-on-Tap Customizations:**
-  - **Category:** Work ➔ Personal ➔ Health ➔ Learning ➔ Creative ➔ Focus
-  - **Priority:** High ➔ Medium ➔ Low
-  - **Date:** Today ➔ Tomorrow ➔ Next Week ➔ Inbox
-  - **Time:** None ➔ 08:00 ➔ 12:00 ➔ 15:00 ➔ 18:00 ➔ 20:00 ➔ 22:00
+### Habits
+Recurring activities with completion history and streak behavior.
 
-### 4.2 Behavior Suggestion Engine
-- **Local Analytics:** Frequency tracking based on task creations.
-- **Auto-Suggestions:** If a task is created multiple times, prompts to convert to a recurring habit.
-- **Action Loops:** Accept (automatically creates habit, schedules it, and awards pebbles) or Dismiss.
+### Checklists
+Independent checkable-list entities. They are not a Task-subtask architecture.
 
-### 4.3 Today Dashboard & Workspaces
-- **Universal Metrics:** Progress meters for active tasks and completed habits.
-- **Workspaces:** Segmented folder grids with due-today task indicators.
-- **Focus Timer:** Immersive Pomodoro timer with `react-native-reanimated` breathing rings, gamification (awards pebbles).
-- **Calendar Integration:** Leverages `react-native-calendars` for rich streak and schedule viewing.
+### Resources
+Passive reference material associated with workspaces/entities where supported.
 
----
+### Workspaces
+The organizational boundary for tasks, habits, checklists, and resources.
 
-## 5. Technical Stack & Non-Functional Requirements
-- **Framework:** Expo SDK 54, React Native 0.81 (New Architecture & React Compiler enabled), Expo Router with Typed Routes.
-- **Core Libraries:** `chrono-node` (date/time parser), pattern heuristics.
-- **Storage:** `@react-native-async-storage/async-storage` (100% offline local-first state).
-- **UI & Transitions:** `react-native-reanimated` (animations), `react-native-gesture-handler` (interactions), `expo-blur` (glassmorphism), `@gorhom/bottom-sheet` (bottom sheet modals).
-- **Performance Thresholds:**
-  - Parsing execution time: **<15ms** (runs on main or background thread efficiently).
-  - UI frame rate: **60fps** continuous UI render for gestures and modal sheets.
-  - Light-mode shadows: Dynamically softened to soft light levels (`opacity: 0.03 - 0.05`).
+### Today
+A day-focused execution surface.
+
+### Calendar / Schedule
+Scheduled placement of entities. A schedule determines calendar placement; a reminder determines notification behavior.
+
+### Focus
+A focused timer/workflow connected to productivity progress.
+
+### Capture
+Pebble supports local-first capture. The active capture implementation is authoritative for parsing behavior, UI, supported syntax, and interaction details.
+
+### Cairn
+Pebble's companion/mascot. See `docs/cairn_voice_guide.md` for personality and behavior guidance.
+
+## 4. Design Direction
+
+Pebble should feel calm, personal, modern, tactile, lightweight, and intentionally crafted.
+
+Do **not** treat glassmorphism, gradients, a FAB, a capture pill, a particular card treatment, or any other visual trend as a mandatory product-wide rule.
+
+When redesigning UI:
+1. Inspect the actual screen/component.
+2. Preserve established information architecture unless explicitly asked to change it.
+3. Use the current shared theme/components.
+4. Avoid inventing product concepts merely to fill a layout.
+
+## 5. Technical Direction
+
+The application uses Expo SDK 54, React Native, Expo Router, TypeScript, AsyncStorage, Reanimated, Gesture Handler, and feature-specific libraries.
+
+Architecture, storage keys, locking, recovery, and integrity details belong in the active code and architecture documentation rather than being duplicated here.
+
+## 6. Agent Boundary
+
+Agents must not use this PRD to:
+- invent screens or navigation absent from the current code,
+- resurrect obsolete terminology,
+- override active architecture decisions,
+- infer exact spacing, colors, components, or interaction behavior.
+
+When exact behavior matters, inspect the code.
