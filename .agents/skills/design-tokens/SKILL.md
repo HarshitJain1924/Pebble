@@ -1,74 +1,58 @@
 ---
 name: design-tokens
-description: Pebble's design token repository. Defines absolute constraints for spacing, layout, typography, borders, and motion physics.
+description: Semantic styling guidance for Pebble. Actual theme and component implementations in shared/constants/ and shared/components/ are authoritative.
 ---
 
-# Pebble Canonical Design Tokens
+# Pebble Design Tokens
 
-Use this skill as the absolute source of truth for styling layouts, typography, colors, animations, and spacing inside Pebble. Rather than hardcoding absolute pixel values in screens, map styles to this semantic system.
+Use semantic styling and existing Pebble tokens instead of ad-hoc values. This skill describes intent; implementation is authoritative.
 
----
+## 1. Typography
 
-## 1. Semantic Typography Scale
+Prefer the existing Pebble typography system and shared text primitives.
 
-All text in Pebble must map to a semantic tier. Do not specify arbitrary font sizes in layouts:
+Semantic roles:
+- `display` — major milestones/prominent numbers.
+- `heading` — screen/primary section titles.
+- `title` — subsection/workspace/modal titles.
+- `body` — normal task/checklist/resource text.
+- `caption` — metadata and secondary labels.
+- `micro` — compact status/progress indicators.
 
-*   `typography.display`: Prominent numbers or milestone headers (e.g. jar progress milestones, major accomplishments). High weight, maximum impact.
-*   `typography.heading`: Primary section titles and screen headers.
-*   `typography.title`: Subsection headers, Workspace titles, or modal header cards.
-*   `typography.body`: Standard readable text for tasks, checklists, descriptions, and paragraphs.
-*   `typography.caption`: Metadata markers, date stamps, and tags. Stylized with medium weight, secondary coloring, and uppercase when appropriate.
-*   `typography.micro`: Micro-indicators (e.g., streak fire counts, progress subtext). Minimal size, highly compact line-height.
+Do not invent a new font family or scale when an existing shared implementation covers the need.
 
----
+## 2. Spacing
 
-## 2. Spacing Scale
+Pebble generally follows a 4px rhythm, but exact values must come from current screen/component conventions and shared constants.
 
-Always align layout margins, paddings, gaps, and heights to Pebble's 4px baseline system. Map margins/paddings semantic names to variables defined in theme / style constants (`shared/constants/dashboardStyles.ts`):
+Do not assume `spacing.lg`, `spacing.xl`, etc. exist as runtime tokens unless they exist in code.
 
-*   `spacing.xs` (Extra Small): Gap for tiny element offsets (like streak fire gaps, text-icon spacing).
-*   `spacing.sm` (Small): Spacing for row contents or checkbox-text gaps.
-*   `spacing.md` (Medium): Spacing between rows in a list, or minor layout sections.
-*   `spacing.lg` (Large): Standard screen side margin, card internal padding, and main section gaps.
-*   `spacing.xl` (Extra Large): Padding for prominent modals, deep content sheets, or hero elements.
-*   `spacing.xxl` (2x Extra Large): Vertical padding separating distinct section headers.
+For an existing screen, preserve its established spacing rhythm unless the task is specifically a spacing redesign.
 
----
+## 3. Color & Theme
 
-## 3. Surface & Color Mappings
+Use the actual theme in `shared/constants/theme.ts` and related semantic color modules.
 
-Pebble's palette uses a dark void layout. Map colors semantically to the theme object:
+The current primary brand direction is the **Pine/green** ramp. Do not describe Indigo/Purple as Pebble's universal primary color.
 
-*   `colors.canvas` (Level 0): Base foundation canvas background.
-*   `colors.surface` (Level 1): Card background container surface.
-*   `colors.modal` (Level 2): Elevated modal containers, sliding drawer cards.
-*   `colors.overlay` (Level 3): Toast notifications, alert layers, hovering tooltips.
-*   `colors.primary`: Accent color (Indigo/Purple) representing active state, primary buttons, and selected tabs.
-*   `colors.success`: Color for complete items, positive milestone indicators.
-*   `colors.warning`: Color for streaks, recovery alerts, and warning flags.
-*   `colors.border`: Low-opacity hairline border to define surfaces.
-*   `colors.textPrimary`: Highest contrast text color for titles and headers.
-*   `colors.textMuted`: Secondary text color for description tags and captions.
-*   `colors.textMutedLight`: Low contrast text color for subtle placeholder inputs and disabled states.
+Always inspect exported names before using them.
 
----
+## 4. Radii & Touch Targets
 
-## 4. Radii & Touch Boundaries
+Use existing shared radius/component conventions.
 
-*   **Radii Semantic Tiers**:
-    *   `radii.sm`: Minor button curves, tag containers, input boxes.
-    *   `radii.md`: Standard list items, cards, preview sections.
-    *   `radii.lg`: Modals, bottom sheets, canvas layouts.
-    *   `radii.pill`: Filter chips, checkboxes, slide togglers.
-*   **Touch Targets**:
-    *   Every interactive element (button, checkbox, tab) must maintain a minimum hit target size of **44px x 44px**. If the visual size is smaller, utilize transparent padding boundaries.
+Interactive controls should preserve a minimum **44x44pt** hit target. Do not turn every control into a pill merely because a pill radius exists.
 
----
+## 5. Motion
 
-## 5. Motion Durations & Springs
+Prefer existing Reanimated/shared motion primitives and established timings/springs.
 
-All transitions must use physical springs or fast timings defined in the design system:
+Motion should communicate state or physical response, remain interruptible for gestures, avoid decorative animation, and respect accessibility/reduced-motion support where available.
 
-*   `spring.tactile`: High stiffness, low bounce (used for button press scale downs).
-*   `spring.natural`: Medium stiffness, standard bounce (used for slide transitions, page openings).
-*   `timing.duration`: Quick transition durations (max 200ms) with a natural bezier curve for opacity fades.
+Do not invent named spring/timing tokens without checking the implementation.
+
+## 6. Authority Rule
+
+If this skill disagrees with `shared/constants/theme.ts`, shared components, or the active screen/component, the implementation wins.
+
+Update this skill when the design system changes; do not use it to override the codebase.
