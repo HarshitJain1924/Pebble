@@ -281,6 +281,25 @@ describe("Task Metadata Formatter Suite", () => {
 
       expect(parts.map((p) => p.text)).toEqual(["Today", "8:00 PM"]);
     });
+
+    it("suppresses reminder when date and full time range are present to prevent overflow", () => {
+      const task: Task = {
+        ...baseTask,
+        title: "Team meeting",
+        schedule: { date: "2026-09-12", startTime: "16:21", endTime: "17:21" },
+        reminder: {
+          enabled: true,
+          triggerAt: new Date(2026, 8, 12, 15, 30).getTime(),
+        },
+      };
+
+      const parts = getTaskMetadataParts(task, {
+        referenceDate,
+        colors,
+        sectionContext: "earlier",
+      });
+      expect(parts.map((p) => p.text)).toEqual(["Sep 12", "4:21–5:21 PM"]);
+    });
   });
 
   describe("6. Recurring Tasks", () => {
@@ -854,7 +873,7 @@ describe("Task Metadata Formatter Suite", () => {
         expect(categoryPart?.icon).toBeUndefined();
       });
 
-      it("renders Earlier task with calendar date and clock time range", () => {
+      it("renders Earlier task with calendar date and clock time range without redundant icon", () => {
         const task: Task = {
           ...baseTask,
           title: "Team meeting",
@@ -876,8 +895,8 @@ describe("Task Metadata Formatter Suite", () => {
         expect(parts[1]).toMatchObject({
           key: "time",
           text: "4:21–5:21 PM",
-          icon: "clock",
         });
+        expect(parts[1].icon).toBeUndefined();
       });
 
       it("automatically omits Overdue label when sectionContext is earlier by default", () => {
@@ -902,8 +921,37 @@ describe("Task Metadata Formatter Suite", () => {
         expect(parts[1]).toMatchObject({
           key: "time",
           text: "10:00 AM",
-          icon: "clock",
         });
+        expect(parts[1].icon).toBeUndefined();
+      });
+
+      it("suppresses reminder when both date and time are present to protect primary schedule", () => {
+        const task: Task = {
+          ...baseTask,
+          title: "Team meeting",
+          schedule: { date: "2026-09-12", startTime: "16:21", endTime: "17:21" },
+          reminder: {
+            enabled: true,
+            triggerAt: new Date(2026, 8, 12, 15, 30).getTime(),
+          },
+        };
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          sectionContext: "earlier",
+          colors,
+        });
+
+        expect(parts).toHaveLength(2);
+        expect(parts[0]).toMatchObject({
+          key: "date",
+          text: "Sep 12",
+          icon: "calendar",
+        });
+        expect(parts[1]).toMatchObject({
+          key: "time",
+          text: "4:21–5:21 PM",
+        });
+        expect(parts.find((p) => p.key === "reminder")).toBeUndefined();
       });
     });
   });

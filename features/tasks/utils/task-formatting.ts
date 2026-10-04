@@ -389,6 +389,8 @@ export function getTaskMetadataParts(
   }
 
   // 3. Date / Recurrence context
+  let hasTemporalAnchor = false;
+
   if (hasRecurrence) {
     // Recurring tasks: NEVER present the base schedule date as current occurrence.
     const rawLabel = getRecurrenceLabel(task.recurrence);
@@ -400,6 +402,7 @@ export function getTaskMetadataParts(
         color: textMuted,
         icon: "repeat",
       });
+      hasTemporalAnchor = true;
     }
   } else if (!isInboxTask) {
     // Scheduled non-recurring task
@@ -423,6 +426,7 @@ export function getTaskMetadataParts(
           color: textMuted,
           icon: "calendar",
         });
+        hasTemporalAnchor = true;
       }
     }
   }
@@ -433,12 +437,17 @@ export function getTaskMetadataParts(
     task.schedule?.endTime,
     durationMinutes
   );
+  let hasTime = false;
   if (timeRange && (!isInboxTask || hasRecurrence)) {
+    hasTime = true;
     parts.push({
       key: "time",
       text: timeRange,
       color: textMuted,
-      icon: "clock",
+      // When date or recurrence already anchors the temporal block, avoid repeating icons
+      // (e.g. "Sep 12 · 4:21–5:21 PM", not "Sep 12 · ◷ 4:21–5:21 PM").
+      // Standalone time gets the clock icon (e.g. in Today: "◷ 2:00 PM").
+      icon: hasTemporalAnchor ? undefined : "clock",
     });
   }
 
@@ -450,13 +459,19 @@ export function getTaskMetadataParts(
         key: "duration",
         text: formattedDuration,
         color: textMuted,
-        icon: "clock",
+        icon: hasTemporalAnchor ? undefined : "clock",
       });
     }
   }
 
   // 6. Reminder: only if enabled, not completed, and not colliding with schedule start time
-  if (task.reminder?.enabled && task.reminder?.triggerAt && !isCompleted) {
+  // Priority: keep primary temporal info (date + time range). Suppress reminder when date or
+  // recurrence and a time range are both present so the core schedule is never truncated or crowded out.
+  const hasTemporalSpan = parts.some((p) => p.key === "date" || p.key === "recurrence");
+  const isTimeRange = Boolean(timeRange && timeRange.includes("–"));
+  const shouldSuppressReminder = hasTemporalSpan && isTimeRange;
+
+  if (task.reminder?.enabled && task.reminder?.triggerAt && !isCompleted && !shouldSuppressReminder) {
     const d = new Date(task.reminder.triggerAt);
     const reminderTime = formatReminderTime(d.getHours(), d.getMinutes());
     const scheduleStartTime = formatTimeString(task.schedule?.startTime);

@@ -151,7 +151,7 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
   });
 
   describe("TodoItem (TaskItem)", () => {
-    it("renders collapsed row with circular checkbox, title, and trailing resource stack", () => {
+    it("renders collapsed row with circular checkbox, title, and compact trailing resource indicator", () => {
       let renderer: any;
 
       act(() => {
@@ -176,11 +176,10 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
 
       expect(renderedTexts).toContain("Read design article");
 
-      // Verify trailing resource tiles exist
-      const tile0 = root.findByProps({ testID: "resource-stack-tile-0" });
-      const tile1 = root.findByProps({ testID: "resource-stack-tile-1" });
-      expect(tile0).toBeDefined();
-      expect(tile1).toBeDefined();
+      // Verify compact trailing resource indicator exists with count
+      const resIndicator = root.findByProps({ testID: "task-resource-indicator" });
+      expect(resIndicator).toBeDefined();
+      expect(renderedTexts).toContain("2");
     });
 
     it("stays collapsed by default and reveals resources only on demand (no quick-action toolbar)", () => {
@@ -210,9 +209,9 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
       const root = renderer.root;
       const collapsedTexts = root.findAllByType("Text").map((n: any) => n.props.children);
 
-      // The collapsed row keeps the title and the restrained resource preview
+      // The collapsed row keeps the title and the restrained resource indicator
       expect(collapsedTexts).toContain("Read design article");
-      expect(root.findByProps({ testID: "resource-stack-tile-0" })).toBeDefined();
+      expect(root.findByProps({ testID: "task-resource-indicator" })).toBeDefined();
 
       // The old giant card is gone: no description, no resource header, no toolbar
       expect(collapsedTexts).not.toContain("Read the design article and make notes...");

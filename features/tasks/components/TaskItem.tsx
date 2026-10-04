@@ -1,6 +1,5 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Image as ExpoImage } from "expo-image";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -232,14 +231,25 @@ export function TodoItem({
 
   const totalResources = linkedResources.length;
 
-  const visibleTiles = useMemo(() => {
-    if (totalResources === 0) return [];
-    if (totalResources <= 3) return linkedResources;
-    return linkedResources.slice(0, 2);
-  }, [linkedResources, totalResources]);
+  const primaryResourceVisual = useMemo(() => {
+    if (!linkedResources || linkedResources.length === 0) return null;
+    return resolveResourceVisual(linkedResources[0]);
+  }, [linkedResources]);
 
-  const hasPlusChip = totalResources >= 4;
-  const plusChipCount = totalResources - 2;
+  const resourceIconName = useMemo(() => {
+    if (!primaryResourceVisual) return "paperclip";
+    switch (primaryResourceVisual.category) {
+      case "link":
+        return "link-2";
+      case "image":
+        return "image";
+      case "pdf":
+        return "file";
+      case "note":
+      default:
+        return "file-text";
+    }
+  }, [primaryResourceVisual]);
 
   const handleOpenResource = (res: any) => {
     Haptics.selectionAsync().catch(() => {});
@@ -350,83 +360,7 @@ export function TodoItem({
     colors.error,
   ]);
 
-  // Render a compact tile in the collapsed trailing stack
-  const renderStackTile = (res: any, index: number) => {
-    const visual = resolveResourceVisual(res);
-    const stream = streamColors[visual.category] || streamColors.note;
-    const isImageWithThumb = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
 
-    return (
-      <View
-        key={res.id || `tile-${index}`}
-        testID={`resource-stack-tile-${index}`}
-        style={{
-          width: ROW_SPEC.stack.tile,
-          height: ROW_SPEC.stack.tile,
-          borderRadius: ROW_SPEC.stack.tileRadius,
-          borderWidth: ROW_SPEC.stack.ring,
-          borderColor: isDark ? (isCompleted ? "rgba(255, 255, 255, 0.04)" : colors.card) : Palette.white,
-          backgroundColor: stream.backgroundColor,
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-          marginLeft: index === 0 ? 0 : -ROW_SPEC.stack.overlap,
-        }}
-      >
-        {isImageWithThumb ? (
-          <ExpoImage
-            source={{ uri: visual.thumbnailUri || res.mediaUri }}
-            style={{ width: "100%", height: "100%" }}
-            contentFit="cover"
-          />
-        ) : (
-          <Feather
-            name={
-              visual.category === "link"
-                ? "link"
-                : visual.category === "image"
-                ? "image"
-                : visual.category === "pdf"
-                ? "file"
-                : "file-text"
-            }
-            size={ROW_SPEC.stack.icon}
-            color={stream.accent}
-          />
-        )}
-      </View>
-    );
-  };
-
-  const renderPlusChip = (count: number) => {
-    return (
-      <View
-        key="plus-chip"
-        testID="resource-stack-plus-chip"
-        style={{
-          width: ROW_SPEC.stack.tile,
-          height: ROW_SPEC.stack.tile,
-          borderRadius: ROW_SPEC.stack.tileRadius,
-          borderWidth: ROW_SPEC.stack.ring,
-          borderColor: isDark ? (isCompleted ? "rgba(255, 255, 255, 0.04)" : colors.card) : Palette.white,
-          backgroundColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
-          alignItems: "center",
-          justifyContent: "center",
-          marginLeft: -ROW_SPEC.stack.overlap,
-        }}
-      >
-        <Text
-          style={{
-            fontSize: ROW_SPEC.stack.chipFont,
-            fontWeight: "700",
-            color: colors.textMuted,
-          }}
-        >
-          {`+${count}`}
-        </Text>
-      </View>
-    );
-  };
 
   // Trailing stack tap toggles inline chips
 
@@ -604,7 +538,7 @@ export function TodoItem({
             )}
           </PressableScale>
 
-          {/* Trailing Resource Stack & Overflow */}
+          {/* Trailing Resource Indicator & Overflow */}
           <View style={styles.trailingArea}>
             {totalResources > 0 && (
               <PressableScale
@@ -618,12 +552,32 @@ export function TodoItem({
                 accessibilityRole="button"
                 accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
                 accessibilityState={{ expanded: false }}
-                style={styles.resourceStackPressable}
+                style={[
+                  styles.compactResourceBadge,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.08)"
+                      : "rgba(0, 0, 0, 0.04)",
+                    borderColor: isDark
+                      ? "rgba(255, 255, 255, 0.10)"
+                      : "rgba(0, 0, 0, 0.06)",
+                  },
+                ]}
+                testID="task-resource-indicator"
               >
-                <View style={styles.stackRow}>
-                  {visibleTiles.map((res: any, index: number) => renderStackTile(res, index))}
-                  {hasPlusChip && renderPlusChip(plusChipCount)}
-                </View>
+                <Feather
+                  name={resourceIconName as any}
+                  size={12}
+                  color={colors.textMuted}
+                />
+                <Text
+                  style={[
+                    styles.compactResourceCount,
+                    { color: colors.textMuted },
+                  ]}
+                >
+                  {String(totalResources)}
+                </Text>
               </PressableScale>
             )}
 
@@ -762,11 +716,11 @@ const styles = StyleSheet.create({
   },
   metaPartWorkspace: {
     flexShrink: 1,
-    maxWidth: 96,
+    maxWidth: 110,
   },
   metaPartRecurrence: {
     flexShrink: 1,
-    maxWidth: 110,
+    maxWidth: 130,
   },
   metaPartLast: {
     flexShrink: 1,
@@ -792,21 +746,27 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     gap: 2,
   },
-  resourceStackPressable: {
+  compactResourceBadge: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 4,
-    paddingHorizontal: 2,
+    gap: 3.5,
+    paddingHorizontal: 7,
+    paddingVertical: 3.5,
+    borderRadius: 7,
+    borderWidth: 1,
+    marginRight: 2,
+    flexShrink: 0,
+  },
+  compactResourceCount: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: -0.2,
   },
   overflowButton: {
     width: 28,
     height: 36,
     alignItems: "center",
     justifyContent: "center",
-  },
-  stackRow: {
-    flexDirection: "row",
-    alignItems: "center",
   },
 });

@@ -277,7 +277,7 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       expect(stackPressable).toBeUndefined();
     });
 
-    it("renders single tile and no chip for 1 resource", () => {
+    it("renders compact indicator with count 1 for 1 resource", () => {
       let root: any;
       act(() => {
         root = create(
@@ -301,14 +301,13 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       expect(stackPressable).toBeDefined();
       expect(stackPressable.props.accessibilityState).toEqual({ expanded: false });
 
-      const tile0 = root.root.findAllByProps({ testID: "resource-stack-tile-0" });
-      expect(tile0.length).toBeGreaterThan(0);
-
-      const plusChip = root.root.findAllByProps({ testID: "resource-stack-plus-chip" });
-      expect(plusChip.length).toBe(0);
+      const indicator = root.root.findByProps({ testID: "task-resource-indicator" });
+      expect(indicator).toBeDefined();
+      const textNodes = indicator.findAllByType("Text" as any);
+      expect(textNodes.map((t: any) => t.props.children)).toContain("1");
     });
 
-    it("renders 3 tiles and no chip for 3 resources", () => {
+    it("renders compact indicator with count 3 for 3 resources", () => {
       let root: any;
       act(() => {
         root = create(
@@ -331,18 +330,13 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       });
       expect(stackPressable).toBeDefined();
 
-      const tile0 = root.root.findAllByProps({ testID: "resource-stack-tile-0" });
-      const tile1 = root.root.findAllByProps({ testID: "resource-stack-tile-1" });
-      const tile2 = root.root.findAllByProps({ testID: "resource-stack-tile-2" });
-      expect(tile0.length).toBeGreaterThan(0);
-      expect(tile1.length).toBeGreaterThan(0);
-      expect(tile2.length).toBeGreaterThan(0);
-
-      const plusChip = root.root.findAllByProps({ testID: "resource-stack-plus-chip" });
-      expect(plusChip.length).toBe(0);
+      const indicator = root.root.findByProps({ testID: "task-resource-indicator" });
+      expect(indicator).toBeDefined();
+      const textNodes = indicator.findAllByType("Text" as any);
+      expect(textNodes.map((t: any) => t.props.children)).toContain("3");
     });
 
-    it("renders 2 tiles and +2 chip for 4 resources", () => {
+    it("renders compact indicator with count 4 for 4 resources", () => {
       let root: any;
       act(() => {
         root = create(
@@ -365,22 +359,13 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       });
       expect(stackPressable).toBeDefined();
 
-      const tile0 = root.root.findAllByProps({ testID: "resource-stack-tile-0" });
-      const tile1 = root.root.findAllByProps({ testID: "resource-stack-tile-1" });
-      const tile2 = root.root.findAllByProps({ testID: "resource-stack-tile-2" });
-      expect(tile0.length).toBeGreaterThan(0);
-      expect(tile1.length).toBeGreaterThan(0);
-      expect(tile2.length).toBe(0);
-
-      const plusChip = root.root.findAllByProps({ testID: "resource-stack-plus-chip" });
-      expect(plusChip.length).toBeGreaterThan(0);
-
-      const textNodes = plusChip[0].findAllByType("Text" as any);
-      const chipTexts = textNodes.map((t: any) => t.props.children);
-      expect(chipTexts).toContain("+2");
+      const indicator = root.root.findByProps({ testID: "task-resource-indicator" });
+      expect(indicator).toBeDefined();
+      const textNodes = indicator.findAllByType("Text" as any);
+      expect(textNodes.map((t: any) => t.props.children)).toContain("4");
     });
 
-    it("renders 2 tiles and +5 chip for 7 resources", () => {
+    it("renders compact indicator with count 7 for 7 resources", () => {
       let root: any;
       act(() => {
         root = create(
@@ -406,19 +391,10 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       });
       expect(stackPressable).toBeDefined();
 
-      const tile0 = root.root.findAllByProps({ testID: "resource-stack-tile-0" });
-      const tile1 = root.root.findAllByProps({ testID: "resource-stack-tile-1" });
-      const tile2 = root.root.findAllByProps({ testID: "resource-stack-tile-2" });
-      expect(tile0.length).toBeGreaterThan(0);
-      expect(tile1.length).toBeGreaterThan(0);
-      expect(tile2.length).toBe(0);
-
-      const plusChip = root.root.findAllByProps({ testID: "resource-stack-plus-chip" });
-      expect(plusChip.length).toBeGreaterThan(0);
-
-      const textNodes = plusChip[0].findAllByType("Text" as any);
-      const chipTexts = textNodes.map((t: any) => t.props.children);
-      expect(chipTexts).toContain("+5");
+      const indicator = root.root.findByProps({ testID: "task-resource-indicator" });
+      expect(indicator).toBeDefined();
+      const textNodes = indicator.findAllByType("Text" as any);
+      expect(textNodes.map((t: any) => t.props.children)).toContain("7");
     });
 
     it("opens quick editor when the resource area is tapped", () => {
