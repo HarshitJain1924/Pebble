@@ -1,192 +1,158 @@
 ---
 name: design-tokens
-description: Pebble's design token repository. Defines the actual implemented constraints for color, typography, spacing, radius, shadows, and motion physics.
+description: Pebble's canonical design token reference. Maps visual decisions directly to constants in shared/constants/* (color, typography, spacing, radii, shadows, row specifications).
 ---
 
 # Pebble Canonical Design Tokens
 
-> **Truth as of 2026-10-02.** Verified against `shared/constants/*` on this date. If those constants change, this skill is stale — the constants win.
+> **Truth as of 2026-10-02.** Verified against `shared/constants/*`. If those constants change, this document is stale — the constants win.
 
-This skill maps design decisions onto the tokens that **actually exist in the
-codebase**. It is authoritative only as a pointer: if this document and
-`shared/constants/*` ever disagree, the constants win — verify against the source
-before styling.
-
-> **Source of truth for styling lives in code, not in this file:**
-> `shared/constants/theme.ts` (`Colors`, `Palette`, `Fonts`),
-> `shared/constants/typography.ts` (`Typography`),
-> `shared/constants/spacing.ts` (`Spacing`),
-> `shared/constants/radii.ts` (`Radius`),
-> `shared/constants/shadows.ts` (`Shadows`),
-> `shared/constants/categoryColors.ts` (semantic entity/priority/status hues).
->
-> `theme.ts` and `categoryColors.ts` are the **only two modules allowed to contain
-> raw hex literals** (enforced by the `pebble/no-raw-hex-colors` ESLint guard).
-> Do not invent token names; if a token does not exist here, it does not exist.
+This skill documents the design tokens that **actually exist in the codebase**. It is subordinate to `shared/constants/*`: if this document and code ever disagree, the code wins.
 
 ---
 
-## 1. Color
+## 1. Skill Contract & Deterministic Activation
 
-Colors are resolved per scheme from `Colors[scheme]` where `scheme` is
-`"dark" | "light"` (dark is the app default). Available semantic keys:
-
-*   `colors.background` — canvas / foundation surface.
-*   `colors.card` — raised card surface.
-*   `colors.cardLight` — slightly lighter card surface.
-*   `colors.primary` — **brand accent, derived from the Pine ramp** (dark `#358366`, light `#2C6C54`). The old "Indigo/Purple primary" claim is stale: Indigo is retained only for one-off illustration/ambient tints and is explicitly *not* the primary.
-*   `colors.primaryLight` — lighter Pine step used for accent text/icons.
-*   `colors.secondary` — blue accent (`#3B82F6` dark / `#2563EB` light).
-*   `colors.text` — primary body/heading text.
-*   `colors.textMuted` — secondary text, captions, placeholders.
-*   `colors.success` — emerald for completion/positive states.
-*   `colors.warning` — amber for streaks/alerts.
-*   `colors.error` — red for destructive/warning states.
-*   `colors.border` — faint hairline divider/boundary.
-*   `colors.icon` — default icon tint.
-*   `colors.tabIconDefault`, `colors.tabIconSelected` — navigation icon states.
-
-Raw primitives (mode-independent) live on `Palette` (e.g. `Palette.pine500`,
-`Palette.amber500`) and must only be used inside light/dark ternaries or the two
-sanctioned modules above.
-
-### Semantic / category colors
-Entity, priority, status, calendar, resource, and pebble hues live in
-`shared/constants/categoryColors.ts`, resolved through `getCategoryColor`,
-`getCategoryColors(isDark)`, or the `shared/hooks/useCategoryColors` hook. Do not
-re-derive an entity hue with an inline `isDark ? "#x" : "#y"` ternary in a
-component.
-
-### Typography colors
-Use `colors.text`, `colors.textMuted`, and semantic hues from the category map.
-There are no `textPrimary` / `textMutedLight` tokens.
+* **Activates When**: Writing or styling React Native components, looking up theme colors, sizing typography, configuring spacing/radii, or verifying token compliance.
+* **Responsible For**:
+  - Explaining the tokens implemented in `shared/constants/*`.
+  - Guiding correct import paths for style constants.
+  - Enforcing the `no-raw-hex-colors` guard.
+* **Must NOT Do**:
+  - Does NOT invent tokens (no non-existent tokens like `Colors.accent`, `textPrimary`, or `Radius.full`).
+  - Does NOT define a second competing token system.
+  - Does NOT dictate high-level screen layout or domain boundaries (defer to `pebble-design`).
+  - Does NOT specify motion curves (defer to `emil-design-eng`).
+* **Source of Truth Hierarchy**:
+  1. `shared/constants/*` (Absolute implementation truth)
+  2. `design-tokens` (Reference documentation)
 
 ---
 
-## 2. Typography
+## 2. Token Modules Overview
 
-`Typography` (`shared/constants/typography.ts`) exposes three things only:
+All tokens live under `shared/constants/`:
 
-*   `Typography.fontFamily.headline` = `"Outfit_700Bold"`
-*   `Typography.fontFamily.body` = `"Outfit_400Regular"`
-*   `Typography.sizes`: `xs 12 · sm 14 · md 16 · lg 18 · xl 20 · xxl 24 · display 34`
-*   `Typography.weights`: `regular 400 · medium 500 · semibold 600 · bold 700 · heavy 800`
-
-The Outfit family (400/500/600/700) is loaded in `app/_layout.tsx`. There are no
-`typography.display` / `typography.heading` / `typography.caption` tokens — map to a
-`Typography.sizes` step and an `AppText` variant instead. Render all text through
-`AppText` (`shared/components/ui/AppText.tsx`) so weights/colors stay consistent.
-
----
-
-## 3. Spacing
-
-`Spacing` (`shared/constants/spacing.ts`) is the 4px-based scale:
-
-*   `xs 4 · sm 8 · md 12 · lg 16 · xl 20 · xxl 24 · ux 32`
-
-Align margins, paddings, gaps, and heights to this scale. `lg` (16) is the standard
-screen side gutter; `ux` (32) is the spacious gutter for hero surfaces.
+| Token Domain | Implementation File | Key Export |
+| :--- | :--- | :--- |
+| **Colors & Palette** | `shared/constants/theme.ts` | `Colors[scheme]`, `Palette` |
+| **Semantic & Category Hues** | `shared/constants/categoryColors.ts` | `getCategoryColor`, `getCategoryColors` |
+| **Typography** | `shared/constants/typography.ts` | `Typography` |
+| **Spacing** | `shared/constants/spacing.ts` | `Spacing` |
+| **Radii** | `shared/constants/radii.ts` | `Radius` |
+| **Shadows / Elevation** | `shared/constants/shadows.ts` | `Shadows` |
+| **Row Specifications** | `shared/constants/rowSpec.ts` | `ROW_SPEC` |
 
 ---
 
-## 4. Radii & Touch Boundaries
+## 3. Color Tokens (`shared/constants/theme.ts`)
 
-`Radius` (`shared/constants/radii.ts`):
+Colors are resolved per scheme via `Colors[scheme]` where `scheme` is `"dark" | "light"` (dark is the default).
 
-*   `sm 8` — badges, chips, compact tags, small inner controls.
-*   `md 12` — standard controls (buttons, inputs, list tiles).
-*   `lg 16` — cards, containers, prominent banners.
-*   `xl 20` — primary elevated cards (`AppCard`), major surfaces, modal cards.
-*   `pill 9999` — fully rounded pills, filter chips, search bars.
+### Semantic Colors
+* `colors.background`: Base canvas / foundation surface.
+* `colors.card`: Standard raised card surface.
+* `colors.cardLight`: Secondary/hover card surface.
+* `colors.primary`: **Pine brand accent** (dark `#358366`, light `#2C6C54`).
+* `colors.primaryLight`: Lighter Pine step (`#44A782` dark / `#358366` light) for accent text/icons.
+* `colors.secondary`: Blue accent (`#3B82F6` dark / `#2563EB` light).
+* `colors.text`: Primary body and heading text.
+* `colors.textMuted`: Secondary labels, captions, placeholders.
+* `colors.success`: Emerald for positive/completion states.
+* `colors.warning`: Amber for streaks and alerts.
+* `colors.error`: Red for destructive states and warnings.
+* `colors.border`: Faint hairline divider/boundary.
+* `colors.icon`: Default icon tint.
+* `colors.tabIconDefault`, `colors.tabIconSelected`: Navigation dial states.
 
-**Touch targets**: every interactive element must keep a **44×44pt** minimum hit
-area; where the visual is smaller, expand with transparent padding or `hitSlop`
-(`PressableScale` defaults `hitSlop={8}`).
+### Raw Palette (`Palette`)
+Raw primitives live on `Palette` (e.g. `Palette.pine500`, `Palette.amber500`). Use raw primitives only inside light/dark ternaries or inside `theme.ts` / `categoryColors.ts`.
 
-### Card Usage Rule (Surface Primitive, NOT Default Layout Primitive)
-*   **Cards are a surface primitive, not the default layout primitive.**
-*   Prefer flat lists, rows, sections, whitespace, dividers, tabs, and tonal grouping when they communicate hierarchy better.
-*   **Never nest cards inside cards.** Surfaces remain flat at Level 1.
-*   **Never wrap every individual piece of information in its own card.**
+> **ESLint Guard**: `theme.ts` and `categoryColors.ts` are the **only two modules allowed to contain raw hex literals** (`pebble/no-raw-hex-colors`). All components must consume semantic tokens.
 
----
-
-## 5. Shadows / Elevation
-
-`Shadows` (`shared/constants/shadows.ts`) exposes two platform-aware presets:
-
-*   `Shadows.soft` — the standard raised card shadow (dark-first).
-*   `Shadows.glow` — a Pine-tinted glow for accent surfaces.
-
-Surface hierarchy is **tonal layering**, not a stack of literal levels: Level 0
-canvas, Level 1 surface cards, Level 2 modals/sheets, Level 3 transient overlays.
-Translucency/blur (`expo-blur`) is used only where it improves hierarchy or depth —
-it is not a universal background treatment. See
-`docs/architecture/decision_log.md` (`surface-hierarchy-vs-glassmorphism`).
+### Category & Semantic Hues (`categoryColors.ts`)
+Entity, priority, status, and workspace colors are resolved through `getCategoryColor(category, isDark)` or the hook `useCategoryColors()`. Do not write ad-hoc hex ternaries in components.
 
 ---
 
-## 6. Motion Physics
+## 4. Typography Tokens (`shared/constants/typography.ts`)
 
-There is **no central `Motion` / `spring.tactile` / `spring.natural` / `timing.duration`
-token module.** Motion is authored inline with Reanimated:
+Render text using `AppText` (`shared/components/ui/AppText.tsx`) which binds to Outfit font steps:
 
-*   **Springs for translation, scale, and gesture release** — e.g. the dial open uses
-    `withSpring(1, { damping: 17, stiffness: 220, mass: 0.65 })`; press feedback uses
-    springs in `PressableScale` (`damping: 12, stiffness: 200`, scale to `0.97`).
-*   **Timings for fades/color transitions** — `withTiming` under ~200ms with an
-    out easing.
-*   Respect `useReducedMotion()` (`shared/hooks/useReducedMotion`) for any ambient or
-    looping animation, and route JS state updates out of worklets with `runOnJS`.
+* **Font Families**:
+  * `Typography.fontFamily.headline` = `"Outfit_700Bold"`
+  * `Typography.fontFamily.body` = `"Outfit_400Regular"`
+* **Sizes** (`Typography.sizes`):
+  * `xs`: 12
+  * `sm`: 14
+  * `md`: 16 (standard body)
+  * `lg`: 18
+  * `xl`: 20
+  * `xxl`: 24
+  * `display`: 34
+* **Weights** (`Typography.weights`):
+  * `regular`: `"400"`
+  * `medium`: `"500"`
+  * `semibold`: `"600"`
+  * `bold`: `"700"`
+  * `heavy`: `"800"`
 
-Do not cite spring/timing tokens that do not exist; copy the physics from the nearest
-existing component or `PressableScale` instead.
-
----
-
-## 7. Row Specifications
-
-Task and checklist rows follow `ROW_SPEC` (`shared/constants/rowSpec.ts`):
-*   `row`: padding vertical 14, horizontal 16/14, gap 12.
-*   `checkbox`: 24pt visual ring, 1.5 ring width, 44pt effective hit area.
-*   `badge`: 36pt tile, 11pt radius, 18pt icon.
-*   `type`: title 16 (weight 600), meta 13.
-*   `dividerInset`: 52pt (aligned to the badge left edge).
-*   `listRow`: minHeight 44pt.
+*Note*: There are no `typography.heading` or `typography.caption` object tokens. Map directly to `Typography.sizes` and `Typography.weights` steps or `AppText` props.
 
 ---
 
-## 8. Design Stance (2026)
+## 5. Spacing Tokens (`shared/constants/spacing.ts`)
 
-Pebble targets a **clean, modern 2026 mobile aesthetic**: calm and intentional, high
-information clarity, generous purposeful whitespace, content-first surfaces, strong
-visual hierarchy, and restrained motion. Identity comes from the Outfit type scale,
-the Pine accent, workspace hues, and spacing rhythm — not decoration.
+Pebble enforces a disciplined 4px baseline scale:
 
-### Token Selection Guidelines:
-*   **Token Authority**: `shared/constants/*` is the absolute implementation authority.
-    *   **Never invent tokens.** Never invent colors, spacing, typography, radii, or motion tokens.
-    *   If documentation conflicts with code, **code wins**.
-    *   Do not prescribe or import values that do not exist in `shared/constants/*`.
-*   **Surface Depth**: Prefer **tonal layering and soft shadows** for depth. Reach for `expo-blur`
-    only where it genuinely improves hierarchy/depth/context and stays performant/readable;
-    it is never a mandatory style rule.
-*   **Layout Focus & Hero Rule**: "1 Hero, 3 Supporting" is strictly an **optional heuristic for overview surfaces** (Today).
-    *   **Never force a hero component onto functional screens** (workspaces, task lists, calendar timeline, forms, detail screens, planners).
-    *   Do not turn every screen into a dashboard.
-*   **Tactile Interaction**: Keep **state feedback** immediate (spring press + haptics) and **transitions**
-    fast (<200ms), and honor `useReducedMotion`.
-*   **States**: Design real **empty/loading/error** states with `EmptyState`, not generic placeholders.
+* `Spacing.xs`: 4
+* `Spacing.sm`: 8
+* `Spacing.md`: 12
+* `Spacing.lg`: 16 (standard screen side gutter and card padding)
+* `Spacing.xl`: 20
+* `Spacing.xxl`: 24
+* `Spacing.ux`: 32 (hero surface padding)
 
-### Anti-Patterns to Avoid (What Modern 2026 is NOT):
-*   ❌ Glassmorphism everywhere.
-*   ❌ Gradients everywhere.
-*   ❌ Giant hero cards on functional screens.
-*   ❌ Excessive rounded cards or wrapping every element in a card.
-*   ❌ Bento / dashboard grids.
-*   ❌ Floating action buttons everywhere (capture is in the central radial dial).
-*   ❌ Excessive pills and decorative badges.
-*   ❌ Excessive animation (>300ms, ease-in, unnecessary looping).
-*   ❌ Generic corporate SaaS dashboard aesthetics.
+Align all margins, paddings, gaps, and control heights to these steps.
 
+---
+
+## 6. Radii Tokens (`shared/constants/radii.ts`)
+
+Corner radii for touch elements and surfaces:
+
+* `Radius.sm`: 8 — Badges, chips, compact tags.
+* `Radius.md`: 12 — Standard inputs, buttons, list tiles.
+* `Radius.lg`: 16 — Standard cards, containers.
+* `Radius.xl`: 20 — Primary elevated cards (`AppCard`), modal sheets.
+* `Radius.pill`: 9999 — Fully rounded pills, search bars, filter chips.
+
+**Touch Targets**: Every interactive element must maintain a minimum **44×44pt** hit area. Expand smaller visual controls using `hitSlop` (`PressableScale` defaults to `hitSlop={8}`).
+
+---
+
+## 7. Shadows & Surface Elevation (`shared/constants/shadows.ts`)
+
+Pebble uses tonal layering for depth, augmented by two platform-aware shadow presets:
+
+* `Shadows.soft`: Raised card elevation (subtle, dark-first).
+* `Shadows.glow`: Pine-tinted accent glow for active or hero surfaces.
+
+---
+
+## 8. Row Specifications (`shared/constants/rowSpec.ts`)
+
+Standard dimensions for task, habit, and checklist rows:
+
+* `row`: `paddingVertical: 14`, `paddingHorizontal: 16`, `gap: 12`
+* `checkbox`: 24pt visual ring, 1.5 ring width, 44pt effective hit area
+* `badge`: 36pt tile, 11pt radius, 18pt icon
+* `type`: Title 16 (`Typography.weights.semibold`), meta 13 (`Typography.weights.regular`)
+* `dividerInset`: 52pt (aligned to the text start edge after the badge/checkbox)
+* `listRow.minHeight`: 44pt
+
+---
+
+## 9. Motion Note (No Token Module)
+
+**There is no central `Motion` or `spring.tactile` token module in Pebble.** Do not import or invent motion token objects. All motion is authored inline via `react-native-reanimated` worklets according to the interaction craft principles in `emil-design-eng`.

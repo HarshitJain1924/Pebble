@@ -1,83 +1,109 @@
 ---
 name: world-class-product-review
-description: Critique framework simulating the design standards of Alan Dye (Apple), Dieter Rams, Linear, Things 3, and Arc Browser to filter out generic layout generations.
+description: Optional final quality filter for major or high-impact screen redesigns. Evaluates proposals against visual bloat, unnecessary complexity, and craft integrity without redefining tokens or layout rules.
 ---
 
-# World-Class Product Review Guide
+# World-Class Product Review (Quality Filter Overlay)
 
-This skill operates as a high-quality product review overlay. Before implementing *any* design, review the proposed layout through the craft lenses of history's and today's design pioneers:
+> **Truth as of 2026-10-02.** Subordinate to active code, `pebble-design`, and `design-tokens`.
 
-> **Pebble Scope & Identity Note:** These design figures serve as **craft quality standards**, NOT an instruction to create a derivative visual collage of other apps. Pebble has its own distinct identity:
-> - **Pine Accent & Outfit Typography**: Distinctive botanical green primary (`#358366`) and clean editorial type.
-> - **Calm Tonal Surfaces & Tactility**: Level 0 canvas, Level 1 cards, Level 2 sheets; `PressableScale` (0.97) with light haptics.
-> - **Hero Rule**: The "1 Hero, 3 Supporting" rule is an **optional heuristic for overview surfaces (Today) only**. Never force a hero card onto functional screens (workspaces, task lists, calendar timeline, forms, detail screens). Do not turn every screen into a dashboard.
-> - **Card Usage**: Cards are a surface primitive, not the default layout primitive. Prefer flat lists, rows, sections, whitespace, dividers, tabs, and tonal grouping. Never nest cards.
-> - **Checklist Definition**: Checklist is an independent collection of checkable items. It is not a task with subtasks.
-> - **Cairn Mascot**: Calm companion at edges of activity; never nag, pressure, or introduce intrusive gamification/streak flames.
+This skill is an **optional quality-control overlay** for major or high-impact redesigns. It is **NOT** a standalone design system, and it does **NOT** redefine spacing, typography, tokens, or Pebble architecture.
 
-*   **Alan Dye (Apple)**: Fluidity, physicality, tactile feedback, Safe Area harmony, and visual premiumness.
-*   **Dieter Rams (Braun)**: "Less, but better." Functional honesty. No decorative lines or meaningless buttons.
-*   **Linear**: Hyper-efficient keyboard pathways, clean grid boundaries, micro-contrast, and technical focus.
-*   **Things 3**: Extreme whitespace, smooth entry animations, and elegant list rhythm.
-*   **Arc Browser**: Expressive personality, focused workspace organization, and spatial clarity without clutter.
+Its job is to act as a **final editorial craft gate**: cutting bloat, testing restraint, and ensuring the interface feels intentional and native.
+
+> **CRITICAL PROHIBITION: DO NOT CREATE A VISUAL COLLAGE.**
+> Historical benchmarks (Apple, Rams, Linear, Things 3, Arc) are **craft standards only**.
+> - Strictly prohibited: *"Combine Apple + Linear + Things + Arc."*
+> - Pebble has its own distinct identity: Pine primary (`#358366`), Outfit typography, calm tonal surfaces, and Cairn mascot companion.
+> - **Pebble must remain Pebble.**
 
 ---
 
-## Modern 2026 Stance
+## 1. Skill Contract & Deterministic Activation
 
-Before running the filter, hold Pebble's target stance (`.agents/skills/pebble-design` §10): calm and intentional, content-first, purposeful whitespace, progressive disclosure, meaningful motion, subtle depth, excellent empty/loading/error states, accessible touch ergonomics.
-
-**Anti-Pattern Exclusions:** Do NOT equate "modern" with glassmorphism everywhere, gradients everywhere, giant hero cards, excessive rounded cards, bento/dashboard grids, floating action buttons everywhere, excessive pills, decorative badges, or generic SaaS dashboard aesthetics.
-
----
-
-## The Critique Filter
-
-Critically analyze the UI proposal to catch these specific AI mistakes:
-
-### 1. Unnecessary Elements (Rams' Principle)
-*   Is there a divider line separating things that could be separated by whitespace?
-*   Are there extra tags, icons, or badges that do not add value?
-*   Are rows wrapped in individual cards instead of using clean flat list rows?
-
-### 2. Inconsistent Spacing (Linear's Principle)
-*   Are we mixing different padding offsets (e.g. 10px, 12px, 15px) inside the same screen?
-*   Is vertical rhythm broken? (Keep elements strictly aligned to Pebble's 4px baseline scale in `Spacing.*`).
-
-### 3. Surface Appropriateness & Hierarchy (Alan Dye's Principle)
-*   Does an overview surface (Today) have a clear anchor?
-*   Did someone artificially force a giant hero component onto a functional screen (e.g. task list, calendar, settings)?
-*   Are headers too small or body texts too bright, creating a flat visual landscape?
-
-### 4. Generic Interactions (Things 3 Principle)
-*   Is the interaction clunky or desktop-like? Does it use tactile spring feedback (`PressableScale`)?
-*   Does it look like a Bootstrap template, bento box, or Material design grid?
-
-### 5. Platform Violations (Apple HIG Principle)
-*   Does the screen resemble a desktop dashboard scaled down?
-*   Are touch targets smaller than 44×44 points?
-
-### 6. Tone & Mascot Boundaries (Arc Browser / Cairn Principle)
-*   Is the design sterile and cold, or conversely, overly gamified and noisy?
-*   Does Cairn appear appropriately at natural edge moments (empty states, milestone celebrations) without intrusive nagging or synthetic pressure?
+* **Activates When**: ONLY on major screen redesigns, top-level navigation changes, or high-impact UX proposals.
+* **Do NOT Activate When**:
+  - Small visual tweaks (padding adjustments, color swaps, row styling).
+  - Routine component maintenance or bug fixes.
+  - Standard performance tuning.
+* **Responsible For**:
+  - Final quality gatekeeping.
+  - Identifying unnecessary visual elements and cognitive bloat.
+  - Ensuring the hierarchy is immediately scannable.
+  - Filtering out generic AI templates and dashboard tropes.
+  - Verifying that interaction complexity was kept minimal.
+* **Must NOT Do**:
+  - Must NOT redefine tokens, typography, or spacing scales (defer to `design-tokens`).
+  - Must NOT generate implementation code or JSX.
+  - Must NOT duplicate the detailed dimension-by-dimension diagnostic analysis of `mobile-product-critique`.
+* **Authority Hierarchy**:
+  1. Active source code & `shared/constants/*`
+  2. `pebble-design` (Visual constitution)
+  3. `design-tokens` (Token constraints)
+  4. `mobile-product-critique` (Primary design diagnosis)
+  5. `world-class-product-review` (Optional final quality gate)
 
 ---
 
-## Review Output Format
+## 2. The 7 Quality Filter Questions
 
-Generate a **World-Class Critique Report** structured exactly as follows:
+Before approving a major redesign, pass the proposal through these 7 gates:
+
+1. **Is anything unnecessary?**
+   * *Lens*: "Less, but better" (Dieter Rams).
+   * *Check*: Can any divider, border, container card, icon, or label be removed by letting whitespace do the work?
+
+2. **Is the hierarchy obvious in 3 seconds?**
+   * *Lens*: Scanning clarity (Alan Dye).
+   * *Check*: Does the eye land immediately on the primary action or execution stream? Or do multiple elements compete for dominant attention?
+
+3. **Is the interface overly generic or template-like?**
+   * *Lens*: Anti-slop / Distinctiveness.
+   * *Check*: Does it look like a generic SaaS dashboard, bento grid, or Material template? Does it honor Pebble's calm botanical green and editorial Outfit type?
+
+4. **Is there visual bloat or "card soup"?**
+   * *Lens*: Surface discipline.
+   * *Check*: Did the designer wrap individual rows inside cards, or nest cards inside cards? Does it respect flat rows and Level 1 surface bounds?
+
+5. **Is the interaction unnecessarily complex?**
+   * *Lens*: Interaction friction (Things 3 / Linear).
+   * *Check*: Does it require multiple taps, dropdowns, or full modal screens where an inline edit or bottom sheet would keep the user in flow?
+
+6. **Does this feel native and ergonomic?**
+   * *Lens*: Mobile ergonomics.
+   * *Check*: Are primary controls reachable in the thumb zone? Are touch targets at least 44×44pt? Does it honor platform physics rather than web conventions?
+
+7. **Does the proposal preserve Pebble's identity?**
+   * *Lens*: Brand integrity.
+   * *Check*: Does it preserve the Pine accent, Outfit type, calm tonal surfaces, and Cairn's unpressured presence?
+
+---
+
+## 3. Review Gate Output Format
+
+When invoked, output a concise **Quality Gate Decision**:
 
 ```markdown
-# World-Class Design Review
+# World-Class Quality Filter: [Screen Name]
 
-### 1. The Design Lens Critiques
-*   **Dieter Rams (Braun)**: *"Less but better"* - Critique of visual bloat and card usage...
-*   **Alan Dye (Apple)**: *"Physicality & Tactility"* - Critique of safe areas, hierarchy, and touch feedback...
-*   **Pebble Identity**: *"Calm, Modern 2026 Mobile"* - Alignment with Pine accent, Outfit type, and tonal surfaces...
+### Gate Status: [APPROVED / REVISE BEFORE IMPLEMENTATION]
 
-### 2. Defects Identified
-*   [ ] **Visual Bloat / Card Soup**: [Description of element or unnecessary card wrapper to remove]
-*   [ ] **Spacing Alignment**: [Description of alignment issue relative to Spacing.*]
-*   [ ] **Hierarchy Appropriateness**: [Description of typography contrast or inappropriate hero widget]
+### 1. Bloat & Restraint Filter ("Less, but better")
+* **Elements to Eliminate**: [Specific dividers, borders, or redundant cards to remove]
+* **Whitespace Opportunities**: [Where whitespace can replace visual chrome]
+
+### 2. Craft & Hierarchy Verification
+* **Scan Path**: [Is the primary focus unmistakable?]
+* **Card Soup Check**: [PASS / FAIL - Are surfaces flat at Level 1?]
+* **Ergonomics Check**: [PASS / FAIL - Thumb-zone alignment and 44pt touch targets]
+
+### 3. Pebble Identity Check
+* [ ] Pine brand accent preserved
+* [ ] Outfit typography weights respected
+* [ ] Tonal surface depth (no gratuitous glassmorphism)
+* [ ] Cairn mascot remains calm companion (no high-pressure gamification)
+
+### 4. Required Revisions
+1. [Actionable change 1]
+2. [Actionable change 2]
 ```
-

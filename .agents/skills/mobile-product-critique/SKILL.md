@@ -1,75 +1,116 @@
 ---
 name: mobile-product-critique
-description: Mobile product design critique. Reviews information hierarchy, visual rhythm, cognitive load, interaction cost, and checks for generic design patterns without generating code.
+description: Pebble's primary design critique skill. Diagnoses what is wrong with an existing or proposed mobile interface across hierarchy, visual rhythm, cognitive load, ergonomics, and anti-patterns. Never generates code.
 ---
 
 # Mobile Product Critique Guide
 
-This skill is designed strictly for critique. It is prohibited from generating code or building UI. Its purpose is to evaluate existing or proposed screens and explain *why* they do or do not feel premium, indicating areas of design debt, cognitive load, and generic patterns.
+> **Truth as of 2026-10-02.** Subordinate to active code and `shared/constants/*`.
 
-> **Pebble Scope & Authority Note:** These are critique heuristics. They do **not** override Pebble-specific implementation truth in `shared/constants/*`, `.agents/skills/pebble-design`, or `.agents/skills/design-tokens`.
-> - **Pebble Identity**: Pebble is defined by its Pine accent (`#358366`), Outfit typography, 4px spacing scale, tactile `PressableScale` (0.97 + haptics), calm tonal surfaces, and Cairn mascot companion. Do not instruct combining Things, Linear, Apple Reminders, Arc, Nintendo into a derivative collage.
-> - **Hero Rule**: The "1 Hero, 3 Supporting" rule is strictly an **optional heuristic for overview surfaces** (such as Today). **Never force a hero component onto functional screens** (workspaces, task lists, calendar timeline, forms, detail screens, planners). Do not turn every screen into a dashboard.
-> - **Card Usage**: Cards are a surface primitive, not the default layout primitive. Prefer flat lists, rows, sections, whitespace, dividers, tabs, and tonal grouping. Never nest cards. Never wrap every piece of information in its own card.
-> - **Checklist Definition**: Checklist is an independent collection of checkable items. It is not a task with subtasks.
+This is Pebble's **primary design critique skill**. Its sole purpose is to diagnose usability flaws, cognitive load, visual bloat, hierarchy defects, and generic AI patterns in existing or proposed mobile screens.
+
+> **CRITICAL RULE**: This skill is strictly diagnostic. It must **NEVER generate implementation code or JSX**. It explains *what* is wrong and *why*.
 
 ---
 
-## Evaluation Criteria
+## 1. Skill Contract & Deterministic Activation
 
-> **2026 Modern Mobile Lens:** Judge against Pebble's target stance in `.agents/skills/pebble-design` §10: calm intentional hierarchy, content-first surfaces, purposeful whitespace, progressive disclosure, meaningful motion, restraint with blur/gradients, and excellent empty/loading/error states.
-> **Anti-Pattern Warning:** Do NOT equate "modern" with glassmorphism everywhere, gradients everywhere, giant hero cards, excessive rounded cards, bento/dashboard grids, floating action buttons everywhere, excessive pills, decorative badges, or generic SaaS dashboard aesthetics.
+* **Activates When**: Evaluating, auditing, or reviewing an existing screen or UI proposal for usability, visual rhythm, hierarchy, ergonomics, or anti-patterns.
+* **Responsible For**:
+  - Diagnosing information hierarchy and reading flow.
+  - Checking spacing rhythm against the 4px baseline (`Spacing.*`).
+  - Checking typography scale contrast (`Typography.*`).
+  - Evaluating cognitive load, card usage, and surface nesting.
+  - Assessing interaction cost (tap count, path complexity).
+  - Checking mobile ergonomics (thumb-zone reachability, touch targets ≥ 44pt).
+  - Flagging generic AI tropes ("card soup", bento grids, forced heroes).
+  - Verifying alignment with Pebble's design constitution (`pebble-design`).
+* **Must NOT Do**:
+  - Must NOT generate implementation code or component files.
+  - Must NOT invent new product concepts, domains, or tokens.
+  - Must NOT prescribe redesigns for unrelated screens.
+* **Authority Hierarchy**:
+  1. Active source code & `shared/constants/*`
+  2. `pebble-design` (Visual constitution)
+  3. `design-tokens` (Token constraints)
+  4. `mobile-product-critique` (Diagnostic authority)
 
-Evaluate screens against these 9 dimensions:
+---
+
+## 2. Critique Dimensions
+
+Evaluate the target screen against these 9 dimensions:
 
 ### 1. Information Hierarchy & Surface Appropriateness
-*   *Check*: Is the primary intent or reading order immediately clear? If an overview surface (Today), does it have a clear anchor? If a functional screen (workspace, task list, calendar, form), does it avoid forcing unnecessary hero cards or dashboard widgets?
-*   *Critique Pattern*: Point out when multiple elements compete for dominant attention, when a functional list is crowded by an artificial hero card, or when headings, sub-headings, and body copy share similar weights causing visual flatness.
+* *Question*: Is the primary purpose immediately clear?
+* *Check*: If an overview screen (Today), does it have an intentional anchor? If a functional screen (Workspace, task list, calendar, form), does it avoid forcing unnecessary hero cards?
+* *Critique Pattern*: Flag competing focal points, forced hero cards on functional lists, or visual flatness where headers and body share identical visual weight.
 
-### 2. Spacing and Visual Rhythm
-*   *Check*: Do elements group together naturally? Is there an established grid/spacing system (4px/8px baseline using `Spacing.*`)?
-*   *Critique Pattern*: Highlight when spacing is uniform across unrelated elements, which destroys spatial hierarchy, or when containers have insufficient internal padding.
+### 2. Spacing & Visual Rhythm
+* *Question*: Do related items group naturally through whitespace?
+* *Check*: Does spacing align to Pebble's 4px baseline (`Spacing.xs` 4 to `Spacing.ux` 32)?
+* *Critique Pattern*: Highlight uniform spacing that erases grouping, tight card padding (<16pt), or arbitrary offsets (e.g. 10px, 15px).
 
-### 3. Typography Hierarchy
-*   *Check*: Are fonts sized and weighted with clear contrast using Outfit scale steps (`Typography.sizes`, `Typography.weights`)? Is text rendered via `AppText` with high readability on dark/light surfaces?
-*   *Critique Pattern*: Critique the use of plain sans-serif fonts without weight contrast, or when labels are too large and compete with core headers.
+### 3. Typography Contrast
+* *Question*: Does text scan effortlessly?
+* *Check*: Does typography use Outfit scale steps (`Typography.sizes`, `Typography.weights`)? Is text rendered via `AppText`?
+* *Critique Pattern*: Flag lack of weight contrast between titles and metadata, or body text styled as large as headings.
 
-### 4. Interaction Cost
-*   *Check*: How many taps, swipes, or scrolls does it take to perform common actions? 
-*   *Critique Pattern*: Call out designs that require unnecessary navigation steps, complex gestures, or multiple sub-menus. Favor inline actions, contextual bottom sheets, and the radial Pebble dial.
+### 4. Cognitive Load & Surface Nesting
+* *Question*: Is the user overwhelmed by visual containers?
+* *Check*: Are cards nested inside cards? Is every individual row wrapped in its own card ("card soup")?
+* *Critique Pattern*: Flag nested card structures and recommend flat lists, hairline dividers (`ROW_SPEC.dividerInset: 52`), and whitespace.
 
-### 5. Cognitive Load & Surface Primitives
-*   *Check*: Is the user overwhelmed by too many elements or cards on screen?
-*   *Critique Pattern*: Flag nested cards, card-wrapping of individual list rows ("card soup"), repeating sections, cluttered borders, and crowded widgets. Explain how flat rows, dividers, and whitespace communicate hierarchy with lower cognitive load.
+### 5. Interaction Cost & Navigation Friction
+* *Question*: Can frequent actions be completed with minimal effort?
+* *Check*: Does the action require unnecessary navigation? Are inline actions or contextual bottom sheets (`@gorhom/bottom-sheet`) preferred over full modals?
+* *Critique Pattern*: Flag multi-step paths for simple edits or full-screen routes for minor actions.
 
-### 6. Accessibility (A11y) & Touch Ergonomics
-*   *Check*: Is color contrast sufficient (WCAG AA)? Are touch targets large enough (minimum 44×44 points)?
-*   *Critique Pattern*: Flag low-contrast text on translucent overlays or tiny tap targets without proper `hitSlop`.
+### 6. Mobile Ergonomics & Touch Targets
+* *Question*: Is the screen comfortable to use with one hand on a real device?
+* *Check*: Are primary controls placed within the bottom thumb zone? Does every interactive target maintain at least **44×44pt**?
+* *Critique Pattern*: Flag tiny icons without `hitSlop`, primary actions pinned to the unreachable top corners, or desktop-centric hover controls.
 
-### 7. Platform Consistency & Mobile Ergonomics
-*   *Check*: Does the design feel like a native mobile app (iOS/Android) rather than a desktop website scaled down? Are primary controls reachable in the thumb zone?
-*   *Critique Pattern*: Point out heavy browser-like scrollbars, non-native select dropdown lists, or desktop-centric hover card states.
+### 7. Accessibility (A11y) & Contrast
+* *Question*: Does the interface pass WCAG AA standards?
+* *Check*: Is text legible against tonal backgrounds? Are disabled/muted states readable?
+* *Critique Pattern*: Flag low-contrast text, unlabelled icon buttons, or reliance on color alone for critical status.
 
-### 8. Design Debt & Token Authority
-*   *Check*: Does the screen reuse existing design patterns and theme tokens from `shared/constants/*`, or does it introduce ad-hoc styles or invented tokens?
-*   *Critique Pattern*: Critique layouts that introduce custom hex colors, invented spacing, arbitrary border radii, or button shapes that break consistency with Pebble's design system.
+### 8. Token Compliance & Design Debt
+* *Question*: Does the layout reuse existing Pebble primitives?
+* *Check*: Does it use semantic tokens from `shared/constants/*` (`theme.ts`, `categoryColors.ts`), or does it introduce hardcoded hex colors, arbitrary radii, or ad-hoc margins?
+* *Critique Pattern*: Flag raw hex literals or invented token names.
 
-### 9. The "Generic Dashboard" Trap
-*   *Check*: Does the screen look like a generic corporate template, bento box, or bootstrap theme?
-*   *Critique Pattern*: Explain *why* the layout looks generic (e.g., "It relies on standard borders, uniform padding, and a bento grid of boxes, lacking Pebble's calm tonal surfaces, Pine accents, and tactile interaction").
+### 9. Generic AI Tropes Trap
+* *Question*: Does this screen look like a generic corporate dashboard or SaaS template?
+* *Check*: Does it rely on bento grids, glassmorphism everywhere, gradients, or KPI metric blocks?
+* *Critique Pattern*: Explain *why* it fails Pebble's calm, tactile 2026 identity and how to restore content-first simplicity.
 
 ---
 
-## Critique Output Format
+## 3. Critique Output Format
 
-Your critique must be structured as follows:
+Critique reports must be concise, structured, and actionable:
 
-1.  **Overview**: A 2-sentence summary of the screen's main usability and design challenges.
-2.  **Structural Breakdown**: Evaluation of surface structure (cards vs. flat rows, hierarchy, nesting check).
-3.  **Detailed Assessment Table**:
-    | Dimension | Critique | Severity (High/Med/Low) |
-    | :--- | :--- | :--- |
-    | *Hierarchy* | Description of issue and why it fails... | High |
-    | *Spacing* | Description... | Med |
-4.  **Pebble Identity Alignment**: Specific recommendations to align with Pebble's calm, tactile 2026 identity (Pine accent, Outfit typography, tonal layering, tactile feedback).
+```markdown
+# Design Critique: [Screen Name]
 
+### 1. Executive Summary
+[2–3 sentences summarizing the screen's core usability and design challenges.]
+
+### 2. Structural Findings
+* **Surface Architecture**: [Flat rows vs cards, nesting check, surface levels]
+* **Hierarchy Assessment**: [Reading flow, focal point, hero appropriateness]
+
+### 3. Detailed Diagnostic Table
+
+| Dimension | Observation & Flaw | Severity | Concrete Correction |
+| :--- | :--- | :--- | :--- |
+| *Hierarchy* | [Specific issue] | High / Med / Low | [Recommended structural fix] |
+| *Surface Nesting* | [e.g. Card soup on list rows] | High | [Replace with flat rows + ROW_SPEC dividers] |
+| *Touch Ergonomics* | [e.g. 28pt icon button] | Med | [Apply 44pt min height or hitSlop={8}] |
+| *Token Compliance* | [e.g. Hardcoded #6366F1] | High | [Map to Colors[scheme].primary] |
+
+### 4. Pebble Identity Alignment
+[Bullet points outlining immediate steps to align the screen with Pebble's Pine accent, Outfit typography, and calm tonal depth.]
+```

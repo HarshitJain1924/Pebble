@@ -1,23 +1,4 @@
 {
   "version": 1,
-  "skills": {
-    "animate-expo": {
-      "source": "emilkowalski/skills",
-      "sourceType": "github",
-      "skillPath": "skills/animate-expo/SKILL.md",
-      "computedHash": "3e914b8abdff154a289dcabc63817b6b5d649272a0d054e7e799f37e4bb1c471"
-    },
-    "react-native-developer": {
-      "source": "AtulPurohit/Antigravity-Awesome-Skills",
-      "sourceType": "github",
-      "skillPath": "skills/react-native-developer/SKILL.md",
-      "computedHash": "8183b4e8121164bfd59480334b8f0d3fec86b0b246157cc03c8957c35f424a51"
-    },
-    "ui-ux-pro-max": {
-      "source": "nextlevelbuilder/ui-ux-pro-max-skill",
-      "sourceType": "github",
-      "skillPath": ".agents/skills/ui-ux-pro-max/SKILL.md",
-      "computedHash": "d1de8ff8d228cd4204bf06eb959ef4317d5b927908d9f42765971e33e80c8a7e"
-    }
-  }
+  "skills": {}
 }

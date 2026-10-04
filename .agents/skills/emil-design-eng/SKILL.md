@@ -1,131 +1,101 @@
 ---
 name: emil-design-eng
-description: This skill encodes Emil Kowalski's philosophy on UI polish, component design, animation decisions, and the invisible details that make software feel great, translated into Pebble's Expo SDK 57 / React Native Reanimated architecture.
+description: Interaction, motion craft, and tactile polish for Pebble on React Native, Expo SDK 57, and Reanimated. Enforces UI thread purity, gesture momentum, and intentional feedback heuristics.
 ---
 
-# Design Engineering (Pebble Edition)
+# Interaction & Motion Craft (Pebble Edition)
 
-You are a design engineer with the craft sensibility. You build interfaces where every detail compounds into something that feels right. You understand that in a world where everyone's software is good enough, taste is the differentiator.
+> **Truth as of 2026-10-02.** Verified against active React Native Reanimated implementations (`shared/components/ui/PressableScale.tsx`, `shared/components/navigation/PebbleRadialTabBar.tsx`, `@gorhom/bottom-sheet`).
 
-> **CRITICAL PEBBLE PLATFORM & TECHNOLOGY BOUNDARY:**
+This skill governs the micro-interactions, gestures, springs, timings, and tactile feedback in Pebble. It guides judgment rather than imposing rigid dogma.
+
+> **CRITICAL PLATFORM BOUNDARY:**
 > - **React Native / Expo SDK 57**: Pebble is a local-first mobile app running React Native 0.86, React 19.2, and Expo SDK 57.
-> - **Reanimated Native Motion**: All motion is powered strictly by `react-native-reanimated` (`withSpring`, `withTiming`, `useSharedValue`, `useAnimatedStyle`) and `react-native-gesture-handler`.
-> - **No Web-Only Libraries**: **Do NOT instruct agents to install or import Framer Motion, Motion, Radix UI, Base UI, or CSS-only transitions/pseudo-classes (:active, :hover).**
-> - **Conceptual Metaphors**: Web/CSS examples from Emil's original writings are included below as *conceptual craft metaphors* and must always be implemented using React Native / Reanimated idioms (`PressableScale`, Reanimated styles, `expo-haptics`).
-> - **Design Hierarchy**: This skill provides interaction, motion, and craft guidance. It must **never** contradict or override `shared/constants/*`, `pebble-design`, or `design-tokens`.
+> - **UI Thread Motion**: All motion is powered by `react-native-reanimated` (`withSpring`, `withTiming`, `useSharedValue`, `useAnimatedStyle`) and `react-native-gesture-handler`.
+> - **No Web-Only Libraries**: NEVER recommend CSS transitions, pseudo-classes (`:hover`, `:active`), Framer Motion, Motion, Radix UI, Base UI, or DOM manipulation.
+> - **Authority Sequence**: This skill is subordinate to active code, `pebble-design`, and `design-tokens`. It guides interaction craft, not visual styling or product architecture.
 
 ---
 
-## Core Philosophy
+## 1. Skill Contract & Deterministic Activation
 
-### Taste is trained, not innate
-
-Good taste is not personal preference. It is a trained instinct: the ability to see beyond the obvious and recognize what elevates. You develop it by surrounding yourself with great work, thinking deeply about why something feels good, and practicing relentlessly.
-
-When building UI, don't just make it work. Study why the best interfaces feel the way they do. Reverse engineer animations. Inspect interactions. Be curious.
-
-### Unseen details compound
-
-Most details users never consciously notice. That is the point. When a feature functions exactly as someone assumes it should, they proceed without giving it a second thought. That is the goal.
-
-> "All those unseen details combine to produce something that's just stunning, like a thousand barely audible voices all singing in tune." - Paul Graham
-
-Every decision below exists because the aggregate of invisible correctness creates interfaces people love without knowing why.
-
-### Beauty is leverage
-
-People select tools based on the overall experience, not just functionality. Good defaults, tactile feedback, and purposeful animations are real differentiators. Beauty is underutilized in software. Use it as leverage to stand out.
-
----
-
-## Review Format (Required)
-
-When reviewing UI code, you MUST use a markdown table with Before/After columns. Do NOT use a list with "Before:" and "After:" on separate lines. Always output an actual markdown table with React Native / Reanimated idioms:
-
-| Before | After | Why |
-| :--- | :--- | :--- |
-| `withTiming(val, { duration: 500 })` for simple fade | `withTiming(val, { duration: 180, easing: Easing.out(Easing.quad) })` | UI fades should stay snappy (<200ms) with out-easing |
-| Animating from `scale(0)` | Animate from `scale(0.95)` with opacity `withTiming` | Nothing in the real world appears from nothing; 0.95 gives natural physical emergence |
-| Linear transition on sheet/gesture release | `withSpring(target, { damping: 15, stiffness: 200 })` | Gestural releases must simulate real physical momentum |
-| Plain unstyled `Pressable` / `TouchableOpacity` | `PressableScale` (`scale(0.97)` + light haptics) | Touch controls must feel tactile and acknowledge touch immediately |
-| Fullscreen navigation for minor action | Inline reveal or contextual bottom sheet (`@gorhom/bottom-sheet`) | Keeps context intact and reduces cognitive/interaction cost |
+* **Activates When**: Writing, refining, or debugging UI interactions, gesture handlers, Reanimated animations, press states, bottom sheet transitions, or haptics.
+* **Responsible For**:
+  - Motion decisions (should it animate, frequency checks, intent definition).
+  - Reanimated implementation details (spring parameters, timing durations, easing curves).
+  - UI thread execution purity (worklet boundaries, avoiding layout recalculation passes).
+  - Tactile feedback heuristics (`PressableScale`, `expo-haptics`).
+  - Gesture handoff, velocity preservation, and interruptibility.
+* **Must NOT Do**:
+  - Does NOT invent design tokens or override colors/spacing from `shared/constants/*`.
+  - Does NOT recommend web libraries or CSS.
+  - Does NOT impose animations on high-frequency, non-physical actions.
+  - Does NOT alter business logic, data models, or repository locking.
+* **Authority Hierarchy**:
+  1. Active source code & `shared/constants/*`
+  2. `pebble-design` (Visual constitution)
+  3. `design-tokens` (Token constraints)
+  4. `emil-design-eng` (Interaction craft authority)
 
 ---
 
-## The Animation Decision Framework
+## 2. The Animation Decision Framework
 
-Before writing any animation code in Reanimated, answer these questions in order:
+Before writing any Reanimated code, evaluate these three questions in order:
 
 ### 1. Should this animate at all?
+**Intent first, implementation second.** Animate interaction when motion communicates state, physicality, or spatial continuity. Avoid animation when it adds latency, delay, or noise.
 
-**Ask:** How often will users see this animation?
-
-| Frequency | Decision |
+| Interaction Frequency | Decision Heuristic |
 | :--- | :--- |
-| 100+ times/day (keyboard typing, list item check toggles) | No heavy layout animation. Immediate visual feedback only. |
-| Tens of times/day (list navigation, filter toggles) | Minimal, instantaneous feedback (<150ms) or tactile press |
-| Occasional (opening bottom sheets, modals, dial sectors) | Natural spring animation |
-| Rare/first-time (milestone achievements, pebble drop celebration) | Deliberate delight |
-
-**Never animate high-frequency typing or repetitive toggles.** Animation makes high-frequency operations feel sluggish, delayed, and disconnected from the user's intent.
+| **High (100+ times/day)**: Keyboard typing, list check toggles, search inputs | **No layout animation.** Immediate visual feedback only. Animation here introduces perceptible latency. |
+| **Medium (Tens of times/day)**: List row selection, tab switches, filter chips | **Near-instantaneous feedback (<150ms)** or subtle press scale. |
+| **Occasional**: Opening bottom sheets, contextual menus, modal dialogues | **Natural physical springs.** Interruptible and velocity-aware. |
+| **Rare / First-Time**: Daily pebble drop milestone, achievement badge unlock | **Deliberate celebratory delight.** |
 
 ### 2. What is the purpose?
+Every animation must have a concrete purpose:
+- **Spatial continuity**: Explains where an element came from (e.g. bottom sheet slides up from the anchor).
+- **Physical feedback**: Confirms contact with a touch target (`scale(0.97)` on press).
+- **State indication**: Confirms completion (e.g. checkbox ring fill).
+- **Preventing jarring cuts**: Softening a sudden removal with a fast opacity fade (<180ms).
 
-Every animation must have a clear answer to "why does this animate?"
+*If the only reason is "it looks cool," do not animate.*
 
-Valid purposes in Pebble:
-- **Spatial continuity**: Bottom sheet slides from bottom; dial opens outward from the bottom dock anchor.
-- **Physical feedback**: A button scales to `0.97` on press via `PressableScale`, confirming touch contact.
-- **State indication**: Checkbox ring smoothly fills with Pine accent on completion.
-- **Preventing jarring changes**: Items fading out cleanly instead of disappearing in an abrupt jump cut.
-
-If the purpose is just "it looks cool" and the user will see it often, **do not animate**.
-
-### 3. What motion physics should it use? (Springs vs. Timings)
-
-*   **Use Springs (`withSpring`) for Physical Motion**:
-    *   Touches, presses, card drags, gesture releases, radial dial sectors, and sheet snapping.
-    *   Springs are **interruptible**—they retain velocity when interrupted mid-gesture, preventing jarring resets.
-    *   *Pebble press feedback*: `withSpring(scaleTo, { damping: 12, stiffness: 200 })` scaling to `0.97`.
-    *   *Pebble navigation / dial*: `withSpring(1, { damping: 17, stiffness: 220, mass: 0.65 })`.
-*   **Use Timings (`withTiming`) for Non-Physical Fades**:
-    *   Opacity fades, cross-fades, and color transitions.
-    *   Always use an **out-easing curve** (`Easing.out(Easing.quad)` or `Easing.out(Easing.cubic)`).
-    *   **Keep timings under 200ms.** Never use `Easing.in` for UI transitions (it delays initial movement, making the app feel slow).
-*   **Reduced Motion**: Always check `useReducedMotion()` (`shared/hooks/useReducedMotion.ts`) and bypass ambient loops or non-essential animation when enabled.
+### 3. Which tool and thread?
+- **UI Thread Purity**: Keep motion purely on the UI thread inside Reanimated worklets (`useAnimatedStyle`). Never drive layout animations via React `setState` per frame.
+- **Transform & Opacity are Free**: Animate `transform` (`scale`, `translateX`, `translateY`) and `opacity`. Avoid animating layout properties (`height`, `width`, `margin`, `padding`, `gap`) on flex children because they trigger Yoga layout recalculations for the node and all its siblings on every frame.
+- **Isolated Elements Exception**: Absolutely positioned elements with no children (such as a progress bar fill or sliding segment indicator) may animate `width` or `left` to preserve corner radii without causing sibling layout recalculation passes.
 
 ---
 
-## Component Craft Principles (Native Mobile)
+## 3. Motion Physics & Configurations
 
-### 1. Buttons Must Feel Responsive (Tactile Feedback)
+There is no central motion token object in Pebble. Authors configure Reanimated inline using these production heuristics:
 
-Every touch target must acknowledge touch immediately. In Pebble, this is encapsulated in `PressableScale` (`shared/components/ui/PressableScale.tsx`):
+### Springs for Physical Motion (`withSpring`)
+Use springs for physical interactions (touches, gesture drags, sheet snapping, dial sectors):
+- **Press feedback (`PressableScale`)**:
+  ```typescript
+  withSpring(0.97, { damping: 12, stiffness: 200 })
+  ```
+- **Navigation dial & bottom sheets**:
+  ```typescript
+  withSpring(1, { damping: 17, stiffness: 220, mass: 0.65 })
+  ```
+- **Interruptibility**: Springs naturally preserve momentum when gestures reverse mid-flight. Always let gesture velocity hand off into the spring:
+  ```typescript
+  withSpring(targetPosition, { velocity: gesture.velocityY, damping: 18, stiffness: 200 })
+  ```
 
-```tsx
-// Pebble's tactile press pattern
-<PressableScale
-  onPress={handlePress}
-  scaleTo={0.97}
-  haptic={true}
-  accessibilityRole="button"
->
-  <View style={styles.buttonContent}>
-    <AppText style={styles.buttonLabel}>Continue</AppText>
-  </View>
-</PressableScale>
-```
+### Timings for Opacity & Color (`withTiming`)
+Use timings only for non-physical transitions (fades, color shifts):
+- **Duration**: Snappy, **under 200ms** (typically 150–180ms).
+- **Easing**: Always use **out-easing** (e.g. `Easing.out(Easing.quad)` or `Easing.out(Easing.cubic)`). Never use `Easing.in` for UI entry transitions as it introduces perceptible latency.
 
-*Rule*: Subtle scale (`0.97`) + light haptics (`Haptics.ImpactFeedbackStyle.Light`) gives physical feedback without disorienting the user.
-
-### 2. Never Animate From `scale(0)`
-
-Nothing in the physical world emerges from a mathematical singularity. Elements animating from `scale(0)` look synthetic and jarring.
-
-Start from `scale(0.95)` combined with opacity fading:
-
-```tsx
-// In Reanimated:
+### The `scale(0)` Anti-Pattern
+**Never animate an entering element from `scale(0)`.** Real physical objects do not emerge from a mathematical point. Start from `scale(0.95)` paired with an opacity fade:
+```typescript
 const enteringStyle = useAnimatedStyle(() => ({
   opacity: withTiming(visible.value ? 1 : 0, { duration: 160 }),
   transform: [
@@ -134,57 +104,55 @@ const enteringStyle = useAnimatedStyle(() => ({
 }));
 ```
 
-### 3. Make Floating Overlays Origin-Aware
+---
 
-Floating controls and popovers should visually emerge from their anchor or trigger rather than from the dead center of the screen (modals and alert dialogs remain centered).
+## 4. Interaction Heuristics (Craft over Dogma)
 
-For contextual menus or tooltips, anchor transforms to the trigger's coordinates (`transformOrigin` or layout measurements).
+### 4.1 Tactile Press Feedback
+* **Heuristic**: Prefer Pebble's `PressableScale` (`shared/components/ui/PressableScale.tsx`) for primary buttons, action tiles, and cards where tactile acknowledgement adds confidence.
+* **Do NOT force on every control**: Static badges, passive list items without direct tap actions, or high-frequency inline text links do not require `PressableScale`.
+* **Standard Pattern**:
+  ```tsx
+  <PressableScale
+    onPress={handlePress}
+    scaleTo={0.97}
+    haptic={true}
+    accessibilityRole="button"
+  >
+    <View style={styles.buttonContent}>
+      <AppText style={styles.buttonLabel}>Complete</AppText>
+    </View>
+  </PressableScale>
+  ```
 
-### 4. Sliding Indicators for Segmented Controls
+### 4.2 Segmented Controls & Tabs
+* **Heuristic**: A shared sliding indicator can be used when it improves spatial continuity and matches the existing component (e.g. Workspace domain tabs: Tasks · Habits · Checklists · Resources).
+* **Pattern**: Animate a single indicator background with a Reanimated spring rather than flashing individual active tabs.
 
-When users switch segments (e.g., domain tabs in Workspaces: Tasks · Habits · Checklists · Resources), animate a single sliding pill indicator behind the active tab using a Reanimated spring rather than flashing each tab's background independently.
+### 4.3 Gestural Momentum & Swipe Actions
+* **Heuristic**: Swipeable list rows and bottom sheets must respect user velocity.
+* If swipe velocity exceeds `500pt/s` or gesture travel exceeds 50% of the action threshold, complete the action using `withSpring` inheriting `gesture.velocityX`. Otherwise, snap back smoothly. Never use linear resets on gesture release.
 
-```tsx
-// Reanimated spring for indicator translation:
-const indicatorStyle = useAnimatedStyle(() => ({
-  transform: [
-    { translateX: withSpring(activeTabOffset.value, { damping: 18, stiffness: 220 }) },
-  ],
-  width: tabWidth,
-}));
-```
+### 4.4 Restrained Haptics (`expo-haptics`)
+* **Heuristic**: Use restrained haptic feedback for meaningful tactile events; avoid haptics for high-frequency or continuous interactions.
+* `Light` (`Haptics.ImpactFeedbackStyle.Light`): `PressableScale` touch-down, segmented control switch, picker notch.
+* `Medium`: Crossing drag-to-delete threshold, radial dial sector lock.
+* `Notification Success`: Completing a task, habit streak check, or earning a pebble drop.
+* **Never fire haptics** on text input typing, continuous list scrolling, or high-frequency state updates.
 
-### 5. Progress Bar Pacing
-
-Standard progress bars fill linearly. Real progress perception is non-linear.
-
-To make progress feel responsive, animate the indicator to **40–60% immediately** using a fast spring/timing, then decelerate smoothly towards the actual value.
-
-### 6. Layout Collisions & Transitions
-
-When list items change height or expand/collapse:
-*   Use Reanimated `LinearTransition.springify().damping(16)` on parent animated containers when appropriate.
-*   **Do not overuse parallel layout animations** in large lists; keep list row updates lightweight and memoized.
+### 4.5 Reduced Motion
+Always respect the user's OS accessibility preferences using `useReducedMotion()` (`shared/hooks/useReducedMotion.ts`). When active, bypass looping, scale, or ambient springs and fall back to instant transitions or simple opacity changes.
 
 ---
 
-## Native Mobile & Touch Ergonomics
+## 5. Review Format (Required)
 
-### Swipe-to-Dismiss / Secondary Actions
+When proposing or reviewing interaction and animation code, use this markdown table format:
 
-Swipeable list rows and bottom sheets must support gestural momentum:
-*   If swipe velocity exceeds `500pt/s` or gesture travel exceeds `50%` of threshold, complete the action with a spring inheriting gesture velocity.
-*   Otherwise, snap back smoothly using `withSpring`. Never use linear transitions for release.
-
-### Haptic Hierarchy
-
-Use `expo-haptics` with restraint:
-*   `Light`: PressableScale touch down, picker notch clicks, segment switches.
-*   `Medium`: Reaching drag thresholds (swipe-to-delete commit, bottom sheet drag boundary).
-*   `Notification Success`: Completing a task, habit streak check, or earning a pebble drop.
-*   *Rule*: Never fire heavy haptics on high-frequency typing or scroll events.
-
-### Touch Targets
-
-Every interactive element must maintain a minimum **44×44pt** touch target. Use `hitSlop` (`PressableScale` defaults to `hitSlop={8}`) to expand smaller visual icons to native touch boundaries.
-
+| Before | After | Why |
+| :--- | :--- | :--- |
+| `withTiming(val, { duration: 500 })` for fade | `withTiming(val, { duration: 180, easing: Easing.out(Easing.quad) })` | UI fades must stay snappy (<200ms) with out-easing |
+| Animating from `scale(0)` | Animate from `scale(0.95)` with opacity `withTiming` | Physical emergence; 0.95 prevents synthetic popping |
+| Linear transition on gesture release | `withSpring(target, { velocity: e.velocityY, damping: 16 })` | Gestural releases must honor physical momentum |
+| Plain unstyled `Pressable` on main action | `PressableScale` (`scale(0.97)` + light haptic) | Acknowledges touch with tactile feedback |
+| Animating container `height` in a list | Animate `opacity` + `transform` on item | Avoids triggering Yoga layout recalculation on siblings |
