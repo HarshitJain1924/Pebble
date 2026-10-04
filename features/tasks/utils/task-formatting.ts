@@ -2,7 +2,76 @@ import { Palette } from "@/shared/constants/theme";
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
 import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
+import { resolveResourceVisual } from "@/features/today/utils/resource-presentation";
 const DAY_MS = 86_400_000;
+
+export function getResourcePresentation(res: any) {
+  const visual = resolveResourceVisual(res);
+  const isImage = visual.category === "image" && Boolean(visual.thumbnailUri || res.mediaUri);
+
+  if (isImage) {
+    return {
+      visual,
+      isImage: true as const,
+      imageUri: visual.thumbnailUri || res.mediaUri,
+      title: "",
+      domain: null,
+      badge: null,
+    };
+  }
+
+  if (visual.category === "link") {
+    const raw = res.url || res.content || res.title || "";
+    let domain: string | null = null;
+    try {
+      const match = String(raw).match(/^(?:https?:\/\/)?(?:www\.)?([^\/\?#]+)/i);
+      if (match && match[1]) {
+        domain = match[1];
+      }
+    } catch {
+      // fallback
+    }
+
+    const rawTitle = res.title || "";
+    const isTitleUrl =
+      /^https?:\/\//i.test(rawTitle) ||
+      /^www\./i.test(rawTitle) ||
+      (domain && rawTitle.toLowerCase() === domain.toLowerCase());
+
+    const displayTitle = isTitleUrl ? (domain || rawTitle || "Web Link") : rawTitle;
+
+    return {
+      visual,
+      isImage: false as const,
+      imageUri: null,
+      title: displayTitle,
+      domain: !isTitleUrl && domain ? domain : null,
+      badge: null,
+    };
+  }
+
+  if (visual.category === "pdf") {
+    const rawTitle = (res.title || "Document").replace(/\.pdf$/i, "");
+    return {
+      visual,
+      isImage: false as const,
+      imageUri: null,
+      title: rawTitle,
+      domain: null,
+      badge: "PDF",
+    };
+  }
+
+  return {
+    visual,
+    isImage: false as const,
+    imageUri: null,
+    title: res.title || visual.label || "Note",
+    domain: null,
+    badge: null,
+  };
+}
+
 
 // Public API preserved for the many callers of this module; implementation
 // delegates to the canonical date-key helper (local YYYY-MM-DD).

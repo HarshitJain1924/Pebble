@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Modal,
   StyleSheet,
   Pressable,
   Platform,
-  KeyboardAvoidingView,
   Dimensions,
+  View,
+  Keyboard,
 } from "react-native";
 import Animated, {
   useSharedValue,
@@ -13,6 +14,7 @@ import Animated, {
   withSpring,
   withTiming,
   runOnJS,
+  useAnimatedKeyboard,
 } from "react-native-reanimated";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -45,6 +47,10 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
   const contentScale = useSharedValue(0.95);
   const contentOpacity = useSharedValue(0);
 
+  // Reanimated native keyboard tracking (skips web & Jest to avoid warnings)
+  const isExcluded = Platform.OS === "web" || process.env.NODE_ENV === "test";
+  const keyboard = !isExcluded ? useAnimatedKeyboard() : null;
+
   // Sync prop visibility changes
   useEffect(() => {
     if (visible) {
@@ -60,10 +66,11 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
     }
   }, [visible, type, backdropOpacity, contentTranslateY, contentScale, contentOpacity]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
+    Keyboard.dismiss();
     // Trigger exiting animations
     backdropOpacity.value = withTiming(0, { duration: 200 });
-    
+
     const onAnimationEnd = (finished?: boolean) => {
       if (finished) {
         runOnJS(setModalVisible)(false);
@@ -85,21 +92,37 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
         onAnimationEnd
       );
     }
-  };
+  }, [type, backdropOpacity, contentTranslateY, contentScale, contentOpacity, onClose]);
 
   const animatedBackdropStyle = useAnimatedStyle(() => ({
     opacity: backdropOpacity.value,
   }));
 
   const animatedContentStyle = useAnimatedStyle(() => {
+    let kh = 0;
+    if (keyboard) {
+      if (
+        typeof keyboard.height === "object" &&
+        keyboard.height !== null &&
+        "value" in keyboard.height
+      ) {
+        kh = (keyboard.height as any).value;
+      } else if (typeof keyboard.height === "number") {
+        kh = keyboard.height;
+      }
+    }
+
     if (type === "bottom-sheet") {
       return {
-        transform: [{ translateY: contentTranslateY.value }],
+        transform: [{ translateY: contentTranslateY.value - kh }],
       };
     } else {
       return {
         opacity: contentOpacity.value,
-        transform: [{ scale: contentScale.value }],
+        transform: [
+          { scale: contentScale.value },
+          { translateY: -kh * 0.5 },
+        ],
       };
     }
   });
@@ -136,12 +159,9 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
       onRequestClose={handleClose}
     >
       {type === "bottom-sheet" ? (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1, justifyContent: "flex-end" }}
-        >
+        <View style={styles.bottomWrapper}>
           {content}
-        </KeyboardAvoidingView>
+        </View>
       ) : (
         <Pressable
           style={styles.centerWrapper}
@@ -155,6 +175,10 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
 };
 
 const styles = StyleSheet.create({
+  bottomWrapper: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   centerWrapper: {
     flex: 1,
     justifyContent: "center",
@@ -175,3 +199,4 @@ const styles = StyleSheet.create({
 });
 
 export default AnimatedOverlay;
+

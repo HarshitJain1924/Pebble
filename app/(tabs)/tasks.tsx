@@ -22,7 +22,7 @@ import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getPebbleDockClearance } from "@/shared/components/navigation/PebbleRadialTabBar";
-import { MONTH_NAMES } from "@/features/tasks/utils/task-formatting";
+import { MONTH_NAMES, WEEKDAY_NAMES } from "@/features/tasks/utils/task-formatting";
 
 import { Task, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { generateId } from "@/shared/utils/id";
@@ -32,6 +32,9 @@ import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { styles } from "@/shared/constants/taskStyles";
 import { Colors, Palette } from "@/shared/constants/theme";
+import { Typography } from "@/shared/constants/typography";
+import { Spacing } from "@/shared/constants/spacing";
+import { Radius } from "@/shared/constants/radii";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -66,24 +69,25 @@ const DATE_DAY_NAMES = [
 ];
 
 /**
- * Centered date header used as the primary context on the Tasks page. The
- * previous/next days peek in from the edges (softly blurred/frosted) with static
- * chevron hints, so the row reads as horizontally swipeable. Swiping — or
- * tapping a neighbour — moves the selected day with a smooth, direction-aware
- * transition. Only the existing day selection state (owned by useTasksState) is
- * mutated.
+ * 3-day calendar strip (direction #5) providing global temporal context for the
+ * active workspace across all peer domains (Tasks, Habits, Checklists, Resources).
+ *
+ * Visual hierarchy:
+ *   [ Prev Day (Sat 3) ]   [ Selected Day (Oct 4 \n Today) ]   [ Next Day (Mon 5) ]
+ *
+ * Selected date is dominant with Pine accent when Today. Neighbors are quiet and muted.
+ * Supports horizontal swipe with spring recovery + directional transition, and tap to
+ * open date picker or navigate to adjacent days.
  */
-function ScreenDateHeader({
+function WorkspaceCalendarStrip({
   dateKey,
   colors,
-  isDark,
   onPrevDay,
   onNextDay,
   onOpenDatePicker,
 }: {
   dateKey: string;
   colors: any;
-  isDark: boolean;
   onPrevDay: () => void;
   onNextDay: () => void;
   onOpenDatePicker?: () => void;
@@ -96,14 +100,26 @@ function ScreenDateHeader({
   React.useEffect(() => {
     if (previousKeyRef.current === dateKey) return;
     previousKeyRef.current = dateKey;
-    enterX.setValue(directionRef.current * 32);
+    enterX.setValue(directionRef.current * 16);
     Animated.timing(enterX, {
       toValue: 0,
-      duration: 240,
+      duration: 220,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, [dateKey, enterX]);
+
+  const handlePrev = React.useCallback(() => {
+    directionRef.current = -1;
+    Haptics.selectionAsync().catch(() => {});
+    onPrevDay();
+  }, [onPrevDay]);
+
+  const handleNext = React.useCallback(() => {
+    directionRef.current = 1;
+    Haptics.selectionAsync().catch(() => {});
+    onNextDay();
+  }, [onNextDay]);
 
   const panResponder = React.useMemo(
     () =>
@@ -116,11 +132,9 @@ function ScreenDateHeader({
         },
         onPanResponderRelease: (_event, gesture) => {
           if (gesture.dx <= -36) {
-            directionRef.current = 1;
-            onNextDay();
+            handleNext();
           } else if (gesture.dx >= 36) {
-            directionRef.current = -1;
-            onPrevDay();
+            handlePrev();
           }
           Animated.spring(dragX, {
             toValue: 0,
@@ -134,7 +148,7 @@ function ScreenDateHeader({
           Animated.spring(dragX, { toValue: 0, useNativeDriver: true }).start();
         },
       }),
-    [dragX, onPrevDay, onNextDay],
+    [dragX, handleNext, handlePrev],
   );
 
   const translateX = React.useMemo(
@@ -142,202 +156,150 @@ function ScreenDateHeader({
     [dragX, enterX],
   );
 
-  // Drag feedback: the neighbour you're moving toward gets brighter.
-  const leftOpacity = dragX.interpolate({
-    inputRange: [-90, 0, 90],
-    outputRange: [0.16, 0.4, 0.9],
-    extrapolate: "clamp",
-  });
-  const rightOpacity = dragX.interpolate({
-    inputRange: [-90, 0, 90],
-    outputRange: [0.9, 0.4, 0.16],
-    extrapolate: "clamp",
-  });
-
-  // Static edge chevrons: quiet at rest, brighten toward the swipe direction.
-  const leftHintOpacity = dragX.interpolate({
-    inputRange: [-90, 0, 90],
-    outputRange: [0.12, 0.4, 0.85],
-    extrapolate: "clamp",
-  });
-  const rightHintOpacity = dragX.interpolate({
-    inputRange: [-90, 0, 90],
-    outputRange: [0.85, 0.4, 0.12],
-    extrapolate: "clamp",
-  });
-
   const todayKey = getTodayDateKey();
-  const parsed = parseDateKey(dateKey);
+  const yesterdayKey = getOffsetDateKey(1, todayKey);
+  const tomorrowKey = getOffsetDateKey(-1, todayKey);
+
+  const prevDateKey = getOffsetDateKey(1, dateKey);
+  const nextDateKey = getOffsetDateKey(-1, dateKey);
+
+  const prevParsed = parseDateKey(prevDateKey);
+  const currParsed = parseDateKey(dateKey);
+  const nextParsed = parseDateKey(nextDateKey);
+
+  const prevWeekday = WEEKDAY_NAMES[prevParsed.getDay()];
+  const prevDayNum = prevParsed.getDate();
+
+  const currMonth = MONTH_NAMES[currParsed.getMonth()];
+  const currDayNum = currParsed.getDate();
   const isToday = dateKey === todayKey;
-  const monthLabel = MONTH_NAMES[parsed.getMonth()];
-  const dayNumber = parsed.getDate();
-  const weekday = DATE_DAY_NAMES[parsed.getDay()];
 
-  const prevParsed = parseDateKey(getOffsetDateKey(1, dateKey));
-  const nextParsed = parseDateKey(getOffsetDateKey(-1, dateKey));
+  let currSublabel = DATE_DAY_NAMES[currParsed.getDay()];
+  if (isToday) {
+    currSublabel = "Today";
+  } else if (dateKey === tomorrowKey) {
+    currSublabel = "Tomorrow";
+  } else if (dateKey === yesterdayKey) {
+    currSublabel = "Yesterday";
+  }
 
-  const renderNeighbour = (
-    parsedDate: Date,
-    opacity: any,
-    onPress: () => void,
-    accessibilityLabel: string,
-  ) => (
-    <Animated.View style={[dateHeaderStyles.neighbourCell, { opacity }]}>
+  const nextWeekday = WEEKDAY_NAMES[nextParsed.getDay()];
+  const nextDayNum = nextParsed.getDate();
+
+  return (
+    <Animated.View
+      {...panResponder.panHandlers}
+      style={[
+        calendarStripStyles.container,
+        { transform: [{ translateX }] },
+      ]}
+    >
+      {/* Previous Day Slot */}
       <PressableScale
-        onPress={onPress}
+        onPress={handlePrev}
         haptic
+        hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel}
-        style={dateHeaderStyles.neighbourPress}
+        accessibilityLabel={`Previous day, ${prevWeekday} ${prevDayNum}`}
+        style={calendarStripStyles.slot}
       >
-        <View style={dateHeaderStyles.neighbourInner}>
-          <Text style={[dateHeaderStyles.neighbourWeekday, { color: colors.textMuted }]}>
-            {DATE_DAY_NAMES[parsedDate.getDay()].slice(0, 3)}
-          </Text>
-          <Text style={[dateHeaderStyles.neighbourDay, { color: colors.textMuted }]}>
-            {parsedDate.getDate()}
-          </Text>
-        </View>
+        <Text
+          style={[
+            calendarStripStyles.neighborText,
+            { color: colors.textMuted },
+          ]}
+          numberOfLines={1}
+        >
+          {`${prevWeekday} ${prevDayNum}`}
+        </Text>
+      </PressableScale>
+
+      {/* Selected Day Slot */}
+      <PressableScale
+        onPress={onOpenDatePicker}
+        haptic
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={`Selected date, ${currMonth} ${currDayNum}${isToday ? ", Today" : ""}. Tap to open date picker.`}
+        style={[calendarStripStyles.slot, calendarStripStyles.centerSlot]}
+      >
+        <Text
+          style={[
+            calendarStripStyles.centerDateText,
+            { color: colors.text },
+          ]}
+          numberOfLines={1}
+        >
+          {`${currMonth} ${currDayNum}`}
+        </Text>
+        <Text
+          style={[
+            calendarStripStyles.centerSublabel,
+            { color: isToday ? colors.primary : colors.textMuted },
+          ]}
+          numberOfLines={1}
+        >
+          {currSublabel}
+        </Text>
+      </PressableScale>
+
+      {/* Next Day Slot */}
+      <PressableScale
+        onPress={handleNext}
+        haptic
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={`Next day, ${nextWeekday} ${nextDayNum}`}
+        style={calendarStripStyles.slot}
+      >
+        <Text
+          style={[
+            calendarStripStyles.neighborText,
+            { color: colors.textMuted },
+          ]}
+          numberOfLines={1}
+        >
+          {`${nextWeekday} ${nextDayNum}`}
+        </Text>
       </PressableScale>
     </Animated.View>
   );
-
-  return (
-    <View style={dateHeaderStyles.container}>
-      <Animated.View
-        {...panResponder.panHandlers}
-        accessibilityLabel={`${weekday}, ${monthLabel} ${dayNumber}${isToday ? ", today" : ""}`}
-        style={{
-          transform: [{ translateX }],
-        }}
-      >
-        <View style={dateHeaderStyles.row}>
-          {renderNeighbour(prevParsed, leftOpacity, onPrevDay, "Previous day")}
-
-          <PressableScale
-            onPress={onOpenDatePicker}
-            haptic
-            accessibilityRole="button"
-            accessibilityLabel={`${weekday}, ${monthLabel} ${dayNumber}${isToday ? ", today" : ""}. Tap to open date picker.`}
-            style={dateHeaderStyles.centerCell}
-          >
-            <Text
-              style={[dateHeaderStyles.centerDate, { color: colors.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-            >
-              {monthLabel} {dayNumber}
-            </Text>
-            <Text
-              style={[
-                dateHeaderStyles.centerSub,
-                { color: isToday ? colors.primary : colors.textMuted },
-              ]}
-            >
-              {isToday ? `${weekday} · Today` : weekday}
-            </Text>
-          </PressableScale>
-
-          {renderNeighbour(nextParsed, rightOpacity, onNextDay, "Next day")}
-        </View>
-      </Animated.View>
-
-      {/* Static swipe-direction hints; the date content slides beneath them */}
-      <Animated.View
-        pointerEvents="none"
-        accessibilityLabel="Swipe left for next day"
-        style={[
-          dateHeaderStyles.hintEdge,
-          dateHeaderStyles.hintEdgeLeft,
-          { opacity: leftHintOpacity },
-        ]}
-      >
-        <Feather name="chevron-left" size={17} color={colors.textMuted} />
-      </Animated.View>
-      <Animated.View
-        pointerEvents="none"
-        accessibilityLabel="Swipe right for previous day"
-        style={[
-          dateHeaderStyles.hintEdge,
-          dateHeaderStyles.hintEdgeRight,
-          { opacity: rightHintOpacity },
-        ]}
-      >
-        <Feather name="chevron-right" size={17} color={colors.textMuted} />
-      </Animated.View>
-    </View>
-  );
 }
 
-const dateHeaderStyles = StyleSheet.create({
+const calendarStripStyles = StyleSheet.create({
   container: {
-    marginTop: 16,
-    marginBottom: 4,
-  },
-  row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xs,
+    minHeight: 44,
   },
-  hintEdge: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
-  },
-  hintEdgeLeft: {
-    left: 2,
-  },
-  hintEdgeRight: {
-    right: 2,
-  },
-  neighbourCell: {
-    width: 88,
-  },
-  neighbourPress: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 48,
-  },
-  neighbourInner: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-  },
-  neighbourWeekday: {
-    fontSize: 12.5,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  neighbourDay: {
-    fontSize: 17.5,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-    marginTop: 1,
-  },
-  centerCell: {
+  slot: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
-    minHeight: 52,
+    minHeight: 44,
+    paddingVertical: Spacing.xs,
   },
-  centerDate: {
-    fontSize: 34,
-    fontWeight: "800",
-    letterSpacing: -0.7,
+  centerSlot: {
+    gap: 1,
   },
-  centerSub: {
-    fontSize: 14.5,
-    fontWeight: "600",
-    marginTop: 3,
+  neighborText: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.medium,
     letterSpacing: -0.1,
+    opacity: 0.65,
+  },
+  centerDateText: {
+    fontSize: Typography.sizes.md,
+    fontWeight: Typography.weights.semibold,
+    letterSpacing: -0.2,
+  },
+  centerSublabel: {
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.semibold,
+    letterSpacing: 0.1,
   },
 });
 
@@ -345,13 +307,123 @@ const controlRowStyles = StyleSheet.create({
   filterButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: Spacing.xs,
     minHeight: 44,
-    paddingHorizontal: 6,
+    paddingHorizontal: Spacing.sm,
   },
   filterLabel: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+    letterSpacing: -0.1,
+  },
+});
+
+/**
+ * Workspace header chrome — shared by all four peer domains. A single identity
+ * row (back, workspace-hued badge + title, the inline reference date, and
+ * actions) sits above the invariant domain tabs. All values map onto canonical
+ * Typography / Spacing / Radius.
+ */
+const headerStyles = StyleSheet.create({
+  navRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+    minHeight: 44,
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.sm,
+  },
+  backButton: {
+    width: 32,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  identityCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flex: 1,
+  },
+  identityLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flexShrink: 1,
+    paddingRight: Spacing.sm,
+  },
+  identityBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  titleStack: {
+    flexShrink: 1,
+    justifyContent: "center",
+    gap: 1,
+  },
+  identityName: {
+    fontSize: Typography.sizes.xl,
+    fontWeight: Typography.weights.semibold,
+    letterSpacing: -0.4,
+    flexShrink: 1,
+  },
+  identitySubtitle: {
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.medium,
+    letterSpacing: -0.1,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  searchBar: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    height: 44,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.lg,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.medium,
+    height: "100%",
+    padding: 0,
+    margin: 0,
+  },
+  searchClose: {
+    padding: Spacing.xs,
+  },
+});
+
+/** Per-domain context strip — one quiet count row; never duplicates the title. */
+const contextStripStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.sm,
+    minHeight: 24,
+  },
+  label: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.medium,
     letterSpacing: -0.1,
   },
 });
@@ -369,7 +441,7 @@ const domainTabStyles = StyleSheet.create({
     justifyContent: "center",
   },
   tabLabel: {
-    fontSize: 15,
+    fontSize: Typography.sizes.sm,
     letterSpacing: -0.2,
   },
   indicator: {
@@ -453,32 +525,7 @@ export function WorkspacesScreen() {
     [state.workspaces, state.activeWorkspaceId],
   );
 
-  const workspaceContextLabel = React.useMemo(() => {
-    const name = currentFolder?.name || "Workspace";
-    switch (state.workspaceSegment) {
-      case "habits":
-        return `${name} · ${folderHabits.length} ${folderHabits.length === 1 ? "habit" : "habits"}`;
-      case "checklists": {
-        const folderChecklists = (
-          state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || []
-        ).filter((c) => !c.archivedAt);
-        return `${name} · ${folderChecklists.length} ${folderChecklists.length === 1 ? "checklist" : "checklists"}`;
-      }
-      case "resources":
-        return `${name} · ${allResources.length} ${allResources.length === 1 ? "resource" : "resources"}`;
-      case "tasks":
-      default:
-        return `${name} · ${state.remainingCount} ${state.remainingCount === 1 ? "task" : "tasks"}`;
-    }
-  }, [
-    currentFolder,
-    state.workspaceSegment,
-    state.checklists,
-    state.activeWorkspaceId,
-    state.remainingCount,
-    folderHabits.length,
-    allResources.length,
-  ]);
+  const workspaceAccent = currentFolder?.color || colors.primary;
 
   const searchPlaceholder = React.useMemo(() => {
     switch (state.workspaceSegment) {
@@ -493,6 +540,25 @@ export function WorkspacesScreen() {
         return "Search tasks...";
     }
   }, [state.workspaceSegment]);
+
+  const activeChecklistCount = React.useMemo(() => {
+    const folderChecklists = state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
+    return folderChecklists.filter((c) => !c.archivedAt).length;
+  }, [state.checklists, state.activeWorkspaceId]);
+
+  const workspaceSubtitle = React.useMemo(() => {
+    switch (state.workspaceSegment) {
+      case "habits":
+        return `${folderHabits.length} habit${folderHabits.length === 1 ? "" : "s"}`;
+      case "checklists":
+        return `${activeChecklistCount} checklist${activeChecklistCount === 1 ? "" : "s"}`;
+      case "resources":
+        return `${allResources.length} resource${allResources.length === 1 ? "" : "s"}`;
+      case "tasks":
+      default:
+        return `${state.remainingCount} task${state.remainingCount === 1 ? "" : "s"}`;
+    }
+  }, [state.workspaceSegment, state.remainingCount, folderHabits.length, activeChecklistCount, allResources.length]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -539,183 +605,130 @@ export function WorkspacesScreen() {
             {/* Header */}
             {state.activeWorkspaceId ? (
               <View style={{ marginBottom: 0 }}>
-                {/* Top Navigation Bar */}
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    paddingHorizontal: 4,
-                    paddingTop: 4,
-                    paddingBottom: 8,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                    <PressableScale
-                      onPress={() => {
-                        state.handleBackToWorkspaces();
-                        state.setSearchQuery("");
-                        setIsSearchActive(false);
-                      }}
-                      haptic
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel="Back to workspaces"
-                      style={{
-                        padding: 6,
-                        justifyContent: "center",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Feather name="arrow-left" size={20} color={colors.text} />
-                    </PressableScale>
-
-                    {/* Workspace identity — non-interactive; the back arrow owns navigation. */}
+                {/* Identity bar — the workspace name is the screen's single anchor.
+                    Search expands in place instead of stacking another band. */}
+                <View style={headerStyles.navRow}>
+                  {isSearchActive ? (
                     <View
-                      accessible
-                      accessibilityLabel={`${currentFolder?.name || "Workspace"} workspace`}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 7,
-                        flexShrink: 1,
-                        paddingRight: 8,
-                      }}
+                      style={[
+                        headerStyles.searchBar,
+                        { backgroundColor: colors.card, borderColor: colors.border },
+                      ]}
                     >
-                      {currentFolder?.emoji || (state.activeWorkspaceId === INBOX_WORKSPACE_ID) ? (
-                        <Text style={{ fontSize: 18 }}>
-                          {currentFolder?.emoji || "📥"}
-                        </Text>
-                      ) : currentFolder?.icon ? (
-                        <Feather
-                          name={currentFolder.icon as any}
-                          size={18}
-                          color={currentFolder.color || colors.primary}
-                        />
-                      ) : (
-                        <Feather
-                          name="folder"
-                          size={18}
-                          color={currentFolder?.color || colors.primary}
-                        />
-                      )}
-                      <Text
-                        style={{
-                          fontSize: 21,
-                          fontWeight: "800",
-                          color: colors.text,
-                          letterSpacing: -0.3,
-                          flexShrink: 1,
-                        }}
-                        numberOfLines={1}
-                      >
-                        {currentFolder?.name || "Workspace"}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Search + More Options. The date is owned by the date header below. */}
-                  <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-                    <PressableScale
-                      onPress={() => {
-                        setIsSearchActive(!isSearchActive);
-                        if (isSearchActive) {
+                      <Feather name="search" size={16} color={colors.textMuted} />
+                      <TextInput
+                        value={state.searchQuery}
+                        onChangeText={state.setSearchQuery}
+                        placeholder={searchPlaceholder}
+                        placeholderTextColor={colors.textMuted}
+                        style={[headerStyles.searchInput, { color: colors.text }]}
+                        autoFocus
+                      />
+                      <Pressable
+                        onPress={() => {
                           state.setSearchQuery("");
-                        }
-                      }}
-                      haptic
-                      hitSlop={6}
-                      accessibilityRole="button"
-                      accessibilityLabel="Search"
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 22,
-                        justifyContent: "center",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Feather name="search" size={20} color={isSearchActive ? colors.primary : colors.text} />
-                    </PressableScale>
+                          setIsSearchActive(false);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Close search"
+                        hitSlop={10}
+                        style={headerStyles.searchClose}
+                      >
+                        <Feather name="x" size={16} color={colors.textMuted} />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={headerStyles.identityCluster}>
+                        <PressableScale
+                          onPress={() => {
+                            state.handleBackToWorkspaces();
+                            state.setSearchQuery("");
+                            setIsSearchActive(false);
+                          }}
+                          haptic
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Back to workspaces"
+                          style={headerStyles.backButton}
+                        >
+                          <Feather name="arrow-left" size={20} color={colors.text} />
+                        </PressableScale>
 
-                    <PressableScale
-                      onPress={() => setWorkspaceMenuVisible(true)}
-                      haptic
-                      hitSlop={6}
-                      accessibilityRole="button"
-                      accessibilityLabel="More options"
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 22,
-                        justifyContent: "center",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Feather name="more-horizontal" size={20} color={colors.text} />
-                    </PressableScale>
-                  </View>
+                        {/* Workspace identity — a workspace-hued icon badge + title, with
+                            the reference date tucked beneath as quiet context. This is
+                            the screen's single anchor on every peer domain. */}
+                        <View style={headerStyles.identityLabel}>
+                          <View
+                            style={[
+                              headerStyles.identityBadge,
+                              { backgroundColor: `${workspaceAccent}1F` },
+                            ]}
+                          >
+                            {currentFolder?.emoji || (state.activeWorkspaceId === INBOX_WORKSPACE_ID) ? (
+                              <Text style={{ fontSize: 17 }}>
+                                {currentFolder?.emoji || "📥"}
+                              </Text>
+                            ) : currentFolder?.icon ? (
+                              <Feather
+                                name={currentFolder.icon as any}
+                                size={17}
+                                color={workspaceAccent}
+                              />
+                            ) : (
+                              <Feather name="folder" size={17} color={workspaceAccent} />
+                            )}
+                          </View>
+
+                          <View style={headerStyles.titleStack}>
+                            <Text
+                              accessibilityRole="header"
+                              style={[headerStyles.identityName, { color: colors.text }]}
+                              numberOfLines={1}
+                            >
+                              {currentFolder?.name || "Workspace"}
+                            </Text>
+                            <Text
+                              style={[headerStyles.identitySubtitle, { color: colors.textMuted }]}
+                              numberOfLines={1}
+                            >
+                              {workspaceSubtitle}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      <View style={headerStyles.actionsRow}>
+                        <PressableScale
+                          onPress={() => setIsSearchActive(true)}
+                          haptic
+                          hitSlop={6}
+                          accessibilityRole="button"
+                          accessibilityLabel="Search"
+                          style={headerStyles.iconButton}
+                        >
+                          <Feather name="search" size={20} color={colors.text} />
+                        </PressableScale>
+
+                        <PressableScale
+                          onPress={() => setWorkspaceMenuVisible(true)}
+                          haptic
+                          hitSlop={6}
+                          accessibilityRole="button"
+                          accessibilityLabel="More options"
+                          style={headerStyles.iconButton}
+                        >
+                          <Feather name="more-horizontal" size={20} color={colors.text} />
+                        </PressableScale>
+                      </View>
+                    </>
+                  )}
                 </View>
 
-                {/* Workspace context */}
-                <Text
-                  style={{
-                    fontSize: 13,
-                    fontWeight: "500",
-                    color: colors.textMuted,
-                    paddingHorizontal: 6,
-                    marginTop: 2,
-                    marginBottom: 6,
-                  }}
-                  numberOfLines={1}
-                >
-                  {workspaceContextLabel}
-                </Text>
-
-                {/* Progressive Search Disclosure Input */}
-                {isSearchActive && (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      backgroundColor: colors.card,
-                      borderRadius: 12,
-                      paddingHorizontal: 12,
-                      height: 38,
-                      marginBottom: 8,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      marginHorizontal: 4,
-                    }}
-                  >
-                    <Feather name="search" size={14} color={colors.textMuted} style={{ marginRight: 6 }} />
-                    <TextInput
-                      value={state.searchQuery}
-                      onChangeText={state.setSearchQuery}
-                      placeholder={searchPlaceholder}
-                      placeholderTextColor={colors.textMuted}
-                      style={{
-                        flex: 1,
-                        color: colors.text,
-                        fontSize: 13,
-                        height: "100%",
-                        padding: 0,
-                      }}
-                      autoFocus
-                    />
-                    {state.searchQuery.length > 0 && (
-                      <Pressable onPress={() => state.setSearchQuery("")} hitSlop={10}>
-                        <Feather name="x" size={14} color={colors.textMuted} />
-                      </Pressable>
-                    )}
-                  </View>
-                )}
-
-                {/* Date header — global first-class context for every peer page */}
-                <ScreenDateHeader
+                {/* 3-day Calendar Strip — global workspace temporal context above all domains */}
+                <WorkspaceCalendarStrip
                   dateKey={state.selectedDate}
                   colors={colors}
-                  isDark={isDark}
                   onPrevDay={() => state.setSelectedDate((d) => getOffsetDateKey(1, d))}
                   onNextDay={() => state.setSelectedDate((d) => getOffsetDateKey(-1, d))}
                   onOpenDatePicker={() => setIsDatePickerVisible(true)}
@@ -728,7 +741,7 @@ export function WorkspacesScreen() {
                     flexDirection: "row",
                     alignItems: "flex-end",
                     paddingHorizontal: 4,
-                    marginTop: 12,
+                    marginTop: Spacing.xs,
                     borderBottomWidth: StyleSheet.hairlineWidth,
                     borderBottomColor: colors.border,
                   }}
@@ -1064,6 +1077,12 @@ export function WorkspacesScreen() {
                 {/* Resources Section */}
                 {(state.workspaceSegment as string) === "resources" && (
                   <View style={{ gap: 10 }}>
+                    {/* Context strip — the only home for this domain's count. */}
+                    <View style={contextStripStyles.row}>
+                      <Text style={[contextStripStyles.label, { color: colors.textMuted }]}>
+                        {`${allResources.length} ${allResources.length === 1 ? "resource" : "resources"}`}
+                      </Text>
+                    </View>
                     <ResourceSection
                       resources={state.resources}
                       lists={state.workspaces}

@@ -7,33 +7,25 @@ import Animated, {
   withTiming,
   withSequence,
   Easing,
-  interpolate,
-  FadeIn,
-  FadeOut,
-  LinearTransition,
 } from "react-native-reanimated";
 import { getCategoryColors, TaskListPriorityColors } from "@/shared/constants/categoryColors";
-import { Palette, colorWithAlpha } from "@/shared/constants/theme";
+import { Palette } from "@/shared/constants/theme";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import { Radius } from "@/shared/constants/radii";
 import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import {
   LayoutChangeEvent,
-  Pressable,
   StyleSheet,
   View,
-  Modal,
-  ScrollView,
-  TouchableOpacity,
-  useWindowDimensions,
-  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import * as Haptics from "expo-haptics";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
-import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
+import { TaskQuickEditSheet } from "./TaskQuickEditSheet";
+import { TaskDatePickerModal } from "./TaskDatePickerModal";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
@@ -49,7 +41,7 @@ import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { getTodayDateKey } from "@/shared/utils/date-key";
 
-function getResourcePresentation(res: any) {
+export function getResourcePresentation(res: any) {
   const visual = resolveResourceVisual(res);
   const isImage = visual.category === "image" && Boolean(visual.thumbnailUri || res.mediaUri);
 
@@ -169,16 +161,14 @@ export function TodoItem({
   onToggleLinkResource,
 }: TodoItemProps) {
   const router = useRouter();
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isLight = colorScheme === "light";
   const isDark = colorScheme !== "light";
   const categoryColors = getCategoryColors(isDark);
   const streamColors = getStreamResourcePalette(isDark);
 
-  // Independent disclosures — the row itself never becomes a giant card.
-  const [resourcesExpanded, setResourcesExpanded] = useState(false);
+  // Contextual Quick Edit sheet & Date picker modals
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [showLinkSelector, setShowLinkSelector] = useState(false);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   const reducedMotion = useReducedMotion();
 
@@ -558,7 +548,13 @@ export function TodoItem({
         onLayout={onLayout}
         style={[
           styles.rowContainer,
-          { backgroundColor: "transparent" },
+          {
+            backgroundColor: isLight ? Palette.white : colors.card,
+            borderRadius: Radius.lg,
+            borderWidth: 1,
+            borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
+            marginVertical: 2,
+          },
           {
             opacity: isCompleted ? 0.6 : 1,
           },
@@ -703,14 +699,14 @@ export function TodoItem({
               <PressableScale
                 onPress={() => {
                   Haptics.selectionAsync().catch(() => {});
-                  setResourcesExpanded((prev) => !prev);
+                  setIsMenuOpen(true);
                 }}
                 scaleTo={0.93}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 haptic
                 accessibilityRole="button"
                 accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
-                accessibilityState={{ expanded: resourcesExpanded }}
+                accessibilityState={{ expanded: false }}
                 style={styles.resourceStackPressable}
               >
                 <View style={styles.stackRow}>
@@ -739,382 +735,50 @@ export function TodoItem({
           </View>
         </View>
 
-        {/* INLINE RESOURCE DISCLOSURE (independent from the task row) */}
-        {resourcesExpanded && (
-          <Animated.View
-            entering={reducedMotion ? undefined : FadeIn.duration(200)}
-            exiting={reducedMotion ? undefined : FadeOut.duration(160)}
-            layout={reducedMotion ? undefined : LinearTransition.duration(240)}
-            style={styles.resourcesSection}
-          >
-            <View style={styles.resourcesHeaderRow}>
-              <PressableScale
-                onPress={() => setResourcesExpanded(false)}
-                haptic
-                accessibilityRole="button"
-                accessibilityLabel={`Collapse resources for ${item.title}`}
-                style={styles.resourcesHeaderLeft}
-              >
-                <Text style={[styles.resourcesHeaderTitle, { color: colors.text }]}>
-                  {`Resources (${totalResources})`}
-                </Text>
-                <Feather name="chevron-down" size={14} color={colors.textMuted} />
-              </PressableScale>
-            </View>
-
-            {/* Horizontal Scroll of Flat Attachment Chips & Image Previews */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.horizontalResourceScroll}
-            >
-              {linkedResources.map((res: any) => {
-                const itemPres = getResourcePresentation(res);
-                const visual = itemPres.visual;
-                const stream = streamColors[visual.category] || streamColors.note;
-
-                if (itemPres.isImage && itemPres.imageUri) {
-                  return (
-                    <PressableScale
-                      key={res.id}
-                      onPress={() => handleOpenResource(res)}
-                      haptic
-                      scaleTo={0.96}
-                      accessibilityRole="button"
-                      accessibilityLabel={res.title || "Image attachment, tap to open"}
-                      style={[
-                        styles.resourceImageTile,
-                        {
-                          borderColor: isDark ? "rgba(255, 255, 255, 0.14)" : colors.border,
-                          backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Palette.slate100,
-                        },
-                      ]}
-                    >
-                      <ExpoImage
-                        source={{ uri: itemPres.imageUri }}
-                        style={styles.resourceImageContent}
-                        contentFit="cover"
-                        transition={150}
-                      />
-                    </PressableScale>
-                  );
-                }
-
-                return (
-                  <PressableScale
-                    key={res.id}
-                    onPress={() => handleOpenResource(res)}
-                    haptic
-                    scaleTo={0.96}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${itemPres.title}, ${visual.label}`}
-                    style={[
-                      styles.resourceCapsule,
-                      {
-                        backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
-                        borderColor: isDark ? "rgba(255, 255, 255, 0.1)" : colors.border,
-                      },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.resourceIconBadge,
-                        { backgroundColor: stream.backgroundColor },
-                      ]}
-                    >
-                      <Feather
-                        name={
-                          visual.category === "link"
-                            ? "globe"
-                            : visual.category === "pdf"
-                            ? "file-text"
-                            : "align-left"
-                        }
-                        size={13}
-                        color={stream.accent}
-                      />
-                    </View>
-                    <View style={styles.resourceTextStack}>
-                      <Text
-                        style={[styles.resourceCapsuleTitle, { color: colors.text }]}
-                        numberOfLines={1}
-                      >
-                        {itemPres.title}
-                      </Text>
-                      {itemPres.domain ? (
-                        <Text
-                          style={[styles.resourceDomainText, { color: colors.textMuted }]}
-                          numberOfLines={1}
-                        >
-                          {itemPres.domain}
-                        </Text>
-                      ) : null}
-                    </View>
-                    {visual.category === "link" ? (
-                      <Feather
-                        name="arrow-up-right"
-                        size={12}
-                        color={colors.textMuted}
-                        style={styles.resourceArrow}
-                      />
-                    ) : itemPres.badge ? (
-                      <View
-                        style={[
-                          styles.formatBadge,
-                          {
-                            backgroundColor: isDark
-                              ? "rgba(255, 255, 255, 0.08)"
-                              : "rgba(0, 0, 0, 0.06)",
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.formatBadgeText, { color: stream.accent }]}>
-                          {itemPres.badge}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </PressableScale>
-                );
-              })}
-
-              {/* "+ Link" Chip */}
-              <PressableScale
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setShowLinkSelector(true);
-                }}
-                haptic
-                scaleTo={0.96}
-                accessibilityRole="button"
-                accessibilityLabel="Link a new resource to this task"
-                style={[
-                  styles.linkResourceChip,
-                  {
-                    borderColor: isDark ? "rgba(255, 255, 255, 0.16)" : colors.border,
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)",
-                  },
-                ]}
-              >
-                <Feather
-                  name="plus"
-                  size={14}
-                  color={isDark ? colors.primaryLight : colors.primary}
-                />
-                <Text
-                  style={[
-                    styles.linkResourceChipText,
-                    { color: isDark ? colors.primaryLight : colors.primary },
-                  ]}
-                >
-                  Link
-                </Text>
-              </PressableScale>
-            </ScrollView>
-          </Animated.View>
-        )}
-
-        {/* COMPACT TASK ACTIONS (bottom action sheet) */}
-        <AnimatedOverlay
+        {/* TASK QUICK EDIT (compact bottom sheet) */}
+        <TaskQuickEditSheet
           visible={isMenuOpen}
           onClose={() => setIsMenuOpen(false)}
-          type="bottom-sheet"
-        >
-          {(close) => (
-            <View
-              style={[
-                styles.actionSheet,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
+          item={item}
+          colors={colors}
+          isDark={isDark}
+          isCompleted={isCompleted}
+          onToggleComplete={handleCheckboxPress}
+          onEditTodo={onEditTodo}
+          onSetAlarm={onSetAlarm}
+          onOpenDatePicker={() => setIsDatePickerOpen(true)}
+          onDeleteTodo={onDeleteTodo}
+          linkedResources={linkedResources}
+          totalResources={totalResources}
+          streamColors={streamColors}
+          handleOpenResource={handleOpenResource}
+          onOpenLinkSelector={() => {
+            setIsMenuOpen(false);
+            onEditTodo?.();
+          }}
+        />
+
+        {/* TASK DATE PICKER MODAL (launched from Quick Edit Schedule) */}
+        <TaskDatePickerModal
+          visible={isDatePickerOpen}
+          onClose={() => setIsDatePickerOpen(false)}
+          selectedDate={item.schedule?.date || getTodayDateKey()}
+          onSelectDate={async (dateKey) => {
+            setIsDatePickerOpen(false);
+            try {
+              await EntityCommandService.updateTask(item.id, item.workspaceId, {
+                schedule: {
+                  ...item.schedule,
+                  date: dateKey,
                 },
-              ]}
-            >
-              <Text
-                style={[styles.actionSheetTitle, { color: colors.text }]}
-                numberOfLines={1}
-              >
-                {item.title}
-              </Text>
-
-              <TouchableOpacity
-                onPress={() => {
-                  close();
-                  (onSchedule || onEditTodo)?.();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Schedule task"
-                style={styles.actionSheetRow}
-              >
-                <Feather name="calendar" size={17} color={colors.textMuted} />
-                <Text style={[styles.actionSheetRowLabel, { color: colors.text }]}>
-                  Schedule
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  close();
-                  (onSetAlarm || onEditTodo)?.();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Set reminder"
-                style={styles.actionSheetRow}
-              >
-                <Feather name="bell" size={17} color={colors.textMuted} />
-                <Text style={[styles.actionSheetRowLabel, { color: colors.text }]}>
-                  Reminder
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  close();
-                  onEditTodo?.();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Open task details"
-                style={styles.actionSheetRow}
-              >
-                <Feather name="edit-3" size={17} color={colors.textMuted} />
-                <Text style={[styles.actionSheetRowLabel, { color: colors.text }]}>
-                  Open details
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  close();
-                  onDeleteTodo();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Delete task"
-                style={styles.actionSheetRow}
-              >
-                <Feather name="trash-2" size={17} color={colors.error} />
-                <Text style={[styles.actionSheetRowLabel, { color: colors.error }]}>
-                  Delete
-                </Text>
-              </TouchableOpacity>
-
-              <View style={[styles.actionSheetDivider, { backgroundColor: colors.border }]} />
-
-              <TouchableOpacity
-                onPress={close}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel"
-                style={[
-                  styles.actionSheetCancel,
-                  { backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : Palette.slate100 },
-                ]}
-              >
-                <Text style={[styles.actionSheetCancelText, { color: colors.text }]}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </AnimatedOverlay>
-
-
-
-        {/* RESOURCE LINK SELECTOR MODAL */}
-        <Modal
-          visible={showLinkSelector}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowLinkSelector(false)}
-        >
-          <View style={styles.selectorModalBackdrop}>
-            <View
-              style={[
-                styles.selectorModalCard,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                },
-              ]}
-            >
-              <Text style={[styles.selectorTitle, { color: colors.text }]}>
-                Link Resources
-              </Text>
-              <Text style={[styles.selectorSubtitle, { color: colors.textMuted }]}>
-                Select resources to link to this task:
-              </Text>
-
-              {allResources.length === 0 ? (
-                <View style={{ paddingVertical: 32, alignItems: "center" }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                    No resources in this workspace.
-                  </Text>
-                </View>
-              ) : (
-                <ScrollView
-                  contentContainerStyle={{ gap: 8 }}
-                  showsVerticalScrollIndicator={false}
-                  style={{ maxHeight: screenHeight * 0.45 }}
-                >
-                  {allResources.map((res) => {
-                    const isLinked = linkedResourceIds?.includes(res.id) ?? false;
-                    return (
-                      <TouchableOpacity
-                        key={res.id}
-                        onPress={() => onToggleLinkResource?.(item.id, "task", res.id)}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: isLinked }}
-                        accessibilityLabel={`${res.title}, ${isLinked ? "linked" : "not linked"}`}
-                        style={[
-                          styles.resourcePickerRow,
-                          {
-                            borderColor: isLinked ? colors.primary : colors.border,
-                            backgroundColor: isLinked
-                              ? `${colors.primary}12`
-                              : isLight
-                              ? Palette.slate50
-                              : "rgba(255, 255, 255, 0.03)",
-                          },
-                        ]}
-                      >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                          <Feather
-                            name={
-                              res.type === "link"
-                                ? "link"
-                                : res.type === "image"
-                                ? "image"
-                                : "file-text"
-                            }
-                            size={15}
-                            color={colors.textMuted}
-                          />
-                          <Text
-                            style={{ fontSize: 13, fontWeight: "600", color: colors.text, flex: 1 }}
-                            numberOfLines={1}
-                          >
-                            {res.title}
-                          </Text>
-                        </View>
-                        <Feather
-                          name={isLinked ? "check-circle" : "circle"}
-                          size={18}
-                          color={isLinked ? colors.primary : colors.textMuted}
-                        />
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              )}
-
-              <TouchableOpacity
-                onPress={() => setShowLinkSelector(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Done linking resources"
-                style={[styles.doneBtn, { backgroundColor: colors.primary }]}
-              >
-                <Text style={styles.doneBtnText}>Done</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
+              });
+            } catch (e) {
+              console.warn("[TaskItem] Failed to update task schedule date", e);
+            }
+          }}
+          colors={colors}
+          isDark={isDark}
+        />
       </View>
     </SwipeableCard>
   );
@@ -1200,191 +864,5 @@ const styles = StyleSheet.create({
   stackRow: {
     flexDirection: "row",
     alignItems: "center",
-  },
-  // Inline resource disclosure styles (flat attachment chips)
-  resourcesSection: {
-    gap: 8,
-    paddingLeft: ROW_SPEC.row.paddingLeft,
-    paddingRight: ROW_SPEC.row.paddingRight,
-    paddingBottom: 10,
-    paddingTop: 2,
-  },
-  resourcesHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 2,
-  },
-  resourcesHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  resourcesHeaderTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: -0.1,
-    opacity: 0.85,
-  },
-  horizontalResourceScroll: {
-    gap: 8,
-    paddingRight: 4,
-    alignItems: "center",
-  },
-  resourceImageTile: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  resourceImageContent: {
-    width: 44,
-    height: 44,
-  },
-  resourceCapsule: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 40,
-    paddingLeft: 6,
-    paddingRight: 10,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    gap: 7,
-    maxWidth: 240,
-  },
-  resourceIconBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  resourceTextStack: {
-    flexShrink: 1,
-    justifyContent: "center",
-  },
-  resourceCapsuleTitle: {
-    fontSize: 12.5,
-    fontWeight: "600",
-    letterSpacing: -0.15,
-    flexShrink: 1,
-  },
-  resourceDomainText: {
-    fontSize: 10.5,
-    fontWeight: "500",
-    opacity: 0.7,
-  },
-  resourceArrow: {
-    marginLeft: 1,
-    opacity: 0.6,
-  },
-  formatBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-  },
-  formatBadgeText: {
-    fontSize: 9.5,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  linkResourceChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 40,
-    paddingHorizontal: 12,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    gap: 5,
-  },
-  linkResourceChipText: {
-    fontSize: 12.5,
-    fontWeight: "600",
-  },
-  // Task action sheet (secondary actions)
-  actionSheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderWidth: 1.5,
-    paddingTop: 16,
-    paddingHorizontal: 20,
-    paddingBottom: 28,
-    gap: 2,
-  },
-  actionSheetTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: -0.2,
-    marginBottom: 10,
-  },
-  actionSheetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 14,
-  },
-  actionSheetRowLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  actionSheetDivider: {
-    height: 1.5,
-    marginVertical: 8,
-  },
-  actionSheetCancel: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  actionSheetCancelText: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  // Resource Selector Modal
-  selectorModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  selectorModalCard: {
-    width: "90%",
-    maxHeight: "75%",
-    borderRadius: 22,
-    borderWidth: 1.5,
-    padding: 20,
-    gap: 12,
-  },
-  selectorTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-  },
-  selectorSubtitle: {
-    fontSize: 12,
-    marginTop: -4,
-  },
-  resourcePickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  doneBtn: {
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 6,
-  },
-  doneBtnText: {
-    color: Palette.white,
-    fontWeight: "700",
-    fontSize: 14,
   },
 });

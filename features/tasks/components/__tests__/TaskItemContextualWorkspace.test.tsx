@@ -421,7 +421,7 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       expect(chipTexts).toContain("+5");
     });
 
-    it("reports collapsed resource state until the resource area is tapped", () => {
+    it("opens quick editor when the resource area is tapped", () => {
       let root: any;
       act(() => {
         root = create(
@@ -442,13 +442,15 @@ describe("TaskItem Contextual Workspace Rendering", () => {
       const stackPressable = root.root.findByProps({
         accessibilityLabel: "2 linked resources for Finish Pebble redesign",
       });
-      expect(stackPressable.props.accessibilityState).toEqual({ expanded: false });
+      expect(stackPressable).toBeDefined();
 
       act(() => {
         stackPressable.props.onPress();
       });
 
-      expect(stackPressable.props.accessibilityState).toEqual({ expanded: true });
+      expect(
+        root.root.findByProps({ accessibilityLabel: "Open full task details" })
+      ).toBeDefined();
     });
 
     it("renders cleanly under reduced motion", () => {

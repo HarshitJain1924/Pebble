@@ -225,7 +225,7 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
         root.findByProps({ accessibilityLabel: "More options for Read design article" })
       ).toBeDefined();
 
-      // Tapping the resource area expands ONLY the resource section
+      // Tapping the resource area opens Quick Edit sheet (no inline accordion in the list row)
       const stackPressable = root.findByProps({
         accessibilityLabel: "2 linked resources for Read design article",
       });
@@ -233,15 +233,13 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
         stackPressable.props.onPress();
       });
 
-      const expandedTexts = root.findAllByType("Text").map((n: any) => n.props.children);
-      expect(expandedTexts).toContain("Resources (2)");
-      // Expanding resources must NOT surface the old quick-action toolbar
-      expect(expandedTexts).not.toContain("Schedule");
-      expect(expandedTexts).not.toContain("Reminder");
-      expect(expandedTexts).not.toContain("More");
+      const quickEditTexts = root.findAllByType("Text").map((n: any) => n.props.children);
+      // Quick edit opens with the resources indicator and full details option
+      expect(quickEditTexts).toContain("2");
+      expect(quickEditTexts).toContain("Open full details");
 
       // Verify GUARANTEE: absolutely NO subtask UI or keywords exist
-      const allTextJoined = expandedTexts.join(" ").toLowerCase();
+      const allTextJoined = quickEditTexts.join(" ").toLowerCase();
       expect(allTextJoined).not.toContain("subtask");
       expect(allTextJoined).not.toContain("sub-task");
     });
