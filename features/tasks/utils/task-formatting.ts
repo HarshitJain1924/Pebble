@@ -216,7 +216,7 @@ export function formatTimeRange(
   if (!start) return null;
 
   let end: string | null = null;
-  if (endTime) {
+  if (endTime && endTime !== startTime) {
     end = formatTimeString(endTime);
   } else if (durationMinutes && durationMinutes > 0) {
     const [h, m] = (startTime || "").split(":").map(Number);
@@ -231,7 +231,7 @@ export function formatTimeRange(
     }
   }
 
-  if (end) {
+  if (end && end !== start) {
     // If both start and end share the same period (e.g. "2:00 PM" and "5:00 PM"),
     // compact to "2:00–5:00 PM" per the target metadata contract
     if (start.endsWith(" PM") && end.endsWith(" PM")) {
@@ -307,11 +307,14 @@ export type TaskMetadataPartKey =
   | "duration"
   | "reminder";
 
+export type TaskMetadataIcon = "clock" | "calendar" | "repeat" | "bell";
+
 export interface TaskMetadataPart {
   key: TaskMetadataPartKey;
   text: string;
   color?: string;
   isWarning?: boolean;
+  icon?: TaskMetadataIcon;
 }
 
 export type TaskSectionContext =
@@ -369,7 +372,15 @@ export function getTaskMetadataParts(
   const isOverdue = !isCompleted && Boolean(options.overdue || occState.isOverdue);
 
   // 2. Overdue label: leading temporal state indicator
-  if (isOverdue && !options.omitOverdueLabel) {
+  // Suppress "Overdue" when in "earlier" section unless explicitly forced,
+  // because the section header already establishes that all items are past carryovers.
+  const isEarlierSection = options.sectionContext === "earlier";
+  const shouldOmitOverdue =
+    options.omitOverdueLabel !== undefined
+      ? options.omitOverdueLabel
+      : isEarlierSection;
+
+  if (isOverdue && !shouldOmitOverdue) {
     parts.push({
       key: "overdue",
       text: "Overdue",
@@ -387,6 +398,7 @@ export function getTaskMetadataParts(
         key: "recurrence",
         text: cleanLabel,
         color: textMuted,
+        icon: "repeat",
       });
     }
   } else if (!isInboxTask) {
@@ -401,14 +413,15 @@ export function getTaskMetadataParts(
       // In "earlier", we keep the date (e.g. "Yesterday" or "Oct 1") because the section
       // label alone does not communicate the specific date.
       const isRedundantDate =
-        (options.sectionContext === "today" && dateInfo.label === "Today") ||
-        (options.sectionContext === "tomorrow" && dateInfo.label === "Tomorrow");
+        (options.sectionContext === "today" && (dateInfo.label === "Today" || dateInfo.daysDiff === 0)) ||
+        (options.sectionContext === "tomorrow" && (dateInfo.label === "Tomorrow" || dateInfo.daysDiff === 1));
 
       if (!isRedundantDate) {
         parts.push({
           key: "date",
           text: dateInfo.label,
-          color: isOverdue && options.omitOverdueLabel ? errorColor : textMuted,
+          color: textMuted,
+          icon: "calendar",
         });
       }
     }
@@ -425,6 +438,7 @@ export function getTaskMetadataParts(
       key: "time",
       text: timeRange,
       color: textMuted,
+      icon: "clock",
     });
   }
 
@@ -436,6 +450,7 @@ export function getTaskMetadataParts(
         key: "duration",
         text: formattedDuration,
         color: textMuted,
+        icon: "clock",
       });
     }
   }
@@ -451,8 +466,21 @@ export function getTaskMetadataParts(
         key: "reminder",
         text: reminderTime,
         color: textMuted,
+        icon: "bell",
       });
     }
+  }
+
+  // 7. Enforce strict single-line budget (max 3 items) to prevent task row overflow:
+  // If items exceed 3, drop lowest-priority secondary items (reminder first).
+  if (parts.length > 3) {
+    const reminderIdx = parts.findIndex((p) => p.key === "reminder");
+    if (reminderIdx !== -1) {
+      parts.splice(reminderIdx, 1);
+    }
+  }
+  if (parts.length > 3) {
+    parts.length = 3;
   }
 
   return parts;

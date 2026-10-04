@@ -30,13 +30,14 @@ export const ROW_SPEC = {
   // Aligned to the badge's left edge: paddingLeft (16) + checkbox.visual (24) + gap (12)
   dividerInset: 52,
   stack: {
-    tile: 28,
-    ring: 2,
-    overlap: 8,
+    tile: 20,
+    ring: 1.5,
+    overlap: 6,
     openGap: 4,
     maxVisible: 3,
-    tileRadius: 8,
-    chipFont: 12,
+    tileRadius: 5.5,
+    chipFont: 10,
+    icon: 10,
   },
   listRow: {
     minHeight: 44,

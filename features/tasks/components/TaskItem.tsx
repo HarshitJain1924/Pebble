@@ -304,7 +304,11 @@ export function TodoItem({
     return lists.find((w) => w.id === wsId);
   }, [lists, item.workspaceId, selectedWorkspaceId]);
 
-  const folderName = currentWorkspace?.name || "Work";
+  const folderName =
+    currentWorkspace?.name ||
+    (item.workspaceId === INBOX_WORKSPACE_ID || item.workspaceId === "inbox"
+      ? "Inbox"
+      : "Work");
 
   const shouldShowWorkspace =
     showWorkspaceBadge !== undefined
@@ -361,7 +365,7 @@ export function TodoItem({
           height: ROW_SPEC.stack.tile,
           borderRadius: ROW_SPEC.stack.tileRadius,
           borderWidth: ROW_SPEC.stack.ring,
-          borderColor: isDark ? colors.background : Palette.white,
+          borderColor: isDark ? (isCompleted ? "rgba(255, 255, 255, 0.04)" : colors.card) : Palette.white,
           backgroundColor: stream.backgroundColor,
           alignItems: "center",
           justifyContent: "center",
@@ -386,7 +390,7 @@ export function TodoItem({
                 ? "file"
                 : "file-text"
             }
-            size={13}
+            size={ROW_SPEC.stack.icon}
             color={stream.accent}
           />
         )}
@@ -404,8 +408,8 @@ export function TodoItem({
           height: ROW_SPEC.stack.tile,
           borderRadius: ROW_SPEC.stack.tileRadius,
           borderWidth: ROW_SPEC.stack.ring,
-          borderColor: isDark ? colors.background : Palette.white,
-          backgroundColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.08)",
+          borderColor: isDark ? (isCompleted ? "rgba(255, 255, 255, 0.04)" : colors.card) : Palette.white,
+          backgroundColor: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(0, 0, 0, 0.06)",
           alignItems: "center",
           justifyContent: "center",
           marginLeft: -ROW_SPEC.stack.overlap,
@@ -564,18 +568,36 @@ export function TodoItem({
                         ·
                       </Text>
                     )}
-                    <Text
+                    <View
                       style={[
-                        styles.metaText,
-                        {
-                          color: part.color || colors.textMuted,
-                          fontWeight: part.key === "overdue" ? "700" : "500",
-                        },
+                        styles.metaPartItem,
+                        part.key === "category" ? styles.metaPartWorkspace : undefined,
+                        part.key === "recurrence" ? styles.metaPartRecurrence : undefined,
+                        idx === metaParts.length - 1 ? styles.metaPartLast : undefined,
                       ]}
-                      numberOfLines={1}
                     >
-                      {part.text}
-                    </Text>
+                      {part.icon && (
+                        <Feather
+                          name={part.icon as any}
+                          size={11}
+                          color={part.color || colors.textMuted}
+                          style={styles.metaIcon}
+                        />
+                      )}
+                      <Text
+                        style={[
+                          styles.metaText,
+                          {
+                            color: part.color || colors.textMuted,
+                            fontWeight: part.key === "overdue" ? "700" : "500",
+                          },
+                        ]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {part.text}
+                      </Text>
+                    </View>
                   </React.Fragment>
                 ))}
               </View>
@@ -695,6 +717,7 @@ const styles = StyleSheet.create({
     paddingLeft: ROW_SPEC.row.paddingLeft,
     paddingRight: ROW_SPEC.row.paddingRight,
     gap: ROW_SPEC.row.gap,
+    overflow: "hidden",
   },
   checkbox: {
     alignItems: "center",
@@ -707,13 +730,17 @@ const styles = StyleSheet.create({
   },
   textContainer: {
     flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
     justifyContent: "center",
+    marginRight: 6,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 3,
+    marginBottom: 2,
+    minWidth: 0,
   },
   titleText: {
     letterSpacing: -0.25,
@@ -724,29 +751,57 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "nowrap",
     overflow: "hidden",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
+  metaPartItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    minWidth: 0,
+  },
+  metaPartWorkspace: {
+    flexShrink: 1,
+    maxWidth: 96,
+  },
+  metaPartRecurrence: {
+    flexShrink: 1,
+    maxWidth: 110,
+  },
+  metaPartLast: {
+    flexShrink: 1,
+  },
+  metaIcon: {
+    marginRight: 3.5,
+    flexShrink: 0,
   },
   metaDot: {
     fontSize: ROW_SPEC.type.meta,
     marginHorizontal: 4,
+    opacity: 0.6,
+    flexShrink: 0,
   },
   metaText: {
     fontSize: ROW_SPEC.type.meta,
+    flexShrink: 1,
   },
   trailingArea: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    minWidth: 44,
+    flexShrink: 0,
+    gap: 2,
   },
   resourceStackPressable: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 44,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
   },
   overflowButton: {
-    width: 32,
-    height: 44,
+    width: 28,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
   },

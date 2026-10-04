@@ -101,6 +101,7 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
       expect(renderedTexts).toContain("Earlier");
       expect(renderedTexts).toContain("1 task");
       expect(renderedTexts).toContain("Move to Someday");
+      expect(renderedTexts).not.toContain("Overdue");
     });
 
     it("renders Today as primary visual anchor with date context and progress", () => {

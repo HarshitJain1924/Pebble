@@ -734,4 +734,178 @@ describe("Task Metadata Formatter Suite", () => {
       expect(partsTomorrow.map((p) => p.text)).toEqual(["9:00 AM"]);
     });
   });
+
+  describe("10. Task Metadata Visual Icons & Range Normalization", () => {
+    describe("Time Range Normalization", () => {
+      it("normalizes identical start and end times to a single time", () => {
+        expect(formatTimeRange("14:00", "14:00")).toBe("2:00 PM");
+        expect(formatTimeRange("09:30", "09:30")).toBe("9:30 AM");
+      });
+
+      it("formats distinct start and end times as compact range", () => {
+        expect(formatTimeRange("14:00", "17:00")).toBe("2:00–5:00 PM");
+        expect(formatTimeRange("09:00", "11:30")).toBe("9:00–11:30 AM");
+        expect(formatTimeRange("11:00", "13:00")).toBe("11:00 AM–1:00 PM");
+      });
+    });
+
+    describe("Semantic Category Icons", () => {
+      it("assigns 'clock' icon to time and time-range metadata", () => {
+        const task: Task = {
+          ...baseTask,
+          schedule: { date: "2026-10-05", startTime: "14:00", endTime: "15:00" },
+        };
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          sectionContext: "today",
+          colors,
+        });
+
+        expect(parts).toHaveLength(1);
+        expect(parts[0]).toMatchObject({
+          key: "time",
+          text: "2:00–3:00 PM",
+          icon: "clock",
+        });
+      });
+
+      it("assigns 'calendar' icon to date metadata", () => {
+        const task: Task = {
+          ...baseTask,
+          schedule: { date: "2026-09-27" },
+        };
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          omitOverdueLabel: true,
+          sectionContext: "earlier",
+          colors,
+        });
+
+        expect(parts[0]).toMatchObject({
+          key: "date",
+          text: "Sep 27",
+          icon: "calendar",
+        });
+      });
+
+      it("assigns 'repeat' icon to recurrence metadata", () => {
+        const task: Task = {
+          ...baseTask,
+          recurrence: { frequency: "weekly", daysOfWeek: [1] } as any,
+          schedule: { startTime: "20:00" },
+        };
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          sectionContext: "today",
+          colors,
+        });
+
+        expect(parts[0]).toMatchObject({
+          key: "recurrence",
+          text: "Every Monday",
+          icon: "repeat",
+        });
+      });
+
+      it("assigns 'bell' icon to reminder metadata", () => {
+        const task: Task = {
+          ...baseTask,
+          schedule: { date: "2026-10-05", startTime: "20:00" },
+          reminder: {
+            enabled: true,
+            triggerAt: new Date(2026, 9, 5, 19, 30).getTime(),
+          },
+        };
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          sectionContext: "today",
+          colors,
+        });
+
+        expect(parts).toHaveLength(2);
+        expect(parts[0]).toMatchObject({
+          key: "time",
+          text: "8:00 PM",
+          icon: "clock",
+        });
+        expect(parts[1]).toMatchObject({
+          key: "reminder",
+          text: "7:30 PM",
+          icon: "bell",
+        });
+      });
+
+      it("does not assign icons to 'overdue' or workspace 'category'", () => {
+        const task: Task = {
+          ...baseTask,
+          schedule: { date: "2026-10-01", startTime: "20:00" },
+        };
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          workspaceName: "Work Projects",
+          omitOverdueLabel: false,
+          sectionContext: "earlier",
+          colors,
+        });
+
+        const overduePart = parts.find((p) => p.key === "overdue");
+        const categoryPart = parts.find((p) => p.key === "category");
+        expect(overduePart?.icon).toBeUndefined();
+        expect(categoryPart?.icon).toBeUndefined();
+      });
+
+      it("renders Earlier task with calendar date and clock time range", () => {
+        const task: Task = {
+          ...baseTask,
+          title: "Team meeting",
+          schedule: { date: "2026-09-12", startTime: "16:21", endTime: "17:21" },
+        };
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          omitOverdueLabel: true,
+          sectionContext: "earlier",
+          colors,
+        });
+
+        expect(parts).toHaveLength(2);
+        expect(parts[0]).toMatchObject({
+          key: "date",
+          text: "Sep 12",
+          icon: "calendar",
+        });
+        expect(parts[1]).toMatchObject({
+          key: "time",
+          text: "4:21–5:21 PM",
+          icon: "clock",
+        });
+      });
+
+      it("automatically omits Overdue label when sectionContext is earlier by default", () => {
+        const task: Task = {
+          ...baseTask,
+          title: "Past task",
+          schedule: { date: "2026-09-20", startTime: "10:00" },
+        };
+        // Omit omitOverdueLabel prop completely to verify sectionContext: "earlier" default
+        const parts = getTaskMetadataParts(task, {
+          referenceDate,
+          sectionContext: "earlier",
+          colors,
+        });
+
+        expect(parts.find((p) => p.key === "overdue")).toBeUndefined();
+        expect(parts[0]).toMatchObject({
+          key: "date",
+          text: "Sep 20",
+          icon: "calendar",
+        });
+        expect(parts[1]).toMatchObject({
+          key: "time",
+          text: "10:00 AM",
+          icon: "clock",
+        });
+      });
+    });
+  });
 });
+

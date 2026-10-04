@@ -219,7 +219,7 @@ export function TaskSections({
         colors={colors}
         colorScheme={colorScheme}
         isOverdue={getTaskOccurrenceState(item, selectedDate).isOverdue}
-        omitOverdueLabel={false}
+        omitOverdueLabel={sectionContext === "earlier"}
         sectionContext={sectionContext}
         selectedDate={selectedDate}
         lists={workspaces}
