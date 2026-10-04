@@ -4,11 +4,11 @@ import {
   Alert,
   Modal,
   Platform,
-  SafeAreaView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Calendar } from "react-native-calendars";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";

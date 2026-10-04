@@ -17,6 +17,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import "react-native-reanimated";
 
 import UndoProvider from "@/shared/components/ui/UndoContext";
@@ -126,48 +127,50 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: currentTheme.background }}>
-      <ThemeProvider value={navigationTheme}>
-        <BottomSheetModalProvider>
-          <UndoProvider>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-              <Stack.Screen name="profile" options={{ headerShown: false }} />
-              <Stack.Screen name="profile/stats" options={{ headerShown: false }} />
-              <Stack.Screen name="profile/achievements" options={{ headerShown: false }} />
-              <Stack.Screen name="sanctuary" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="notifications"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="task-details"
-                options={{ headerShown: false, presentation: "modal" }}
-              />
-              <Stack.Screen
-                name="checklist-details"
-                options={{ headerShown: false, presentation: "modal" }}
-              />
-              <Stack.Screen
-                name="resource-details"
-                options={{ headerShown: false, presentation: "modal" }}
-              />
-              <Stack.Screen
-                name="archive"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="recycle-bin"
-                options={{ headerShown: false }}
-              />
-            </Stack>
-            {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
-            <NotificationListener />
-            <StatusBar style="auto" />
-          </UndoProvider>
-        </BottomSheetModalProvider>
-      </ThemeProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: currentTheme.background }}>
+        <ThemeProvider value={navigationTheme}>
+          <BottomSheetModalProvider>
+            <UndoProvider>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                <Stack.Screen name="profile" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/stats" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/achievements" options={{ headerShown: false }} />
+                <Stack.Screen name="sanctuary" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="notifications"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="task-details"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                <Stack.Screen
+                  name="checklist-details"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                <Stack.Screen
+                  name="resource-details"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                <Stack.Screen
+                  name="archive"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="recycle-bin"
+                  options={{ headerShown: false }}
+                />
+              </Stack>
+              {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
+              <NotificationListener />
+              <StatusBar style="auto" />
+            </UndoProvider>
+          </BottomSheetModalProvider>
+        </ThemeProvider>
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }

@@ -20,12 +20,12 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
 const THEME_OPTIONS = [
@@ -247,6 +247,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView
+      edges={["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       {/* ── Header: seamless, integrated back ─────────────────────── */}
@@ -1020,7 +1021,7 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: { flex: 1 },
   header: {
     height: 52,
     flexDirection: "row",

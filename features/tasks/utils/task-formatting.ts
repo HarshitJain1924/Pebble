@@ -1,8 +1,10 @@
 import { Palette } from "@/shared/constants/theme";
 import { Task, Habit, Workspace, Resource, Checklist } from "@/shared/types/domain.types";
-import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
+import { getTaskOccurrenceState, isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
 import { resolveResourceVisual } from "@/features/today/utils/resource-presentation";
+import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
+import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
 const DAY_MS = 86_400_000;
 
 export function getResourcePresentation(res: any) {
@@ -213,9 +215,9 @@ export function formatTimeRange(
   const start = formatTimeString(startTime);
   if (!start) return null;
 
+  let end: string | null = null;
   if (endTime) {
-    const end = formatTimeString(endTime);
-    if (end) return `${start} – ${end}`;
+    end = formatTimeString(endTime);
   } else if (durationMinutes && durationMinutes > 0) {
     const [h, m] = (startTime || "").split(":").map(Number);
     if (!isNaN(h) && !isNaN(m)) {
@@ -225,11 +227,235 @@ export function formatTimeRange(
       const endAmPm = endH >= 12 ? "PM" : "AM";
       const displayEndH = endH % 12 === 0 ? 12 : endH % 12;
       const displayEndM = String(endM).padStart(2, "0");
-      return `${start} – ${displayEndH}:${displayEndM} ${endAmPm}`;
+      end = `${displayEndH}:${displayEndM} ${endAmPm}`;
     }
   }
 
+  if (end) {
+    // If both start and end share the same period (e.g. "2:00 PM" and "5:00 PM"),
+    // compact to "2:00–5:00 PM" per the target metadata contract
+    if (start.endsWith(" PM") && end.endsWith(" PM")) {
+      return `${start.replace(" PM", "")}–${end}`;
+    }
+    if (start.endsWith(" AM") && end.endsWith(" AM")) {
+      return `${start.replace(" AM", "")}–${end}`;
+    }
+    return `${start}–${end}`;
+  }
+
   return start;
+}
+
+export function formatDurationMinutes(durationMinutes?: number): string | null {
+  if (!durationMinutes || durationMinutes <= 0) return null;
+  if (durationMinutes < 60) return `${durationMinutes}m`;
+  const hrs = Math.floor(durationMinutes / 60);
+  const rem = durationMinutes % 60;
+  return rem === 0 ? `${hrs}h` : `${hrs}h ${rem}m`;
+}
+
+/**
+ * Concise, scannable schedule date formatter for task metadata.
+ * - Today: "Today"
+ * - Tomorrow: "Tomorrow"
+ * - Within 2-6 days: Short weekday (e.g. "Thu")
+ * - 7+ days ahead: "Sep 11"
+ * - 1 day ago: "Yesterday"
+ * - 2+ days ago (overdue): "Sep 11"
+ */
+export function formatTaskScheduleDate(
+  dateStr?: string,
+  referenceDateStr?: string,
+): { label: string; isOverdue?: boolean; daysDiff: number } | null {
+  if (!dateStr || dateStr === "inbox") return null;
+
+  const refKey = referenceDateStr || getDateKey();
+  const [ry, rm, rd] = refKey.split("-").map(Number);
+  const [dy, dm, dd] = dateStr.split("-").map(Number);
+  if (!dy || !dm || !dd) return null;
+
+  const refDate = new Date(ry, (rm || 1) - 1, rd || 1);
+  const taskDate = new Date(dy, (dm || 1) - 1, dd || 1);
+  const diffTime = taskDate.getTime() - refDate.getTime();
+  const daysDiff = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (daysDiff === 0) {
+    return { label: "Today", daysDiff: 0 };
+  }
+  if (daysDiff === 1) {
+    return { label: "Tomorrow", daysDiff: 1 };
+  }
+  if (daysDiff >= 2 && daysDiff <= 6) {
+    return { label: WEEKDAY_NAMES[taskDate.getDay()], daysDiff };
+  }
+  if (daysDiff === -1) {
+    return { label: "Yesterday", isOverdue: true, daysDiff: -1 };
+  }
+
+  const monthName = MONTH_NAMES[taskDate.getMonth()];
+  const dayNum = taskDate.getDate();
+  const isPast = daysDiff < 0;
+  return { label: `${monthName} ${dayNum}`, isOverdue: isPast, daysDiff };
+}
+
+export type TaskMetadataPartKey =
+  | "category"
+  | "overdue"
+  | "recurrence"
+  | "date"
+  | "time"
+  | "duration"
+  | "reminder";
+
+export interface TaskMetadataPart {
+  key: TaskMetadataPartKey;
+  text: string;
+  color?: string;
+  isWarning?: boolean;
+}
+
+export type TaskSectionContext =
+  | "today"
+  | "earlier"
+  | "tomorrow"
+  | "upcoming"
+  | "someday"
+  | "completed";
+
+export interface TaskMetadataOptions {
+  referenceDate?: string;
+  sectionContext?: TaskSectionContext;
+  isCompleted?: boolean;
+  overdue?: boolean;
+  omitOverdueLabel?: boolean;
+  workspaceName?: string | null;
+  colors?: {
+    textMuted?: string;
+    error?: string;
+    [key: string]: any;
+  };
+}
+
+/**
+ * Deterministic metadata generator for TaskItem.
+ * Ensures metadata is clean, quiet, informative, scannable, and free of redundant "metadata soup".
+ */
+export function getTaskMetadataParts(
+  task: Task,
+  options: TaskMetadataOptions = {}
+): TaskMetadataPart[] {
+  const parts: TaskMetadataPart[] = [];
+  const textMuted = options.colors?.textMuted;
+  const errorColor = options.colors?.error;
+
+  // 1. Workspace context: only when viewing cross-workspace / requested by container
+  if (options.workspaceName) {
+    parts.push({
+      key: "category",
+      text: options.workspaceName,
+      color: textMuted,
+    });
+  }
+
+  const isCompleted = options.isCompleted ?? isTaskCompleted(task);
+  const referenceDate = options.referenceDate || getDateKey();
+  const scheduleDate = task.schedule?.date;
+  const isInboxTask = !scheduleDate || scheduleDate === "inbox";
+  const hasRecurrence = Boolean(task.recurrence);
+  const durationMinutes = (task.schedule as any)?.durationMinutes;
+
+  // Occurrence classification against reference date
+  const occState = getTaskOccurrenceState(task, referenceDate);
+  const isOverdue = !isCompleted && Boolean(options.overdue || occState.isOverdue);
+
+  // 2. Overdue label: leading temporal state indicator
+  if (isOverdue && !options.omitOverdueLabel) {
+    parts.push({
+      key: "overdue",
+      text: "Overdue",
+      color: errorColor,
+    });
+  }
+
+  // 3. Date / Recurrence context
+  if (hasRecurrence) {
+    // Recurring tasks: NEVER present the base schedule date as current occurrence.
+    const rawLabel = getRecurrenceLabel(task.recurrence);
+    if (rawLabel) {
+      const cleanLabel = rawLabel.replace(/[↻↻↻]/g, "").trim();
+      parts.push({
+        key: "recurrence",
+        text: cleanLabel,
+        color: textMuted,
+      });
+    }
+  } else if (!isInboxTask) {
+    // Scheduled non-recurring task
+    const dateInfo = formatTaskScheduleDate(scheduleDate, referenceDate);
+    if (dateInfo) {
+      // Context-aware suppression:
+      // When tasks are displayed within a section that already establishes the temporal context,
+      // redundant date labels that duplicate the section header are omitted:
+      // - Inside "today" section: suppress "Today"
+      // - Inside "tomorrow" section: suppress "Tomorrow"
+      // In "earlier", we keep the date (e.g. "Yesterday" or "Oct 1") because the section
+      // label alone does not communicate the specific date.
+      const isRedundantDate =
+        (options.sectionContext === "today" && dateInfo.label === "Today") ||
+        (options.sectionContext === "tomorrow" && dateInfo.label === "Tomorrow");
+
+      if (!isRedundantDate) {
+        parts.push({
+          key: "date",
+          text: dateInfo.label,
+          color: isOverdue && options.omitOverdueLabel ? errorColor : textMuted,
+        });
+      }
+    }
+  }
+
+  // 4. Time / Time Range (if task has schedule startTime)
+  const timeRange = formatTimeRange(
+    task.schedule?.startTime,
+    task.schedule?.endTime,
+    durationMinutes
+  );
+  if (timeRange && (!isInboxTask || hasRecurrence)) {
+    parts.push({
+      key: "time",
+      text: timeRange,
+      color: textMuted,
+    });
+  }
+
+  // 5. Standalone Duration: ONLY if no startTime and duration exists
+  if (durationMinutes && !task.schedule?.startTime) {
+    const formattedDuration = formatDurationMinutes(durationMinutes);
+    if (formattedDuration) {
+      parts.push({
+        key: "duration",
+        text: formattedDuration,
+        color: textMuted,
+      });
+    }
+  }
+
+  // 6. Reminder: only if enabled, not completed, and not colliding with schedule start time
+  if (task.reminder?.enabled && task.reminder?.triggerAt && !isCompleted) {
+    const d = new Date(task.reminder.triggerAt);
+    const reminderTime = formatReminderTime(d.getHours(), d.getMinutes());
+    const scheduleStartTime = formatTimeString(task.schedule?.startTime);
+    // Suppress reminder if it duplicates the schedule start time
+    if (reminderTime && reminderTime !== scheduleStartTime) {
+      parts.push({
+        key: "reminder",
+        text: reminderTime,
+        color: textMuted,
+      });
+    }
+  }
+
+  return parts;
 }
 
 export interface TaskSectionCounts {

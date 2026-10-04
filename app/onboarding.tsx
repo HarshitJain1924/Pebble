@@ -4,12 +4,12 @@ import {
   View,
   Dimensions,
   ScrollView,
-  SafeAreaView,
   Platform,
   Image,
   Alert,
   useWindowDimensions,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -844,7 +844,7 @@ export default function OnboardingScreen() {
 
   return (
     <ScreenSwipeWrapper>
-      <SafeAreaView style={styles.safeContainer} onLayout={onLayout}>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.safeContainer} onLayout={onLayout}>
         <Animated.View entering={FadeIn.delay(100).duration(700)} style={{ flex: 1 }}>
           <ScrollView
             ref={scrollRef}

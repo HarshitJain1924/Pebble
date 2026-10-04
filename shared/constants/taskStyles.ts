@@ -6,7 +6,7 @@ import { Typography } from "@/shared/constants/typography";
 
 export const styles = StyleSheet.create({
   flex: { flex: 1 },
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: { flex: 1 },
   container: { flex: 1, paddingHorizontal: 16, paddingTop: 16, gap: 14 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   kicker: { fontSize: Typography.sizes.xs, fontWeight: "700", letterSpacing: 2 },

@@ -3,11 +3,11 @@ import { Palette } from "@/shared/constants/theme";
 import {
   Alert,
   Modal,
-  SafeAreaView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 

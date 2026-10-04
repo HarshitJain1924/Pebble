@@ -12,7 +12,7 @@ import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceE
 import { Task, Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { getOffsetDateKey, getTodayDateKey, parseDateKey } from "@/shared/utils/date-key";
-import { WEEKDAY_NAMES, MONTH_NAMES } from "@/features/tasks/utils/task-formatting";
+import { WEEKDAY_NAMES, MONTH_NAMES, TaskSectionContext } from "@/features/tasks/utils/task-formatting";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
 interface TaskSectionsProps {
@@ -208,7 +208,10 @@ export function TaskSections({
     );
   }
 
-  const renderTodoItem = (item: Task, isEarlier = false) => {
+  const renderTodoItem = (
+    item: Task,
+    sectionContext: TaskSectionContext = "today",
+  ) => {
     return (
       <TodoItem
         key={item.id}
@@ -216,7 +219,8 @@ export function TaskSections({
         colors={colors}
         colorScheme={colorScheme}
         isOverdue={getTaskOccurrenceState(item, selectedDate).isOverdue}
-        omitOverdueLabel={isEarlier}
+        omitOverdueLabel={false}
+        sectionContext={sectionContext}
         selectedDate={selectedDate}
         lists={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
@@ -241,7 +245,10 @@ export function TaskSections({
     );
   };
 
-  const renderTaskList = (list: Task[], isEarlier = false) => {
+  const renderTaskList = (
+    list: Task[],
+    sectionContext: TaskSectionContext = "today",
+  ) => {
     return (
       <View style={{ marginTop: 0 }}>
         {list.map((item, index) => {
@@ -263,7 +270,7 @@ export function TaskSections({
                   }}
                 />
               )}
-              {renderTodoItem(item, isEarlier)}
+              {renderTodoItem(item, sectionContext)}
             </Animated.View>
           );
         })}
@@ -346,7 +353,7 @@ export function TaskSections({
                 </Text>
               </View>
             ) : (
-              renderTaskList(todayList, false)
+              renderTaskList(todayList, "today")
             )}
           </View>
         )}
@@ -414,7 +421,7 @@ export function TaskSections({
           </View>
         </PressableScale>
 
-        {earlierExpanded && renderTaskList(earlierList, true)}
+        {earlierExpanded && renderTaskList(earlierList, "earlier")}
       </View>
     );
   };
@@ -460,7 +467,7 @@ export function TaskSections({
           />
         </PressableScale>
 
-        {tomorrowExpanded && renderTaskList(tomorrowList, false)}
+        {tomorrowExpanded && renderTaskList(tomorrowList, "tomorrow")}
       </View>
     );
   };
@@ -501,7 +508,7 @@ export function TaskSections({
           />
         </PressableScale>
 
-        {upcomingExpanded && renderTaskList(upcomingList, false)}
+        {upcomingExpanded && renderTaskList(upcomingList, "upcoming")}
       </View>
     );
   };
@@ -542,7 +549,7 @@ export function TaskSections({
           />
         </PressableScale>
 
-        {somedayExpanded && renderTaskList(somedayList, false)}
+        {somedayExpanded && renderTaskList(somedayList, "someday")}
       </View>
     );
   };
@@ -614,7 +621,7 @@ export function TaskSections({
           </View>
         </PressableScale>
 
-        {completedExpanded && renderTaskList(completedList, false)}
+        {completedExpanded && renderTaskList(completedList, "completed")}
       </View>
     );
   };

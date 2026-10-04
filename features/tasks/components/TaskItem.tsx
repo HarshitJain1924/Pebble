@@ -27,9 +27,11 @@ import { TaskQuickEditSheet } from "./TaskQuickEditSheet";
 import { TaskDatePickerModal } from "./TaskDatePickerModal";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
-import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
-import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
-import { formatRelativeTaskDate, formatTimeRange } from "@/features/tasks/utils/task-formatting";
+import {
+  getTaskMetadataParts,
+  TaskMetadataPart,
+  TaskSectionContext,
+} from "@/features/tasks/utils/task-formatting";
 import { resolveItemCategorySymbol } from "@/features/today/utils/item-presentation";
 import {
   getStreamResourcePalette,
@@ -38,7 +40,7 @@ import {
 import { openAttachmentFile } from "@/features/resources/utils/fileOpener";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
-import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
+import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 import { getTodayDateKey } from "@/shared/utils/date-key";
 
 export function getResourcePresentation(res: any) {
@@ -115,6 +117,7 @@ interface TodoItemProps {
   isOverdue: boolean;
   omitOverdueLabel?: boolean;
   selectedDate?: string;
+  sectionContext?: TaskSectionContext;
   lists: Workspace[];
   selectedWorkspaceId?: string;
   showWorkspaceBadge?: boolean;
@@ -131,13 +134,6 @@ interface TodoItemProps {
   onToggleLinkResource?: (itemId: string, itemType: "task", resourceId: string) => void;
 }
 
-type MetaPart = {
-  key: "category" | "priority" | "date" | "duration" | "reminder" | "recurrence" | "overdue";
-  text: string;
-  icon?: string;
-  color?: string;
-};
-
 export function TodoItem({
   item,
   colors,
@@ -145,6 +141,7 @@ export function TodoItem({
   isOverdue: overdue,
   omitOverdueLabel = false,
   selectedDate,
+  sectionContext,
   lists,
   selectedWorkspaceId,
   showWorkspaceBadge,
@@ -308,8 +305,6 @@ export function TodoItem({
   }, [lists, item.workspaceId, selectedWorkspaceId]);
 
   const folderName = currentWorkspace?.name || "Work";
-  const isInbox = currentWorkspace?.id === INBOX_WORKSPACE_ID || folderName.toLowerCase() === "inbox";
-  const durationMinutes = (item.schedule as any)?.durationMinutes;
 
   const shouldShowWorkspace =
     showWorkspaceBadge !== undefined
@@ -325,134 +320,28 @@ export function TodoItem({
   }, [item.priority, isDark]);
 
   // Context-aware metadata formatting
-  const metaParts = useMemo<MetaPart[]>(() => {
-    const parts: MetaPart[] = [];
-
-    // 1. Folder badge (contextual)
-    if (shouldShowWorkspace) {
-      parts.push({
-        key: "category",
-        text: folderName,
-        icon: isInbox ? "inbox" : "folder",
-        color: colors.textMuted,
-      });
-    }
-
-    // 2. Schedule and Reminder Context
-    const scheduleDate = item.schedule?.date;
-    const isInboxTask = !scheduleDate || scheduleDate === "inbox";
-    const timeRange = formatTimeRange(
-      item.schedule?.startTime,
-      item.schedule?.endTime,
-      durationMinutes
-    );
-
-    let reminderText = "";
-    if (item.reminder && item.reminder.enabled && item.reminder.triggerAt) {
-      const d = new Date(item.reminder.triggerAt);
-      reminderText = formatReminderTime(d.getHours(), d.getMinutes()) || "";
-    }
-
-    const referenceDate = selectedDate || item.schedule?.date || getTodayDateKey();
-    const occState = getTaskOccurrenceState(item, referenceDate);
-    const isTaskOverdue = overdue || (occState.isOverdue && !isCompleted);
-
-    // 2. Overdue label
-    if (isTaskOverdue && !omitOverdueLabel) {
-      parts.push({
-        key: "overdue",
-        text: "Overdue",
-        icon: "alert-circle",
-        color: colors.error,
-      });
-    }
-
-    // 3. Date & Time context
-    if (isInboxTask) {
-      parts.push({
-        key: "date",
-        text: "No schedule",
-        color: colors.textMuted,
-      });
-    } else if (occState.occurs) {
-      // Occurs on selected date
-      if (timeRange) {
-        parts.push({
-          key: "date",
-          text: timeRange,
-          color: colors.textMuted,
-        });
-      }
-    } else {
-      // Relative date (Earlier / Tomorrow / Upcoming)
-      const relDate = formatRelativeTaskDate(scheduleDate, referenceDate);
-      const dateLabel = relDate?.label || scheduleDate;
-      const displayText = timeRange ? `${dateLabel} · ${timeRange}` : (dateLabel || "No date");
-      parts.push({
-        key: "date",
-        text: displayText,
-        color: isTaskOverdue && !omitOverdueLabel ? colors.error : colors.textMuted,
-      });
-    }
-
-    // 4. Reminder (strictly independent from schedule)
-    if (reminderText) {
-      parts.push({
-        key: "reminder",
-        text: reminderText,
-        icon: "bell",
-        color: colors.textMuted,
-      });
-    }
-
-    // 3. Recurrence
-    if (item.recurrence) {
-      const label = getRecurrenceLabel(item.recurrence);
-      if (label) {
-        const cleanLabel = label.replace(/[↻↻↻]/g, "").trim();
-        parts.push({
-          key: "recurrence",
-          text: cleanLabel,
-          icon: "repeat",
-          color: colors.textMuted,
-        });
-      }
-    }
-
-    // 4. Duration (if duration exists and not already captured in timeRange)
-    if (durationMinutes && !item.schedule?.startTime) {
-      const mins = durationMinutes;
-      let text = "";
-      if (mins < 60) {
-        text = `${mins}m`;
-      } else {
-        const hrs = Math.floor(mins / 60);
-        const rem = mins % 60;
-        text = rem === 0 ? `${hrs}h` : `${hrs}h ${rem}m`;
-      }
-      parts.push({
-        key: "duration",
-        text,
-        icon: "clock",
-        color: colors.textMuted,
-      });
-    }
-
-    return parts;
+  const metaParts = useMemo<TaskMetadataPart[]>(() => {
+    return getTaskMetadataParts(item, {
+      referenceDate: selectedDate || getTodayDateKey(),
+      sectionContext,
+      isCompleted,
+      overdue,
+      omitOverdueLabel,
+      workspaceName: shouldShowWorkspace ? folderName : null,
+      colors: {
+        textMuted: colors.textMuted,
+        error: colors.error,
+      },
+    });
   }, [
+    item,
+    selectedDate,
+    sectionContext,
+    isCompleted,
+    overdue,
+    omitOverdueLabel,
     shouldShowWorkspace,
     folderName,
-    isInbox,
-    item.priority,
-    omitOverdueLabel,
-    item.schedule?.date,
-    item.schedule?.startTime,
-    item.schedule?.endTime,
-    selectedDate,
-    isCompleted,
-    item.reminder,
-    item.recurrence,
-    durationMinutes,
     colors.textMuted,
     colors.error,
   ]);

@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
-  SafeAreaView,
   ScrollView,
   Pressable,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
   Platform,
   StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useRouter, Stack } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -337,6 +337,7 @@ export default function StatsScreen() {
   if (loading) {
     return (
       <SafeAreaView
+        edges={["top", "left", "right"]}
         style={[
           styles.safeArea,
           { backgroundColor: colors.background, justifyContent: "center" },
@@ -351,6 +352,7 @@ export default function StatsScreen() {
 
   return (
     <SafeAreaView
+      edges={["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       <Stack.Screen options={{ headerShown: false }} />
@@ -573,7 +575,6 @@ export default function StatsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 44) : 0,
   },
   header: {
     height: 56,

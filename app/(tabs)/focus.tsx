@@ -1,7 +1,7 @@
 import React from "react";
-import { Platform, SafeAreaView, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Platform, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { ScreenSwipeWrapper } from "@/shared/components/layout/ScreenSwipeWrapper";
@@ -57,7 +57,7 @@ export default function FocusScreen() {
 
   return (
     <ScreenSwipeWrapper prevRoute="/" nextRoute="/tasks" hideMesh={!state.glowEnabled}>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: "transparent" }]}>
+      <SafeAreaView edges={["top", "left", "right"]} style={[styles.safeArea, { backgroundColor: "transparent" }]}>
         <Animated.View entering={FadeInDown.duration(450).springify()} style={{ flex: 1 }}>
           {/* Atmospheric background treatment centered behind Focus workspace */}
           {state.glowEnabled && (
@@ -222,7 +222,7 @@ export default function FocusScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 12,

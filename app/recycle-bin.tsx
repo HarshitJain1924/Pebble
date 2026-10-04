@@ -6,13 +6,13 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { emitStateChange } from "@/services/events/state-events";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
@@ -347,6 +347,7 @@ export default function RecycleBinScreen() {
 
   return (
     <SafeAreaView
+      edges={["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       {/* Header */}
@@ -698,7 +699,7 @@ export default function RecycleBinScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",

@@ -6,7 +6,7 @@ const CARD_GAP = 10;
 const CARD_WIDTH = (SCREEN_WIDTH - 32 - CARD_GAP) / 2; // 2 columns (pill widgets)
 
 export const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 20,

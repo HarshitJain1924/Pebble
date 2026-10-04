@@ -12,7 +12,6 @@ import {
     PanResponder,
     Platform,
     Pressable,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     TouchableOpacity,
@@ -20,7 +19,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getPebbleDockClearance } from "@/shared/components/navigation/PebbleRadialTabBar";
 import { MONTH_NAMES, WEEKDAY_NAMES } from "@/features/tasks/utils/task-formatting";
 
@@ -591,7 +590,7 @@ export function WorkspacesScreen() {
         style={colorScheme === "dark" ? "light" : "dark"}
       />
 
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: "transparent" }]}>
+      <SafeAreaView edges={["top", "left", "right"]} style={[styles.safeArea, { backgroundColor: "transparent" }]}>
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View
             style={[

@@ -35,13 +35,13 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
 const isWeb = Platform.OS === "web";
@@ -176,6 +176,7 @@ export default function ProfileScreen() {
   if (loading) {
     return (
       <SafeAreaView
+        edges={["top", "left", "right"]}
         style={[
           styles.safeArea,
           { backgroundColor: colors.background, justifyContent: "center" },
@@ -190,6 +191,7 @@ export default function ProfileScreen() {
   if (loadError || !profile) {
     return (
       <SafeAreaView
+        edges={["top", "left", "right"]}
         style={[styles.safeArea, { backgroundColor: colors.background }]}
       >
         <Stack.Screen options={{ headerShown: false }} />
@@ -250,6 +252,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView
+      edges={["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       <Stack.Screen options={{ headerShown: false }} />
@@ -1024,7 +1027,6 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 44) : 0,
   },
   header: {
     height: 52,

@@ -3,11 +3,11 @@ import { Palette } from "@/shared/constants/theme";
 import {
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, {
   Easing,
   FadeInDown,
@@ -332,6 +332,7 @@ export default function CalendarScreen() {
 
   return (
     <SafeAreaView
+      edges={["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       <Animated.View
@@ -619,7 +620,6 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    paddingTop: Platform.OS === "android" ? 44 : 0,
   },
   container: {
     paddingHorizontal: 16,
