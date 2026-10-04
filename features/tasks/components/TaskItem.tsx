@@ -15,6 +15,7 @@ import Animated, {
 import { getCategoryColors, TaskListPriorityColors } from "@/shared/constants/categoryColors";
 import { Palette, colorWithAlpha } from "@/shared/constants/theme";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
+import { Radius } from "@/shared/constants/radii";
 import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import {
   LayoutChangeEvent,
@@ -42,10 +43,78 @@ import {
   getStreamResourcePalette,
   resolveResourceVisual,
 } from "@/features/today/utils/resource-presentation";
+import { openAttachmentFile } from "@/features/resources/utils/fileOpener";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { getTodayDateKey } from "@/shared/utils/date-key";
+
+function getResourcePresentation(res: any) {
+  const visual = resolveResourceVisual(res);
+  const isImage = visual.category === "image" && Boolean(visual.thumbnailUri || res.mediaUri);
+
+  if (isImage) {
+    return {
+      visual,
+      isImage: true as const,
+      imageUri: visual.thumbnailUri || res.mediaUri,
+      title: "",
+      domain: null,
+      badge: null,
+    };
+  }
+
+  if (visual.category === "link") {
+    const raw = res.url || res.content || res.title || "";
+    let domain: string | null = null;
+    try {
+      const match = String(raw).match(/^(?:https?:\/\/)?(?:www\.)?([^\/\?#]+)/i);
+      if (match && match[1]) {
+        domain = match[1];
+      }
+    } catch {
+      // fallback
+    }
+
+    const rawTitle = res.title || "";
+    const isTitleUrl =
+      /^https?:\/\//i.test(rawTitle) ||
+      /^www\./i.test(rawTitle) ||
+      (domain && rawTitle.toLowerCase() === domain.toLowerCase());
+
+    const displayTitle = isTitleUrl ? (domain || rawTitle || "Web Link") : rawTitle;
+
+    return {
+      visual,
+      isImage: false as const,
+      imageUri: null,
+      title: displayTitle,
+      domain: !isTitleUrl && domain ? domain : null,
+      badge: null,
+    };
+  }
+
+  if (visual.category === "pdf") {
+    const rawTitle = (res.title || "Document").replace(/\.pdf$/i, "");
+    return {
+      visual,
+      isImage: false as const,
+      imageUri: null,
+      title: rawTitle,
+      domain: null,
+      badge: "PDF",
+    };
+  }
+
+  return {
+    visual,
+    isImage: false as const,
+    imageUri: null,
+    title: res.title || visual.label || "Note",
+    domain: null,
+    badge: null,
+  };
+}
 
 interface TodoItemProps {
   item: Task;
@@ -110,7 +179,6 @@ export function TodoItem({
   const [resourcesExpanded, setResourcesExpanded] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showLinkSelector, setShowLinkSelector] = useState(false);
-  const [isFanning, setIsFanning] = useState(false);
 
   const reducedMotion = useReducedMotion();
 
@@ -186,31 +254,35 @@ export function TodoItem({
   const hasPlusChip = totalResources >= 4;
   const plusChipCount = totalResources - 2;
 
-  // Resource Fanning Reanimated Progress
-  const fanProgress = useSharedValue(0);
-
-  useEffect(() => {
-    if (isFanning) {
-      fanProgress.value = reducedMotion
-        ? 1
-        : withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) });
-    } else {
-      fanProgress.value = 0;
-    }
-  }, [isFanning, reducedMotion, fanProgress]);
-
-  const handleOpenUrl = async (url?: string) => {
-    if (!url) return;
-    const formattedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    try {
-      await Linking.openURL(formattedUrl);
-    } catch {}
-  };
-
   const handleOpenResource = (res: any) => {
+    Haptics.selectionAsync().catch(() => {});
     const visual = resolveResourceVisual(res);
-    if (visual.category === "link" && (res.url || res.content)) {
-      handleOpenUrl(res.url || res.content);
+    const attachment = res.attachments?.[0];
+    const imageUri =
+      visual.category === "image"
+        ? (visual.thumbnailUri || res.mediaUri || attachment?.uri)
+        : null;
+    const isPdf = Boolean(
+      attachment?.mimeType?.includes("pdf") ||
+      visual.category === "pdf" ||
+      attachment?.name?.toLowerCase().endsWith(".pdf") ||
+      res.title?.toLowerCase().endsWith(".pdf")
+    );
+
+    if (imageUri) {
+      void openAttachmentFile(imageUri, {
+        name: res.title || "Image",
+        mimeType: attachment?.mimeType || "image/jpeg",
+      });
+    } else if (res.type === "link" || res.url || (res.content && /^https?:\/\//i.test(res.content))) {
+      const url = attachment?.uri || res.url || res.content || res.title;
+      const targetUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+      void openAttachmentFile(targetUrl, { name: res.title });
+    } else if (attachment?.uri && isPdf) {
+      void openAttachmentFile(attachment.uri, {
+        name: attachment.name || res.title,
+        mimeType: attachment.mimeType || "application/pdf",
+      });
     } else {
       const targetWs =
         res.workspaceId || item.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
@@ -273,19 +345,6 @@ export function TodoItem({
         text: folderName,
         icon: isInbox ? "inbox" : "folder",
         color: colors.textMuted,
-      });
-    }
-
-    // 1b. Priority — text cue so priority is not communicated by the edge
-    // strip's color alone.
-    const priority = item.priority || "none";
-    if (priority !== "none") {
-      parts.push({
-        key: "priority",
-        text:
-          priority === "high" ? "High" : priority === "medium" ? "Medium" : "Low",
-        icon: "flag",
-        color: TaskListPriorityColors[priority].dark,
       });
     }
 
@@ -486,11 +545,8 @@ export function TodoItem({
     );
   };
 
-  // Trailing stack tap triggers fanning
-  const handleOpenFanning = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setIsFanning(true);
-  };
+  // Trailing stack tap toggles inline chips
+
 
   return (
     <SwipeableCard
@@ -702,33 +758,22 @@ export function TodoItem({
                 <Text style={[styles.resourcesHeaderTitle, { color: colors.text }]}>
                   {`Resources (${totalResources})`}
                 </Text>
-                <Feather name="chevron-down" size={15} color={colors.textMuted} />
+                <Feather name="chevron-down" size={14} color={colors.textMuted} />
               </PressableScale>
-              {totalResources > 0 && (
-                  <PressableScale
-                    onPress={handleOpenFanning}
-                    haptic
-                    accessibilityRole="button"
-                    accessibilityLabel="View fanned resources"
-                  >
-                    <Text style={[styles.viewAllText, { color: isDark ? colors.primaryLight : colors.primary }]}>
-                      View all
-                    </Text>
-                  </PressableScale>
-                )}
-              </View>
+            </View>
 
-              {/* Horizontal Scroll of Resource Preview Cards */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.horizontalResourceScroll}
-              >
-                {linkedResources.map((res: any) => {
-                  const visual = resolveResourceVisual(res);
-                  const stream = streamColors[visual.category] || streamColors.note;
-                  const isImage = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
+            {/* Horizontal Scroll of Flat Attachment Chips & Image Previews */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalResourceScroll}
+            >
+              {linkedResources.map((res: any) => {
+                const itemPres = getResourcePresentation(res);
+                const visual = itemPres.visual;
+                const stream = streamColors[visual.category] || streamColors.note;
 
+                if (itemPres.isImage && itemPres.imageUri) {
                   return (
                     <PressableScale
                       key={res.id}
@@ -736,103 +781,135 @@ export function TodoItem({
                       haptic
                       scaleTo={0.96}
                       accessibilityRole="button"
-                      accessibilityLabel={`${res.title}, ${visual.label}`}
+                      accessibilityLabel={res.title || "Image attachment, tap to open"}
                       style={[
-                        styles.resourceCard,
+                        styles.resourceImageTile,
                         {
-                          backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Palette.slate50,
-                          borderColor: colors.border,
+                          borderColor: isDark ? "rgba(255, 255, 255, 0.14)" : colors.border,
+                          backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Palette.slate100,
                         },
                       ]}
                     >
-                      {/* Top Preview Area */}
+                      <ExpoImage
+                        source={{ uri: itemPres.imageUri }}
+                        style={styles.resourceImageContent}
+                        contentFit="cover"
+                        transition={150}
+                      />
+                    </PressableScale>
+                  );
+                }
+
+                return (
+                  <PressableScale
+                    key={res.id}
+                    onPress={() => handleOpenResource(res)}
+                    haptic
+                    scaleTo={0.96}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${itemPres.title}, ${visual.label}`}
+                    style={[
+                      styles.resourceCapsule,
+                      {
+                        backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Palette.slate100,
+                        borderColor: isDark ? "rgba(255, 255, 255, 0.1)" : colors.border,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.resourceIconBadge,
+                        { backgroundColor: stream.backgroundColor },
+                      ]}
+                    >
+                      <Feather
+                        name={
+                          visual.category === "link"
+                            ? "globe"
+                            : visual.category === "pdf"
+                            ? "file-text"
+                            : "align-left"
+                        }
+                        size={13}
+                        color={stream.accent}
+                      />
+                    </View>
+                    <View style={styles.resourceTextStack}>
+                      <Text
+                        style={[styles.resourceCapsuleTitle, { color: colors.text }]}
+                        numberOfLines={1}
+                      >
+                        {itemPres.title}
+                      </Text>
+                      {itemPres.domain ? (
+                        <Text
+                          style={[styles.resourceDomainText, { color: colors.textMuted }]}
+                          numberOfLines={1}
+                        >
+                          {itemPres.domain}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {visual.category === "link" ? (
+                      <Feather
+                        name="arrow-up-right"
+                        size={12}
+                        color={colors.textMuted}
+                        style={styles.resourceArrow}
+                      />
+                    ) : itemPres.badge ? (
                       <View
                         style={[
-                          styles.cardPreviewArea,
+                          styles.formatBadge,
                           {
-                            backgroundColor: stream.backgroundColor,
+                            backgroundColor: isDark
+                              ? "rgba(255, 255, 255, 0.08)"
+                              : "rgba(0, 0, 0, 0.06)",
                           },
                         ]}
                       >
-                        {isImage ? (
-                          <ExpoImage
-                            source={{ uri: visual.thumbnailUri || res.mediaUri }}
-                            style={styles.cardImage}
-                            contentFit="cover"
-                          />
-                        ) : (
-                          <Feather
-                            name={
-                              visual.category === "link"
-                                ? "link"
-                                : visual.category === "image"
-                                ? "image"
-                                : visual.category === "pdf"
-                                ? "file"
-                                : "file-text"
-                            }
-                            size={20}
-                            color={stream.accent}
-                          />
-                        )}
-                      </View>
-
-                      {/* Card Title & Type Label */}
-                      <View style={styles.cardInfoArea}>
-                        <Text
-                          style={[styles.cardTitle, { color: colors.text }]}
-                          numberOfLines={1}
-                        >
-                          {res.title || "Resource"}
-                        </Text>
-                        <Text style={[styles.cardType, { color: colors.textMuted }]}>
-                          {visual.label}
+                        <Text style={[styles.formatBadgeText, { color: stream.accent }]}>
+                          {itemPres.badge}
                         </Text>
                       </View>
-                    </PressableScale>
-                  );
-                })}
+                    ) : null}
+                  </PressableScale>
+                );
+              })}
 
-                {/* "+ Add" Resource Card */}
-                <PressableScale
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    setShowLinkSelector(true);
-                  }}
-                  haptic
-                  scaleTo={0.96}
-                  accessibilityRole="button"
-                  accessibilityLabel="Link a new resource to this task"
+              {/* "+ Link" Chip */}
+              <PressableScale
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setShowLinkSelector(true);
+                }}
+                haptic
+                scaleTo={0.96}
+                accessibilityRole="button"
+                accessibilityLabel="Link a new resource to this task"
+                style={[
+                  styles.linkResourceChip,
+                  {
+                    borderColor: isDark ? "rgba(255, 255, 255, 0.16)" : colors.border,
+                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)",
+                  },
+                ]}
+              >
+                <Feather
+                  name="plus"
+                  size={14}
+                  color={isDark ? colors.primaryLight : colors.primary}
+                />
+                <Text
                   style={[
-                    styles.addResourceCard,
-                    {
-                      borderColor: isDark ? "rgba(255, 255, 255, 0.16)" : colors.border,
-                      backgroundColor: isDark ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)",
-                    },
+                    styles.linkResourceChipText,
+                    { color: isDark ? colors.primaryLight : colors.primary },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.addIconCircle,
-                      {
-                        backgroundColor: colorWithAlpha(colors.primary, isDark ? 0.2 : 0.1),
-                      },
-                    ]}
-                  >
-                    <Feather name="plus" size={18} color={isDark ? colors.primaryLight : colors.primary} />
-                  </View>
-                  <Text
-                    style={[
-                      styles.addCardText,
-                      {
-                        color: colors.textMuted,
-                      },
-                    ]}
-                  >
-                    Add
-                  </Text>
-                </PressableScale>
-              </ScrollView>
+                  Link
+                </Text>
+              </PressableScale>
+            </ScrollView>
           </Animated.View>
         )}
 
@@ -938,140 +1015,7 @@ export function TodoItem({
           )}
         </AnimatedOverlay>
 
-        {/* RESOURCE FAN DECK MODAL (Phase 4) */}
-        <Modal
-          visible={isFanning}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsFanning(false)}
-        >
-          <View style={styles.fanModalBackdrop}>
-            {/* Backdrop Tap to close */}
-            <Pressable
-              onPress={() => setIsFanning(false)}
-              style={StyleSheet.absoluteFill}
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss fanned resources"
-            />
 
-            {/* Fanned Cards Deck */}
-            <View style={styles.fanDeckContainer} pointerEvents="box-none">
-              {linkedResources.map((res: any, idx: number) => {
-                const visual = resolveResourceVisual(res);
-                const stream = streamColors[visual.category] || streamColors.note;
-                const isImage = visual.category === "image" && (visual.thumbnailUri || res.mediaUri);
-
-                const count = linkedResources.length;
-                // Calculate rotation and horizontal offset for fan arc
-                const angleStep = count > 1 ? Math.min(10, 36 / (count - 1)) : 0;
-                const startAngle = -(angleStep * (count - 1)) / 2;
-                const targetAngle = startAngle + idx * angleStep;
-
-                const targetX = (idx - (count - 1) / 2) * 36;
-                const targetY = -Math.sin(((idx + 0.5) / count) * Math.PI) * 18;
-
-                return (
-                  <PressableScale
-                    key={res.id || idx}
-                    onPress={() => {
-                      setIsFanning(false);
-                      handleOpenResource(res);
-                    }}
-                    scaleTo={0.96}
-                    haptic
-                    accessibilityRole="button"
-                    accessibilityLabel={`${res.title}, ${visual.label}`}
-                    style={[
-                      styles.fannedCard,
-                      {
-                        backgroundColor: colors.card,
-                        borderColor: colors.border,
-                        transform: [
-                          { translateX: targetX },
-                          { translateY: targetY },
-                          { rotate: reducedMotion ? "0deg" : `${targetAngle}deg` },
-                        ],
-                        zIndex: 10 + idx,
-                        shadowColor: Palette.black,
-                      },
-                    ]}
-                  >
-                    {/* Top Preview Graphic */}
-                    <View
-                      style={[
-                        styles.fannedCardPreview,
-                        {
-                          backgroundColor: stream.backgroundColor,
-                        },
-                      ]}
-                    >
-                      {isImage ? (
-                        <ExpoImage
-                          source={{ uri: visual.thumbnailUri || res.mediaUri }}
-                          style={{ width: "100%", height: "100%" }}
-                          contentFit="cover"
-                        />
-                      ) : (
-                        <View style={{ alignItems: "center", justifyContent: "center" }}>
-                          <Feather
-                            name={
-                              visual.category === "link"
-                                ? "link"
-                                : visual.category === "image"
-                                ? "image"
-                                : visual.category === "pdf"
-                                ? "file"
-                                : "file-text"
-                            }
-                            size={28}
-                            color={stream.accent}
-                          />
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Bottom Metadata Info */}
-                    <View style={styles.fannedCardMeta}>
-                      <Text
-                        style={[styles.fannedCardTitle, { color: colors.text }]}
-                        numberOfLines={1}
-                      >
-                        {res.title || "Resource"}
-                      </Text>
-                      <Text style={[styles.fannedCardType, { color: colors.textMuted }]}>
-                        {visual.label}
-                      </Text>
-                    </View>
-                  </PressableScale>
-                );
-              })}
-            </View>
-
-            {/* Floating (X) Dismiss Button at Bottom-Right */}
-            <View style={styles.fanCloseContainer} pointerEvents="box-none">
-              <PressableScale
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setIsFanning(false);
-                }}
-                scaleTo={0.92}
-                haptic
-                accessibilityRole="button"
-                accessibilityLabel="Close resources fan"
-                style={[
-                  styles.fanCloseBtn,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                    shadowColor: Palette.black,
-                  },
-                ]}
-              >
-                <Feather name="x" size={20} color={colors.text} />
-              </PressableScale>
-            </View>
-          </View>
-        </Modal>
 
         {/* RESOURCE LINK SELECTOR MODAL */}
         <Modal
@@ -1257,17 +1201,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  // Inline resource disclosure styles
+  // Inline resource disclosure styles (flat attachment chips)
   resourcesSection: {
-    gap: 10,
+    gap: 8,
     paddingLeft: ROW_SPEC.row.paddingLeft,
     paddingRight: ROW_SPEC.row.paddingRight,
-    paddingBottom: 14,
+    paddingBottom: 10,
+    paddingTop: 2,
   },
   resourcesHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
+    paddingVertical: 2,
   },
   resourcesHeaderRow: {
     flexDirection: "row",
@@ -1275,68 +1221,86 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   resourcesHeaderTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-  },
-  viewAllText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
+    letterSpacing: -0.1,
+    opacity: 0.85,
   },
   horizontalResourceScroll: {
-    gap: 10,
+    gap: 8,
     paddingRight: 4,
-  },
-  resourceCard: {
-    width: 108,
-    height: 108,
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 8,
-    justifyContent: "space-between",
-  },
-  cardPreviewArea: {
-    width: "100%",
-    height: 54,
-    borderRadius: 8,
     alignItems: "center",
-    justifyContent: "center",
+  },
+  resourceImageTile: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.md,
+    borderWidth: 1,
     overflow: "hidden",
   },
-  cardImage: {
-    width: "100%",
-    height: "100%",
+  resourceImageContent: {
+    width: 44,
+    height: 44,
   },
-  cardInfoArea: {
-    gap: 1,
+  resourceCapsule: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 40,
+    paddingLeft: 6,
+    paddingRight: 10,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    gap: 7,
+    maxWidth: 240,
   },
-  cardTitle: {
-    fontSize: 11,
-    fontWeight: "700",
+  resourceIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  cardType: {
-    fontSize: 10,
+  resourceTextStack: {
+    flexShrink: 1,
+    justifyContent: "center",
+  },
+  resourceCapsuleTitle: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    letterSpacing: -0.15,
+    flexShrink: 1,
+  },
+  resourceDomainText: {
+    fontSize: 10.5,
     fontWeight: "500",
+    opacity: 0.7,
   },
-  addResourceCard: {
-    width: 76,
-    height: 108,
-    borderRadius: 14,
-    borderWidth: 1.5,
+  resourceArrow: {
+    marginLeft: 1,
+    opacity: 0.6,
+  },
+  formatBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  formatBadgeText: {
+    fontSize: 9.5,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  linkResourceChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: Radius.md,
+    borderWidth: 1,
     borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
+    gap: 5,
   },
-  addIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addCardText: {
-    fontSize: 11,
+  linkResourceChipText: {
+    fontSize: 12.5,
     fontWeight: "600",
   },
   // Task action sheet (secondary actions)
@@ -1378,70 +1342,6 @@ const styles = StyleSheet.create({
   actionSheetCancelText: {
     fontSize: 15,
     fontWeight: "700",
-  },
-  // Fan Deck Modal
-  fanModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.58)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  fanDeckContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
-    height: 280,
-  },
-  fannedCard: {
-    position: "absolute",
-    width: 144,
-    height: 190,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    padding: 10,
-    justifyContent: "space-between",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  fannedCardPreview: {
-    width: "100%",
-    height: 114,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  fannedCardMeta: {
-    gap: 2,
-    paddingHorizontal: 2,
-  },
-  fannedCardTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  fannedCardType: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  fanCloseContainer: {
-    position: "absolute",
-    bottom: 60,
-    right: 32,
-  },
-  fanCloseBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
   },
   // Resource Selector Modal
   selectorModalBackdrop: {
