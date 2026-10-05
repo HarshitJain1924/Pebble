@@ -170,6 +170,7 @@ export function buildHabit(
     workspaceId,
     title: item.title,
     categoryId: item.category || "health",
+    priority: (item.priority as any) || "medium",
     recurrence: persistedRecurrence,
     completionHistory: [],
     schedule: formattedStartTime ? { startTime: formattedStartTime } : undefined,

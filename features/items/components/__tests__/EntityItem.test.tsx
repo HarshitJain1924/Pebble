@@ -83,11 +83,9 @@ describe("EntityItem Unified Architecture", () => {
                 parts={[
                   { key: "due", text: "Today" },
                   { key: "time", text: "6:00 PM" },
+                  { key: "resources", text: "2", icon: "paperclip", testID: "mock-resources", onPress: jest.fn() },
                 ]}
               />
-            }
-            resources={
-              <EntityResourceIndicator count={2} testID="mock-resources" />
             }
             trailingActions={<RNView testID="mock-actions" />}
           />
@@ -103,6 +101,7 @@ describe("EntityItem Unified Architecture", () => {
       expect(textNodes).toContain("Shared Item Title");
       expect(textNodes).toContain("Today");
       expect(textNodes).toContain("6:00 PM");
+      expect(textNodes).toContain("2");
     });
 
     it("renders category ambient wash and watermark icon when category is provided", () => {
@@ -277,7 +276,7 @@ describe("EntityItem Unified Architecture", () => {
           { id: "i4", title: "Eggs", completed: false },
           { id: "i5", title: "Cheese", completed: false },
         ],
-        resourceIds: [],
+        resourceIds: ["res-1"],
         workspaceId: "ws-1",
         revision: 1,
         lifecycleGeneration: 1,
@@ -296,6 +295,7 @@ describe("EntityItem Unified Architecture", () => {
             onToggleExpand={jest.fn()}
             onToggleChecklist={jest.fn()}
             onUpdateChecklist={jest.fn()}
+            allResources={[{ id: "res-1", title: "Recipe", type: "note" }]}
           />
         );
       });
@@ -316,11 +316,11 @@ describe("EntityItem Unified Architecture", () => {
       expect(textNodes).toContain("3 of 5 completed");
       expect(textNodes).toContain("2 left");
 
-      // 3. Resource indicator shows + when 0 linked resources
+      // 3. Resource indicator shows count of 1 in metadata row
       const resIndicator = root.findByProps({ testID: "checklist-resource-indicator" });
       expect(resIndicator).toBeDefined();
       const resTexts = resIndicator.findAllByType(RNText).map((t: any) => t.props.children);
-      expect(resTexts).toContain("+");
+      expect(resTexts).toContain("1");
     });
   });
 

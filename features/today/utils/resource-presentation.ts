@@ -49,6 +49,13 @@ export function getStreamResourceStyleFor(
  * Extracts image thumbnail URI from attachments, direct URI, or content.
  */
 export function resolveResourceVisual(res: any): ResourceVisualInfo {
+  if (!res) {
+    return {
+      category: "note",
+      label: "Resource",
+      attachmentCount: 0,
+    };
+  }
   const attachments = Array.isArray(res.attachments) ? res.attachments : [];
   const attachment = attachments[0];
   const name = (attachment?.name || res.title || "").toLowerCase();
@@ -115,3 +122,29 @@ export function resolveResourceVisual(res: any): ResourceVisualInfo {
     attachmentCount: attachments.length,
   };
 }
+
+/**
+ * Resolves the primary Feather icon name for a resource record based on its classified visual category.
+ *
+ * - link → "link-2"
+ * - image → "image"
+ * - pdf → "file"
+ * - note / idea → "file-text"
+ * - fallback / unspecified → "paperclip"
+ */
+export function resolveResourceIconName(res: any): string {
+  if (!res) return "paperclip";
+  const visual = resolveResourceVisual(res);
+  switch (visual.category) {
+    case "link":
+      return "link-2";
+    case "image":
+      return "image";
+    case "pdf":
+      return "file";
+    case "note":
+    default:
+      return "file-text";
+  }
+}
+

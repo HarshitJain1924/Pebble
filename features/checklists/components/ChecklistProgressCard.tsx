@@ -10,8 +10,10 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import {
   EntityItem,
-  EntityResourceIndicator,
+  EntityMetaRow,
+  type EntityMetaPart,
   resolveEntityCategoryPresentation,
+  resolveResourceIconName,
 } from "@/features/items";
 import { type Checklist, type ChecklistItem as DomainChecklistItem } from "@/shared/types/domain.types";
 
@@ -119,6 +121,63 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   };
 
+  // Primary resource icon derived from first linked resource
+  const resourceIconName = useMemo(() => {
+    return resolveResourceIconName(linkedResources?.[0]);
+  }, [linkedResources]);
+
+  const checklistMetaParts = useMemo<EntityMetaPart[]>(() => {
+    const parts: EntityMetaPart[] = [
+      {
+        key: "progress",
+        text: `${completedCount} of ${totalCount} completed`,
+        color: colors.textMuted,
+        textStyle: styles.progressText,
+        onPress: onToggleExpand,
+        accessibilityRole: "button",
+        accessibilityLabel: `${completedCount} of ${totalCount} completed`,
+      },
+      {
+        key: "remaining",
+        text: isAllCompleted ? "Completed" : `${totalCount - completedCount} left`,
+        color: isAllCompleted ? colors.primary : colors.textMuted,
+        isBold: isAllCompleted,
+        textStyle: styles.remainingText,
+        onPress: onToggleExpand,
+        accessibilityRole: "button",
+      },
+    ];
+
+    if (linkedCount > 0) {
+      parts.push({
+        key: "resources",
+        text: String(linkedCount),
+        icon: resourceIconName,
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          onToggleExpand();
+        },
+        accessibilityRole: "button",
+        accessibilityLabel: `${linkedCount} resources linked to ${checklist.title}. Tap to ${isExpanded ? "collapse" : "expand"}`,
+        accessibilityState: { expanded: isExpanded },
+        testID: "checklist-resource-indicator",
+      });
+    }
+
+    return parts;
+  }, [
+    completedCount,
+    totalCount,
+    isAllCompleted,
+    linkedCount,
+    resourceIconName,
+    checklist.title,
+    isExpanded,
+    colors.textMuted,
+    colors.primary,
+    onToggleExpand,
+  ]);
+
   // Category atmosphere resolution (subtle background wash + watermark)
   const categoryPresentation = useMemo(() => {
     return resolveEntityCategoryPresentation(
@@ -178,67 +237,34 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
         </PressableScale>
       }
       metadata={
-        <PressableScale
-          onPress={onToggleExpand}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: isExpanded }}
-          accessibilityLabel={`Checklist progress: ${completedCount} of ${totalCount} completed. Tap to ${isExpanded ? "collapse" : "expand"}`}
-          style={styles.progressRowPress}
-        >
-          <View
-            style={[
-              styles.progressTrack,
-              { backgroundColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)" },
-            ]}
+        <View style={styles.progressRowPress}>
+          <PressableScale
+            onPress={onToggleExpand}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isExpanded }}
+            accessibilityLabel={`Checklist progress: ${completedCount} of ${totalCount} completed. Tap to ${isExpanded ? "collapse" : "expand"}`}
           >
             <View
               style={[
-                styles.progressBar,
-                { width: `${progress * 100}%`, backgroundColor: colors.primary },
-              ]}
-            />
-          </View>
-
-          {/* Metrics Row: X of Y completed (left), N left/Completed (right) */}
-          <View style={styles.metricsRow}>
-            <Text style={[styles.progressText, { color: colors.textMuted }]}>
-              {completedCount} of {totalCount} completed
-            </Text>
-            <Text
-              style={[
-                styles.remainingText,
-                {
-                  color: isAllCompleted ? colors.primary : colors.textMuted,
-                  fontWeight: isAllCompleted ? "700" : "500",
-                },
+                styles.progressTrack,
+                { backgroundColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)" },
               ]}
             >
-              {isAllCompleted ? "Completed" : `${totalCount - completedCount} left`}
-            </Text>
-          </View>
-        </PressableScale>
-      }
-      resources={
-        <EntityResourceIndicator
-          count={linkedCount}
-          iconName="paperclip"
-          isExpanded={isExpanded}
-          allowZeroAdd={true}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-            if (linkedCount > 0) {
-              onToggleExpand();
-            } else {
-              setShowLinkSelector(true);
-            }
-          }}
-          accessibilityLabel={
-            linkedResourceIds.length === 0
-              ? `Attach resource to ${checklist.title}`
-              : `${linkedCount} resources linked to ${checklist.title}`
-          }
-          testID="checklist-resource-indicator"
-        />
+              <View
+                style={[
+                  styles.progressBar,
+                  { width: `${progress * 100}%`, backgroundColor: colors.primary },
+                ]}
+              />
+            </View>
+          </PressableScale>
+
+          <EntityMetaRow
+            parts={checklistMetaParts}
+            dotColor={colors.textMuted}
+            style={styles.metricsMetaRow}
+          />
+        </View>
       }
       trailingActions={
         <View style={styles.actionsCluster}>
@@ -760,6 +786,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  metricsMetaRow: {
+    marginTop: 2,
   },
   progressText: {
     fontSize: 10.5,

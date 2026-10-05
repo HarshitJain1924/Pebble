@@ -85,6 +85,7 @@ export function normalizeHabit(
 
   if (rawHabit.description) habitObj.description = rawHabit.description;
   if (rawHabit.categoryId || rawHabit.category) habitObj.categoryId = rawHabit.categoryId || rawHabit.category;
+  if (rawHabit.priority) habitObj.priority = rawHabit.priority;
   if (rawHabit.tags) habitObj.tags = rawHabit.tags;
   if (rawHabit.recurrenceExceptions) habitObj.recurrenceExceptions = rawHabit.recurrenceExceptions;
   if (reminder) habitObj.reminder = reminder;

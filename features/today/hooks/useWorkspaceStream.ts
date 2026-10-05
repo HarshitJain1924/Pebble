@@ -390,6 +390,10 @@ export function buildHabitStreamItem(
       },
       isDark,
     ),
+    priority:
+      habit.priority === "none"
+        ? undefined
+        : ((habit.priority || "medium") as "high" | "medium" | "low"),
     streak: currentStreak,
     original: habit,
     relevance: completed

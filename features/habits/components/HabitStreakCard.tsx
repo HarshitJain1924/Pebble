@@ -19,9 +19,9 @@ import { HabitQuickEditSheet } from "./HabitQuickEditSheet";
 import {
   EntityItem,
   EntityMetaRow,
-  EntityResourceIndicator,
   type EntityMetaPart,
   resolveEntityCategoryPresentation,
+  resolveResourceIconName,
 } from "@/features/items";
 
 export type HabitStreakCardProps = {
@@ -80,8 +80,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
 
   const amberColor = Palette.amber500;
 
-  // Priority fallback: priority prop or habit?.priority
-  const effectivePriority = priority !== undefined ? priority : habit?.priority;
+  // Priority fallback: priority prop or habit?.priority (defaults to medium for habits)
+  const effectivePriority = (priority !== undefined ? priority : habit?.priority) ?? "medium";
 
   // Quick edit sheet state
   const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
@@ -99,7 +99,12 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
     );
   }, [habit?.categoryId, title, effectivePriority, isDark]);
 
-  // Build single line metadata (including amber streak value)
+  // Primary resource icon derived from first linked resource
+  const resourceIconName = useMemo(() => {
+    return resolveResourceIconName(linkedResources?.[0]);
+  }, [linkedResources]);
+
+  // Build single line metadata (including amber streak value and linked resources)
   const metaParts = useMemo<EntityMetaPart[]>(() => {
     const parts: EntityMetaPart[] = [];
 
@@ -142,11 +147,32 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       });
     }
 
+    // 4. Linked Resources (compact indicator in metadata)
+    if (linkedCount > 0) {
+      parts.push({
+        key: "resources",
+        text: String(linkedCount),
+        icon: resourceIconName,
+        onPress: onPressResources,
+        onLongPress: onLongPressResources,
+        accessibilityRole: "button",
+        accessibilityLabel: `${linkedCount} resources linked to ${title}. Tap to ${isExpanded ? "collapse" : "expand"}`,
+        accessibilityState: { expanded: isExpanded },
+        testID: "habit-resource-indicator",
+      });
+    }
+
     return parts;
   }, [
     streak,
     habit?.recurrence,
     habit?.reminder?.triggerAt,
+    linkedCount,
+    resourceIconName,
+    onPressResources,
+    onLongPressResources,
+    title,
+    isExpanded,
     isLight,
   ]);
 
@@ -190,22 +216,6 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       contentAccessibilityRole="button"
       contentAccessibilityLabel={`Open habit details: ${title}`}
       metadata={<EntityMetaRow parts={metaParts} dotColor={colors.textMuted} />}
-      resources={
-        <EntityResourceIndicator
-          count={linkedCount}
-          iconName="paperclip"
-          isExpanded={isExpanded}
-          allowZeroAdd={true}
-          onPress={onPressResources}
-          onLongPress={linkedCount > 0 ? onLongPressResources : undefined}
-          accessibilityLabel={
-            linkedCount === 0
-              ? `Attach resource to ${title}`
-              : `${linkedCount} resources linked to ${title}. Tap to ${isExpanded ? "collapse" : "expand"}`
-          }
-          testID="habit-resource-indicator"
-        />
-      }
       trailingActions={
         !isSelectionMode ? (
           <PressableScale

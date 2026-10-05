@@ -69,6 +69,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
         id: generateId("habit-"),
         title,
         categoryId: category,
+        priority: priority || "medium",
         workspaceId: selectedWorkspaceId || INBOX_WORKSPACE_ID,
         recurrence: {
           frequency: "daily",

@@ -18,3 +18,11 @@ export {
   hasCategoryKeywordMatch,
   type EntityCategoryPresentation,
 } from "./utils/entity-category";
+
+export {
+  resolveResourceIconName,
+  resolveResourceVisual,
+  type ResourceCategory,
+  type ResourceVisualInfo,
+} from "@/features/today/utils/resource-presentation";
+

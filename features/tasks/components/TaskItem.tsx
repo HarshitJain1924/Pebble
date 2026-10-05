@@ -10,7 +10,6 @@ import Animated, {
 import {
   EntityItem,
   EntityMetaRow,
-  EntityResourceIndicator,
   type EntityMetaPart,
 } from "@/features/items";
 import {
@@ -381,7 +380,7 @@ export function TodoItem({
   ]);
 
   const entityMetaParts = useMemo<EntityMetaPart[]>(() => {
-    return metaParts.map((part, idx) => ({
+    const parts: EntityMetaPart[] = metaParts.map((part) => ({
       key: part.key,
       text: part.text,
       icon: part.icon,
@@ -390,10 +389,33 @@ export function TodoItem({
       itemStyle: [
         part.key === "category" ? styles.metaPartWorkspace : undefined,
         part.key === "recurrence" ? styles.metaPartRecurrence : undefined,
-        idx === metaParts.length - 1 ? styles.metaPartLast : undefined,
       ],
     }));
-  }, [metaParts]);
+
+    if (totalResources > 0) {
+      parts.push({
+        key: "resources",
+        text: String(totalResources),
+        icon: resourceIconName,
+        onPress: isSelectionMode
+          ? onSelect
+          : () => {
+              setIsMenuOpen(true);
+            },
+        accessibilityRole: "button",
+        accessibilityLabel: `${totalResources} linked resources for ${item.title}`,
+        accessibilityState: { expanded: false },
+        testID: "task-resource-indicator",
+      });
+    }
+
+    if (parts.length > 0) {
+      const last = parts[parts.length - 1];
+      last.itemStyle = [last.itemStyle, styles.metaPartLast];
+    }
+
+    return parts;
+  }, [metaParts, totalResources, resourceIconName, isSelectionMode, onSelect, item.title]);
 
   return (
     <SwipeableCard
@@ -457,21 +479,6 @@ export function TodoItem({
         metadata={
           entityMetaParts.length > 0 ? (
             <EntityMetaRow parts={entityMetaParts} dotColor={colors.textMuted} />
-          ) : null
-        }
-        resources={
-          totalResources > 0 ? (
-            <EntityResourceIndicator
-              count={totalResources}
-              iconName={resourceIconName}
-              onPress={() => {
-                Haptics.selectionAsync().catch(() => {});
-                setIsMenuOpen(true);
-              }}
-              accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
-              accessibilityState={{ expanded: false }}
-              testID="task-resource-indicator"
-            />
           ) : null
         }
         trailingActions={

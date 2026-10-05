@@ -1,6 +1,7 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import React, { useId, useMemo } from "react";
 import {
+  Insets,
   LayoutChangeEvent,
   StyleProp,
   StyleSheet,
@@ -459,6 +460,13 @@ export interface EntityMetaPart {
   isBold?: boolean;
   itemStyle?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
+  onPress?: (event?: any) => void;
+  onLongPress?: (event?: any) => void;
+  accessibilityRole?: "button" | "link" | "checkbox" | "none";
+  accessibilityLabel?: string;
+  accessibilityState?: { expanded?: boolean; [key: string]: any };
+  testID?: string;
+  hitSlop?: Insets | number;
 }
 
 export interface EntityMetaRowProps {
@@ -479,27 +487,28 @@ export const EntityMetaRow: React.FC<EntityMetaRowProps> = ({
 
   return (
     <View style={[styles.metaRow, style]}>
-      {parts.map((part, idx) => (
-        <React.Fragment key={part.key || idx}>
-          {idx > 0 && (
-            <Text style={[styles.metaDot, { color: dotColor || colors.textMuted }]}>
-              ·
-            </Text>
-          )}
-          <View
-            style={[
-              styles.metaPartItem,
-              idx === parts.length - 1 ? styles.metaPartLast : undefined,
-              part.itemStyle,
-            ]}
-          >
+      {parts.map((part, idx) => {
+        const isInteractive = Boolean(part.onPress || part.onLongPress);
+        const isLast = idx === parts.length - 1;
+
+        const content = (
+          <>
             {part.icon && (
-              <Feather
-                name={part.icon as any}
-                size={11}
-                color={part.color || colors.textMuted}
-                style={styles.metaIcon}
-              />
+              part.iconFamily === "ionicons" ? (
+                <Ionicons
+                  name={part.icon as any}
+                  size={11}
+                  color={part.color || colors.textMuted}
+                  style={styles.metaIcon}
+                />
+              ) : (
+                <Feather
+                  name={part.icon as any}
+                  size={11}
+                  color={part.color || colors.textMuted}
+                  style={styles.metaIcon}
+                />
+              )
             )}
             <Text
               style={[
@@ -515,9 +524,51 @@ export const EntityMetaRow: React.FC<EntityMetaRowProps> = ({
             >
               {part.text}
             </Text>
-          </View>
-        </React.Fragment>
-      ))}
+          </>
+        );
+
+        return (
+          <React.Fragment key={part.key || idx}>
+            {idx > 0 && (
+              <Text style={[styles.metaDot, { color: dotColor || colors.textMuted }]}>
+                ·
+              </Text>
+            )}
+            {isInteractive ? (
+              <PressableScale
+                onPress={part.onPress}
+                onLongPress={part.onLongPress}
+                haptic
+                scaleTo={0.92}
+                hitSlop={part.hitSlop ?? { top: 8, bottom: 8, left: 6, right: 6 }}
+                accessibilityRole={part.accessibilityRole ?? "button"}
+                accessibilityLabel={part.accessibilityLabel}
+                accessibilityState={part.accessibilityState}
+                testID={part.testID}
+                style={[
+                  styles.metaPartItem,
+                  styles.metaPartInteractive,
+                  isLast ? styles.metaPartLast : undefined,
+                  part.itemStyle,
+                ]}
+              >
+                {content}
+              </PressableScale>
+            ) : (
+              <View
+                testID={part.testID}
+                style={[
+                  styles.metaPartItem,
+                  isLast ? styles.metaPartLast : undefined,
+                  part.itemStyle,
+                ]}
+              >
+                {content}
+              </View>
+            )}
+          </React.Fragment>
+        );
+      })}
     </View>
   );
 };
@@ -662,6 +713,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexShrink: 0,
     minWidth: 0,
+  },
+  metaPartInteractive: {
+    paddingVertical: 1,
+    paddingHorizontal: 2,
+    borderRadius: 4,
   },
   metaPartLast: {
     flexShrink: 1,

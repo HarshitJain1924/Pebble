@@ -436,7 +436,7 @@ export function HabitDetailContent({
           item.id,
           form.workspaceId,
           updatedItem as Partial<Habit>,
-          { skipEvents: true, skipAnalytics: true, source: "task-details" },
+          { source: "task-details" },
         );
       }
 

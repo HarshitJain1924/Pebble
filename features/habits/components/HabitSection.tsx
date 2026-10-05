@@ -165,7 +165,7 @@ export function HabitSection({
                 streak={getHabitCurrentStreak(item, todayKey)}
                 bestStreak={getHabitBestStreak(item)}
                 completedToday={isHabitCompletedToday(item, todayKey)}
-                priority={item.priority}
+                priority={item.priority ?? "medium"}
                 onDeleteHabit={() => deleteHabit(item.id)}
                 isSelectionMode={isSelectionMode}
                 onPressToggle={isSelectionMode ? () => onToggleSelectItem?.(item.id) : () => toggleHabit(item.id)}
