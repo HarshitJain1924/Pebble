@@ -7,7 +7,14 @@ import Animated, {
   withSequence,
   Easing,
 } from "react-native-reanimated";
-import { getCategoryColors, TaskListPriorityColors } from "@/shared/constants/categoryColors";
+import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
+import {
+  getCategoryColors,
+  resolveColor,
+  TaskCategoryColors,
+  TaskCategoryKey,
+  TaskListPriorityColors,
+} from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import { Radius } from "@/shared/constants/radii";
@@ -25,7 +32,6 @@ import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
 import { TaskQuickEditSheet } from "./TaskQuickEditSheet";
 import { TaskDatePickerModal } from "./TaskDatePickerModal";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
-import { getTaskCategoryMeta, normalizeTaskCategory } from "@/features/tasks/services/task-categories";
 import {
   getTaskMetadataParts,
   TaskMetadataPart,
@@ -287,27 +293,46 @@ export function TodoItem({
     }
   };
 
-  // Category badge resolution
-  const categorySymbol = useMemo(() => {
-    if (item.categoryId) {
-      return resolveItemCategorySymbol(
-        {
-          type: "task",
-          title: item.title,
-          categoryId: item.categoryId,
-          priority: item.priority,
-        },
-        isDark,
-      );
-    }
+  // Category presentation (color and icon) for subtle ambient background blend
+  const categoryPresentation = useMemo(() => {
+    if (!item.categoryId) return null;
+    const cat = item.categoryId.toLowerCase();
+    const color =
+      cat in TaskCategoryColors
+        ? resolveColor(TaskCategoryColors[cat as TaskCategoryKey].color, isDark)
+        : resolveItemCategorySymbol(
+            {
+              type: "task",
+              title: item.title,
+              categoryId: item.categoryId,
+              priority: item.priority,
+            },
+            isDark,
+          ).color;
+
+    const symbol = resolveItemCategorySymbol(
+      {
+        type: "task",
+        title: item.title,
+        categoryId: item.categoryId,
+        priority: item.priority,
+      },
+      isDark,
+    );
+
     return {
-      icon: "clipboard",
-      iconFamily: "feather" as const,
-      color: colors.textMuted,
-      tint: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.04)",
-      label: "Task",
+      color,
+      icon: symbol.icon,
+      iconFamily: symbol.iconFamily,
     };
-  }, [item.title, item.categoryId, item.priority, isDark, colors.textMuted]);
+  }, [item.title, item.categoryId, item.priority, isDark]);
+
+  const categoryColor = categoryPresentation?.color ?? null;
+
+  const gradientId = useMemo(
+    () => `task-cat-wash-${String(item.id || "default").replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+    [item.id],
+  );
 
   const currentWorkspace = useMemo(() => {
     const wsId = item.workspaceId || selectedWorkspaceId;
@@ -379,7 +404,9 @@ export function TodoItem({
             backgroundColor: isLight ? Palette.white : colors.card,
             borderRadius: Radius.lg,
             borderWidth: 1,
-            borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
+            borderColor: categoryColor
+              ? (isDark ? `${categoryColor}36` : `${categoryColor}2C`)
+              : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
             marginVertical: 2,
           },
           {
@@ -387,6 +414,76 @@ export function TodoItem({
           },
         ]}
       >
+        {/* Subtle Category Ambient Background Wash */}
+        {categoryColor ? (
+          <Svg
+            width="100%"
+            height="100%"
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            testID="task-category-ambient-wash"
+          >
+            <Defs>
+              <LinearGradient
+                id={gradientId}
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
+                <Stop
+                  offset="0%"
+                  stopColor={categoryColor}
+                  stopOpacity={isDark ? 0.18 : 0.14}
+                />
+                <Stop
+                  offset="50%"
+                  stopColor={categoryColor}
+                  stopOpacity={isDark ? 0.08 : 0.06}
+                />
+                <Stop
+                  offset="100%"
+                  stopColor={categoryColor}
+                  stopOpacity={isDark ? 0.02 : 0.01}
+                />
+              </LinearGradient>
+            </Defs>
+            <Rect width="100%" height="100%" fill={`url(#${gradientId})`} />
+          </Svg>
+        ) : null}
+
+        {/* Subtle Category Ambient Icon Watermark */}
+        {categoryPresentation?.icon ? (
+          <View
+            style={[
+              styles.ambientIconWrapper,
+              {
+                opacity: isDark ? 0.14 : 0.11,
+              },
+            ]}
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            testID="task-category-ambient-icon"
+          >
+            {categoryPresentation.iconFamily === "ionicons" ? (
+              <Ionicons
+                name={categoryPresentation.icon as any}
+                size={42}
+                color={categoryPresentation.color}
+              />
+            ) : (
+              <Feather
+                name={categoryPresentation.icon as any}
+                size={42}
+                color={categoryPresentation.color}
+              />
+            )}
+          </View>
+        ) : null}
+
         {/* Visual Priority Edge Strip */}
         <View
           style={[
@@ -434,34 +531,6 @@ export function TodoItem({
               )}
             </PressableScale>
           </Animated.View>
-
-          {/* Squircle Category Badge */}
-          <View
-            style={[
-              styles.categoryBadge,
-              {
-                width: ROW_SPEC.badge.size,
-                height: ROW_SPEC.badge.size,
-                borderRadius: ROW_SPEC.badge.radius,
-                backgroundColor: categorySymbol.tint,
-                borderColor: `${categorySymbol.color}24`,
-              },
-            ]}
-          >
-            {categorySymbol.iconFamily === "ionicons" ? (
-              <Ionicons
-                name={categorySymbol.icon as any}
-                size={ROW_SPEC.badge.icon}
-                color={categorySymbol.color}
-              />
-            ) : (
-              <Feather
-                name={categorySymbol.icon as any}
-                size={ROW_SPEC.badge.icon}
-                color={categorySymbol.color}
-              />
-            )}
-          </View>
 
           {/* Title & Metadata (tap opens the existing Task Details flow) */}
           <PressableScale
@@ -663,6 +732,15 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     zIndex: 2,
   },
+  ambientIconWrapper: {
+    position: "absolute",
+    right: 24,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1,
+  },
   mainRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -674,11 +752,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   checkbox: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  categoryBadge: {
-    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
