@@ -27,7 +27,7 @@ import {
 export type HabitStreakCardProps = {
   title: string;
   streak: number;
-  bestStreak: number;
+  bestStreak?: number; // Deprecated: surfaced in Habit Detail screen
   completedToday: boolean;
   priority?: TaskPriority | "low" | "medium" | "high" | "none";
   onPressToggle: (event?: any) => void;

@@ -45,6 +45,7 @@ export interface ResourceSectionProps {
   stateChecklists?: Checklist[];
   onToggleLinkResource?: (itemId: string, itemType: "task" | "habit" | "checklist", resourceId: string) => void;
   focusResourceId?: string | null;
+  hideInternalHeader?: boolean;
 }
 
 export function ResourceSection({
@@ -61,6 +62,7 @@ export function ResourceSection({
   stateChecklists = [],
   onToggleLinkResource,
   focusResourceId,
+  hideInternalHeader = false,
 }: ResourceSectionProps) {
   const router = useRouter();
   const themeName = useColorScheme() ?? "dark";
@@ -223,65 +225,68 @@ export function ResourceSection({
 
   return (
     <View style={styles.container}>
-      {/* Workspace Section Header (Matching Tasks, Habits, Checklists) */}
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4, marginBottom: 8 }}>
-        <Text accessibilityRole="header" style={{ fontSize: 16, fontWeight: "800", color: theme.text }}>
-          Resources
-        </Text>
-        <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted }}>
-          {folderResources.length} {folderResources.length === 1 ? "item" : "items"}
-        </Text>
-      </View>
+      {/* Workspace Section Header & Filter Tabs (Hidden when external header is used) */}
+      {!hideInternalHeader && (
+        <>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4, marginBottom: 8 }}>
+            <Text accessibilityRole="header" style={{ fontSize: 16, fontWeight: "800", color: theme.text }}>
+              Resources
+            </Text>
+            <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted }}>
+              {folderResources.length} {folderResources.length === 1 ? "item" : "items"}
+            </Text>
+          </View>
 
-      {/* Sleek Filter Tabs & Add Button */}
-      <View style={styles.topControlRow}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterBarContainer}
-        >
-          {(
-            [
-              { key: "all", label: "All" },
-              { key: "file", label: "Files 📁" },
-              { key: "media", label: "Media 🖼️" },
-              { key: "link", label: "Links 🔗" },
-              { key: "note", label: "Notes 📝" },
-              { key: "idea", label: "Ideas 💡" },
-            ] as { key: FilterType; label: string }[]
-          ).map((filter) => {
-            const isActive = activeFilter === filter.key;
-            return (
-              <PressableScale
-                key={filter.key}
-                onPress={() => {
-                  Haptics.selectionAsync().catch(() => {});
-                  setActiveFilter(filter.key);
-                }}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: isActive }}
-                accessibilityLabel={`${filter.label} filter`}
-                style={[
-                  styles.filterPill,
-                  {
-                    backgroundColor: isActive ? theme.primary : `${theme.card}`,
-                    borderColor: isActive ? theme.primary : theme.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.filterPillText,
-                    { color: isActive ? Palette.white : theme.textMuted },
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </ScrollView>
-      </View>
+          <View style={styles.topControlRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterBarContainer}
+            >
+              {(
+                [
+                  { key: "all", label: "All" },
+                  { key: "file", label: "Files 📁" },
+                  { key: "media", label: "Media 🖼️" },
+                  { key: "link", label: "Links 🔗" },
+                  { key: "note", label: "Notes 📝" },
+                  { key: "idea", label: "Ideas 💡" },
+                ] as { key: FilterType; label: string }[]
+              ).map((filter) => {
+                const isActive = activeFilter === filter.key;
+                return (
+                  <PressableScale
+                    key={filter.key}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      setActiveFilter(filter.key);
+                    }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: isActive }}
+                    accessibilityLabel={`${filter.label} filter`}
+                    style={[
+                      styles.filterPill,
+                      {
+                        backgroundColor: isActive ? theme.primary : `${theme.card}`,
+                        borderColor: isActive ? theme.primary : theme.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterPillText,
+                        { color: isActive ? Palette.white : theme.textMuted },
+                      ]}
+                    >
+                      {filter.label}
+                    </Text>
+                  </PressableScale>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </>
+      )}
 
       {/* Compact Resource List (Space-Efficient & Scannable) */}
       <View style={styles.cardFeed}>

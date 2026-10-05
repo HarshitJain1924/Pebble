@@ -11,7 +11,8 @@ import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceE
 import * as Haptics from "expo-haptics";
 import { type Habit } from "@/shared/types/domain.types";
 import { isRecurringOccurrenceForDate, getDateKey } from "@/services/scheduling/recurrence.service";
-import { isHabitCompletedToday, getHabitCurrentStreak, getHabitBestStreak } from "@/shared/utils/domain-selectors";
+import { isHabitCompletedToday, getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
+import { DateScopedSectionHeader } from "@/features/workspaces/components/DateScopedSectionHeader";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -32,6 +33,9 @@ interface HabitSectionProps {
   onCreateHabit?: () => void;
   searchQuery?: string;
   onClearSearch?: () => void;
+  selectedDate?: string;
+  onSelectDate?: (dateKey: string) => void;
+  onOpenDatePicker?: () => void;
 }
 
 export function HabitSection({
@@ -46,6 +50,9 @@ export function HabitSection({
   onCreateHabit,
   searchQuery,
   onClearSearch,
+  selectedDate,
+  onSelectDate,
+  onOpenDatePicker,
 }: HabitSectionProps) {
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -62,7 +69,7 @@ export function HabitSection({
   // Section expanded states
   const [todayExpanded, setTodayExpanded] = useState(true);
   const [completedExpanded, setCompletedExpanded] = useState(false);
-  const [pausedExpanded, setPausedExpanded] = useState(false);
+  const [otherDaysExpanded, setOtherDaysExpanded] = useState(false);
 
   const handleOpenUrl = async (url?: string) => {
     if (!url) return;
@@ -79,31 +86,30 @@ export function HabitSection({
       .filter(Boolean);
   }, [peekingResourceIds, allResources]);
 
-  const todayKey = getDateKey();
-  const dayOfWeek = new Date().getDay();
+  const selectedDateKey = selectedDate || getDateKey();
 
   // Group habits
   const todayList = useMemo(() => {
     return displayedHabits.filter((h) => {
       const isDueToday = h.recurrence
-        ? isRecurringOccurrenceForDate(h, todayKey)
+        ? isRecurringOccurrenceForDate(h, selectedDateKey)
         : true;
-      return isDueToday && !isHabitCompletedToday(h, todayKey);
+      return isDueToday && !isHabitCompletedToday(h, selectedDateKey);
     });
-  }, [displayedHabits, todayKey]);
+  }, [displayedHabits, selectedDateKey]);
 
   const completedList = useMemo(() => {
-    return displayedHabits.filter((h) => isHabitCompletedToday(h, todayKey));
-  }, [displayedHabits, todayKey]);
+    return displayedHabits.filter((h) => isHabitCompletedToday(h, selectedDateKey));
+  }, [displayedHabits, selectedDateKey]);
 
-  const pausedList = useMemo(() => {
+  const otherDaysList = useMemo(() => {
     return displayedHabits.filter((h) => {
       const isDueToday = h.recurrence
-        ? isRecurringOccurrenceForDate(h, todayKey)
+        ? isRecurringOccurrenceForDate(h, selectedDateKey)
         : true;
-      return !isDueToday && !isHabitCompletedToday(h, todayKey);
+      return !isDueToday && !isHabitCompletedToday(h, selectedDateKey);
     });
-  }, [displayedHabits, todayKey]);
+  }, [displayedHabits, selectedDateKey]);
 
   // Reset showAllResources state when drawer is collapsed
   React.useEffect(() => {
@@ -162,9 +168,8 @@ export function HabitSection({
             <View style={{ flex: 1 }}>
               <HabitStreakCard
                 title={item.title}
-                streak={getHabitCurrentStreak(item, todayKey)}
-                bestStreak={getHabitBestStreak(item)}
-                completedToday={isHabitCompletedToday(item, todayKey)}
+                streak={getHabitCurrentStreak(item, selectedDateKey)}
+                completedToday={isHabitCompletedToday(item, selectedDateKey)}
                 priority={item.priority ?? "medium"}
                 onDeleteHabit={() => deleteHabit(item.id)}
                 isSelectionMode={isSelectionMode}
@@ -215,38 +220,41 @@ export function HabitSection({
     );
   };
 
-  const hasAnyHabits = todayList.length > 0 || completedList.length > 0;
+  const hasAnyHabits =
+    todayList.length > 0 ||
+    completedList.length > 0 ||
+    otherDaysList.length > 0;
 
   return (
     <View style={styles.listContent}>
       {hasAnyHabits ? (
         <View style={{ gap: 14 }}>
-          {/* Today Section */}
-          {todayList.length > 0 && (
-            <View style={styles.sectionContainer}>
-              <Pressable
-                onPress={() => setTodayExpanded(!todayExpanded)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: todayExpanded }}
-                accessibilityLabel={`Today's habits, ${todayList.length} items. Tap to ${todayExpanded ? "collapse" : "expand"}`}
-                style={styles.sectionHeaderPressable}
-              >
-                <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
-                  {`TODAY (${todayList.length})`}
-                </Text>
-                <Feather
-                  name={todayExpanded ? "chevron-up" : "chevron-down"}
-                  size={14}
-                  color={colors.textMuted}
-                />
-              </Pressable>
-              {todayExpanded && (
+          {/* Today / Selected Date Section */}
+          <View style={styles.sectionContainer}>
+            <DateScopedSectionHeader
+              dateKey={selectedDateKey}
+              onSelectDate={onSelectDate || (() => {})}
+              onOpenDatePicker={onOpenDatePicker}
+              colors={colors}
+              isDark={!isLight}
+              itemCount={todayList.length}
+              isExpanded={todayExpanded}
+              onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+            />
+            {todayExpanded && (
+              todayList.length === 0 ? (
+                <View style={{ paddingVertical: 14, alignItems: "center" }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    No habits due for this day
+                  </Text>
+                </View>
+              ) : (
                 <View style={styles.sectionHabitsList}>
                   {todayList.map(renderHabitItem)}
                 </View>
-              )}
-            </View>
-          )}
+              )
+            )}
+          </View>
 
           {/* Completed Today Section */}
           {completedList.length > 0 && (
@@ -261,11 +269,13 @@ export function HabitSection({
                 <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
                   {`COMPLETED (${completedList.length})`}
                 </Text>
-                <Feather
-                  name={completedExpanded ? "chevron-up" : "chevron-down"}
-                  size={14}
-                  color={colors.textMuted}
-                />
+                {completedList.length > 5 && (
+                  <Feather
+                    name={completedExpanded ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                )}
               </Pressable>
               {completedExpanded && (
                 <View style={styles.sectionHabitsList}>
@@ -274,15 +284,58 @@ export function HabitSection({
               )}
             </View>
           )}
+
+          {/* Other Days Section */}
+          {otherDaysList.length > 0 && (
+            <View style={styles.sectionContainer}>
+              <Pressable
+                onPress={() => setOtherDaysExpanded(!otherDaysExpanded)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: otherDaysExpanded }}
+                accessibilityLabel={`Habits for other days, ${otherDaysList.length} items. Tap to ${otherDaysExpanded ? "collapse" : "expand"}`}
+                style={styles.sectionHeaderPressable}
+              >
+                <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
+                  {`OTHER DAYS (${otherDaysList.length})`}
+                </Text>
+                {otherDaysList.length > 5 && (
+                  <Feather
+                    name={otherDaysExpanded ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                )}
+              </Pressable>
+              {otherDaysExpanded && (
+                <View style={styles.sectionHabitsList}>
+                  {otherDaysList.map(renderHabitItem)}
+                </View>
+              )}
+            </View>
+          )}
         </View>
       ) : (
-        <WorkspaceEmptyState
-          context="habits"
-          searchQuery={searchQuery}
-          onClearSearch={onClearSearch}
-          onCreateItem={onCreateHabit}
-          style={{ marginVertical: 16 }}
-        />
+        <View style={{ gap: 14 }}>
+          <View style={styles.sectionContainer}>
+            <DateScopedSectionHeader
+              dateKey={selectedDateKey}
+              onSelectDate={onSelectDate || (() => {})}
+              onOpenDatePicker={onOpenDatePicker}
+              colors={colors}
+              isDark={!isLight}
+              itemCount={0}
+              isExpanded={todayExpanded}
+              onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+            />
+          </View>
+          <WorkspaceEmptyState
+            context="habits"
+            searchQuery={searchQuery}
+            onClearSearch={onClearSearch}
+            onCreateItem={onCreateHabit}
+            style={{ marginVertical: 16 }}
+          />
+        </View>
       )}
 
       {/* Link Selector Modal for Habit */}

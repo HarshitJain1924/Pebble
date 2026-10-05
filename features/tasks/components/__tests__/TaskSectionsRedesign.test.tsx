@@ -2,6 +2,14 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
 );
 
+jest.mock("@/shared/utils/date-key", () => {
+  const actual = jest.requireActual("@/shared/utils/date-key");
+  return {
+    ...actual,
+    getTodayDateKey: () => "2026-09-30",
+  };
+});
+
 import React from "react";
 import { act, create } from "react-test-renderer";
 import { TaskSections } from "../TaskSections";

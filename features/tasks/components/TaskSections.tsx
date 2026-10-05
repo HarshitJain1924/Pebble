@@ -14,6 +14,7 @@ import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-s
 import { getOffsetDateKey, getTodayDateKey, parseDateKey } from "@/shared/utils/date-key";
 import { WEEKDAY_NAMES, MONTH_NAMES, TaskSectionContext } from "@/features/tasks/utils/task-formatting";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import { DateScopedSectionHeader } from "@/features/workspaces/components/DateScopedSectionHeader";
 
 interface TaskSectionsProps {
   overdueTodos: Task[];
@@ -40,6 +41,8 @@ interface TaskSectionsProps {
   onCreateTask?: () => void;
   showWorkspaceBadge?: boolean;
   onSaveEarlierForLater?: () => void;
+  onSelectDate?: (dateKey: string) => void;
+  onOpenDatePicker?: () => void;
 }
 
 export function TaskSections({
@@ -67,6 +70,8 @@ export function TaskSections({
   onCreateTask,
   showWorkspaceBadge,
   onSaveEarlierForLater,
+  onSelectDate,
+  onOpenDatePicker,
 }: TaskSectionsProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -188,23 +193,25 @@ export function TaskSections({
   }, [todayTodos, upcomingTodos, inboxTodos, overdueTodos]);
 
   const hasAnyTasks =
-    earlierList.length > 0 ||
+    (isSelectedDateToday ? earlierList.length > 0 : false) ||
     todayList.length > 0 ||
     todayCompletedCount > 0 ||
-    tomorrowList.length > 0 ||
-    upcomingList.length > 0 ||
+    (isSelectedDateToday ? tomorrowList.length > 0 || upcomingList.length > 0 : false) ||
     somedayList.length > 0 ||
     completedList.length > 0;
 
   if (!hasAnyTasks) {
     return (
-      <WorkspaceEmptyState
-        context="tasks"
-        searchQuery={searchQuery}
-        onClearSearch={onClearSearch}
-        onCreateItem={onCreateTask}
-        style={{ marginVertical: 16 }}
-      />
+      <View style={[styles.listContent, { gap: 0, paddingBottom: 0 }]}>
+        {renderTodaySection()}
+        <WorkspaceEmptyState
+          context="tasks"
+          searchQuery={searchQuery}
+          onClearSearch={onClearSearch}
+          onCreateItem={onCreateTask}
+          style={{ marginVertical: 16 }}
+        />
+      </View>
     );
   }
 
@@ -279,63 +286,22 @@ export function TaskSections({
   };
 
   // 1. TODAY: Primary Active Zone (Anchor of the screen)
-  const renderTodaySection = () => {
+  function renderTodaySection() {
     const isAllDone = todayList.length === 0 && todayCompletedCount > 0;
 
     return (
       <View style={sectionStyles.todaySectionContainer}>
-        <PressableScale
-          onPress={() => setTodayExpanded(!todayExpanded)}
-          haptic
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={`${primaryTitle} section, ${todayList.length} active tasks, ${todayExpanded ? "expanded" : "collapsed"}`}
-          style={sectionStyles.todayHeaderRow}
-        >
-          <View style={sectionStyles.todayTitleLeft}>
-            {/* Visual anchor accent pip */}
-            <View
-              style={[
-                sectionStyles.todayAccentPip,
-                { backgroundColor: isDark ? colors.primaryLight : colors.primary },
-              ]}
-            />
-            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-              <Text
-                style={[
-                  sectionStyles.todayTitleText,
-                  { color: colors.text },
-                ]}
-              >
-                {primaryTitle}
-              </Text>
-              {todayProgressText ? (
-                <Text
-                  style={[
-                    sectionStyles.todayProgressText,
-                    {
-                      color: isAllDone
-                        ? isDark
-                          ? Palette.emerald400
-                          : Palette.emerald600
-                        : colors.textMuted,
-                    },
-                  ]}
-                >
-                  {todayProgressText}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Feather
-              name={todayExpanded ? "chevron-up" : "chevron-down"}
-              size={18}
-              color={colors.textMuted}
-            />
-          </View>
-        </PressableScale>
+        <DateScopedSectionHeader
+          dateKey={selectedDate || todayKey}
+          onSelectDate={onSelectDate || (() => {})}
+          onOpenDatePicker={onOpenDatePicker}
+          colors={colors}
+          isDark={isDark}
+          progressText={todayProgressText}
+          itemCount={totalTodayTasks}
+          isExpanded={todayExpanded}
+          onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+        />
 
         {todayExpanded && (
           <View>
@@ -349,7 +315,9 @@ export function TaskSections({
                 <Text style={[sectionStyles.todayEmptyText, { color: colors.textMuted }]}>
                   {isAllDone
                     ? "All tasks completed for today"
-                    : "No tasks scheduled for today"}
+                    : isSelectedDateToday
+                      ? "No tasks scheduled for today"
+                      : "No tasks scheduled for this day"}
                 </Text>
               </View>
             ) : (
@@ -363,7 +331,7 @@ export function TaskSections({
 
   // 2. EARLIER: Past / Unfinished carryovers triage (Restrained amber treatment)
   const renderEarlierSection = () => {
-    if (earlierList.length === 0) return null;
+    if (!isSelectedDateToday || earlierList.length === 0) return null;
 
     return (
       <View style={sectionStyles.earlierSectionContainer}>
@@ -428,7 +396,7 @@ export function TaskSections({
 
   // 3. TOMORROW: Secondary Horizon preview
   const renderTomorrowSection = () => {
-    if (tomorrowList.length === 0) return null;
+    if (!isSelectedDateToday || tomorrowList.length === 0) return null;
 
     return (
       <View style={sectionStyles.tomorrowSectionContainer}>
@@ -460,11 +428,13 @@ export function TaskSections({
             </Text>
           </View>
 
-          <Feather
-            name={tomorrowExpanded ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.textMuted}
-          />
+          {tomorrowList.length > 5 && (
+            <Feather
+              name={tomorrowExpanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.textMuted}
+            />
+          )}
         </PressableScale>
 
         {tomorrowExpanded && renderTaskList(tomorrowList, "tomorrow")}
@@ -474,7 +444,7 @@ export function TaskSections({
 
   // 4. UPCOMING: Future Backlog (Compressed, collapsed by default)
   const renderUpcomingSection = () => {
-    if (upcomingList.length === 0) return null;
+    if (!isSelectedDateToday || upcomingList.length === 0) return null;
 
     return (
       <View style={sectionStyles.compressedSectionContainer}>
@@ -501,11 +471,13 @@ export function TaskSections({
             </Text>
           </View>
 
-          <Feather
-            name={upcomingExpanded ? "chevron-up" : "chevron-down"}
-            size={15}
-            color={colors.textMuted}
-          />
+          {upcomingList.length > 5 && (
+            <Feather
+              name={upcomingExpanded ? "chevron-up" : "chevron-down"}
+              size={15}
+              color={colors.textMuted}
+            />
+          )}
         </PressableScale>
 
         {upcomingExpanded && renderTaskList(upcomingList, "upcoming")}
@@ -542,11 +514,13 @@ export function TaskSections({
             </Text>
           </View>
 
-          <Feather
-            name={somedayExpanded ? "chevron-up" : "chevron-down"}
-            size={15}
-            color={colors.textMuted}
-          />
+          {somedayList.length > 5 && (
+            <Feather
+              name={somedayExpanded ? "chevron-up" : "chevron-down"}
+              size={15}
+              color={colors.textMuted}
+            />
+          )}
         </PressableScale>
 
         {somedayExpanded && renderTaskList(somedayList, "someday")}
@@ -613,11 +587,13 @@ export function TaskSections({
               </PressableScale>
             ) : null}
 
-            <Feather
-              name={completedExpanded ? "chevron-up" : "chevron-down"}
-              size={15}
-              color={colors.textMuted}
-            />
+            {completedList.length > 5 && (
+              <Feather
+                name={completedExpanded ? "chevron-up" : "chevron-down"}
+                size={15}
+                color={colors.textMuted}
+              />
+            )}
           </View>
         </PressableScale>
 

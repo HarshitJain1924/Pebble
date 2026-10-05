@@ -259,8 +259,8 @@ export function HabitDetailContent({
         setItem(foundHabit);
         reset(foundHabit);
 
-        // Load completion stats from history
-        await loadStats(foundHabit.title);
+        // Load completion stats from habit
+        await loadStats(foundHabit);
       } else {
         Alert.alert("Error", "Habit not found.");
         onBack();
