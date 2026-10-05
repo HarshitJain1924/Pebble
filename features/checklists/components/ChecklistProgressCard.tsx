@@ -7,11 +7,15 @@ import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import PressableScale from "@/shared/components/ui/PressableScale";
-import { AppCard } from "@/shared/components/ui/AppCard";
-import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
-import { type Checklist, type ChecklistItem } from "@/shared/types/domain.types";
+import { ROW_SPEC } from "@/shared/constants/rowSpec";
+import {
+  EntityItem,
+  EntityResourceIndicator,
+  resolveEntityCategoryPresentation,
+} from "@/features/items";
+import { type Checklist, type ChecklistItem as DomainChecklistItem } from "@/shared/types/domain.types";
 
-interface ChecklistProgressCardProps {
+export interface ChecklistProgressCardProps {
   checklist: Checklist;
   colors: any;
   colorScheme: "light" | "dark" | null;
@@ -41,6 +45,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   onRenameChecklist,
 }) => {
   const isLight = colorScheme === "light";
+  const isDark = !isLight;
   const router = useRouter();
   const [showLinkSelector, setShowLinkSelector] = useState(false);
   const [newItemText, setNewItemText] = useState("");
@@ -89,7 +94,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
 
   const handleAddItem = () => {
     if (!newItemText.trim()) return;
-    const newItem: ChecklistItem = {
+    const newItem: DomainChecklistItem = {
       id: `checklist-item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       title: newItemText.trim(),
       completed: false,
@@ -114,22 +119,26 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   };
 
-
+  // Category atmosphere resolution (subtle background wash + watermark)
+  const categoryPresentation = useMemo(() => {
+    return resolveEntityCategoryPresentation(
+      {
+        categoryId: checklist?.categoryId,
+        title: checklist.title,
+        type: "checklist",
+      },
+      isDark,
+    );
+  }, [checklist?.categoryId, checklist.title, isDark]);
 
   return (
-    <AppCard
-      style={[
-        styles.card,
-        {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          borderWidth: 1,
-          opacity: isAllCompleted ? 0.6 : 1, // Satisfying opacity fade on completion
-        },
-      ]}
-    >
-      {/* Primary Card Header Row aligned with mockup */}
-      <View style={styles.cardHeaderRow}>
+    <EntityItem
+      category={categoryPresentation}
+      dimmed={isAllCompleted}
+      colorScheme={colorScheme}
+      testIDPrefix="checklist-category"
+      alignLeading="flex-start"
+      leadingControl={
         <PressableScale
           onPress={onToggleChecklist}
           accessibilityRole="checkbox"
@@ -144,150 +153,128 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
             color={isAllCompleted ? colors.primary : colors.textMuted}
           />
         </PressableScale>
-
-        <View style={styles.cardMainColumn}>
-          <View style={styles.titleRow}>
-            <PressableScale
-              onPress={handleEditPress}
-              accessibilityRole="button"
-              accessibilityLabel={`Edit checklist ${checklist.title}`}
-              style={styles.titlePress}
-            >
-              <Text
-                style={[
-                  styles.title,
-                  {
-                    color: isAllCompleted ? colors.textMuted : colors.text,
-                    textDecorationLine: isAllCompleted ? "line-through" : "none",
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {checklist.title}
-              </Text>
-            </PressableScale>
-
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              {/* Trailing Paperclip Resource Button */}
-              <PressableScale
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  if (linkedCount > 0) {
-                    onToggleExpand();
-                  } else {
-                    setShowLinkSelector(true);
-                  }
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  linkedResourceIds.length === 0
-                    ? `Attach resource to ${checklist.title}`
-                    : `${linkedCount} resources linked to ${checklist.title}`
-                }
-                style={styles.paperclipBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-              >
-                {linkedResourceIds.length === 0 ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 1 }}>
-                    <Feather name="paperclip" size={13} color={colors.textMuted} />
-                    <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textMuted }}>+</Text>
-                  </View>
-                ) : (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                    <Feather
-                      name="paperclip"
-                      size={12}
-                      color={isExpanded ? colors.primary : colors.textMuted}
-                    />
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        fontWeight: "700",
-                        color: isExpanded ? colors.primary : colors.textMuted,
-                      }}
-                    >
-                      {linkedCount}
-                    </Text>
-                  </View>
-                )}
-              </PressableScale>
-
-              {/* Card Contextual Overflow Menu Button */}
-              <PressableScale
-                onPress={handleShowOverflowMenu}
-                accessibilityRole="button"
-                accessibilityLabel={`More options for checklist ${checklist.title}`}
-                style={styles.moreBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-              >
-                <Feather name="more-horizontal" size={15} color={colors.textMuted} />
-              </PressableScale>
-
-              {/* Chevron Expand Button */}
-              <PressableScale
-                onPress={onToggleExpand}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: isExpanded }}
-                accessibilityLabel={
-                  isExpanded
-                    ? `Collapse checklist ${checklist.title}`
-                    : `Expand checklist ${checklist.title}`
-                }
-                style={styles.chevronBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-              >
-                <Feather
-                  name={isExpanded ? "chevron-up" : "chevron-down"}
-                  size={15}
-                  color={colors.textMuted}
-                />
-              </PressableScale>
-            </View>
+      }
+      title={
+        <PressableScale
+          onPress={handleEditPress}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit checklist ${checklist.title}`}
+          style={styles.titlePress}
+        >
+          <Text
+            style={[
+              styles.title,
+              {
+                fontSize: ROW_SPEC.type.title,
+                fontWeight: ROW_SPEC.type.titleWeight,
+                color: isAllCompleted ? colors.textMuted : colors.text,
+                textDecorationLine: isAllCompleted ? "line-through" : "none",
+              },
+            ]}
+            numberOfLines={1}
+          >
+            {checklist.title}
+          </Text>
+        </PressableScale>
+      }
+      metadata={
+        <PressableScale
+          onPress={onToggleExpand}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: isExpanded }}
+          accessibilityLabel={`Checklist progress: ${completedCount} of ${totalCount} completed. Tap to ${isExpanded ? "collapse" : "expand"}`}
+          style={styles.progressRowPress}
+        >
+          <View
+            style={[
+              styles.progressTrack,
+              { backgroundColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)" },
+            ]}
+          >
+            <View
+              style={[
+                styles.progressBar,
+                { width: `${progress * 100}%`, backgroundColor: colors.primary },
+              ]}
+            />
           </View>
 
-          {/* Flat Progress Bar below the Title */}
+          {/* Metrics Row: X of Y completed (left), N left/Completed (right) */}
+          <View style={styles.metricsRow}>
+            <Text style={[styles.progressText, { color: colors.textMuted }]}>
+              {completedCount} of {totalCount} completed
+            </Text>
+            <Text
+              style={[
+                styles.remainingText,
+                {
+                  color: isAllCompleted ? colors.primary : colors.textMuted,
+                  fontWeight: isAllCompleted ? "700" : "500",
+                },
+              ]}
+            >
+              {isAllCompleted ? "Completed" : `${totalCount - completedCount} left`}
+            </Text>
+          </View>
+        </PressableScale>
+      }
+      resources={
+        <EntityResourceIndicator
+          count={linkedCount}
+          iconName="paperclip"
+          isExpanded={isExpanded}
+          allowZeroAdd={true}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            if (linkedCount > 0) {
+              onToggleExpand();
+            } else {
+              setShowLinkSelector(true);
+            }
+          }}
+          accessibilityLabel={
+            linkedResourceIds.length === 0
+              ? `Attach resource to ${checklist.title}`
+              : `${linkedCount} resources linked to ${checklist.title}`
+          }
+          testID="checklist-resource-indicator"
+        />
+      }
+      trailingActions={
+        <View style={styles.actionsCluster}>
+          {/* Card Contextual Overflow Menu Button */}
+          <PressableScale
+            onPress={handleShowOverflowMenu}
+            accessibilityRole="button"
+            accessibilityLabel={`More options for checklist ${checklist.title}`}
+            style={styles.moreBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          >
+            <Feather name="more-horizontal" size={15} color={colors.textMuted} />
+          </PressableScale>
+
+          {/* Chevron Expand Button */}
           <PressableScale
             onPress={onToggleExpand}
             accessibilityRole="button"
             accessibilityState={{ expanded: isExpanded }}
-            accessibilityLabel={`Checklist progress: ${completedCount} of ${totalCount} completed. Tap to ${isExpanded ? "collapse" : "expand"}`}
-            style={styles.progressRowPress}
+            accessibilityLabel={
+              isExpanded
+                ? `Collapse checklist ${checklist.title}`
+                : `Expand checklist ${checklist.title}`
+            }
+            style={styles.chevronBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
           >
-            <View
-              style={[
-                styles.progressTrack,
-                { backgroundColor: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)" },
-              ]}
-            >
-              <View
-                style={[
-                  styles.progressBar,
-                  { width: `${progress * 100}%`, backgroundColor: colors.primary },
-                ]}
-              />
-            </View>
-
-            {/* Metrics Row: X of Y completed (left), N left/Completed (right) */}
-            <View style={styles.metricsRow}>
-              <Text style={[styles.progressText, { color: colors.textMuted }]}>
-                {completedCount} of {totalCount} completed
-              </Text>
-              <Text
-                style={[
-                  styles.remainingText,
-                  {
-                    color: isAllCompleted ? colors.primary : colors.textMuted,
-                    fontWeight: isAllCompleted ? "700" : "500",
-                  },
-                ]}
-              >
-                {isAllCompleted ? "Completed" : `${totalCount - completedCount} left`}
-              </Text>
-            </View>
+            <Feather
+              name={isExpanded ? "chevron-up" : "chevron-down"}
+              size={15}
+              color={colors.textMuted}
+            />
           </PressableScale>
         </View>
-      </View>
-
+      }
+    >
       {/* Expanded Inline Checklist Items and Resources */}
       {isExpanded && (
         <View style={styles.expandedContent}>
@@ -607,7 +594,6 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
 
             {/* Menu options list */}
             <View style={{ gap: 4 }}>
-
               {/* Duplicate Checklist */}
               <TouchableOpacity
                 onPress={() => {
@@ -722,36 +708,15 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
           </View>
         )}
       </AnimatedOverlay>
-    </AppCard>
+    </EntityItem>
   );
 };
 
+export const ChecklistItem = ChecklistProgressCard;
+
 const styles = StyleSheet.create({
-  card: {
-    paddingLeft: 14,
-    paddingRight: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
-    borderRadius: 14,
-    flexDirection: "column",
-  },
-  cardHeaderRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
   cardCheckbox: {
     marginTop: 2,
-  },
-  cardMainColumn: {
-    flex: 1,
-    flexDirection: "column",
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 6,
   },
   titlePress: {
     flex: 1,
@@ -760,33 +725,32 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
-  paperclipBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    justifyContent: "center",
+  actionsCluster: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 2,
   },
   moreBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    justifyContent: "center",
+    width: 28,
+    height: 36,
     alignItems: "center",
+    justifyContent: "center",
   },
   chevronBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    justifyContent: "center",
+    width: 28,
+    height: 36,
     alignItems: "center",
+    justifyContent: "center",
   },
   progressRowPress: {
     width: "100%",
+    marginTop: 4,
   },
   progressTrack: {
     height: 3,
     borderRadius: 1.5,
     overflow: "hidden",
     marginBottom: 6,
-    marginRight: 40, // leave room for resource (paperclip) icon
   },
   progressBar: {
     height: "100%",
@@ -806,7 +770,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   expandedContent: {
-    marginTop: 12,
+    marginTop: 10,
+    paddingBottom: 4,
+    paddingHorizontal: 14,
   },
   divider: {
     height: 1,

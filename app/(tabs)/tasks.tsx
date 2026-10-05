@@ -26,7 +26,6 @@ import { MONTH_NAMES, WEEKDAY_NAMES } from "@/features/tasks/utils/task-formatti
 import { Task, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { generateId } from "@/shared/utils/id";
 import { AppCard } from "@/shared/components/ui/AppCard";
-import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { styles } from "@/shared/constants/taskStyles";

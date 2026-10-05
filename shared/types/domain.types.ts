@@ -95,6 +95,7 @@ export interface Habit {
   title: string;
   description?: string;
   categoryId?: string;
+  priority?: TaskPriority;
   revision: number;
   lifecycleGeneration: number;
   tags?: string[];

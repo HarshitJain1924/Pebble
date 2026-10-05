@@ -165,7 +165,9 @@ export function HabitSection({
                 streak={getHabitCurrentStreak(item, todayKey)}
                 bestStreak={getHabitBestStreak(item)}
                 completedToday={isHabitCompletedToday(item, todayKey)}
-                priority={undefined}
+                priority={item.priority}
+                onDeleteHabit={() => deleteHabit(item.id)}
+                isSelectionMode={isSelectionMode}
                 onPressToggle={isSelectionMode ? () => onToggleSelectItem?.(item.id) : () => toggleHabit(item.id)}
                 onCardPress={isSelectionMode ? () => onToggleSelectItem?.(item.id) : () =>
                   router.push(`/task-details?id=${item.id}&type=habit`)

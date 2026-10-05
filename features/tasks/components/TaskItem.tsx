@@ -1,4 +1,4 @@
-import { Feather, Ionicons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Animated, {
   useSharedValue,
@@ -7,7 +7,12 @@ import Animated, {
   withSequence,
   Easing,
 } from "react-native-reanimated";
-import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
+import {
+  EntityItem,
+  EntityMetaRow,
+  EntityResourceIndicator,
+  type EntityMetaPart,
+} from "@/features/items";
 import {
   getCategoryColors,
   resolveColor,
@@ -327,8 +332,6 @@ export function TodoItem({
     };
   }, [item.title, item.categoryId, item.priority, isDark]);
 
-  const categoryColor = categoryPresentation?.color ?? null;
-
   const gradientId = useMemo(
     () => `task-cat-wash-${String(item.id || "default").replace(/[^a-zA-Z0-9_-]/g, "_")}`,
     [item.id],
@@ -349,14 +352,6 @@ export function TodoItem({
     showWorkspaceBadge !== undefined
       ? showWorkspaceBadge
       : (!selectedWorkspaceId || selectedWorkspaceId === "all");
-
-  const priorityStripeColor = useMemo(() => {
-    const prio = item.priority || "none";
-    if (prio === "high") return TaskListPriorityColors.high.dark;
-    if (prio === "medium") return TaskListPriorityColors.medium.dark;
-    if (prio === "low") return TaskListPriorityColors.low.dark;
-    return isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(0, 0, 0, 0.12)";
-  }, [item.priority, isDark]);
 
   // Context-aware metadata formatting
   const metaParts = useMemo<TaskMetadataPart[]>(() => {
@@ -385,10 +380,20 @@ export function TodoItem({
     colors.error,
   ]);
 
-
-
-  // Trailing stack tap toggles inline chips
-
+  const entityMetaParts = useMemo<EntityMetaPart[]>(() => {
+    return metaParts.map((part, idx) => ({
+      key: part.key,
+      text: part.text,
+      icon: part.icon,
+      color: part.color,
+      isBold: part.key === "overdue",
+      itemStyle: [
+        part.key === "category" ? styles.metaPartWorkspace : undefined,
+        part.key === "recurrence" ? styles.metaPartRecurrence : undefined,
+        idx === metaParts.length - 1 ? styles.metaPartLast : undefined,
+      ],
+    }));
+  }, [metaParts]);
 
   return (
     <SwipeableCard
@@ -396,107 +401,15 @@ export function TodoItem({
       onSwipeLeft={onDeleteTodo}
       disabled={isSelectionMode}
     >
-      <View
+      <EntityItem
         onLayout={onLayout}
-        style={[
-          styles.rowContainer,
-          {
-            backgroundColor: isLight ? Palette.white : colors.card,
-            borderRadius: Radius.lg,
-            borderWidth: 1,
-            borderColor: categoryColor
-              ? (isDark ? `${categoryColor}36` : `${categoryColor}2C`)
-              : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
-            marginVertical: 2,
-          },
-          {
-            opacity: isCompleted ? 0.6 : 1,
-          },
-        ]}
-      >
-        {/* Subtle Category Ambient Background Wash */}
-        {categoryColor ? (
-          <Svg
-            width="100%"
-            height="100%"
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-            testID="task-category-ambient-wash"
-          >
-            <Defs>
-              <LinearGradient
-                id={gradientId}
-                x1="0%"
-                y1="0%"
-                x2="100%"
-                y2="100%"
-              >
-                <Stop
-                  offset="0%"
-                  stopColor={categoryColor}
-                  stopOpacity={isDark ? 0.18 : 0.14}
-                />
-                <Stop
-                  offset="50%"
-                  stopColor={categoryColor}
-                  stopOpacity={isDark ? 0.08 : 0.06}
-                />
-                <Stop
-                  offset="100%"
-                  stopColor={categoryColor}
-                  stopOpacity={isDark ? 0.02 : 0.01}
-                />
-              </LinearGradient>
-            </Defs>
-            <Rect width="100%" height="100%" fill={`url(#${gradientId})`} />
-          </Svg>
-        ) : null}
-
-        {/* Subtle Category Ambient Icon Watermark */}
-        {categoryPresentation?.icon ? (
-          <View
-            style={[
-              styles.ambientIconWrapper,
-              {
-                opacity: isDark ? 0.14 : 0.11,
-              },
-            ]}
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-            testID="task-category-ambient-icon"
-          >
-            {categoryPresentation.iconFamily === "ionicons" ? (
-              <Ionicons
-                name={categoryPresentation.icon as any}
-                size={42}
-                color={categoryPresentation.color}
-              />
-            ) : (
-              <Feather
-                name={categoryPresentation.icon as any}
-                size={42}
-                color={categoryPresentation.color}
-              />
-            )}
-          </View>
-        ) : null}
-
-        {/* Visual Priority Edge Strip */}
-        <View
-          style={[
-            styles.priorityEdgeStrip,
-            {
-              backgroundColor: priorityStripeColor,
-            },
-          ]}
-        />
-
-        {/* Main Header / Collapsed Row */}
-        <View style={styles.mainRow}>
-          {/* Circular Checkbox with bounce */}
+        category={categoryPresentation}
+        priority={item.priority}
+        dimmed={isCompleted}
+        colorScheme={colorScheme}
+        testIDPrefix="task-category"
+        gradientId={gradientId}
+        leadingControl={
           <Animated.View style={animatedCheckboxStyle}>
             <PressableScale
               onPress={handleCheckboxPress}
@@ -531,144 +444,55 @@ export function TodoItem({
               )}
             </PressableScale>
           </Animated.View>
-
-          {/* Title & Metadata (tap opens the existing Task Details flow) */}
-          <PressableScale
-            onPress={isSelectionMode ? onSelect : () => onEditTodo?.()}
-            haptic
-            style={styles.textContainer}
-            accessibilityRole="button"
-            accessibilityLabel={
-              isSelectionMode
-                ? `Select task ${item.title}`
-                : `Open task details: ${item.title}`
-            }
-          >
-            <View style={styles.titleRow}>
-              <Text
-                style={[
-                  styles.titleText,
-                  {
-                    fontSize: ROW_SPEC.type.title,
-                    fontWeight: ROW_SPEC.type.titleWeight,
-                    color: isCompleted ? colors.textMuted : colors.text,
-                    textDecorationLine: isCompleted ? "line-through" : "none",
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {item.title}
-              </Text>
-            </View>
-
-            {/* Single line metadata row with dot separators */}
-            {metaParts.length > 0 && (
-              <View style={styles.metaRow}>
-                {metaParts.map((part, idx) => (
-                  <React.Fragment key={idx}>
-                    {idx > 0 && (
-                      <Text style={[styles.metaDot, { color: colors.textMuted }]}>
-                        ·
-                      </Text>
-                    )}
-                    <View
-                      style={[
-                        styles.metaPartItem,
-                        part.key === "category" ? styles.metaPartWorkspace : undefined,
-                        part.key === "recurrence" ? styles.metaPartRecurrence : undefined,
-                        idx === metaParts.length - 1 ? styles.metaPartLast : undefined,
-                      ]}
-                    >
-                      {part.icon && (
-                        <Feather
-                          name={part.icon as any}
-                          size={11}
-                          color={part.color || colors.textMuted}
-                          style={styles.metaIcon}
-                        />
-                      )}
-                      <Text
-                        style={[
-                          styles.metaText,
-                          {
-                            color: part.color || colors.textMuted,
-                            fontWeight: part.key === "overdue" ? "700" : "500",
-                          },
-                        ]}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
-                      >
-                        {part.text}
-                      </Text>
-                    </View>
-                  </React.Fragment>
-                ))}
-              </View>
-            )}
-          </PressableScale>
-
-          {/* Trailing Resource Indicator & Overflow */}
-          <View style={styles.trailingArea}>
-            {totalResources > 0 && (
-              <PressableScale
-                onPress={() => {
-                  Haptics.selectionAsync().catch(() => {});
-                  setIsMenuOpen(true);
-                }}
-                scaleTo={0.93}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                haptic
-                accessibilityRole="button"
-                accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
-                accessibilityState={{ expanded: false }}
-                style={[
-                  styles.compactResourceBadge,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(255, 255, 255, 0.08)"
-                      : "rgba(0, 0, 0, 0.04)",
-                    borderColor: isDark
-                      ? "rgba(255, 255, 255, 0.10)"
-                      : "rgba(0, 0, 0, 0.06)",
-                  },
-                ]}
-                testID="task-resource-indicator"
-              >
-                <Feather
-                  name={resourceIconName as any}
-                  size={12}
-                  color={colors.textMuted}
-                />
-                <Text
-                  style={[
-                    styles.compactResourceCount,
-                    { color: colors.textMuted },
-                  ]}
-                >
-                  {String(totalResources)}
-                </Text>
-              </PressableScale>
-            )}
-
-            {!isSelectionMode && (
-              <PressableScale
-                onPress={() => {
-                  Haptics.selectionAsync().catch(() => {});
-                  setIsMenuOpen(true);
-                }}
-                scaleTo={0.9}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                haptic
-                accessibilityRole="button"
-                accessibilityLabel={`More options for ${item.title}`}
-                style={styles.overflowButton}
-              >
-                <Feather name="more-vertical" size={18} color={colors.textMuted} />
-              </PressableScale>
-            )}
-          </View>
-        </View>
-
+        }
+        title={item.title}
+        isCompleted={isCompleted}
+        onPressContent={isSelectionMode ? onSelect : () => onEditTodo?.()}
+        contentAccessibilityRole="button"
+        contentAccessibilityLabel={
+          isSelectionMode
+            ? `Select task ${item.title}`
+            : `Open task details: ${item.title}`
+        }
+        metadata={
+          entityMetaParts.length > 0 ? (
+            <EntityMetaRow parts={entityMetaParts} dotColor={colors.textMuted} />
+          ) : null
+        }
+        resources={
+          totalResources > 0 ? (
+            <EntityResourceIndicator
+              count={totalResources}
+              iconName={resourceIconName}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setIsMenuOpen(true);
+              }}
+              accessibilityLabel={`${totalResources} linked resources for ${item.title}`}
+              accessibilityState={{ expanded: false }}
+              testID="task-resource-indicator"
+            />
+          ) : null
+        }
+        trailingActions={
+          !isSelectionMode ? (
+            <PressableScale
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setIsMenuOpen(true);
+              }}
+              scaleTo={0.9}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={`More options for ${item.title}`}
+              style={styles.overflowButton}
+            >
+              <Feather name="more-vertical" size={18} color={colors.textMuted} />
+            </PressableScale>
+          ) : null
+        }
+      >
         {/* TASK QUICK EDIT (compact bottom sheet) */}
         <TaskQuickEditSheet
           visible={isMenuOpen}
@@ -713,79 +537,15 @@ export function TodoItem({
           colors={colors}
           isDark={isDark}
         />
-      </View>
+      </EntityItem>
     </SwipeableCard>
   );
 }
 
 const styles = StyleSheet.create({
-  rowContainer: {
-    position: "relative",
-    overflow: "hidden",
-  },
-  priorityEdgeStrip: {
-    position: "absolute",
-    left: 0,
-    top: 6,
-    bottom: 6,
-    width: 3.5,
-    borderRadius: 2,
-    zIndex: 2,
-  },
-  ambientIconWrapper: {
-    position: "absolute",
-    right: 24,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1,
-  },
-  mainRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingTop: ROW_SPEC.row.paddingTop,
-    paddingBottom: ROW_SPEC.row.paddingBottom,
-    paddingLeft: ROW_SPEC.row.paddingLeft,
-    paddingRight: ROW_SPEC.row.paddingRight,
-    gap: ROW_SPEC.row.gap,
-    overflow: "hidden",
-  },
   checkbox: {
     alignItems: "center",
     justifyContent: "center",
-  },
-  textContainer: {
-    flex: 1,
-    minWidth: 0,
-    overflow: "hidden",
-    justifyContent: "center",
-    marginRight: 6,
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 2,
-    minWidth: 0,
-  },
-  titleText: {
-    letterSpacing: -0.25,
-    flexShrink: 1,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "nowrap",
-    overflow: "hidden",
-    minWidth: 0,
-    maxWidth: "100%",
-  },
-  metaPartItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexShrink: 0,
-    minWidth: 0,
   },
   metaPartWorkspace: {
     flexShrink: 1,
@@ -798,44 +558,6 @@ const styles = StyleSheet.create({
   metaPartLast: {
     flexShrink: 1,
   },
-  metaIcon: {
-    marginRight: 3.5,
-    flexShrink: 0,
-  },
-  metaDot: {
-    fontSize: ROW_SPEC.type.meta,
-    marginHorizontal: 4,
-    opacity: 0.6,
-    flexShrink: 0,
-  },
-  metaText: {
-    fontSize: ROW_SPEC.type.meta,
-    flexShrink: 1,
-  },
-  trailingArea: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    flexShrink: 0,
-    gap: 2,
-  },
-  compactResourceBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 3.5,
-    paddingHorizontal: 7,
-    paddingVertical: 3.5,
-    borderRadius: 7,
-    borderWidth: 1,
-    marginRight: 2,
-    flexShrink: 0,
-  },
-  compactResourceCount: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: -0.2,
-  },
   overflowButton: {
     width: 28,
     height: 36,
@@ -843,3 +565,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 });
+

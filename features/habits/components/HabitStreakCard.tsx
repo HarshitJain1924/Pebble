@@ -4,24 +4,32 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
-    Image,
-    Pressable,
-    StyleSheet,
-    TouchableOpacity,
-    View
+  Image,
+  Pressable,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { AppCard } from "@/shared/components/ui/AppCard";
 import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import type { TaskPriority } from "@/shared/types/domain.types";
+import { HabitQuickEditSheet } from "./HabitQuickEditSheet";
+import {
+  EntityItem,
+  EntityMetaRow,
+  EntityResourceIndicator,
+  type EntityMetaPart,
+  resolveEntityCategoryPresentation,
+} from "@/features/items";
 
-type HabitStreakCardProps = {
+export type HabitStreakCardProps = {
   title: string;
   streak: number;
   bestStreak: number;
   completedToday: boolean;
-  priority?: "low" | "medium" | "high";
+  priority?: TaskPriority | "low" | "medium" | "high" | "none";
   onPressToggle: (event?: any) => void;
   onCardPress?: () => void;
   linkedCount?: number;
@@ -29,6 +37,8 @@ type HabitStreakCardProps = {
   onPressResources?: (event?: any) => void;
   onLongPressResources?: () => void;
   habit: any;
+  onDeleteHabit?: () => void;
+  isSelectionMode?: boolean;
 
   // Resource drawer props passed from HabitSection
   linkedResources?: any[];
@@ -40,17 +50,11 @@ type HabitStreakCardProps = {
   hasHiddenResources?: boolean;
 };
 
-type MetaPart = {
-  key: "streak" | "recurrence" | "reminder";
-  text: string;
-  icon?: string;
-  color?: string;
-};
-
 export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   title,
   streak,
   completedToday,
+  priority,
   onPressToggle,
   onCardPress,
   linkedCount = 0,
@@ -58,6 +62,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   onPressResources,
   onLongPressResources,
   habit,
+  onDeleteHabit,
+  isSelectionMode = false,
 
   linkedResources = [],
   displayedResources = [],
@@ -70,23 +76,44 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
+  const isDark = !isLight;
 
   const amberColor = Palette.amber500;
 
-  // Build single line metadata (including streak value flatly without enclosing badge)
-  const metaParts = useMemo<MetaPart[]>(() => {
-    const parts: MetaPart[] = [];
+  // Priority fallback: priority prop or habit?.priority
+  const effectivePriority = priority !== undefined ? priority : habit?.priority;
 
-    // 1. Streak flatly (slightly bolder streak value)
+  // Quick edit sheet state
+  const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
+
+  // Category atmosphere resolution (subtle background wash + watermark)
+  const categoryPresentation = useMemo(() => {
+    return resolveEntityCategoryPresentation(
+      {
+        categoryId: habit?.categoryId,
+        title,
+        type: "habit",
+        priority: effectivePriority,
+      },
+      isDark,
+    );
+  }, [habit?.categoryId, title, effectivePriority, isDark]);
+
+  // Build single line metadata (including amber streak value)
+  const metaParts = useMemo<EntityMetaPart[]>(() => {
+    const parts: EntityMetaPart[] = [];
+
+    // 1. Streak flatly (amber streak, slightly bolder)
     parts.push({
       key: "streak",
       text: `🔥 ${streak}`,
       color: isLight ? Palette.amber700 : Palette.amber500,
+      isBold: true,
     });
 
-    // 2. Schedule / Recurrence — use canonical recurrence.daysOfWeek
+    // 2. Schedule / Recurrence
     let recLabel = "";
-    if (habit.recurrence) {
+    if (habit?.recurrence) {
       recLabel = getRecurrenceLabel(habit.recurrence) ?? "";
     } else {
       recLabel = "Daily";
@@ -100,8 +127,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       });
     }
 
-    // 3. Reminder — use canonical reminder.triggerAt
-    if (habit.reminder?.triggerAt) {
+    // 3. Reminder
+    if (habit?.reminder?.triggerAt) {
       const d = new Date(habit.reminder.triggerAt);
       const ampm = d.getHours() >= 12 ? "PM" : "AM";
       const displayHour =
@@ -118,27 +145,19 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
     return parts;
   }, [
     streak,
-    habit.recurrence,
-    habit.reminder?.triggerAt,
+    habit?.recurrence,
+    habit?.reminder?.triggerAt,
     isLight,
   ]);
 
   return (
-    <AppCard
-      style={[
-        styles.card,
-        {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          borderWidth: 1,
-          opacity: completedToday ? 0.6 : 1, // Satisfying opacity fade on completion
-        },
-      ]}
-      onPress={onCardPress}
-    >
-      {/* Primary Card Row */}
-      <View style={styles.cardHeaderRow}>
-        {/* Thicker empty ring for satisfying Apple-style fitness feel */}
+    <EntityItem
+      category={categoryPresentation}
+      priority={effectivePriority}
+      dimmed={completedToday}
+      colorScheme={colorScheme}
+      testIDPrefix="habit-category"
+      leadingControl={
         <Pressable
           onPress={onPressToggle}
           accessibilityRole="checkbox"
@@ -163,122 +182,50 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
             </View>
           )}
         </Pressable>
-
-        {/* Habit Info Content */}
-        <View style={styles.content}>
-          <Text
-            style={[
-              styles.title,
-              {
-                color: completedToday ? colors.textMuted : colors.text,
-                textDecorationLine: completedToday ? "line-through" : "none",
-              },
-            ]}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-
-          {/* Flat Single Line Metadata with double spacing dots */}
-          <View style={styles.metaRow}>
-            {metaParts.map((part, idx) => {
-              const isStreak = part.key === "streak";
-              return (
-                <React.Fragment key={idx}>
-                  {idx > 0 && (
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      {" "}
-                      •{" "}
-                    </Text>
-                  )}
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 3.5,
-                    }}
-                  >
-                    {part.icon && (
-                      <Feather
-                        name={part.icon as any}
-                        size={10}
-                        color={part.color || colors.textMuted}
-                      />
-                    )}
-                    <Text
-                      style={{
-                        color: part.color || colors.textMuted,
-                        fontSize: 11,
-                        fontWeight: isStreak ? "700" : "500",
-                      }}
-                    >
-                      {part.text}
-                    </Text>
-                  </View>
-                </React.Fragment>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Trailing resource action button (plain icon / label without container pill) */}
-        <PressableScale
+      }
+      title={title}
+      isCompleted={completedToday}
+      onPressContent={onCardPress}
+      onLongPressContent={isSelectionMode ? undefined : () => setIsQuickEditOpen(true)}
+      contentAccessibilityRole="button"
+      contentAccessibilityLabel={`Open habit details: ${title}`}
+      metadata={<EntityMetaRow parts={metaParts} dotColor={colors.textMuted} />}
+      resources={
+        <EntityResourceIndicator
+          count={linkedCount}
+          iconName="paperclip"
+          isExpanded={isExpanded}
+          allowZeroAdd={true}
           onPress={onPressResources}
           onLongPress={linkedCount > 0 ? onLongPressResources : undefined}
-          delayLongPress={350}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: isExpanded }}
           accessibilityLabel={
             linkedCount === 0
               ? `Attach resource to ${title}`
               : `${linkedCount} resources linked to ${title}. Tap to ${isExpanded ? "collapse" : "expand"}`
           }
-          style={{
-            width: 44,
-            height: 44,
-            justifyContent: "center",
-            alignItems: "center",
-            marginRight: -4,
-          }}
-        >
-          {linkedCount === 0 ? (
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 1 }}
-            >
-              <Feather name="paperclip" size={13} color={colors.textMuted} />
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: "700",
-                  color: colors.textMuted,
-                }}
-              >
-                +
-              </Text>
-            </View>
-          ) : (
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
-            >
-              <Feather
-                name="paperclip"
-                size={12}
-                color={isExpanded ? colors.primary : colors.textMuted}
-              />
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: "700",
-                  color: isExpanded ? colors.primary : colors.textMuted,
-                }}
-              >
-                {linkedCount}
-              </Text>
-            </View>
-          )}
-        </PressableScale>
-      </View>
-
+          testID="habit-resource-indicator"
+        />
+      }
+      trailingActions={
+        !isSelectionMode ? (
+          <PressableScale
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              setIsQuickEditOpen(true);
+            }}
+            scaleTo={0.9}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            haptic
+            accessibilityRole="button"
+            accessibilityLabel={`More options for habit ${title}`}
+            style={styles.overflowButton}
+            testID="habit-overflow-button"
+          >
+            <Feather name="more-vertical" size={18} color={colors.textMuted} />
+          </PressableScale>
+        ) : null
+      }
+    >
       {/* Expanded Flat Resource List inside the same card */}
       {isExpanded && linkedResources.length > 0 && (
         <View style={styles.expandedContent}>
@@ -462,23 +409,34 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
           </View>
         </View>
       )}
-    </AppCard>
+
+      {/* Habit Quick Edit Sheet */}
+      <HabitQuickEditSheet
+        visible={isQuickEditOpen}
+        onClose={() => setIsQuickEditOpen(false)}
+        habit={habit}
+        completedToday={completedToday}
+        onToggleComplete={onPressToggle}
+        onDeleteHabit={onDeleteHabit}
+        onOpenFullDetails={onCardPress}
+        linkedResources={linkedResources}
+        totalResources={linkedCount}
+        onOpenResource={onPressOpenResource}
+        onAddResource={onPressAddResource}
+        colorScheme={colorScheme}
+      />
+    </EntityItem>
   );
 };
 
+export const HabitItem = HabitStreakCard;
+
 const styles = StyleSheet.create({
-  card: {
-    flexDirection: "column",
-    paddingLeft: 14,
-    paddingRight: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
-    borderRadius: 14,
-  },
-  cardHeaderRow: {
-    flexDirection: "row",
+  overflowButton: {
+    width: 28,
+    height: 36,
     alignItems: "center",
-    gap: 12,
+    justifyContent: "center",
   },
   checkButton: {
     position: "relative",
@@ -496,22 +454,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  content: {
-    flex: 1,
-    gap: 2,
-  },
-  title: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
   expandedContent: {
     marginTop: 10,
     paddingBottom: 4,
+    paddingHorizontal: 14,
   },
   divider: {
     height: 1,
