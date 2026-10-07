@@ -19,6 +19,10 @@ jest.mock("@expo/vector-icons", () => {
   };
 });
 
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+);
+
 jest.mock("@/services/command/EntityCommandService", () => ({
   EntityCommandService: {
     updateTask: jest.fn(async () => ({})),
@@ -213,5 +217,62 @@ describe("TaskQuickEditSheet", () => {
       "inbox",
       { priority: "medium" }
     );
+  });
+
+  it("renders floating resource deck near top with tiles when resources exist", () => {
+    let root: any;
+    act(() => {
+      root = create(<TaskQuickEditSheet {...defaultProps} />);
+    });
+
+    // 1. Resource deck is rendered and immediately visible
+    const deck = root.root.findByProps({ testID: "task-attachment-deck" });
+    expect(deck).toBeDefined();
+
+    // 2. Resource tile
+    const tile = root.root.findByProps({ testID: "task-attachment-tile-res-1" });
+    expect(tile).toBeDefined();
+    expect(tile.props.accessibilityLabel).toBe("Open resource: Project Brief");
+
+    act(() => {
+      tile.props.onPress();
+    });
+    expect(defaultProps.handleOpenResource).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "res-1" })
+    );
+
+    // 3. Add attachment tile
+    const addBtn = root.root.findByProps({ testID: "task-add-attachment-button" });
+    expect(addBtn).toBeDefined();
+    act(() => {
+      addBtn.props.onPress();
+    });
+    expect(defaultProps.onOpenLinkSelector).toHaveBeenCalled();
+
+    // 4. Resource count is NOT rendered as a property pill inside the editor
+    const propPills = root.root.findAll((node: any) =>
+      Boolean(node.props.testID && node.props.testID === "task-resources-pill")
+    );
+    expect(propPills).toHaveLength(0);
+  });
+
+  it("renders subtle + Add resource affordance when no resources exist", () => {
+    let root: any;
+    act(() => {
+      root = create(
+        <TaskQuickEditSheet
+          {...defaultProps}
+          linkedResources={[]}
+          totalResources={0}
+        />
+      );
+    });
+
+    const emptyAdd = root.root.findByProps({ testID: "task-add-resource-empty" });
+    expect(emptyAdd).toBeDefined();
+    act(() => {
+      emptyAdd.props.onPress();
+    });
+    expect(defaultProps.onOpenLinkSelector).toHaveBeenCalled();
   });
 });

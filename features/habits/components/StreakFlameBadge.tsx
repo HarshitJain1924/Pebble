@@ -1,12 +1,12 @@
-import { Radius } from "@/shared/constants/radii";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { useStreakColors } from "@/shared/hooks/useCategoryColors";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { Image } from "expo-image";
-import React from "react";
-import { StyleSheet, View } from "react-native";
+import * as Haptics from "expo-haptics";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import {
   getHabitStreakAccessibilityLabel,
   getHabitStreakStage,
@@ -26,69 +26,106 @@ export interface StreakFlameBadgeProps {
    * `animated`. Reduced motion overrides this back to a still frame.
    */
   animated?: boolean;
+  /** Optional custom press handler */
+  onPress?: () => void;
 }
 
 /**
  * Trailing streak visual for habit rows.
  *
- * Category colour/watermark communicates habit *identity*; this badge is a
+ * Direct editorial content: renders the flame icon and streak counter without
+ * an artificial pill container, background box, or border. The flame is the sole
+ * visual accent.
+ *
+ * Category colour/watermark communicates habit *identity*; this indicator is a
  * separate system communicating *consistency*, so it uses the canonical
  * `StreakColors` tokens and is never tinted by the habit's category.
  *
- * The badge is informational — it is deliberately not pressable so the
- * neighbouring overflow button keeps an unobstructed hit target. It also adds no
- * opacity of its own: `EntityItem` already dims the whole row for completed
- * habits, and dimming again here would compound to ~0.36.
- *
- * Motion: the flame artwork is animated by the Flaticon assets themselves, so
- * this component adds no animation of its own — but a GIF cannot be played once,
- * so `autoplay` is off unless a caller explicitly passes `animated`. That keeps a
- * habit list from running one looping decoder per row. When the OS requests
- * reduced motion the flame still renders at its first frame, it just never
- * plays.
+ * Motion: the flame artwork is animated by the Flaticon assets themselves.
+ * On Android, `expo-image` requires `startAnimating()` / remounting to ensure Glide
+ * actually starts the native GifDrawable when toggled.
  */
 export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
   streak,
   animated = false,
+  onPress,
 }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const streakColors = useStreakColors();
   const reduceMotion = useReducedMotion();
-  const isDark = colorScheme !== "light";
+
+  const flameRef = useRef<Image>(null);
+  const [isPressAnimating, setIsPressAnimating] = useState(false);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stage = getHabitStreakStage(streak);
   const flameSource = resolveStreakFlameSource(stage);
-  const shouldPlayFlame = animated && !reduceMotion;
+  const shouldPlayFlame = (animated || isPressAnimating) && !reduceMotion;
   const isInactive = stage === 0;
 
   // Inactive streaks stay muted so a flat list does not read as a wall of flame.
   const valueColor = isInactive ? colors.textMuted : streakColors.accent;
 
+  // Clean up press animation timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pressTimerRef.current) {
+        clearTimeout(pressTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Imperative native animation bridge for Android Glide:
+  // On Android, toggling the `autoplay` prop dynamically in React does not start
+  // or resume the native GifDrawable on an already loaded view. Calling
+  // `startAnimating()` on the ref starts the native Animatable/GifDrawable.
+  useEffect(() => {
+    if (shouldPlayFlame) {
+      flameRef.current?.startAnimating?.().catch?.(() => {});
+    } else {
+      flameRef.current?.stopAnimating?.().catch?.(() => {});
+    }
+  }, [shouldPlayFlame]);
+
+  const handlePress = useCallback(() => {
+    if (stage > 0) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      setIsPressAnimating(true);
+      if (pressTimerRef.current) {
+        clearTimeout(pressTimerRef.current);
+      }
+      pressTimerRef.current = setTimeout(() => {
+        setIsPressAnimating(false);
+      }, 3000);
+    }
+    onPress?.();
+  }, [stage, onPress]);
+
   return (
-    <View
+    <Pressable
       testID="habit-streak-badge"
       accessible
-      accessibilityRole="text"
+      accessibilityRole={stage > 0 ? "button" : "text"}
       accessibilityLabel={getHabitStreakAccessibilityLabel(streak)}
-      style={[
-        styles.container,
-        {
-          backgroundColor: isInactive
-            ? (isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)")
-            : streakColors.surface,
-          borderColor: isInactive
-            ? (isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)")
-            : (isDark ? "rgba(249, 115, 22, 0.28)" : "rgba(194, 65, 12, 0.22)"),
-        },
-      ]}
+      onPress={handlePress}
+      disabled={stage === 0}
+      hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+      style={styles.container}
     >
       {flameSource ? (
         <Image
+          ref={flameRef}
+          key={shouldPlayFlame ? "flame-anim" : "flame-static"}
           source={flameSource}
           style={styles.flame}
           contentFit="contain"
           autoplay={shouldPlayFlame}
+          onLoad={() => {
+            if (shouldPlayFlame) {
+              flameRef.current?.startAnimating?.().catch?.(() => {});
+            }
+          }}
           testID="habit-streak-flame"
           accessibilityElementsHidden
           importantForAccessibility="no"
@@ -101,37 +138,32 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
           {getHabitStreakUnitLabel(streak)}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    minWidth: 42,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: Radius.md,
-    borderWidth: 1,
+    gap: 4,
   },
   flame: {
-    width: 20,
-    height: 20,
-    marginBottom: 1,
+    width: 18,
+    height: 18,
   },
   valueRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: 3,
+    gap: 2.5,
   },
   value: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: "700",
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   unit: {
-    fontSize: 10,
-    fontWeight: "600",
+    fontSize: 10.5,
+    fontWeight: "500",
   },
 });

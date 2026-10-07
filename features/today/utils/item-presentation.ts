@@ -118,7 +118,7 @@ export function resolveItemCategorySymbol(
   ) {
     const color = Palette.emerald500;
     return {
-      icon: "walk-outline",
+      icon: "barbell-outline",
       iconFamily: "ionicons",
       color,
       tint: isDark ? "rgba(16, 185, 129, 0.22)" : "rgba(16, 185, 129, 0.14)",

@@ -62,7 +62,6 @@ export function HabitSection({
   // Habit context states
   const [activeHabitId, setActiveHabitId] = useState<string | null>(null);
   const [showLinkSelector, setShowLinkSelector] = useState(false);
-  const [peekingResourceIds, setPeekingResourceIds] = useState<string[] | null>(null);
 
   // Section expanded states
   const [todayExpanded, setTodayExpanded] = useState(true);
@@ -76,13 +75,6 @@ export function HabitSection({
       await Linking.openURL(formattedUrl);
     } catch {}
   };
-
-  const peekingResources = useMemo(() => {
-    if (!peekingResourceIds) return [];
-    return peekingResourceIds
-      .map((id) => allResources.find((r) => r.id === id))
-      .filter(Boolean);
-  }, [peekingResourceIds, allResources]);
 
   const selectedDateKey = selectedDate || getDateKey();
 
@@ -153,12 +145,6 @@ export function HabitSection({
                   router.push(`/task-details?id=${item.id}&type=habit`)
                 }
                 linkedCount={linkedCount}
-                onLongPressResources={() => {
-                  if (linkedCount > 0) {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                    setPeekingResourceIds(linkedIds);
-                  }
-                }}
                 habit={item}
                 linkedResources={linkedResources}
                 onPressAddResource={() => {
@@ -399,84 +385,6 @@ export function HabitSection({
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-
-      {/* iOS-style Long Press Peek Modal for Habits */}
-      <Modal
-        visible={peekingResourceIds !== null}
-        transparent
-        animationType="none"
-        onRequestClose={() => setPeekingResourceIds(null)}
-      >
-        <Pressable
-          onPress={() => setPeekingResourceIds(null)}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss resources glance"
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.6)",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <View
-            style={{
-              width: SCREEN_WIDTH * 0.8,
-              backgroundColor: colors.card,
-              borderRadius: 20,
-              borderColor: colors.border,
-              borderWidth: 1.5,
-              padding: 16,
-              gap: 12,
-              elevation: 10,
-              shadowColor: Palette.black,
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.25,
-              shadowRadius: 15,
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: "800", color: colors.primary, textTransform: "uppercase" }}>
-              Glance Resources
-            </Text>
-            <View style={{ gap: 10 }}>
-              {peekingResources.map((res: any) => (
-                <View
-                  key={res.id}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: isLight ? Palette.slate200 : Palette.zinc800, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                    {res.type === "image" ? (
-                      <Image
-                        source={{ uri: res.mediaUri || "https://images.unsplash.com/photo-1544005313-94ddf0286df2" }}
-                        style={{ width: "100%", height: "100%" }}
-                      />
-                    ) : (
-                      <Feather
-                        name={res.type === "link" ? "link-2" : "file-text"}
-                        size={12}
-                        color={colors.textMuted}
-                      />
-                    )}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text }} numberOfLines={1}>
-                      {res.title}
-                    </Text>
-                    {res.type === "link" && (
-                      <Text style={{ fontSize: 9, color: colors.textMuted }} numberOfLines={1}>
-                        {res.url}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        </Pressable>
       </Modal>
     </View>
   );

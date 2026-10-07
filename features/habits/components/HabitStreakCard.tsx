@@ -4,7 +4,7 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -189,6 +189,19 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
     colors.textMuted,
   ]);
 
+  const handleToggle = useCallback(
+    (e?: any) => {
+      if (!completedToday) {
+        setIsStreakAnimating(true);
+        setTimeout(() => {
+          setIsStreakAnimating(false);
+        }, 3000);
+      }
+      onPressToggle(e);
+    },
+    [completedToday, onPressToggle],
+  );
+
   return (
     <EntityItem
       category={categoryPresentation}
@@ -199,7 +212,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       style={styles.cardContainer}
       leadingControl={
         <PressableScale
-          onPress={onPressToggle}
+          onPress={handleToggle}
           scaleTo={0.88}
           haptic
           accessibilityRole="checkbox"

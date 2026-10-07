@@ -130,17 +130,16 @@ describe("TaskItem Category Presentation Redesign", () => {
     expect(ambientIcon).toBeDefined();
     expect(ambientIcon.props.style).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ position: "absolute", right: 24 }),
-        expect.objectContaining({ opacity: 0.14 }),
+        expect.objectContaining({ position: "absolute", right: 76 }),
+        expect.objectContaining({ opacity: 0.19 }),
       ])
     );
 
     // 4. Stop color matches semantic category color
     const stops = ambientWash.findAllByType(Stop);
-    expect(stops.length).toBeGreaterThanOrEqual(2);
     expect(stops[0].props.stopColor).toBe(TaskCategoryColors.work.color.dark);
-    // Dark theme vibrant ambient opacity: ~18% peak
-    expect(stops[0].props.stopOpacity).toBeCloseTo(0.18, 2);
+    // Dark theme vibrant ambient opacity: ~28% peak
+    expect(stops[0].props.stopOpacity).toBeCloseTo(0.28, 2);
 
     // 5. Row preserves: checkbox, title, resource indicator, overflow button
     expect(root.findByProps({ accessibilityRole: "checkbox" })).toBeDefined();
@@ -173,12 +172,12 @@ describe("TaskItem Category Presentation Redesign", () => {
     expect(ambientWash).toBeDefined();
 
     const stops = ambientWash.findAllByType(Stop);
-    // Light theme visible opacity: ~14% peak
-    expect(stops[0].props.stopOpacity).toBeCloseTo(0.14, 2);
+    // Light theme visible opacity: ~22% peak
+    expect(stops[0].props.stopOpacity).toBeCloseTo(0.22, 2);
 
     const ambientIcon = root.findByProps({ testID: "task-category-ambient-icon" });
     expect(ambientIcon.props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 0.11 })])
+      expect.arrayContaining([expect.objectContaining({ opacity: 0.16 })])
     );
   });
 

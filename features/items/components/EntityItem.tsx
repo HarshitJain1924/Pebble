@@ -317,7 +317,7 @@ export const EntityItem: React.FC<EntityItemProps> = ({
         style,
       ]}
     >
-      {/* 1. Category Atmosphere: Subtle Ambient Background Wash */}
+      {/* 1. Category Atmosphere: Category Material Surface Tint & Editorial Wash */}
       {categoryColor ? (
         <Svg
           width="100%"
@@ -336,17 +336,24 @@ export const EntityItem: React.FC<EntityItemProps> = ({
                 stopOpacity={isDark ? 0.28 : 0.22}
               />
               <Stop
-                offset="60%"
+                offset="55%"
                 stopColor={categoryColor}
-                stopOpacity={isDark ? 0.12 : 0.09}
+                stopOpacity={isDark ? 0.16 : 0.11}
               />
               <Stop
                 offset="100%"
                 stopColor={categoryColor}
-                stopOpacity={isDark ? 0.04 : 0.03}
+                stopOpacity={isDark ? 0.08 : 0.04}
               />
             </LinearGradient>
           </Defs>
+          {/* Base category surface tone: in dark mode, turns the neutral card into a darkened version of the category material */}
+          <Rect
+            width="100%"
+            height="100%"
+            fill={categoryColor}
+            opacity={isDark ? 0.06 : 0.02}
+          />
           <Rect width="100%" height="100%" fill={`url(#${gradientId})`} />
         </Svg>
       ) : null}

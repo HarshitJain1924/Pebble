@@ -549,7 +549,7 @@ describe("EntityItem Unified Architecture", () => {
       expect(onSelectPriorityMock).toHaveBeenCalledWith("high");
     });
 
-    it("renders compact horizontal attachment strip near top when resources exist", () => {
+    it("renders floating resource deck near top with tiles when resources exist", () => {
       const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
       const onOpenResourceMock = jest.fn();
       const onAddResourceMock = jest.fn();
@@ -563,7 +563,7 @@ describe("EntityItem Unified Architecture", () => {
             title="Habit with resources"
             linkedResources={[
               { id: "res-1", title: "Workout PDF", type: "note" },
-              { id: "res-2", title: "Timer Link", type: "link" },
+              { id: "res-2", title: "Timer Link", type: "link", url: "https://gymtimer.io" },
             ]}
             totalResources={2}
             onOpenResource={onOpenResourceMock}
@@ -574,25 +574,31 @@ describe("EntityItem Unified Architecture", () => {
       });
 
       const root = renderer.root;
-      // Attachment strip is rendered near top
-      const strip = root.findByProps({ testID: "habit-attachment-strip" });
-      expect(strip).toBeDefined();
+      // 1. Resource deck is rendered and immediately visible
+      const deck = root.findByProps({ testID: "habit-attachment-deck" });
+      expect(deck).toBeDefined();
 
-      // Attachment chips for each resource
-      const chip1 = root.findByProps({ testID: "habit-attachment-chip-res-1" });
-      expect(chip1).toBeDefined();
+      // 2. Resource tiles for each resource
+      const tile1 = root.findByProps({ testID: "habit-attachment-tile-res-1" });
+      expect(tile1).toBeDefined();
+      expect(tile1.props.accessibilityLabel).toBe("Open resource: Workout PDF");
+
       act(() => {
-        chip1.props.onPress();
+        tile1.props.onPress();
       });
       expect(onOpenResourceMock).toHaveBeenCalledWith(expect.objectContaining({ id: "res-1" }));
 
-      // Add attachment button
+      // 3. Add attachment tile
       const addBtn = root.findByProps({ testID: "habit-add-attachment-button" });
       expect(addBtn).toBeDefined();
       act(() => {
         addBtn.props.onPress();
       });
       expect(onAddResourceMock).toHaveBeenCalled();
+
+      // 4. Resource count is NOT rendered as a property pill in the property rail
+      const propPills = root.findAllByProps({ testID: "habit-resources-pill" });
+      expect(propPills).toHaveLength(0);
     });
 
     it("renders subtle + Add resource affordance when no resources exist", () => {

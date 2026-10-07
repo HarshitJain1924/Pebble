@@ -5,6 +5,7 @@ import {
   ScrollView,
   Keyboard,
   Pressable,
+  Image,
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,7 +20,20 @@ import { Typography } from "@/shared/constants/typography";
 import { Spacing } from "@/shared/constants/spacing";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import type { TaskPriority } from "@/shared/types/domain.types";
-import { resolveResourceIconName } from "@/features/today/utils/resource-presentation";
+import {
+  resolveResourceIconName,
+  resolveResourceVisual,
+} from "@/features/today/utils/resource-presentation";
+
+function extractDomain(urlOrTitle?: string): string | null {
+  if (!urlOrTitle) return null;
+  try {
+    const match = String(urlOrTitle).match(/^(?:https?:\/\/)?(?:www\.)?([^\/\?#]+)/i);
+    return match?.[1] || null;
+  } catch {
+    return null;
+  }
+}
 
 export interface EntityQuickEditSheetProps {
   visible: boolean;
@@ -66,6 +80,7 @@ export interface EntityQuickEditSheetProps {
   // Open full details
   onOpenFullDetails?: () => void;
   fullDetailsLabel?: string;
+  fullDetailsAccessibilityLabel?: string;
 
   // Custom children/content
   children?: React.ReactNode;
@@ -121,6 +136,7 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
   deleteAccessibilityLabel = "Delete",
   onOpenFullDetails,
   fullDetailsLabel = "Open full details",
+  fullDetailsAccessibilityLabel,
   children,
   colorScheme: explicitScheme,
   testIDPrefix = "entity",
@@ -243,44 +259,140 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
             )}
           </View>
 
-          {/* Compact Attachment Strip Near Top of Sheet */}
+          {/* Floating Resource Deck: Always-visible contextual attachments near top */}
           {linkedResources.length > 0 ? (
-            <View style={styles.attachmentStripContainer} testID={`${testIDPrefix}-attachment-strip`}>
+            <View
+              style={styles.resourceDeckContainer}
+              testID={`${testIDPrefix}-attachment-deck`}
+              accessibilityRole="toolbar"
+              accessibilityLabel="Related resources"
+            >
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.attachmentStripScroll}
+                contentContainerStyle={styles.resourceDeckScroll}
               >
                 {linkedResources.map((res: any) => {
+                  const visual = resolveResourceVisual(res);
                   const iconName = resolveResourceIconName(res);
+                  const thumbUri = visual.thumbnailUri || res.mediaUri;
+                  const isImageWithThumb =
+                    visual.category === "image" && Boolean(thumbUri);
+
+                  let linkDomain: string | null = null;
+                  if (visual.category === "link") {
+                    linkDomain = extractDomain(res.url || res.content || res.title);
+                  }
+
+                  const displayTitle =
+                    res.title ||
+                    linkDomain ||
+                    visual.label ||
+                    (visual.category === "link" ? "Link" : "Resource");
+                  const accessibilityTitle = res.title || displayTitle;
+
                   return (
                     <PressableScale
                       key={res.id}
                       onPress={() => onOpenResource?.(res)}
                       haptic
                       accessibilityRole="button"
-                      accessibilityLabel={`Open resource: ${res.title || "Untitled"}`}
+                      accessibilityLabel={`Open resource: ${accessibilityTitle}`}
                       style={[
-                        styles.attachmentChip,
+                        styles.resourceTile,
                         {
                           backgroundColor: isDark
-                            ? "rgba(255, 255, 255, 0.05)"
-                            : "rgba(0, 0, 0, 0.03)",
+                            ? "rgba(255, 255, 255, 0.06)"
+                            : "#FFFFFF",
                           borderColor: isDark
                             ? "rgba(255, 255, 255, 0.10)"
-                            : colors.border,
+                            : "rgba(0, 0, 0, 0.08)",
+                          shadowColor: "#000",
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: isDark ? 0.2 : 0.06,
+                          shadowRadius: 3,
+                          elevation: 1,
                         },
                       ]}
-                      testID={`${testIDPrefix}-attachment-chip-${res.id}`}
+                      testID={`${testIDPrefix}-attachment-tile-${res.id}`}
                     >
-                      <Feather name={iconName as any} size={11} color={colors.primary} />
-                      <Text
-                        style={[styles.attachmentChipText, { color: colors.text }]}
-                        numberOfLines={1}
-                      >
-                        {res.title || "Resource"}
-                      </Text>
+                      {isImageWithThumb ? (
+                        <View style={StyleSheet.absoluteFill}>
+                          <Image
+                            source={{ uri: thumbUri }}
+                            style={styles.tileThumbnail}
+                            resizeMode="cover"
+                          />
+                          <View
+                            style={[
+                              styles.tileThumbnailScrim,
+                              {
+                                backgroundColor: isDark
+                                  ? "rgba(0, 0, 0, 0.58)"
+                                  : "rgba(0, 0, 0, 0.44)",
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={styles.tileThumbnailText}
+                              numberOfLines={1}
+                            >
+                              {displayTitle}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : visual.category === "link" ? (
+                        <View style={styles.tileContent}>
+                          <View
+                            style={[
+                              styles.tileIconCircle,
+                              {
+                                backgroundColor: isDark
+                                  ? "rgba(59, 130, 246, 0.16)"
+                                  : "rgba(59, 130, 246, 0.10)",
+                              },
+                            ]}
+                          >
+                            <Feather
+                              name="link-2"
+                              size={15}
+                              color={isDark ? "#60a5fa" : "#2563eb"}
+                            />
+                          </View>
+                          <Text
+                            style={[styles.tileLabel, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {linkDomain || displayTitle}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={styles.tileContent}>
+                          <View
+                            style={[
+                              styles.tileIconCircle,
+                              {
+                                backgroundColor: isDark
+                                  ? "rgba(255, 255, 255, 0.08)"
+                                  : "rgba(0, 0, 0, 0.04)",
+                              },
+                            ]}
+                          >
+                            <Feather
+                              name={iconName as any}
+                              size={15}
+                              color={colors.primary}
+                            />
+                          </View>
+                          <Text
+                            style={[styles.tileLabel, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {displayTitle}
+                          </Text>
+                        </View>
+                      )}
                     </PressableScale>
                   );
                 })}
@@ -289,37 +401,51 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
                     onPress={onAddResource}
                     haptic
                     accessibilityRole="button"
-                    accessibilityLabel="Link another resource"
+                    accessibilityLabel="Add resource"
                     style={[
-                      styles.attachmentAddButton,
+                      styles.resourceTile,
+                      styles.resourceAddTile,
                       {
                         backgroundColor: isDark
-                          ? "rgba(255, 255, 255, 0.04)"
+                          ? "rgba(255, 255, 255, 0.03)"
                           : "rgba(0, 0, 0, 0.02)",
                         borderColor: isDark
-                          ? "rgba(255, 255, 255, 0.08)"
+                          ? "rgba(255, 255, 255, 0.14)"
                           : colors.border,
                       },
                     ]}
                     testID={`${testIDPrefix}-add-attachment-button`}
                   >
-                    <Feather name="plus" size={12} color={colors.textMuted} />
+                    <Feather name="plus" size={18} color={colors.textMuted} />
                   </PressableScale>
                 )}
               </ScrollView>
             </View>
           ) : onAddResource ? (
-            <View style={styles.emptyAttachmentContainer} testID={`${testIDPrefix}-attachment-strip`}>
+            <View
+              style={styles.emptyDeckContainer}
+              testID={`${testIDPrefix}-attachment-deck`}
+            >
               <PressableScale
                 onPress={onAddResource}
                 haptic
                 accessibilityRole="button"
                 accessibilityLabel="Add resource"
-                style={styles.emptyAddResourceAffordance}
+                style={[
+                  styles.emptyAddAffordance,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.04)"
+                      : "rgba(0, 0, 0, 0.025)",
+                    borderColor: isDark
+                      ? "rgba(255, 255, 255, 0.10)"
+                      : colors.border,
+                  },
+                ]}
                 testID={`${testIDPrefix}-add-resource-empty`}
               >
-                <Feather name="plus" size={11} color={colors.textMuted} />
-                <Text style={[styles.emptyAddResourceText, { color: colors.textMuted }]}>
+                <Feather name="plus" size={12} color={colors.textMuted} />
+                <Text style={[styles.emptyAddText, { color: colors.textMuted }]}>
                   Add resource
                 </Text>
               </PressableScale>
@@ -515,57 +641,6 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
                   </Text>
                 </PressableScale>
               )}
-
-              {/* 4. Resources Pill */}
-              {(totalResources > 0 || onAddResource) && (
-                <PressableScale
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    Haptics.selectionAsync().catch(() => {});
-                    if (onAddResource) {
-                      onAddResource();
-                    }
-                  }}
-                  haptic
-                  accessibilityRole="button"
-                  accessibilityLabel={`Resources: ${totalResources}`}
-                  style={[
-                    styles.propertyPill,
-                    {
-                      backgroundColor:
-                        totalResources > 0
-                          ? `${colors.primary}18`
-                          : isDark
-                            ? "rgba(255, 255, 255, 0.05)"
-                            : "rgba(0, 0, 0, 0.03)",
-                      borderColor:
-                        totalResources > 0
-                          ? `${colors.primary}40`
-                          : isDark
-                            ? "rgba(255, 255, 255, 0.12)"
-                            : colors.border,
-                    },
-                  ]}
-                  testID={`${testIDPrefix}-resources-pill`}
-                >
-                  <Feather
-                    name="link-2"
-                    size={13}
-                    color={totalResources > 0 ? colors.primary : colors.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.propertyPillText,
-                      {
-                        color: totalResources > 0 ? colors.text : colors.textMuted,
-                        fontWeight: totalResources > 0 ? "600" : "500",
-                      },
-                    ]}
-                  >
-                    {totalResources > 0 ? `${totalResources}` : "Resources"}
-                  </Text>
-                </PressableScale>
-              )}
             </ScrollView>
           </View>
 
@@ -644,7 +719,7 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
               }}
               haptic
               accessibilityRole="button"
-              accessibilityLabel={fullDetailsLabel}
+              accessibilityLabel={fullDetailsAccessibilityLabel || fullDetailsLabel}
               style={[styles.fullDetailsRow, { borderTopColor: colors.border }]}
               testID={`${testIDPrefix}-full-details-button`}
             >
@@ -723,20 +798,20 @@ const styles = StyleSheet.create({
     minHeight: 22,
   },
   railWrapper: {
-    marginBottom: 16,
+    marginBottom: 14,
   },
   railScroll: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
   },
   propertyPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 7,
     borderWidth: 1,
   },
   propertyPillText: {
@@ -763,51 +838,88 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: Typography.weights.medium,
   },
-  attachmentStripContainer: {
-    marginBottom: 10,
+
+  /* Floating Resource Deck Styles */
+  resourceDeckContainer: {
+    marginBottom: 12,
     marginTop: -2,
   },
-  attachmentStripScroll: {
+  resourceDeckScroll: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
   },
-  attachmentChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+  resourceTile: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
     borderWidth: 1,
-    maxWidth: 160,
-  },
-  attachmentChipText: {
-    fontSize: 11,
-    fontWeight: Typography.weights.medium,
-  },
-  attachmentAddButton: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyAttachmentContainer: {
-    marginBottom: 8,
-    marginTop: -4,
-    flexDirection: "row",
+  resourceAddTile: {
+    borderStyle: "dashed",
     alignItems: "center",
+    justifyContent: "center",
   },
-  emptyAddResourceAffordance: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+  tileThumbnail: {
+    width: "100%",
+    height: "100%",
+  },
+  tileThumbnailScrim: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
     paddingVertical: 2,
-    paddingHorizontal: 4,
+    paddingHorizontal: 3,
+    alignItems: "center",
   },
-  emptyAddResourceText: {
+  tileThumbnailText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "600",
+  },
+  tileContent: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 3,
+    gap: 2,
+  },
+  tileIconCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tileLabel: {
+    fontSize: 9,
+    fontWeight: Typography.weights.medium,
+    textAlign: "center",
+    paddingHorizontal: 2,
+  },
+  emptyDeckContainer: {
+    marginBottom: 10,
+    marginTop: -2,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  emptyAddAffordance: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  emptyAddText: {
     fontSize: 11,
     fontWeight: Typography.weights.medium,
   },
@@ -817,10 +929,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 12,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 2,
   },
   fullDetailsText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: Typography.weights.medium,
   },
 });
