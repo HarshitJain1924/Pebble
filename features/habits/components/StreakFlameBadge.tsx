@@ -67,6 +67,9 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
   // Inactive streaks stay muted so a flat list does not read as a wall of flame.
   const valueColor = isInactive ? colors.textMuted : streakColors.accent;
 
+  const shouldPlayFlameRef = useRef(shouldPlayFlame);
+  shouldPlayFlameRef.current = shouldPlayFlame;
+
   // Clean up press animation timer on unmount
   useEffect(() => {
     return () => {
@@ -87,6 +90,12 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
       flameRef.current?.stopAnimating?.().catch?.(() => {});
     }
   }, [shouldPlayFlame]);
+
+  const handleLoad = useCallback(() => {
+    if (shouldPlayFlameRef.current) {
+      flameRef.current?.startAnimating?.().catch?.(() => {});
+    }
+  }, []);
 
   const handlePress = useCallback(() => {
     if (stage > 0) {
@@ -116,16 +125,11 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
       {flameSource ? (
         <Image
           ref={flameRef}
-          key={shouldPlayFlame ? "flame-anim" : "flame-static"}
           source={flameSource}
           style={styles.flame}
           contentFit="contain"
           autoplay={shouldPlayFlame}
-          onLoad={() => {
-            if (shouldPlayFlame) {
-              flameRef.current?.startAnimating?.().catch?.(() => {});
-            }
-          }}
+          onLoad={handleLoad}
           testID="habit-streak-flame"
           accessibilityElementsHidden
           importantForAccessibility="no"
