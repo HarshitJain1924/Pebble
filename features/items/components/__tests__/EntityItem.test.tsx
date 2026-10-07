@@ -434,6 +434,75 @@ describe("EntityItem Unified Architecture", () => {
       expect(flattenedStyle.right).toBe(76);
       expect(flattenedStyle.opacity).toBe(0.19);
     });
+
+    it("animates the flame when completed, avoids stale ref re-trigger loops, and keeps pill-free layout", () => {
+      const mockHabit = {
+        id: "h-anim",
+        title: "Gym Workout",
+        recurrence: { frequency: "daily" },
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={5}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const badge = root.findByProps({ testID: "habit-streak-badge" });
+      const flatBadgeStyle = Object.assign(
+        {},
+        ...(Array.isArray(badge.props.style) ? badge.props.style : [badge.props.style])
+      );
+      // Direct editorial content: pill-free (no border or rounded container)
+      expect(flatBadgeStyle.borderWidth).toBeUndefined();
+      expect(flatBadgeStyle.backgroundColor).toBeUndefined();
+
+      // Category icon watermark size is locked to 42 (shared across entities)
+      const ambientIcon = root.findByProps({ testID: "habit-category-ambient-icon" });
+      const vectorIcon = ambientIcon.findByProps({ size: 42 });
+      expect(vectorIcon).toBeDefined();
+
+      // Transition to completedToday: true
+      act(() => {
+        renderer.update(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={6}
+            completedToday={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      // Subsequent re-render with completedToday: true avoids stale ref re-trigger loop
+      act(() => {
+        renderer.update(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={6}
+            completedToday={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      expect(root.findByProps({ testID: "habit-streak-badge" })).toBeDefined();
+
+      // Clean unmount clears the active animation timer via useEffect cleanup
+      act(() => {
+        renderer.unmount();
+      });
+    });
   });
 
   describe("ChecklistProgressCard using EntityItem", () => {

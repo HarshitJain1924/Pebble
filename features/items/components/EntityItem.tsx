@@ -336,14 +336,14 @@ export const EntityItem: React.FC<EntityItemProps> = ({
                 stopOpacity={isDark ? 0.28 : 0.22}
               />
               <Stop
-                offset="55%"
+                offset="50%"
                 stopColor={categoryColor}
-                stopOpacity={isDark ? 0.16 : 0.11}
+                stopOpacity={isDark ? 0.15 : 0.09}
               />
               <Stop
                 offset="100%"
                 stopColor={categoryColor}
-                stopOpacity={isDark ? 0.08 : 0.04}
+                stopOpacity={isDark ? 0.06 : 0.02}
               />
             </LinearGradient>
           </Defs>
@@ -352,7 +352,7 @@ export const EntityItem: React.FC<EntityItemProps> = ({
             width="100%"
             height="100%"
             fill={categoryColor}
-            opacity={isDark ? 0.06 : 0.02}
+            opacity={isDark ? 0.10 : 0.03}
           />
           <Rect width="100%" height="100%" fill={`url(#${gradientId})`} />
         </Svg>

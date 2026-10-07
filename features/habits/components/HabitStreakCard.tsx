@@ -1,6 +1,7 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -72,6 +73,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
   const isDark = !isLight;
+  const reduceMotion = useReducedMotion();
 
   const amberColor = Palette.amber500;
 
@@ -85,22 +87,35 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   const [isStreakAnimating, setIsStreakAnimating] = useState(false);
   const prevCompletedRef = useRef(completedToday);
   const prevStreakRef = useRef(streak);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up animation timer on unmount
+  useEffect(() => {
+    return () => {
+      if (animationTimerRef.current) {
+        clearTimeout(animationTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const newlyCompleted = !prevCompletedRef.current && completedToday;
     const streakIncreased = streak > prevStreakRef.current;
 
-    if (newlyCompleted || streakIncreased) {
-      setIsStreakAnimating(true);
-      const timer = setTimeout(() => {
-        setIsStreakAnimating(false);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-
+    // Capture previous values immediately to ensure refs never remain stale
     prevCompletedRef.current = completedToday;
     prevStreakRef.current = streak;
-  }, [completedToday, streak]);
+
+    if ((newlyCompleted || streakIncreased) && !reduceMotion) {
+      setIsStreakAnimating(true);
+      if (animationTimerRef.current) {
+        clearTimeout(animationTimerRef.current);
+      }
+      animationTimerRef.current = setTimeout(() => {
+        setIsStreakAnimating(false);
+      }, 3000);
+    }
+  }, [completedToday, streak, reduceMotion]);
 
   // Category atmosphere resolution (subtle background wash + watermark)
   const categoryPresentation = useMemo(() => {
@@ -191,15 +206,9 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
 
   const handleToggle = useCallback(
     (e?: any) => {
-      if (!completedToday) {
-        setIsStreakAnimating(true);
-        setTimeout(() => {
-          setIsStreakAnimating(false);
-        }, 3000);
-      }
       onPressToggle(e);
     },
-    [completedToday, onPressToggle],
+    [onPressToggle],
   );
 
   return (
