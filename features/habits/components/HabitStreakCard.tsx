@@ -16,6 +16,7 @@ import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import type { TaskPriority } from "@/shared/types/domain.types";
 import { HabitQuickEditSheet } from "./HabitQuickEditSheet";
+import { StreakFlameBadge } from "./StreakFlameBadge";
 import {
   EntityItem,
   EntityMetaRow,
@@ -104,19 +105,15 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
     return resolveResourceIconName(linkedResources?.[0]);
   }, [linkedResources]);
 
-  // Build single line metadata (including amber streak value and linked resources)
+  // Build single line supporting metadata.
+  //
+  // The streak deliberately lives in the trailing slot instead (see
+  // `StreakFlameBadge`): it is a consistency value, not a schedule detail, and
+  // giving it its own column keeps it prominent without crowding this row.
   const metaParts = useMemo<EntityMetaPart[]>(() => {
     const parts: EntityMetaPart[] = [];
 
-    // 1. Streak flatly (amber streak, slightly bolder)
-    parts.push({
-      key: "streak",
-      text: `🔥 ${streak}`,
-      color: isLight ? Palette.amber700 : Palette.amber500,
-      isBold: true,
-    });
-
-    // 2. Schedule / Recurrence
+    // 1. Schedule / Recurrence
     let recLabel = "";
     if (habit?.recurrence) {
       recLabel = getRecurrenceLabel(habit.recurrence) ?? "";
@@ -132,7 +129,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       });
     }
 
-    // 3. Reminder
+    // 2. Reminder
     if (habit?.reminder?.triggerAt) {
       const d = new Date(habit.reminder.triggerAt);
       const ampm = d.getHours() >= 12 ? "PM" : "AM";
@@ -147,7 +144,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       });
     }
 
-    // 4. Linked Resources (compact indicator in metadata)
+    // 3. Linked Resources (compact indicator in metadata)
     if (linkedCount > 0) {
       parts.push({
         key: "resources",
@@ -164,7 +161,6 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
 
     return parts;
   }, [
-    streak,
     habit?.recurrence,
     habit?.reminder?.triggerAt,
     linkedCount,
@@ -216,8 +212,11 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       contentAccessibilityRole="button"
       contentAccessibilityLabel={`Open habit details: ${title}`}
       metadata={<EntityMetaRow parts={metaParts} dotColor={colors.textMuted} />}
+      trailingAreaStyle={styles.trailingArea}
       trailingActions={
-        !isSelectionMode ? (
+        <>
+          <StreakFlameBadge streak={streak} />
+          {!isSelectionMode ? (
           <PressableScale
             onPress={() => {
               Haptics.selectionAsync().catch(() => {});
@@ -233,7 +232,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
           >
             <Feather name="more-vertical" size={18} color={colors.textMuted} />
           </PressableScale>
-        ) : null
+          ) : null}
+        </>
       }
     >
       {/* Expanded Flat Resource List inside the same card */}
@@ -442,6 +442,12 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
 export const HabitItem = HabitStreakCard;
 
 const styles = StyleSheet.create({
+  trailingArea: {
+    // Keeps the informational streak badge clear of the overflow button's
+    // expanded hit target while preserving that target's full size.
+    gap: 6,
+    alignItems: "center",
+  },
   overflowButton: {
     width: 28,
     height: 36,

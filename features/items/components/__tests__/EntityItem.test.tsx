@@ -184,7 +184,7 @@ describe("EntityItem Unified Architecture", () => {
   });
 
   describe("HabitStreakCard using EntityItem", () => {
-    it("renders habit with amber streak and resolves keyword ambient category for Gym", () => {
+    it("renders the streak as a trailing badge, keeps it out of metadata, and resolves keyword ambient category for Gym", () => {
       const mockHabit = {
         id: "h-gym",
         title: "Gym Workout",
@@ -217,22 +217,110 @@ describe("EntityItem Unified Architecture", () => {
       const stops = ambientWash.findAllByType(Stop);
       expect(stops[0].props.stopColor).toBe(Palette.emerald500);
 
-      // 2. Amber streak text is present
       const textNodes = root.findAllByType(RNText).map((t: any) =>
         Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
       );
       expect(textNodes).toContain("Gym Workout");
-      expect(textNodes).toContain("🔥 12");
 
-      // 3. Resource indicator shows count of 1
+      // 2. Streak has moved out of the metadata row entirely
+      expect(textNodes).not.toContain("🔥 12");
+      expect(textNodes.filter((t: any) => t === "Daily")).toHaveLength(1);
+
+      // 3. Streak is now a trailing badge with a meaningful a11y label
+      const streakBadge = root.findByProps({ testID: "habit-streak-badge" });
+      expect(streakBadge).toBeDefined();
+      expect(streakBadge.props.accessibilityLabel).toBe("12 day streak");
+      const streakTexts = streakBadge
+        .findAllByType(RNText)
+        .map((t: any) => t.props.children);
+      expect(streakTexts).toContain(12);
+      expect(streakTexts).toContain("days");
+
+      // 4. Resource indicator still shows count of 1 in the metadata row
       const resIndicator = root.findByProps({ testID: "habit-resource-indicator" });
       expect(resIndicator).toBeDefined();
       const resTexts = resIndicator.findAllByType(RNText).map((t: any) => t.props.children);
       expect(resTexts).toContain("1");
 
-      // 4. Overflow button is present
+      // 5. Overflow button is still present and independent of the streak badge
       const overflowBtn = root.findByProps({ testID: "habit-overflow-button" });
       expect(overflowBtn).toBeDefined();
+    });
+
+    it("keeps the streak value visible when the habit is completed", () => {
+      const mockHabit = {
+        id: "h-done",
+        title: "Meditate",
+        recurrence: { frequency: "daily" },
+        resourceIds: [],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={0}
+            completedToday={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const streakBadge = root.findByProps({ testID: "habit-streak-badge" });
+      expect(streakBadge.props.accessibilityLabel).toBe("0 day streak");
+
+      const streakTexts = streakBadge
+        .findAllByType(RNText)
+        .map((t: any) => t.props.children);
+      expect(streakTexts).toContain(0);
+      expect(streakTexts).toContain("days");
+
+      // Stage 0 is inactive, so no flame artwork is registered or rendered.
+      expect(streakBadge.findAllByProps({ testID: "habit-streak-flame" })).toHaveLength(0);
+
+      // No extra opacity beyond the row-level dim applied by EntityItem itself.
+      const badgeStyle = Object.assign({}, ...(Array.isArray(streakBadge.props.style)
+        ? streakBadge.props.style
+        : [streakBadge.props.style]));
+      expect(badgeStyle.opacity).toBeUndefined();
+
+      // Completing a habit must not hide the overflow menu.
+      expect(root.findByProps({ testID: "habit-overflow-button" })).toBeDefined();
+    });
+
+    it("hides the overflow button in selection mode while keeping the streak badge", () => {
+      const mockHabit = {
+        id: "h-sel",
+        title: "Read",
+        recurrence: { frequency: "daily" },
+        resourceIds: [],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={1}
+            completedToday={false}
+            isSelectionMode={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      expect(root.findAllByProps({ testID: "habit-overflow-button" })).toHaveLength(0);
+      const streakBadge = root.findByProps({ testID: "habit-streak-badge" });
+      expect(streakBadge.props.accessibilityLabel).toBe("1 day streak");
+      const streakTexts = streakBadge
+        .findAllByType(RNText)
+        .map((t: any) => t.props.children);
+      expect(streakTexts).toContain("day");
     });
 
     it("renders habit priority edge strip when priority is high", () => {
