@@ -350,6 +350,90 @@ describe("EntityItem Unified Architecture", () => {
       const prioStrip = root.findByProps({ testID: "habit-category-priority-edge-strip" });
       expect(prioStrip).toBeDefined();
     });
+
+    it("tapping compact resource metadata opens Quick Edit and does not expand resources inline", () => {
+      const mockHabit = {
+        id: "h-resources",
+        title: "Study React",
+        recurrence: { frequency: "daily" },
+        resourceIds: ["res-1", "res-2"],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={7}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+            linkedCount={2}
+            linkedResources={[
+              { id: "res-1", title: "React Docs", type: "link" },
+              { id: "res-2", title: "Notes", type: "note" },
+            ]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const resIndicator = root.findByProps({ testID: "habit-resource-indicator" });
+      expect(resIndicator).toBeDefined();
+
+      // Does not render inline resource rows in the card body
+      const textNodes = root.findAllByType(RNText).map((t: any) =>
+        Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+      );
+      expect(textNodes).not.toContain("React Docs");
+      expect(textNodes).not.toContain("Notes");
+
+      // Quick Edit sheet is initially unmounted
+      expect(root.findAllByProps({ testID: "habit-quick-edit-sheet" })).toHaveLength(0);
+
+      // Tapping the compact resource indicator opens Quick Edit
+      act(() => {
+        resIndicator.props.onPress();
+      });
+
+      expect(root.findByProps({ testID: "habit-quick-edit-sheet" })).toBeDefined();
+    });
+
+    it("applies strengthened category gradient wash and non-colliding ambient watermark", () => {
+      const mockHabit = {
+        id: "h-gym",
+        title: "Gym Workout",
+        recurrence: { frequency: "daily" },
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={14}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      // Stronger wash stops (0.28 dark stopOpacity)
+      const ambientWash = root.findByProps({ testID: "habit-category-ambient-wash" });
+      const stops = ambientWash.findAllByType(Stop);
+      expect(stops[0].props.stopOpacity).toBe(0.28);
+
+      // Ambient icon wrapper has 0.19 opacity and right: 76 to keep clear of streak flame
+      const ambientIcon = root.findByProps({ testID: "habit-category-ambient-icon" });
+      const flattenedStyle = Object.assign(
+        {},
+        ...(Array.isArray(ambientIcon.props.style) ? ambientIcon.props.style : [ambientIcon.props.style])
+      );
+      expect(flattenedStyle.right).toBe(76);
+      expect(flattenedStyle.opacity).toBe(0.19);
+    });
   });
 
   describe("ChecklistProgressCard using EntityItem", () => {
@@ -463,6 +547,80 @@ describe("EntityItem Unified Architecture", () => {
       });
 
       expect(onSelectPriorityMock).toHaveBeenCalledWith("high");
+    });
+
+    it("renders compact horizontal attachment strip near top when resources exist", () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onOpenResourceMock = jest.fn();
+      const onAddResourceMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={jest.fn()}
+            title="Habit with resources"
+            linkedResources={[
+              { id: "res-1", title: "Workout PDF", type: "note" },
+              { id: "res-2", title: "Timer Link", type: "link" },
+            ]}
+            totalResources={2}
+            onOpenResource={onOpenResourceMock}
+            onAddResource={onAddResourceMock}
+            testIDPrefix="habit"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      // Attachment strip is rendered near top
+      const strip = root.findByProps({ testID: "habit-attachment-strip" });
+      expect(strip).toBeDefined();
+
+      // Attachment chips for each resource
+      const chip1 = root.findByProps({ testID: "habit-attachment-chip-res-1" });
+      expect(chip1).toBeDefined();
+      act(() => {
+        chip1.props.onPress();
+      });
+      expect(onOpenResourceMock).toHaveBeenCalledWith(expect.objectContaining({ id: "res-1" }));
+
+      // Add attachment button
+      const addBtn = root.findByProps({ testID: "habit-add-attachment-button" });
+      expect(addBtn).toBeDefined();
+      act(() => {
+        addBtn.props.onPress();
+      });
+      expect(onAddResourceMock).toHaveBeenCalled();
+    });
+
+    it("renders subtle + Add resource affordance when no resources exist", () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onAddResourceMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={jest.fn()}
+            title="Habit without resources"
+            linkedResources={[]}
+            totalResources={0}
+            onAddResource={onAddResourceMock}
+            testIDPrefix="habit"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const emptyAdd = root.findByProps({ testID: "habit-add-resource-empty" });
+      expect(emptyAdd).toBeDefined();
+      act(() => {
+        emptyAdd.props.onPress();
+      });
+      expect(onAddResourceMock).toHaveBeenCalled();
     });
   });
 });

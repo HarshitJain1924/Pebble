@@ -1,3 +1,4 @@
+import { Radius } from "@/shared/constants/radii";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors } from "@/shared/constants/theme";
 import { useStreakColors } from "@/shared/hooks/useCategoryColors";
@@ -54,6 +55,7 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
   const colors = Colors[colorScheme ?? "dark"];
   const streakColors = useStreakColors();
   const reduceMotion = useReducedMotion();
+  const isDark = colorScheme !== "light";
 
   const stage = getHabitStreakStage(streak);
   const flameSource = resolveStreakFlameSource(stage);
@@ -69,7 +71,17 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
       accessible
       accessibilityRole="text"
       accessibilityLabel={getHabitStreakAccessibilityLabel(streak)}
-      style={styles.container}
+      style={[
+        styles.container,
+        {
+          backgroundColor: isInactive
+            ? (isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)")
+            : streakColors.surface,
+          borderColor: isInactive
+            ? (isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)")
+            : (isDark ? "rgba(249, 115, 22, 0.28)" : "rgba(194, 65, 12, 0.22)"),
+        },
+      ]}
     >
       {flameSource ? (
         <Image
@@ -95,14 +107,18 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    minWidth: 40,
+    minWidth: 42,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: Radius.md,
+    borderWidth: 1,
   },
   flame: {
     width: 20,
     height: 20,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   valueRow: {
     flexDirection: "row",
@@ -110,7 +126,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   value: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
     letterSpacing: -0.3,
   },

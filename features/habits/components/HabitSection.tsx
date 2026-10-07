@@ -60,11 +60,9 @@ export function HabitSection({
   const isLight = colorScheme === "light";
 
   // Habit context states
-  const [expandedHabitId, setExpandedHabitId] = useState<string | null>(null);
   const [activeHabitId, setActiveHabitId] = useState<string | null>(null);
   const [showLinkSelector, setShowLinkSelector] = useState(false);
   const [peekingResourceIds, setPeekingResourceIds] = useState<string[] | null>(null);
-  const [showAllResourcesMap, setShowAllResourcesMap] = useState<Record<string, boolean>>({});
 
   // Section expanded states
   const [todayExpanded, setTodayExpanded] = useState(true);
@@ -111,35 +109,12 @@ export function HabitSection({
     });
   }, [displayedHabits, selectedDateKey]);
 
-  // Reset showAllResources state when drawer is collapsed
-  React.useEffect(() => {
-    if (expandedHabitId === null) {
-      setShowAllResourcesMap({});
-    }
-  }, [expandedHabitId]);
-
   const renderHabitItem = (item: Habit) => {
     const linkedIds = item.resourceIds || [];
     const linkedCount = linkedIds.length;
-    const isExpanded = expandedHabitId === item.id;
     const linkedResources = linkedIds
       .map((id: string) => allResources.find((r) => r.id === id))
       .filter(Boolean);
-
-    const showAllResources = !!showAllResourcesMap[item.id];
-    const setShowAllResources = (val: boolean) => {
-      setShowAllResourcesMap(prev => ({ ...prev, [item.id]: val }));
-    };
-
-    const hasHiddenResources = linkedResources.length > 3;
-    const displayedResources = hasHiddenResources && !showAllResources
-      ? linkedResources.slice(0, 2)
-      : linkedResources;
-
-    // Automatically collapse when no resources are left
-    if (linkedCount === 0 && isExpanded) {
-      setExpandedHabitId(null);
-    }
 
     return (
       <View key={item.id} style={styles.habitWrap}>
@@ -178,15 +153,6 @@ export function HabitSection({
                   router.push(`/task-details?id=${item.id}&type=habit`)
                 }
                 linkedCount={linkedCount}
-                isExpanded={isExpanded}
-                onPressResources={() => {
-                  if (linkedCount === 0) {
-                    setActiveHabitId(item.id);
-                    setShowLinkSelector(true);
-                  } else {
-                    setExpandedHabitId(expandedHabitId === item.id ? null : item.id);
-                  }
-                }}
                 onLongPressResources={() => {
                   if (linkedCount > 0) {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -195,7 +161,6 @@ export function HabitSection({
                 }}
                 habit={item}
                 linkedResources={linkedResources}
-                displayedResources={displayedResources}
                 onPressAddResource={() => {
                   setActiveHabitId(item.id);
                   setShowLinkSelector(true);
@@ -209,9 +174,6 @@ export function HabitSection({
                     Alert.alert(res.title, "Image attachment");
                   }
                 }}
-                showAllResources={showAllResources}
-                setShowAllResources={setShowAllResources}
-                hasHiddenResources={hasHiddenResources}
               />
             </View>
           </View>

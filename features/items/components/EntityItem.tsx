@@ -309,7 +309,7 @@ export const EntityItem: React.FC<EntityItemProps> = ({
           borderRadius: Radius.lg,
           borderWidth: 1,
           borderColor: categoryColor
-            ? (isDark ? `${categoryColor}36` : `${categoryColor}2C`)
+            ? (isDark ? `${categoryColor}40` : `${categoryColor}33`)
             : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
           marginVertical: 2,
           opacity: dimmed || isCompleted ? 0.6 : 1,
@@ -329,21 +329,21 @@ export const EntityItem: React.FC<EntityItemProps> = ({
           testID={`${testIDPrefix}-ambient-wash`}
         >
           <Defs>
-            <LinearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <LinearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="80%">
               <Stop
                 offset="0%"
                 stopColor={categoryColor}
-                stopOpacity={isDark ? 0.18 : 0.14}
+                stopOpacity={isDark ? 0.28 : 0.22}
               />
               <Stop
-                offset="50%"
+                offset="60%"
                 stopColor={categoryColor}
-                stopOpacity={isDark ? 0.08 : 0.06}
+                stopOpacity={isDark ? 0.12 : 0.09}
               />
               <Stop
                 offset="100%"
                 stopColor={categoryColor}
-                stopOpacity={isDark ? 0.02 : 0.01}
+                stopOpacity={isDark ? 0.04 : 0.03}
               />
             </LinearGradient>
           </Defs>
@@ -357,7 +357,7 @@ export const EntityItem: React.FC<EntityItemProps> = ({
           style={[
             styles.ambientIconWrapper,
             {
-              opacity: isDark ? 0.14 : 0.11,
+              opacity: isDark ? 0.19 : 0.16,
             },
           ]}
           pointerEvents="none"
@@ -666,7 +666,7 @@ const styles = StyleSheet.create({
   },
   ambientIconWrapper: {
     position: "absolute",
-    right: 24,
+    right: 76,
     top: 0,
     bottom: 0,
     justifyContent: "center",

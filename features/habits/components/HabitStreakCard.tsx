@@ -4,12 +4,9 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Image,
-  Pressable,
   StyleSheet,
-  TouchableOpacity,
   View,
 } from "react-native";
 import { ProgressRing } from "@/shared/components/ui/ProgressRing";
@@ -34,18 +31,20 @@ export type HabitStreakCardProps = {
   onPressToggle: (event?: any) => void;
   onCardPress?: () => void;
   linkedCount?: number;
-  isExpanded?: boolean;
   onPressResources?: (event?: any) => void;
   onLongPressResources?: () => void;
   habit: any;
   onDeleteHabit?: () => void;
   isSelectionMode?: boolean;
 
-  // Resource drawer props passed from HabitSection
+  // Resource drawer props passed down to HabitQuickEditSheet
   linkedResources?: any[];
-  displayedResources?: any[];
   onPressAddResource?: () => void;
   onPressOpenResource?: (res: any) => void;
+
+  // Deprecated compatibility props (no longer expanded inline)
+  isExpanded?: boolean;
+  displayedResources?: any[];
   showAllResources?: boolean;
   setShowAllResources?: (show: boolean) => void;
   hasHiddenResources?: boolean;
@@ -59,7 +58,6 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   onPressToggle,
   onCardPress,
   linkedCount = 0,
-  isExpanded = false,
   onPressResources,
   onLongPressResources,
   habit,
@@ -67,12 +65,8 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   isSelectionMode = false,
 
   linkedResources = [],
-  displayedResources = [],
   onPressAddResource,
   onPressOpenResource,
-  showAllResources = false,
-  setShowAllResources,
-  hasHiddenResources = false,
 }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
@@ -86,6 +80,27 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
 
   // Quick edit sheet state
   const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
+
+  // Celebrate deliberate streak transitions (newly completed habit or streak increase)
+  const [isStreakAnimating, setIsStreakAnimating] = useState(false);
+  const prevCompletedRef = useRef(completedToday);
+  const prevStreakRef = useRef(streak);
+
+  useEffect(() => {
+    const newlyCompleted = !prevCompletedRef.current && completedToday;
+    const streakIncreased = streak > prevStreakRef.current;
+
+    if (newlyCompleted || streakIncreased) {
+      setIsStreakAnimating(true);
+      const timer = setTimeout(() => {
+        setIsStreakAnimating(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+
+    prevCompletedRef.current = completedToday;
+    prevStreakRef.current = streak;
+  }, [completedToday, streak]);
 
   // Category atmosphere resolution (subtle background wash + watermark)
   const categoryPresentation = useMemo(() => {
@@ -140,21 +155,24 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
         key: "reminder",
         text: `${displayHour}:${displayMinute} ${ampm}`,
         icon: "clock",
-        color: isLight ? Palette.gray600 : Palette.zinc300,
+        color: colors.textMuted,
       });
     }
 
-    // 3. Linked Resources (compact indicator in metadata)
+    // 3. Linked Resources (compact indicator in metadata; taps open Quick Edit)
     if (linkedCount > 0) {
       parts.push({
         key: "resources",
         text: String(linkedCount),
         icon: resourceIconName,
-        onPress: onPressResources,
+        onPress: () => {
+          Haptics.selectionAsync().catch(() => {});
+          setIsQuickEditOpen(true);
+          onPressResources?.();
+        },
         onLongPress: onLongPressResources,
         accessibilityRole: "button",
-        accessibilityLabel: `${linkedCount} resources linked to ${title}. Tap to ${isExpanded ? "collapse" : "expand"}`,
-        accessibilityState: { expanded: isExpanded },
+        accessibilityLabel: `${linkedCount} resources linked to ${title}. Tap to open in quick edit`,
         testID: "habit-resource-indicator",
       });
     }
@@ -168,8 +186,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
     onPressResources,
     onLongPressResources,
     title,
-    isExpanded,
-    isLight,
+    colors.textMuted,
   ]);
 
   return (
@@ -179,9 +196,12 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       dimmed={completedToday}
       colorScheme={colorScheme}
       testIDPrefix="habit-category"
+      style={styles.cardContainer}
       leadingControl={
-        <Pressable
+        <PressableScale
           onPress={onPressToggle}
+          scaleTo={0.88}
+          haptic
           accessibilityRole="checkbox"
           accessibilityState={{ checked: completedToday }}
           accessibilityLabel={`Mark habit ${title} as ${completedToday ? "incomplete" : "completed"}`}
@@ -203,7 +223,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
               <Feather name="check" size={10} color={Palette.white} />
             </View>
           )}
-        </Pressable>
+        </PressableScale>
       }
       title={title}
       isCompleted={completedToday}
@@ -215,211 +235,27 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       trailingAreaStyle={styles.trailingArea}
       trailingActions={
         <>
-          <StreakFlameBadge streak={streak} />
+          <StreakFlameBadge streak={streak} animated={isStreakAnimating} />
           {!isSelectionMode ? (
-          <PressableScale
-            onPress={() => {
-              Haptics.selectionAsync().catch(() => {});
-              setIsQuickEditOpen(true);
-            }}
-            scaleTo={0.9}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            haptic
-            accessibilityRole="button"
-            accessibilityLabel={`More options for habit ${title}`}
-            style={styles.overflowButton}
-            testID="habit-overflow-button"
-          >
-            <Feather name="more-vertical" size={18} color={colors.textMuted} />
-          </PressableScale>
+            <PressableScale
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setIsQuickEditOpen(true);
+              }}
+              scaleTo={0.9}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={`More options for habit ${title}`}
+              style={styles.overflowButton}
+              testID="habit-overflow-button"
+            >
+              <Feather name="more-vertical" size={18} color={colors.textMuted} />
+            </PressableScale>
           ) : null}
         </>
       }
     >
-      {/* Expanded Flat Resource List inside the same card */}
-      {isExpanded && linkedResources.length > 0 && (
-        <View style={styles.expandedContent}>
-          {/* Subtle divider before the resources section */}
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          {/* Flat List (Apple Notes attachment style) */}
-          <View style={styles.resourcesList}>
-            {displayedResources.map((res: any, idx: number) => {
-              const isImage = res.type === "image";
-              const isNote = res.type === "note";
-              const isLink = res.type === "link";
-              const isVideo =
-                isLink &&
-                (res.url?.toLowerCase().includes("youtube") ||
-                  res.url?.toLowerCase().includes("video"));
-
-              return (
-                <View key={res.id}>
-                  <TouchableOpacity
-                    onPress={() => onPressOpenResource?.(res)}
-                    accessibilityRole={isLink ? "link" : "button"}
-                    accessibilityLabel={`Open resource: ${res.title}`}
-                    style={styles.resourceRow}
-                  >
-                    {/* Icon or Thumbnail */}
-                    {isImage ? (
-                      <View
-                        style={[
-                          styles.thumbnailWrap,
-                          { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
-                        ]}
-                      >
-                        <Image
-                          source={{
-                            uri:
-                              res.mediaUri ||
-                              "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
-                          }}
-                          style={{ width: "100%", height: "100%" }}
-                        />
-                      </View>
-                    ) : (
-                      <View
-                        style={[
-                          styles.thumbnailWrap,
-                          { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
-                        ]}
-                      >
-                        <Feather
-                          name={
-                            isVideo
-                              ? "play-circle"
-                              : isLink
-                                ? "globe"
-                                : isNote
-                                  ? "file-text"
-                                  : "file"
-                          }
-                          size={13}
-                          color={colors.primary}
-                        />
-                      </View>
-                    )}
-
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          fontWeight: "600",
-                          color: colors.text,
-                        }}
-                        numberOfLines={1}
-                      >
-                        {res.title}
-                      </Text>
-                      {isLink && res.url && (
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: colors.textMuted,
-                            marginTop: 1,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {
-                            res.url
-                              .replace(/https?:\/\/(www\.)?/, "")
-                              .split("/")[0]
-                          }
-                        </Text>
-                      )}
-                      {isNote && res.content && (
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: colors.textMuted,
-                            marginTop: 1,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {res.content.trim().split("\n")[0]}
-                        </Text>
-                      )}
-                      {isImage && (
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: colors.textMuted,
-                            marginTop: 1,
-                          }}
-                        >
-                          Image attachment
-                        </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* Inner row separator divider */}
-                  {idx < displayedResources.length - 1 && (
-                    <View
-                      style={[
-                        styles.innerDivider,
-                        { backgroundColor: colors.border + "40" },
-                      ]}
-                    />
-                  )}
-                </View>
-              );
-            })}
-
-            {/* Show More / Less Gate */}
-            {hasHiddenResources && (
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                    () => {},
-                  );
-                  setShowAllResources?.(!showAllResources);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  showAllResources
-                    ? "Show fewer resources"
-                    : `Show ${linkedResources.length - 2} more resources`
-                }
-                style={styles.showMoreBtn}
-              >
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: colors.textMuted,
-                    fontWeight: "600",
-                  }}
-                >
-                  {showAllResources
-                    ? "Show less"
-                    : `Show ${linkedResources.length - 2} more`}
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Flat Link Resource Action button (no dashed border) */}
-            <TouchableOpacity
-              onPress={onPressAddResource}
-              accessibilityRole="button"
-              accessibilityLabel={`Link resource to ${title}`}
-              style={styles.addResourceBtn}
-            >
-              <Feather name="plus" size={14} color={colors.primary} />
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.primary,
-                  fontWeight: "600",
-                }}
-              >
-                Link Resource
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
       {/* Habit Quick Edit Sheet */}
       <HabitQuickEditSheet
         visible={isQuickEditOpen}
@@ -442,6 +278,7 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
 export const HabitItem = HabitStreakCard;
 
 const styles = StyleSheet.create({
+  cardContainer: {},
   trailingArea: {
     // Keeps the informational streak badge clear of the overflow button's
     // expanded hit target while preserving that target's full size.
@@ -470,48 +307,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  expandedContent: {
-    marginTop: 10,
-    paddingBottom: 4,
-    paddingHorizontal: 14,
-  },
-  divider: {
-    height: 1,
-    width: "100%",
-    marginBottom: 12,
-    opacity: 0.5,
-  },
-  resourcesList: {
-    paddingLeft: 36, // Align neatly with content text offset
-    gap: 4,
-  },
-  resourceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    gap: 12,
-  },
-  thumbnailWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  innerDivider: {
-    height: 1,
-    width: "100%",
-  },
-  showMoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  addResourceBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    gap: 6,
-  },
 });
+
