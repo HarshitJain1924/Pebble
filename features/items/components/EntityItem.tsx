@@ -229,21 +229,28 @@ export const EntityItem: React.FC<EntityItemProps> = ({
 
   // Category atmosphere resolution
   const resolvedCategory = useMemo<EntityCategoryPresentation | null>(() => {
-    if (!category) return null;
-    if (typeof category === "object" && category.color) {
+    if (category === null) return null;
+    if (typeof category === "object" && category?.color) {
       return category;
     }
     const categoryKey = typeof category === "string" ? category : undefined;
+    const titleStr = typeof title === "string" ? title : undefined;
+    const titleForResolution = categoryContext?.title ?? titleStr;
+
+    if (!categoryKey && !categoryContext && !titleForResolution) {
+      return null;
+    }
+
     return resolveEntityCategoryPresentation(
       {
         categoryId: categoryKey,
-        title: categoryContext?.title,
+        title: titleForResolution,
         type: categoryContext?.type,
         priority: categoryContext?.priority,
       },
       isDark,
     );
-  }, [category, categoryContext?.title, categoryContext?.type, categoryContext?.priority, isDark]);
+  }, [category, categoryContext, title, isDark]);
 
   const categoryColor = resolvedCategory?.color ?? null;
 
@@ -262,14 +269,49 @@ export const EntityItem: React.FC<EntityItemProps> = ({
     return isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(0, 0, 0, 0.12)";
   }, [shouldRenderPriority, priority, isDark]);
 
-  // Render Title Node
+  // Render Title Node with Inline Category Icon
   const renderTitle = () => {
     if (!title) return null;
+
+    const categoryIconNode = resolvedCategory?.icon ? (
+      resolvedCategory.iconFamily === "ionicons" ? (
+        <Ionicons
+          name={resolvedCategory.icon as any}
+          size={16}
+          color={isCompleted ? colors.textMuted : resolvedCategory.color}
+          style={styles.titleCategoryIcon}
+          testID={`${testIDPrefix}-category-icon`}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      ) : (
+        <Feather
+          name={resolvedCategory.icon as any}
+          size={16}
+          color={isCompleted ? colors.textMuted : resolvedCategory.color}
+          style={styles.titleCategoryIcon}
+          testID={`${testIDPrefix}-category-icon`}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      )
+    ) : null;
+
     if (typeof title !== "string") {
+      if (categoryIconNode) {
+        return (
+          <View style={styles.titleRow}>
+            {categoryIconNode}
+            {title}
+          </View>
+        );
+      }
       return title;
     }
+
     return (
       <View style={styles.titleRow}>
+        {categoryIconNode}
         <Text
           style={[
             styles.titleText,
@@ -699,9 +741,12 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5.5,
     marginBottom: 2,
     minWidth: 0,
+  },
+  titleCategoryIcon: {
+    flexShrink: 0,
   },
   titleText: {
     letterSpacing: -0.25,

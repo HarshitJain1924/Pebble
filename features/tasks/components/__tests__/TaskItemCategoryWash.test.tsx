@@ -239,4 +239,88 @@ describe("TaskItem Category Presentation Redesign", () => {
     const stops = ambientWash.findAllByType(Stop);
     expect(stops[0].props.stopColor).toBe(TaskCategoryColors.health.color.dark);
   });
+
+  it("renders small inline category icon before title in TaskItem", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={baseTask}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.size).toBe(16);
+    expect(inlineIcon.props.name).toBe("briefcase");
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
+  });
+
+  it("renders small inline category icon for keyword match like Shopping in TaskItem", () => {
+    const shoppingTask: Task = {
+      ...baseTask,
+      id: "task-shop",
+      title: "Shopping",
+      categoryId: undefined,
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={shoppingTask}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.size).toBe(16);
+    expect(inlineIcon.props.name).toBe("cart-outline");
+  });
+
+  it("does not render inline category icon when task has no category or keyword match", () => {
+    const taskWithoutCategory: Task = {
+      ...baseTask,
+      id: "task-no-cat",
+      title: "Finish portfolio",
+      categoryId: undefined,
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={taskWithoutCategory}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    expect(root.findAllByProps({ testID: "task-category-category-icon" })).toHaveLength(0);
+  });
 });

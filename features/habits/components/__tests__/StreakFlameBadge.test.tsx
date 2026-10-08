@@ -46,11 +46,14 @@ jest.mock("expo-image", () => {
   };
 });
 
+let activeRenderers: any[] = [];
+
 const renderBadge = (streak: number, animated = false, onPress?: () => void) => {
   let renderer: any;
   act(() => {
     renderer = create(<StreakFlameBadge streak={streak} animated={animated} onPress={onPress} />);
   });
+  activeRenderers.push(renderer);
   return renderer;
 };
 
@@ -67,6 +70,19 @@ beforeEach(() => {
   for (const key of Object.keys(mockSources)) {
     delete mockSources[Number(key) as HabitStreakStage];
   }
+});
+
+afterEach(() => {
+  for (const r of activeRenderers) {
+    try {
+      act(() => {
+        r.unmount();
+      });
+    } catch {}
+  }
+  activeRenderers = [];
+  jest.clearAllTimers();
+  jest.useRealTimers();
 });
 
 describe("StreakFlameBadge", () => {
@@ -190,5 +206,29 @@ describe("StreakFlameBadge", () => {
     const root = renderer.root;
     expect(textOf(root)).toEqual(expect.arrayContaining([20, "days"]));
     expect(labelOf(root)).toBe("20 day streak");
+  });
+
+  it("renders the animated container wrapper around active flame artwork", () => {
+    mockSources[4] = 42;
+    const renderer = renderBadge(20);
+    const container = renderer.root.findByProps({ testID: "habit-streak-flame-container" });
+    expect(container).toBeTruthy();
+    const flame = container.findByProps({ testID: "habit-streak-flame" });
+    expect(flame).toBeTruthy();
+  });
+
+  it("does not render flame container when streak is 0 (inactive)", () => {
+    const renderer = renderBadge(0);
+    expect(renderer.root.findAllByProps({ testID: "habit-streak-flame-container" })).toHaveLength(0);
+  });
+
+  it("unmounts cleanly and cancels animation without errors", () => {
+    mockSources[4] = 42;
+    const renderer = renderBadge(20);
+    expect(() => {
+      act(() => {
+        renderer.unmount();
+      });
+    }).not.toThrow();
   });
 });

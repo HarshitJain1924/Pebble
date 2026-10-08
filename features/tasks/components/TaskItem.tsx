@@ -11,14 +11,8 @@ import {
   EntityItem,
   EntityMetaRow,
   type EntityMetaPart,
+  resolveEntityCategoryPresentation,
 } from "@/features/items";
-import {
-  getCategoryColors,
-  resolveColor,
-  TaskCategoryColors,
-  TaskCategoryKey,
-  TaskListPriorityColors,
-} from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
 import { Radius } from "@/shared/constants/radii";
@@ -41,7 +35,6 @@ import {
   TaskMetadataPart,
   TaskSectionContext,
 } from "@/features/tasks/utils/task-formatting";
-import { resolveItemCategorySymbol } from "@/features/today/utils/item-presentation";
 import {
   getStreamResourcePalette,
   resolveResourceVisual,
@@ -169,7 +162,6 @@ export function TodoItem({
   const router = useRouter();
   const isLight = colorScheme === "light";
   const isDark = colorScheme !== "light";
-  const categoryColors = getCategoryColors(isDark);
   const streamColors = getStreamResourcePalette(isDark);
 
   // Contextual Quick Edit sheet & Date picker modals
@@ -297,38 +289,17 @@ export function TodoItem({
     }
   };
 
-  // Category presentation (color and icon) for subtle ambient background blend
+  // Category presentation (color and icon) for subtle ambient background blend and inline category icon
   const categoryPresentation = useMemo(() => {
-    if (!item.categoryId) return null;
-    const cat = item.categoryId.toLowerCase();
-    const color =
-      cat in TaskCategoryColors
-        ? resolveColor(TaskCategoryColors[cat as TaskCategoryKey].color, isDark)
-        : resolveItemCategorySymbol(
-            {
-              type: "task",
-              title: item.title,
-              categoryId: item.categoryId,
-              priority: item.priority,
-            },
-            isDark,
-          ).color;
-
-    const symbol = resolveItemCategorySymbol(
+    return resolveEntityCategoryPresentation(
       {
-        type: "task",
-        title: item.title,
         categoryId: item.categoryId,
+        title: item.title,
+        type: "task",
         priority: item.priority,
       },
       isDark,
     );
-
-    return {
-      color,
-      icon: symbol.icon,
-      iconFamily: symbol.iconFamily,
-    };
   }, [item.title, item.categoryId, item.priority, isDark]);
 
   const gradientId = useMemo(

@@ -7,6 +7,15 @@ import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import {
   getHabitStreakAccessibilityLabel,
   getHabitStreakStage,
@@ -67,8 +76,8 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
   // Inactive streaks stay muted so a flat list does not read as a wall of flame.
   const valueColor = isInactive ? colors.textMuted : streakColors.accent;
 
-  const shouldPlayFlameRef = useRef(shouldPlayFlame);
-  shouldPlayFlameRef.current = shouldPlayFlame;
+  const idleProgress = useSharedValue(0);
+  const isIdleActive = stage > 0 && !shouldPlayFlame && !reduceMotion;
 
   // Clean up press animation timer on unmount
   useEffect(() => {
@@ -79,10 +88,80 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
     };
   }, []);
 
-  // Imperative native animation bridge for Android Glide:
-  // On Android, toggling the `autoplay` prop dynamically in React does not start
-  // or resume the native GifDrawable on an already loaded view. Calling
-  // `startAnimating()` on the ref starts the native Animatable/GifDrawable.
+  // Subtle living flame idle animation (active streak > 0, not celebrating, reduced motion off).
+  // Low-frequency UI thread animation without continuous GIF decodes or JS renders.
+  useEffect(() => {
+    if (isIdleActive) {
+      idleProgress.value = 0;
+      idleProgress.value = withRepeat(
+        withTiming(1, { duration: 2400, easing: Easing.linear }),
+        -1,
+        false
+      );
+    } else {
+      cancelAnimation(idleProgress);
+      idleProgress.value = 0;
+    }
+
+    return () => {
+      cancelAnimation(idleProgress);
+    };
+  }, [isIdleActive, idleProgress]);
+
+  const flameAnimatedStyle = useAnimatedStyle(() => {
+    if (!isIdleActive) {
+      return {
+        transform: [
+          { translateY: 0 },
+          { scaleY: 1 },
+          { scaleX: 1 },
+          { rotate: "0deg" },
+        ],
+      };
+    }
+
+    // Natural flame motion curve: subtle asymmetric upward licks and gentle relaxing settle
+    const translateY = interpolate(
+      idleProgress.value,
+      [0, 0.22, 0.45, 0.72, 1],
+      [0, -0.75, -0.2, -0.6, 0]
+    );
+
+    const scaleY = interpolate(
+      idleProgress.value,
+      [0, 0.22, 0.45, 0.72, 1],
+      [1, 1.035, 1.005, 1.025, 1]
+    );
+
+    const scaleX = interpolate(
+      idleProgress.value,
+      [0, 0.22, 0.45, 0.72, 1],
+      [1, 0.982, 1.005, 0.988, 1]
+    );
+
+    const rotate = `${interpolate(
+      idleProgress.value,
+      [0, 0.22, 0.45, 0.72, 1],
+      [0, -0.5, 0.35, -0.2, 0]
+    )}deg`;
+
+    return {
+      transform: [
+        { translateY },
+        { scaleY },
+        { scaleX },
+        { rotate },
+      ],
+    };
+  });
+
+  // Motion: the flame artwork is animated by the Flaticon assets themselves.
+  // In expo-image (especially on Android Glide and in Expo Go with New Architecture),
+  // dynamically toggling the `autoplay` prop or relying solely on imperative `startAnimating()`
+  // on an already loaded view does not reliably restart native decoding.
+  // Providing a key conditioned on `shouldPlayFlame` and `stage` forces a clean remount
+  // with `autoplay={true}` for playback and `autoplay={false}` for still display.
+  // The imperative methods (startAnimating/stopAnimating) are retained for native environments.
   useEffect(() => {
     if (shouldPlayFlame) {
       flameRef.current?.startAnimating?.().catch?.(() => {});
@@ -92,24 +171,26 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
   }, [shouldPlayFlame]);
 
   const handleLoad = useCallback(() => {
-    if (shouldPlayFlameRef.current) {
+    if (shouldPlayFlame) {
       flameRef.current?.startAnimating?.().catch?.(() => {});
     }
-  }, []);
+  }, [shouldPlayFlame]);
 
   const handlePress = useCallback(() => {
     if (stage > 0) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      setIsPressAnimating(true);
-      if (pressTimerRef.current) {
-        clearTimeout(pressTimerRef.current);
+      if (!reduceMotion) {
+        setIsPressAnimating(true);
+        if (pressTimerRef.current) {
+          clearTimeout(pressTimerRef.current);
+        }
+        pressTimerRef.current = setTimeout(() => {
+          setIsPressAnimating(false);
+        }, 3000);
       }
-      pressTimerRef.current = setTimeout(() => {
-        setIsPressAnimating(false);
-      }, 3000);
     }
     onPress?.();
-  }, [stage, onPress]);
+  }, [stage, reduceMotion, onPress]);
 
   return (
     <Pressable
@@ -123,17 +204,23 @@ export const StreakFlameBadge: React.FC<StreakFlameBadgeProps> = ({
       style={styles.container}
     >
       {flameSource ? (
-        <Image
-          ref={flameRef}
-          source={flameSource}
-          style={styles.flame}
-          contentFit="contain"
-          autoplay={shouldPlayFlame}
-          onLoad={handleLoad}
-          testID="habit-streak-flame"
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-        />
+        <Animated.View
+          testID="habit-streak-flame-container"
+          style={[styles.flameContainer, flameAnimatedStyle]}
+        >
+          <Image
+            ref={flameRef}
+            key={shouldPlayFlame ? `flame-anim-${stage}` : `flame-static-${stage}`}
+            source={flameSource}
+            style={styles.flame}
+            contentFit="contain"
+            autoplay={shouldPlayFlame}
+            onLoad={handleLoad}
+            testID="habit-streak-flame"
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+        </Animated.View>
       ) : null}
 
       <View style={styles.valueRow}>
@@ -151,6 +238,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+  },
+  flameContainer: {
+    width: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
   flame: {
     width: 18,

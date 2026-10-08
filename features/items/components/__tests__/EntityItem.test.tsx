@@ -181,6 +181,90 @@ describe("EntityItem Unified Architecture", () => {
         : container.props.style;
       expect(flat.opacity).toBe(0.6);
     });
+
+    it("renders small inline category icon directly before title in title row", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Work item"
+            category="work"
+            colorScheme="dark"
+            testIDPrefix="custom-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const inlineIcon = root.findByProps({ testID: "custom-category-category-icon" });
+      expect(inlineIcon).toBeDefined();
+      expect(inlineIcon.props.size).toBe(16);
+      expect(inlineIcon.props.name).toBe("briefcase");
+      expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
+
+      // Verify it has no background card wrapper or extra container surface
+      const iconStyle = Array.isArray(inlineIcon.props.style)
+        ? Object.assign({}, ...inlineIcon.props.style)
+        : inlineIcon.props.style;
+      expect(iconStyle.backgroundColor).toBeUndefined();
+      expect(iconStyle.borderWidth).toBeUndefined();
+      expect(iconStyle.flexShrink).toBe(0);
+    });
+
+    it("renders inline category icon for keyword matched title like Shopping", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Shopping"
+            colorScheme="dark"
+            testIDPrefix="task-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+      expect(inlineIcon).toBeDefined();
+      expect(inlineIcon.props.size).toBe(16);
+      expect(inlineIcon.props.name).toBe("cart-outline");
+      expect(inlineIcon.props.color).toBe(Palette.pink500);
+    });
+
+    it("does not render inline category icon for neutral item without category", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Generic Neutral Task"
+            colorScheme="dark"
+            testIDPrefix="task-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      expect(root.findAllByProps({ testID: "task-category-category-icon" })).toHaveLength(0);
+    });
+
+    it("mutes inline category icon color when item is completed", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Shopping"
+            isCompleted={true}
+            colorScheme="dark"
+            testIDPrefix="task-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+      expect(inlineIcon).toBeDefined();
+      expect(inlineIcon.props.color).toBe(Colors.dark.textMuted);
+    });
   });
 
   describe("HabitStreakCard using EntityItem", () => {
