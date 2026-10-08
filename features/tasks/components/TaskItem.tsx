@@ -302,11 +302,6 @@ export function TodoItem({
     );
   }, [item.title, item.categoryId, item.priority, isDark]);
 
-  const gradientId = useMemo(
-    () => `task-cat-wash-${String(item.id || "default").replace(/[^a-zA-Z0-9_-]/g, "_")}`,
-    [item.id],
-  );
-
   const currentWorkspace = useMemo(() => {
     const wsId = item.workspaceId || selectedWorkspaceId;
     return lists.find((w) => w.id === wsId);
@@ -401,7 +396,6 @@ export function TodoItem({
         dimmed={isCompleted}
         colorScheme={colorScheme}
         testIDPrefix="task-category"
-        gradientId={gradientId}
         leadingControl={
           <Animated.View style={animatedCheckboxStyle}>
             <PressableScale

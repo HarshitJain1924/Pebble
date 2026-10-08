@@ -2,9 +2,8 @@ import React from "react";
 import { act, create } from "react-test-renderer";
 import { TodoItem } from "@/features/tasks/components/TaskItem";
 import type { Task, Workspace } from "@/shared/types/domain.types";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { TaskCategoryColors } from "@/shared/constants/categoryColors";
-import { Stop } from "react-native-svg";
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({
@@ -94,7 +93,7 @@ const baseTask: Task = {
 };
 
 describe("TaskItem Category Presentation Redesign", () => {
-  it("removes standalone category badge squircle and renders ambient background wash", () => {
+  it("removes standalone category badge squircle and renders neutral card background with inline category icon", () => {
     let renderer: any;
     act(() => {
       renderer = create(
@@ -121,25 +120,23 @@ describe("TaskItem Category Presentation Redesign", () => {
     });
     expect(categoryBadges).toHaveLength(0);
 
-    // 2. Ambient category wash Svg exists with testID
-    const ambientWash = root.findByProps({ testID: "task-category-ambient-wash" });
-    expect(ambientWash).toBeDefined();
+    // 2. Ambient category wash Svg and ambient icon are NOT rendered (neutral card)
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    expect(root.findAllByProps({ testID: "task-category-ambient-icon" })).toHaveLength(0);
 
-    // 3. Ambient category icon watermark exists with testID
-    const ambientIcon = root.findByProps({ testID: "task-category-ambient-icon" });
-    expect(ambientIcon).toBeDefined();
-    expect(ambientIcon.props.style).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ position: "absolute", right: 76 }),
-        expect.objectContaining({ opacity: 0.19 }),
-      ])
+    // 3. Card container has completely neutral background and border
+    const container = root.findByProps({ testID: "entity-item-container" });
+    const flat = Object.assign(
+      {},
+      ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
     );
+    expect(flat.backgroundColor).toBe(Colors.dark.card);
+    expect(flat.borderColor).toBe("rgba(255, 255, 255, 0.08)");
 
-    // 4. Stop color matches semantic category color
-    const stops = ambientWash.findAllByType(Stop);
-    expect(stops[0].props.stopColor).toBe(TaskCategoryColors.work.color.dark);
-    // Dark theme vibrant ambient opacity: ~28% peak
-    expect(stops[0].props.stopOpacity).toBeCloseTo(0.28, 2);
+    // 4. Category is communicated via the small inline icon only
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
 
     // 5. Row preserves: checkbox, title, resource indicator, overflow button
     expect(root.findByProps({ accessibilityRole: "checkbox" })).toBeDefined();
@@ -150,7 +147,7 @@ describe("TaskItem Category Presentation Redesign", () => {
     expect(textNodes).toContain("Finish portfolio");
   });
 
-  it("renders light theme ambient wash with visible category opacity", () => {
+  it("renders light theme with neutral card background and border", () => {
     let renderer: any;
     act(() => {
       renderer = create(
@@ -168,17 +165,16 @@ describe("TaskItem Category Presentation Redesign", () => {
     });
 
     const root = renderer.root;
-    const ambientWash = root.findByProps({ testID: "task-category-ambient-wash" });
-    expect(ambientWash).toBeDefined();
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    expect(root.findAllByProps({ testID: "task-category-ambient-icon" })).toHaveLength(0);
 
-    const stops = ambientWash.findAllByType(Stop);
-    // Light theme visible opacity: ~22% peak
-    expect(stops[0].props.stopOpacity).toBeCloseTo(0.22, 2);
-
-    const ambientIcon = root.findByProps({ testID: "task-category-ambient-icon" });
-    expect(ambientIcon.props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 0.16 })])
+    const container = root.findByProps({ testID: "entity-item-container" });
+    const flat = Object.assign(
+      {},
+      ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
     );
+    expect(flat.backgroundColor).toBe(Palette.white);
+    expect(flat.borderColor).toBe("rgba(0, 0, 0, 0.06)");
   });
 
   it("does not render ambient category wash or icon when task has no categoryId", () => {
@@ -211,7 +207,7 @@ describe("TaskItem Category Presentation Redesign", () => {
     expect(ambientIcons).toHaveLength(0);
   });
 
-  it("uses the specific category color for non-work categories", () => {
+  it("uses the specific category color for non-work categories on inline icon only", () => {
     const healthTask: Task = {
       ...baseTask,
       id: "task-health",
@@ -235,9 +231,16 @@ describe("TaskItem Category Presentation Redesign", () => {
     });
 
     const root = renderer.root;
-    const ambientWash = root.findByProps({ testID: "task-category-ambient-wash" });
-    const stops = ambientWash.findAllByType(Stop);
-    expect(stops[0].props.stopColor).toBe(TaskCategoryColors.health.color.dark);
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.health.color.dark);
+
+    const container = root.findByProps({ testID: "entity-item-container" });
+    const flat = Object.assign(
+      {},
+      ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
+    );
+    expect(flat.backgroundColor).toBe(Colors.dark.card);
   });
 
   it("renders small inline category icon before title in TaskItem", () => {

@@ -10,7 +10,6 @@ import { ChecklistProgressCard } from "@/features/checklists/components/Checklis
 import { Colors, Palette } from "@/shared/constants/theme";
 import { TaskCategoryColors } from "@/shared/constants/categoryColors";
 import { Text as RNText, View as RNView } from "react-native";
-import { Stop } from "react-native-svg";
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({
@@ -104,7 +103,7 @@ describe("EntityItem Unified Architecture", () => {
       expect(textNodes).toContain("2");
     });
 
-    it("renders category ambient wash and watermark icon when category is provided", () => {
+    it("renders completely neutral card background without category wash or watermark icon", () => {
       let renderer: any;
       act(() => {
         renderer = create(
@@ -118,14 +117,17 @@ describe("EntityItem Unified Architecture", () => {
       });
 
       const root = renderer.root;
-      const wash = root.findByProps({ testID: "custom-category-ambient-wash" });
-      expect(wash).toBeDefined();
+      expect(root.findAllByProps({ testID: "custom-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "custom-category-ambient-icon" })).toHaveLength(0);
 
-      const icon = root.findByProps({ testID: "custom-category-ambient-icon" });
-      expect(icon).toBeDefined();
-
-      const stops = wash.findAllByType(Stop);
-      expect(stops[0].props.stopColor).toBe(TaskCategoryColors.work.color.dark);
+      // Verify neutral surface and neutral border
+      const container = root.findByProps({ testID: "entity-item-container" });
+      const flat = Object.assign(
+        {},
+        ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
+      );
+      expect(flat.backgroundColor).toBe(Colors.dark.card);
+      expect(flat.borderColor).toBe("rgba(255, 255, 255, 0.08)");
     });
 
     it("does not render ambient wash or watermark icon when category is null", () => {
@@ -295,11 +297,9 @@ describe("EntityItem Unified Architecture", () => {
 
       const root = renderer.root;
 
-      // 1. Gym matches fitness keyword -> emerald category wash
-      const ambientWash = root.findByProps({ testID: "habit-category-ambient-wash" });
-      expect(ambientWash).toBeDefined();
-      const stops = ambientWash.findAllByType(Stop);
-      expect(stops[0].props.stopColor).toBe(Palette.emerald500);
+      // 1. Completely neutral surface without category wash or ambient icon
+      expect(root.findAllByProps({ testID: "habit-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "habit-category-ambient-icon" })).toHaveLength(0);
 
       const textNodes = root.findAllByType(RNText).map((t: any) =>
         Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
@@ -504,19 +504,16 @@ describe("EntityItem Unified Architecture", () => {
       });
 
       const root = renderer.root;
-      // Stronger wash stops (0.28 dark stopOpacity)
-      const ambientWash = root.findByProps({ testID: "habit-category-ambient-wash" });
-      const stops = ambientWash.findAllByType(Stop);
-      expect(stops[0].props.stopOpacity).toBe(0.28);
-
-      // Ambient icon wrapper has 0.19 opacity and right: 76 to keep clear of streak flame
-      const ambientIcon = root.findByProps({ testID: "habit-category-ambient-icon" });
-      const flattenedStyle = Object.assign(
+      // Completely neutral card background and border regardless of category
+      const container = root.findByProps({ testID: "entity-item-container" });
+      const flatContainer = Object.assign(
         {},
-        ...(Array.isArray(ambientIcon.props.style) ? ambientIcon.props.style : [ambientIcon.props.style])
+        ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
       );
-      expect(flattenedStyle.right).toBe(76);
-      expect(flattenedStyle.opacity).toBe(0.19);
+      expect(flatContainer.backgroundColor).toBe(Colors.dark.card);
+      expect(flatContainer.borderColor).toBe("rgba(255, 255, 255, 0.08)");
+      expect(root.findAllByProps({ testID: "habit-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "habit-category-ambient-icon" })).toHaveLength(0);
     });
 
     it("animates the flame when completed, avoids stale ref re-trigger loops, and keeps pill-free layout", () => {
@@ -548,11 +545,6 @@ describe("EntityItem Unified Architecture", () => {
       // Direct editorial content: pill-free (no border or rounded container)
       expect(flatBadgeStyle.borderWidth).toBeUndefined();
       expect(flatBadgeStyle.backgroundColor).toBeUndefined();
-
-      // Category icon watermark size is locked to 42 (shared across entities)
-      const ambientIcon = root.findByProps({ testID: "habit-category-ambient-icon" });
-      const vectorIcon = ambientIcon.findByProps({ size: 42 });
-      expect(vectorIcon).toBeDefined();
 
       // Transition to completedToday: true
       act(() => {
@@ -627,11 +619,9 @@ describe("EntityItem Unified Architecture", () => {
 
       const root = renderer.root;
 
-      // 1. Shopping matches shopping keyword -> pink category wash
-      const ambientWash = root.findByProps({ testID: "checklist-category-ambient-wash" });
-      expect(ambientWash).toBeDefined();
-      const stops = ambientWash.findAllByType(Stop);
-      expect(stops[0].props.stopColor).toBe(Palette.pink500);
+      // 1. Completely neutral surface without category wash
+      expect(root.findAllByProps({ testID: "checklist-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "checklist-category-ambient-icon" })).toHaveLength(0);
 
       // 2. Progress text metrics
       const textNodes = root.findAllByType(RNText).map((t: any) =>

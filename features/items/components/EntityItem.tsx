@@ -1,5 +1,5 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
-import React, { useId, useMemo } from "react";
+import React, { useMemo } from "react";
 import {
   Insets,
   LayoutChangeEvent,
@@ -9,7 +9,6 @@ import {
   View,
   ViewStyle,
 } from "react-native";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { TaskListPriorityColors } from "@/shared/constants/categoryColors";
@@ -220,13 +219,6 @@ export const EntityItem: React.FC<EntityItemProps> = ({
   const isDark = !isLight;
   const colors = Colors[effectiveScheme ?? "dark"];
 
-  // Unique gradient ID per component instance
-  const reactId = useId();
-  const gradientId = useMemo(
-    () => explicitGradientId || `entity-cat-wash-${reactId.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
-    [explicitGradientId, reactId],
-  );
-
   // Category atmosphere resolution
   const resolvedCategory = useMemo<EntityCategoryPresentation | null>(() => {
     if (category === null) return null;
@@ -251,8 +243,6 @@ export const EntityItem: React.FC<EntityItemProps> = ({
       isDark,
     );
   }, [category, categoryContext, title, isDark]);
-
-  const categoryColor = resolvedCategory?.color ?? null;
 
   // Priority edge stripe color
   const hasActivePriority =
@@ -350,94 +340,21 @@ export const EntityItem: React.FC<EntityItemProps> = ({
           backgroundColor: isLight ? Palette.white : colors.card,
           borderRadius: Radius.lg,
           borderWidth: 1,
-          borderColor: categoryColor
-            ? (isDark ? `${categoryColor}40` : `${categoryColor}33`)
-            : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
+          borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
           marginVertical: 2,
           opacity: dimmed || isCompleted ? 0.6 : 1,
         },
         style,
       ]}
     >
-      {/* 1. Category Atmosphere: Category Material Surface Tint & Editorial Wash */}
-      {categoryColor ? (
-        <Svg
-          width="100%"
-          height="100%"
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-          testID={`${testIDPrefix}-ambient-wash`}
-        >
-          <Defs>
-            <LinearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="80%">
-              <Stop
-                offset="0%"
-                stopColor={categoryColor}
-                stopOpacity={isDark ? 0.28 : 0.22}
-              />
-              <Stop
-                offset="50%"
-                stopColor={categoryColor}
-                stopOpacity={isDark ? 0.15 : 0.09}
-              />
-              <Stop
-                offset="100%"
-                stopColor={categoryColor}
-                stopOpacity={isDark ? 0.06 : 0.02}
-              />
-            </LinearGradient>
-          </Defs>
-          {/* Base category surface tone: in dark mode, turns the neutral card into a darkened version of the category material */}
-          <Rect
-            width="100%"
-            height="100%"
-            fill={categoryColor}
-            opacity={isDark ? 0.10 : 0.03}
-          />
-          <Rect width="100%" height="100%" fill={`url(#${gradientId})`} />
-        </Svg>
-      ) : null}
-
-      {/* 1. Category Atmosphere: Subtle Ambient Icon Watermark */}
-      {resolvedCategory?.icon ? (
-        <View
-          style={[
-            styles.ambientIconWrapper,
-            {
-              opacity: isDark ? 0.19 : 0.16,
-            },
-          ]}
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-          testID={`${testIDPrefix}-ambient-icon`}
-        >
-          {resolvedCategory.iconFamily === "ionicons" ? (
-            <Ionicons
-              name={resolvedCategory.icon as any}
-              size={42}
-              color={resolvedCategory.color}
-            />
-          ) : (
-            <Feather
-              name={resolvedCategory.icon as any}
-              size={42}
-              color={resolvedCategory.color}
-            />
-          )}
-        </View>
-      ) : null}
-
-      {/* 2. Liquid Glass surface placeholder (future material layer) */}
+      {/* 1. Liquid Glass surface placeholder (future material layer) */}
       {glassSurface ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           {glassSurface}
         </View>
       ) : null}
 
-      {/* 3. Priority Edge Strip */}
+      {/* 2. Priority Edge Strip */}
       {shouldRenderPriority && priorityStripeColor ? (
         <View
           testID={`${testIDPrefix}-priority-edge-strip`}
@@ -450,7 +367,7 @@ export const EntityItem: React.FC<EntityItemProps> = ({
         />
       ) : null}
 
-      {/* 4. Common Layout: Main Row */}
+      {/* 3. Common Layout: Main Row */}
       <View
         style={[
           styles.mainRow,
@@ -712,15 +629,6 @@ const styles = StyleSheet.create({
     width: 3.5,
     borderRadius: 2,
     zIndex: 2,
-  },
-  ambientIconWrapper: {
-    position: "absolute",
-    right: 76,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1,
   },
   mainRow: {
     flexDirection: "row",
