@@ -8,6 +8,8 @@ import {
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
 import { ChecklistProgressCard } from "@/features/checklists/components/ChecklistProgressCard";
 import { Colors, Palette } from "@/shared/constants/theme";
+import { ROW_SPEC } from "@/shared/constants/rowSpec";
+import { Spacing } from "@/shared/constants/spacing";
 import { TaskCategoryColors } from "@/shared/constants/categoryColors";
 import { Text as RNText, View as RNView } from "react-native";
 
@@ -266,6 +268,90 @@ describe("EntityItem Unified Architecture", () => {
       const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
       expect(inlineIcon).toBeDefined();
       expect(inlineIcon.props.color).toBe(Colors.dark.textMuted);
+    });
+  });
+
+  describe("EntityMetaRow metadata refinement", () => {
+    it("separates parts with a drawn dot instead of a '·' text glyph", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityMetaRow
+            parts={[
+              { key: "a", text: "Today" },
+              { key: "b", text: "2:00 PM" },
+              { key: "c", text: "30m before", icon: "bell" },
+            ]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      // One separator sits between each adjacent pair of parts.
+      const separators = root.findAll(
+        (node: any) =>
+          typeof node.type === "string" && node.props?.testID === "entity-meta-separator",
+      );
+      expect(separators).toHaveLength(2);
+      // The old middot glyph is gone, so it no longer steals vertical alignment.
+      const texts = root.findAllByType(RNText).map((t: any) => t.props.children);
+      expect(texts).not.toContain("·");
+    });
+
+    it("renders metadata icons at the row-spec size and hides them from assistive tech", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityMetaRow
+            parts={[
+              { key: "date", text: "Sep 12", icon: "calendar" },
+              { key: "reminder", text: "30m before", icon: "bell" },
+            ]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const icons = root.findAllByType("FeatherIcon" as any);
+      expect(icons).toHaveLength(2);
+      for (const icon of icons) {
+        expect(icon.props.size).toBe(ROW_SPEC.type.metaIcon);
+        expect(icon.props.accessibilityElementsHidden).toBe(true);
+        expect(icon.props.importantForAccessibility).toBe("no");
+      }
+    });
+
+    it("keeps the row single-line by default but wraps dense metadata instead of clipping it", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityMetaRow
+            parts={[
+              { key: "date", text: "Sep 12", icon: "calendar" },
+              { key: "time", text: "4:21\u20135:21 PM", icon: "clock" },
+              { key: "reminder", text: "30m before", icon: "bell" },
+            ]}
+          />
+        );
+      });
+
+      const rows = renderer.root.findAllByProps({ testID: "entity-meta-row" });
+      expect(rows.length).toBeGreaterThan(0);
+      const flat = Object.assign(
+        {},
+        ...(Array.isArray(rows[0].props.style) ? rows[0].props.style : [rows[0].props.style])
+      );
+      // Wrapping is the fallback; horizontal rhythm still comes from the separators.
+      expect(flat.flexWrap).toBe("wrap");
+      expect(flat.rowGap).toBe(Spacing.xs);
+    });
+
+    it("renders nothing when there are no parts", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(<EntityMetaRow parts={[]} />);
+      });
+      expect(renderer.toJSON()).toBeNull();
     });
   });
 

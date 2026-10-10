@@ -26,6 +26,9 @@ export const ROW_SPEC = {
     title: 16,
     titleWeight: "600" as const,
     meta: 13,
+    // Metadata-row leading icon: one step below the meta text so glyphs read as a
+    // quiet prefix instead of competing with the value.
+    metaIcon: 12,
   },
   // Aligned to the badge's left edge: paddingLeft (16) + checkbox.visual (24) + gap (12)
   dividerInset: 52,

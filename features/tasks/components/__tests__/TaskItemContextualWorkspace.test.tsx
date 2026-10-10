@@ -489,6 +489,69 @@ describe("TaskItem Contextual Workspace Rendering", () => {
     expect(renderedTexts).toContain("Yesterday");
   });
 
+  it("renders no metadata row for a task with no schedule, reminder or resources", () => {
+    let root: any;
+    act(() => {
+      root = create(
+        <TodoItem
+          item={{ ...baseTask, resourceIds: [] }}
+          colors={mockColors}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          showWorkspaceBadge={false}
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    // No metadata parts => no metadata row and no empty placeholder.
+    expect(root.root.findAllByProps({ testID: "entity-meta-row" })).toHaveLength(0);
+  });
+
+  it("renders schedule date, reminder, duration and linked resources together in one compact row", () => {
+    const denseTask: Task = {
+      ...baseTask,
+      schedule: { date: "2026-10-05", durationMinutes: 45 } as any,
+      reminder: { enabled: true, triggerAt: new Date(2026, 9, 5, 8, 0).getTime() },
+      resourceIds: ["res-1", "res-2"],
+    };
+
+    let root: any;
+    act(() => {
+      root = create(
+        <TodoItem
+          item={denseTask}
+          colors={mockColors}
+          colorScheme="dark"
+          isOverdue={false}
+          selectedDate="2026-10-05"
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          showWorkspaceBadge={false}
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const renderedTexts = root.root
+      .findAllByType("Text" as any)
+      .map((t: any) => t.props.children);
+
+    // Schedule date, reminder time, duration and the compact resource indicator all coexist
+    // on the same metadata row (duration stays separate here because there is no start time).
+    expect(renderedTexts).toContain("Today");
+    expect(renderedTexts).toContain("8:00 AM");
+    expect(renderedTexts).toContain("45m");
+    expect(root.root.findByProps({ testID: "task-resource-indicator" })).toBeDefined();
+    expect(
+      root.root.findAllByProps({ testID: "entity-meta-row" }).length
+    ).toBeGreaterThan(0);
+  });
+
   describe("Completion moment behavior", () => {
     beforeEach(() => {
       jest.useFakeTimers();

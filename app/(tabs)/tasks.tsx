@@ -51,7 +51,6 @@ import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { TaskFilterModal } from "@/features/tasks/components/TaskFilterModal";
 import { TaskDatePickerModal } from "@/features/tasks/components/TaskDatePickerModal";
-import { DomainFilterRow } from "@/features/workspaces/components/DomainFilterRow";
 import { HabitFilterModal } from "@/features/habits/components/HabitFilterModal";
 import { ChecklistFilterModal } from "@/features/checklists/components/ChecklistFilterModal";
 import { ResourceFilterModal } from "@/features/resources/components/ResourceFilterModal";
@@ -164,6 +163,23 @@ const headerStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  filterBadge: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterBadgeText: {
+    color: Palette.white,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
   searchBar: {
     flex: 1,
     flexDirection: "row",
@@ -255,6 +271,40 @@ export function WorkspacesScreen() {
   const [isDatePickerVisible, setIsDatePickerVisible] = React.useState(false);
 
   const domainFilters = useDomainFilters();
+
+  // The navbar Filter control is domain-aware: it opens the modal and reports the active
+  // filter count for whichever peer tab (Tasks / Habits / Checklists / Resources) is showing.
+  const domainFilter = React.useMemo(() => {
+    switch (state.workspaceSegment) {
+      case "habits":
+        return {
+          activeCount: domainFilters.habitActiveFilterCount,
+          openFilter: () => setIsHabitFilterModalVisible(true),
+        };
+      case "checklists":
+        return {
+          activeCount: domainFilters.checklistActiveFilterCount,
+          openFilter: () => setIsChecklistFilterModalVisible(true),
+        };
+      case "resources":
+        return {
+          activeCount: domainFilters.resourceActiveFilterCount,
+          openFilter: () => setIsResourceFilterModalVisible(true),
+        };
+      case "tasks":
+      default:
+        return {
+          activeCount: state.activeFilterCount,
+          openFilter: () => setIsFilterModalVisible(true),
+        };
+    }
+  }, [
+    state.workspaceSegment,
+    state.activeFilterCount,
+    domainFilters.habitActiveFilterCount,
+    domainFilters.checklistActiveFilterCount,
+    domainFilters.resourceActiveFilterCount,
+  ]);
 
   const folderHabits = React.useMemo(() => {
     const raw = state.habits.filter((h) => !h.archivedAt && (h.workspaceId || INBOX_WORKSPACE_ID) === state.activeWorkspaceId);
@@ -544,6 +594,38 @@ export function WorkspacesScreen() {
                         </PressableScale>
 
                         <PressableScale
+                          onPress={domainFilter.openFilter}
+                          haptic
+                          hitSlop={6}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Filter ${state.workspaceSegment}, ${
+                            domainFilter.activeCount > 0
+                              ? `${domainFilter.activeCount} active filters`
+                              : "no active filters"
+                          }`}
+                          style={headerStyles.iconButton}
+                        >
+                          <Feather
+                            name="filter"
+                            size={20}
+                            color={domainFilter.activeCount > 0 ? colors.primary : colors.text}
+                          />
+                          {domainFilter.activeCount > 0 && (
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                headerStyles.filterBadge,
+                                { backgroundColor: colors.primary },
+                              ]}
+                            >
+                              <Text style={headerStyles.filterBadgeText}>
+                                {domainFilter.activeCount}
+                              </Text>
+                            </View>
+                          )}
+                        </PressableScale>
+
+                        <PressableScale
                           onPress={() => setWorkspaceMenuVisible(true)}
                           haptic
                           hitSlop={6}
@@ -714,14 +796,6 @@ export function WorkspacesScreen() {
                 {/* Tasks Section */}
                 {state.workspaceSegment === "tasks" && (
                   <View style={{ gap: 0 }}>
-                    <DomainFilterRow
-                      countLabel={`${state.remainingCount} task${state.remainingCount === 1 ? "" : "s"}`}
-                      activeFilterCount={state.activeFilterCount}
-                      onOpenFilter={() => setIsFilterModalVisible(true)}
-                      colors={colors}
-                      isDark={isDark}
-                    />
-
                     {/* Tasks List */}
                     <TaskSections
                       overdueTodos={state.overdueTodos}
@@ -768,14 +842,6 @@ export function WorkspacesScreen() {
                 {/* Habits Section */}
                 {state.workspaceSegment === "habits" && (
                   <View style={{ gap: 10 }}>
-                    <DomainFilterRow
-                      countLabel={`${filteredHabits.length} habit${filteredHabits.length === 1 ? "" : "s"}`}
-                      activeFilterCount={domainFilters.habitActiveFilterCount}
-                      onOpenFilter={() => setIsHabitFilterModalVisible(true)}
-                      colors={colors}
-                      isDark={isDark}
-                    />
-
                     {/* Habits List */}
                     <HabitSection
                       displayedHabits={filteredHabits}
@@ -813,14 +879,6 @@ export function WorkspacesScreen() {
                 {/* Checklists Section */}
                 {state.workspaceSegment === "checklists" && (
                   <View style={{ gap: 10, paddingBottom: 24 }}>
-                    <DomainFilterRow
-                      countLabel={`${filteredChecklists.length} checklist${filteredChecklists.length === 1 ? "" : "s"}`}
-                      activeFilterCount={domainFilters.checklistActiveFilterCount}
-                      onOpenFilter={() => setIsChecklistFilterModalVisible(true)}
-                      colors={colors}
-                      isDark={isDark}
-                    />
-
                     {filteredChecklists.length === 0 ? (
                       <WorkspaceEmptyState
                         context="checklists"
@@ -845,13 +903,6 @@ export function WorkspacesScreen() {
                 {/* Resources Section */}
                 {(state.workspaceSegment as string) === "resources" && (
                   <View style={{ gap: 10 }}>
-                    <DomainFilterRow
-                      countLabel={`${filteredResources.length} ${filteredResources.length === 1 ? "resource" : "resources"}`}
-                      activeFilterCount={domainFilters.resourceActiveFilterCount}
-                      onOpenFilter={() => setIsResourceFilterModalVisible(true)}
-                      colors={colors}
-                      isDark={isDark}
-                    />
                     <ResourceSection
                       resources={{ [state.activeWorkspaceId || INBOX_WORKSPACE_ID]: filteredResources }}
                       hideInternalHeader={true}

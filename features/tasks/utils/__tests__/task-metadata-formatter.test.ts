@@ -3,6 +3,7 @@ import {
   formatTaskScheduleDate,
   formatTimeRange,
   formatDurationMinutes,
+  formatReminderOffset,
 } from "../task-formatting";
 import type { Task } from "@/shared/types/domain.types";
 
@@ -233,7 +234,7 @@ describe("Task Metadata Formatter Suite", () => {
     });
 
     it("shows reminder when schedule and reminder are at different times", () => {
-      // Schedule at 8:00 PM (20:00), Reminder at 7:30 PM (19:30)
+      // Schedule at 8:00 PM (20:00), Reminder at 7:30 PM (19:30) -> renders as "30m before"
       const task: Task = {
         ...baseTask,
         title: "Call Mom",
@@ -245,7 +246,7 @@ describe("Task Metadata Formatter Suite", () => {
       };
 
       const parts = getTaskMetadataParts(task, { referenceDate, colors });
-      expect(parts.map((p) => p.text)).toEqual(["Today", "8:00 PM", "7:30 PM"]);
+      expect(parts.map((p) => p.text)).toEqual(["Today", "8:00 PM", "30m before"]);
     });
 
     it("shows reminder time when task has no schedule start time", () => {
@@ -260,6 +261,53 @@ describe("Task Metadata Formatter Suite", () => {
 
       const parts = getTaskMetadataParts(task, { referenceDate, colors });
       expect(parts.map((p) => p.text)).toEqual(["Today", "10:00 AM"]);
+    });
+
+    it("renders a distinct reminder as a relative offset instead of a second clock time", () => {
+      const task: Task = {
+        ...baseTask,
+        schedule: { date: "2026-10-05", startTime: "20:00" },
+        reminder: {
+          enabled: true,
+          triggerAt: new Date(2026, 9, 5, 19, 30).getTime(),
+        },
+      };
+
+      const parts = getTaskMetadataParts(task, { referenceDate, colors });
+      expect(parts.find((p) => p.key === "reminder")?.text).toBe("30m before");
+    });
+
+    it("falls back to the absolute reminder time when the reminder lands on a different day", () => {
+      const task: Task = {
+        ...baseTask,
+        // Placed on Oct 5 at 9:00 AM, but the reminder fires the previous evening.
+        schedule: { date: "2026-10-05", startTime: "09:00" },
+        reminder: {
+          enabled: true,
+          triggerAt: new Date(2026, 9, 4, 20, 0).getTime(),
+        },
+      };
+
+      const parts = getTaskMetadataParts(task, { referenceDate, colors });
+      expect(parts.map((p) => p.text)).toEqual(["Today", "9:00 AM", "8:00 PM"]);
+      expect(parts.find((p) => p.key === "reminder")?.text).toBe("8:00 PM");
+    });
+
+    it("orders the reminder ahead of duration (Reminder is a temporal signal, duration is a scaler)", () => {
+      const task: Task = {
+        ...baseTask,
+        recurrence: { frequency: "daily" } as any,
+        schedule: { durationMinutes: 45 } as any,
+        reminder: {
+          enabled: true,
+          triggerAt: new Date(2026, 9, 5, 8, 0).getTime(),
+        },
+      };
+
+      const parts = getTaskMetadataParts(task, { referenceDate, colors });
+      // No schedule startTime, so the reminder stays absolute; it must still precede duration.
+      expect(parts.map((p) => p.key)).toEqual(["recurrence", "reminder", "duration"]);
+      expect(parts.map((p) => p.text)).toEqual(["Daily", "8:00 AM", "45m"]);
     });
 
     it("suppresses reminders for completed tasks", () => {
@@ -335,7 +383,7 @@ describe("Task Metadata Formatter Suite", () => {
       };
 
       const parts = getTaskMetadataParts(task, { referenceDate, colors });
-      expect(parts.map((p) => p.text)).toEqual(["Every Monday", "2:00 PM", "1:30 PM"]);
+      expect(parts.map((p) => p.text)).toEqual(["Every Monday", "2:00 PM", "30m before"]);
     });
 
     it("suppresses reminder on recurring task when matching schedule time", () => {
@@ -577,7 +625,7 @@ describe("Task Metadata Formatter Suite", () => {
       expect(parts.map((p) => p.text)).not.toContain("Sep 11");
     });
 
-    // 8. Recurring + reminder -> Every Monday · 8:00 PM · 7:30 PM
+    // 8. Recurring + reminder -> Every Monday · 8:00 PM · 30m before
     it("Scenario 8: Recurring task with meaningful reminder shows both time and reminder", () => {
       const task: Task = {
         ...baseTask,
@@ -598,10 +646,10 @@ describe("Task Metadata Formatter Suite", () => {
         colors,
       });
 
-      expect(parts.map((p) => p.text)).toEqual(["Every Monday", "2:00 PM", "1:30 PM"].length ? ["Every Monday", "8:00 PM", "7:30 PM"] : []);
+      expect(parts.map((p) => p.text)).toEqual(["Every Monday", "8:00 PM", "30m before"]);
     });
 
-    // 9. Schedule + reminder -> 8:00 PM · 7:30 PM
+    // 9. Schedule + reminder -> 8:00 PM · 30m before
     it("Scenario 9: Scheduled task with non-colliding reminder shows schedule and reminder times", () => {
       const task: Task = {
         ...baseTask,
@@ -619,7 +667,7 @@ describe("Task Metadata Formatter Suite", () => {
         colors,
       });
 
-      expect(parts.map((p) => p.text)).toEqual(["8:00 PM", "7:30 PM"]);
+      expect(parts.map((p) => p.text)).toEqual(["8:00 PM", "30m before"]);
     });
 
     // 10. Same schedule/reminder time -> 8:00 PM (reminder suppressed)
@@ -754,6 +802,22 @@ describe("Task Metadata Formatter Suite", () => {
     });
   });
 
+  describe("10b. Reminder Relative Offset", () => {
+    it("returns a relative offset when the reminder precedes the schedule start time", () => {
+      expect(formatReminderOffset("20:00", new Date(2026, 9, 5, 19, 30))).toBe("30m before");
+      expect(formatReminderOffset("20:00", new Date(2026, 9, 5, 18, 0))).toBe("2h before");
+      expect(formatReminderOffset("20:00", new Date(2026, 9, 5, 18, 45))).toBe("1h 15m before");
+    });
+
+    it("returns null when there is nothing to compare against or the reminder is not before", () => {
+      expect(formatReminderOffset(undefined, new Date(2026, 9, 5, 19, 30))).toBeNull();
+      expect(formatReminderOffset("20:00", undefined)).toBeNull();
+      expect(formatReminderOffset("not-a-time", new Date(2026, 9, 5, 19, 30))).toBeNull();
+      expect(formatReminderOffset("20:00", new Date(2026, 9, 5, 20, 0))).toBeNull();
+      expect(formatReminderOffset("20:00", new Date(2026, 9, 5, 20, 30))).toBeNull();
+    });
+  });
+
   describe("10. Task Metadata Visual Icons & Range Normalization", () => {
     describe("Time Range Normalization", () => {
       it("normalizes identical start and end times to a single time", () => {
@@ -849,7 +913,7 @@ describe("Task Metadata Formatter Suite", () => {
         });
         expect(parts[1]).toMatchObject({
           key: "reminder",
-          text: "7:30 PM",
+          text: "30m before",
           icon: "bell",
         });
       });

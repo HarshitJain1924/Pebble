@@ -21,6 +21,7 @@ import {
 } from "@/features/tasks/utils/task-formatting";
 import { Spacing } from "@/shared/constants/spacing";
 import { Radius } from "@/shared/constants/radii";
+import { Typography } from "@/shared/constants/typography";
 
 export interface DateScopedSectionHeaderProps {
   dateKey: string;
@@ -45,6 +46,8 @@ export interface DateScopedSectionHeaderProps {
  * - Horizontal swipe gestures are strictly horizontal-dominant (|dx| > 10 and |dx| > |dy| * 1.4).
  * - Minimum 44x44pt touch targets on all interactive elements.
  * - Chevron visibility: hidden unless items > 5.
+ * - Neighbouring days are plain chevrons (their day names stay in the a11y label) so the
+ *   selected date owns the width and can carry the larger, calmer display treatment.
  */
 export function DateScopedSectionHeader({
   dateKey,
@@ -167,7 +170,7 @@ export function DateScopedSectionHeader({
           { transform: [{ translateX }] },
         ]}
       >
-        {/* Previous Day Chip */}
+        {/* Previous Day */}
         <PressableScale
           onPress={handlePrev}
           haptic
@@ -176,13 +179,7 @@ export function DateScopedSectionHeader({
           accessibilityLabel={`Previous day, ${prevWeekday} ${prevDayNum}`}
           style={styles.navSlot}
         >
-          <Feather name="chevron-left" size={14} color={colors.textMuted} style={styles.navIcon} />
-          <Text
-            style={[styles.neighborText, { color: colors.textMuted }]}
-            numberOfLines={1}
-          >
-            {`${prevWeekday} ${prevDayNum}`}
-          </Text>
+          <Feather name="chevron-left" size={18} color={colors.textMuted} />
         </PressableScale>
 
         {/* Center Date Display */}
@@ -258,13 +255,7 @@ export function DateScopedSectionHeader({
             accessibilityLabel={`Next day, ${nextWeekday} ${nextDayNum}`}
             style={styles.navSlot}
           >
-            <Text
-              style={[styles.neighborText, { color: colors.textMuted }]}
-              numberOfLines={1}
-            >
-              {`${nextWeekday} ${nextDayNum}`}
-            </Text>
-            <Feather name="chevron-right" size={14} color={colors.textMuted} style={styles.navIcon} />
+            <Feather name="chevron-right" size={18} color={colors.textMuted} />
           </PressableScale>
 
           {showChevron && (
@@ -292,39 +283,29 @@ export function DateScopedSectionHeader({
 const styles = StyleSheet.create({
   outerContainer: {
     paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing.xs,
-    paddingBottom: Spacing.xs,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.sm,
   },
   stripContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 44,
+    minHeight: 52,
   },
   navSlot: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     minHeight: 44,
-    minWidth: 54,
-    paddingHorizontal: 4,
-  },
-  navIcon: {
-    marginHorizontal: 1,
-  },
-  neighborText: {
-    fontSize: 12,
-    fontWeight: "500",
-    letterSpacing: -0.1,
+    minWidth: 44,
   },
   centerSlot: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
   },
   centerPressable: {
-    minHeight: 36,
+    minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -339,13 +320,13 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   centerDateText: {
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: -0.2,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+    letterSpacing: -0.3,
   },
   progressText: {
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.medium,
     letterSpacing: -0.1,
   },
   backToTodayButton: {
@@ -359,14 +340,14 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   backToTodayText: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.semibold,
     letterSpacing: -0.1,
   },
   rightCluster: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: Spacing.xs,
   },
   chevronButton: {
     minHeight: 44,

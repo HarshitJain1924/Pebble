@@ -255,6 +255,29 @@ export function formatDurationMinutes(durationMinutes?: number): string | null {
 }
 
 /**
+ * Formats a reminder as a relative offset from the schedule start time
+ * (e.g. "15m before", "1h before").
+ *
+ * Returns null when there is no schedule start time to compare against, when the
+ * start time is unparseable, or when the reminder does not actually precede the
+ * schedule — callers then fall back to the absolute reminder time.
+ */
+export function formatReminderOffset(
+  startTime?: string,
+  reminderAt?: Date,
+): string | null {
+  if (!startTime || !reminderAt) return null;
+  const [h, m] = startTime.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  const startMinutes = h * 60 + m;
+  const reminderMinutes = reminderAt.getHours() * 60 + reminderAt.getMinutes();
+  const delta = startMinutes - reminderMinutes;
+  if (delta <= 0) return null;
+  const duration = formatDurationMinutes(delta);
+  return duration ? `${duration} before` : null;
+}
+
+/**
  * Concise, scannable schedule date formatter for task metadata.
  * - Today: "Today"
  * - Tomorrow: "Tomorrow"
@@ -451,22 +474,9 @@ export function getTaskMetadataParts(
     });
   }
 
-  // 5. Standalone Duration: ONLY if no startTime and duration exists
-  if (durationMinutes && !task.schedule?.startTime) {
-    const formattedDuration = formatDurationMinutes(durationMinutes);
-    if (formattedDuration) {
-      parts.push({
-        key: "duration",
-        text: formattedDuration,
-        color: textMuted,
-        icon: hasTemporalAnchor ? undefined : "clock",
-      });
-    }
-  }
-
-  // 6. Reminder: only if enabled, not completed, and not colliding with schedule start time
-  // Priority: keep primary temporal info (date + time range). Suppress reminder when date or
-  // recurrence and a time range are both present so the core schedule is never truncated or crowded out.
+  // 5. Reminder: notification timing only. Kept strictly separate from schedule placement.
+  // Priority: protect the primary schedule (date + time range). Suppress the reminder when a
+  // date/recurrence AND a full time range are both present so the core schedule is never crowded out.
   const hasTemporalSpan = parts.some((p) => p.key === "date" || p.key === "recurrence");
   const isTimeRange = Boolean(timeRange && timeRange.includes("–"));
   const shouldSuppressReminder = hasTemporalSpan && isTimeRange;
@@ -477,11 +487,35 @@ export function getTaskMetadataParts(
     const scheduleStartTime = formatTimeString(task.schedule?.startTime);
     // Suppress reminder if it duplicates the schedule start time
     if (reminderTime && reminderTime !== scheduleStartTime) {
+      // Prefer a relative offset ("15m before") when a schedule start time exists so the row never
+      // shows two competing clock times. Guard against a reminder that lands on a different day
+      // than the schedule, where a bare minute delta would be misleading. Falls back to the
+      // absolute reminder time otherwise.
+      const reminderSameDayAsSchedule =
+        !scheduleDate ||
+        scheduleDate === "inbox" ||
+        dateKeyFromDate(d) === scheduleDate;
+      const relativeOffset = reminderSameDayAsSchedule
+        ? formatReminderOffset(task.schedule?.startTime, d)
+        : null;
       parts.push({
         key: "reminder",
-        text: reminderTime,
+        text: relativeOffset ?? reminderTime,
         color: textMuted,
         icon: "bell",
+      });
+    }
+  }
+
+  // 6. Standalone Duration: ONLY if no startTime and duration exists
+  if (durationMinutes && !task.schedule?.startTime) {
+    const formattedDuration = formatDurationMinutes(durationMinutes);
+    if (formattedDuration) {
+      parts.push({
+        key: "duration",
+        text: formattedDuration,
+        color: textMuted,
+        icon: hasTemporalAnchor ? undefined : "clock",
       });
     }
   }

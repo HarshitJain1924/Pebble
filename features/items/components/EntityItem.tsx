@@ -14,7 +14,9 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { TaskListPriorityColors } from "@/shared/constants/categoryColors";
 import { Radius } from "@/shared/constants/radii";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
+import { Spacing } from "@/shared/constants/spacing";
 import { Colors, Palette } from "@/shared/constants/theme";
+import { Typography } from "@/shared/constants/typography";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { type TaskPriority } from "@/shared/types/domain.types";
 import {
@@ -452,36 +454,52 @@ export const EntityMetaRow: React.FC<EntityMetaRowProps> = ({
   if (!parts || parts.length === 0) return null;
 
   return (
-    <View style={[styles.metaRow, style]}>
+    <View testID="entity-meta-row" style={[styles.metaRow, style]}>
       {parts.map((part, idx) => {
         const isInteractive = Boolean(part.onPress || part.onLongPress);
         const isLast = idx === parts.length - 1;
 
+        // The separator rides inside its own part so a wrapped metadata line never starts
+        // with an orphaned dot — it always stays glued to the value it introduces.
+        const separator =
+          idx > 0 ? (
+            <View
+              testID="entity-meta-separator"
+              style={[
+                styles.metaSeparator,
+                { backgroundColor: dotColor || colors.textMuted },
+              ]}
+            />
+          ) : null;
+
         const content = (
           <>
-            {part.icon && (
-              part.iconFamily === "ionicons" ? (
+            {part.icon &&
+              (part.iconFamily === "ionicons" ? (
                 <Ionicons
                   name={part.icon as any}
-                  size={11}
+                  size={ROW_SPEC.type.metaIcon}
                   color={part.color || colors.textMuted}
                   style={styles.metaIcon}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
                 />
               ) : (
                 <Feather
                   name={part.icon as any}
-                  size={11}
+                  size={ROW_SPEC.type.metaIcon}
                   color={part.color || colors.textMuted}
                   style={styles.metaIcon}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
                 />
-              )
-            )}
+              ))}
             <Text
               style={[
                 styles.metaText,
                 {
                   color: part.color || colors.textMuted,
-                  fontWeight: part.isBold ? "700" : "500",
+                  fontWeight: part.isBold ? Typography.weights.bold : Typography.weights.medium,
                 },
                 part.textStyle,
               ]}
@@ -495,11 +513,6 @@ export const EntityMetaRow: React.FC<EntityMetaRowProps> = ({
 
         return (
           <React.Fragment key={part.key || idx}>
-            {idx > 0 && (
-              <Text style={[styles.metaDot, { color: dotColor || colors.textMuted }]}>
-                ·
-              </Text>
-            )}
             {isInteractive ? (
               <PressableScale
                 onPress={part.onPress}
@@ -518,6 +531,7 @@ export const EntityMetaRow: React.FC<EntityMetaRowProps> = ({
                   part.itemStyle,
                 ]}
               >
+                {separator}
                 {content}
               </PressableScale>
             ) : (
@@ -529,6 +543,7 @@ export const EntityMetaRow: React.FC<EntityMetaRowProps> = ({
                   part.itemStyle,
                 ]}
               >
+                {separator}
                 {content}
               </View>
             )}
@@ -663,7 +678,10 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "nowrap",
+    // Single line whenever it fits (the common case); dense rows on narrow screens wrap
+    // onto an intentional second metadata line instead of clipping values.
+    flexWrap: "wrap",
+    rowGap: Spacing.xs,
     overflow: "hidden",
     minWidth: 0,
     maxWidth: "100%",
@@ -683,13 +701,17 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   metaIcon: {
-    marginRight: 3.5,
+    marginRight: Spacing.xs,
     flexShrink: 0,
   },
-  metaDot: {
-    fontSize: ROW_SPEC.type.meta,
-    marginHorizontal: 4,
-    opacity: 0.6,
+  // Deliberately a drawn dot rather than a "·" glyph: it stays optically centered and
+  // occupies a fixed width, so runs of metadata keep an even rhythm across every font.
+  metaSeparator: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    marginHorizontal: Spacing.xs,
+    opacity: 0.5,
     flexShrink: 0,
   },
   metaText: {
