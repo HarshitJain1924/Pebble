@@ -204,6 +204,7 @@ describe("Calendar Minute-Accurate Drag Integration Tests", () => {
     const checklist: Checklist = {
       id: "chk-drag-1",
       title: "Weekly Grocery Shopping",
+      priority: "none",
       workspaceId: "ws-1",
       schedule: {
         date: "2026-09-01",

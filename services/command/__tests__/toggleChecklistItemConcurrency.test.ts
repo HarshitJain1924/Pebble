@@ -26,6 +26,7 @@ const makeChecklist = (
   id,
   workspaceId: WS,
   title: `Checklist ${id}`,
+  priority: "none",
   items: [
     { id: "item-1", title: "Item 1", completed: false },
     { id: "item-2", title: "Item 2", completed: false },

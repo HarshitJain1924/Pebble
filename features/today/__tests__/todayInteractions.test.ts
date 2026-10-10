@@ -212,6 +212,7 @@ describe("Today screen row interaction model", () => {
       id: "cl-toggle-1",
       workspaceId: "work",
       title: "Groceries",
+      priority: "none",
       items: [
         { id: "i1", title: "Milk", completed: false },
         { id: "i2", title: "Eggs", completed: false },

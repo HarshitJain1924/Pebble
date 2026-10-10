@@ -63,6 +63,7 @@ function checklist(
     id,
     workspaceId,
     title: id,
+    priority: "none",
     items: [
       { id: `${id}-1`, title: "One", completed },
       { id: `${id}-2`, title: "Two", completed },

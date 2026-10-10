@@ -157,6 +157,8 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     if (form.description.trim() !== (item.description || "").trim()) return true;
     if (form.workspaceId !== (item.workspaceId || INBOX_WORKSPACE_ID))
       return true;
+    if ((form.priority || "none") !== (item.priority || "none"))
+      return true;
 
     // Compare items
     if (form.items.length !== item.items.length) return true;
@@ -402,6 +404,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       await EntityCommandService.updateChecklist(item.id, oldFolderId, {
         title: form.title.trim(),
         description: form.description.trim() || undefined,
+        priority: form.priority || item.priority || "none",
         items: form.items,
         resourceIds: form.linkedCollectionIds,
         schedule: scheduleObj,
@@ -422,6 +425,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         workspaceId: form.workspaceId,
+        priority: form.priority || item.priority || "none",
         items: form.items,
         resourceIds: form.linkedCollectionIds,
         schedule: scheduleObj,
@@ -450,6 +454,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         ...item,
         id: generateId("checklist-"),
         title: `${item.title} (Copy)`,
+        priority: item.priority || "none",
         updatedAt: Date.now(),
         createdAt: Date.now(),
       };

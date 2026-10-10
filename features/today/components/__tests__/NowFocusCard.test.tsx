@@ -71,6 +71,7 @@ function mockChecklist(overrides: Partial<Checklist> = {}): Checklist {
     id: "chk-1",
     workspaceId: "inbox",
     title: "Deployment Checklist",
+    priority: "none",
     revision: 1,
     lifecycleGeneration: 1,
     items: [

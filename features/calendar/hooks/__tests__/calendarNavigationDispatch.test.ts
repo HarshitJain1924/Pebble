@@ -84,6 +84,7 @@ describe("Calendar Navigation Dispatch & Checklist Opening Tests (A-J)", () => {
       id: "cl-shopping-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Shopping",
+      priority: "none",
       items: [
         { id: "it-1", title: "Milk", completed: false },
         { id: "it-2", title: "Bread", completed: false },
@@ -127,6 +128,7 @@ describe("Calendar Navigation Dispatch & Checklist Opening Tests (A-J)", () => {
       id: "cl-shopping-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Shopping",
+      priority: "none",
       items: [
         { id: "it-1", title: "Milk", completed: false },
         { id: "it-2", title: "Bread", completed: false },
@@ -239,6 +241,7 @@ describe("Calendar Navigation Dispatch & Checklist Opening Tests (A-J)", () => {
       id: "cl-allday-prep",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "All Day Prep",
+      priority: "none",
       items: [{ id: "it-1", title: "Setup", completed: false }],
       schedule: {
         date: "2026-09-01",
@@ -275,6 +278,7 @@ describe("Calendar Navigation Dispatch & Checklist Opening Tests (A-J)", () => {
       id: "cl-weekly-master-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Weekly Cleaning",
+      priority: "none",
       items: [
         { id: "it-1", title: "Dust", completed: false },
         { id: "it-2", title: "Vacuum", completed: false },
@@ -321,6 +325,7 @@ describe("Calendar Navigation Dispatch & Checklist Opening Tests (A-J)", () => {
       id: "cl-integrity-check",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Integrity Checklist",
+      priority: "none",
       items: [{ id: "it-1", title: "Item 1", completed: false }],
       schedule: {
         date: "2026-09-01",

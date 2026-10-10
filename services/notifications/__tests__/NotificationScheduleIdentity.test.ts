@@ -139,6 +139,7 @@ describe("Notification Schedule Identity & Reconciliation Model", () => {
     id,
     workspaceId: "ws-1",
     title: `Checklist ${id}`,
+    priority: "none",
     items: [],
     reminder: {
       enabled: true,

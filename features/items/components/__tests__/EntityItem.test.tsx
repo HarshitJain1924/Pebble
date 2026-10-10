@@ -586,6 +586,7 @@ describe("EntityItem Unified Architecture", () => {
       const mockChecklist = {
         id: "chk-shop",
         title: "Shopping List",
+        priority: "none" as const,
         items: [
           { id: "i1", title: "Apples", completed: true },
           { id: "i2", title: "Bread", completed: true },

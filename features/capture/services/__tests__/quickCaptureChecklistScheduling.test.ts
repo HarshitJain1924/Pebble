@@ -250,6 +250,7 @@ describe("Quick Capture → Checklist Scheduling Regression Suite (A-L)", () => 
       id: "cl-detail-test-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Party Planning",
+      priority: "none",
       items: [{ id: "i1", title: "Balloons", completed: false }],
       revision: 1,
       lifecycleGeneration: 1,

@@ -31,6 +31,7 @@ export function useChecklistState(selectedWorkspaceId: string) {
         id: generateId("checklist-"),
         workspaceId: activeList,
         title,
+        priority: "none",
         items: itemTitles.map((it, idx) => ({
           id: `checklist-item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
           title: it,
@@ -57,6 +58,7 @@ export function useChecklistState(selectedWorkspaceId: string) {
       const activeList = updated.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       await EntityCommandService.updateChecklist(updated.id, activeList, {
         title: updated.title,
+        priority: updated.priority,
         items: updated.items,
         archivedAt: updated.archivedAt,
       }, { skipEvents: true, skipAnalytics: true });

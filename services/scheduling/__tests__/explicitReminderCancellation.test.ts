@@ -529,6 +529,7 @@ describe("Explicit Reminder Cancellation Semantics", () => {
         id: "checklist-1",
         workspaceId: INBOX_WORKSPACE_ID,
         title: "Weekly Review Checklist",
+        priority: "none",
         items: [
           { id: "item-1", title: "Review inbox", completed: false },
           { id: "item-2", title: "Plan week", completed: false },

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import type { Checklist, ChecklistItem } from "@/shared/types/domain.types";
+import type { Checklist, ChecklistItem, TaskPriority } from "@/shared/types/domain.types";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
 
@@ -8,6 +8,7 @@ export interface ChecklistFormState {
   title: string;
   description: string;
   workspaceId: string;
+  priority: TaskPriority;
   items: ChecklistItem[];
   linkedCollectionIds: string[];
   newItemText: string;
@@ -29,6 +30,7 @@ const INITIAL_FORM: ChecklistFormState = {
   title: "",
   description: "",
   workspaceId: INBOX_WORKSPACE_ID,
+  priority: "none",
   items: [],
   linkedCollectionIds: [],
   newItemText: "",
@@ -119,6 +121,7 @@ export function useChecklistDetailForm() {
       title: data.title || "",
       description: data.description || "",
       workspaceId: data.workspaceId || INBOX_WORKSPACE_ID,
+      priority: data.priority || "none",
       items: data.items || [],
       linkedCollectionIds: data.resourceIds || [],
       newItemText: "",

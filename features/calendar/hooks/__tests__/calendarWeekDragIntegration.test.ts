@@ -225,6 +225,7 @@ describe("Calendar Week Drag Integration Tests (Part 24)", () => {
     const checklist: Checklist = {
       id: "chk-week-1",
       title: "Sprint Retrospective Items",
+      priority: "none",
       workspaceId: "ws-week-1",
       schedule: {
         date: mondayDate,

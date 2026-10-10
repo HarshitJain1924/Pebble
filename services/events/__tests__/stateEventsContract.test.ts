@@ -123,6 +123,7 @@ describe("State Events & Attribution Contract Suite", () => {
       id: "chk-evt-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Checklist",
+      priority: "none",
       items: [],
       revision: 1,
       lifecycleGeneration: 1,

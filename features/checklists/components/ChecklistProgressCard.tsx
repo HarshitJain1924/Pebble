@@ -1,6 +1,14 @@
 import React, { useState, useMemo } from "react";
 import { Palette } from "@/shared/constants/theme";
-import { View, StyleSheet, TextInput, Image, Alert, Modal, ScrollView, Linking, TouchableOpacity, Platform } from "react-native";
+import {
+  View,
+  StyleSheet,
+  Alert,
+  Modal,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
@@ -15,7 +23,8 @@ import {
   resolveEntityCategoryPresentation,
   resolveResourceIconName,
 } from "@/features/items";
-import { type Checklist, type ChecklistItem as DomainChecklistItem } from "@/shared/types/domain.types";
+import { type Checklist } from "@/shared/types/domain.types";
+import { getNextIncompleteChecklistItem } from "@/shared/utils/domain-selectors";
 
 export interface ChecklistProgressCardProps {
   checklist: Checklist;
@@ -50,8 +59,6 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   const isDark = !isLight;
   const router = useRouter();
   const [showLinkSelector, setShowLinkSelector] = useState(false);
-  const [newItemText, setNewItemText] = useState("");
-  const [showAllResources, setShowAllResources] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
 
   const handleShowOverflowMenu = () => {
@@ -69,6 +76,11 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   const isAllCompleted = totalCount > 0 && completedCount === totalCount;
   const progress = totalCount > 0 ? completedCount / totalCount : 0;
 
+  // Derive first incomplete item for collapsed preview
+  const firstIncompleteItem = useMemo(() => {
+    return getNextIncompleteChecklistItem(checklist);
+  }, [checklist]);
+
   const linkedResourceIds = checklist.resourceIds || [];
   const linkedCount = linkedResourceIds.length;
 
@@ -78,43 +90,17 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
       .filter(Boolean);
   }, [linkedResourceIds, allResources]);
 
-  const hasHiddenResources = linkedResources.length > 3;
-  const displayedResources = useMemo(() => {
-    if (hasHiddenResources && !showAllResources) {
-      return linkedResources.slice(0, 2);
-    }
-    return linkedResources;
-  }, [linkedResources, hasHiddenResources, showAllResources]);
-
-  const handleOpenUrl = async (url?: string) => {
-    if (!url) return;
-    const formattedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    try {
-      await Linking.openURL(formattedUrl);
-    } catch {}
-  };
-
-  const handleAddItem = () => {
-    if (!newItemText.trim()) return;
-    const newItem: DomainChecklistItem = {
-      id: `checklist-item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      title: newItemText.trim(),
-      completed: false,
-    };
-    const updated = {
-      ...checklist,
-      items: [...checklist.items, newItem],
-    };
-    onUpdateChecklist(updated);
-    setNewItemText("");
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  };
-
   const handleToggleItem = (itemId: string) => {
     const updated = {
       ...checklist,
       items: checklist.items.map((it) =>
-        it.id === itemId ? { ...it, completed: !it.completed } : it
+        it.id === itemId
+          ? {
+              ...it,
+              completed: !it.completed,
+              completedAt: !it.completed ? Date.now() : undefined,
+            }
+          : it
       ),
     };
     onUpdateChecklist(updated);
@@ -155,11 +141,10 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
         icon: resourceIconName,
         onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-          onToggleExpand();
+          setShowLinkSelector(true);
         },
         accessibilityRole: "button",
-        accessibilityLabel: `${linkedCount} resources linked to ${checklist.title}. Tap to ${isExpanded ? "collapse" : "expand"}`,
-        accessibilityState: { expanded: isExpanded },
+        accessibilityLabel: `${linkedCount} resources linked to ${checklist.title}. Tap to manage linked resources`,
         testID: "checklist-resource-indicator",
       });
     }
@@ -172,13 +157,12 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     linkedCount,
     resourceIconName,
     checklist.title,
-    isExpanded,
     colors.textMuted,
     colors.primary,
     onToggleExpand,
   ]);
 
-  // Category atmosphere resolution (subtle background wash + watermark)
+  // Category atmosphere resolution (small inline icon before title)
   const categoryPresentation = useMemo(() => {
     return resolveEntityCategoryPresentation(
       {
@@ -192,6 +176,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
 
   return (
     <EntityItem
+      priority={checklist.priority}
       category={categoryPresentation}
       dimmed={isAllCompleted}
       colorScheme={colorScheme}
@@ -266,6 +251,37 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
           />
         </View>
       }
+      centerContent={
+        !isExpanded && firstIncompleteItem ? (
+          <View testID={`checklist-collapsed-preview-${checklist.id}`} style={styles.previewContainer}>
+            <PressableScale
+              testID={`checklist-preview-checkbox-${firstIncompleteItem.id}`}
+              onPress={() => handleToggleItem(firstIncompleteItem.id)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: false }}
+              accessibilityLabel={`Mark ${firstIncompleteItem.title} as completed`}
+              style={styles.previewCheckbox}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name="circle" size={15} color={colors.textMuted} />
+            </PressableScale>
+            <PressableScale
+              testID={`checklist-preview-title-${firstIncompleteItem.id}`}
+              onPress={onToggleExpand}
+              accessibilityRole="button"
+              accessibilityLabel={`Expand checklist ${checklist.title}`}
+              style={styles.previewTextPress}
+            >
+              <Text
+                style={[styles.previewText, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {firstIncompleteItem.title}
+              </Text>
+            </PressableScale>
+          </View>
+        ) : null
+      }
       trailingActions={
         <View style={styles.actionsCluster}>
           {/* Card Contextual Overflow Menu Button */}
@@ -301,7 +317,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
         </View>
       }
     >
-      {/* Expanded Inline Checklist Items and Resources */}
+      {/* Expanded State: Checklist Items List */}
       {isExpanded && (
         <View style={styles.expandedContent}>
           {/* Subtle separator line */}
@@ -310,7 +326,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
           {/* Checklist Items List */}
           <View style={styles.checklistItemsWrapper}>
             {checklist.items.map((item) => (
-              <View key={item.id} style={styles.checkItemRow}>
+              <View key={item.id} testID={`checklist-item-${item.id}`} style={styles.checkItemRow}>
                 <PressableScale
                   onPress={() => handleToggleItem(item.id)}
                   accessibilityRole="checkbox"
@@ -338,146 +354,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                 </PressableScale>
               </View>
             ))}
-
-            {/* Inline Item Addition Row */}
-            <View style={styles.addItemRow}>
-              <Feather name="plus" size={13} color={colors.textMuted} />
-              <TextInput
-                value={newItemText}
-                onChangeText={setNewItemText}
-                placeholder="Add item..."
-                placeholderTextColor={colors.textMuted}
-                accessibilityLabel={`Add item to checklist ${checklist.title}`}
-                onSubmitEditing={handleAddItem}
-                style={[styles.addItemInput, { color: colors.text }]}
-              />
-            </View>
           </View>
-
-          {/* Linked Resources Section */}
-          {linkedResources.length > 0 && (
-            <View style={{ marginTop: 8 }}>
-              {/* Separator before resources */}
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-              <View style={styles.resourcesList}>
-                {displayedResources.map((res: any, idx: number) => {
-                  const isImage = res.type === "image";
-                  const isNote = res.type === "note";
-                  const isLink = res.type === "link";
-                  const isVideo =
-                    isLink &&
-                    (res.url?.toLowerCase().includes("youtube") ||
-                      res.url?.toLowerCase().includes("video"));
-
-                  return (
-                    <View key={res.id}>
-                      <PressableScale
-                        onPress={() => {
-                          if (isLink) {
-                            handleOpenUrl(res.url);
-                          } else if (isNote) {
-                            Alert.alert(res.title, res.content || "No details available.");
-                          } else {
-                            Alert.alert(res.title, "Image attachment");
-                          }
-                        }}
-                        accessibilityRole={isLink ? "link" : "button"}
-                        accessibilityLabel={`Open resource: ${res.title}`}
-                        contentStyle={styles.resourceRow}
-                      >
-                        {isImage ? (
-                          <View
-                            style={[
-                              styles.thumbnailWrap,
-                              { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
-                            ]}
-                          >
-                            <Image
-                              source={{
-                                uri:
-                                  res.mediaUri ||
-                                  "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
-                              }}
-                              style={{ width: "100%", height: "100%" }}
-                            />
-                          </View>
-                        ) : (
-                          <View
-                            style={[
-                              styles.thumbnailWrap,
-                              { backgroundColor: isLight ? Palette.slate100 : Palette.zinc800 },
-                            ]}
-                          >
-                            <Feather
-                              name={isVideo ? "play-circle" : isLink ? "globe" : isNote ? "file-text" : "file"}
-                              size={13}
-                              color={colors.primary}
-                            />
-                          </View>
-                        )}
-
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={{ fontSize: 13, fontWeight: "600", color: colors.text }}
-                            numberOfLines={1}
-                          >
-                            {res.title}
-                          </Text>
-                          {isLink && res.url && (
-                            <Text
-                              style={{ fontSize: 10, color: colors.textMuted, marginTop: 1 }}
-                              numberOfLines={1}
-                            >
-                              {res.url.replace(/https?:\/\/(www\.)?/, "").split("/")[0]}
-                            </Text>
-                          )}
-                          {isNote && res.content && (
-                            <Text
-                              style={{ fontSize: 10, color: colors.textMuted, marginTop: 1 }}
-                              numberOfLines={1}
-                            >
-                              {res.content.trim().split("\n")[0]}
-                            </Text>
-                          )}
-                        </View>
-                      </PressableScale>
-
-                      {idx < displayedResources.length - 1 && (
-                        <View style={[styles.innerDivider, { backgroundColor: colors.border + "40" }]} />
-                      )}
-                    </View>
-                  );
-                })}
-
-                {/* Show More/Less Gate */}
-                {hasHiddenResources && (
-                  <PressableScale
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                      setShowAllResources(!showAllResources);
-                    }}
-                    contentStyle={styles.showMoreBtn}
-                  >
-                    <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>
-                      {showAllResources ? "Show less" : `Show ${linkedResources.length - 2} more`}
-                    </Text>
-                  </PressableScale>
-                )}
-              </View>
-            </View>
-          )}
-
-          {/* Add Link Resource action row */}
-          <PressableScale
-            onPress={() => setShowLinkSelector(true)}
-            contentStyle={styles.addResourceBtn}
-          >
-            <Feather name="plus" size={14} color={colors.primary} />
-            <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>
-              Link Resource
-            </Text>
-          </PressableScale>
         </View>
       )}
 
@@ -782,11 +659,6 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 1.5,
   },
-  metricsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
   metricsMetaRow: {
     marginTop: 2,
   },
@@ -798,9 +670,27 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: "600",
   },
+  previewContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    gap: 8,
+  },
+  previewCheckbox: {
+    padding: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewTextPress: {
+    flex: 1,
+  },
+  previewText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
   expandedContent: {
     marginTop: 10,
-    paddingBottom: 4,
+    paddingBottom: 6,
     paddingHorizontal: 14,
   },
   divider: {
@@ -830,53 +720,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     flex: 1,
-  },
-  addItemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 6,
-    opacity: 0.8,
-  },
-  addItemInput: {
-    flex: 1,
-    fontSize: 13,
-    padding: 0,
-    fontWeight: "500",
-  },
-  resourcesList: {
-    paddingLeft: 30,
-    gap: 4,
-  },
-  resourceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    gap: 12,
-  },
-  thumbnailWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  innerDivider: {
-    height: 1,
-    width: "100%",
-  },
-  showMoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  addResourceBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingLeft: 30,
-    gap: 6,
-    marginTop: 4,
   },
 });

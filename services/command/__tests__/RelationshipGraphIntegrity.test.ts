@@ -98,6 +98,7 @@ describe("Phase 8 — Relationship & Graph Integrity Suite", () => {
     id,
     workspaceId: wsId,
     title: `Checklist ${id}`,
+    priority: "none",
     items: [],
     revision: 1,
     lifecycleGeneration: gen,

@@ -40,11 +40,12 @@ function mockHabit(overrides: Partial<Habit> & { priority?: TaskPriority }): Hab
   };
 }
 
-function mockChecklist(overrides: Partial<Checklist> & { priority?: TaskPriority }): Checklist {
+function mockChecklist(overrides: Partial<Checklist> = {}): Checklist {
   return {
     id: `checklist-${Math.random().toString(36).substring(2, 7)}`,
     workspaceId: "inbox",
     title: "Mock Checklist",
+    priority: "none",
     revision: 1,
     lifecycleGeneration: 1,
     items: [

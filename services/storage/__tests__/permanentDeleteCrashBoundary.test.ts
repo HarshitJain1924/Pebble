@@ -427,6 +427,7 @@ describe("FIX #21 — Tombstone + Permanent Deletion Crash Consistency", () => {
       const checklist: Checklist = {
         id: "c-parity-1",
         title: "Checklist Parity",
+        priority: "none",
         items: [{ id: "item-1", title: "Item 1", completed: false }],
         workspaceId: "ws-1",
         lifecycleGeneration: 1,

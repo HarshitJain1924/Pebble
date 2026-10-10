@@ -80,6 +80,7 @@ describe("AlertCenterService Canonical Projection", () => {
         id: "chk-shopping",
         workspaceId: "ws-1",
         title: "Shopping",
+        priority: "none",
         items: [
           { id: "i-1", title: "Milk", completed: false },
           { id: "i-2", title: "Bread", completed: false },
@@ -140,6 +141,7 @@ describe("AlertCenterService Canonical Projection", () => {
         id: "chk-shop",
         workspaceId: "ws-1",
         title: "Shopping",
+        priority: "none",
         items: [{ id: "i-1", title: "Apples", completed: false }],
         revision: 1,
         lifecycleGeneration: 1,
@@ -206,6 +208,7 @@ describe("AlertCenterService Canonical Projection", () => {
         id: "chk-overdue",
         workspaceId: "ws-1",
         title: "Overdue Shopping",
+        priority: "none",
         items: [{ id: "1", title: "Milk", completed: false }],
         revision: 1,
         lifecycleGeneration: 1,
@@ -309,6 +312,7 @@ describe("AlertCenterService Canonical Projection", () => {
         id: "chk-grocery",
         workspaceId: "ws-1",
         title: "Weekly Groceries",
+        priority: "none",
         items: [
           { id: "1", title: "Oat Milk", completed: true },
           { id: "2", title: "Apples", completed: true },
@@ -345,6 +349,7 @@ describe("AlertCenterService Canonical Projection", () => {
         id: "chk-done",
         workspaceId: "ws-1",
         title: "Done Shopping",
+        priority: "none",
         items: [
           { id: "1", title: "Milk", completed: true },
           { id: "2", title: "Bread", completed: true },

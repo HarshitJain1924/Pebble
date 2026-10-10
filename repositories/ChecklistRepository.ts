@@ -7,6 +7,7 @@ import {
   INBOX_WORKSPACE_ID,
   type Checklist,
   type ChecklistItem,
+  type TaskPriority,
 } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { withLock } from "@/shared/utils/mutex";
@@ -16,6 +17,14 @@ export function normalizeChecklist(
   defaultWorkspaceId: string,
 ): Checklist {
   const wsId = rawChecklist.workspaceId || defaultWorkspaceId;
+
+  const priority: TaskPriority =
+    rawChecklist.priority === "high" ||
+    rawChecklist.priority === "medium" ||
+    rawChecklist.priority === "low" ||
+    rawChecklist.priority === "none"
+      ? rawChecklist.priority
+      : "none";
 
   const items: ChecklistItem[] = (rawChecklist.items || []).map(
     (item: any) => ({
@@ -51,6 +60,7 @@ export function normalizeChecklist(
     workspaceId: wsId,
     title: rawChecklist.title || "",
     description: rawChecklist.description || undefined,
+    priority,
     items,
     categoryId: rawChecklist.categoryId || rawChecklist.category || undefined,
     tags: Array.isArray(rawChecklist.tags) ? [...rawChecklist.tags] : undefined,

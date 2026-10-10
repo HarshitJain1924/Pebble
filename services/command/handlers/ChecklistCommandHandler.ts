@@ -283,6 +283,7 @@ static async moveChecklist(
         currentParsedData.reminder = { ...currentParsedData.reminder, notificationIds: undefined };
       }
 
+      currentParsedData.priority = currentParsedData.priority || "none";
       currentParsedData.revision = (currentParsedData.revision ?? 1) + 1;
       currentParsedData.lifecycleGeneration = currentParsedData.lifecycleGeneration ?? 1;
 
@@ -841,6 +842,7 @@ static async moveChecklist(
           ...input,
           id: options?.explicitId || (input as any).id || generateId("checklist-"),
           workspaceId: targetWorkspace,
+          priority: input.priority || "none",
           reminder: candidateReminder,
           revision: input.revision ?? 1,
           lifecycleGeneration: input.lifecycleGeneration ?? 1,
@@ -1003,6 +1005,7 @@ static async moveChecklist(
         ...master,
         id: newChecklistId,
         workspaceId,
+        priority: master.priority || "none",
         recurrence: undefined, // Detached non-recurring copy
         recurrenceExceptions: undefined,
         occurrenceHistory: undefined,

@@ -77,6 +77,7 @@ describe("Today checklist item completion (canonical path)", () => {
         id: "chk-now-simple",
         workspaceId: INBOX_WORKSPACE_ID,
         title: "Prepare presentation",
+        priority: "none",
         items: [
           { id: "it-1", title: "Finish introduction", completed: false },
           { id: "it-2", title: "Finish slides", completed: false },
@@ -114,6 +115,7 @@ describe("Today checklist item completion (canonical path)", () => {
         id: "chk-now-recurring",
         workspaceId: INBOX_WORKSPACE_ID,
         title: "Weekly Routine",
+        priority: "none",
         items: [
           { id: "it-1", title: "Step A", completed: false },
           { id: "it-2", title: "Step B", completed: false },

@@ -198,6 +198,7 @@ describe("Schedule and Reminder Relationship Hardening", () => {
           id: "chk-unscheduled",
           workspaceId: INBOX_WORKSPACE_ID,
           title: "Weekly Shopping",
+          priority: "none",
           items: [{ id: "1", title: "Milk", completed: false }],
           revision: 1,
           lifecycleGeneration: 1,

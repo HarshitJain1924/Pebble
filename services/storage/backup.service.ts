@@ -612,7 +612,7 @@ export class BackupService {
       kvPairsToSet.push([`pebble:v1:habits:${wsId}`, JSON.stringify(hsMap)]);
 
       const csMap: Record<string, Checklist> = {};
-      (checklistsByWs[wsId] || []).forEach((c: Checklist) => (csMap[c.id] = c));
+      (checklistsByWs[wsId] || []).forEach((c: Checklist) => (csMap[c.id] = { ...c, priority: c.priority || "none" }));
       kvPairsToSet.push([
         `pebble:v1:checklists:${wsId}`,
         JSON.stringify(csMap),

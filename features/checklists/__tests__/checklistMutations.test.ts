@@ -33,6 +33,7 @@ describe("Checklist Mutations Regression Suite", () => {
       id: "chk-1",
       workspaceId,
       title: "Packing List",
+      priority: "none",
       items: [
         { id: "item-1", title: "Passport", completed: false },
       ],

@@ -61,6 +61,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-onetime-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Grocery Run",
+      priority: "none",
       items: [
         { id: "item-1", title: "Milk", completed: false },
         { id: "item-2", title: "Eggs", completed: false },
@@ -104,6 +105,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-allday-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Weekly Review Prep",
+      priority: "none",
       items: [{ id: "item-1", title: "Review goals", completed: false }],
       schedule: {
         date: "2026-09-01",
@@ -138,6 +140,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-weekly-master",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Weekend Meal Prep",
+      priority: "none",
       items: [
         { id: "item-1", title: "Vegetables", completed: false },
         { id: "item-2", title: "Rice", completed: false },
@@ -185,6 +188,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-isolated-test",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Weekly Routine",
+      priority: "none",
       items: [
         { id: "it-1", title: "Step A", completed: false },
         { id: "it-2", title: "Step B", completed: false },
@@ -246,6 +250,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-detach-test",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Saturday Cleaning",
+      priority: "none",
       items: [
         { id: "it-1", title: "Vacuum", completed: false },
         { id: "it-2", title: "Dust", completed: false },
@@ -296,6 +301,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-move-test",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Car Maintenance",
+      priority: "none",
       items: [{ id: "it-1", title: "Oil change", completed: false }],
       schedule: {
         date: "2026-09-01",
@@ -343,6 +349,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-lifecycle-test",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "To Be Recycled",
+      priority: "none",
       items: [{ id: "it-1", title: "Test", completed: false }],
       schedule: {
         date: "2026-09-01",
@@ -390,6 +397,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-gap-test",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Morning Routine",
+      priority: "none",
       items: [{ id: "it-1", title: "Step 1", completed: false }],
       schedule: {
         date: "2026-09-01",
@@ -427,6 +435,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-unscheduled-1",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Shopping List",
+      priority: "none",
       items: [
         { id: "it-1", title: "Apples", completed: false },
         { id: "it-2", title: "Bananas", completed: false },
@@ -459,6 +468,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-plan-test",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Packing List",
+      priority: "none",
       items: [
         { id: "it-1", title: "Passport", completed: true },
         { id: "it-2", title: "Tickets", completed: false },
@@ -501,6 +511,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-allday-plan",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Maintenance Day",
+      priority: "none",
       items: [{ id: "it-1", title: "Check filters", completed: false }],
       revision: 1,
       lifecycleGeneration: 1,
@@ -549,6 +560,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-resched-preserve",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Trip Packing",
+      priority: "none",
       items: [
         { id: "it-1", title: "Shoes", completed: true },
         { id: "it-2", title: "Coat", completed: false },
@@ -590,6 +602,7 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
       id: "cl-archive-test",
       workspaceId: INBOX_WORKSPACE_ID,
       title: "Archivable Checklist",
+      priority: "none",
       items: [{ id: "it-1", title: "Step", completed: false }],
       schedule: {
         date: "2026-09-01",

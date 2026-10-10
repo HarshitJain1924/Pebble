@@ -340,6 +340,7 @@ describe("Notification Snooze Canonical Architecture Regression Tests", () => {
       id: "cl-snooze",
       workspaceId: wsId,
       title: "Grocery Run",
+      priority: "none",
       items: [{ id: "i1", title: "Apples", completed: false }],
       revision: 1,
       lifecycleGeneration: 1,

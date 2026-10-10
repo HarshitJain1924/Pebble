@@ -44,7 +44,7 @@ describe("BackupService Hardening & Validation", () => {
       { id: "habit-1", workspaceId: "ws-1", title: "Habit 1", recurrence: { frequency: "daily", interval: 1 }, completionHistory: [], revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ],
     checklists: [
-      { id: "chk-1", workspaceId: "ws-1", title: "Checklist 1", items: [], revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "chk-1", workspaceId: "ws-1", title: "Checklist 1", priority: "none", items: [], revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
     ],
     resources: [
       { id: "res-1", workspaceId: "ws-1", title: "Resource 1", type: "note", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },

@@ -373,6 +373,7 @@ describe("GraphReconcilerService resourceIds hostile concurrency audit", () => {
       id: "chk-1",
       workspaceId: WS,
       title: "Checklist 1",
+      priority: "none",
       items: [],
       resourceIds: ["res-chk-init", "res-chk-dead"],
       revision: 1,

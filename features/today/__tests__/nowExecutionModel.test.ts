@@ -91,6 +91,7 @@ function mockChecklist(overrides: Partial<Checklist> = {}): Checklist {
     id: `chk-${Math.random().toString(36).substring(2, 7)}`,
     workspaceId: "inbox",
     title: "Mock Checklist",
+    priority: "none",
     revision: 1,
     lifecycleGeneration: 1,
     items: [

@@ -223,11 +223,19 @@ export function buildChecklist(
     ? { enabled: true, triggerAt, notificationIds: undefined }
     : undefined;
 
+  const priorityMap: Record<string, Checklist["priority"]> = {
+    high: "high",
+    medium: "medium",
+    low: "low",
+    none: "none",
+  };
+
   return {
     id,
     workspaceId,
     title: item.title,
     categoryId: item.category || undefined,
+    priority: priorityMap[item.priority || ""] || "none",
     items: itemsArray.map((title, index) => ({
       id: `${id}-item-${index}`,
       title,

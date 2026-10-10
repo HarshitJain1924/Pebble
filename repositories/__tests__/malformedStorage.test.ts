@@ -45,6 +45,7 @@ const checklist = (id: string): Checklist => ({
   id,
   workspaceId: "ws-1",
   title: `Checklist ${id}`,
+  priority: "none",
   items: [],
   revision: 1,
   lifecycleGeneration: 1,

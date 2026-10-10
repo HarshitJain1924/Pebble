@@ -142,6 +142,7 @@ describe("Phase 9 — Cross-Domain Integrity & Transaction Boundary Audit", () =
     id,
     workspaceId: wsId,
     title: `Checklist ${id}`,
+    priority: "none",
     items: [],
     revision: 1,
     lifecycleGeneration: gen,

@@ -133,6 +133,7 @@ export interface Checklist {
   workspaceId: string;
   title: string;
   description?: string;
+  priority: TaskPriority;
   items: ChecklistItem[];
   categoryId?: string;
   tags?: string[];
