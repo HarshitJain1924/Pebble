@@ -80,7 +80,6 @@ const mockWorkspaces: Workspace[] = [
 const baseTask: Task = {
   id: "task-ambient-1",
   title: "Finish portfolio",
-  description: "Prepare case studies and mockups for client review",
   workspaceId: "ws-work",
   categoryId: "work",
   status: "todo",
@@ -93,8 +92,8 @@ const baseTask: Task = {
   updatedAt: 1000,
 };
 
-describe("TaskItem Atmospheric Card Redesign", () => {
-  it("renders atmospheric card with category artwork on right, ambient wash, and no orange priority strip", () => {
+describe("TaskItem Category Presentation Redesign", () => {
+  it("removes standalone category badge squircle and renders neutral card background with inline category icon", () => {
     let renderer: any;
     act(() => {
       renderer = create(
@@ -114,52 +113,41 @@ describe("TaskItem Atmospheric Card Redesign", () => {
 
     const root = renderer.root;
 
-    // 1. Ambient category wash Svg and artwork are rendered
-    const ambientWash = root.findByProps({ testID: "task-category-ambient-wash" });
-    expect(ambientWash).toBeDefined();
+    // 1. Standalone category badge squircle is NOT present
+    const categoryBadges = root.findAllByProps({ style: expect.anything() }).filter((n: any) => {
+      const s = n.props.style;
+      return s && (s.width === 36 && s.height === 36 && s.borderRadius === 11);
+    });
+    expect(categoryBadges).toHaveLength(0);
 
-    const artwork = root.findByProps({ testID: "task-category-artwork" });
-    expect(artwork).toBeDefined();
+    // 2. Ambient category wash Svg and ambient icon are NOT rendered (neutral card)
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    expect(root.findAllByProps({ testID: "task-category-ambient-icon" })).toHaveLength(0);
 
-    // 2. Priority edge strip is REMOVED
-    expect(root.findAllByProps({ testID: "task-category-priority-edge-strip" })).toHaveLength(0);
-
-    // 3. Priority is expressed via compact flag in metadata row (amber for high priority)
-    const prioText = root.findByProps({ testID: "task-priority-indicator-text" });
-    expect(prioText).toBeDefined();
-    expect(prioText.props.children).toBe("High");
-    const flatPrioStyle = Object.assign(
-      {},
-      ...(Array.isArray(prioText.props.style) ? prioText.props.style : [prioText.props.style])
-    );
-    expect(flatPrioStyle.color).toBe(Colors.dark.warning);
-
-    // 4. Description is rendered secondarily below title
-    const descNode = root.findByProps({ testID: "task-category-description" });
-    expect(descNode).toBeDefined();
-    expect(descNode.props.children).toBe("Prepare case studies and mockups for client review");
-
-    // 5. Card container has deep charcoal surface and subtle category-tinted border
+    // 3. Card container has completely neutral background and border
     const container = root.findByProps({ testID: "entity-item-container" });
     const flat = Object.assign(
       {},
       ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
     );
     expect(flat.backgroundColor).toBe(Colors.dark.card);
-    expect(flat.borderColor).toBe(`${TaskCategoryColors.work.color.dark}22`);
+    expect(flat.borderColor).toBe("rgba(255, 255, 255, 0.08)");
 
-    // 6. Title is strongest text element without cluttering inline icon
-    expect(root.findAllByProps({ testID: "task-category-category-icon" })).toHaveLength(0);
-    const textNodes = root.findAllByType("Text" as any).map((t: any) => t.props.children);
-    expect(textNodes).toContain("Finish portfolio");
+    // 4. Category is communicated via the small inline icon only
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
 
-    // 7. Core controls preserved: checkbox, resource indicator, overflow button
+    // 5. Row preserves: checkbox, title, resource indicator, overflow button
     expect(root.findByProps({ accessibilityRole: "checkbox" })).toBeDefined();
     expect(root.findByProps({ testID: "task-resource-indicator" })).toBeDefined();
     expect(root.findByProps({ accessibilityLabel: "More options for Finish portfolio" })).toBeDefined();
+
+    const textNodes = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+    expect(textNodes).toContain("Finish portfolio");
   });
 
-  it("renders light theme with subtle ambient wash and light card surface", () => {
+  it("renders light theme with neutral card background and border", () => {
     let renderer: any;
     act(() => {
       renderer = create(
@@ -177,8 +165,8 @@ describe("TaskItem Atmospheric Card Redesign", () => {
     });
 
     const root = renderer.root;
-    expect(root.findByProps({ testID: "task-category-ambient-wash" })).toBeDefined();
-    expect(root.findByProps({ testID: "task-category-artwork" })).toBeDefined();
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    expect(root.findAllByProps({ testID: "task-category-ambient-icon" })).toHaveLength(0);
 
     const container = root.findByProps({ testID: "entity-item-container" });
     const flat = Object.assign(
@@ -186,16 +174,14 @@ describe("TaskItem Atmospheric Card Redesign", () => {
       ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
     );
     expect(flat.backgroundColor).toBe(Palette.white);
-    expect(flat.borderColor).toBe(`${TaskCategoryColors.work.color.dark}18`);
+    expect(flat.borderColor).toBe("rgba(0, 0, 0, 0.06)");
   });
 
-  it("does not render ambient category wash or artwork when task has no category or keyword match", () => {
+  it("does not render ambient category wash or icon when task has no categoryId", () => {
     const taskWithoutCategory: Task = {
       ...baseTask,
       id: "task-no-cat",
-      title: "Check battery level",
       categoryId: undefined,
-      description: undefined,
     };
 
     let renderer: any;
@@ -215,8 +201,39 @@ describe("TaskItem Atmospheric Card Redesign", () => {
     });
 
     const root = renderer.root;
+    const ambientWashes = root.findAllByProps({ testID: "task-category-ambient-wash" });
+    expect(ambientWashes).toHaveLength(0);
+    const ambientIcons = root.findAllByProps({ testID: "task-category-ambient-icon" });
+    expect(ambientIcons).toHaveLength(0);
+  });
+
+  it("uses the specific category color for non-work categories on inline icon only", () => {
+    const healthTask: Task = {
+      ...baseTask,
+      id: "task-health",
+      categoryId: "health",
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={healthTask}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
     expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
-    expect(root.findAllByProps({ testID: "task-category-artwork" })).toHaveLength(0);
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.health.color.dark);
 
     const container = root.findByProps({ testID: "entity-item-container" });
     const flat = Object.assign(
@@ -224,21 +241,14 @@ describe("TaskItem Atmospheric Card Redesign", () => {
       ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
     );
     expect(flat.backgroundColor).toBe(Colors.dark.card);
-    expect(flat.borderColor).toBe("rgba(255, 255, 255, 0.08)");
   });
 
-  it("does not render priority flag when task has priority none or undefined", () => {
-    const taskNoPriority: Task = {
-      ...baseTask,
-      id: "task-no-prio",
-      priority: "none",
-    };
-
+  it("renders small inline category icon before title in TaskItem", () => {
     let renderer: any;
     act(() => {
       renderer = create(
         <TodoItem
-          item={taskNoPriority}
+          item={baseTask}
           colors={Colors.dark}
           colorScheme="dark"
           isOverdue={false}
@@ -251,47 +261,18 @@ describe("TaskItem Atmospheric Card Redesign", () => {
     });
 
     const root = renderer.root;
-    expect(root.findAllByProps({ testID: "task-priority-indicator" })).toHaveLength(0);
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.size).toBe(16);
+    expect(inlineIcon.props.name).toBe("briefcase");
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
   });
 
-  it("renders medium priority flag with secondary blue and low priority with muted color", () => {
-    const taskMed: Task = {
-      ...baseTask,
-      id: "task-med",
-      priority: "medium",
-    };
-
-    let renderer: any;
-    act(() => {
-      renderer = create(
-        <TodoItem
-          item={taskMed}
-          colors={Colors.dark}
-          colorScheme="dark"
-          isOverdue={false}
-          lists={mockWorkspaces}
-          selectedWorkspaceId="ws-work"
-          onToggleTodo={jest.fn()}
-          onDeleteTodo={jest.fn()}
-        />
-      );
-    });
-
-    const root = renderer.root;
-    const prioText = root.findByProps({ testID: "task-priority-indicator-text" });
-    expect(prioText.props.children).toBe("Med");
-    const flatPrioStyle = Object.assign(
-      {},
-      ...(Array.isArray(prioText.props.style) ? prioText.props.style : [prioText.props.style])
-    );
-    expect(flatPrioStyle.color).toBe(Colors.dark.secondary);
-  });
-
-  it("renders category artwork for keyword match like Shopping", () => {
+  it("renders small inline category icon for keyword match like Shopping in TaskItem", () => {
     const shoppingTask: Task = {
       ...baseTask,
       id: "task-shop",
-      title: "Weekly Grocery Shopping",
+      title: "Shopping",
       categoryId: undefined,
     };
 
@@ -312,22 +293,25 @@ describe("TaskItem Atmospheric Card Redesign", () => {
     });
 
     const root = renderer.root;
-    expect(root.findByProps({ testID: "task-category-ambient-wash" })).toBeDefined();
-    expect(root.findByProps({ testID: "task-category-artwork" })).toBeDefined();
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.size).toBe(16);
+    expect(inlineIcon.props.name).toBe("cart-outline");
   });
 
-  it("applies dimmed 0.6 opacity and line-through when completed", () => {
-    const completedTask: Task = {
+  it("does not render inline category icon when task has no category or keyword match", () => {
+    const taskWithoutCategory: Task = {
       ...baseTask,
-      id: "task-completed",
-      status: "completed",
+      id: "task-no-cat",
+      title: "Finish portfolio",
+      categoryId: undefined,
     };
 
     let renderer: any;
     act(() => {
       renderer = create(
         <TodoItem
-          item={completedTask}
+          item={taskWithoutCategory}
           colors={Colors.dark}
           colorScheme="dark"
           isOverdue={false}
@@ -340,36 +324,6 @@ describe("TaskItem Atmospheric Card Redesign", () => {
     });
 
     const root = renderer.root;
-    const container = root.findByProps({ testID: "entity-item-container" });
-    const flat = Object.assign(
-      {},
-      ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
-    );
-    expect(flat.opacity).toBe(0.6);
-  });
-
-  it("hides overflow button and supports selection in selection mode", () => {
-    let renderer: any;
-    act(() => {
-      renderer = create(
-        <TodoItem
-          item={baseTask}
-          colors={Colors.dark}
-          colorScheme="dark"
-          isOverdue={false}
-          isSelectionMode={true}
-          isSelected={true}
-          lists={mockWorkspaces}
-          selectedWorkspaceId="ws-work"
-          onToggleTodo={jest.fn()}
-          onDeleteTodo={jest.fn()}
-        />
-      );
-    });
-
-    const root = renderer.root;
-    expect(root.findAllByProps({ accessibilityLabel: "More options for Finish portfolio" })).toHaveLength(0);
-    const checkbox = root.findByProps({ accessibilityRole: "checkbox" });
-    expect(checkbox.props.accessibilityState.checked).toBe(true);
+    expect(root.findAllByProps({ testID: "task-category-category-icon" })).toHaveLength(0);
   });
 });

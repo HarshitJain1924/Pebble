@@ -1,5 +1,5 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
-import React, { useId, useMemo } from "react";
+import React, { useMemo } from "react";
 import {
   Insets,
   LayoutChangeEvent,
@@ -9,12 +9,6 @@ import {
   View,
   ViewStyle,
 } from "react-native";
-import Svg, {
-  Defs,
-  LinearGradient as SvgLinearGradient,
-  Rect as SvgRect,
-  Stop as SvgStop,
-} from "react-native-svg";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { TaskListPriorityColors } from "@/shared/constants/categoryColors";
@@ -25,10 +19,6 @@ import { Colors, Palette } from "@/shared/constants/theme";
 import { Typography } from "@/shared/constants/typography";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { type TaskPriority } from "@/shared/types/domain.types";
-import {
-  CategoryAtmosphericArt,
-  resolveArtworkMotif,
-} from "./CategoryAtmosphericArt";
 import {
   EntityCategoryPresentation,
   resolveEntityCategoryPresentation,
@@ -83,9 +73,24 @@ export interface EntityItemProps {
   alignLeading?: "center" | "flex-start";
 
   /**
-   * Title content: can be a string or a custom ReactNode.
+   * Title content: can be a string or a custom ReactNode (Tier 1: Heading/Title).
    */
   title?: React.ReactNode;
+
+  /**
+   * Optional secondary description/notes text preview (Tier 2: Readable Description).
+   */
+  description?: React.ReactNode;
+
+  /**
+   * Max lines for string description (default: 2).
+   */
+  descriptionNumberOfLines?: number;
+
+  /**
+   * Style override for the description text.
+   */
+  descriptionStyle?: StyleProp<TextStyle>;
 
   /**
    * Whether the title should have completed strike-through and muted text.
@@ -103,34 +108,7 @@ export interface EntityItemProps {
   titleStyle?: StyleProp<TextStyle>;
 
   /**
-   * Optional secondary description text displayed below the title.
-   */
-  description?: React.ReactNode;
-
-  /**
-   * Max lines for string description (default: 2).
-   */
-  descriptionNumberOfLines?: number;
-
-  /**
-   * Style override for the description text.
-   */
-  descriptionStyle?: StyleProp<TextStyle>;
-
-  /**
-   * Whether to render the atmospheric card surface (soft ambient wash + right-anchored artwork).
-   * Defaults to true when a category is present.
-   */
-  atmospheric?: boolean;
-
-  /**
-   * Whether to render the small inline category icon directly before the title.
-   * Defaults to true for backwards compatibility with non-task entities.
-   */
-  showCategoryIcon?: boolean;
-
-  /**
-   * Single-line metadata or custom metadata row slot below the title.
+   * Single-line metadata or custom metadata row slot below the title (Tier 3: Quick Scannable Metadata).
    */
   metadata?: React.ReactNode;
 
@@ -230,14 +208,12 @@ export const EntityItem: React.FC<EntityItemProps> = ({
   leadingControl,
   alignLeading = "center",
   title,
-  isCompleted = false,
-  titleNumberOfLines = 1,
-  titleStyle,
   description,
   descriptionNumberOfLines = 2,
   descriptionStyle,
-  atmospheric = false,
-  showCategoryIcon = true,
+  isCompleted = false,
+  titleNumberOfLines = 1,
+  titleStyle,
   metadata,
   centerContent,
   onPressContent,
@@ -262,12 +238,6 @@ export const EntityItem: React.FC<EntityItemProps> = ({
   const isLight = effectiveScheme === "light";
   const isDark = !isLight;
   const colors = Colors[effectiveScheme ?? "dark"];
-
-  // Unique IDs for SVG gradient definitions
-  const reactId = useId();
-  const cleanId = reactId.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const ambientWashId = explicitGradientId || `entity-ambient-wash-${cleanId}`;
-  const artGradientId = `entity-art-${cleanId}`;
 
   // Category atmosphere resolution
   const resolvedCategory = useMemo<EntityCategoryPresentation | null>(() => {
@@ -294,14 +264,6 @@ export const EntityItem: React.FC<EntityItemProps> = ({
     );
   }, [category, categoryContext, title, isDark]);
 
-  // Artwork motif resolution
-  const categoryKey = typeof category === "string" ? category : categoryContext?.type;
-  const titleStr = typeof title === "string" ? title : categoryContext?.title;
-  const resolvedMotif = useMemo(() => {
-    if (!atmospheric || !resolvedCategory) return null;
-    return resolveArtworkMotif(categoryKey, titleStr);
-  }, [atmospheric, resolvedCategory, categoryKey, titleStr]);
-
   // Priority edge stripe color
   const hasActivePriority =
     priority !== undefined && priority !== null && priority !== "none";
@@ -317,34 +279,33 @@ export const EntityItem: React.FC<EntityItemProps> = ({
     return isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(0, 0, 0, 0.12)";
   }, [shouldRenderPriority, priority, isDark]);
 
-  // Render Title Node with Optional Inline Category Icon
+  // Render Title Node with Inline Category Icon (Tier 1: Heading/Title)
   const renderTitle = () => {
     if (!title) return null;
 
-    const categoryIconNode =
-      showCategoryIcon && resolvedCategory?.icon ? (
-        resolvedCategory.iconFamily === "ionicons" ? (
-          <Ionicons
-            name={resolvedCategory.icon as any}
-            size={16}
-            color={isCompleted ? colors.textMuted : resolvedCategory.color}
-            style={styles.titleCategoryIcon}
-            testID={`${testIDPrefix}-category-icon`}
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-          />
-        ) : (
-          <Feather
-            name={resolvedCategory.icon as any}
-            size={16}
-            color={isCompleted ? colors.textMuted : resolvedCategory.color}
-            style={styles.titleCategoryIcon}
-            testID={`${testIDPrefix}-category-icon`}
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-          />
-        )
-      ) : null;
+    const categoryIconNode = resolvedCategory?.icon ? (
+      resolvedCategory.iconFamily === "ionicons" ? (
+        <Ionicons
+          name={resolvedCategory.icon as any}
+          size={16}
+          color={isCompleted ? colors.textMuted : resolvedCategory.color}
+          style={styles.titleCategoryIcon}
+          testID={`${testIDPrefix}-category-icon`}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      ) : (
+        <Feather
+          name={resolvedCategory.icon as any}
+          size={16}
+          color={isCompleted ? colors.textMuted : resolvedCategory.color}
+          style={styles.titleCategoryIcon}
+          testID={`${testIDPrefix}-category-icon`}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      )
+    ) : null;
 
     if (typeof title !== "string") {
       if (categoryIconNode) {
@@ -380,46 +341,43 @@ export const EntityItem: React.FC<EntityItemProps> = ({
     );
   };
 
-  // Render Center Content Container (Title, Optional Description, Metadata, Custom Content)
+  // Render Description Node (Tier 2: Readable Description)
+  const renderDescription = () => {
+    if (!description) return null;
+
+    if (typeof description !== "string") {
+      return description;
+    }
+
+    return (
+      <Text
+        style={[
+          styles.descriptionText,
+          {
+            color: isCompleted
+              ? colors.textMuted
+              : isDark
+                ? "rgba(255, 255, 255, 0.65)"
+                : "rgba(0, 0, 0, 0.62)",
+          },
+          descriptionStyle,
+        ]}
+        numberOfLines={descriptionNumberOfLines}
+      >
+        {description}
+      </Text>
+    );
+  };
+
+  // Render Center Content Container (Title, Description, Metadata, Custom Content)
   const centerBody = (
     <>
       {renderTitle()}
-      {description ? (
-        typeof description === "string" ? (
-          <Text
-            testID={`${testIDPrefix}-description`}
-            style={[
-              styles.descriptionText,
-              {
-                color: isCompleted
-                  ? colors.textMuted
-                  : isDark
-                    ? Palette.slate400
-                    : Palette.slate600,
-              },
-              descriptionStyle,
-            ]}
-            numberOfLines={descriptionNumberOfLines}
-          >
-            {description}
-          </Text>
-        ) : (
-          description
-        )
-      ) : null}
+      {renderDescription()}
       {metadata}
       {centerContent}
     </>
   );
-
-  const cardBorderColor =
-    resolvedCategory?.color && atmospheric
-      ? isDark
-        ? `${resolvedCategory.color}22`
-        : `${resolvedCategory.color}18`
-      : isDark
-        ? "rgba(255, 255, 255, 0.08)"
-        : "rgba(0, 0, 0, 0.06)";
 
   return (
     <View
@@ -431,7 +389,7 @@ export const EntityItem: React.FC<EntityItemProps> = ({
           backgroundColor: isLight ? Palette.white : colors.card,
           borderRadius: Radius.lg,
           borderWidth: 1,
-          borderColor: cardBorderColor,
+          borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
           marginVertical: 2,
           opacity: dimmed || isCompleted ? 0.6 : 1,
         },
@@ -445,52 +403,7 @@ export const EntityItem: React.FC<EntityItemProps> = ({
         </View>
       ) : null}
 
-      {/* 2. Atmospheric Ambient Wash (soft category-tinted light fading to left) */}
-      {atmospheric && resolvedCategory?.color ? (
-        <Svg
-          width="100%"
-          height="100%"
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-          testID={`${testIDPrefix}-ambient-wash`}
-        >
-          <Defs>
-            <SvgLinearGradient id={ambientWashId} x1="30%" y1="0%" x2="100%" y2="50%">
-              <SvgStop
-                offset="0%"
-                stopColor={resolvedCategory.color}
-                stopOpacity={0}
-              />
-              <SvgStop
-                offset="55%"
-                stopColor={resolvedCategory.color}
-                stopOpacity={isDark ? 0.04 : 0.02}
-              />
-              <SvgStop
-                offset="100%"
-                stopColor={resolvedCategory.color}
-                stopOpacity={isDark ? 0.12 : 0.06}
-              />
-            </SvgLinearGradient>
-          </Defs>
-          <SvgRect width="100%" height="100%" fill={`url(#${ambientWashId})`} />
-        </Svg>
-      ) : null}
-
-      {/* 3. Large Category Decorative Artwork (anchored right, masked softly to left) */}
-      {atmospheric && resolvedCategory?.color && resolvedMotif ? (
-        <CategoryAtmosphericArt
-          motif={resolvedMotif}
-          color={resolvedCategory.color}
-          isDark={isDark}
-          gradientId={artGradientId}
-          testID={`${testIDPrefix}-artwork`}
-        />
-      ) : null}
-
-      {/* 4. Priority Edge Strip */}
+      {/* 2. Priority Edge Strip */}
       {shouldRenderPriority && priorityStripeColor ? (
         <View
           testID={`${testIDPrefix}-priority-edge-strip`}
@@ -629,12 +542,12 @@ export const EntityMetaRow: React.FC<EntityMetaRowProps> = ({
                 />
               ))}
             <Text
-              testID={part.testID ? `${part.testID}-text` : undefined}
               style={[
                 styles.metaText,
                 {
                   color: part.color || colors.textMuted,
                   fontWeight: part.isBold ? Typography.weights.bold : Typography.weights.medium,
+                  fontVariant: ["tabular-nums"],
                 },
                 part.textStyle,
               ]}
@@ -807,15 +720,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   titleText: {
-    letterSpacing: -0.25,
+    letterSpacing: -0.3,
+    lineHeight: 22,
     flexShrink: 1,
   },
   descriptionText: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 13.5,
+    lineHeight: 18.5,
     letterSpacing: -0.15,
-    marginTop: 1,
-    marginBottom: 3,
+    marginTop: 2,
+    marginBottom: 2,
     flexShrink: 1,
   },
   metaRow: {
@@ -828,6 +742,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     minWidth: 0,
     maxWidth: "100%",
+    marginTop: 2,
   },
   metaPartItem: {
     flexDirection: "row",
@@ -854,11 +769,12 @@ const styles = StyleSheet.create({
     height: 3,
     borderRadius: 1.5,
     marginHorizontal: Spacing.xs,
-    opacity: 0.5,
+    opacity: 0.45,
     flexShrink: 0,
   },
   metaText: {
     fontSize: ROW_SPEC.type.meta,
+    letterSpacing: -0.15,
     flexShrink: 1,
   },
   trailingArea: {

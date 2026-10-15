@@ -105,6 +105,23 @@ describe("EntityItem Unified Architecture", () => {
       expect(textNodes).toContain("2");
     });
 
+    it("renders optional description text preview (Tier 2) below title", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Design Review"
+            description="Review typography hierarchy and card spacing with the team"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const textNodes = root.findAllByType(RNText).map((t: any) => t.props.children);
+      expect(textNodes).toContain("Design Review");
+      expect(textNodes).toContain("Review typography hierarchy and card spacing with the team");
+    });
+
     it("renders completely neutral card background without category wash or watermark icon", () => {
       let renderer: any;
       act(() => {

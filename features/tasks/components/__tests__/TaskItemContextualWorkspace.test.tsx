@@ -489,12 +489,12 @@ describe("TaskItem Contextual Workspace Rendering", () => {
     expect(renderedTexts).toContain("Yesterday");
   });
 
-  it("renders no metadata row for a task with no schedule, reminder, priority or resources", () => {
+  it("renders no metadata row for a task with no schedule, reminder or resources", () => {
     let root: any;
     act(() => {
       root = create(
         <TodoItem
-          item={{ ...baseTask, priority: "none", resourceIds: [] }}
+          item={{ ...baseTask, resourceIds: [] }}
           colors={mockColors}
           colorScheme="dark"
           isOverdue={false}

@@ -48,6 +48,16 @@ describe("Checklist Scheduling & Command Hardening (P0-1 through P1-5)", () => {
     mockScheduleNotificationAsync.mockResolvedValue("mock-notif-id-123");
     mockCancelScheduledNotificationAsync.mockResolvedValue(undefined);
 
+    // One-time reminders whose trigger is already in the past are intentionally
+    // never scheduled (reminders.service: `delay <= 0` guard). This suite pins
+    // "now" just before its 2026-10-01 / 2026-10-10 fixtures so those one-time
+    // reminders stay in the future instead of expiring with the wall clock.
+    // Only Date.now() is frozen; real timers stay in place for the suite's
+    // in-flight race tests.
+    jest
+      .spyOn(Date, "now")
+      .mockReturnValue(new Date("2026-09-30T12:00:00Z").getTime());
+
     await WorkspaceRepository.saveWorkspace({
       id: wsId,
       name: "Source Workspace",

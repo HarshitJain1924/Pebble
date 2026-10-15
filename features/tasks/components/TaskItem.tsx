@@ -134,6 +134,7 @@ interface TodoItemProps {
   onSelect?: () => void;
   allResources?: any[];
   onToggleLinkResource?: (itemId: string, itemType: "task", resourceId: string) => void;
+  showDescription?: boolean;
 }
 
 export function TodoItem({
@@ -158,6 +159,7 @@ export function TodoItem({
   onSelect,
   allResources = [],
   onToggleLinkResource,
+  showDescription = false,
 }: TodoItemProps) {
   const router = useRouter();
   const isLight = colorScheme === "light";
@@ -330,8 +332,6 @@ export function TodoItem({
       colors: {
         textMuted: colors.textMuted,
         error: colors.error,
-        warning: colors.warning,
-        secondary: colors.secondary,
       },
     });
   }, [
@@ -345,8 +345,6 @@ export function TodoItem({
     folderName,
     colors.textMuted,
     colors.error,
-    colors.warning,
-    colors.secondary,
   ]);
 
   const entityMetaParts = useMemo<EntityMetaPart[]>(() => {
@@ -355,8 +353,7 @@ export function TodoItem({
       text: part.text,
       icon: part.icon,
       color: part.color,
-      isBold: part.key === "overdue" || (part.key === "priority" && item.priority === "high"),
-      testID: part.key === "priority" ? "task-priority-indicator" : undefined,
+      isBold: part.key === "overdue",
       itemStyle: [
         part.key === "category" ? styles.metaPartWorkspace : undefined,
         part.key === "recurrence" ? styles.metaPartRecurrence : undefined,
@@ -386,7 +383,7 @@ export function TodoItem({
     }
 
     return parts;
-  }, [metaParts, totalResources, resourceIconName, isSelectionMode, onSelect, item.title, item.priority]);
+  }, [metaParts, totalResources, resourceIconName, isSelectionMode, onSelect, item.title]);
 
   return (
     <SwipeableCard
@@ -398,15 +395,17 @@ export function TodoItem({
         onLayout={onLayout}
         category={categoryPresentation}
         priority={item.priority}
-        showPriorityStrip={false}
-        showCategoryIcon={false}
-        atmospheric={true}
-        description={item.description}
         dimmed={isCompleted}
         colorScheme={colorScheme}
         testIDPrefix="task-category"
+        alignLeading={showDescription && item.description?.trim() ? "flex-start" : "center"}
         leadingControl={
-          <Animated.View style={animatedCheckboxStyle}>
+          <Animated.View
+            style={[
+              animatedCheckboxStyle,
+              showDescription && item.description?.trim() ? { marginTop: 1.5 } : null,
+            ]}
+          >
             <PressableScale
               onPress={handleCheckboxPress}
               hitSlop={10}
@@ -427,10 +426,10 @@ export function TodoItem({
                   borderRadius: ROW_SPEC.checkbox.visual / 2,
                   borderWidth: ROW_SPEC.checkbox.ring,
                   borderColor: (isSelectionMode ? isSelected : isCompleted)
-                    ? (isSelectionMode ? colors.primary : colors.success)
+                    ? colors.primary
                     : (isLight ? Palette.slate300 : "rgba(255, 255, 255, 0.28)"),
                   backgroundColor: (isSelectionMode ? isSelected : isCompleted)
-                    ? (isSelectionMode ? colors.primary : colors.success)
+                    ? colors.primary
                     : "transparent",
                 },
               ]}
@@ -442,6 +441,8 @@ export function TodoItem({
           </Animated.View>
         }
         title={item.title}
+        description={showDescription && item.description?.trim() ? item.description.trim() : undefined}
+        descriptionNumberOfLines={2}
         isCompleted={isCompleted}
         onPressContent={isSelectionMode ? onSelect : () => onEditTodo?.()}
         contentAccessibilityRole="button"
@@ -540,8 +541,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   overflowButton: {
-    width: 28,
+    width: 36,
     height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },

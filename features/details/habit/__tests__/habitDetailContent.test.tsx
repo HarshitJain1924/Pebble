@@ -84,8 +84,11 @@ const baseHabit: any = {
   streak: 12,
   bestStreak: 20,
   completedToday: true,
-  createdAt: 1755000000000,
-  updatedAt: 1755000000000,
+  // Created the day before the single recorded completion (2026-08-17) so the
+  // trailing-window completion rate below is derived from real entity history
+  // instead of drifting with the current wall clock.
+  createdAt: new Date("2026-08-17T09:00:00").getTime(),
+  updatedAt: new Date("2026-08-17T09:00:00").getTime(),
 };
 
 const findByAccessibilityLabel = (renderer: Renderer, label: string) => {
@@ -150,10 +153,21 @@ const renderContent = async (
 
 describe("HabitDetailContent", () => {
   beforeEach(() => {
+    // Completion statistics are computed against "today" (useHabitStats reads the
+    // current date key), so the clock is pinned to the day after the fixture's
+    // single completion. Without this the asserted completion rate rots daily.
+    jest.useFakeTimers({
+      doNotFake: ["nextTick", "queueMicrotask", "setImmediate"],
+    });
+    jest.setSystemTime(new Date("2026-08-18T09:00:00"));
     jest.clearAllMocks();
     (WorkspaceRepository.getWorkspaces as jest.Mock).mockResolvedValue([]);
     (ResourceRepository.getResources as jest.Mock).mockResolvedValue({});
     (getAllHistory as jest.Mock).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it("renders the habit title, description, badges, recurrence, and statistics", async () => {
