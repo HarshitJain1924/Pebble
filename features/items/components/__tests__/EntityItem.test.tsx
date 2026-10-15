@@ -796,7 +796,7 @@ describe("EntityItem Unified Architecture", () => {
       expect(onSelectPriorityMock).toHaveBeenCalledWith("high");
     });
 
-    it("renders floating resource deck near top with tiles when resources exist", () => {
+    it("EntityItem: renders floating resource deck near top with tiles when resources exist", () => {
       const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
       const onOpenResourceMock = jest.fn();
       const onAddResourceMock = jest.fn();
@@ -848,7 +848,7 @@ describe("EntityItem Unified Architecture", () => {
       expect(propPills).toHaveLength(0);
     });
 
-    it("renders subtle + Add resource affordance when no resources exist", () => {
+    it("EntityItem: renders subtle + Add resource affordance when no resources exist", () => {
       const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
       const onAddResourceMock = jest.fn();
 

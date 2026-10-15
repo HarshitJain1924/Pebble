@@ -39,7 +39,7 @@ describe("UserProfileRepository", () => {
       });
     });
 
-    it("falls back to defaults on malformed JSON", async () => {
+    it("UserProfileRepository: falls back to defaults on malformed JSON", async () => {
       await storage.setItem(PROFILE_STORAGE_KEY, "{not valid json");
 
       const profile = await UserProfileRepository.getProfile();
@@ -103,7 +103,7 @@ describe("UserProfileRepository", () => {
   });
 
   describe("saving", () => {
-    it("normalizes before persisting", async () => {
+    it("UserProfileRepository: normalizes before persisting", async () => {
       await UserProfileRepository.saveProfile({
         name: "",
         email: "ada@example.com",
@@ -119,7 +119,7 @@ describe("UserProfileRepository", () => {
   });
 
   describe("updates", () => {
-    it("partial update preserves unrelated fields", async () => {
+    it("UserProfileRepository: partial update preserves unrelated fields", async () => {
       await UserProfileRepository.saveProfile({
         name: "Ada",
         email: "ada@example.com",
@@ -151,7 +151,7 @@ describe("UserProfileRepository", () => {
       expect(updated.email).toBe("ada@example.com");
     });
 
-    it("concurrent updates do not lose unrelated changes", async () => {
+    it("UserProfileRepository: concurrent updates do not lose unrelated changes", async () => {
       const a = UserProfileRepository.updateProfile({ name: "Ada" });
       const b = UserProfileRepository.updateProfile({ avatar: "🔥" });
       await Promise.all([a, b]);

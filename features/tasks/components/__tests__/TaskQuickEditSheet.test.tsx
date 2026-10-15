@@ -219,7 +219,7 @@ describe("TaskQuickEditSheet", () => {
     );
   });
 
-  it("renders floating resource deck near top with tiles when resources exist", () => {
+  it("TaskQuickEditSheet: renders floating resource deck near top with tiles when resources exist", () => {
     let root: any;
     act(() => {
       root = create(<TaskQuickEditSheet {...defaultProps} />);
@@ -256,7 +256,7 @@ describe("TaskQuickEditSheet", () => {
     expect(propPills).toHaveLength(0);
   });
 
-  it("renders subtle + Add resource affordance when no resources exist", () => {
+  it("TaskQuickEditSheet: renders subtle + Add resource affordance when no resources exist", () => {
     let root: any;
     act(() => {
       root = create(

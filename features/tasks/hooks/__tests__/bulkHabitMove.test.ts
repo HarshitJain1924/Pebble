@@ -311,7 +311,7 @@ describe("useTasksState.handleBulkMove — habit persistence (P1 regression)", (
     }
   });
 
-  test("habits from multiple source workspaces can be moved together", async () => {
+  test("hook useTasksState.handleBulkMove: habits from multiple source workspaces can be moved together", async () => {
     await HabitRepository.saveHabit(habit("habit-a", "ws-1"));
     await HabitRepository.saveHabit(habit("habit-b", "ws-2"));
 
@@ -336,7 +336,7 @@ describe("useTasksState.handleBulkMove — habit persistence (P1 regression)", (
     }
   });
 
-  test("moving to the Inbox workspace persists correctly", async () => {
+  test("hook useTasksState.handleBulkMove: moving to the Inbox workspace persists correctly", async () => {
     await HabitRepository.saveHabit(habit("habit-a", "ws-1"));
 
     const { api, unmount } = await mountHook();

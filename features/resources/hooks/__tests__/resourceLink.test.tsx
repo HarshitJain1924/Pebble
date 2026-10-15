@@ -2,16 +2,43 @@ jest.mock("@react-native-async-storage/async-storage", () => require("@react-nat
 import React from "react";
 import { act, create } from "react-test-renderer";
 import { useResourceLinkState } from "@/features/resources/hooks/useResourceLinkState";
-import type { Task, Workspace } from "@/shared/types/domain.types";
+import type { Habit, Task, Workspace } from "@/shared/types/domain.types";
 
 jest.mock("expo-haptics", () => ({ ImpactFeedbackStyle: { Light: "light" }, impactAsync: jest.fn(async () => undefined) }));
 
 const workspace: Workspace = { id: "ws", name: "Workspace", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 const task: Task = { id: "task", workspaceId: "ws", title: "Task", status: "todo", priority: "none", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
+const habit: Habit = { id: "habit", workspaceId: "ws", title: "Habit", recurrence: { frequency: "daily", interval: 1 }, completionHistory: [], revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 };
 
 describe("Phase 0 resource-link persistence", () => {
-  it("loads the actual hook without introducing a new production dependency", () => {
-    expect(typeof useResourceLinkState).toBe("function");
+  test("appends a resource id to a habit and persists it through the habit branch", async () => {
+    let persistedHabits: Habit[] = [];
+    const persistHabits = jest.fn(async (next: Habit[]) => {
+      persistedHabits = next;
+    });
+    let api: ReturnType<typeof useResourceLinkState> | undefined;
+    function Harness() {
+      api = useResourceLinkState({ ws: [task] }, jest.fn(), [habit], jest.fn(), {}, jest.fn(), {}, "ws", null, [workspace], jest.fn(), persistHabits);
+      return null;
+    }
+    let renderer: any;
+    await act(async () => {
+      renderer = create(React.createElement(Harness));
+    });
+    try {
+      await act(async () => {
+        await api!.toggleLinkResource("habit", "habit", "resource-1");
+      });
+
+      expect(persistHabits).toHaveBeenCalledTimes(1);
+      expect(persistedHabits).toHaveLength(1);
+      expect(persistedHabits[0].id).toBe("habit");
+      expect(persistedHabits[0].resourceIds).toEqual(["resource-1"]);
+    } finally {
+      act(() => {
+        renderer.unmount();
+      });
+    }
   });
 
   test("does not leave a local link visible when task-link persistence fails", async () => {

@@ -142,7 +142,7 @@ describe("PebbleProgressRing and getActivePebbleCount", () => {
       expect(renderer.root).toBeDefined();
     });
 
-    it("renders percentage text when showText is true", () => {
+    it("PebbleProgressRing: renders percentage text when showText is true", () => {
       let renderer: any;
       act(() => {
         renderer = create(

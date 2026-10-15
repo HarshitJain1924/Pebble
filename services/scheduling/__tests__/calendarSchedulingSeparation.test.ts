@@ -361,7 +361,7 @@ describe("Calendar Scheduling and Reminder Separation", () => {
   });
 
   describe("Calendar Empty Slot Creation (Fix #3)", () => {
-    test("TEST 1: Creating a Task from the 15:00 Calendar slot preserves schedule.date and schedule.startTime='15:00'", () => {
+    test("projectCalendarTask — TEST 1: Creating a Task from the 15:00 Calendar slot preserves schedule.date and schedule.startTime='15:00'", () => {
       const selectedDate = "2026-08-30";
       const tappedHour = 15;
       const hourStr = `${String(tappedHour).padStart(2, "0")}:00`;
@@ -390,7 +390,7 @@ describe("Calendar Scheduling and Reminder Separation", () => {
       expect(newTask.reminder).toBeUndefined();
     });
 
-    test("TEST 2: Creating a Task from the 09:00 slot produces schedule.startTime='09:00'", () => {
+    test("projectCalendarTask — TEST 2: Creating a Task from the 09:00 slot produces schedule.startTime='09:00'", () => {
       const selectedDate = "2026-08-30";
       const tappedHour = 9;
       const hourStr = `${String(tappedHour).padStart(2, "0")}:00`;
@@ -417,7 +417,7 @@ describe("Calendar Scheduling and Reminder Separation", () => {
       expect(projection?.sortKey).toBe(9 * 60);
     });
 
-    test("TEST 3: Selecting a Calendar time does NOT create or modify reminder.triggerAt", () => {
+    test("projectCalendarTask — TEST 3: Selecting a Calendar time does NOT create or modify reminder.triggerAt", () => {
       const selectedDate = "2026-08-30";
       const newTask: Task = {
         id: "task-new-3",

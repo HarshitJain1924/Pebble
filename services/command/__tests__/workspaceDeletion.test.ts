@@ -63,7 +63,7 @@ describe("Batch 8: Workspace Deletion Safety Fix", () => {
     expect(snapshot.resources.length).toBe(1);
   });
 
-  it("Workspace Deletion - Cleanup failure aborts the deletion safely to prevent orphans", async () => {
+  it("Workspace Deletion - partition cleanup failure is tolerated: workspace stays deleted and the snapshot is preserved", async () => {
     const wsId = "ws-cleanup-fail";
     await WorkspaceRepository.saveWorkspaces([{ id: wsId, name: "Test WS", emoji: "🧪", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() }]);
 

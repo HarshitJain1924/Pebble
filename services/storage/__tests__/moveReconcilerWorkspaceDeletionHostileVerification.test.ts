@@ -215,7 +215,12 @@ describe("MoveReconciler & Workspace Deletion Race", () => {
     await MoveReconcilerService.reconcileAll();
 
     const journal = await MoveJournalRepository.getOperations();
-    expect(journal.length).toBe(0); // Safely resolved since it's already missing everywhere
+    // Draining happens through the target-workspace-deleted branch: reconcileMove checks
+    // target existence first and removes the operation as OBSOLETE. That check short-circuits,
+    // so the absent source entity is not what resolves this operation. The separate
+    // "missing from both partitions -> PRESERVED" contract is covered by
+    // MoveReconcilerMissingEverywhereHostileVerification.test.ts.
+    expect(journal.length).toBe(0);
   });
 
   it("Test I — Destination entity already exists (split-brain write) followed by destination deletion", async () => {

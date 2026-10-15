@@ -11,7 +11,7 @@ describe("TaskRepository Field Preservation", () => {
     await AsyncStorage.clear();
   });
 
-  it("preserves recurrenceExceptions during full AsyncStorage roundtrip", async () => {
+  it("TaskRepository: preserves recurrenceExceptions during full AsyncStorage roundtrip", async () => {
     const wsId = "test-workspace";
     const initialTask: Task = {
       id: "test-task",

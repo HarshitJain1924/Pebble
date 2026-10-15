@@ -3,16 +3,16 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
 );
-import { EntityCommandService } from "../command/EntityCommandService";
-import { TaskRepository } from "../../repositories/TaskRepository";
-import { HabitRepository } from "../../repositories/HabitRepository";
-import { WorkspaceRepository } from "../../repositories/WorkspaceRepository";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { TaskRepository } from "@/repositories/TaskRepository";
+import { HabitRepository } from "@/repositories/HabitRepository";
+import { WorkspaceRepository } from "@/repositories/WorkspaceRepository";
 
 jest.mock("@/shared/utils/id", () => ({
   generateId: () => "mock-id",
 }));
 
-jest.mock("../scheduling/reminders.service", () => ({
+jest.mock("@/services/scheduling/reminders.service", () => ({
   scheduleCreationNotifications: jest.fn().mockResolvedValue(["mock-notif"]),
   cancelReminderIds: jest.fn().mockResolvedValue(undefined),
 }));

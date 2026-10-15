@@ -115,11 +115,12 @@ describe("ChecklistCommandHandler Suite", () => {
       };
       expect(getItemType(taskWithHomeCategory)).toBe("task");
 
+      // A task that happens to carry an `items` array must still classify as a task.
       const taskWithItems: any = {
         id: "task-2",
         type: "task",
-        items: [{ id: "item-1", text: "Subtask 1" }],
-        title: "Task with subtasks",
+        items: [{ id: "item-1", text: "Stray item" }],
+        title: "Task carrying stray items",
       };
       expect(getItemType(taskWithItems)).toBe("task");
 

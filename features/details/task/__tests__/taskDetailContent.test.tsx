@@ -221,7 +221,7 @@ describe("TaskDetailContent", () => {
     expect(mockUndoApi.showToast).toHaveBeenCalledWith("Changes saved");
   });
 
-  it("loads canonical resourceIds and persists them as resourceIds on save", async () => {
+  it("TaskDetailContent: loads canonical resourceIds and persists them as resourceIds on save", async () => {
     // Canonical Task shape: resourceIds (no legacy linkedCollectionIds field).
     const withResources = {
       ...baseTask,
@@ -285,7 +285,7 @@ describe("TaskDetailContent", () => {
     expect(onConverted).toHaveBeenCalledWith("habit-new");
   });
 
-  it("invokes onBack from the header back action", async () => {
+  it("TaskDetailContent: invokes onBack from the header back action", async () => {
     const { renderer, onBack } = await renderContent(baseTask);
     await act(async () => {
       findByAccessibilityLabel(renderer, "Go back").props.onPress();
@@ -294,7 +294,7 @@ describe("TaskDetailContent", () => {
   });
 
   describe("Calendar Empty Slot Task Creation (Fix #3)", () => {
-    it("TEST 1: Creating a Task from the 15:00 Calendar slot preserves schedule.date and schedule.startTime='15:00'", async () => {
+    it("TaskDetailContent UI — TEST 1: Creating a Task from the 15:00 Calendar slot preserves schedule.date and schedule.startTime='15:00'", async () => {
       (TaskRepository.getTask as jest.Mock).mockResolvedValue(null);
       let renderer!: Renderer;
       await act(async () => {
@@ -332,7 +332,7 @@ describe("TaskDetailContent", () => {
       );
     });
 
-    it("TEST 2: Creating a Task from the 09:00 slot produces schedule.startTime='09:00'", async () => {
+    it("TaskDetailContent UI — TEST 2: Creating a Task from the 09:00 slot produces schedule.startTime='09:00'", async () => {
       (TaskRepository.getTask as jest.Mock).mockResolvedValue(null);
       let renderer!: Renderer;
       await act(async () => {
@@ -370,7 +370,7 @@ describe("TaskDetailContent", () => {
       );
     });
 
-    it("TEST 3: Selecting a Calendar time does NOT create or modify reminder.triggerAt", async () => {
+    it("TaskDetailContent UI — TEST 3: Selecting a Calendar time does NOT create or modify reminder.triggerAt", async () => {
       (TaskRepository.getTask as jest.Mock).mockResolvedValue(null);
       let renderer!: Renderer;
       await act(async () => {

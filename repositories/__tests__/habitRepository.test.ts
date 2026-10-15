@@ -11,7 +11,7 @@ describe("HabitRepository Field Preservation", () => {
     await AsyncStorage.clear();
   });
 
-  it("preserves recurrenceExceptions during full AsyncStorage roundtrip", async () => {
+  it("HabitRepository: preserves recurrenceExceptions during full AsyncStorage roundtrip", async () => {
     const wsId = "test-workspace";
     const initialHabit: Habit = {
       id: "test-habit",

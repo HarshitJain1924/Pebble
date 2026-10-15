@@ -32,7 +32,7 @@ describe("ProgressRing (Continuous)", () => {
     expect(renderer.root).toBeDefined();
   });
 
-  it("renders percentage text when showText is true", () => {
+  it("ProgressRing: renders percentage text when showText is true", () => {
     let renderer: any;
     act(() => {
       renderer = create(

@@ -86,7 +86,7 @@ describe("SettingsRepository", () => {
       expect(settings.defaultTimeEstimate).toBe(25);
     });
 
-    it("falls back to defaults on malformed JSON", async () => {
+    it("SettingsRepository: falls back to defaults on malformed JSON", async () => {
       await storage.setItem(SETTINGS_STORAGE_KEY, "{definitely not json");
 
       const settings = await SettingsRepository.getSettings();
@@ -182,7 +182,7 @@ describe("SettingsRepository", () => {
   });
 
   describe("saving", () => {
-    it("normalizes before persisting", async () => {
+    it("SettingsRepository: normalizes before persisting", async () => {
       const defaults = await SettingsRepository.getSettings();
       await SettingsRepository.saveSettings({
         ...defaults,
@@ -218,7 +218,7 @@ describe("SettingsRepository", () => {
   });
 
   describe("updates", () => {
-    it("partial update preserves unrelated fields", async () => {
+    it("SettingsRepository: partial update preserves unrelated fields", async () => {
       await SettingsRepository.saveSettings({
         ...DEFAULT_SETTINGS,
         theme: "light",
@@ -272,7 +272,7 @@ describe("SettingsRepository", () => {
       expect(updated.categories.personal).toBe(true);
     });
 
-    it("concurrent updates do not lose unrelated changes", async () => {
+    it("SettingsRepository: concurrent updates do not lose unrelated changes", async () => {
       const a = SettingsRepository.updateSettings({ theme: "light" });
       const b = SettingsRepository.updateSettings({
         escalationEnabled: false,

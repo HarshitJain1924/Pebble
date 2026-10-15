@@ -6,7 +6,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 import { ChecklistFilterModal } from "../ChecklistFilterModal";
 
 describe("ChecklistFilterModal Component", () => {
-  it("renders filter sections and chips correctly", () => {
+  it("ChecklistFilterModal: renders filter sections and chips correctly", () => {
     let renderer: any;
     act(() => {
       renderer = create(

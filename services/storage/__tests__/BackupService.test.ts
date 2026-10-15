@@ -998,7 +998,9 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
     // Normal reconcile
     await MoveReconcilerService.reconcileAll();
     
-    // Journal should NOT be clean because the entity is missing everywhere
+    // The journal MUST be drained here. op-post targets ws-2, which is not in the
+    // restored workspace set, so reconcileMove takes the "target workspace no longer
+    // exists" branch and removes the operation as OBSOLETE.
     journal = await MoveJournalRepository.getOperations();
     expect(journal.length).toBe(0);
   });
@@ -1020,8 +1022,9 @@ describe("BackupService & Reconciler - MoveJournal Integrity", () => {
     // Run reconciliation 
     await MoveReconcilerService.reconcileAll();
 
-    // The operation should process cleanly without deadlocking. 
-    // It will throw internally for "uncertain outcome" (missing everywhere), leaving journal intact.
+    // The operation must process cleanly without deadlocking. The target workspace
+    // (ws-1) does not exist in storage, so reconcileMove aborts the move as OBSOLETE
+    // and the journal is drained rather than left with a permanently stuck operation.
     const journal = await MoveJournalRepository.getOperations();
     expect(journal.length).toBe(0);
   });
@@ -1114,35 +1117,12 @@ function makeBackup(): AppBackup {
     expect(store["pebble:v1:backup_restore_intent"]).toBeUndefined();
     expect(store["pebble:v1:workspaces"]).toContain("ws-backup"); // Recovered!
 
-    // Reset for C
-    store = {};
-    store["pebble:v1:workspaces"] = JSON.stringify([{ id: "ws-live", name: "Live Workspace", createdAt: 100, updatedAt: 100 }]);
-    store["pebble:v1:tasks:ws-live"] = JSON.stringify({ "task-live": { id: "task-live", title: "Live Task" } });
-
-    // C. multiRemove succeeds, crash before multiSet
-    let removeSucceeded = false;
-    (AsyncStorage.multiRemove as jest.Mock).mockImplementationOnce(async (keys: string[]) => {
-      for (const k of keys) delete store[k];
-      removeSucceeded = true;
-    });
-    (AsyncStorage.multiSet as jest.Mock).mockImplementationOnce(async (pairs: readonly (readonly [string, string])[]) => {
-      if (removeSucceeded) {
-        processIsDead = true;
-        throw new Error("PROCESS_IS_DEAD");
-      }
-      for (const [k, v] of pairs) store[k] = v;
-    });
-
-    await expect(BackupService.restoreStructuredBackup(backupJson)).rejects.toThrow("PROCESS_IS_DEAD");
-    expect(store["pebble:v1:backup_restore_intent"]).toBeDefined();
-    // At this point, store has neither old nor new (except intent)
-    expect(store["pebble:v1:workspaces"]).toBeUndefined(); 
-    reviveProcess();
-
-    // Recover from C
-    await BackupService.recoverInterruptedRestore();
-    expect(store["pebble:v1:backup_restore_intent"]).toBeUndefined();
-    expect(store["pebble:v1:workspaces"]).toContain("ws-backup"); // Recovered!
+    // Boundary C (multiRemove commits, crash before multiSet) is intentionally NOT
+    // repeated here. It is covered by the dedicated suite below:
+    //   "REGRESSION: process death between multiRemove and multiSet MUST NOT lose all data"
+    // which injects the same failure window but asserts it against a richer seeded state
+    // (workspaces + tasks + habits + checklists + resources partitions) and uses the real
+    // repositories to prove the backup state is reachable after recovery.
 
     // Reset for D
     store = {};
@@ -1312,9 +1292,6 @@ describe("BackupService.restoreStructuredBackup — multiRemove/multiSet atomici
     await expect(
       BackupService.restoreStructuredBackup(JSON.stringify(makeBackup())),
     ).rejects.toThrow("PROCESS TERMINATED");
-
-    console.log("Storage keys after crash:", Object.keys(store));
-    console.log("Storage contents:", store);
 
     // CRITICAL REGRESSION ASSERTION:
     // After a crash, the durable intent MUST exist.

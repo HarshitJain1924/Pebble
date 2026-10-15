@@ -965,7 +965,7 @@ describe("HabitCommandHandler Suite", () => {
       expect(source["habit-a"]).toBeUndefined();
     });
 
-    test("habits from multiple source workspaces can be moved together", async () => {
+    test("bulkMoveHabits command: habits from multiple source workspaces can be moved together", async () => {
       await HabitRepository.saveHabit(habitFixture("habit-a", "ws-1"));
       await HabitRepository.saveHabit(habitFixture("habit-b", "ws-3"));
 
@@ -981,7 +981,7 @@ describe("HabitCommandHandler Suite", () => {
       expect(await HabitRepository.getHabits("ws-3")).toEqual({});
     });
 
-    test("moving to the Inbox workspace persists correctly", async () => {
+    test("bulkMoveHabits command: moving to the Inbox workspace persists correctly", async () => {
       await HabitRepository.saveHabit(habitFixture("habit-a", "ws-1"));
 
       await bulkMoveHabits([

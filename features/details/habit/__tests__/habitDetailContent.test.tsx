@@ -262,7 +262,7 @@ describe("HabitDetailContent", () => {
     expect(mockUndoApi.showToast).toHaveBeenCalledWith("Changes saved");
   });
 
-  it("loads canonical resourceIds and persists them as resourceIds on save", async () => {
+  it("HabitDetailContent: loads canonical resourceIds and persists them as resourceIds on save", async () => {
     // Canonical Habit shape: resourceIds (no legacy linkedCollectionIds field).
     const withResources = {
       ...baseHabit,
@@ -354,7 +354,7 @@ describe("HabitDetailContent", () => {
     expect(onConverted).toHaveBeenCalledWith("task-new");
   });
 
-  it("invokes onBack from the header back action", async () => {
+  it("HabitDetailContent: invokes onBack from the header back action", async () => {
     const { renderer, onBack } = await renderContent(baseHabit);
     await act(async () => {
       findByAccessibilityLabel(renderer, "Go back").props.onPress();

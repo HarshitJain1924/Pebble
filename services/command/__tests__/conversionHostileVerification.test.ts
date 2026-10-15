@@ -309,7 +309,6 @@ describe("Hostile Conversion Verification (Journal Sequence)", () => {
 
         const fulfilled = results.filter(r => r.status === "fulfilled");
         const rejected = results.filter(r => r.status === "rejected");
-        console.log("REJECTED:", rejected.map((r: any) => r.reason));
 
         expect(fulfilled.length).toBe(1);
         expect(rejected.length).toBe(1);

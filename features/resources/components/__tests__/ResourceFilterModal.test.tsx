@@ -6,7 +6,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 import { ResourceFilterModal } from "../ResourceFilterModal";
 
 describe("ResourceFilterModal Component", () => {
-  it("renders filter sections and chips correctly", () => {
+  it("ResourceFilterModal: renders filter sections and chips correctly", () => {
     let renderer: any;
     act(() => {
       renderer = create(

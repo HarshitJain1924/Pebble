@@ -3,10 +3,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
 );
-import { TaskRepository } from "../../repositories/TaskRepository";
-import { HabitRepository } from "../../repositories/HabitRepository";
-import { ChecklistRepository } from "../../repositories/ChecklistRepository";
-import { generateId } from "../../shared/utils/id";
+import { TaskRepository } from "@/repositories/TaskRepository";
+import { HabitRepository } from "@/repositories/HabitRepository";
+import { ChecklistRepository } from "@/repositories/ChecklistRepository";
+import { generateId } from "@/shared/utils/id";
 
 describe("Concurrency Safety Tests", () => {
   beforeEach(async () => {
