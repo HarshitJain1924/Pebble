@@ -22,6 +22,7 @@ import {
   Workspace,
   INBOX_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
@@ -105,8 +106,8 @@ export function useTasksState() {
     listsExpanded,
     setListsExpanded,
     loadWorkspaces,
-    handleSelectWorkspace,
-    handleBackToWorkspaces,
+    handleSelectWorkspace: rawHandleSelectWorkspace,
+    handleBackToWorkspaces: rawHandleBackToWorkspaces,
     handleCreateWorkspace,
     handleDeleteWorkspace,
   } = useWorkspaceState();
@@ -206,9 +207,30 @@ export function useTasksState() {
   );
   const celebrateDateRef = useRef<string | null>(null);
 
-  const [selectedDate, setSelectedDate] = useState<string>(getDateKey());
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayDateKey());
   const [selectedTodoDate, setSelectedTodoDate] =
-    useState<string>(getDateKey());
+    useState<string>(getTodayDateKey());
+
+  const prevWorkspaceIdRef = useRef<string | null>(activeWorkspaceId);
+  useEffect(() => {
+    if (activeWorkspaceId && activeWorkspaceId !== prevWorkspaceIdRef.current) {
+      setSelectedDate(getTodayDateKey());
+    }
+    prevWorkspaceIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
+
+  const handleSelectWorkspace = useCallback(
+    async (id: string) => {
+      setSelectedDate(getTodayDateKey());
+      await rawHandleSelectWorkspace(id);
+    },
+    [rawHandleSelectWorkspace],
+  );
+
+  const handleBackToWorkspaces = useCallback(async () => {
+    setSelectedDate(getTodayDateKey());
+    await rawHandleBackToWorkspaces();
+  }, [rawHandleBackToWorkspaces]);
   const [isAddingHabit, setIsAddingHabit] = useState(false);
   const [statsExpanded, setStatsExpanded] = useState(false);
 

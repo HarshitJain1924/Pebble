@@ -367,7 +367,7 @@ export function WorkspacesScreen() {
     return applyResourceFilters(searchFiltered, linkedResourceIds, {
       type: domainFilters.resourceTypeFilter,
       linkage: domainFilters.resourceLinkageFilter,
-      status: domainFilters.resourceStatusFilter,
+      status: domainFilters.resourceStatusFilter === "archived" ? "archived" : "active",
     });
   }, [
     allResources,

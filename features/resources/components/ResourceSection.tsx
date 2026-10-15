@@ -94,8 +94,11 @@ export function ResourceSection({
   }, [focusResourceId, folderResources]);
 
   const activeFolderResources = useMemo(
-    () => folderResources.filter((r) => !r.archivedAt),
-    [folderResources]
+    () =>
+      hideInternalHeader
+        ? folderResources
+        : folderResources.filter((r) => !r.archivedAt),
+    [folderResources, hideInternalHeader]
   );
 
   const filteredResources = useMemo(() => {
@@ -133,7 +136,7 @@ export function ResourceSection({
     }
 
     return list;
-  }, [folderResources, activeFilter, searchQuery]);
+  }, [activeFolderResources, activeFilter, searchQuery]);
 
 
 

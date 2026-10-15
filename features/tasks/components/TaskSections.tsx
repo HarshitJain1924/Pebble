@@ -304,7 +304,19 @@ export function TaskSections({
   if (!hasAnyTasks) {
     return (
       <View style={[styles.listContent, { gap: 0, paddingBottom: 0 }]}>
-        {renderTodaySection()}
+        <View style={sectionStyles.todaySectionContainer}>
+          <DateScopedSectionHeader
+            dateKey={selectedDate || todayKey}
+            onSelectDate={onSelectDate || (() => {})}
+            onOpenDatePicker={onOpenDatePicker}
+            colors={colors}
+            isDark={isDark}
+            progressText={undefined}
+            itemCount={0}
+            isExpanded={todayExpanded}
+            onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+          />
+        </View>
         <WorkspaceEmptyState
           context="tasks"
           searchQuery={searchQuery}
