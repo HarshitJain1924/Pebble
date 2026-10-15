@@ -6,8 +6,10 @@ export const RESOURCE_STACK_COLOR_MODE: "typed" | "neutral" = "typed";
 
 export const ROW_SPEC = {
   row: {
-    paddingTop: 14,
-    paddingBottom: 14,
+    // Vertical breathing room inside a row. Kept symmetric so the leading control, title,
+    // and metadata column all stay optically centered as a single unit.
+    paddingTop: 16,
+    paddingBottom: 16,
     paddingLeft: 16,
     paddingRight: 14,
     gap: 12,

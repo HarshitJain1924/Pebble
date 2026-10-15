@@ -169,4 +169,84 @@ describe("MoveReconciler & Workspace Deletion Race", () => {
     const sourceTasks = await TaskRepository.getTasks("ws-source-f");
     expect(Object.keys(sourceTasks).length).toBe(0);
   });
+
+  it("Test G — Target deleted AND source workspace deleted", async () => {
+    await WorkspaceRepository.saveWorkspaces([
+      { id: "ws-source-g", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-g", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+    ]);
+    const task = { id: "task-g", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-g", kind: "todo", revision: 1, lifecycleGeneration: 1 };
+    await TaskRepository.saveTasksUnlocked([task], "ws-source-g");
+    await MoveJournalRepository.addOperation({
+      operationId: "op-g", operationType: "move", entityType: "task", entityId: "task-g", sourceWorkspaceId: "ws-source-g", targetWorkspaceId: "ws-dest-g", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
+    });
+
+    // Delete both workspaces
+    await EntityCommandService.deleteWorkspace("ws-source-g");
+    await EntityCommandService.deleteWorkspace("ws-dest-g");
+    await MoveReconcilerService.reconcileAll();
+
+    const journal = await MoveJournalRepository.getOperations();
+    expect(journal.length).toBe(0);
+
+    // Entity must be recoverable from the recycle bin of the source workspace
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    const binItems = await RecycleBinRepository.getRecycleBinItems();
+    const sourceRecycle = binItems.find(i => i.entityId === "ws-source-g");
+    expect(sourceRecycle).toBeDefined();
+
+    const snapshot = JSON.parse(sourceRecycle!.snapshot);
+    expect(snapshot.todos.length).toBe(1);
+    expect(snapshot.todos[0].id).toBe("task-g");
+  });
+
+  it("Test H — Target deleted, source entity missing", async () => {
+    await WorkspaceRepository.saveWorkspaces([
+      { id: "ws-source-h", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-h", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+    ]);
+
+    // Create journal but NO entity in source and NO entity in dest
+    await MoveJournalRepository.addOperation({
+      operationId: "op-h", operationType: "move", entityType: "task", entityId: "task-h", sourceWorkspaceId: "ws-source-h", targetWorkspaceId: "ws-dest-h", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
+    });
+
+    await EntityCommandService.deleteWorkspace("ws-dest-h");
+    await MoveReconcilerService.reconcileAll();
+
+    const journal = await MoveJournalRepository.getOperations();
+    expect(journal.length).toBe(0); // Safely resolved since it's already missing everywhere
+  });
+
+  it("Test I — Destination entity already exists (split-brain write) followed by destination deletion", async () => {
+    await WorkspaceRepository.saveWorkspaces([
+      { id: "ws-source-i", name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+      { id: "ws-dest-i", name: "Dest", revision: 1, lifecycleGeneration: 1, createdAt: 1, updatedAt: 1 },
+    ]);
+    const task = { id: "task-i", title: "Task", createdAt: 1, updatedAt: 1, completed: false, listId: "ws-source-i", kind: "todo", revision: 1, lifecycleGeneration: 1 };
+
+    // Write to both to simulate a native write success but JS crash
+    await TaskRepository.saveTasksUnlocked([task], "ws-source-i");
+    await TaskRepository.saveTasksUnlocked([{...task, workspaceId: "ws-dest-i"}], "ws-dest-i");
+
+    await MoveJournalRepository.addOperation({
+      operationId: "op-i", operationType: "move", entityType: "task", entityId: "task-i", sourceWorkspaceId: "ws-source-i", targetWorkspaceId: "ws-dest-i", timestamp: Date.now(), lifecycleGeneration: 1, expectedRevision: 1,
+    });
+
+    // Delete target workspace
+    await EntityCommandService.deleteWorkspace("ws-dest-i");
+
+    await MoveReconcilerService.reconcileAll();
+
+    const sourceTasks = await TaskRepository.getTasks("ws-source-i");
+    expect(sourceTasks["task-i"]).toBeDefined(); // Since target was deleted, abort leaves source copy
+
+    // The target copy was safely placed into the recycle bin by the deletion
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    const binItems = await RecycleBinRepository.getRecycleBinItems();
+    const destRecycle = binItems.find(i => i.entityId === "ws-dest-i");
+    const snapshot = JSON.parse(destRecycle!.snapshot);
+    expect(snapshot.todos.length).toBe(1);
+    expect(snapshot.todos[0].id).toBe("task-i");
+  });
 });
