@@ -25,4 +25,9 @@ export {
   type ResourceCategory,
   type ResourceVisualInfo,
 } from "@/features/today/utils/resource-presentation";
-
+export {
+  CategoryAtmosphericArt,
+  resolveArtworkMotif,
+  type ArtworkMotif,
+  type CategoryAtmosphericArtProps,
+} from "./components/CategoryAtmosphericArt";

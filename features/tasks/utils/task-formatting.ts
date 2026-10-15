@@ -324,13 +324,14 @@ export function formatTaskScheduleDate(
 export type TaskMetadataPartKey =
   | "category"
   | "overdue"
+  | "priority"
   | "recurrence"
   | "date"
   | "time"
   | "duration"
   | "reminder";
 
-export type TaskMetadataIcon = "clock" | "calendar" | "repeat" | "bell";
+export type TaskMetadataIcon = "clock" | "calendar" | "repeat" | "bell" | "flag";
 
 export interface TaskMetadataPart {
   key: TaskMetadataPartKey;
@@ -358,6 +359,8 @@ export interface TaskMetadataOptions {
   colors?: {
     textMuted?: string;
     error?: string;
+    warning?: string;
+    secondary?: string;
     [key: string]: any;
   };
 }
@@ -373,6 +376,8 @@ export function getTaskMetadataParts(
   const parts: TaskMetadataPart[] = [];
   const textMuted = options.colors?.textMuted;
   const errorColor = options.colors?.error;
+  const warningColor = options.colors?.warning || Palette.amber500;
+  const secondaryColor = options.colors?.secondary || Palette.blue500;
 
   // 1. Workspace context: only when viewing cross-workspace / requested by container
   if (options.workspaceName) {
@@ -408,6 +413,23 @@ export function getTaskMetadataParts(
       key: "overdue",
       text: "Overdue",
       color: errorColor,
+    });
+  }
+
+  // 3. Priority flag: explicit priority attribute
+  // Tasks without an assigned priority do not show any flag.
+  // Amber is strictly reserved for high priority.
+  if (task.priority && task.priority !== "none") {
+    const isHigh = task.priority === "high";
+    const isMed = task.priority === "medium";
+    const prioLabel = isHigh ? "High" : isMed ? "Med" : "Low";
+    const prioColor = isHigh ? warningColor : isMed ? secondaryColor : textMuted;
+
+    parts.push({
+      key: "priority",
+      text: prioLabel,
+      color: prioColor,
+      icon: "flag",
     });
   }
 
@@ -520,16 +542,17 @@ export function getTaskMetadataParts(
     }
   }
 
-  // 7. Enforce strict single-line budget (max 3 items) to prevent task row overflow:
-  // If items exceed 3, drop lowest-priority secondary items (reminder first).
-  if (parts.length > 3) {
+  // 7. Enforce single-line metadata budget (max 4 items) to prevent task row overflow:
+  // Accommodates explicit priority flag alongside scheduling, reminder, and duration.
+  // If items exceed 4, drop lowest-priority secondary items (reminder first).
+  if (parts.length > 4) {
     const reminderIdx = parts.findIndex((p) => p.key === "reminder");
     if (reminderIdx !== -1) {
       parts.splice(reminderIdx, 1);
     }
   }
-  if (parts.length > 3) {
-    parts.length = 3;
+  if (parts.length > 4) {
+    parts.length = 4;
   }
 
   return parts;

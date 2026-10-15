@@ -367,8 +367,8 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
       expect(collapsedTexts).toContain("Read design article");
       expect(root.findByProps({ testID: "task-resource-indicator" })).toBeDefined();
 
-      // The old giant card is gone: no description, no resource header, no toolbar
-      expect(collapsedTexts).not.toContain("Read the design article and make notes...");
+      // The old giant card is gone: no resource header, no toolbar. Description is secondary.
+      expect(collapsedTexts).toContain("Read the design article and make notes...");
       expect(collapsedTexts).not.toContain("Resources (2)");
       expect(collapsedTexts).not.toContain("Schedule");
       expect(collapsedTexts).not.toContain("Reminder");

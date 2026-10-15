@@ -330,6 +330,8 @@ export function TodoItem({
       colors: {
         textMuted: colors.textMuted,
         error: colors.error,
+        warning: colors.warning,
+        secondary: colors.secondary,
       },
     });
   }, [
@@ -343,6 +345,8 @@ export function TodoItem({
     folderName,
     colors.textMuted,
     colors.error,
+    colors.warning,
+    colors.secondary,
   ]);
 
   const entityMetaParts = useMemo<EntityMetaPart[]>(() => {
@@ -351,7 +355,8 @@ export function TodoItem({
       text: part.text,
       icon: part.icon,
       color: part.color,
-      isBold: part.key === "overdue",
+      isBold: part.key === "overdue" || (part.key === "priority" && item.priority === "high"),
+      testID: part.key === "priority" ? "task-priority-indicator" : undefined,
       itemStyle: [
         part.key === "category" ? styles.metaPartWorkspace : undefined,
         part.key === "recurrence" ? styles.metaPartRecurrence : undefined,
@@ -381,7 +386,7 @@ export function TodoItem({
     }
 
     return parts;
-  }, [metaParts, totalResources, resourceIconName, isSelectionMode, onSelect, item.title]);
+  }, [metaParts, totalResources, resourceIconName, isSelectionMode, onSelect, item.title, item.priority]);
 
   return (
     <SwipeableCard
@@ -393,6 +398,10 @@ export function TodoItem({
         onLayout={onLayout}
         category={categoryPresentation}
         priority={item.priority}
+        showPriorityStrip={false}
+        showCategoryIcon={false}
+        atmospheric={true}
+        description={item.description}
         dimmed={isCompleted}
         colorScheme={colorScheme}
         testIDPrefix="task-category"
