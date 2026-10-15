@@ -462,6 +462,89 @@ describe("ResourceCommandHandler Suite", () => {
       expect(finalBin.find((i) => i.entityId === resourceId2)).toBeDefined();
       expect(finalBin.find((i) => i.entityId === resourceId1)).toBeUndefined();
     });
+
+    it("serializes permanentlyDeleteResource and moveResource to prevent stale-read side effects", async () => {
+      const resourceId = "res-perm-del-move";
+
+      await ResourceRepository.saveResource({
+        id: resourceId,
+        workspaceId: WS,
+        title: "Resource racing move vs delete",
+        type: "note",
+      });
+
+      const originalGetResources = ResourceRepository.getResources.bind(ResourceRepository);
+
+      const deleteReadStarted = defer();
+      const resumeDelete = defer();
+
+      let getResourcesCount = 0;
+      let moveStartedRead = false;
+
+      jest.spyOn(ResourceRepository, "getResources").mockImplementation(async (wsId) => {
+        if (wsId === WS) {
+          getResourcesCount++;
+          if (getResourcesCount === 1) {
+            deleteReadStarted.resolve();
+            await resumeDelete.promise;
+          } else {
+            moveStartedRead = true;
+          }
+        }
+        return originalGetResources(wsId);
+      });
+
+      // 1. Start permanentlyDeleteResource in WS
+      const deletePromise = ResourceCommandHandler.permanentlyDeleteResource(
+        resourceId,
+        WS,
+        { skipEvents: true, skipAnalytics: true }
+      );
+
+      // Wait until permanentlyDelete has acquired the lock and entered its critical read phase
+      await deleteReadStarted.promise;
+
+      // 2. Concurrently attempt to move the resource to WS_TARGET
+      let moveSettled = false;
+      const movePromise = ResourceCommandHandler.moveResource(
+        resourceId,
+        WS,
+        WS_TARGET,
+        { skipEvents: true, skipAnalytics: true }
+      ).finally(() => {
+        moveSettled = true;
+      });
+
+      // Flush microtasks and allow tick to verify moveResource is blocked by the mutex
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+      await new Promise((r) => setTimeout(r, 40));
+
+      // Invariant: while permanentlyDelete holds the partition lock,
+      // moveResource CANNOT enter its critical read phase or settle.
+      expect(moveStartedRead).toBe(false);
+      expect(moveSettled).toBe(false);
+
+      // 3. Resume delete to complete deletion and release lock
+      resumeDelete.resolve();
+
+      await deletePromise;
+
+      // Now that the lock is released, moveResource proceeds and fails because the resource was deleted
+      await expect(movePromise).rejects.toThrow(/not found/i);
+
+      // 4. Verify entity is deleted everywhere and not present in WS_TARGET
+      const wsResources = await ResourceRepository.getResources(WS);
+      const targetResources = await ResourceRepository.getResources(WS_TARGET);
+      expect(wsResources[resourceId]).toBeUndefined();
+      expect(targetResources[resourceId]).toBeUndefined();
+
+      const isTombstoned = await TombstoneRepository.isTombstoned("resource", resourceId, 1);
+      expect(isTombstoned).toBe(true);
+
+      jest.spyOn(ResourceRepository, "getResources").mockRestore();
+    });
   });
 
   // ===========================================================================

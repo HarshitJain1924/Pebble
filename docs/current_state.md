@@ -225,7 +225,6 @@ Discovered by scanning every module under `features/`, `services/`, `repositorie
 - `features/today/components/ContinueWorkspaceCard.tsx`
 
 **Orphaned modules that still have tests (tested but unused in production)**
-- `features/tasks/components/TemporalHorizonStrip.tsx`
 - `features/today/components/PebbleJarProgressCard.tsx`
 - `features/today/components/StreakBanner.tsx`
 - `shared/components/ui/SegmentedSwitcher.tsx` (note: still cited as an accessibility baseline in §21 — the pattern is documented even though the component is no longer mounted)
