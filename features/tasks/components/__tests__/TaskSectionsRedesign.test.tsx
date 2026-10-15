@@ -158,6 +158,152 @@ describe("TaskSections & TaskItem Redesign Suite", () => {
     });
   });
 
+  describe("Section header system", () => {
+    const makeTask = (over: Partial<Task>): Task => ({
+      id: "t",
+      title: "Task",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      workspaceId: "ws-1",
+      revision: 1,
+      lifecycleGeneration: 1,
+      status: "todo",
+      priority: "none",
+      resourceIds: [],
+      ...over,
+    });
+
+    const overdueTask = makeTask({
+      id: "t-overdue",
+      title: "Overdue carryover",
+      schedule: { date: "2026-09-20" },
+    });
+    const todayTask = makeTask({
+      id: "t-today",
+      title: "Today task",
+      schedule: { date: "2026-09-30" },
+    });
+    const tomorrowTask = makeTask({
+      id: "t-tomorrow",
+      title: "Tomorrow task",
+      schedule: { date: "2026-10-01" },
+    });
+    const upcomingTask = makeTask({
+      id: "t-upcoming",
+      title: "Later task",
+      schedule: { date: "2026-10-20" },
+    });
+    const somedayTask = makeTask({ id: "t-someday", title: "Someday task" });
+    const doneTask = makeTask({
+      id: "t-done",
+      title: "Finished task",
+      status: "completed",
+      completedAt: Date.now(),
+    });
+
+    // One item in every backlog section, so both the chevron rule and the
+    // collapse/expand behaviour are exercised with fewer than six items.
+    const renderAllSections = (onSaveEarlierForLater?: () => void) => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <TaskSections
+            overdueTodos={[overdueTask]}
+            todayTodos={[todayTask]}
+            upcomingTodos={[tomorrowTask, upcomingTask]}
+            inboxTodos={[somedayTask, doneTask]}
+            workspaces={mockWorkspaces}
+            selectedWorkspaceId="ws-1"
+            selectedDate="2026-09-30"
+            completedCount={1}
+            onClearCompleted={jest.fn()}
+            onToggleTodo={jest.fn()}
+            onDeleteTodo={jest.fn()}
+            onEditTodo={jest.fn()}
+            onSetAlarm={jest.fn()}
+            onSaveEarlierForLater={onSaveEarlierForLater}
+            allResources={mockResources}
+          />
+        );
+      });
+      return renderer.root;
+    };
+
+    const chevronsNamed = (root: any, name: string) =>
+      root.findAllByType("FeatherIcon").filter((n: any) => n.props.name === name);
+
+    const headerStartingWith = (root: any, prefix: string) =>
+      root.findAll(
+        (n: any) =>
+          typeof n.props?.accessibilityLabel === "string" &&
+          n.props.accessibilityLabel.startsWith(prefix)
+      )[0];
+
+    it("gives every collapsible backlog section a chevron even with a single item", () => {
+      const root = renderAllSections();
+
+      // Earlier + Tomorrow start expanded; Upcoming + Someday + Completed start collapsed.
+      // Previously a count-based rule hid the chevron entirely on short sections.
+      expect(chevronsNamed(root, "chevron-up")).toHaveLength(2);
+      expect(chevronsNamed(root, "chevron-down")).toHaveLength(3);
+    });
+
+    it("collapses and expands a short section through its header and keeps a11y state accurate", () => {
+      const root = renderAllSections();
+
+      const expandedHeader = headerStartingWith(root, "Earlier section");
+      expect(expandedHeader.props.accessibilityLabel).toBe(
+        "Earlier section, 1 task, expanded"
+      );
+      expect(expandedHeader.props.accessibilityState).toEqual({ expanded: true });
+
+      act(() => {
+        expandedHeader.props.onPress();
+      });
+
+      const textsAfterCollapse = root.findAllByType("Text").map((n: any) => n.props.children);
+      expect(textsAfterCollapse).not.toContain("Overdue carryover");
+
+      const collapsedHeader = headerStartingWith(root, "Earlier section");
+      expect(collapsedHeader.props.accessibilityLabel).toBe(
+        "Earlier section, 1 task, collapsed"
+      );
+      expect(collapsedHeader.props.accessibilityState).toEqual({ expanded: false });
+
+      act(() => {
+        collapsedHeader.props.onPress();
+      });
+
+      const textsAfterExpand = root.findAllByType("Text").map((n: any) => n.props.children);
+      expect(textsAfterExpand).toContain("Overdue carryover");
+    });
+
+    it("keeps the secondary action independently interactive without toggling the section", () => {
+      const onSaveEarlierForLater = jest.fn();
+      const root = renderAllSections(onSaveEarlierForLater);
+
+      const action = root.findAll(
+        (n: any) => n.props?.accessibilityLabel === "Move all earlier tasks to Someday"
+      )[0];
+      expect(action).toBeDefined();
+
+      const event = { stopPropagation: jest.fn() };
+      act(() => {
+        action.props.onPress(event);
+      });
+
+      // The action stops propagation so the parent header never toggles, and it fired once.
+      expect(event.stopPropagation).toHaveBeenCalled();
+      expect(onSaveEarlierForLater).toHaveBeenCalledTimes(1);
+
+      const texts = root.findAllByType("Text").map((n: any) => n.props.children);
+      expect(texts).toContain("Overdue carryover");
+      expect(headerStartingWith(root, "Earlier section").props.accessibilityState).toEqual({
+        expanded: true,
+      });
+    });
+  });
+
   describe("TodoItem (TaskItem)", () => {
     it("renders collapsed row with circular checkbox, title, and compact trailing resource indicator", () => {
       let renderer: any;

@@ -4,10 +4,12 @@ import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { TodoItem } from "@/features/tasks/components/TaskItem";
-import { Colors, Palette, colorWithAlpha } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { styles } from "@/shared/constants/taskStyles";
 import { ROW_SPEC } from "@/shared/constants/rowSpec";
+import { Spacing } from "@/shared/constants/spacing";
+import { Typography } from "@/shared/constants/typography";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { Task, Workspace } from "@/shared/types/domain.types";
 import { isTaskCompleted, getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
@@ -43,6 +45,105 @@ interface TaskSectionsProps {
   onSaveEarlierForLater?: () => void;
   onSelectDate?: (dateKey: string) => void;
   onOpenDatePicker?: () => void;
+}
+
+const SECTION_ICON_SIZE = 14;
+const SECTION_CHEVRON_SIZE = 16;
+
+type SectionTone = "primary" | "secondary" | "quiet";
+
+interface SectionHeaderProps {
+  title: string;
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+  colors: any;
+  tone?: SectionTone;
+  icon?: any;
+  iconColor?: string;
+  countNoun?: string;
+  accessibilityName: string;
+  /** Secondary action rendered to the left of the chevron (e.g. "Move to Someday"). */
+  action?: React.ReactNode;
+}
+
+/**
+ * Unified header for the task backlog sections (Earlier / Tomorrow / Upcoming /
+ * Someday / Completed).
+ *
+ * One grammar everywhere: [icon] title · muted count · optional secondary action ·
+ * chevron. The chevron is always present because every one of these sections is
+ * collapsible regardless of how many items it holds — the previous count-based
+ * rule hid a real affordance on short sections.
+ *
+ * The date header stays `DateScopedSectionHeader`; date navigation is its own
+ * affordance and is deliberately not folded into this system.
+ */
+function SectionHeader({
+  title,
+  count,
+  expanded,
+  onToggle,
+  colors,
+  tone = "secondary",
+  icon,
+  iconColor,
+  countNoun = "task",
+  accessibilityName,
+  action,
+}: SectionHeaderProps) {
+  const titleStyle =
+    tone === "primary"
+      ? sectionStyles.sectionTitlePrimary
+      : tone === "quiet"
+        ? sectionStyles.sectionTitleQuiet
+        : sectionStyles.sectionTitleSecondary;
+
+  return (
+    <PressableScale
+      onPress={onToggle}
+      haptic
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      accessibilityLabel={`${accessibilityName} section, ${count} ${countNoun}${
+        count === 1 ? "" : "s"
+      }, ${expanded ? "expanded" : "collapsed"}`}
+      style={sectionStyles.sectionHeaderRow}
+    >
+      <View style={sectionStyles.sectionTitleCluster}>
+        {icon ? (
+          <Feather
+            name={icon}
+            size={SECTION_ICON_SIZE}
+            color={iconColor ?? colors.textMuted}
+            style={sectionStyles.sectionIcon}
+          />
+        ) : null}
+        <Text
+          style={[titleStyle, { color: tone === "primary" ? colors.text : colors.textMuted }]}
+          numberOfLines={1}
+        >
+          {title}
+        </Text>
+        <Text
+          style={[sectionStyles.sectionCount, { color: colors.textMuted }]}
+          numberOfLines={1}
+        >
+          {`${count} ${countNoun}${count === 1 ? "" : "s"}`}
+        </Text>
+      </View>
+
+      <View style={sectionStyles.sectionRightCluster}>
+        {action}
+        <Feather
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={SECTION_CHEVRON_SIZE}
+          color={colors.textMuted}
+        />
+      </View>
+    </PressableScale>
+  );
 }
 
 export function TaskSections({
@@ -329,36 +430,25 @@ export function TaskSections({
     );
   };
 
-  // 2. EARLIER: Past / Unfinished carryovers triage (Restrained amber treatment)
+  // 2. EARLIER: Past / Unfinished carryovers triage.
+  // Most prominent backlog header; the amber icon is the restrained overdue cue.
   const renderEarlierSection = () => {
     if (!isSelectedDateToday || earlierList.length === 0) return null;
 
     return (
-      <View style={sectionStyles.earlierSectionContainer}>
-        <PressableScale
-          onPress={() => setEarlierExpanded(!earlierExpanded)}
-          haptic
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={`Earlier section, ${earlierList.length} tasks, ${earlierExpanded ? "expanded" : "collapsed"}`}
-          style={sectionStyles.earlierHeaderRow}
-        >
-          <View style={sectionStyles.sectionTitleLeft}>
-            <Text
-              style={[
-                sectionStyles.earlierTitleText,
-                { color: colors.text },
-              ]}
-            >
-              Earlier
-            </Text>
-            <Text style={[sectionStyles.sectionCountText, { color: colors.textMuted }]}>
-              {`${earlierList.length} task${earlierList.length === 1 ? "" : "s"}`}
-            </Text>
-          </View>
-
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {earlierExpanded && onSaveEarlierForLater ? (
+      <View style={sectionStyles.sectionContainer}>
+        <SectionHeader
+          title="Earlier"
+          count={earlierList.length}
+          expanded={earlierExpanded}
+          onToggle={() => setEarlierExpanded(!earlierExpanded)}
+          colors={colors}
+          tone="primary"
+          icon="alert-circle"
+          iconColor={colors.warning}
+          accessibilityName="Earlier"
+          action={
+            earlierExpanded && onSaveEarlierForLater ? (
               <PressableScale
                 onPress={(e: any) => {
                   e?.stopPropagation?.();
@@ -368,160 +458,83 @@ export function TaskSections({
                 haptic
                 accessibilityRole="button"
                 accessibilityLabel="Move all earlier tasks to Someday"
-                style={sectionStyles.quietAction}
+                style={sectionStyles.sectionAction}
               >
                 <Text
                   style={[
-                    sectionStyles.quietActionText,
+                    sectionStyles.sectionActionText,
                     { color: isDark ? colors.primaryLight : colors.primary },
                   ]}
                 >
                   Move to Someday
                 </Text>
               </PressableScale>
-            ) : null}
-
-            <Feather
-              name={earlierExpanded ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={colors.textMuted}
-            />
-          </View>
-        </PressableScale>
+            ) : null
+          }
+        />
 
         {earlierExpanded && renderTaskList(earlierList, "earlier")}
       </View>
     );
   };
 
-  // 3. TOMORROW: Secondary Horizon preview
+  // 3. TOMORROW: Secondary horizon preview (same grammar as the other backlog headers)
   const renderTomorrowSection = () => {
     if (!isSelectedDateToday || tomorrowList.length === 0) return null;
 
     return (
-      <View style={sectionStyles.tomorrowSectionContainer}>
-        <PressableScale
-          onPress={() => setTomorrowExpanded(!tomorrowExpanded)}
-          haptic
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={`Tomorrow section, ${tomorrowList.length} tasks, ${tomorrowExpanded ? "expanded" : "collapsed"}`}
-          style={sectionStyles.tomorrowHeaderRow}
-        >
-          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-            <Text
-              style={[
-                sectionStyles.tomorrowTitleText,
-                { color: colors.text },
-              ]}
-            >
-              Tomorrow
-            </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: "500",
-                color: colors.textMuted,
-              }}
-            >
-              {`· ${tomorrowList.length} task${tomorrowList.length === 1 ? "" : "s"}`}
-            </Text>
-          </View>
-
-          {tomorrowList.length > 5 && (
-            <Feather
-              name={tomorrowExpanded ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={colors.textMuted}
-            />
-          )}
-        </PressableScale>
+      <View style={sectionStyles.sectionContainer}>
+        <SectionHeader
+          title="Tomorrow"
+          count={tomorrowList.length}
+          expanded={tomorrowExpanded}
+          onToggle={() => setTomorrowExpanded(!tomorrowExpanded)}
+          colors={colors}
+          icon="sunrise"
+          accessibilityName="Tomorrow"
+        />
 
         {tomorrowExpanded && renderTaskList(tomorrowList, "tomorrow")}
       </View>
     );
   };
 
-  // 4. UPCOMING: Future Backlog (Compressed, collapsed by default)
+  // 4. UPCOMING: Future backlog (collapsed by default)
   const renderUpcomingSection = () => {
     if (!isSelectedDateToday || upcomingList.length === 0) return null;
 
     return (
-      <View style={sectionStyles.compressedSectionContainer}>
-        <PressableScale
-          onPress={() => setUpcomingExpanded(!upcomingExpanded)}
-          haptic
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={`Upcoming section, ${upcomingList.length} tasks, ${upcomingExpanded ? "expanded" : "collapsed"}`}
-          style={sectionStyles.compressedHeaderRow}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-            <Feather name="calendar" size={13} color={colors.textMuted} />
-            <Text
-              style={[
-                sectionStyles.compressedTitleText,
-                { color: colors.textMuted },
-              ]}
-            >
-              Upcoming
-            </Text>
-            <Text style={[sectionStyles.sectionCountText, { color: colors.textMuted }]}>
-              {`${upcomingList.length} task${upcomingList.length === 1 ? "" : "s"}`}
-            </Text>
-          </View>
-
-          {upcomingList.length > 5 && (
-            <Feather
-              name={upcomingExpanded ? "chevron-up" : "chevron-down"}
-              size={15}
-              color={colors.textMuted}
-            />
-          )}
-        </PressableScale>
+      <View style={sectionStyles.sectionContainer}>
+        <SectionHeader
+          title="Upcoming"
+          count={upcomingList.length}
+          expanded={upcomingExpanded}
+          onToggle={() => setUpcomingExpanded(!upcomingExpanded)}
+          colors={colors}
+          icon="calendar"
+          accessibilityName="Upcoming"
+        />
 
         {upcomingExpanded && renderTaskList(upcomingList, "upcoming")}
       </View>
     );
   };
 
-  // 5. SOMEDAY: Unscheduled Backlog / Inbox (Compressed, collapsed by default)
+  // 5. SOMEDAY: Unscheduled backlog / inbox (collapsed by default)
   const renderSomedaySection = () => {
     if (somedayList.length === 0) return null;
 
     return (
-      <View style={sectionStyles.compressedSectionContainer}>
-        <PressableScale
-          onPress={() => setSomedayExpanded(!somedayExpanded)}
-          haptic
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={`Someday section, ${somedayList.length} tasks, ${somedayExpanded ? "expanded" : "collapsed"}`}
-          style={sectionStyles.compressedHeaderRow}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-            <Feather name="inbox" size={13} color={colors.textMuted} />
-            <Text
-              style={[
-                sectionStyles.compressedTitleText,
-                { color: colors.textMuted },
-              ]}
-            >
-              Someday
-            </Text>
-            <Text style={[sectionStyles.sectionCountText, { color: colors.textMuted }]}>
-              {`${somedayList.length} task${somedayList.length === 1 ? "" : "s"}`}
-            </Text>
-          </View>
-
-          {somedayList.length > 5 && (
-            <Feather
-              name={somedayExpanded ? "chevron-up" : "chevron-down"}
-              size={15}
-              color={colors.textMuted}
-            />
-          )}
-        </PressableScale>
+      <View style={sectionStyles.sectionContainer}>
+        <SectionHeader
+          title="Someday"
+          count={somedayList.length}
+          expanded={somedayExpanded}
+          onToggle={() => setSomedayExpanded(!somedayExpanded)}
+          colors={colors}
+          icon="inbox"
+          accessibilityName="Someday"
+        />
 
         {somedayExpanded && renderTaskList(somedayList, "someday")}
       </View>
@@ -541,37 +554,17 @@ export function TaskSections({
           },
         ]}
       >
-        <PressableScale
-          onPress={() => setCompletedExpanded(!completedExpanded)}
-          haptic
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={`Completed section, ${completedList.length} tasks, ${completedExpanded ? "expanded" : "collapsed"}`}
-          style={sectionStyles.completedHeaderRow}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-            <Feather name="check-circle" size={13} color={colors.textMuted} />
-            <Text
-              style={[
-                sectionStyles.completedTitleText,
-                { color: colors.textMuted },
-              ]}
-            >
-              Completed
-            </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: "500",
-                color: colors.textMuted,
-              }}
-            >
-              {`· ${completedList.length}`}
-            </Text>
-          </View>
-
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {completedExpanded && completedList.length > 0 ? (
+        <SectionHeader
+          title="Completed"
+          count={completedList.length}
+          expanded={completedExpanded}
+          onToggle={() => setCompletedExpanded(!completedExpanded)}
+          colors={colors}
+          tone="quiet"
+          icon="check-circle"
+          accessibilityName="Completed"
+          action={
+            completedExpanded && completedList.length > 0 ? (
               <PressableScale
                 onPress={(e: any) => {
                   e?.stopPropagation?.();
@@ -579,23 +572,17 @@ export function TaskSections({
                 }}
                 hitSlop={8}
                 haptic
-                style={{ paddingHorizontal: 8, paddingVertical: 2 }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear completed tasks"
+                style={sectionStyles.sectionAction}
               >
-                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
+                <Text style={[sectionStyles.sectionActionText, { color: colors.primary }]}>
                   Clear
                 </Text>
               </PressableScale>
-            ) : null}
-
-            {completedList.length > 5 && (
-              <Feather
-                name={completedExpanded ? "chevron-up" : "chevron-down"}
-                size={15}
-                color={colors.textMuted}
-              />
-            )}
-          </View>
-        </PressableScale>
+            ) : null
+          }
+        />
 
         {completedExpanded && renderTaskList(completedList, "completed")}
       </View>
@@ -627,153 +614,87 @@ export function TaskSections({
 
 const sectionStyles = StyleSheet.create({
   todaySectionContainer: {
-    marginBottom: 8,
-  },
-  todayHeaderRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    marginBottom: 0,
-  },
-  todayTitleLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  todayAccentPip: {
-    width: 3.5,
-    height: 20,
-    borderRadius: 2,
-  },
-  todayTitleText: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  todayProgressText: {
-    fontSize: 13,
-    fontWeight: "600",
+    marginBottom: Spacing.sm,
   },
   todayQuietEmptyRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
     opacity: 0.75,
   },
-  todayDateContext: {
-    fontSize: 12,
-    fontWeight: "500",
-    marginTop: 1,
-  },
-  todayEmptyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 4,
-  },
   todayEmptyText: {
-    fontSize: 13,
-    fontWeight: "500",
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.medium,
   },
-  earlierSectionContainer: {
-    marginBottom: 8,
+
+  // ---- Unified section-header system ---------------------------------------
+  // Shared by Earlier / Tomorrow / Upcoming / Someday / Completed. The Today
+  // header remains DateScopedSectionHeader (date navigation is its own affordance).
+  sectionContainer: {
+    marginBottom: Spacing.sm,
   },
-  earlierHeaderRow: {
+  sectionHeaderRow: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    marginBottom: 0,
+    minHeight: 40,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
   },
-  earlierTitleText: {
-    fontSize: 16,
-    fontWeight: "700",
+  sectionTitleCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  sectionIcon: {
+    flexShrink: 0,
+  },
+  sectionTitlePrimary: {
+    fontSize: Typography.sizes.md,
+    fontWeight: Typography.weights.bold,
     letterSpacing: -0.2,
   },
-  // Shared section-header grammar: title + optional muted count
-  sectionTitleLeft: {
+  sectionTitleSecondary: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+    letterSpacing: -0.1,
+  },
+  sectionTitleQuiet: {
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.semibold,
+    letterSpacing: -0.1,
+  },
+  sectionCount: {
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.medium,
+    flexShrink: 0,
+  },
+  sectionRightCluster: {
     flexDirection: "row",
-    alignItems: "baseline",
-    gap: 8,
+    alignItems: "center",
+    gap: Spacing.sm,
+    flexShrink: 0,
   },
-  sectionCountText: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  // Text-only quiet action (no pill container)
-  quietAction: {
-    minHeight: 44,
+  sectionAction: {
+    minHeight: 32,
     justifyContent: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: Spacing.xs,
   },
-  quietActionText: {
-    fontSize: 12,
-    fontWeight: "500",
-    opacity: 0.85,
+  sectionActionText: {
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.medium,
   },
-  tomorrowSectionContainer: {
-    marginBottom: 8,
-  },
-  tomorrowHeaderRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    marginBottom: 0,
-  },
-  tomorrowTitleText: {
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-  },
-  compressedSectionContainer: {
-    marginBottom: 8,
-  },
-  compressedHeaderRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    marginBottom: 0,
-  },
-  compressedTitleText: {
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-  },
+  // Quiet history drawer: same header grammar, but visually separated and lighter.
   completedSectionContainer: {
-    marginTop: 4,
-    marginBottom: 8,
-    paddingTop: 8,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+    paddingTop: Spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  completedHeaderRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-  },
-  completedTitleText: {
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: -0.1,
   },
 });
 
