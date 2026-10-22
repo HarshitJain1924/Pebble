@@ -2,9 +2,14 @@ import * as chrono from "chrono-node";
 import { type Attachment } from "@/shared/types/domain.types";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
 
+export interface ParseProductivityTextOptions {
+  explicitType?: ParsedProductivityItem["type"];
+}
+
 export type ParsedProductivityItem = {
   type: "task" | "habit" | "checklist" | "note" | "link" | "idea" | "file";
   title: string;
+  description?: string;
   date?: string; // YYYY-MM-DD
   time?: string; // HH:MM
   durationMinutes?: number;
@@ -34,13 +39,15 @@ export type ParsedProductivityItem = {
     | "url_pattern"
     | "multiline_bullets"
     | "multiline_short_lines"
+    | "keyword_checklist"
     | "recurrence_routine"
     | "recurrence_health"
     | "keyword_note"
     | "keyword_idea"
     | "action_task"
     | "temporal_task"
-    | "default_task";
+    | "default_task"
+    | "explicit_override";
   // Checklist confidence level for medium-confidence suggestions
   checklistConfidence?: "high" | "medium";
 };
@@ -68,10 +75,15 @@ export interface ProductivitySignals {
     ideaPrefix?: string;
     noteLanguage: boolean;
     notePrefixOrSuffix?: string;
+    explicitChecklistLanguage: boolean;
+    checklistPrefix?: string;
+    explicitTaskLanguage?: boolean;
+    explicitHabitLanguage?: boolean;
   };
   temporal: {
     date?: string; // YYYY-MM-DD
     time?: string; // HH:MM
+    durationMinutes?: number;
     hasDate: boolean;
     hasTime: boolean;
     recurrence?: ParsedProductivityItem["recurrence"];
@@ -180,7 +192,13 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
     const explicitBulletLines = lines.filter(l => /^[-*•]\s/.test(l));
     const explicitNumberedLines = lines.filter(l => /^\d+[.)\s]/.test(l));
 
-    if (explicitBulletLines.length >= 2 || explicitNumberedLines.length >= 2 || (explicitBulletLines.length + explicitNumberedLines.length >= 2)) {
+    if (
+      explicitBulletLines.length >= 2 ||
+      explicitNumberedLines.length >= 2 ||
+      explicitBulletLines.length + explicitNumberedLines.length >= 2 ||
+      (explicitBulletLines.length >= 1 && !/^[-*•]/.test(lines[0])) ||
+      (explicitNumberedLines.length >= 1 && !/^\d+[.)\s]/.test(lines[0]))
+    ) {
       hasBulletList = explicitBulletLines.length > 0;
       hasNumberedList = explicitNumberedLines.length > 0;
       const firstLine = lines[0];
@@ -240,6 +258,36 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
   } else if (/\bnotes\b/i.test(originalText) && !matchedActions.includes("submit") && !matchedActions.includes("assignment")) {
     noteLanguage = true;
     notePrefixOrSuffix = "notes";
+  }
+
+  let explicitChecklistLanguage = false;
+  let checklistPrefix: string | undefined;
+  const explicitChecklistRegex =
+    /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?(?:checklist|check\s*list|todo\s*list)\b|(?:new\s+)?(?:checklist|check\s*list|todo\s*list)\b)/i;
+  const explicitChecklistMatch = originalText.match(explicitChecklistRegex);
+  if (explicitChecklistMatch) {
+    explicitChecklistLanguage = true;
+    checklistPrefix = explicitChecklistMatch[0];
+  }
+
+  let explicitTaskLanguage = false;
+  let taskPrefix: string | undefined;
+  const explicitTaskRegex =
+    /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?task\b|(?:new\s+)?task\s*[:—\-]?)/i;
+  const explicitTaskMatch = originalText.match(explicitTaskRegex);
+  if (explicitTaskMatch) {
+    explicitTaskLanguage = true;
+    taskPrefix = explicitTaskMatch[0];
+  }
+
+  let explicitHabitLanguage = false;
+  let habitPrefix: string | undefined;
+  const explicitHabitRegex =
+    /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?habit\b|(?:new\s+)?habit\s*[:—\-]?)/i;
+  const explicitHabitMatch = originalText.match(explicitHabitRegex);
+  if (explicitHabitMatch) {
+    explicitHabitLanguage = true;
+    habitPrefix = explicitHabitMatch[0];
   }
 
   // 3. Temporal Signals
@@ -323,55 +371,104 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
       temporalTextWorking = temporalTextWorking.replace(match[0], "");
     }
   } else {
-    const weeklyMatch = temporalTextWorking.match(/\bevery\s+([a-z\s,and&]+)\b/i);
-    let isWeeklyMatched = false;
-    if (weeklyMatch) {
-      const words = weeklyMatch[1].toLowerCase().split(/[\s,]+/);
-      const matchedDays: number[] = [];
-      words.forEach(w => {
-        const cleanWord = w.replace(/[^\w]/g, "");
-        if (weekdayMap[cleanWord] !== undefined) {
-          matchedDays.push(weekdayMap[cleanWord]);
-        }
-      });
-      if (matchedDays.length > 0) {
+    const intervalWeeksRegex = /\bevery\s+(\d+)\s*(?:weeks?|wks?)\b/i;
+    let isIntervalWeeksMatched = false;
+    if (intervalWeeksRegex.test(temporalTextWorking)) {
+      const match = temporalTextWorking.match(intervalWeeksRegex);
+      if (match) {
         repeatType = "weekly";
-        repeatDays = Array.from(new Set(matchedDays)).sort((a, b) => a - b);
-        matchedTemporalPhrases.push(weeklyMatch[0]);
-        temporalTextWorking = temporalTextWorking.replace(weeklyMatch[0], "");
-        isWeeklyMatched = true;
+        repeatInterval = Number(match[1]);
+        repeatUnit = undefined;
+        repeatDays = [new Date().getDay()];
+        matchedTemporalPhrases.push(match[0]);
+        temporalTextWorking = temporalTextWorking.replace(match[0], "");
+        isIntervalWeeksMatched = true;
+
+        const onDaysMatch = temporalTextWorking.match(/^\s*on\s+([a-z\s,and&]+)\b/i);
+        if (onDaysMatch) {
+          const words = onDaysMatch[1].toLowerCase().split(/[\s,]+/);
+          const matchedDays: number[] = [];
+          words.forEach(w => {
+            const cleanWord = w.replace(/[^\w]/g, "");
+            if (weekdayMap[cleanWord] !== undefined) {
+              matchedDays.push(weekdayMap[cleanWord]);
+            }
+          });
+          if (matchedDays.length > 0) {
+            repeatDays = Array.from(new Set(matchedDays)).sort((a, b) => a - b);
+            matchedTemporalPhrases.push(onDaysMatch[0]);
+            temporalTextWorking = temporalTextWorking.replace(onDaysMatch[0], "");
+          }
+        }
+      }
+    }
+
+    let isWeeklyMatched = false;
+    if (!isIntervalWeeksMatched) {
+      const weeklyMatch = temporalTextWorking.match(/\bevery\s+([a-z\s,and&]+)\b/i);
+      if (weeklyMatch) {
+        const words = weeklyMatch[1].toLowerCase().split(/[\s,]+/);
+        const matchedDays: number[] = [];
+        words.forEach(w => {
+          const cleanWord = w.replace(/[^\w]/g, "");
+          if (weekdayMap[cleanWord] !== undefined) {
+            matchedDays.push(weekdayMap[cleanWord]);
+          }
+        });
+        if (matchedDays.length > 0) {
+          repeatType = "weekly";
+          repeatDays = Array.from(new Set(matchedDays)).sort((a, b) => a - b);
+          matchedTemporalPhrases.push(weeklyMatch[0]);
+          temporalTextWorking = temporalTextWorking.replace(weeklyMatch[0], "");
+          isWeeklyMatched = true;
+        }
       }
     }
     
-    if (!isWeeklyMatched) {
-      const weeklyDefaultRegex = /\b(?:every\s+week|weekly)\b/i;
-      if (weeklyDefaultRegex.test(temporalTextWorking)) {
+    if (!isIntervalWeeksMatched && !isWeeklyMatched) {
+      const everyWeekMatch = temporalTextWorking.match(/\bevery\s+week\b/i);
+      if (everyWeekMatch) {
         repeatType = "weekly";
         repeatDays = [new Date().getDay()];
-        matchedTemporalPhrases.push(weeklyDefaultRegex.source);
-        temporalTextWorking = temporalTextWorking.replace(weeklyDefaultRegex, "");
-      } else if (/\b(?:every\s+day|daily|everyday)\b/i.test(temporalTextWorking)) {
-        const match = temporalTextWorking.match(/\b(?:every\s+day|daily|everyday)\b/i);
-        if (match) {
-          repeatType = "daily";
-          matchedTemporalPhrases.push(match[0]);
-          temporalTextWorking = temporalTextWorking.replace(match[0], "");
-        }
-      } else if (/\bevery\s+morning\b/i.test(temporalTextWorking)) {
-        const match = temporalTextWorking.match(/\bevery\s+morning\b/i);
-        if (match) {
-          repeatType = "daily";
-          timeStr = "08:00";
-          matchedTemporalPhrases.push(match[0]);
-          temporalTextWorking = temporalTextWorking.replace(match[0], "");
-        }
-      } else if (/\bevery\s+(evening|night)\b/i.test(temporalTextWorking)) {
-        const match = temporalTextWorking.match(/\bevery\s+(evening|night)\b/i);
-        if (match) {
-          repeatType = "daily";
-          timeStr = "18:00";
-          matchedTemporalPhrases.push(match[0]);
-          temporalTextWorking = temporalTextWorking.replace(match[0], "");
+        matchedTemporalPhrases.push(everyWeekMatch[0]);
+        temporalTextWorking = temporalTextWorking.replace(everyWeekMatch[0], "");
+      } else {
+        const adverbialWeekly = temporalTextWorking.match(/\bweekly(?:\s+(?:at|from|before|after|in|around|on)\b|[\s,.]*$)/i);
+        if (adverbialWeekly && !/\b(?:called|named)\s+["']?weekly/i.test(temporalTextWorking)) {
+          repeatType = "weekly";
+          repeatDays = [new Date().getDay()];
+          matchedTemporalPhrases.push("weekly");
+          temporalTextWorking = temporalTextWorking.replace(/\bweekly\b/i, "");
+        } else {
+          const dailyDirective = temporalTextWorking.match(/\b(?:every\s+day|daily)\b/i);
+          let matchedDaily = dailyDirective ? dailyDirective[0] : null;
+          if (!matchedDaily) {
+            const adverbialEveryday = temporalTextWorking.match(/\beveryday(?:\s+(?:at|from|before|after|in|around)\b|[\s,.]*$)/i);
+            if (adverbialEveryday && !/\b(?:called|named)\s+["']?everyday/i.test(temporalTextWorking)) {
+              matchedDaily = "everyday";
+            }
+          }
+          if (matchedDaily) {
+            repeatType = "daily";
+            matchedTemporalPhrases.push(matchedDaily);
+            temporalTextWorking = temporalTextWorking.replace(new RegExp(`\\b${matchedDaily}\\b`, "i"), "");
+          } else if (/\bevery\s+morning\b/i.test(temporalTextWorking)) {
+            const match = temporalTextWorking.match(/\bevery\s+morning\b/i);
+            if (match) {
+              repeatType = "daily";
+              timeStr = "08:00";
+              matchedTemporalPhrases.push(match[0]);
+              temporalTextWorking = temporalTextWorking.replace(match[0], "");
+            }
+          } else if (/\bevery\s+(evening|night)\b/i.test(temporalTextWorking)) {
+            const match = temporalTextWorking.match(/\bevery\s+(evening|night)\b/i);
+            if (match) {
+              repeatType = "daily";
+              timeStr = "18:00";
+              matchedTemporalPhrases.push(match[0]);
+              temporalTextWorking = temporalTextWorking.replace(match[0], "");
+            }
+          }
         }
       }
     }
@@ -456,6 +553,20 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
     temporalTextWorking = temporalTextWorking.replace(explicitReminderKeywordMatch[0], "");
   }
 
+  // Duration parsing (e.g. "for 45 minutes", "for 90 mins", "for 2 hours", "for 1 hr", "duration 45 minutes")
+  let durationMinutes: number | undefined;
+  const durationRegex = /\b(?:for|duration:?)\s+(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b(?!\s*(?:before|prior|ago))/i;
+  const durationMatch = temporalTextWorking.match(durationRegex);
+  if (durationMatch) {
+    const num = parseFloat(durationMatch[1]);
+    const unit = durationMatch[2].toLowerCase();
+    if (!isNaN(num) && num > 0) {
+      durationMinutes = unit.startsWith("h") ? Math.round(num * 60) : Math.round(num);
+      matchedTemporalPhrases.push(durationMatch[0]);
+      temporalTextWorking = temporalTextWorking.replace(durationMatch[0], "");
+    }
+  }
+
   // Chrono & Date/Time parsing
   try {
     const chronoResults = chrono.parse(temporalTextWorking);
@@ -466,6 +577,13 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
           result.text.toLowerCase() === "weekend" &&
           !/\b(?:this|next|on|over|during|for\s+(?:the\s+)?|every)\s+weekend\b/i.test(temporalTextWorking)
         ) {
+          continue;
+        }
+
+        // Guard against possessive temporal tokens (e.g., "tomorrow's trip", "today's meeting")
+        // where a temporal noun is used as a possessive modifier rather than an execution deadline.
+        const charAfterMatch = temporalTextWorking.slice(result.index + result.text.length);
+        if (/^['’]s\b/i.test(charAfterMatch)) {
           continue;
         }
 
@@ -503,8 +621,8 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
         matchedTemporalPhrases.push(result.text);
       }
     } else {
-      const todayRegex = /\btoday\b/i;
-      const tomorrowRegex = /\btomorrow\b/i;
+      const todayRegex = /\btoday\b(?!['’]s)/i;
+      const tomorrowRegex = /\btomorrow\b(?!['’]s)/i;
       if (todayRegex.test(temporalTextWorking)) {
         dateStr = dateKeyFromDate(new Date());
         matchedTemporalPhrases.push("today");
@@ -576,10 +694,15 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
       ideaPrefix,
       noteLanguage,
       notePrefixOrSuffix,
+      explicitChecklistLanguage,
+      checklistPrefix,
+      explicitTaskLanguage,
+      explicitHabitLanguage,
     },
     temporal: {
       date: dateStr,
       time: timeStr,
+      durationMinutes,
       hasDate: !!dateStr,
       hasTime: !!timeStr,
       recurrence,
@@ -625,6 +748,8 @@ export function rankCandidateIntents(
     scores.checklist = 0.90;
   } else if (signals.structural.plainListCandidate) {
     scores.checklist = 0.80;
+  } else if (signals.semantic.explicitChecklistLanguage) {
+    scores.checklist = 0.88;
   }
 
   // 3. Idea Score (Explicit Idea Language)
@@ -639,7 +764,15 @@ export function rankCandidateIntents(
     scores.note = 0.70;
   }
 
-  // 5. Habit vs Task Scoring
+  // 5. Explicit Task & Habit Command Signals
+  if (signals.semantic.explicitTaskLanguage) {
+    scores.task = 0.90;
+  }
+  if (signals.semantic.explicitHabitLanguage) {
+    scores.habit = 0.92;
+  }
+
+  // 6. Habit vs Task Scoring
   if (signals.temporal.hasRecurrence) {
     // Has explicit recurrence pattern (e.g. "every morning", "weekdays", "every Sunday", "every month on the 15th")
     const isWorkDeliverable =
@@ -654,6 +787,16 @@ export function rankCandidateIntents(
       // Work deliverable with recurring deadline -> Task
       scores.task = 0.85;
       scores.habit = 0.40;
+    } else if (
+      signals.semantic.explicitChecklistLanguage ||
+      signals.structural.hasBulletList ||
+      signals.structural.hasNumberedList ||
+      signals.structural.plainListCandidate
+    ) {
+      // Explicit checklist or multiline list with recurrence -> Checklist beats Habit
+      scores.checklist = 0.92;
+      scores.habit = 0.45;
+      scores.task = 0.40;
     } else {
       // Habit or personal routine -> Habit (e.g. "Exercise every morning", "Buy milk every Sunday", "Meditate weekdays")
       scores.habit = 0.90;
@@ -702,7 +845,9 @@ export function rankCandidateIntents(
   } else if (topIntent === "checklist") {
     detectionSignal = signals.structural.hasBulletList || signals.structural.hasNumberedList
       ? "multiline_bullets"
-      : "multiline_short_lines";
+      : signals.semantic.explicitChecklistLanguage
+        ? "keyword_checklist"
+        : "multiline_short_lines";
   } else if (topIntent === "idea") {
     detectionSignal = "keyword_idea";
   } else if (topIntent === "note") {
@@ -733,11 +878,16 @@ export function rankCandidateIntents(
  * Main parseProductivityText function orchestrating signal extraction,
  * candidate intent ranking, and clean entity structure assembly.
  */
-export function parseProductivityText(text: string): ParsedProductivityItem {
+export function parseProductivityText(
+  text: string,
+  options?: ParseProductivityTextOptions,
+): ParsedProductivityItem {
   if (!text || text.trim() === "") {
+    const fallbackType = options?.explicitType || "task";
     return {
-      type: "task",
-      title: "",
+      type: fallbackType,
+      title: fallbackType === "checklist" ? "Checklist" : "",
+      items: fallbackType === "checklist" ? [] : undefined,
       confidence: 0.10,
     };
   }
@@ -746,8 +896,18 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
   const signals = extractProductivitySignals(originalText);
   const ranking = rankCandidateIntents(signals, originalText);
 
+  // If caller provided an explicit type override, it is authoritative
+  if (options?.explicitType) {
+    if (options.explicitType !== "file") {
+      ranking.topIntent = options.explicitType;
+    }
+    ranking.confidence = 1.0;
+    ranking.detectionSignal = "explicit_override";
+  }
+
   let cleanedTitle = originalText;
   let checklistItems: string[] | undefined;
+  let taskDescription: string | undefined;
   let checklistConfidence: "high" | "medium" | undefined;
   let detectedUrl: string | undefined;
 
@@ -768,34 +928,45 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
       const isTitleLine = !(/^[-*•]\s/.test(firstLine) || /^\d+[.)\s]/.test(firstLine));
       if (isTitleLine) {
         let working = firstLine.replace(/:$/, "").replace(/—$/, "").trim();
+        const explicitChecklistPrefixRegex =
+          /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?(?:checklist|check\s*list|todo\s*list)(?:\s+(?:called|named|for|about))?|(?:new\s+)?(?:checklist|check\s*list|todo\s*list)\s*(?:[:—\-]|called\b|named\b|for\b|about\b)?)\s*/i;
+        working = working.replace(explicitChecklistPrefixRegex, "");
+
         for (const phrase of signals.temporal.matchedTemporalPhrases) {
           if (!phrase || !phrase.trim()) continue;
           const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const startBoundary = /^\w/.test(phrase.trim()) ? '\\b' : '';
-          const endBoundary = /\w$/.test(phrase.trim()) ? '\\b' : '';
+          const endBoundary = /\w$/.test(phrase.trim()) ? "(?!['’]s)\\b" : '';
           const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
           working = working.replace(regex, "");
         }
         if (signals.metadata.matchedPriorityPhrase) {
           const escaped = signals.metadata.matchedPriorityPhrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const startBoundary = /^\w/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
-          const endBoundary = /\w$/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
+          const endBoundary = /\w$/.test(signals.metadata.matchedPriorityPhrase.trim()) ? "(?!['’]s)\\b" : '';
           const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
           working = working.replace(regex, "");
         }
-        const cleanedWorking = working
-          .replace(/\s+/g, " ")
-          .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
-          .trim()
-          .replace(/^(at|on|by|for|to|with|in)\s+/i, "")
-          .replace(/\s+(at|on|by|for|to|with|in)$/i, "")
-          .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
-          .trim();
-        cleanedTitle = cleanedWorking.length > 0 ? cleanedWorking : firstLine.replace(/:$/, "").replace(/—$/, "").trim() || "Checklist";
+        working = working.replace(explicitChecklistPrefixRegex, "");
+
+        let prev = "";
+        let cleanedWorking = working;
+        while (cleanedWorking !== prev) {
+          prev = cleanedWorking;
+          cleanedWorking = cleanedWorking
+            .replace(/\s+/g, " ")
+            .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+            .trim()
+            .replace(/^(at|on|by|for|to|with|in|and|&)\s+/i, "")
+            .replace(/\s+(at|on|by|for|to|with|in|and|&)$/i, "")
+            .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+            .trim();
+        }
+        cleanedTitle = cleanedWorking.length > 0 && !/^(and|&)$/i.test(cleanedWorking) ? cleanedWorking : "Checklist";
       } else {
         cleanedTitle = "Checklist";
       }
-      checklistItems = signals.structural.bulletItems || signals.structural.plainListItems || signals.structural.lines.slice(1);
+      checklistItems = signals.structural.bulletItems || signals.structural.plainListItems || (signals.structural.lines.length > 1 ? signals.structural.lines.slice(1) : []);
       checklistConfidence = signals.structural.hasBulletList || signals.structural.hasNumberedList ? "high" : "medium";
       break;
     }
@@ -817,51 +988,95 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
 
     case "habit":
     case "task": {
-      // Remove matched temporal phrases and priority words from the title
-      let working = originalText;
+      const firstLine = signals.structural.lines[0] || originalText;
+      let working = firstLine;
+
+      const explicitPrefixRegex =
+        ranking.topIntent === "habit"
+          ? /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?habit(?:\s+(?:called|named|for|about|to))?|(?:new\s+)?habit\s*[:—\-]?)\s*/i
+          : /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?task(?:\s+(?:called|named|for|about|to))?|(?:new\s+)?task\s*[:—\-]?)\s*/i;
+      working = working.replace(explicitPrefixRegex, "");
+
       for (const phrase of signals.temporal.matchedTemporalPhrases) {
         if (!phrase || !phrase.trim()) continue;
         const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const startBoundary = /^\w/.test(phrase.trim()) ? '\\b' : '';
-        const endBoundary = /\w$/.test(phrase.trim()) ? '\\b' : '';
+        const endBoundary = /\w$/.test(phrase.trim()) ? "(?!['’]s)\\b" : '';
         const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
         working = working.replace(regex, "");
       }
       if (signals.metadata.matchedPriorityPhrase) {
         const escaped = signals.metadata.matchedPriorityPhrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const startBoundary = /^\w/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
-        const endBoundary = /\w$/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
+        const endBoundary = /\w$/.test(signals.metadata.matchedPriorityPhrase.trim()) ? "(?!['’]s)\\b" : '';
         const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
         working = working.replace(regex, "");
       }
-      cleanedTitle = working;
+      working = working.replace(explicitPrefixRegex, "");
+
+      let prev = "";
+      let cleanedWorking = working;
+      while (cleanedWorking !== prev) {
+        prev = cleanedWorking;
+        cleanedWorking = cleanedWorking
+          .replace(/\s+/g, " ")
+          .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+          .trim()
+          .replace(/^(at|on|by|for|to|with|in|and|&)\s+/i, "")
+          .replace(/\s+(at|on|by|for|to|with|in|and|&)$/i, "")
+          .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+          .trim();
+      }
+      const defaultFallback = ranking.topIntent === "habit" ? "Habit" : "Task";
+      cleanedTitle = cleanedWorking.length > 0 && !/^(and|&)$/i.test(cleanedWorking) ? cleanedWorking : defaultFallback;
+
+      if (signals.structural.isMultiline && signals.structural.lines.length > 1) {
+        taskDescription = signals.structural.lines.slice(1).join("\n");
+      }
       break;
     }
   }
 
   // Title formatting and cleanup
-  cleanedTitle = cleanedTitle
-    .replace(/\s+/g, " ")
-    .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
-    .trim()
-    .replace(/^(at|on|by|for|to|with|in)\s+/i, "")
-    .replace(/\s+(at|on|by|for|to|with|in)$/i, "")
-    .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
-    .trim();
+  let prevTitle = "";
+  while (cleanedTitle !== prevTitle) {
+    prevTitle = cleanedTitle;
+    cleanedTitle = cleanedTitle
+      .replace(/\s+/g, " ")
+      .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+      .trim()
+      .replace(/^(at|on|by|for|to|with|in|and|&)\s+/i, "")
+      .replace(/\s+(at|on|by|for|to|with|in|and|&)$/i, "")
+      .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+      .trim();
+  }
 
-  if (cleanedTitle.length === 0) {
-    cleanedTitle = ranking.topIntent === "checklist" ? "Checklist" : originalText;
-  } else if (ranking.topIntent !== "link" && /^[a-z]/.test(cleanedTitle)) {
+  const winningType = options?.explicitType || ranking.topIntent;
+
+  if (cleanedTitle.length === 0 || /^(and|&)$/i.test(cleanedTitle)) {
+    cleanedTitle =
+      winningType === "checklist"
+        ? "Checklist"
+        : winningType === "habit"
+          ? "Habit"
+          : winningType === "task"
+            ? "Task"
+            : winningType === "file"
+              ? "Attachment"
+              : originalText;
+  } else if (winningType !== "link" && /^[a-z]/.test(cleanedTitle)) {
     cleanedTitle = cleanedTitle.charAt(0).toUpperCase() + cleanedTitle.slice(1);
   }
 
-  const isResource = ranking.topIntent === "link" || ranking.topIntent === "idea" || ranking.topIntent === "note";
+  const isResource = winningType === "link" || winningType === "idea" || winningType === "note" || winningType === "file";
 
   return {
-    type: ranking.topIntent,
+    type: winningType,
     title: cleanedTitle,
+    description: taskDescription,
     date: isResource ? undefined : signals.temporal.date,
     time: isResource ? undefined : signals.temporal.time,
+    durationMinutes: isResource ? undefined : signals.temporal.durationMinutes,
     category: isResource ? undefined : signals.metadata.category,
     priority: isResource ? undefined : signals.metadata.priority || "medium",
     priorityDetected: !!signals.metadata.priority,
@@ -870,7 +1085,7 @@ export function parseProductivityText(text: string): ParsedProductivityItem {
     explicitReminder: isResource ? undefined : signals.temporal.explicitReminder,
     reminderTime: isResource ? undefined : signals.temporal.reminderTime,
     confidence: ranking.confidence,
-    items: checklistItems,
+    items: ranking.topIntent === "checklist" ? (checklistItems || []) : undefined,
     url: detectedUrl,
     detectionSignal: ranking.detectionSignal,
     checklistConfidence,

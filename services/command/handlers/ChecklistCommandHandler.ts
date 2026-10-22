@@ -664,7 +664,7 @@ static async moveChecklist(
     dateKeyOrOptions?: string | CreateEntityOptions,
     options?: CreateEntityOptions,
   ): Promise<{ previous: Checklist; updated: Checklist } | null> {
-    const dateKey =
+    const rawDateKey =
       typeof dateKeyOrOptions === "string" ? dateKeyOrOptions : undefined;
     const effectiveOptions =
       typeof dateKeyOrOptions === "object" ? dateKeyOrOptions : options;
@@ -682,6 +682,14 @@ static async moveChecklist(
       if (!itemExists) {
         return null;
       }
+
+      // Safely resolve dateKey for recurring checklists so we never mutate master template
+      const { getActiveOccurrenceDateKey } = await import("@/services/scheduling/recurrence.service");
+      const dateKey =
+        rawDateKey ||
+        (checklist.recurrence
+          ? (getActiveOccurrenceDateKey(checklist, getTodayDateKey()) ?? getTodayDateKey())
+          : undefined);
 
       // P0-3: If dateKey is supplied for a recurring checklist, verify it is a real occurrence
       if (checklist.recurrence && dateKey) {

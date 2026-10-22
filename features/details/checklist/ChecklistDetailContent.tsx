@@ -37,13 +37,16 @@ import {
 } from "@/repositories";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 import { generateId } from "@/shared/utils/id";
-import { dateKeyFromDate } from "@/shared/utils/date-key";
 import {
   getChecklistItemCompletedForDate,
   getChecklistCompletedItemsCountForDate,
 } from "@/shared/utils/domain-selectors";
-import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
+import {
+  getRecurrenceLabel,
+  getActiveOccurrenceDateKey,
+} from "@/services/scheduling/recurrence.service";
 import {
   formatReminderTime,
   formatReminderDisplay,
@@ -141,12 +144,20 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     [toggleResource, isEditing, item, form.linkedCollectionIds],
   );
 
+  // Recurring checklists represent a specific occurrence date; if not provided via route,
+  // resolve to the active occurrence key for today so completions are isolated.
+  const effectiveOccurrenceDate = useMemo(() => {
+    if (!item?.recurrence) return undefined;
+    if (occurrenceDate) return occurrenceDate;
+    return getActiveOccurrenceDateKey(item, getTodayDateKey());
+  }, [item?.recurrence, occurrenceDate]);
+
   const completedCount = useMemo(() => {
-    if (item?.recurrence && occurrenceDate) {
-      return getChecklistCompletedItemsCountForDate(item, occurrenceDate);
+    if (item?.recurrence && effectiveOccurrenceDate) {
+      return getChecklistCompletedItemsCountForDate(item, effectiveOccurrenceDate);
     }
     return (item?.items || form.items).filter((it) => it.completed).length;
-  }, [item, form.items, occurrenceDate]);
+  }, [item, form.items, effectiveOccurrenceDate]);
 
   const totalCount = form.items.length;
   const progress = totalCount > 0 ? completedCount / totalCount : 0;
@@ -157,7 +168,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         const targetDate =
-          item.recurrence && occurrenceDate ? occurrenceDate : undefined;
+          item.recurrence && effectiveOccurrenceDate ? effectiveOccurrenceDate : undefined;
         await EntityCommandService.toggleChecklistItem(
           item.id,
           itemId,
@@ -178,7 +189,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         console.warn("Failed to toggle checklist item", e);
       }
     },
-    [item, occurrenceDate, reset],
+    [item, effectiveOccurrenceDate, reset],
   );
 
   const currentWorkspace: {
@@ -659,8 +670,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   };
 
   const scheduleDisplay = useMemo(() => {
-    const effectiveDate =
-      item?.recurrence && occurrenceDate ? occurrenceDate : item?.schedule?.date;
+    const effectiveDate = occurrenceDate || item?.schedule?.date;
     if (!effectiveDate || effectiveDate === "inbox") {
       return "Unscheduled";
     }
@@ -672,16 +682,15 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       return `${dateStr} at ${item.schedule.startTime}${durStr}`;
     }
     return `${dateStr} (All Day)`;
-  }, [item?.schedule, item?.recurrence, occurrenceDate]);
+  }, [item?.schedule, occurrenceDate]);
 
   const reminderDisplay = useMemo(() => {
     if (!item?.reminder?.enabled || !item.reminder.triggerAt) {
       return "Off";
     }
-    const scheduledDate =
-      item?.recurrence && occurrenceDate ? occurrenceDate : item?.schedule?.date;
+    const scheduledDate = occurrenceDate || item?.schedule?.date;
     return formatReminderDisplay(item.reminder.triggerAt, scheduledDate);
-  }, [item?.reminder, item?.schedule?.date, item?.recurrence, occurrenceDate]);
+  }, [item?.reminder, item?.schedule?.date, occurrenceDate]);
 
   if (loading || !item) {
     return (
@@ -865,11 +874,11 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
               ) : (
                 form.items.map((cIt) => {
                   const isCompleted =
-                    item?.recurrence && occurrenceDate
+                    item?.recurrence && effectiveOccurrenceDate
                       ? getChecklistItemCompletedForDate(
                           item,
                           cIt.id,
-                          occurrenceDate,
+                          effectiveOccurrenceDate,
                         )
                       : cIt.completed;
 

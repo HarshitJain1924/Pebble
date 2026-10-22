@@ -79,17 +79,19 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     setMenuVisible(true);
   };
 
-  const handleEditPress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    router.push(`/checklist-details?id=${checklist.id}`);
-  };
-
   // Recurring checklists surface the occurrence the list represents, never the
   // master template's permanent item state. Non-recurring checklists read their
   // own items through the same selector.
   const occurrenceDateKey = checklist.recurrence
     ? getActiveOccurrenceDateKey(checklist, getTodayDateKey())
     : undefined;
+
+  const handleEditPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const dateParam = occurrenceDateKey ? `&date=${occurrenceDateKey}` : "";
+    router.push(`/checklist-details?id=${checklist.id}${dateParam}`);
+  };
+
   const stats = useMemo(
     () =>
       getChecklistOccurrenceStats(
@@ -121,6 +123,11 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     if (onToggleChecklistItem) {
       onToggleChecklistItem(checklist, itemId);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      return;
+    }
+    // Never mutate master template items for recurring checklists when occurrence callback is missing
+    if (checklist.recurrence) {
+      console.warn("Cannot toggle recurring checklist item without occurrence context");
       return;
     }
     const updated = {

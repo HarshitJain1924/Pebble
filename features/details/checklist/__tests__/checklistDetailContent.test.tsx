@@ -812,6 +812,37 @@ describe("ChecklistDetailContent", () => {
     const strings = renderedStrings(renderer);
     expect(strings).toContain("2026-09-14 at 9:00 AM");
   });
+
+  it("S: toggling item on recurring checklist uses effectiveOccurrenceDate and forwards it to toggleChecklistItem", async () => {
+    (EntityCommandService.toggleChecklistItem as jest.Mock).mockClear();
+
+    const recurringChecklist = {
+      ...baseChecklist,
+      recurrence: {
+        frequency: "daily",
+        interval: 1,
+      },
+      schedule: {
+        date: "2026-09-01",
+      },
+    };
+
+    const { renderer } = await renderContent(recurringChecklist, {
+      occurrenceDate: "2026-09-05",
+    });
+
+    const toggleItemBtn = findByAccessibilityLabel(renderer, "Toggle Milk");
+    await act(async () => {
+      toggleItemBtn.props.onPress();
+    });
+
+    expect(EntityCommandService.toggleChecklistItem).toHaveBeenCalledWith(
+      "checklist-1",
+      "item-1",
+      "inbox",
+      "2026-09-05",
+    );
+  });
 });
 
 const renderContentWithNotFound = async (onBack: jest.Mock) => {

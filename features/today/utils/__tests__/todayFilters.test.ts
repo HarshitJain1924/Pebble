@@ -370,6 +370,7 @@ describe("Today checklist scheduling and recurrence filtering", () => {
     id,
     workspaceId: "work",
     title: id,
+    priority: "none",
     items: [{ id: "i1", title: "Item 1", completed: false }],
     revision: 1,
     lifecycleGeneration: 1,

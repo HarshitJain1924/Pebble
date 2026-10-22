@@ -68,9 +68,12 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       return;
     }
-    const occurrenceDateKey = chk.recurrence
-      ? getActiveOccurrenceDateKey(chk, getTodayDateKey()) ?? getTodayDateKey()
-      : getTodayDateKey();
+    // Never silently fall back to master-template mutation for recurring checklists
+    if (chk.recurrence) {
+      console.warn("Cannot toggle all recurring checklist items without occurrence-aware callback");
+      return;
+    }
+    const occurrenceDateKey = getTodayDateKey();
     const isDone = isChecklistCompletedForDate(chk, occurrenceDateKey);
     const nextItems = chk.items.map((i) => ({
       ...i,

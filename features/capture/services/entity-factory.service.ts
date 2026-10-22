@@ -127,12 +127,14 @@ export function buildTask(
     id,
     workspaceId,
     title: item.title,
+    description: item.description,
     status: "todo",
     priority: priorityMap[item.priority || "medium"] || "medium",
     categoryId: item.category || "work",
     schedule: {
       date: item.date || (formattedStartTime ? getDateKey() : "inbox"),
       startTime: formattedStartTime,
+      durationMinutes: item.durationMinutes,
     },
     reminder: triggerAt
       ? { enabled: true, triggerAt, notificationIds: undefined }
@@ -201,7 +203,8 @@ export function buildChecklist(
   const hasSchedule =
     (!!item.date && item.date !== "inbox") ||
     !!formattedStartTime ||
-    !!item.recurrence;
+    !!item.recurrence ||
+    !!item.durationMinutes;
   const isAllDay =
     !formattedStartTime &&
     ((!!item.date && item.date !== "inbox") || !!item.recurrence);
@@ -214,7 +217,7 @@ export function buildChecklist(
               ? getDateKey()
               : undefined,
         startTime: formattedStartTime,
-        durationMinutes: formattedStartTime ? (item.durationMinutes || 45) : undefined,
+        durationMinutes: item.durationMinutes || (formattedStartTime ? 45 : undefined),
         allDay: isAllDay ? true : undefined,
       }
     : undefined;
@@ -239,6 +242,7 @@ export function buildChecklist(
     id,
     workspaceId,
     title: item.title,
+    description: item.description,
     categoryId: item.category || undefined,
     priority: priorityMap[item.priority || ""] || "none",
     items: itemsArray.map((title, index) => ({

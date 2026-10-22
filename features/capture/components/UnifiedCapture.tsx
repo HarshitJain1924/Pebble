@@ -617,7 +617,8 @@ export default function UnifiedCapture({
             true,
           );
 
-      const parsed = applyUserOverrides(parseProductivityText(text.trim()));
+      const activeExplicitType = userOverridesRef.current.type || (defaultType && defaultType !== "task" ? defaultType : undefined);
+      const parsed = applyUserOverrides(parseProductivityText(text.trim(), { explicitType: activeExplicitType }));
 
       // An attached file is independent metadata — keep the parsed type.
       if (attachedFile) {
@@ -685,8 +686,13 @@ export default function UnifiedCapture({
 
   const handleTypeChange = useCallback((newType: ParsedProductivityItem["type"]) => {
     userOverridesRef.current.type = newType;
-    setParsedItem((prev) => (prev ? { ...prev, type: newType } : null));
-  }, []);
+    const liveText = inputRef.current?.getValue().trim();
+    if (liveText) {
+      setParsedItem(applyUserOverrides(parseProductivityText(liveText, { explicitType: newType })));
+    } else {
+      setParsedItem((prev) => (prev ? { ...prev, type: newType } : null));
+    }
+  }, [applyUserOverrides]);
 
   const handlePriorityChange = useCallback((newPriority: ParsedProductivityItem["priority"] | undefined) => {
     userOverridesRef.current.priority = newPriority;
@@ -780,7 +786,8 @@ export default function UnifiedCapture({
       // Synchronously catch up if user pressed save before 450ms timer fired
       let finalParsedItem = parsedItem;
       if (liveText && (!finalParsedItem || finalParsedItem.title !== liveText)) {
-        finalParsedItem = applyUserOverrides(parseProductivityText(liveText));
+        const activeExplicitType = userOverridesRef.current.type || (defaultType && defaultType !== "task" ? defaultType : undefined);
+        finalParsedItem = applyUserOverrides(parseProductivityText(liveText, { explicitType: activeExplicitType }));
         setParsedItem(finalParsedItem);
       }
 
@@ -988,7 +995,8 @@ export default function UnifiedCapture({
       return;
     }
     // Re-derive the item from the current text (overrides reapplied, no file semantics).
-    setParsedItem(applyUserOverrides(parseProductivityText(text)));
+    const activeExplicitType = userOverridesRef.current.type || (defaultType && defaultType !== "task" ? defaultType : undefined);
+    setParsedItem(applyUserOverrides(parseProductivityText(text, { explicitType: activeExplicitType })));
   }, [applyUserOverrides]);
 
   const handleOpenAttachment = useCallback(

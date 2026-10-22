@@ -6,9 +6,10 @@ import { Checklist } from "@/shared/types/domain.types";
 import { getTodayDateKey } from "@/shared/utils/date-key";
 import { Text as RNText, View as RNView } from "react-native";
 
+const mockPush = jest.fn();
 jest.mock("expo-router", () => ({
   useRouter: () => ({
-    push: jest.fn(),
+    push: mockPush,
     replace: jest.fn(),
   }),
 }));
@@ -446,6 +447,92 @@ describe("ChecklistProgressCard Component Redesign", () => {
       Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
     );
     expect(textNodes).toContain("Overdue");
+  });
+
+  it("navigates to checklist-details with occurrence date when opening a recurring checklist", () => {
+    mockPush.mockClear();
+    const today = getTodayDateKey();
+    const recurringChecklist: Checklist = {
+      id: "cl-recurring-nav",
+      workspaceId: "ws-test",
+      title: "Daily Standup Prep",
+      priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+      recurrence: { frequency: "daily", interval: 1 },
+      items: [
+        { id: "i1", title: "Review tasks", completed: false },
+      ],
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={recurringChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const editPressables = renderer.root.findAll((node: any) =>
+      node.props.accessibilityLabel === `Edit checklist ${recurringChecklist.title}`
+    );
+    expect(editPressables.length).toBeGreaterThan(0);
+    act(() => {
+      editPressables[0].props.onPress();
+    });
+
+    expect(mockPush).toHaveBeenCalledWith(`/checklist-details?id=cl-recurring-nav&date=${today}`);
+  });
+
+  it("navigates to checklist-details without date parameter for non-recurring checklist", () => {
+    mockPush.mockClear();
+    const nonRecurringChecklist: Checklist = {
+      id: "cl-plain-nav",
+      workspaceId: "ws-test",
+      title: "One-off Prep",
+      priority: "medium",
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+      items: [
+        { id: "i1", title: "Review tasks", completed: false },
+      ],
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={nonRecurringChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const editPressables = renderer.root.findAll((node: any) =>
+      node.props.accessibilityLabel === `Edit checklist ${nonRecurringChecklist.title}`
+    );
+    expect(editPressables.length).toBeGreaterThan(0);
+    act(() => {
+      editPressables[0].props.onPress();
+    });
+
+    expect(mockPush).toHaveBeenCalledWith(`/checklist-details?id=cl-plain-nav`);
   });
 });
 
