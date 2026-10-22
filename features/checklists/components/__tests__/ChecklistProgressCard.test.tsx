@@ -3,6 +3,7 @@ import { act, create } from "react-test-renderer";
 import { ChecklistProgressCard } from "../ChecklistProgressCard";
 import { Colors } from "@/shared/constants/theme";
 import { Checklist } from "@/shared/types/domain.types";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 import { Text as RNText, View as RNView } from "react-native";
 
 jest.mock("expo-router", () => ({
@@ -125,6 +126,121 @@ describe("ChecklistProgressCard Component Redesign", () => {
     expect(onToggleExpandMock).toHaveBeenCalled();
   });
 
+  it("reads recurring checklist progress and item state from today's occurrence", () => {
+    const todayKey = getTodayDateKey();
+    const recurringChecklist: Checklist = {
+      ...baseChecklist,
+      recurrence: { frequency: "daily", interval: 1 },
+      schedule: { date: todayKey, startTime: "09:00" },
+      // Master items are all uncompleted; only the occurrence record is done.
+      items: baseChecklist.items.map((item) => ({ ...item, completed: false })),
+      occurrenceHistory: {
+        [todayKey]: { completedItemIds: ["i1"] },
+      },
+    };
+
+    const onToggleChecklistItemMock = jest.fn();
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={recurringChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onToggleChecklistItem={onToggleChecklistItemMock}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const textNodes = root.findAllByType(RNText).map((t: any) =>
+      Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+    );
+    expect(textNodes).toContain("1 of 3 completed");
+    expect(textNodes).toContain("2 left");
+
+    // Preview advances past the occurrence-completed item.
+    const previewCheckbox = root.findByProps({ testID: "checklist-preview-checkbox-i2" });
+    act(() => {
+      previewCheckbox.props.onPress();
+    });
+    // Per-item completion goes through the canonical command path, never a
+    // whole-entity `items` write.
+    expect(onToggleChecklistItemMock).toHaveBeenCalledWith(recurringChecklist, "i2");
+  });
+
+  it("routes recurring bulk completion through the canonical bulk handler", () => {
+    const onToggleAllChecklistItemsMock = jest.fn();
+    const onUpdateChecklistMock = jest.fn();
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={baseChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onToggleAllChecklistItems={onToggleAllChecklistItemsMock}
+          onUpdateChecklist={onUpdateChecklistMock}
+        />
+      );
+    });
+
+    const leadingCheckbox = renderer.root.findByProps({
+      accessibilityLabel:
+        "Mark all items in checklist Grocery Shopping as completed",
+    });
+    act(() => {
+      leadingCheckbox.props.onPress();
+    });
+
+    expect(onToggleAllChecklistItemsMock).toHaveBeenCalledWith(baseChecklist);
+    expect(onUpdateChecklistMock).not.toHaveBeenCalled();
+  });
+
+  it("renders expanded recurring items from the occurrence record", () => {
+    const todayKey = getTodayDateKey();
+    const recurringChecklist: Checklist = {
+      ...baseChecklist,
+      recurrence: { frequency: "daily", interval: 1 },
+      schedule: { date: todayKey, startTime: "09:00" },
+      items: baseChecklist.items.map((item) => ({ ...item, completed: false })),
+      occurrenceHistory: {
+        [todayKey]: { completedItemIds: ["i2"] },
+      },
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={recurringChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={true}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const rowFor = (id: string) =>
+      root
+        .findByProps({ testID: `checklist-item-${id}` })
+        .findAll((node: any) => node.props?.accessibilityRole === "checkbox")[0];
+
+    expect(rowFor("i2").props.accessibilityState).toEqual({ checked: true });
+    expect(rowFor("i1").props.accessibilityState).toEqual({ checked: false });
+  });
+
   it("does not render preview item when checklist is fully complete", () => {
     const completedChecklist: Checklist = {
       ...baseChecklist,
@@ -190,4 +306,146 @@ describe("ChecklistProgressCard Component Redesign", () => {
     expect(root.findAllByProps({ testID: "checklist-expanded-resources" })).toHaveLength(0);
     expect(root.findAllByProps({ testID: "checklist-resource-row" })).toHaveLength(0);
   });
+
+  it("renders scheduled date and time metadata for a scheduled checklist", () => {
+    const scheduledChecklist: Checklist = {
+      ...baseChecklist,
+      id: "chk-scheduled-1",
+      schedule: {
+        date: "2026-10-30",
+        startTime: "14:00",
+        endTime: "15:00",
+        durationMinutes: 60,
+      },
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={scheduledChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const textNodes = root.findAllByType(RNText).map((t: any) =>
+      Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+    );
+
+    // Verify scheduled time and date are rendered in metadata parts
+    expect(textNodes.some((t: string) => typeof t === "string" && (t.includes("2:00") || t.includes("PM")))).toBe(true);
+    // Calendar icon is present
+    const featherIcons = root.findAllByType("FeatherIcon" as any);
+    expect(featherIcons.some((icon: any) => icon.props.name === "calendar")).toBe(true);
+  });
+
+  it("renders repeat icon and recurrence label for a recurring checklist", () => {
+    const recurringChecklist: Checklist = {
+      ...baseChecklist,
+      id: "chk-recurring-1",
+      recurrence: {
+        frequency: "weekly",
+        interval: 1,
+        daysOfWeek: [5], // Friday
+      },
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={recurringChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const textNodes = root.findAllByType(RNText).map((t: any) =>
+      Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+    );
+
+    expect(
+      textNodes.some(
+        (t: string) =>
+          typeof t === "string" && (t.includes("Friday") || t.includes("Weekly")),
+      ),
+    ).toBe(true);
+    const featherIcons = root.findAllByType("FeatherIcon" as any);
+    expect(featherIcons.some((icon: any) => icon.props.name === "repeat")).toBe(true);
+  });
+
+  it("renders reminder bell icon when reminder is active", () => {
+    const checklistWithReminder: Checklist = {
+      ...baseChecklist,
+      id: "chk-rem-1",
+      reminder: {
+        enabled: true,
+        triggerAt: new Date(2026, 9, 25, 9, 30).getTime(),
+      },
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={checklistWithReminder}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const featherIcons = root.findAllByType("FeatherIcon" as any);
+    expect(featherIcons.some((icon: any) => icon.props.name === "bell")).toBe(true);
+  });
+
+  it("renders overdue indicator for incomplete past-scheduled checklist", () => {
+    const overdueChecklist: Checklist = {
+      ...baseChecklist,
+      id: "chk-overdue-1",
+      schedule: {
+        date: "2020-01-01",
+      },
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <ChecklistProgressCard
+          checklist={overdueChecklist}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isExpanded={false}
+          onToggleExpand={jest.fn()}
+          onToggleChecklist={jest.fn()}
+          onUpdateChecklist={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const textNodes = root.findAllByType(RNText).map((t: any) =>
+      Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+    );
+    expect(textNodes).toContain("Overdue");
+  });
 });
+

@@ -822,6 +822,7 @@ export function useCalendarState() {
         durationMinutes?: number;
         isAllDay?: boolean;
         date?: string;
+        sourceOccurrenceDate?: string;
       },
     ) => {
       try {
@@ -838,6 +839,40 @@ export function useCalendarState() {
         const {
           EntityCommandService,
         } = require("@/services/command/EntityCommandService");
+
+        if (task.recurrence) {
+          const sourceDate =
+            options?.sourceOccurrenceDate ||
+            (task.schedule?.date && isRecurringOccurrenceForDate(task, task.schedule.date)
+              ? task.schedule.date
+              : undefined);
+
+          if (!sourceDate) {
+            console.warn(
+              `[useCalendarState] Cannot safely plan recurring task ${taskId}: source occurrence date cannot be determined.`,
+            );
+            return false;
+          }
+
+          const duration =
+            options?.durationMinutes ?? task.schedule?.durationMinutes ?? 60;
+          await EntityCommandService.rescheduleRecurringOccurrence(
+            task.id,
+            targetWorkspace,
+            sourceDate,
+            {
+              date: selDate,
+              hour: options?.isAllDay ? undefined : options?.hour,
+              minute: options?.isAllDay ? undefined : options?.minute,
+              durationMinutes: duration,
+              isAllDay: options?.isAllDay,
+            },
+            { source: "daily_planner", skipEvents: false },
+          );
+
+          await loadDataFromStorage();
+          return true;
+        }
 
         let updates: Partial<Task>;
         if (
@@ -861,13 +896,14 @@ export function useCalendarState() {
             },
           };
         } else if (options?.isAllDay) {
-          // Explicit user choice to place in All-Day / Anytime: clears time
+          // Explicit user choice to place in All-Day / Anytime: clears time and marks allDay
           updates = {
             schedule: {
               ...(task.schedule || {}),
               date: selDate,
               startTime: undefined,
               endTime: undefined,
+              allDay: true,
             },
           };
         } else {
@@ -906,6 +942,7 @@ export function useCalendarState() {
         durationMinutes?: number;
         isAllDay?: boolean;
         date?: string;
+        sourceOccurrenceDate?: string;
       },
     ) => {
       try {
@@ -922,6 +959,42 @@ export function useCalendarState() {
         const {
           EntityCommandService,
         } = require("@/services/command/EntityCommandService");
+
+        if (checklist.recurrence) {
+          const sourceDate =
+            options?.sourceOccurrenceDate ||
+            (checklist.schedule?.date && isRecurringOccurrenceForDate(checklist, checklist.schedule.date)
+              ? checklist.schedule.date
+              : undefined);
+
+          if (!sourceDate) {
+            console.warn(
+              `[useCalendarState] Cannot safely plan recurring checklist ${checklistId}: source occurrence date cannot be determined.`,
+            );
+            return false;
+          }
+
+          const duration =
+            options?.durationMinutes ??
+            checklist.schedule?.durationMinutes ??
+            45;
+          await EntityCommandService.rescheduleChecklistRecurringOccurrence(
+            checklist.id,
+            targetWorkspace,
+            sourceDate,
+            {
+              date: selDate,
+              hour: options?.isAllDay ? undefined : options?.hour,
+              minute: options?.isAllDay ? undefined : options?.minute,
+              durationMinutes: duration,
+              isAllDay: options?.isAllDay,
+            },
+            { source: "daily_planner", skipEvents: false },
+          );
+
+          await loadDataFromStorage();
+          return true;
+        }
 
         let updates: Partial<Checklist>;
         if (

@@ -6,6 +6,9 @@ import { type Checklist } from "@/shared/types/domain.types";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
+import { isChecklistCompletedForDate } from "@/shared/utils/domain-selectors";
+import { getTodayDateKey } from "@/shared/utils/date-key";
+import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
 
 interface ChecklistSectionProps {
   checklists: Checklist[];
@@ -13,6 +16,8 @@ interface ChecklistSectionProps {
   colorScheme: "light" | "dark" | null;
   allResources?: any[];
   onUpdateChecklist: (updated: Checklist) => void;
+  onToggleChecklistItem?: (checklist: Checklist, itemId: string) => void;
+  onToggleAllChecklistItems?: (checklist: Checklist) => void;
   onDeleteChecklist: (id: string) => void;
   onDuplicateChecklist?: (chk: Checklist) => void;
   onRenameChecklist?: (chk: Checklist) => void;
@@ -25,6 +30,8 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
   colorScheme,
   allResources = [],
   onUpdateChecklist,
+  onToggleChecklistItem,
+  onToggleAllChecklistItems,
   onDeleteChecklist,
   onDuplicateChecklist,
   onRenameChecklist,
@@ -41,7 +48,10 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
     const compList: Checklist[] = [];
 
     checklists.forEach((c) => {
-      const isDone = c.items.length > 0 && c.items.every((i) => i.completed);
+      const referenceDateKey = c.recurrence
+        ? getActiveOccurrenceDateKey(c, getTodayDateKey()) ?? getTodayDateKey()
+        : getTodayDateKey();
+      const isDone = isChecklistCompletedForDate(c, referenceDateKey);
       if (isDone) {
         compList.push(c);
       } else {
@@ -53,7 +63,15 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
   }, [checklists]);
 
   const toggleChecklistAllItems = (chk: Checklist) => {
-    const isDone = chk.items.length > 0 && chk.items.every((i) => i.completed);
+    if (onToggleAllChecklistItems) {
+      onToggleAllChecklistItems(chk);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      return;
+    }
+    const occurrenceDateKey = chk.recurrence
+      ? getActiveOccurrenceDateKey(chk, getTodayDateKey()) ?? getTodayDateKey()
+      : getTodayDateKey();
+    const isDone = isChecklistCompletedForDate(chk, occurrenceDateKey);
     const nextItems = chk.items.map((i) => ({
       ...i,
       completed: !isDone,
@@ -101,6 +119,8 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           }}
           onToggleChecklist={() => toggleChecklistAllItems(chk)}
+          onToggleChecklistItem={onToggleChecklistItem}
+          onToggleAllChecklistItems={onToggleAllChecklistItems}
           onUpdateChecklist={onUpdateChecklist}
           onToggleLinkResource={onToggleLinkResource}
           allResources={allResources}

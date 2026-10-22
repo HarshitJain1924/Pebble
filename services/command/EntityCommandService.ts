@@ -87,7 +87,7 @@ export class EntityCommandService {
     masterTaskId: string,
     workspaceId: string,
     occurrenceDate: string,
-    dropTarget: { hour?: number | null; date?: string | null },
+    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null; durationMinutes?: number | null },
     options?: CreateEntityOptions,
   ): Promise<{ masterTask: Task; occurrenceTask: Task }> {
     return TaskCommandHandler.rescheduleRecurringOccurrence(
@@ -106,7 +106,7 @@ export class EntityCommandService {
     masterChecklistId: string,
     workspaceId: string,
     occurrenceDate: string,
-    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null },
+    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null; durationMinutes?: number | null },
     options?: CreateEntityOptions,
   ): Promise<{ masterChecklist: Checklist; occurrenceChecklist: Checklist }> {
     return ChecklistCommandHandler.rescheduleRecurringOccurrence(

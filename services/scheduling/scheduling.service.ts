@@ -107,7 +107,7 @@ export function getStructuredSchedule(
  */
 export function calculateRescheduledTask(
   todo: Task,
-  dropTarget: { hour?: number | null; minute?: number | null; date?: string | null },
+  dropTarget: { hour?: number | null; minute?: number | null; date?: string | null; allDay?: boolean },
   fallbackDate?: string
 ): Partial<Task> {
   const schedule = todo.schedule || {};
@@ -150,9 +150,22 @@ export function calculateRescheduledTask(
     return {
       schedule: {
         ...schedule,
-        date: fallbackDate || dropTarget.date || schedule.date,
+        date: dropTarget.date || fallbackDate || schedule.date,
         startTime: formattedStartTime,
+        allDay: undefined,
         ...(newEndTime ? { endTime: newEndTime } : {}),
+      },
+    };
+  }
+
+  if (dropTarget.allDay || (dropTarget.hour === null && (dropTarget.date || fallbackDate || schedule.date))) {
+    return {
+      schedule: {
+        ...schedule,
+        date: dropTarget.date || fallbackDate || schedule.date,
+        startTime: undefined,
+        endTime: undefined,
+        allDay: true,
       },
     };
   }

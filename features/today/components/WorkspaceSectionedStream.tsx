@@ -39,6 +39,7 @@ export interface WorkspaceSectionedStreamProps {
     checklistId: string,
     itemId: string,
     workspaceId: string,
+    dateKey?: string,
   ) => Promise<void>;
 }
 

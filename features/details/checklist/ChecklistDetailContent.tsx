@@ -36,10 +36,18 @@ import {
   WorkspaceRepository,
 } from "@/repositories";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { generateId } from "@/shared/utils/id";
 import { dateKeyFromDate } from "@/shared/utils/date-key";
+import {
+  getChecklistItemCompletedForDate,
+  getChecklistCompletedItemsCountForDate,
+} from "@/shared/utils/domain-selectors";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
-import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
+import {
+  formatReminderTime,
+  formatReminderDisplay,
+} from "@/services/scheduling/schedule-formatter";
 import {
   DetailActions,
   DetailHeader,
@@ -61,6 +69,8 @@ export interface ChecklistDetailContentProps {
   checklistId: string;
   /** Whether the screen should open directly in edit mode (route `edit=true`). */
   initialEdit?: boolean;
+  /** Occurrence date if opened from an occurrence (e.g. from Calendar). */
+  occurrenceDate?: string;
   onBack: () => void;
 }
 
@@ -72,6 +82,7 @@ export interface ChecklistDetailContentProps {
 export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   checklistId,
   initialEdit,
+  occurrenceDate,
   onBack,
 }) => {
   const colorScheme = useColorScheme();
@@ -88,6 +99,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   // Editor sub-states
   const [workspacePickerVisible, setWorkspacePickerVisible] = useState(false);
   const [linkPickerVisible, setLinkPickerVisible] = useState(false);
+  const [showEditRecurringModal, setShowEditRecurringModal] = useState(false);
 
   const {
     form,
@@ -130,11 +142,44 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   );
 
   const completedCount = useMemo(() => {
-    return form.items.filter((it) => it.completed).length;
-  }, [form.items]);
+    if (item?.recurrence && occurrenceDate) {
+      return getChecklistCompletedItemsCountForDate(item, occurrenceDate);
+    }
+    return (item?.items || form.items).filter((it) => it.completed).length;
+  }, [item, form.items, occurrenceDate]);
 
   const totalCount = form.items.length;
   const progress = totalCount > 0 ? completedCount / totalCount : 0;
+
+  const handleToggleItem = useCallback(
+    async (itemId: string) => {
+      if (!item) return;
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        const targetDate =
+          item.recurrence && occurrenceDate ? occurrenceDate : undefined;
+        await EntityCommandService.toggleChecklistItem(
+          item.id,
+          itemId,
+          item.workspaceId || INBOX_WORKSPACE_ID,
+          targetDate,
+        );
+        emitStateChange("checklists_changed", "checklist_detail");
+
+        const refreshed = await ChecklistRepository.getChecklist(
+          item.id,
+          item.workspaceId || INBOX_WORKSPACE_ID,
+        );
+        if (refreshed) {
+          setItem(refreshed);
+          reset(refreshed);
+        }
+      } catch (e) {
+        console.warn("Failed to toggle checklist item", e);
+      }
+    },
+    [item, occurrenceDate, reset],
+  );
 
   const currentWorkspace: {
     name: string;
@@ -311,12 +356,23 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     loadData();
   }, [loadData]);
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!form.title.trim()) {
       Alert.alert("Title Required", "Please enter a checklist title.");
       return;
     }
     if (!item) return;
+
+    if (item.recurrence && occurrenceDate && isEditing) {
+      setShowEditRecurringModal(true);
+    } else {
+      saveChanges(false);
+    }
+  };
+
+  const saveChanges = async (thisOccurrenceOnly: boolean) => {
+    if (!item) return;
+    setShowEditRecurringModal(false);
 
     try {
       let scheduleObj: any = undefined;
@@ -337,7 +393,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
           startTime: form.startTime || undefined,
           endTime: calculatedEndTime,
           durationMinutes: form.durationMinutes || (form.startTime ? 45 : undefined),
-          allDay: !form.startTime,
+          allDay: !form.startTime ? true : undefined,
         };
       }
 
@@ -386,53 +442,118 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       let recurrenceObj: RecurrenceRule | undefined;
       if (form.recurrenceType && form.recurrenceType !== "none") {
         recurrenceObj = {
-          frequency: form.recurrenceType as any,
+          frequency: form.recurrenceType as RecurrenceRule["frequency"],
           interval: form.intervalVal || 1,
+          // `unit` is only meaningful for custom/interval rules. Preserve the
+          // stored value so an hourly rule is never downgraded to daily by an
+          // unrelated edit.
+          ...(form.recurrenceType === "custom" && form.recurrenceUnit
+            ? { unit: form.recurrenceUnit }
+            : {}),
           daysOfWeek:
             form.recurrenceType === "weekly" ? form.recurrenceDays : undefined,
           dayOfMonth:
             form.recurrenceType === "monthly"
               ? form.recurrenceDayOfMonth
               : undefined,
+          // The editor does not expose these yet; carry them through untouched
+          // instead of silently erasing previously configured limits.
+          ...(form.recurrenceEndDate
+            ? { endDate: form.recurrenceEndDate }
+            : {}),
+          ...(form.recurrenceOccurrences !== undefined
+            ? { occurrences: form.recurrenceOccurrences }
+            : {}),
         };
       } else {
         recurrenceObj = undefined;
       }
 
       const oldFolderId = item.workspaceId || INBOX_WORKSPACE_ID;
+      let savedItemForRefresh: Checklist | null = null;
 
-      await EntityCommandService.updateChecklist(item.id, oldFolderId, {
-        title: form.title.trim(),
-        description: form.description.trim() || undefined,
-        priority: form.priority || item.priority || "none",
-        items: form.items,
-        resourceIds: form.linkedCollectionIds,
-        schedule: scheduleObj,
-        reminder: reminderObj,
-        recurrence: recurrenceObj,
-      });
+      if (thisOccurrenceOnly && occurrenceDate) {
+        // Occurrence-only detachment
+        const targetOccurrenceDate =
+          form.scheduleDate && form.scheduleDate !== (item.schedule?.date || "inbox")
+            ? form.scheduleDate
+            : occurrenceDate;
+        const newChecklistId = generateId("checklist-");
 
-      if (oldFolderId !== form.workspaceId) {
-        await EntityCommandService.moveChecklist(
+        const newCopy: Checklist = {
+          ...item,
+          id: newChecklistId,
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          priority: form.priority || item.priority || "none",
+          workspaceId: form.workspaceId,
+          recurrence: undefined,
+          recurrenceExceptions: undefined,
+          occurrenceHistory: undefined,
+          items: form.items,
+          resourceIds: form.linkedCollectionIds,
+          schedule: {
+            ...(scheduleObj || { allDay: true }),
+            date: targetOccurrenceDate,
+          },
+          reminder: reminderObj,
+          updatedAt: Date.now(),
+          createdAt: Date.now(),
+        };
+
+        const existingExceptions = item.recurrenceExceptions || [];
+        const updatedExceptions = existingExceptions.includes(targetOccurrenceDate)
+          ? existingExceptions
+          : [...existingExceptions, targetOccurrenceDate];
+
+        await EntityCommandService.updateChecklist(
           item.id,
           oldFolderId,
-          form.workspaceId,
+          { recurrenceExceptions: updatedExceptions },
+          { skipEvents: true, skipAnalytics: true },
         );
-      }
 
-      const updatedChecklist: Checklist = {
-        ...item,
-        title: form.title.trim(),
-        description: form.description.trim() || undefined,
-        workspaceId: form.workspaceId,
-        priority: form.priority || item.priority || "none",
-        items: form.items,
-        resourceIds: form.linkedCollectionIds,
-        schedule: scheduleObj,
-        reminder: reminderObj,
-        recurrence: recurrenceObj,
-        updatedAt: Date.now(),
-      };
+        await EntityCommandService.createChecklist(
+          newCopy,
+          form.workspaceId,
+          { skipEvents: true, skipAnalytics: true },
+        );
+
+        savedItemForRefresh = newCopy;
+      } else {
+        await EntityCommandService.updateChecklist(item.id, oldFolderId, {
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          priority: form.priority || item.priority || "none",
+          items: form.items,
+          resourceIds: form.linkedCollectionIds,
+          schedule: scheduleObj,
+          reminder: reminderObj,
+          recurrence: recurrenceObj,
+        });
+
+        if (oldFolderId !== form.workspaceId) {
+          await EntityCommandService.moveChecklist(
+            item.id,
+            oldFolderId,
+            form.workspaceId,
+          );
+        }
+
+        savedItemForRefresh = {
+          ...item,
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          workspaceId: form.workspaceId,
+          priority: form.priority || item.priority || "none",
+          items: form.items,
+          resourceIds: form.linkedCollectionIds,
+          schedule: scheduleObj,
+          reminder: reminderObj,
+          recurrence: recurrenceObj,
+          updatedAt: Date.now(),
+        };
+      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
@@ -440,8 +561,10 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
 
       setIsEditing(false);
       showToast("Changes saved");
-      setItem(updatedChecklist);
-      reset(updatedChecklist);
+      if (savedItemForRefresh) {
+        setItem(savedItemForRefresh);
+        reset(savedItemForRefresh);
+      }
     } catch (e) {
       console.warn("Failed to save changes", e);
     }
@@ -455,6 +578,20 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         id: generateId("checklist-"),
         title: `${item.title} (Copy)`,
         priority: item.priority || "none",
+        // A duplicate is a new entity: it must not inherit occurrence history,
+        // the one-time Pebble latch, or the source's runtime-owned notification
+        // IDs. Completion is reset following Task/Habit duplication semantics.
+        items: (item.items || []).map((item) => ({
+          ...item,
+          completed: false,
+          completedAt: undefined,
+        })),
+        occurrenceHistory: undefined,
+        recurrenceExceptions: undefined,
+        pebbleAwarded: undefined,
+        reminder: item.reminder
+          ? { ...item.reminder, notificationIds: undefined }
+          : undefined,
         updatedAt: Date.now(),
         createdAt: Date.now(),
       };
@@ -522,26 +659,29 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   };
 
   const scheduleDisplay = useMemo(() => {
-    if (!item?.schedule?.date || item.schedule.date === "inbox") {
+    const effectiveDate =
+      item?.recurrence && occurrenceDate ? occurrenceDate : item?.schedule?.date;
+    if (!effectiveDate || effectiveDate === "inbox") {
       return "Unscheduled";
     }
-    const dateStr = item.schedule.date;
-    if (item.schedule.startTime) {
+    const dateStr = effectiveDate;
+    if (item?.schedule?.startTime) {
       const durStr = item.schedule.durationMinutes
         ? ` (${item.schedule.durationMinutes}m)`
         : "";
       return `${dateStr} at ${item.schedule.startTime}${durStr}`;
     }
     return `${dateStr} (All Day)`;
-  }, [item?.schedule]);
+  }, [item?.schedule, item?.recurrence, occurrenceDate]);
 
   const reminderDisplay = useMemo(() => {
     if (!item?.reminder?.enabled || !item.reminder.triggerAt) {
       return "Off";
     }
-    const d = new Date(item.reminder.triggerAt);
-    return formatReminderTime(d.getHours(), d.getMinutes()) || "On";
-  }, [item?.reminder]);
+    const scheduledDate =
+      item?.recurrence && occurrenceDate ? occurrenceDate : item?.schedule?.date;
+    return formatReminderDisplay(item.reminder.triggerAt, scheduledDate);
+  }, [item?.reminder, item?.schedule?.date, item?.recurrence, occurrenceDate]);
 
   if (loading || !item) {
     return (
@@ -723,38 +863,54 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
                   No items in this checklist.
                 </Text>
               ) : (
-                form.items.map((cIt) => (
-                  <View
-                    key={cIt.id}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      paddingVertical: 6,
-                    }}
-                  >
-                    <Feather
-                      name={cIt.completed ? "check-circle" : "circle"}
-                      size={16}
-                      color={
-                        cIt.completed ? colors.primary : colors.textMuted
-                      }
-                    />
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        fontWeight: "500",
-                        color: cIt.completed ? colors.textMuted : colors.text,
-                        textDecorationLine: cIt.completed
-                          ? "line-through"
-                          : "none",
-                        flex: 1,
+                form.items.map((cIt) => {
+                  const isCompleted =
+                    item?.recurrence && occurrenceDate
+                      ? getChecklistItemCompletedForDate(
+                          item,
+                          cIt.id,
+                          occurrenceDate,
+                        )
+                      : cIt.completed;
+
+                  return (
+                    <PressableScale
+                      key={cIt.id}
+                      onPress={() => handleToggleItem(cIt.id)}
+                      scaleTo={0.98}
+                      contentStyle={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                        paddingVertical: 8,
                       }}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: isCompleted }}
+                      accessibilityLabel={`Toggle ${cIt.title}`}
                     >
-                      {cIt.title}
-                    </Text>
-                  </View>
-                ))
+                      <Feather
+                        name={isCompleted ? "check-circle" : "circle"}
+                        size={18}
+                        color={
+                          isCompleted ? colors.primary : colors.textMuted
+                        }
+                      />
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "500",
+                          color: isCompleted ? colors.textMuted : colors.text,
+                          textDecorationLine: isCompleted
+                            ? "line-through"
+                            : "none",
+                          flex: 1,
+                        }}
+                      >
+                        {cIt.title}
+                      </Text>
+                    </PressableScale>
+                  );
+                })
               )}
             </DetailSection>
 
@@ -956,6 +1112,77 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         selectedResourceIds={form.linkedCollectionIds}
         onToggle={handleToggleResource}
       />
+
+      {/* RECURRING EDIT MODAL */}
+      <Modal
+        visible={showEditRecurringModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEditRecurringModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowEditRecurringModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "700",
+                fontSize: 16,
+                marginBottom: 8,
+              }}
+            >
+              Edit Recurring Checklist
+            </Text>
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 13,
+                marginBottom: 20,
+              }}
+            >
+              Do you want to edit only this occurrence or all occurrences?
+            </Text>
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <TouchableOpacity
+                style={[
+                  styles.modalBtn,
+                  { flex: 1, backgroundColor: `${colors.primary}15` },
+                ]}
+                onPress={() => saveChanges(true)}
+                accessibilityRole="button"
+                accessibilityLabel="This occurrence"
+              >
+                <Text style={{ color: colors.primary, fontWeight: "700" }}>
+                  This occurrence
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalBtn,
+                  { flex: 1, backgroundColor: colors.primary },
+                ]}
+                onPress={() => saveChanges(false)}
+                accessibilityRole="button"
+                accessibilityLabel="All occurrences"
+              >
+                <Text style={{ color: Palette.white, fontWeight: "700" }}>
+                  All occurrences
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </>
   );
 };
@@ -998,6 +1225,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: Spacing.lg,
     borderWidth: 1,
+  },
+  modalBtn: {
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalHeader: {
     flexDirection: "row",

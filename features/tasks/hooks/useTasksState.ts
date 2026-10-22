@@ -149,6 +149,7 @@ export function useTasksState() {
     deleteChecklist,
     toggleArchiveChecklist,
     toggleChecklistItem,
+    toggleChecklistAllItems,
     addChecklistItem,
     deleteChecklistItem,
   } = useChecklistState(selectedWorkspaceId);
@@ -1437,6 +1438,7 @@ export function useTasksState() {
     deleteChecklist,
     toggleArchiveChecklist,
     toggleChecklistItem,
+    toggleChecklistAllItems,
     addChecklistItem,
     deleteChecklistItem,
     loadChecklistsState,

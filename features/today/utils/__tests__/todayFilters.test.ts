@@ -358,3 +358,117 @@ describe("Today active filter pills and removal", () => {
   });
 });
 
+describe("Today checklist scheduling and recurrence filtering", () => {
+  const TODAY = "2026-10-22"; // Thursday (day 4)
+  const TOMORROW = "2026-10-23"; // Friday (day 5)
+  const YESTERDAY = "2026-10-21"; // Wednesday (day 3)
+
+  const makeChecklist = (
+    id: string,
+    overrides: Partial<Checklist> = {},
+  ): Checklist => ({
+    id,
+    workspaceId: "work",
+    title: id,
+    items: [{ id: "i1", title: "Item 1", completed: false }],
+    revision: 1,
+    lifecycleGeneration: 1,
+    createdAt: 1000,
+    updatedAt: 1000,
+    ...overrides,
+  });
+
+  it("excludes checklists scheduled for future dates", () => {
+    const futureChecklist = makeChecklist("future-chk", {
+      schedule: { date: TOMORROW },
+    });
+    const todayChecklist = makeChecklist("today-chk", {
+      schedule: { date: TODAY },
+    });
+
+    const result = applyTodayFilters(
+      {
+        pendingTasks: [],
+        completedTasks: [],
+        overdueTasks: [],
+        pendingHabits: [],
+        completedHabits: [],
+        checklists: [futureChecklist, todayChecklist],
+      },
+      DEFAULT_TODAY_FILTERS,
+      TODAY,
+    );
+
+    expect(result.checklists.map((c) => c.id)).toEqual(["today-chk"]);
+  });
+
+  it("filters recurring checklists based on whether they occur on the reference date", () => {
+    // Weekly on Fridays (day 5) — does NOT occur on Thursday (TODAY)
+    const fridayChecklist = makeChecklist("friday-chk", {
+      recurrence: {
+        frequency: "weekly",
+        interval: 1,
+        daysOfWeek: [5],
+      },
+    });
+
+    // Weekly on Thursdays (day 4) — DOES occur on Thursday (TODAY)
+    const thursdayChecklist = makeChecklist("thursday-chk", {
+      recurrence: {
+        frequency: "weekly",
+        interval: 1,
+        daysOfWeek: [4],
+      },
+    });
+
+    const result = applyTodayFilters(
+      {
+        pendingTasks: [],
+        completedTasks: [],
+        overdueTasks: [],
+        pendingHabits: [],
+        completedHabits: [],
+        checklists: [fridayChecklist, thursdayChecklist],
+      },
+      DEFAULT_TODAY_FILTERS,
+      TODAY,
+    );
+
+    expect(result.checklists.map((c) => c.id)).toEqual(["thursday-chk"]);
+  });
+
+  it("includes unscheduled checklists and incomplete past-scheduled checklists as open workspace work", () => {
+    const unscheduledChecklist = makeChecklist("unscheduled-chk");
+    const pastIncompleteChecklist = makeChecklist("past-incomplete-chk", {
+      schedule: { date: YESTERDAY },
+    });
+    const pastCompletedChecklist = makeChecklist("past-completed-chk", {
+      schedule: { date: YESTERDAY },
+      items: [{ id: "i1", title: "Item 1", completed: true }],
+    });
+
+    const result = applyTodayFilters(
+      {
+        pendingTasks: [],
+        completedTasks: [],
+        overdueTasks: [],
+        pendingHabits: [],
+        completedHabits: [],
+        checklists: [
+          unscheduledChecklist,
+          pastIncompleteChecklist,
+          pastCompletedChecklist,
+        ],
+      },
+      DEFAULT_TODAY_FILTERS,
+      TODAY,
+    );
+
+    // Unscheduled and past incomplete are included; past completed is excluded from Today
+    expect(result.checklists.map((c) => c.id)).toEqual([
+      "unscheduled-chk",
+      "past-incomplete-chk",
+    ]);
+  });
+});
+

@@ -24,11 +24,13 @@ import type {
   Workspace,
 } from "@/shared/types/domain.types";
 import {
+  getChecklistOccurrenceStats,
   getHabitCurrentStreak,
   getTaskOccurrenceState,
   isHabitCompletedToday,
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
+import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
 
 /**
  * Workspace Stream presentation model.
@@ -118,6 +120,8 @@ export interface WorkspaceStreamSection {
   displayName: string;
   isAggregate: boolean;
   workspaceColor: string;
+  /** Reference date every row in this drawer was prepared against. */
+  todayKey: string;
   /** Work units: tasks + habits + checklist items. */
   totalItems: number;
   /** Completed work units. */
@@ -225,6 +229,7 @@ export function buildWorkspaceStateLine(input: {
  */
 export function countWorkspaceUnits(
   context: Pick<TodayActiveContext, "tasks" | "habits" | "checklists">,
+  todayKey: string = getDateKey(),
 ): { totalUnits: number; completedUnits: number } {
   const totalUnits =
     context.tasks.length +
@@ -236,11 +241,14 @@ export function countWorkspaceUnits(
     context.habits.filter(
       (habit) => Boolean(habit.completionHistory && isHabitCompletedToday(habit)),
     ).length +
-    context.checklists.reduce(
-      (sum, checklist) =>
-        sum + checklist.items.filter((item) => item.completed).length,
-      0,
-    );
+    context.checklists.reduce((sum, checklist) => {
+      // Recurring checklists are completed per occurrence; non-recurring ones
+      // read their own item state via the same selector.
+      const occurrenceKey = checklist.recurrence
+        ? getActiveOccurrenceDateKey(checklist, todayKey) ?? todayKey
+        : todayKey;
+      return sum + getChecklistOccurrenceStats(checklist, occurrenceKey).completedCount;
+    }, 0);
 
   return { totalUnits, completedUnits };
 }
@@ -410,15 +418,49 @@ export function buildChecklistStreamItem(
   checklist: Checklist,
   workspace: WorkspaceRef,
   isDark: boolean,
+  todayKey: string = getDateKey(),
 ): WorkspaceStreamItem {
-  const completedCount = checklist.items.filter((item) => item.completed).length;
-  const totalCount = checklist.items.length;
+  // Recurring checklists expose the occurrence the surfacing day represents,
+  // never the master template's permanent completion state.
+  const occurrenceKey = checklist.recurrence
+    ? getActiveOccurrenceDateKey(checklist, todayKey) ?? todayKey
+    : todayKey;
+  const stats = getChecklistOccurrenceStats(checklist, occurrenceKey);
+  const completedCount = stats.completedCount;
+  const totalCount = stats.total;
   const remaining = totalCount - completedCount;
-  const completed = completedCount === totalCount && totalCount > 0;
+  const completed = stats.isCompleted;
+
+  const triggerAt = checklist.reminder?.enabled ? checklist.reminder?.triggerAt : undefined;
+  const hasReminder = triggerAt !== undefined;
+
+  const scheduleDate = checklist.schedule?.date;
+  const isOverdue = Boolean(
+    !completed &&
+    !checklist.recurrence &&
+    scheduleDate &&
+    scheduleDate !== "inbox" &&
+    scheduleDate < todayKey,
+  );
+
+  let timeText: string | undefined = undefined;
+  if (checklist.schedule?.startTime) {
+    timeText = checklist.schedule.endTime
+      ? `${checklist.schedule.startTime} - ${checklist.schedule.endTime}`
+      : checklist.schedule.startTime;
+  } else if (triggerAt !== undefined) {
+    timeText = formatTime(triggerAt);
+  }
+
+  const recurrenceLabel = checklist.recurrence?.frequency
+    ? formatFrequency(checklist.recurrence.frequency)
+    : undefined;
 
   let subtitle = "No items yet";
   if (completed) {
     subtitle = "All done";
+  } else if (isOverdue) {
+    subtitle = "Overdue";
   } else if (remaining === 1) {
     subtitle = "1 item left";
   } else if (remaining > 0) {
@@ -435,6 +477,10 @@ export function buildChecklistStreamItem(
     completed,
     title: checklist.title,
     subtitle,
+    timeText,
+    frequencyText: recurrenceLabel || undefined,
+    hasReminder,
+    isOverdue,
     categorySymbol: resolveItemCategorySymbol(
       {
         type: "checklist",
@@ -448,8 +494,12 @@ export function buildChecklistStreamItem(
     original: checklist,
     relevance: completed
       ? STREAM_RELEVANCE.DONE
-      : STREAM_RELEVANCE.OPEN_CHECKLIST,
-    tiebreak: remaining,
+      : isOverdue
+        ? STREAM_RELEVANCE.OVERDUE_TASK
+        : hasReminder || timeText
+          ? STREAM_RELEVANCE.SCHEDULED_TASK
+          : STREAM_RELEVANCE.OPEN_CHECKLIST,
+    tiebreak: isOverdue ? -1 : remaining,
   };
 }
 
@@ -476,7 +526,7 @@ export function buildWorkspaceStreamSection(
     buildHabitStreamItem(habit, workspaceRef, isDark),
   );
   const checklistItems = checklists.map((checklist) =>
-    buildChecklistStreamItem(checklist, workspaceRef, isDark),
+    buildChecklistStreamItem(checklist, workspaceRef, isDark, todayKey),
   );
 
   const items = [...habitItems, ...taskItems, ...checklistItems].sort(
@@ -485,7 +535,7 @@ export function buildWorkspaceStreamSection(
 
   // Work units (checklist items count individually) drive progress + state line.
   const { totalUnits: totalItems, completedUnits: completedItems } =
-    countWorkspaceUnits(context);
+    countWorkspaceUnits(context, todayKey);
   const progress = totalItems > 0 ? completedItems / totalItems : 0;
   const openCount = Math.max(totalItems - completedItems, 0);
   const overdueCount = taskItems.filter(
@@ -509,6 +559,7 @@ export function buildWorkspaceStreamSection(
     displayName: folder.name,
     isAggregate: false,
     workspaceColor,
+    todayKey,
     totalItems,
     completedItems,
     progress,
@@ -594,6 +645,7 @@ export function buildWorkspaceAggregateSection(
       updatedAt: 0,
     },
     displayName: "All Work",
+    todayKey: sections[0]?.todayKey ?? getDateKey(),
     isAggregate: true,
     workspaceColor: primaryColor,
     totalItems,

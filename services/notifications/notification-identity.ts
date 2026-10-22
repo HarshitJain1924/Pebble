@@ -1,6 +1,10 @@
 import type { RecurrenceRule } from "@/shared/types/domain.types";
 import { recurrenceRuleToScheduler } from "@/services/scheduling/recurrence-mapper";
-import { getNextIntervalOccurrenceEpoch } from "@/services/scheduling/recurrence.service";
+import {
+  getNextIntervalOccurrenceEpoch,
+  getUpcomingOccurrenceEpochs,
+  recurrenceSupportsDateExceptions,
+} from "@/services/scheduling/recurrence.service";
 
 export type NotificationKind = "todo" | "task" | "habit" | "checklist";
 export type NotificationPurpose = "reminder" | "escalation" | string;
@@ -330,6 +334,8 @@ export function getExpectedNotificationScheduleKeys(
   entity: {
     reminder?: { enabled?: boolean; triggerAt?: number };
     recurrence?: RecurrenceRule | null;
+    recurrenceExceptions?: string[];
+    schedule?: { date?: string };
   },
   escalationMinutes: number[] = [120, 240],
   now: number = Date.now(),
@@ -343,6 +349,31 @@ export function getExpectedNotificationScheduleKeys(
   const offsets = [0, ...escalationMinutes];
 
   if (entity.recurrence) {
+    // A series with exceptions cannot be expressed as a repeating OS trigger
+    // (there is no per-date exclusion), so its valid notifications are the
+    // upcoming non-excepted occurrences materialised individually.
+    if (
+      entity.recurrenceExceptions?.length &&
+      recurrenceSupportsDateExceptions(entity.recurrence)
+    ) {
+      for (const occurrenceEpoch of getUpcomingOccurrenceEpochs(
+        entity,
+        entity.reminder.triggerAt,
+        { now },
+      )) {
+        for (const offset of offsets) {
+          keys.add(
+            buildNotificationScheduleKey({
+              type: "once",
+              triggerAt: occurrenceEpoch,
+              offsetMinutes: offset,
+            }),
+          );
+        }
+      }
+      return keys;
+    }
+
     const schedulerRecurrence = recurrenceRuleToScheduler(entity.recurrence);
     if (schedulerRecurrence) {
       if (schedulerRecurrence.type === "interval") {

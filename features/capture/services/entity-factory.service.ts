@@ -198,14 +198,19 @@ export function buildChecklist(
   const formattedStartTime = parsedTime
     ? `${String(parsedTime.hour).padStart(2, "0")}:${String(parsedTime.minute).padStart(2, "0")}`
     : undefined;
-  const hasSchedule = (!!item.date && item.date !== "inbox") || !!formattedStartTime;
-  const isAllDay = !formattedStartTime && !!item.date && item.date !== "inbox";
+  const hasSchedule =
+    (!!item.date && item.date !== "inbox") ||
+    !!formattedStartTime ||
+    !!item.recurrence;
+  const isAllDay =
+    !formattedStartTime &&
+    ((!!item.date && item.date !== "inbox") || !!item.recurrence);
   const schedule = hasSchedule
     ? {
         date:
           item.date && item.date !== "inbox"
             ? item.date
-            : formattedStartTime
+            : formattedStartTime || item.recurrence
               ? getDateKey()
               : undefined,
         startTime: formattedStartTime,

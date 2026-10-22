@@ -9,6 +9,7 @@ import {
 } from "@/repositories";
 import * as RemindersService from "@/services/scheduling/reminders.service";
 import { PEBBLE_LOG_KEY } from "@/features/profile/services/pebble.service";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 import type { Checklist, Workspace } from "@/shared/types/domain.types";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
@@ -382,6 +383,205 @@ describe("ChecklistCommandHandler Suite", () => {
       });
       expect(disabled.reminder?.enabled).toBe(false);
       expect(disabled.reminder?.notificationIds).toBeUndefined();
+    });
+
+    const localDayKey = (offsetDays: number) => {
+      const now = new Date(Date.now());
+      return dateKeyFromDate(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() + offsetDays),
+      );
+    };
+    const localClock = (offsetDays: number, hour: number, minute = 0) => {
+      const now = new Date(Date.now());
+      return new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + offsetDays,
+        hour,
+        minute,
+        0,
+        0,
+      );
+    };
+    const firesAt = (date: Date, target: Date) =>
+      date.getFullYear() === target.getFullYear() &&
+      date.getMonth() === target.getMonth() &&
+      date.getDate() === target.getDate() &&
+      date.getHours() === target.getHours();
+
+    test("Detaching a recurring occurrence cancels the vacated-date reminder while keeping the rest of the series", async () => {
+      let notificationSeq = 0;
+      mockScheduleNotificationAsync.mockImplementation(
+        async () => `occ-notif-${++notificationSeq}`,
+      );
+      mockCancelScheduledNotificationAsync.mockImplementation(async () => undefined);
+
+      const tomorrowKey = localDayKey(1);
+      const movedKey = localDayKey(3);
+      const nextOccurrenceKey = localDayKey(8);
+      const tomorrowClock = localClock(1, 9);
+
+      const master = await EntityCommandService.createChecklist(
+        {
+          id: "chk-occ-notify",
+          workspaceId: wsId,
+          title: "Weekly Review",
+          schedule: { date: tomorrowKey, startTime: "09:00" },
+          recurrence: {
+            frequency: "weekly",
+            interval: 1,
+            daysOfWeek: [tomorrowClock.getDay()],
+          },
+          reminder: { enabled: true, triggerAt: tomorrowClock.getTime() },
+          items: [{ id: "i1", title: "Review notes", completed: false }],
+        } as Checklist,
+        wsId,
+      );
+
+      const storedBefore = await ChecklistRepository.getChecklist(master.id, wsId);
+      const seriesIds = storedBefore?.reminder?.notificationIds || [];
+      expect(seriesIds.length).toBeGreaterThan(0);
+
+      mockScheduleNotificationAsync.mockClear();
+      mockCancelScheduledNotificationAsync.mockClear();
+
+      const moved = await EntityCommandService.rescheduleChecklistRecurringOccurrence(
+        master.id,
+        wsId,
+        tomorrowKey,
+        { date: movedKey, hour: 10, minute: 0 },
+      );
+
+      expect(moved.masterChecklist.recurrenceExceptions).toContain(tomorrowKey);
+      expect(moved.occurrenceChecklist.reminder?.triggerAt).toBe(
+        localClock(3, 10).getTime(),
+      );
+
+      // The stale repeating series was fully reaped.
+      const cancelledIds = new Set(
+        mockCancelScheduledNotificationAsync.mock.calls.map((call) => call[0]),
+      );
+      for (const id of seriesIds) {
+        expect(cancelledIds.has(id)).toBe(true);
+      }
+
+      const scheduledCalls = mockScheduleNotificationAsync.mock.calls.map(
+        (call) => call[0],
+      );
+      const masterCalls = scheduledCalls.filter(
+        (call) => call.content?.data?.itemId === master.id,
+      );
+      expect(masterCalls.length).toBeGreaterThan(0);
+      // No notification anywhere on the vacated original date.
+      expect(
+        masterCalls.some((call) => firesAt(new Date(call.trigger.date), tomorrowClock)),
+      ).toBe(false);
+      // The next unaffected occurrence keeps its reminder.
+      expect(
+        masterCalls.some((call) =>
+          firesAt(new Date(call.trigger.date), localClock(8, 9)),
+        ),
+      ).toBe(true);
+
+      // The detached occurrence is reminded on its new date only.
+      const detachedCalls = scheduledCalls.filter(
+        (call) => call.content?.data?.itemId === moved.occurrenceChecklist.id,
+      );
+      expect(
+        detachedCalls.some((call) =>
+          firesAt(new Date(call.trigger.date), localClock(3, 10)),
+        ),
+      ).toBe(true);
+
+      const storedAfter = await ChecklistRepository.getChecklist(master.id, wsId);
+      const masterIdsAfter = storedAfter?.reminder?.notificationIds || [];
+      expect(masterIdsAfter.length).toBeGreaterThan(0);
+      expect(masterIdsAfter.some((id) => seriesIds.includes(id))).toBe(false);
+
+      // Repeating the operation reaps the previous one-time set and never
+      // accumulates stale ids for the newly excepted date.
+      mockScheduleNotificationAsync.mockClear();
+      mockCancelScheduledNotificationAsync.mockClear();
+      await EntityCommandService.rescheduleChecklistRecurringOccurrence(
+        master.id,
+        wsId,
+        nextOccurrenceKey,
+        { date: localDayKey(4), hour: 11, minute: 0 },
+      );
+
+      const secondCancelled = new Set(
+        mockCancelScheduledNotificationAsync.mock.calls.map((call) => call[0]),
+      );
+      for (const id of masterIdsAfter) {
+        expect(secondCancelled.has(id)).toBe(true);
+      }
+
+      const secondMasterCalls = mockScheduleNotificationAsync.mock.calls
+        .map((call) => call[0])
+        .filter((call) => call.content?.data?.itemId === master.id);
+      expect(
+        secondMasterCalls.some((call) =>
+          firesAt(new Date(call.trigger.date), localClock(8, 9)),
+        ),
+      ).toBe(false);
+
+      const storedFinal = await ChecklistRepository.getChecklist(master.id, wsId);
+      expect(storedFinal?.recurrenceExceptions).toEqual(
+        expect.arrayContaining([tomorrowKey, nextOccurrenceKey]),
+      );
+      const finalIds = storedFinal?.reminder?.notificationIds || [];
+      expect(finalIds.some((id) => masterIdsAfter.includes(id))).toBe(false);
+    });
+
+    test("Duplicating a checklist never inherits or cancels the source's notification IDs", async () => {
+      let notificationSeq = 0;
+      mockScheduleNotificationAsync.mockImplementation(
+        async () => `dup-notif-${++notificationSeq}`,
+      );
+      mockCancelScheduledNotificationAsync.mockImplementation(async () => undefined);
+
+      const tomorrowKey = localDayKey(1);
+      const tomorrowClock = localClock(1, 9);
+
+      const source = await EntityCommandService.createChecklist(
+        {
+          id: "chk-dup-source",
+          workspaceId: wsId,
+          title: "Weekly Shopping",
+          schedule: { date: tomorrowKey, startTime: "09:00" },
+          reminder: { enabled: true, triggerAt: tomorrowClock.getTime() },
+          items: [{ id: "i1", title: "Milk", completed: false }],
+        } as Checklist,
+        wsId,
+      );
+
+      const storedSource = await ChecklistRepository.getChecklist(source.id, wsId);
+      const sourceIds = storedSource?.reminder?.notificationIds || [];
+      expect(sourceIds.length).toBeGreaterThan(0);
+
+      mockScheduleNotificationAsync.mockClear();
+      mockCancelScheduledNotificationAsync.mockClear();
+
+      const duplicate = await EntityCommandService.createChecklist(
+        {
+          ...storedSource!,
+          id: "chk-dup-copy",
+          title: "Weekly Shopping (Copy)",
+        } as Checklist,
+        wsId,
+      );
+
+      const duplicateIds = duplicate.reminder?.notificationIds || [];
+      expect(duplicateIds.length).toBeGreaterThan(0);
+      expect(duplicateIds.some((id) => sourceIds.includes(id))).toBe(false);
+
+      const cancelledIds = mockCancelScheduledNotificationAsync.mock.calls.map(
+        (call) => call[0],
+      );
+      expect(sourceIds.some((id) => cancelledIds.includes(id))).toBe(false);
+
+      const reloadedSource = await ChecklistRepository.getChecklist(source.id, wsId);
+      expect(reloadedSource?.reminder?.notificationIds).toEqual(sourceIds);
     });
 
     test("Detaching recurring occurrence recomputes detached triggerAt without retaining master's old triggerAt", async () => {
@@ -1744,6 +1944,182 @@ describe("ChecklistCommandHandler Suite", () => {
       expect(stored?.title).toBe("New Title");
 
       jest.spyOn(require("@/shared/utils/mutex"), "withLock").mockRestore();
+    });
+  });
+
+  // ===========================================================================
+  // Fix A: Non-recurring checklist completion reminder lifecycle
+  // ===========================================================================
+  describe("Fix A: Non-recurring checklist completion reminder lifecycle", () => {
+    it("completing the final item of a non-recurring checklist cancels its pending reminder", async () => {
+      mockCancelScheduledNotificationAsync.mockClear();
+      const futureTrigger = Date.now() + 1000 * 60 * 60 * 2; // 2 hours in future
+
+      const checklist: Checklist = {
+        id: "cl-complete-cancel-1",
+        workspaceId: wsId,
+        title: "Test Checklist Reminder Cancellation",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        reminder: {
+          enabled: true,
+          triggerAt: futureTrigger,
+          notificationIds: ["notif-to-cancel-1", "notif-to-cancel-2"],
+        },
+        items: [
+          { id: "it-1", title: "Item 1", completed: false },
+          { id: "it-2", title: "Item 2", completed: true },
+        ],
+      };
+      await ChecklistRepository.saveChecklistUnlocked(checklist);
+
+      // Complete the remaining item (it-1)
+      await ChecklistCommandHandler.toggleChecklistItem(
+        checklist.id,
+        "it-1",
+        wsId,
+        undefined,
+        { skipEvents: true, skipAnalytics: true }
+      );
+
+      // Verify notifications cancelled
+      expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith("notif-to-cancel-1");
+      expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith("notif-to-cancel-2");
+
+      // Verify stored checklist has notificationIds stripped
+      const updated = await ChecklistRepository.getChecklist(checklist.id, wsId);
+      expect(updated?.items?.every((i) => i.completed)).toBe(true);
+      expect(updated?.reminder?.notificationIds).toBeUndefined();
+    });
+
+    it("completing only part of a non-recurring checklist does NOT cancel pending reminders", async () => {
+      mockCancelScheduledNotificationAsync.mockClear();
+      const futureTrigger = Date.now() + 1000 * 60 * 60 * 2;
+
+      const checklist: Checklist = {
+        id: "cl-partial-keep-1",
+        workspaceId: wsId,
+        title: "Partial Checklist",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        reminder: {
+          enabled: true,
+          triggerAt: futureTrigger,
+          notificationIds: ["notif-keep-1"],
+        },
+        items: [
+          { id: "it-1", title: "Item 1", completed: false },
+          { id: "it-2", title: "Item 2", completed: false },
+        ],
+      };
+      await ChecklistRepository.saveChecklistUnlocked(checklist);
+
+      // Complete only it-1
+      await ChecklistCommandHandler.toggleChecklistItem(
+        checklist.id,
+        "it-1",
+        wsId,
+        undefined,
+        { skipEvents: true, skipAnalytics: true }
+      );
+
+      expect(mockCancelScheduledNotificationAsync).not.toHaveBeenCalled();
+      const updated = await ChecklistRepository.getChecklist(checklist.id, wsId);
+      expect(updated?.reminder?.notificationIds).toEqual(["notif-keep-1"]);
+    });
+
+    it("uncompleting an item on a fully completed checklist reschedules its reminder if future", async () => {
+      const futureTrigger = Date.now() + 1000 * 60 * 60 * 2;
+      jest.spyOn(RemindersService, "rescheduleChecklistReminders").mockImplementationOnce(async (chk: Checklist) => ({
+        ...chk,
+        reminder: {
+          ...chk.reminder!,
+          notificationIds: ["rescheduled-notif-1"],
+        },
+      }));
+
+      const checklist: Checklist = {
+        id: "cl-uncomplete-reschedule-1",
+        workspaceId: wsId,
+        title: "Reopening Checklist",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        reminder: {
+          enabled: true,
+          triggerAt: futureTrigger,
+          notificationIds: undefined,
+        },
+        items: [
+          { id: "it-1", title: "Item 1", completed: true },
+          { id: "it-2", title: "Item 2", completed: true },
+        ],
+      };
+      await ChecklistRepository.saveChecklistUnlocked(checklist);
+
+      // Uncomplete it-1
+      await ChecklistCommandHandler.toggleChecklistItem(
+        checklist.id,
+        "it-1",
+        wsId,
+        undefined,
+        { skipEvents: true, skipAnalytics: true }
+      );
+
+      expect(RemindersService.rescheduleChecklistReminders).toHaveBeenCalled();
+      const updated = await ChecklistRepository.getChecklist(checklist.id, wsId);
+      expect(updated?.items?.find((i) => i.id === "it-1")?.completed).toBe(false);
+      expect(updated?.reminder?.notificationIds).toEqual(["rescheduled-notif-1"]);
+
+      (RemindersService.rescheduleChecklistReminders as any).mockRestore?.();
+    });
+
+    it("deleting an incomplete item so that all remaining items are complete cancels pending reminders", async () => {
+      mockCancelScheduledNotificationAsync.mockClear();
+      const futureTrigger = Date.now() + 1000 * 60 * 60 * 2;
+
+      const checklist: Checklist = {
+        id: "cl-delete-cancel-1",
+        workspaceId: wsId,
+        title: "Checklist Item Deletion Completion",
+        priority: "medium",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        reminder: {
+          enabled: true,
+          triggerAt: futureTrigger,
+          notificationIds: ["notif-del-1"],
+        },
+        items: [
+          { id: "it-1", title: "Item 1", completed: true },
+          { id: "it-2", title: "Item 2", completed: false },
+        ],
+      };
+      await ChecklistRepository.saveChecklistUnlocked(checklist);
+
+      // Delete the only incomplete item (it-2)
+      await ChecklistCommandHandler.deleteChecklistItem(
+        checklist.id,
+        "it-2",
+        wsId,
+        { skipEvents: true, skipAnalytics: true }
+      );
+
+      expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith("notif-del-1");
+      const updated = await ChecklistRepository.getChecklist(checklist.id, wsId);
+      expect(updated?.items?.length).toBe(1);
+      expect(updated?.items?.every((i) => i.completed)).toBe(true);
+      expect(updated?.reminder?.notificationIds).toBeUndefined();
     });
   });
 });

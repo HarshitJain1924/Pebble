@@ -893,6 +893,8 @@ export function WorkspacesScreen() {
                         colors={colors}
                         colorScheme={colorScheme}
                         onUpdateChecklist={state.updateChecklist}
+                        onToggleChecklistItem={state.toggleChecklistItem}
+                        onToggleAllChecklistItems={state.toggleChecklistAllItems}
                         onDeleteChecklist={(id) => state.deleteChecklist(id, state.activeWorkspaceId || INBOX_WORKSPACE_ID)}
                         onToggleLinkResource={state.toggleLinkResource}
                       />

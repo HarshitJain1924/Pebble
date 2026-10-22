@@ -247,6 +247,134 @@ export function isRecurringOccurrenceForDate(
 }
 
 /**
+ * Occurrence-aware reminder scheduling bounds.
+ *
+ * A recurrence series with exceptions cannot be represented by a repeating OS
+ * trigger (repeating triggers have no per-date exclusion), so the scheduler
+ * materialises the upcoming occurrences as individual one-time notifications.
+ * The window is bounded so a long series can never exhaust the platform's
+ * pending-notification budget; the startup reconciler tops the window up.
+ */
+export const EXCEPTION_MODE_HORIZON_DAYS = 30;
+export const EXCEPTION_MODE_MAX_OCCURRENCES = 10;
+
+/**
+ * Recurrence rules whose occurrences are identified by a calendar date key.
+ * Hourly (`custom` + `unit: "hours"`) series have no date-key occurrence model
+ * and therefore keep their existing interval scheduling.
+ */
+export function recurrenceSupportsDateExceptions(
+  recurrence?: RecurrenceRule | null,
+): boolean {
+  if (!recurrence) return false;
+  if (recurrence.frequency === "custom" && recurrence.unit === "hours") {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve which occurrence date a date-less surface (Today stream, Workspace
+ * list) should read and write for a recurring entity.
+ *
+ * - Today, when today is a real occurrence (the common case).
+ * - Otherwise the next real occurrence, so an off-day tap still targets a
+ *   valid occurrence instead of mutating the master template.
+ * - `undefined` for non-recurring entities: they have no occurrence dimension.
+ *
+ * Uses the canonical `isRecurringOccurrenceForDate` (exceptions, end date and
+ * occurrence limits included); it never re-implements recurrence math.
+ */
+export function getActiveOccurrenceDateKey(
+  item: { recurrence?: RecurrenceRule | null; [key: string]: any },
+  referenceDateKey: string = getDateKey(),
+  lookaheadDays: number = 62,
+): string | undefined {
+  if (!item?.recurrence) return undefined;
+  if (isRecurringOccurrenceForDate(item, referenceDateKey)) {
+    return referenceDateKey;
+  }
+
+  const reference = parseDateKey(referenceDateKey);
+  for (let offset = 1; offset <= lookaheadDays; offset++) {
+    const candidate = new Date(
+      reference.getFullYear(),
+      reference.getMonth(),
+      reference.getDate() + offset,
+    );
+    const candidateKey = dateKeyFromDate(candidate);
+    if (isRecurringOccurrenceForDate(item, candidateKey)) {
+      return candidateKey;
+    }
+  }
+
+  // The series has no upcoming occurrence (ended). Keep a date key so callers
+  // still have a consistent display target; the command will reject the write.
+  return referenceDateKey;
+}
+
+/**
+ * Upcoming, non-excepted occurrence timestamps for a recurring entity, using
+ * the reminder's wall-clock time and walking forward from `now`.
+ *
+ * Returns one epoch per occurrence date (bounded by the exception-mode
+ * window), honoring `recurrenceExceptions`, `endDate` and `occurrences`.
+ */
+export function getUpcomingOccurrenceEpochs(
+  item: {
+    recurrence?: RecurrenceRule | null;
+    recurrenceExceptions?: string[];
+    schedule?: { date?: string };
+  },
+  triggerAt: number,
+  options: {
+    now?: number;
+    horizonDays?: number;
+    maxOccurrences?: number;
+  } = {},
+): number[] {
+  const now = options.now ?? Date.now();
+  const horizonDays = options.horizonDays ?? EXCEPTION_MODE_HORIZON_DAYS;
+  const maxOccurrences = options.maxOccurrences ?? EXCEPTION_MODE_MAX_OCCURRENCES;
+
+  const trigger = new Date(triggerAt);
+  const hour = trigger.getHours();
+  const minute = trigger.getMinutes();
+
+  const start = new Date(now);
+  const epochs: number[] = [];
+
+  for (
+    let offset = 0;
+    offset <= horizonDays && epochs.length < maxOccurrences;
+    offset++
+  ) {
+    const day = new Date(
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate() + offset,
+    );
+    const dateKey = dateKeyFromDate(day);
+    if (!isRecurringOccurrenceForDate(item, dateKey)) continue;
+
+    const epoch = new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
+      hour,
+      minute,
+      0,
+      0,
+    ).getTime();
+
+    if (epoch <= now) continue;
+    epochs.push(epoch);
+  }
+
+  return epochs;
+}
+
+/**
  * Format a recurrence structure into a user-friendly label.
  */
 export function getRecurrenceLabel(

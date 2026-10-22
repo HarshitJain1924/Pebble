@@ -322,7 +322,7 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
               style={styles.metaPartIcon}
             />
             <Text style={[styles.itemSubtitleText, { color: colors.textMuted }]}>
-              {timeText}
+              {frequencyText ? `${frequencyText} · ${timeText}` : timeText}
             </Text>
           </View>
         ) : frequencyText ? (
@@ -367,12 +367,22 @@ export const WorkspaceItemRow: React.FC<WorkspaceItemRowProps> = ({
       );
     }
 
-    // Checklist: Progress count (e.g. 0/2)
+    // Checklist: Progress count (e.g. 0/2) and optional reminder bell
     if (type === "checklist" && checklistProgress) {
       return (
-        <Text style={[styles.trailingCounterText, { color: colors.textMuted }]}>
-          {`${checklistProgress.completedCount}/${checklistProgress.totalCount}`}
-        </Text>
+        <View style={styles.resourceAttachmentCountWrap}>
+          {hasReminder && !completed && (
+            <Feather
+              name="bell"
+              size={12}
+              color={colors.textMuted}
+              style={styles.bellIcon}
+            />
+          )}
+          <Text style={[styles.trailingCounterText, { color: colors.textMuted }]}>
+            {`${checklistProgress.completedCount}/${checklistProgress.totalCount}`}
+          </Text>
+        </View>
       );
     }
 

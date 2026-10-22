@@ -1,6 +1,11 @@
 import { useState, useMemo } from "react";
 import { Habit, Checklist, Resource } from "@/shared/types/domain.types";
-import { isHabitCompletedToday } from "@/shared/utils/domain-selectors";
+import {
+  isChecklistCompletedForDate,
+  isHabitCompletedToday,
+} from "@/shared/utils/domain-selectors";
+import { getTodayDateKey } from "@/shared/utils/date-key";
+import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
 import {
   HabitStatusFilter,
   HabitPriorityFilter,
@@ -81,10 +86,15 @@ export function applyHabitFilters(
 export function applyChecklistFilters(
   checklists: Checklist[],
   filters: ChecklistFiltersState,
+  referenceDateKey: string = getTodayDateKey(),
 ): Checklist[] {
   return checklists.filter((c) => {
-    // 1. Status Filter
-    const isCompleted = c.items.length > 0 && c.items.every((i) => i.completed);
+    // 1. Status Filter — recurring checklists are completed per occurrence, so
+    // the status follows the same occurrence the list row renders.
+    const statusDateKey = c.recurrence
+      ? getActiveOccurrenceDateKey(c, referenceDateKey) ?? referenceDateKey
+      : referenceDateKey;
+    const isCompleted = isChecklistCompletedForDate(c, statusDateKey);
     if (filters.status === "in_progress" && isCompleted) return false;
     if (filters.status === "completed" && !isCompleted) return false;
 

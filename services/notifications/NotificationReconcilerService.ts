@@ -245,7 +245,12 @@ export class NotificationReconcilerService {
 
         const checklists = await ChecklistRepository.getChecklists(wsId);
         Object.values(checklists).forEach(cl => {
-          if (!cl.archivedAt) {
+          const isCompleted =
+            !cl.recurrence &&
+            cl.items &&
+            cl.items.length > 0 &&
+            cl.items.every(i => i.completed);
+          if (!cl.archivedAt && !isCompleted) {
             activeChecklists.set(cl.id, cl);
           }
         });

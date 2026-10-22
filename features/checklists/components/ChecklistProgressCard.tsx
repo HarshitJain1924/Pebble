@@ -24,7 +24,14 @@ import {
   resolveResourceIconName,
 } from "@/features/items";
 import { type Checklist } from "@/shared/types/domain.types";
-import { getNextIncompleteChecklistItem } from "@/shared/utils/domain-selectors";
+import {
+  getChecklistItemCompletedForDate,
+  getChecklistOccurrenceStats,
+  getNextIncompleteChecklistItem,
+} from "@/shared/utils/domain-selectors";
+import { getTodayDateKey } from "@/shared/utils/date-key";
+import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
+import { getChecklistMetadataParts } from "@/features/checklists/utils/checklist-formatting";
 
 export interface ChecklistProgressCardProps {
   checklist: Checklist;
@@ -33,6 +40,10 @@ export interface ChecklistProgressCardProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   onToggleChecklist: () => void; // completes or uncompletes all items
+  /** Canonical occurrence-aware item toggle (recurring checklists). */
+  onToggleChecklistItem?: (checklist: Checklist, itemId: string) => void;
+  /** Canonical occurrence-aware bulk toggle (recurring checklists). */
+  onToggleAllChecklistItems?: (checklist: Checklist) => void;
   onUpdateChecklist: (updated: Checklist) => void;
   onToggleLinkResource?: (itemId: string, itemType: "checklist", resourceId: string) => void;
   allResources?: any[];
@@ -48,6 +59,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   isExpanded,
   onToggleExpand,
   onToggleChecklist,
+  onToggleChecklistItem,
+  onToggleAllChecklistItems,
   onUpdateChecklist,
   onToggleLinkResource,
   allResources = [],
@@ -71,15 +84,29 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     router.push(`/checklist-details?id=${checklist.id}`);
   };
 
-  const completedCount = checklist.items.filter((i) => i.completed).length;
-  const totalCount = checklist.items.length;
-  const isAllCompleted = totalCount > 0 && completedCount === totalCount;
+  // Recurring checklists surface the occurrence the list represents, never the
+  // master template's permanent item state. Non-recurring checklists read their
+  // own items through the same selector.
+  const occurrenceDateKey = checklist.recurrence
+    ? getActiveOccurrenceDateKey(checklist, getTodayDateKey())
+    : undefined;
+  const stats = useMemo(
+    () =>
+      getChecklistOccurrenceStats(
+        checklist,
+        occurrenceDateKey ?? getTodayDateKey(),
+      ),
+    [checklist, occurrenceDateKey],
+  );
+  const completedCount = stats.completedCount;
+  const totalCount = stats.total;
+  const isAllCompleted = stats.isCompleted;
   const progress = totalCount > 0 ? completedCount / totalCount : 0;
 
   // Derive first incomplete item for collapsed preview
   const firstIncompleteItem = useMemo(() => {
-    return getNextIncompleteChecklistItem(checklist);
-  }, [checklist]);
+    return getNextIncompleteChecklistItem(checklist, occurrenceDateKey);
+  }, [checklist, occurrenceDateKey]);
 
   const linkedResourceIds = checklist.resourceIds || [];
   const linkedCount = linkedResourceIds.length;
@@ -91,6 +118,11 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   }, [linkedResourceIds, allResources]);
 
   const handleToggleItem = (itemId: string) => {
+    if (onToggleChecklistItem) {
+      onToggleChecklistItem(checklist, itemId);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      return;
+    }
     const updated = {
       ...checklist,
       items: checklist.items.map((it) =>
@@ -113,53 +145,36 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   }, [linkedResources]);
 
   const checklistMetaParts = useMemo<EntityMetaPart[]>(() => {
-    const parts: EntityMetaPart[] = [
-      {
-        key: "progress",
-        text: `${completedCount} of ${totalCount} completed`,
-        color: colors.textMuted,
-        textStyle: styles.progressText,
-        onPress: onToggleExpand,
-        accessibilityRole: "button",
-        accessibilityLabel: `${completedCount} of ${totalCount} completed`,
+    return getChecklistMetadataParts(checklist, {
+      referenceDate: occurrenceDateKey ?? getTodayDateKey(),
+      isCompleted: isAllCompleted,
+      completedCount,
+      totalCount,
+      linkedCount,
+      resourceIconName,
+      onToggleExpand,
+      onOpenLinkSelector: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        setShowLinkSelector(true);
       },
-      {
-        key: "remaining",
-        text: isAllCompleted ? "Completed" : `${totalCount - completedCount} left`,
-        color: isAllCompleted ? colors.primary : colors.textMuted,
-        isBold: isAllCompleted,
-        textStyle: styles.remainingText,
-        onPress: onToggleExpand,
-        accessibilityRole: "button",
+      colors: {
+        textMuted: colors.textMuted,
+        primary: colors.primary,
+        error: colors.error,
       },
-    ];
-
-    if (linkedCount > 0) {
-      parts.push({
-        key: "resources",
-        text: String(linkedCount),
-        icon: resourceIconName,
-        onPress: () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-          setShowLinkSelector(true);
-        },
-        accessibilityRole: "button",
-        accessibilityLabel: `${linkedCount} resources linked to ${checklist.title}. Tap to manage linked resources`,
-        testID: "checklist-resource-indicator",
-      });
-    }
-
-    return parts;
+    });
   }, [
+    checklist,
+    occurrenceDateKey,
+    isAllCompleted,
     completedCount,
     totalCount,
-    isAllCompleted,
     linkedCount,
     resourceIconName,
-    checklist.title,
+    onToggleExpand,
     colors.textMuted,
     colors.primary,
-    onToggleExpand,
+    colors.error,
   ]);
 
   // Category atmosphere resolution (small inline icon before title)
@@ -184,7 +199,11 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
       alignLeading="flex-start"
       leadingControl={
         <PressableScale
-          onPress={onToggleChecklist}
+          onPress={
+            onToggleAllChecklistItems
+              ? () => onToggleAllChecklistItems(checklist)
+              : onToggleChecklist
+          }
           accessibilityRole="checkbox"
           accessibilityState={{ checked: isAllCompleted }}
           accessibilityLabel={`Mark all items in checklist ${checklist.title} as ${isAllCompleted ? "incomplete" : "completed"}`}
@@ -325,27 +344,33 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
 
           {/* Checklist Items List */}
           <View style={styles.checklistItemsWrapper}>
-            {checklist.items.map((item) => (
+            {checklist.items.map((item) => {
+              const isItemCompleted = getChecklistItemCompletedForDate(
+                checklist,
+                item.id,
+                occurrenceDateKey,
+              );
+              return (
               <View key={item.id} testID={`checklist-item-${item.id}`} style={styles.checkItemRow}>
                 <PressableScale
                   onPress={() => handleToggleItem(item.id)}
                   accessibilityRole="checkbox"
-                  accessibilityState={{ checked: item.completed }}
-                  accessibilityLabel={`Mark ${item.title} as ${item.completed ? "incomplete" : "completed"}`}
+                  accessibilityState={{ checked: isItemCompleted }}
+                  accessibilityLabel={`Mark ${item.title} as ${isItemCompleted ? "incomplete" : "completed"}`}
                   style={{ flex: 1 }}
                   contentStyle={styles.checkItemLeft}
                 >
                   <Feather
-                    name={item.completed ? "check-circle" : "circle"}
+                    name={isItemCompleted ? "check-circle" : "circle"}
                     size={16}
-                    color={item.completed ? colors.primary : colors.textMuted}
+                    color={isItemCompleted ? colors.primary : colors.textMuted}
                   />
                   <Text
                     style={[
                       styles.checkItemTitle,
                       {
-                        color: item.completed ? colors.textMuted : colors.text,
-                        textDecorationLine: item.completed ? "line-through" : "none",
+                        color: isItemCompleted ? colors.textMuted : colors.text,
+                        textDecorationLine: isItemCompleted ? "line-through" : "none",
                       },
                     ]}
                   >
@@ -353,7 +378,8 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
                   </Text>
                 </PressableScale>
               </View>
-            ))}
+              );
+            })}
           </View>
         </View>
       )}

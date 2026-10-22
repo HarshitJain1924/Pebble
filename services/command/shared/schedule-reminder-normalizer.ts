@@ -29,18 +29,29 @@ export function normalizeScheduleReminder<T extends SchedulableEntity>(
   existing: T,
   updates: Partial<T>,
 ): Partial<T> {
+  let effectiveUpdates = updates;
+  if (effectiveUpdates.schedule?.startTime && effectiveUpdates.schedule?.allDay) {
+    effectiveUpdates = {
+      ...effectiveUpdates,
+      schedule: {
+        ...effectiveUpdates.schedule,
+        allDay: undefined,
+      },
+    };
+  }
+
   // 1. Explicit reminder update in payload takes precedence
-  if ("reminder" in updates) {
-    return updates;
+  if ("reminder" in effectiveUpdates) {
+    return effectiveUpdates;
   }
 
   // 2. Explicit "No reminder" (disabled by user) is preserved
   if (existing.reminder?.enabled === false) {
-    return updates;
+    return effectiveUpdates;
   }
 
   const existingSchedule = existing.schedule;
-  const updatedSchedule = "schedule" in updates ? updates.schedule : existingSchedule;
+  const updatedSchedule = "schedule" in effectiveUpdates ? effectiveUpdates.schedule : existingSchedule;
 
   const oldDate = existingSchedule?.date;
   const oldTime = existingSchedule?.startTime;
@@ -97,7 +108,7 @@ export function normalizeScheduleReminder<T extends SchedulableEntity>(
   const newTriggerAt = scheduledStartEpoch - offsetMs;
 
   return {
-    ...updates,
+    ...effectiveUpdates,
     reminder: {
       enabled: true,
       triggerAt: newTriggerAt,

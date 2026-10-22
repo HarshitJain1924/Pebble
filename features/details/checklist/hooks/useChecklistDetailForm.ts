@@ -22,8 +22,14 @@ export interface ChecklistFormState {
   timePickerVisible: boolean;
   recurrenceType: string;
   intervalVal: number;
+  /** Preserved from the stored rule; the form does not edit it. */
+  recurrenceUnit?: "hours" | "days";
   recurrenceDays: number[];
   recurrenceDayOfMonth: number;
+  /** Preserved from the stored rule; the form does not edit it. */
+  recurrenceEndDate?: string;
+  /** Preserved from the stored rule; the form does not edit it. */
+  recurrenceOccurrences?: number;
 }
 
 const INITIAL_FORM: ChecklistFormState = {
@@ -107,14 +113,20 @@ export function useChecklistDetailForm() {
     let scheduleDate = data.schedule?.date || "inbox";
     let recurrenceType = "none";
     let intervalVal = 1;
+    let recurrenceUnit: "hours" | "days" | undefined;
     let recurrenceDays: number[] = [];
     let recurrenceDayOfMonth = 1;
+    let recurrenceEndDate: string | undefined;
+    let recurrenceOccurrences: number | undefined;
 
     if (rec) {
       recurrenceType = rec.frequency || "none";
       intervalVal = rec.interval || 1;
+      recurrenceUnit = rec.unit;
       recurrenceDays = rec.daysOfWeek || [];
       recurrenceDayOfMonth = rec.dayOfMonth || 1;
+      recurrenceEndDate = rec.endDate;
+      recurrenceOccurrences = rec.occurrences;
     }
 
     setForm({
@@ -135,8 +147,11 @@ export function useChecklistDetailForm() {
       timePickerVisible: false,
       recurrenceType,
       intervalVal,
+      recurrenceUnit,
       recurrenceDays,
       recurrenceDayOfMonth,
+      recurrenceEndDate,
+      recurrenceOccurrences,
     });
   }, []);
 

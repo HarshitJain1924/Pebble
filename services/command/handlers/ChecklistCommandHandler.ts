@@ -53,7 +53,10 @@ import {
   MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
 import { HabitCommandHandler } from "./HabitCommandHandler";
-import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import {
+  isRecurringOccurrenceForDate,
+  recurrenceSupportsDateExceptions,
+} from "@/services/scheduling/recurrence.service";
 import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
 
 import { CreateEntityOptions, isParsedProductivityItem } from "../types/command.types";
@@ -193,7 +196,13 @@ static async moveChecklist(
       }
 
       const isArchived = !!finalChecklist.archivedAt;
-      if (!isArchived && finalChecklist.reminder?.enabled && finalChecklist.reminder?.triggerAt) {
+      const isCompleted =
+        !finalChecklist.recurrence &&
+        finalChecklist.items &&
+        finalChecklist.items.length > 0 &&
+        finalChecklist.items.every((i) => i.completed);
+
+      if (!isArchived && !isCompleted && finalChecklist.reminder?.enabled && finalChecklist.reminder?.triggerAt) {
         let generatedNotificationIds: string[] | undefined = undefined;
         try {
           const scheduled = await rescheduleChecklistReminders(finalChecklist);
@@ -520,9 +529,29 @@ static async moveChecklist(
       const { assertLifecycleMutationAllowed } = await import("../shared/command-lifecycle-guard");
       await assertLifecycleMutationAllowed("checklist", checklist, options);
 
+      const nextItems = (checklist.items || []).filter((i) => i.id !== itemId);
+      const wasComplete =
+        !checklist.recurrence &&
+        checklist.items &&
+        checklist.items.length > 0 &&
+        checklist.items.every((i) => i.completed);
+      const isNowComplete =
+        !checklist.recurrence &&
+        nextItems.length > 0 &&
+        nextItems.every((i) => i.completed);
+
+      let cleanReminder = checklist.reminder;
+      if (isNowComplete && !wasComplete && cleanReminder) {
+        cleanReminder = {
+          ...cleanReminder,
+          notificationIds: undefined,
+        };
+      }
+
       const updatedChecklist: Checklist = {
         ...checklist,
-        items: (checklist.items || []).filter((i) => i.id !== itemId),
+        items: nextItems,
+        ...(cleanReminder ? { reminder: cleanReminder } : {}),
         revision: (checklist.revision ?? 1) + 1,
         lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
         updatedAt: Date.now(),
@@ -534,6 +563,28 @@ static async moveChecklist(
     });
 
     if (!result) return null;
+
+    const { previous, updated: updatedChecklist } = result;
+    const wasComplete =
+      !previous.recurrence &&
+      previous.items &&
+      previous.items.length > 0 &&
+      previous.items.every((i) => i.completed);
+    const isNowComplete =
+      !updatedChecklist.recurrence &&
+      updatedChecklist.items &&
+      updatedChecklist.items.length > 0 &&
+      updatedChecklist.items.every((i) => i.completed);
+
+    if (isNowComplete && !wasComplete) {
+      if (previous.reminder?.notificationIds?.length) {
+        try {
+          await cancelReminderIds(previous.reminder.notificationIds, { throwOnError: false });
+        } catch (e) {
+          console.warn(`[EntityCommandService] Failed to cancel reminders for completed checklist ${checklistId}`, e);
+        }
+      }
+    }
 
     if (!options?.skipEvents) {
       emitStateChange("checklists_changed", options?.source);
@@ -703,9 +754,18 @@ static async moveChecklist(
         const isNowComplete =
           nextItems.length > 0 && nextItems.every((i) => i.completed);
 
+        let cleanReminder = checklist.reminder;
+        if (isNowComplete && !wasComplete && cleanReminder) {
+          cleanReminder = {
+            ...cleanReminder,
+            notificationIds: undefined,
+          };
+        }
+
         updatedChecklist = {
           ...checklist,
           items: nextItems,
+          ...(cleanReminder ? { reminder: cleanReminder } : {}),
           revision: (checklist.revision ?? 1) + 1,
           lifecycleGeneration: checklist.lifecycleGeneration ?? 1,
           updatedAt: Date.now(),
@@ -726,6 +786,77 @@ static async moveChecklist(
     });
 
     if (!result) return null;
+
+    const { previous, updated: updatedChecklist } = result;
+
+    const wasComplete =
+      !previous.recurrence &&
+      previous.items &&
+      previous.items.length > 0 &&
+      previous.items.every((i) => i.completed);
+    const isNowComplete =
+      !updatedChecklist.recurrence &&
+      updatedChecklist.items &&
+      updatedChecklist.items.length > 0 &&
+      updatedChecklist.items.every((i) => i.completed);
+
+    if (isNowComplete && !wasComplete) {
+      if (previous.reminder?.notificationIds?.length) {
+        try {
+          await cancelReminderIds(previous.reminder.notificationIds, { throwOnError: false });
+        } catch (e) {
+          console.warn(`[EntityCommandService] Failed to cancel reminders for completed checklist ${checklistId}`, e);
+        }
+      }
+    } else if (wasComplete && !isNowComplete) {
+      // Reopened / uncompleted non-recurring checklist:
+      // Reschedule reminders if reminder is enabled and triggerAt is in the future
+      if (
+        updatedChecklist.reminder?.enabled &&
+        updatedChecklist.reminder?.triggerAt &&
+        updatedChecklist.reminder.triggerAt > Date.now()
+      ) {
+        let generatedNotificationIds: string[] | undefined = undefined;
+        try {
+          const scheduled = await rescheduleChecklistReminders(updatedChecklist);
+          generatedNotificationIds = scheduled.reminder?.notificationIds;
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            const status = await ChecklistRepository.updateNotificationIds(
+              updatedChecklist.id,
+              updatedChecklist.workspaceId,
+              generatedNotificationIds,
+              {
+                reminder: updatedChecklist.reminder,
+                archivedAt: updatedChecklist.archivedAt,
+                revision: updatedChecklist.revision,
+              }
+            );
+            const verify = await ChecklistRepository.getChecklist(
+              updatedChecklist.id,
+              updatedChecklist.workspaceId,
+            );
+            const isStillIncomplete =
+              verify &&
+              !verify.archivedAt &&
+              verify.items &&
+              verify.items.length > 0 &&
+              !verify.items.every((i) => i.completed);
+            if (status === "not_found" || status === "state_changed" || !verify || !isStillIncomplete) {
+              cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+              if (updatedChecklist.reminder) updatedChecklist.reminder.notificationIds = undefined;
+            } else {
+              if (updatedChecklist.reminder) updatedChecklist.reminder.notificationIds = generatedNotificationIds;
+            }
+          }
+        } catch (e) {
+          console.warn("[EntityCommandService] Failed to reschedule checklist reminder after uncomplete:", e);
+          if (generatedNotificationIds && generatedNotificationIds.length > 0) {
+            cancelReminderIds(generatedNotificationIds, { throwOnError: false }).catch(() => {});
+          }
+          if (updatedChecklist.reminder) updatedChecklist.reminder.notificationIds = undefined;
+        }
+      }
+    }
 
     if (!effectiveOptions?.skipEvents) {
       emitStateChange("checklists_changed", effectiveOptions?.source);
@@ -827,7 +958,12 @@ static async moveChecklist(
         parsedInput = input;
       } else {
         const { generateId } = await import("@/shared/utils/id");
-        let candidateReminder = input.reminder;
+        // Runtime-owned OS notification IDs never belong to a newly created
+        // entity. Copying them (checklist duplication, imports) would make the
+        // creation path cancel the SOURCE entity's live notifications.
+        let candidateReminder: Checklist["reminder"] = input.reminder
+          ? { ...input.reminder, notificationIds: undefined }
+          : undefined;
         if (!candidateReminder && input.schedule?.startTime) {
           const [h, m] = input.schedule.startTime.split(":").map(Number);
           if (!isNaN(h) && !isNaN(m)) {
@@ -925,7 +1061,7 @@ static async moveChecklist(
     masterChecklistId: string,
     workspaceId: string,
     occurrenceDate: string,
-    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null },
+    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null; durationMinutes?: number | null },
     options?: CreateEntityOptions,
   ): Promise<{ masterChecklist: Checklist; occurrenceChecklist: Checklist }> {
     const { withLock } = await import("@/shared/utils/mutex");
@@ -991,6 +1127,13 @@ static async moveChecklist(
             triggerHour = parts[0];
             triggerMinute = parts[1];
           }
+        } else if (typeof master.reminder.triggerAt === "number") {
+          // All-day series (or a series without a scheduled start time): keep
+          // the reminder's wall-clock time on the occurrence's new date instead
+          // of silently dropping the moved occurrence's reminder.
+          const reminderClock = new Date(master.reminder.triggerAt);
+          triggerHour = reminderClock.getHours();
+          triggerMinute = reminderClock.getMinutes();
         }
         if (triggerHour !== undefined && triggerMinute !== undefined) {
           detachedReminder = {
@@ -1017,6 +1160,8 @@ static async moveChecklist(
           ...master.schedule,
           ...updates.schedule,
           date: targetDate,
+          ...(updates.schedule?.startTime ? { allDay: undefined } : {}),
+          ...(dropTarget.durationMinutes !== undefined && dropTarget.durationMinutes !== null ? { durationMinutes: dropTarget.durationMinutes } : {}),
         },
         reminder: detachedReminder,
         lifecycleGeneration: 1,
@@ -1033,6 +1178,58 @@ static async moveChecklist(
 
       return { updatedMaster, newCopy };
     });
+
+    // Reconcile the master's notification series now that the moved occurrence
+    // is recorded as an exception. Without this the master keeps a live
+    // notification for the vacated date (repeating triggers cannot skip a
+    // single date) while the detached copy schedules its own reminder.
+    let finalMaster = updatedMaster;
+    if (
+      updatedMaster.reminder?.enabled &&
+      updatedMaster.reminder?.triggerAt &&
+      recurrenceSupportsDateExceptions(updatedMaster.recurrence)
+    ) {
+      let masterNotificationIds: string[] | undefined = undefined;
+      try {
+        const rescheduledMaster = await rescheduleChecklistReminders(updatedMaster);
+        masterNotificationIds = rescheduledMaster.reminder?.notificationIds;
+        const status = await ChecklistRepository.updateNotificationIds(
+          updatedMaster.id,
+          updatedMaster.workspaceId,
+          masterNotificationIds || [],
+          {
+            reminder: updatedMaster.reminder,
+            archivedAt: updatedMaster.archivedAt,
+            revision: updatedMaster.revision,
+          }
+        );
+        const verify = await ChecklistRepository.getChecklist(
+          updatedMaster.id,
+          updatedMaster.workspaceId,
+        );
+        if (status === "not_found" || status === "state_changed" || !verify || verify.archivedAt) {
+          if (masterNotificationIds?.length) {
+            cancelReminderIds(masterNotificationIds, { throwOnError: false }).catch(() => {});
+          }
+        } else {
+          finalMaster = {
+            ...updatedMaster,
+            reminder: {
+              ...updatedMaster.reminder,
+              notificationIds: masterNotificationIds,
+            },
+          };
+        }
+      } catch (e) {
+        console.warn(
+          "[EntityCommandService] Failed to reconcile master checklist reminders after occurrence detach:",
+          e,
+        );
+        if (masterNotificationIds?.length) {
+          cancelReminderIds(masterNotificationIds, { throwOnError: false }).catch(() => {});
+        }
+      }
+    }
 
     // Schedule notification for detached occurrence if applicable
     if (newCopy.reminder?.enabled && newCopy.reminder?.triggerAt) {
@@ -1076,6 +1273,6 @@ static async moveChecklist(
       void recordDailyHistorySnapshot().catch(() => {});
     }
 
-    return { masterChecklist: updatedMaster, occurrenceChecklist: newCopy };
+    return { masterChecklist: finalMaster, occurrenceChecklist: newCopy };
   }
 }

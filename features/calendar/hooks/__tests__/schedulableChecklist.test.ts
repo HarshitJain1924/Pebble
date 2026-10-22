@@ -639,4 +639,108 @@ describe("Schedulable Checklist Entity Architectural Tests", () => {
     expect(state.timelineItems.some((i: any) => i.id === cl.id)).toBe(false);
     expect(state.pendingChecklists.some((c: any) => c.id === cl.id)).toBe(false);
   });
+
+  test("P: Planning recurring checklist does NOT move master series anchor", async () => {
+    // Master recurring checklist anchor: 2026-08-29 (Saturday), weekly recurrence
+    const recurringChecklist = await EntityCommandService.createChecklist({
+      id: "cl-recurring-plan-master",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "Weekly Clean",
+      priority: "none",
+      items: [
+        { id: "it-1", title: "Vacuum", completed: false },
+        { id: "it-2", title: "Mop", completed: false },
+      ],
+      schedule: {
+        date: "2026-08-29",
+        startTime: "10:00",
+        durationMinutes: 60,
+      },
+      recurrence: {
+        frequency: "weekly",
+        interval: 1,
+        daysOfWeek: [6], // Saturday
+      },
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-02"); // Wednesday
+    });
+
+    // Plan the 2026-08-29 occurrence to Wednesday 2026-09-02 at 14:00
+    await act(async () => {
+      const ok = await state.planChecklist(recurringChecklist.id, {
+        sourceOccurrenceDate: "2026-08-29",
+        date: "2026-09-02",
+        hour: 14,
+        minute: 0,
+        durationMinutes: 45,
+      });
+      expect(ok).toBe(true);
+    });
+
+    // Master series anchor MUST NOT be moved
+    const all = await ChecklistRepository.getChecklists(INBOX_WORKSPACE_ID);
+    const master = all[recurringChecklist.id];
+    expect(master).toBeDefined();
+    expect(master.schedule?.date).toBe("2026-08-29"); // Anchor preserved!
+    expect(master.recurrence).toBeDefined();
+    expect(master.recurrence?.frequency).toBe("weekly");
+    expect(master.recurrenceExceptions).toContain("2026-08-29");
+
+    // A detached occurrence must exist on 2026-09-02
+    const detached = Object.values(all).find(
+      (c) => c.schedule?.date === "2026-09-02" && c.title === "Weekly Clean"
+    );
+    expect(detached).toBeDefined();
+    expect(detached?.recurrence).toBeUndefined();
+    expect(detached?.schedule?.startTime).toBe("14:00");
+    expect(detached?.schedule?.allDay).toBeUndefined(); // Timed slot cleared allDay
+  });
+
+  test("Q: Planning all-day checklist into timed slot clears allDay", async () => {
+    const cl = await EntityCommandService.createChecklist({
+      id: "cl-allday-to-timed",
+      workspaceId: INBOX_WORKSPACE_ID,
+      title: "All-Day Item",
+      priority: "none",
+      items: [{ id: "it-1", title: "Task 1", completed: false }],
+      schedule: {
+        date: "2026-09-01",
+        allDay: true,
+      },
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    let state: any;
+    await act(async () => {
+      create(React.createElement(HookTestHarness, { onHook: (h: any) => { state = h; } }));
+    });
+
+    await act(async () => {
+      state.setSelectedDate("2026-09-01");
+    });
+
+    // Plan into timed slot 15:30
+    await act(async () => {
+      const ok = await state.planChecklist(cl.id, { hour: 15, minute: 30 });
+      expect(ok).toBe(true);
+    });
+
+    const stored = await ChecklistRepository.getChecklist(cl.id, INBOX_WORKSPACE_ID);
+    expect(stored?.schedule?.startTime).toBe("15:30");
+    expect(stored?.schedule?.allDay).toBeUndefined();
+  });
 });

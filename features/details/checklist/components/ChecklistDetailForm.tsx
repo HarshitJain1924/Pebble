@@ -16,6 +16,7 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import type { Resource } from "@/shared/types/domain.types";
 import { getDateKey } from "@/services/scheduling/recurrence.service";
+import { formatReminderTime } from "@/services/scheduling/schedule-formatter";
 import type { ChecklistFormState } from "@/features/details/checklist/hooks/useChecklistDetailForm";
 
 export interface ChecklistDetailFormProps {
@@ -598,7 +599,28 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Text style={{ color: colors.textMuted, fontSize: 14 }}>
               {form.reminderTime
-                ? `${String(form.reminderTime.hour).padStart(2, "0")}:${String(form.reminderTime.minute).padStart(2, "0")}`
+                ? (() => {
+                    const timeStr = formatReminderTime(
+                      form.reminderTime.hour,
+                      form.reminderTime.minute,
+                    );
+                    const remDate =
+                      form.reminderDate ||
+                      (form.scheduleDate !== "inbox"
+                        ? form.scheduleDate
+                        : undefined);
+                    if (
+                      remDate &&
+                      form.scheduleDate !== "inbox" &&
+                      remDate !== form.scheduleDate
+                    ) {
+                      return `${remDate} at ${timeStr}`;
+                    }
+                    if (form.scheduleDate === "inbox" && remDate) {
+                      return `${remDate} at ${timeStr}`;
+                    }
+                    return timeStr;
+                  })()
                 : "Off"}
             </Text>
             <Feather

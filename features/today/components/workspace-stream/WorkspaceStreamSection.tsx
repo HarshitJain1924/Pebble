@@ -16,6 +16,8 @@ import type {
   WorkspaceStreamStateTone,
 } from "@/features/today/hooks/useWorkspaceStream";
 import { getStreamResourcePalette } from "@/features/today/utils/resource-presentation";
+import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
+import { getChecklistItemCompletedForDate } from "@/shared/utils/domain-selectors";
 import {
   getCheckboxAction,
   getRowContentAction,
@@ -50,6 +52,7 @@ export interface WorkspaceStreamSectionProps {
     checklistId: string,
     itemId: string,
     workspaceId: string,
+    dateKey?: string,
   ) => Promise<void>;
 }
 
@@ -88,6 +91,7 @@ export const WorkspaceStreamSection: React.FC<WorkspaceStreamSectionProps> = ({
     displayName,
     isAggregate,
     workspaceColor,
+    todayKey,
     totalItems,
     completedItems,
     progress,
@@ -337,6 +341,17 @@ export const WorkspaceStreamSection: React.FC<WorkspaceStreamSectionProps> = ({
               }
 
               const checklist = item.original as Checklist;
+              // Date-less recurring surfaces act on a real occurrence; the same
+              // key drives both rendering and the completion write.
+              const checklistOccurrenceDateKey = checklist.recurrence
+                ? getActiveOccurrenceDateKey(checklist, todayKey)
+                : undefined;
+              const isSubItemCompleted = (subItemId: string) =>
+                getChecklistItemCompletedForDate(
+                  checklist,
+                  subItemId,
+                  checklistOccurrenceDateKey,
+                );
               const isExpanded = !!expandedChecklistIds[checklist.id];
               const checkboxAction = getCheckboxAction(
                 "checklist",
@@ -360,6 +375,10 @@ export const WorkspaceStreamSection: React.FC<WorkspaceStreamSectionProps> = ({
                   workspaceName={isAggregate ? item.workspaceName : undefined}
                   workspaceId={item.workspaceId}
                   workspaceColor={item.workspaceColor}
+                  timeText={item.timeText}
+                  frequencyText={item.frequencyText}
+                  hasReminder={item.hasReminder}
+                  isOverdue={item.isOverdue}
                   categorySymbol={item.categorySymbol}
                   completed={item.completed}
                   checklistProgress={item.checklistProgress}
@@ -381,36 +400,45 @@ export const WorkspaceStreamSection: React.FC<WorkspaceStreamSectionProps> = ({
                 >
                   {checklist.items && (
                     <View style={styles.subItemsWrapper}>
-                      {checklist.items.map((subItem) => (
+                      {checklist.items.map((subItem) => {
+                        const isCompleted = isSubItemCompleted(subItem.id);
+                        return (
                         <View key={subItem.id} style={styles.subItemRow}>
                           <PressableScale
                             onPress={() =>
-                              toggleChecklistItemFromDashboard(
-                                checklist.id,
-                                subItem.id,
-                                item.workspaceId,
-                              )
+                              checklistOccurrenceDateKey
+                                ? toggleChecklistItemFromDashboard(
+                                    checklist.id,
+                                    subItem.id,
+                                    item.workspaceId,
+                                    checklistOccurrenceDateKey,
+                                  )
+                                : toggleChecklistItemFromDashboard(
+                                    checklist.id,
+                                    subItem.id,
+                                    item.workspaceId,
+                                  )
                             }
                             hitSlop={8}
                             haptic
                             accessibilityRole="checkbox"
-                            accessibilityState={{ checked: subItem.completed }}
+                            accessibilityState={{ checked: isCompleted }}
                             accessibilityLabel={`Checklist item ${subItem.title}`}
                             style={[
                               styles.subItemCheckbox,
                               {
-                                borderColor: subItem.completed
+                                borderColor: isCompleted
                                   ? item.workspaceColor || workspaceColor
                                   : isDark
                                     ? "rgba(255,255,255,0.2)"
                                     : "rgba(0,0,0,0.2)",
-                                backgroundColor: subItem.completed
+                                backgroundColor: isCompleted
                                   ? item.workspaceColor || workspaceColor
                                   : "transparent",
                               },
                             ]}
                           >
-                            {subItem.completed && (
+                            {isCompleted && (
                               <Feather
                                 name="check"
                                 size={10}
@@ -422,10 +450,10 @@ export const WorkspaceStreamSection: React.FC<WorkspaceStreamSectionProps> = ({
                             style={[
                               styles.subItemTitle,
                               {
-                                color: subItem.completed
+                                color: isCompleted
                                   ? colors.textMuted
                                   : colors.text,
-                                textDecorationLine: subItem.completed
+                                textDecorationLine: isCompleted
                                   ? "line-through"
                                   : "none",
                               },
@@ -435,7 +463,8 @@ export const WorkspaceStreamSection: React.FC<WorkspaceStreamSectionProps> = ({
                             {subItem.title}
                           </Text>
                         </View>
-                      ))}
+                        );
+                      })}
                     </View>
                   )}
                 </WorkspaceItemRow>

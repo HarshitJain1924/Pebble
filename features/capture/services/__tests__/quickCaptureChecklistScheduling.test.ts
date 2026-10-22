@@ -375,4 +375,64 @@ describe("Quick Capture → Checklist Scheduling Regression Suite (A-L)", () => 
     expect(Object.keys(allChecklists).length).toBe(1);
     expect(allChecklists[checklist.id]).toBeDefined();
   });
+
+  test("N: Checklist captured with recurrence anchors to today's date key and sets recurring rule", async () => {
+    const captureItem: ParsedProductivityItem = {
+      type: "checklist",
+      title: "Weekly Maintenance",
+      items: ["Check oil", "Wipe down counters"],
+      recurrence: {
+        type: "weekly",
+        interval: 1,
+        days: [1], // Monday
+      },
+      confidence: 0.95,
+    };
+
+    const saved = await saveParsedItem(captureItem, INBOX_WORKSPACE_ID);
+    const checklist = saved as Checklist;
+
+    expect(checklist.recurrence).toBeDefined();
+    expect(checklist.recurrence?.frequency).toBe("weekly");
+    expect(checklist.recurrence?.interval).toBe(1);
+    expect(checklist.recurrence?.daysOfWeek).toEqual([1]);
+    expect(checklist.schedule).toBeDefined();
+    expect(checklist.schedule?.allDay).toBe(true);
+    expect(checklist.schedule?.date).toBeDefined();
+  });
+
+  test("O: Checklist captured with explicitReminder: false leaves reminder undefined even when time is specified", async () => {
+    const captureItem: ParsedProductivityItem = {
+      type: "checklist",
+      title: "Evening Routine",
+      items: ["Lock doors", "Set alarm"],
+      date: "2026-09-02",
+      time: "21:00",
+      explicitReminder: false,
+      confidence: 0.9,
+    };
+
+    const saved = await saveParsedItem(captureItem, INBOX_WORKSPACE_ID);
+    const checklist = saved as Checklist;
+
+    expect(checklist.schedule?.startTime).toBe("21:00");
+    expect(checklist.reminder).toBeUndefined();
+  });
+
+  test("P: Ordinary checklist with no scheduling language retains clean unscheduled state", async () => {
+    const captureItem: ParsedProductivityItem = {
+      type: "checklist",
+      title: "Reading List",
+      items: ["Designing Data-Intensive Applications", "Clean Code"],
+      confidence: 0.9,
+    };
+
+    const saved = await saveParsedItem(captureItem, INBOX_WORKSPACE_ID);
+    const checklist = saved as Checklist;
+
+    expect(checklist.schedule).toBeUndefined();
+    expect(checklist.recurrence).toBeUndefined();
+    expect(checklist.reminder).toBeUndefined();
+  });
 });
+

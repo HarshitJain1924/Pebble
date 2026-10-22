@@ -1,10 +1,14 @@
 import {
   cancelReminderIds,
+  rescheduleChecklistReminders,
   rescheduleHabitReminders,
   rescheduleTodoReminders,
   scheduleReminderBatch,
 } from "@/services/scheduling/reminders.service";
-import { type Habit, type Task } from "@/shared/types/domain.types";
+import { getExpectedNotificationScheduleKeys } from "@/services/notifications/notification-identity";
+import { getUpcomingOccurrenceEpochs } from "@/services/scheduling/recurrence.service";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
+import { type Checklist, type Habit, type Task } from "@/shared/types/domain.types";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
@@ -141,6 +145,123 @@ describe("reminders.service", () => {
     it("should schedule recurrence alerts for habit items and return updated object", async () => {
       const updated = await rescheduleHabitReminders(mockHabit);
       expect(updated.reminder?.notificationIds?.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("rescheduleChecklistReminders — recurrence exceptions", () => {
+    const makeDailyChecklist = (
+      options: { exceptions?: string[] } = {},
+    ): Checklist => {
+      const now = new Date();
+      const tomorrow = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+        9,
+        0,
+        0,
+        0,
+      );
+      return {
+        id: "chk-exception-mode",
+        workspaceId: "ws-1",
+        title: "Daily Check",
+        priority: "none",
+        items: [{ id: "i1", title: "Step", completed: false }],
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: now.getTime(),
+        updatedAt: now.getTime(),
+        schedule: { date: dateKeyFromDate(tomorrow), startTime: "09:00" },
+        recurrence: { frequency: "daily", interval: 1 },
+        recurrenceExceptions: options.exceptions,
+        reminder: { enabled: true, triggerAt: tomorrow.getTime() },
+      };
+    };
+
+    const scheduledCalls = async () => {
+      const Notifications = await import("expo-notifications");
+      return (Notifications.scheduleNotificationAsync as jest.Mock).mock.calls.map(
+        (call) => call[0],
+      );
+    };
+
+    it("materialises non-excepted occurrences as one-time notifications", async () => {
+      const checklist = makeDailyChecklist();
+      const now = new Date();
+      const tomorrow = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+        9,
+        0,
+        0,
+        0,
+      );
+      const dayAfter = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 2,
+        9,
+        0,
+        0,
+        0,
+      );
+      checklist.recurrenceExceptions = [dateKeyFromDate(tomorrow)];
+
+      const scheduled = await rescheduleChecklistReminders(checklist);
+      expect(scheduled.reminder?.notificationIds).toBeDefined();
+
+      const calls = await scheduledCalls();
+      expect(calls.length).toBeGreaterThan(0);
+      // Repeating DAILY triggers cannot exclude a single date.
+      expect(calls.every((call) => call.trigger.type === "date")).toBe(true);
+      expect(
+        calls.some((call) => call.trigger.type === "daily"),
+      ).toBe(false);
+
+      const firesOn = (call: any, target: Date) => {
+        const fire = new Date(call.trigger.date);
+        return (
+          fire.getFullYear() === target.getFullYear() &&
+          fire.getMonth() === target.getMonth() &&
+          fire.getDate() === target.getDate() &&
+          fire.getHours() === target.getHours()
+        );
+      };
+
+      // The excepted occurrence has no reminder...
+      expect(calls.some((call) => firesOn(call, tomorrow))).toBe(false);
+      // ...while the next unaffected occurrence still does.
+      expect(calls.some((call) => firesOn(call, dayAfter))).toBe(true);
+
+      // Reconciler parity: the physical schedule keys are exactly the keys the
+      // reconciler will consider valid, so its next pass retains these slots.
+      const expectedKeys = getExpectedNotificationScheduleKeys(
+        checklist,
+        [120, 240],
+      );
+      const scheduledKeys = new Set(
+        calls
+          .map((call) => call.content?.data?.notificationScheduleKey)
+          .filter(Boolean),
+      );
+      expect(scheduledKeys).toEqual(expectedKeys);
+
+      const occurrences = getUpcomingOccurrenceEpochs(
+        checklist,
+        checklist.reminder!.triggerAt,
+      );
+      expect(calls.length).toBe(occurrences.length * 3);
+    });
+
+    it("keeps the repeating schedule when no exceptions exist", async () => {
+      const checklist = makeDailyChecklist();
+
+      await rescheduleChecklistReminders(checklist);
+      const calls = await scheduledCalls();
+
+      expect(calls.some((call) => call.trigger.type === "daily")).toBe(true);
     });
   });
 });

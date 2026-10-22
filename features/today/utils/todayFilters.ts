@@ -12,6 +12,10 @@ import {
   isTaskCompleted,
 } from "@/shared/utils/domain-selectors";
 import { getCategoryMeta } from "@/features/tasks/services/task-categories";
+import {
+  getActiveOccurrenceDateKey,
+  isRecurringOccurrenceForDate,
+} from "@/services/scheduling/recurrence.service";
 
 function resolveWorkspaceId(entity: { workspaceId?: string; folderId?: string }): string {
   return entity.workspaceId || entity.folderId || INBOX_WORKSPACE_ID;
@@ -379,7 +383,29 @@ export function applyTodayFilters(
   };
 
   const includeChecklist = (checklist: Checklist, status: TodayFilterStatus): boolean => {
-    const completed = isChecklistCompletedForDate(checklist, referenceDateKey);
+    // Check recurrence and schedule date context
+    const hasRecurrence = Boolean(checklist.recurrence);
+    const scheduleDate = checklist.schedule?.date;
+
+    if (hasRecurrence) {
+      if (!isRecurringOccurrenceForDate(checklist, referenceDateKey)) return false;
+    } else if (scheduleDate && scheduleDate !== "inbox") {
+      // Future scheduled checklists do not belong on Today
+      if (scheduleDate > referenceDateKey) return false;
+    }
+
+    // Recurring checklists are completed per occurrence; date-less surfaces
+    // resolve the same occurrence the stream row renders.
+    const completedForDateKey = checklist.recurrence
+      ? getActiveOccurrenceDateKey(checklist, referenceDateKey) ?? referenceDateKey
+      : referenceDateKey;
+    const completed = isChecklistCompletedForDate(checklist, completedForDateKey);
+
+    // If scheduled for a past date and completed, it is not open/carried over to Today
+    if (!hasRecurrence && scheduleDate && scheduleDate !== "inbox" && scheduleDate < referenceDateKey && completed) {
+      return false;
+    }
+
     if (status === "overdue") return false;
     if (status === "active") return !completed;
     if (status === "completed") return completed;

@@ -162,6 +162,43 @@ describe("useDomainFilters Hook & Filtering Functions", () => {
       });
       expect(withRes.map((c) => c.id)).toEqual(["c-1"]);
     });
+
+    it("evaluates recurring checklist status against the resolved occurrence", () => {
+      const referenceDateKey = "2026-03-10";
+      const recurring: Checklist = {
+        id: "c-recurring",
+        workspaceId: "inbox",
+        title: "Daily Routine",
+        priority: "none",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+        items: [
+          { id: "i-1", title: "Step one", completed: false },
+          { id: "i-2", title: "Step two", completed: false },
+        ],
+        recurrence: { frequency: "daily", interval: 1 },
+        schedule: { date: "2026-03-01" },
+        occurrenceHistory: {
+          [referenceDateKey]: { completedItemIds: ["i-1", "i-2"] },
+        },
+      };
+
+      const completed = applyChecklistFilters(
+        [recurring],
+        { status: "completed", items: "all", resources: "all" },
+        referenceDateKey,
+      );
+      expect(completed.map((c) => c.id)).toEqual(["c-recurring"]);
+
+      const inProgress = applyChecklistFilters(
+        [recurring],
+        { status: "in_progress", items: "all", resources: "all" },
+        "2026-03-11",
+      );
+      expect(inProgress.map((c) => c.id)).toEqual(["c-recurring"]);
+    });
   });
 
   describe("applyResourceFilters", () => {

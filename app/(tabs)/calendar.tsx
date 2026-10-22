@@ -185,7 +185,10 @@ export default function CalendarScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       const type = getCalendarItemType(item);
       if (type === "checklist") {
-        router.push(`/checklist-details?id=${item.id}`);
+        const itemDate = item.occurrenceDate || item.dateKey || item.date || selectedDate;
+        router.push(
+          `/checklist-details?id=${item.id}${itemDate ? `&date=${itemDate}` : ""}`,
+        );
       } else {
         router.push(
           `/task-details?id=${item.id}&type=${type}&date=${selectedDate}`,

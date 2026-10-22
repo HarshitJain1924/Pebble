@@ -9,7 +9,11 @@ import {
   buildNotificationLogicalSignature,
   buildNotificationScheduleKey,
 } from "@/services/notifications/notification-identity";
-import { getNextIntervalOccurrenceEpoch } from "@/services/scheduling/recurrence.service";
+import {
+  getNextIntervalOccurrenceEpoch,
+  getUpcomingOccurrenceEpochs,
+  recurrenceSupportsDateExceptions,
+} from "@/services/scheduling/recurrence.service";
 
 export type ReminderKind = "todo" | "habit" | "checklist";
 
@@ -1278,9 +1282,16 @@ export async function rescheduleChecklistReminders(
   options?: RescheduleReminderOptions
 ): Promise<Checklist> {
   try {
+    const isCompleted =
+      !checklist.recurrence &&
+      checklist.items &&
+      checklist.items.length > 0 &&
+      checklist.items.every(i => i.completed);
+
     if (
       checklist.reminder &&
       checklist.reminder.enabled &&
+      !isCompleted &&
       (checklist.reminder.triggerAt > Date.now() || checklist.recurrence)
     ) {
       const shouldCancelExisting = options?.cancelExisting ?? (options?.targetScheduleKeys ? false : true);
@@ -1295,6 +1306,53 @@ export async function rescheduleChecklistReminders(
       if (checklist.recurrence) {
         const completedCount = checklist.items?.filter(i => i.completed).length ?? 0;
         const totalCount = checklist.items?.length ?? 0;
+
+        // Exception-aware series: a repeating OS trigger has no per-date
+        // exclusion, so an excepted (detached) occurrence would keep firing on
+        // its original date. Materialise the upcoming non-excepted occurrences
+        // as individual one-time reminders instead, leaving every unaffected
+        // occurrence scheduled. The startup reconciler recomputes the same key
+        // set (see getExpectedNotificationScheduleKeys).
+        if (
+          checklist.recurrenceExceptions?.length &&
+          recurrenceSupportsDateExceptions(checklist.recurrence)
+        ) {
+          const occurrenceEpochs = getUpcomingOccurrenceEpochs(
+            checklist,
+            checklist.reminder.triggerAt,
+          );
+          const occurrenceIds: string[] = [];
+          for (const occurrenceEpoch of occurrenceEpochs) {
+            const occurrenceBatch = await scheduleReminderBatch({
+              kind: "checklist",
+              itemId: checklist.id,
+              title: checklist.title,
+              oneTimeAt: new Date(occurrenceEpoch),
+              category: checklist.categoryId,
+              escalationMinutes: [120, 240],
+              channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
+              context: { title: checklist.title, remainingCount: totalCount - completedCount, totalCount },
+              workspaceId: checklist.workspaceId,
+              anchorTimestamp: occurrenceEpoch,
+              anchorDate: new Date(occurrenceEpoch),
+              targetScheduleKeys: options?.targetScheduleKeys,
+              lifecycleGeneration: options?.lifecycleGeneration ?? checklist.lifecycleGeneration,
+            });
+            occurrenceIds.push(...occurrenceBatch.ids);
+          }
+          const existingIds = shouldCancelExisting
+            ? []
+            : (options?.retainedNotificationIds ?? (checklist.reminder.notificationIds || []));
+          const combinedIds = Array.from(new Set([...existingIds, ...occurrenceIds]));
+          return {
+            ...checklist,
+            reminder: {
+              ...checklist.reminder,
+              notificationIds: combinedIds,
+            },
+          };
+        }
+
         const batch = await scheduleReminderBatch({
           kind: "checklist",
           itemId: checklist.id,

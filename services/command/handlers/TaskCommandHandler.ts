@@ -1010,7 +1010,7 @@ static async reorderTasks(
     masterTaskId: string,
     workspaceId: string,
     occurrenceDate: string,
-    dropTarget: { hour?: number | null; date?: string | null },
+    dropTarget: { hour?: number | null; minute?: number | null; date?: string | null; durationMinutes?: number | null },
     options?: CreateEntityOptions,
   ): Promise<{ masterTask: Task; occurrenceTask: Task }> {
     const { withLock } = await import("@/shared/utils/mutex");
@@ -1061,6 +1061,8 @@ static async reorderTasks(
           ...master.schedule,
           ...updates.schedule,
           date: targetDate,
+          ...(updates.schedule?.startTime ? { allDay: undefined } : {}),
+          ...(dropTarget.durationMinutes !== undefined && dropTarget.durationMinutes !== null ? { durationMinutes: dropTarget.durationMinutes } : {}),
         },
         reminder: master.reminder
           ? {

@@ -84,6 +84,7 @@ const makeChecklist = (
   id: string,
   workspaceId: string,
   items: { id: string; completed: boolean }[],
+  overrides: Partial<Checklist> = {},
 ): Checklist =>
   ({
     id,
@@ -98,6 +99,7 @@ const makeChecklist = (
     lifecycleGeneration: 1,
     createdAt: 1000,
     updatedAt: 1000,
+    ...overrides,
   }) as Checklist;
 
 const makeContext = (
@@ -113,7 +115,9 @@ const makeContext = (
   totalCount: tasks.length + habits.length + checklists.length,
 });
 
-const buildOptions = (overrides: Partial<{ isDark: boolean; primaryColor: string }> = {}) => ({
+const buildOptions = (
+  overrides: Partial<{ isDark: boolean; primaryColor: string; todayKey: string }> = {},
+) => ({
   isDark: true,
   primaryColor: "#123456",
   todayKey: TODAY,
@@ -141,6 +145,36 @@ describe("countWorkspaceUnits — explicit work-unit counting semantics", () => 
     expect(totalUnits).toBe(6);
     // 1 completed task + 0 habits + 2 completed checklist items
     expect(completedUnits).toBe(3);
+  });
+
+  it("counts recurring checklist work units from the occurrence, not master items", () => {
+    const REF = "2026-03-10";
+    const recurring = makeChecklist(
+      "r1",
+      "w1",
+      [
+        { id: "i1", completed: false },
+        { id: "i2", completed: false },
+      ],
+      {
+        recurrence: { frequency: "daily", interval: 1 },
+        schedule: { date: "2026-03-01", startTime: "09:00" },
+        occurrenceHistory: {
+          [REF]: { completedItemIds: ["i1"] },
+        },
+      },
+    );
+
+    const context = makeContext(makeWorkspace("w1"), [], [], [recurring]);
+
+    expect(countWorkspaceUnits(context, REF)).toEqual({
+      totalUnits: 2,
+      completedUnits: 1,
+    });
+    // A different occurrence is unaffected.
+    expect(
+      countWorkspaceUnits(context, "2026-03-11"),
+    ).toEqual({ totalUnits: 2, completedUnits: 0 });
   });
 
   it("aggregates per-workspace totals for the tab rail", () => {
@@ -317,6 +351,116 @@ describe("buildWorkspaceStreamSection", () => {
     );
 
     expect(section.workspaceColor).toBe("#ABCDEF");
+  });
+});
+
+describe("recurring checklist occurrence awareness", () => {
+  const REF = "2026-03-10";
+  const makeRecurring = (overrides: Partial<Checklist> = {}) =>
+    makeChecklist(
+      "r1",
+      "w1",
+      [
+        { id: "i1", completed: false },
+        { id: "i2", completed: false },
+      ],
+      {
+        recurrence: { frequency: "daily", interval: 1 },
+        schedule: { date: "2026-03-01", startTime: "09:00" },
+        ...overrides,
+      },
+    );
+
+  it("reports occurrence progress while the master items stay untouched", () => {
+    const section = buildWorkspaceStreamSection(
+      makeContext(makeWorkspace("w1"), [], [], [
+        makeRecurring({
+          occurrenceHistory: { [REF]: { completedItemIds: ["i1"] } },
+        }),
+      ]),
+      [],
+      buildOptions({ todayKey: REF }),
+    );
+
+    const item = section.items[0];
+    expect(item.checklistProgress).toEqual({ completedCount: 1, totalCount: 2 });
+    expect(item.subtitle).toBe("1 item left");
+    expect(item.completed).toBe(false);
+    expect(section.completedItems).toBe(1);
+    // Master template remains untouched.
+    expect(
+      (item.original as Checklist).items.every((i) => !i.completed),
+    ).toBe(true);
+  });
+
+  it("marks the row completed only when the surfaced occurrence is complete", () => {
+    const section = buildWorkspaceStreamSection(
+      makeContext(makeWorkspace("w1"), [], [], [
+        makeRecurring({
+          occurrenceHistory: {
+            [REF]: { completedItemIds: ["i1", "i2"], completedAt: 123 },
+            // Another day's occurrence must not leak into this row.
+            "2026-03-09": { completedItemIds: [] },
+          },
+        }),
+      ]),
+      [],
+      buildOptions({ todayKey: REF }),
+    );
+
+    const item = section.items[0];
+    expect(item.completed).toBe(true);
+    expect(item.subtitle).toBe("All done");
+    expect(item.relevance).toBe(STREAM_RELEVANCE.DONE);
+    expect(section.completedItems).toBe(2);
+  });
+
+  it("populates scheduling, recurrence, reminder, and overdue metadata on checklist stream item", () => {
+    const scheduled = makeChecklist(
+      "s1",
+      "w1",
+      [{ id: "i1", completed: false }],
+      {
+        schedule: { date: REF, startTime: "10:30", endTime: "11:15" },
+        recurrence: { frequency: "weekly", interval: 1, daysOfWeek: [2] },
+        reminder: { enabled: true, triggerAt: 123456 },
+      },
+    );
+
+    const item = buildChecklistStreamItem(
+      scheduled,
+      { id: "w1", name: "Work", color: "#3B82F6" },
+      false,
+      REF,
+    );
+
+    expect(item.timeText).toBe("10:30 - 11:15");
+    expect(item.frequencyText).toBe("Every week");
+    expect(item.hasReminder).toBe(true);
+    expect(item.isOverdue).toBe(false);
+    expect(item.relevance).toBe(STREAM_RELEVANCE.SCHEDULED_TASK);
+  });
+
+  it("marks past incomplete checklist as overdue with alert relevance", () => {
+    const past = makeChecklist(
+      "past1",
+      "w1",
+      [{ id: "i1", completed: false }],
+      {
+        schedule: { date: "2026-03-01" },
+      },
+    );
+
+    const item = buildChecklistStreamItem(
+      past,
+      { id: "w1", name: "Work", color: "#3B82F6" },
+      false,
+      REF,
+    );
+
+    expect(item.isOverdue).toBe(true);
+    expect(item.subtitle).toBe("Overdue");
+    expect(item.relevance).toBe(STREAM_RELEVANCE.OVERDUE_TASK);
   });
 });
 
