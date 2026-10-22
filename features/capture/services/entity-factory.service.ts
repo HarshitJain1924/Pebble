@@ -24,7 +24,6 @@ import {
   type Checklist,
   type Resource,
   type RecurrenceRule,
-  type Attachment,
 } from "@/shared/types/domain.types";
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import { getDateKey } from "@/services/scheduling/recurrence.service";

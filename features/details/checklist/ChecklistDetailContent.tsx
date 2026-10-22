@@ -48,7 +48,6 @@ import {
   getActiveOccurrenceDateKey,
 } from "@/services/scheduling/recurrence.service";
 import {
-  formatReminderTime,
   formatReminderDisplay,
 } from "@/services/scheduling/schedule-formatter";
 import {
@@ -682,7 +681,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       return `${dateStr} at ${item.schedule.startTime}${durStr}`;
     }
     return `${dateStr} (All Day)`;
-  }, [item?.schedule, occurrenceDate]);
+  }, [item, occurrenceDate]);
 
   const reminderDisplay = useMemo(() => {
     if (!item?.reminder?.enabled || !item.reminder.triggerAt) {
@@ -690,7 +689,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     }
     const scheduledDate = occurrenceDate || item?.schedule?.date;
     return formatReminderDisplay(item.reminder.triggerAt, scheduledDate);
-  }, [item?.reminder, item?.schedule?.date, occurrenceDate]);
+  }, [item, occurrenceDate]);
 
   if (loading || !item) {
     return (

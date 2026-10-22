@@ -271,23 +271,19 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
   }
 
   let explicitTaskLanguage = false;
-  let taskPrefix: string | undefined;
   const explicitTaskRegex =
     /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?task\b|(?:new\s+)?task\s*[:—\-]?)/i;
   const explicitTaskMatch = originalText.match(explicitTaskRegex);
   if (explicitTaskMatch) {
     explicitTaskLanguage = true;
-    taskPrefix = explicitTaskMatch[0];
   }
 
   let explicitHabitLanguage = false;
-  let habitPrefix: string | undefined;
   const explicitHabitRegex =
     /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?habit\b|(?:new\s+)?habit\s*[:—\-]?)/i;
   const explicitHabitMatch = originalText.match(explicitHabitRegex);
   if (explicitHabitMatch) {
     explicitHabitLanguage = true;
-    habitPrefix = explicitHabitMatch[0];
   }
 
   // 3. Temporal Signals

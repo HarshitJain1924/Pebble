@@ -1,58 +1,29 @@
-import { WorkspaceCommandHandler } from "./WorkspaceCommandHandler";
-import { TaskCommandHandler } from "./TaskCommandHandler";
 import {
   ChecklistRepository,
-  HabitRepository,
-  ResourceRepository,
-  TaskRepository,
-  WorkspaceRepository,
 } from "@/repositories";
 import {
   buildChecklist,
-  buildHabit,
-  buildResource,
-  buildTask,
-  computeTriggerAt,
-  parseTime,
 } from "@/features/capture/services/entity-factory.service";
 import type { ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
 import { emitStateChange } from "@/services/events/state-events";
 import {
   cancelReminderIds,
-  rescheduleHabitReminders,
-  rescheduleTodoReminders,
   rescheduleChecklistReminders,
-  scheduleReminderBatch,
 } from "@/services/scheduling/reminders.service";
-import { syncWidgetData } from "@/services/analytics/widget-data.service";
 
 import { earnPebble } from "@/features/profile/services/pebble.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import { generateId } from "@/shared/utils/id";
-import { pluginManager } from "@/plugin";
 import {
   getTodayDateKey,
-  getOffsetDateKey,
-  isHabitCompletedToday,
-  getHabitCurrentStreak,
-  getHabitBestStreak,
-  getHabitLastCompletedDate,
   pruneChecklistOccurrenceHistory,
 } from "@/shared/utils/domain-selectors";
 import {
-  type Task,
-  type Habit,
   type Checklist,
-  type Resource,
-  type Workspace,
-  type RecycleBinItem,
-  type MoveJournalEntry,
   INBOX_WORKSPACE_ID,
-  MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
-import { HabitCommandHandler } from "./HabitCommandHandler";
 import {
   isRecurringOccurrenceForDate,
   recurrenceSupportsDateExceptions,
@@ -60,8 +31,6 @@ import {
 import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
 
 import { CreateEntityOptions, isParsedProductivityItem } from "../types/command.types";
-import { scheduleCreationNotifications, scheduleTaskNotifications, scheduleHabitNotifications } from "../shared/command-notifications";
-import { restoreEntityFromBin } from "../shared/command-recovery";
 
 export class ChecklistCommandHandler {
 static async moveChecklist(
@@ -392,8 +361,6 @@ static async moveChecklist(
     const deletedChecklist = await withLock(lockKey, async () => {
       const checklistsMap = await ChecklistRepository.getChecklists(workspaceId);
       let checklist = checklistsMap[checklistId];
-      let fromRecycleBin = false;
-
       if (!checklist) {
         const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
         const binItems = await RecycleBinRepository.getRecycleBinItems();
@@ -403,7 +370,6 @@ static async moveChecklist(
         if (rbItem) {
           try {
             checklist = JSON.parse(rbItem.snapshot);
-            fromRecycleBin = true;
           } catch {}
         }
       }
