@@ -421,4 +421,85 @@ describe("nlpParser service unit tests", () => {
       expect(plain.title).toBe("Weekly review");
     });
   });
+
+  describe("Inline Checklist Item Extraction & Natural Language Scheduling", () => {
+    it("extracts comma-separated checklist items, final item preceded by and, sensible title, and schedule", () => {
+      const input =
+        "Create a checklist for tomorrow at 2 AM: Pack for the trip, Charge my laptop, Download tickets, Pack headphones, and Check my ID.";
+      const result = parseProductivityText(input);
+
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Pack for the trip");
+      expect(result.items).toEqual([
+        "Pack for the trip",
+        "Charge my laptop",
+        "Download tickets",
+        "Pack headphones",
+        "Check my ID",
+      ]);
+      expect(result.time).toBe("02:00");
+      expect(result.date).toBeDefined();
+      expect(result.checklistConfidence).toBe("high");
+    });
+
+    it("extracts non-Oxford comma separated items with and before final item", () => {
+      const input =
+        "Create a checklist for tomorrow at 2 AM: Pack for the trip, Charge my laptop, Download tickets, Pack headphones and Check my ID.";
+      const result = parseProductivityText(input);
+
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Pack for the trip");
+      expect(result.items).toEqual([
+        "Pack for the trip",
+        "Charge my laptop",
+        "Download tickets",
+        "Pack headphones",
+        "Check my ID",
+      ]);
+      expect(result.time).toBe("02:00");
+      expect(result.date).toBeDefined();
+    });
+
+    it("extracts semicolon-separated checklist items", () => {
+      const input = "Checklist: Pack for the trip; Charge laptop; Download tickets";
+      const result = parseProductivityText(input);
+
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Pack for the trip");
+      expect(result.items).toEqual([
+        "Pack for the trip",
+        "Charge laptop",
+        "Download tickets",
+      ]);
+    });
+
+    it("preserves explicit user-provided title when specified alongside items", () => {
+      const input =
+        "Create a checklist called Trip for tomorrow at 2 AM: Pack for the trip, Charge my laptop, Download tickets, Pack headphones, and Check my ID.";
+      const result = parseProductivityText(input);
+
+      expect(result.type).toBe("checklist");
+      expect(result.title).toBe("Trip");
+      expect(result.items).toEqual([
+        "Pack for the trip",
+        "Charge my laptop",
+        "Download tickets",
+        "Pack headphones",
+        "Check my ID",
+      ]);
+      expect(result.time).toBe("02:00");
+      expect(result.date).toBeDefined();
+    });
+
+    it("negative test: does not convert normal comma-separated task sentence into checklist", () => {
+      const input = "Buy apples, oranges, and bananas tomorrow";
+      const result = parseProductivityText(input);
+
+      expect(result.type).toBe("task");
+      expect(result.title).toBe("Buy apples, oranges, and bananas");
+      expect(result.items).toBeUndefined();
+      expect(result.date).toBeDefined();
+    });
+  });
 });
+

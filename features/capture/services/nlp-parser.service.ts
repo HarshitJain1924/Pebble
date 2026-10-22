@@ -921,6 +921,109 @@ export function rankCandidateIntents(
   };
 }
 
+function cleanChecklistItem(raw: string): string {
+  let s = raw.trim();
+  // Strip bullet / number prefixes
+  s = s.replace(/^[-*•]\s*/, "").replace(/^\d+[.)\s]+/, "").trim();
+  // Strip leading conjunctions (e.g. "and Check my ID" -> "Check my ID")
+  s = s.replace(/^(?:and|&)\s+/i, "").trim();
+  // Strip trailing punctuation (periods, semicolons, commas)
+  s = s.replace(/[.,;]+$/, "").trim();
+  return s;
+}
+
+export function splitInlineChecklistItems(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  // 1. Semicolons
+  if (trimmed.includes(";")) {
+    return trimmed
+      .split(";")
+      .map(cleanChecklistItem)
+      .filter((item) => item.length > 0);
+  }
+
+  // 2. Commas (handling conjunction "and" / "&")
+  if (trimmed.includes(",")) {
+    const rawParts = trimmed.split(",");
+    const items: string[] = [];
+    for (let i = 0; i < rawParts.length; i++) {
+      const part = rawParts[i].trim();
+      if (!part) continue;
+      // In the final segment, check if it's "itemA and itemB" without an Oxford comma
+      if (i === rawParts.length - 1) {
+        if (!/^(?:and|&)\s+/i.test(part) && /\s+(?:and|&)\s+/i.test(part)) {
+          const andSplit = part.split(/\s+(?:and|&)\s+/i);
+          for (const sub of andSplit) {
+            const cleaned = cleanChecklistItem(sub);
+            if (cleaned.length > 0) items.push(cleaned);
+          }
+          continue;
+        }
+      }
+      const cleaned = cleanChecklistItem(part);
+      if (cleaned.length > 0) items.push(cleaned);
+    }
+    return items;
+  }
+
+  // 3. Inline numbered items without commas, e.g. "1. Pack trip 2. Charge laptop"
+  if (/(?:^|\s+)\d+[.)]\s+/.test(trimmed)) {
+    const parts = trimmed.split(/(?:^|\s+)\d+[.)]\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      return parts.map(cleanChecklistItem).filter((p) => p.length > 0);
+    }
+  }
+
+  const single = cleanChecklistItem(trimmed);
+  return single.length > 0 ? [single] : [];
+}
+
+function cleanChecklistTitleCandidate(
+  raw: string,
+  temporalPhrases: string[],
+  priorityPhrase?: string,
+): string {
+  let working = raw.replace(/:$/, "").replace(/—$/, "").trim();
+  const explicitChecklistPrefixRegex =
+    /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?(?:checklist|check\s*list|todo\s*list)(?:\s+(?:called|named|for|about))?|(?:new\s+)?(?:checklist|check\s*list|todo\s*list)\s*(?:[:—\-]|called\b|named\b|for\b|about\b)?)\s*/i;
+  working = working.replace(explicitChecklistPrefixRegex, "");
+  working = working.replace(/\s*(?:checklist|check\s*list|todo\s*list)$/i, "");
+
+  for (const phrase of temporalPhrases) {
+    if (!phrase || !phrase.trim()) continue;
+    const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const startBoundary = /^\w/.test(phrase.trim()) ? "\\b" : "";
+    const endBoundary = /\w$/.test(phrase.trim()) ? "(?!['’]s)\\b" : "";
+    const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
+    working = working.replace(regex, "");
+  }
+  if (priorityPhrase) {
+    const escaped = priorityPhrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const startBoundary = /^\w/.test(priorityPhrase.trim()) ? "\\b" : "";
+    const endBoundary = /\w$/.test(priorityPhrase.trim()) ? "(?!['’]s)\\b" : "";
+    const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
+    working = working.replace(regex, "");
+  }
+  working = working.replace(explicitChecklistPrefixRegex, "");
+
+  let prev = "";
+  let cleanedWorking = working;
+  while (cleanedWorking !== prev) {
+    prev = cleanedWorking;
+    cleanedWorking = cleanedWorking
+      .replace(/\s+/g, " ")
+      .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+      .trim()
+      .replace(/^(at|on|by|for|to|with|in|and|&|called|named|about)\s+/i, "")
+      .replace(/\s+(at|on|by|for|to|with|in|and|&)$/i, "")
+      .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+      .trim();
+  }
+  return cleanedWorking;
+}
+
 // ─── STEP 3: Complete Parser ────────────────────────────────────────────────
 
 /**
@@ -975,48 +1078,133 @@ export function parseProductivityText(
     case "checklist": {
       const firstLine = signals.structural.lines[0] || "Checklist";
       const isTitleLine = !(/^[-*•]\s/.test(firstLine) || /^\d+[.)\s]/.test(firstLine));
-      if (isTitleLine) {
-        let working = firstLine.replace(/:$/, "").replace(/—$/, "").trim();
-        const explicitChecklistPrefixRegex =
-          /^(?:(?:create|add|make|start)\s+(?:a\s+)?(?:new\s+)?(?:checklist|check\s*list|todo\s*list)(?:\s+(?:called|named|for|about))?|(?:new\s+)?(?:checklist|check\s*list|todo\s*list)\s*(?:[:—\-]|called\b|named\b|for\b|about\b)?)\s*/i;
-        working = working.replace(explicitChecklistPrefixRegex, "");
 
-        for (const phrase of signals.temporal.matchedTemporalPhrases) {
-          if (!phrase || !phrase.trim()) continue;
-          const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const startBoundary = /^\w/.test(phrase.trim()) ? '\\b' : '';
-          const endBoundary = /\w$/.test(phrase.trim()) ? "(?!['’]s)\\b" : '';
-          const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
-          working = working.replace(regex, "");
-        }
-        if (signals.metadata.matchedPriorityPhrase) {
-          const escaped = signals.metadata.matchedPriorityPhrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const startBoundary = /^\w/.test(signals.metadata.matchedPriorityPhrase.trim()) ? '\\b' : '';
-          const endBoundary = /\w$/.test(signals.metadata.matchedPriorityPhrase.trim()) ? "(?!['’]s)\\b" : '';
-          const regex = new RegExp(`${startBoundary}${escaped}${endBoundary}`, "gi");
-          working = working.replace(regex, "");
-        }
-        working = working.replace(explicitChecklistPrefixRegex, "");
+      let explicitItems: string[] | undefined =
+        signals.structural.bulletItems || signals.structural.plainListItems;
 
-        let prev = "";
-        let cleanedWorking = working;
-        while (cleanedWorking !== prev) {
-          prev = cleanedWorking;
-          cleanedWorking = cleanedWorking
-            .replace(/\s+/g, " ")
-            .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
-            .trim()
-            .replace(/^(at|on|by|for|to|with|in|and|&)\s+/i, "")
-            .replace(/\s+(at|on|by|for|to|with|in|and|&)$/i, "")
-            .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
-            .trim();
-        }
-        cleanedTitle = cleanedWorking.length > 0 && !/^(and|&)$/i.test(cleanedWorking) ? cleanedWorking : "Checklist";
-      } else {
-        cleanedTitle = "Checklist";
+      if (!explicitItems && signals.structural.lines.length > 1) {
+        explicitItems = signals.structural.lines.slice(1);
       }
-      checklistItems = signals.structural.bulletItems || signals.structural.plainListItems || (signals.structural.lines.length > 1 ? signals.structural.lines.slice(1) : []);
-      checklistConfidence = signals.structural.hasBulletList || signals.structural.hasNumberedList ? "high" : "medium";
+
+      if (explicitItems && explicitItems.length > 0) {
+        checklistItems = explicitItems;
+        checklistConfidence =
+          signals.structural.hasBulletList || signals.structural.hasNumberedList
+            ? "high"
+            : "medium";
+        if (isTitleLine) {
+          const cleaned = cleanChecklistTitleCandidate(
+            firstLine,
+            signals.temporal.matchedTemporalPhrases,
+            signals.metadata.matchedPriorityPhrase,
+          );
+          cleanedTitle =
+            cleaned.length > 0 && !/^(and|&)$/i.test(cleaned) ? cleaned : "Checklist";
+        } else {
+          cleanedTitle = "Checklist";
+        }
+        break;
+      }
+
+      // Single-line or inline items extraction
+      const colonMatch = firstLine.match(/(?<!\d):|:\s+|:(?!\d)/);
+      const withMatch = !colonMatch
+        ? firstLine.match(/\s+with\s+(?:items:?\s+)?|\s+items:\s+/i)
+        : null;
+
+      if (colonMatch) {
+        const colonIdx = colonMatch.index!;
+        const leftPart = firstLine.slice(0, colonIdx).trim();
+        const rightPart = firstLine.slice(colonIdx + colonMatch[0].length).trim();
+        const cleanedLeft = cleanChecklistTitleCandidate(
+          leftPart,
+          signals.temporal.matchedTemporalPhrases,
+          signals.metadata.matchedPriorityPhrase,
+        );
+
+        const hasListStructure =
+          rightPart.includes(",") ||
+          rightPart.includes(";") ||
+          /(?:^|\s+)\d+[.)]\s+/.test(rightPart) ||
+          /\s+(?:and|&)\s+/i.test(rightPart);
+        const extracted = splitInlineChecklistItems(rightPart);
+
+        if (extracted.length > 1 || (extracted.length === 1 && cleanedLeft.length > 0 && hasListStructure)) {
+          checklistItems = extracted;
+          checklistConfidence = "high";
+          cleanedTitle =
+            cleanedLeft.length > 0 && !/^(and|&)$/i.test(cleanedLeft)
+              ? cleanedLeft
+              : extracted[0];
+        } else if (cleanedLeft.length > 0) {
+          if (extracted.length === 1 && rightPart.length > 0) {
+            checklistItems = extracted;
+            checklistConfidence = "high";
+            cleanedTitle = cleanedLeft;
+          } else {
+            checklistItems = [];
+            checklistConfidence = "high";
+            cleanedTitle = cleanedLeft;
+          }
+        } else {
+          const cleanedRight = cleanChecklistTitleCandidate(
+            rightPart,
+            signals.temporal.matchedTemporalPhrases,
+            signals.metadata.matchedPriorityPhrase,
+          );
+          checklistItems = [];
+          checklistConfidence = signals.semantic.explicitChecklistLanguage ? "high" : "medium";
+          cleanedTitle =
+            cleanedRight.length > 0 && !/^(and|&)$/i.test(cleanedRight)
+              ? cleanedRight
+              : "Checklist";
+        }
+      } else if (withMatch) {
+        const withIdx = withMatch.index!;
+        const leftPart = firstLine.slice(0, withIdx).trim();
+        const rightPart = firstLine.slice(withIdx + withMatch[0].length).trim();
+        const cleanedLeft = cleanChecklistTitleCandidate(
+          leftPart,
+          signals.temporal.matchedTemporalPhrases,
+          signals.metadata.matchedPriorityPhrase,
+        );
+        const extracted = splitInlineChecklistItems(rightPart);
+
+        if (extracted.length > 0) {
+          checklistItems = extracted;
+          checklistConfidence = "high";
+          cleanedTitle =
+            cleanedLeft.length > 0 && !/^(and|&)$/i.test(cleanedLeft)
+              ? cleanedLeft
+              : extracted[0];
+        } else {
+          checklistItems = [];
+          checklistConfidence = signals.semantic.explicitChecklistLanguage ? "high" : "medium";
+          cleanedTitle =
+            cleanedLeft.length > 0 && !/^(and|&)$/i.test(cleanedLeft)
+              ? cleanedLeft
+              : "Checklist";
+        }
+      } else {
+        const cleanedWorking = cleanChecklistTitleCandidate(
+          firstLine,
+          signals.temporal.matchedTemporalPhrases,
+          signals.metadata.matchedPriorityPhrase,
+        );
+        const extracted = splitInlineChecklistItems(cleanedWorking);
+        if (extracted.length > 1) {
+          checklistItems = extracted;
+          checklistConfidence = "high";
+          cleanedTitle = extracted[0];
+        } else {
+          checklistItems = [];
+          checklistConfidence = signals.semantic.explicitChecklistLanguage ? "high" : "medium";
+          cleanedTitle =
+            cleanedWorking.length > 0 && !/^(and|&)$/i.test(cleanedWorking)
+              ? cleanedWorking
+              : "Checklist";
+        }
+      }
       break;
     }
 

@@ -831,6 +831,76 @@ describe("Quick Capture → Checklist Scheduling Regression Suite (A-W)", () => 
       }),
     );
   });
+
+  test("X: Quick Capture extracts and persists inline checklist items from natural language (End-to-End)", async () => {
+    const input =
+      "Create a checklist for tomorrow at 2 AM: Pack for the trip, Charge my laptop, Download tickets, Pack headphones, and Check my ID.";
+    const parsed = parseProductivityText(input);
+
+    expect(parsed.type).toBe("checklist");
+    expect(parsed.title).toBe("Pack for the trip");
+    expect(parsed.items).toEqual([
+      "Pack for the trip",
+      "Charge my laptop",
+      "Download tickets",
+      "Pack headphones",
+      "Check my ID",
+    ]);
+    expect(parsed.time).toBe("02:00");
+    expect(parsed.date).toBeDefined();
+
+    const saved = (await saveParsedItem(parsed, INBOX_WORKSPACE_ID)) as Checklist;
+    expect(saved.id.startsWith("checklist-")).toBe(true);
+    expect(saved.title).toBe("Pack for the trip");
+    expect(saved.items.length).toBe(5);
+    expect(saved.items.map((i) => i.title)).toEqual([
+      "Pack for the trip",
+      "Charge my laptop",
+      "Download tickets",
+      "Pack headphones",
+      "Check my ID",
+    ]);
+    expect(saved.items.every((i) => i.completed === false)).toBe(true);
+    expect(saved.schedule).toBeDefined();
+    expect(saved.schedule?.startTime).toBe("02:00");
+    expect(saved.schedule?.durationMinutes).toBe(45);
+    expect(saved.reminder?.enabled).toBe(true);
+    expect(saved.reminder?.triggerAt).toBeDefined();
+
+    // Verify persisted entity in repository
+    const storedChecklists = await ChecklistRepository.getChecklists(INBOX_WORKSPACE_ID);
+    const persisted = storedChecklists[saved.id];
+    expect(persisted).toBeDefined();
+    expect(persisted.title).toBe("Pack for the trip");
+    expect(persisted.items.length).toBe(5);
+    expect(persisted.items.map((i) => i.title)).toEqual([
+      "Pack for the trip",
+      "Charge my laptop",
+      "Download tickets",
+      "Pack headphones",
+      "Check my ID",
+    ]);
+  });
+
+  test("Y: Quick Capture does not convert ordinary comma-separated task into checklist and persists as Task", async () => {
+    const input = "Buy apples, oranges, and bananas tomorrow at 3 PM";
+    const parsed = parseProductivityText(input);
+
+    expect(parsed.type).toBe("task");
+    expect(parsed.title).toBe("Buy apples, oranges, and bananas");
+    expect(parsed.items).toBeUndefined();
+    expect(parsed.time).toBe("15:00");
+
+    const saved = (await saveParsedItem(parsed, INBOX_WORKSPACE_ID)) as Task;
+    expect(saved.id.startsWith("task-")).toBe(true);
+    expect(saved.title).toBe("Buy apples, oranges, and bananas");
+    expect((saved as any).items).toBeUndefined();
+
+    const storedTasks = await TaskRepository.getTasks(INBOX_WORKSPACE_ID);
+    expect(storedTasks[saved.id]).toBeDefined();
+    expect(storedTasks[saved.id].title).toBe("Buy apples, oranges, and bananas");
+  });
 });
+
 
 
