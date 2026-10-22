@@ -42,6 +42,20 @@ jest.mock("@/services/command/EntityCommandService", () => ({
     createChecklist: jest.fn(async () => ({})),
     recycleChecklist: jest.fn(async () => {}),
     toggleChecklistItem: jest.fn(async () => ({})),
+    rescheduleChecklistRecurringOccurrence: jest.fn(async () => ({
+      masterChecklist: {},
+      occurrenceChecklist: {
+        id: "checklist-copy-1",
+        workspaceId: "inbox",
+        title: "Edited Occurrence Title",
+        items: [],
+        resourceIds: [],
+        recurrence: undefined,
+        schedule: { date: "2026-09-05" },
+        createdAt: 1755000000000,
+        updatedAt: 1755000000000,
+      },
+    })),
   },
 }));
 
@@ -720,28 +734,64 @@ describe("ChecklistDetailContent", () => {
       thisOccurrenceBtn.props.onPress();
     });
 
-    // Master should have exception added
-    expect(EntityCommandService.updateChecklist).toHaveBeenCalledWith(
+    // Master exception + detached copy are written by ONE atomic command and
+    // the state-change event is emitted (no skipEvents option is passed).
+    expect(
+      EntityCommandService.rescheduleChecklistRecurringOccurrence,
+    ).toHaveBeenCalledWith(
       "checklist-1",
       "inbox",
-      expect.objectContaining({
-        recurrenceExceptions: ["2026-09-05"],
-      }),
-      expect.anything(),
-    );
-
-    // Detached non-recurring copy should be created
-    expect(EntityCommandService.createChecklist).toHaveBeenCalledWith(
+      "2026-09-05",
+      { date: "2026-09-05" },
+      { source: "checklist_detail" },
       expect.objectContaining({
         title: "Edited Occurrence Title",
-        recurrence: undefined,
-        schedule: expect.objectContaining({
-          date: "2026-09-05",
-        }),
+        schedule: expect.objectContaining({ date: "2026-09-05" }),
       }),
-      "inbox",
-      expect.anything(),
     );
+
+    // The previous two-write path must not be used for occurrence detachment.
+    expect(EntityCommandService.updateChecklist).not.toHaveBeenCalled();
+    expect(EntityCommandService.createChecklist).not.toHaveBeenCalled();
+  });
+
+  it("P2: a failed occurrence detach leaves the master untouched and creates nothing", async () => {
+    (
+      EntityCommandService.rescheduleChecklistRecurringOccurrence as jest.Mock
+    ).mockRejectedValueOnce(new Error("persist failed"));
+
+    const recurringChecklist = {
+      ...baseChecklist,
+      recurrence: { frequency: "weekly", interval: 1, daysOfWeek: [6] },
+      schedule: { date: "2026-08-29" },
+    };
+
+    const { renderer } = await renderContent(recurringChecklist, {
+      occurrenceDate: "2026-09-05",
+    });
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Edit checklist").props.onPress();
+    });
+    const titleInput = renderer.root.findAllByType(TextInput)[0];
+    await act(async () => {
+      titleInput.props.onChangeText("Edited Occurrence Title");
+    });
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Save checklist").props.onPress();
+    });
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "This occurrence").props.onPress();
+    });
+
+    expect(EntityCommandService.updateChecklist).not.toHaveBeenCalled();
+    expect(EntityCommandService.createChecklist).not.toHaveBeenCalled();
+    // Still in edit mode: the user's work is not discarded on failure.
+    expect(
+      renderer.root.findAll(
+        (n: any) => n.props?.accessibilityLabel === "Save checklist",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   it("Q: Fix D - selecting 'All occurrences' in choice modal updates master checklist series", async () => {
@@ -841,6 +891,125 @@ describe("ChecklistDetailContent", () => {
       "item-1",
       "inbox",
       "2026-09-05",
+    );
+  });
+
+  const pressText = async (renderer: Renderer, text: string) => {
+    const nodes = renderer.root.findAll(
+      (node: any) => node.props?.children === text,
+    );
+    if (nodes.length === 0) throw new Error(`No node with text ${text}`);
+    let pressable: any = nodes[nodes.length - 1];
+    while (pressable && typeof pressable.props?.onPress !== "function") {
+      pressable = pressable.parent;
+    }
+    await act(async () => {
+      pressable.props.onPress();
+    });
+  };
+
+  it("T: a weekly rule stored without days saves the schedule anchor weekday", async () => {
+    (EntityCommandService.updateChecklist as jest.Mock).mockClear();
+
+    const weeklyEmptyDays = {
+      ...baseChecklist,
+      schedule: { date: "2026-08-29" }, // Saturday
+      recurrence: { frequency: "weekly", interval: 2, daysOfWeek: [] },
+    };
+
+    const { renderer } = await renderContent(weeklyEmptyDays);
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Edit checklist").props.onPress();
+    });
+
+    // A stored empty day set is not a phantom user edit: only the title change
+    // below marks the form dirty.
+    const titleInput = renderer.root.findAllByType(TextInput)[0];
+    await act(async () => {
+      titleInput.props.onChangeText("Weekly routine renamed");
+    });
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Save checklist").props.onPress();
+    });
+
+    expect(EntityCommandService.updateChecklist).toHaveBeenCalledWith(
+      "checklist-1",
+      "inbox",
+      expect.objectContaining({
+        recurrence: expect.objectContaining({
+          frequency: "weekly",
+          interval: 2,
+          daysOfWeek: [6],
+        }),
+      }),
+    );
+  });
+
+  it("U: selecting weekly in the editor persists a concrete anchor weekday", async () => {
+    (EntityCommandService.updateChecklist as jest.Mock).mockClear();
+
+    const dailyChecklist = {
+      ...baseChecklist,
+      schedule: { date: "2026-08-29" }, // Saturday
+      recurrence: { frequency: "daily", interval: 1 },
+    };
+
+    const { renderer } = await renderContent(dailyChecklist);
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Edit checklist").props.onPress();
+    });
+
+    await pressText(renderer, "weekly");
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Save checklist").props.onPress();
+    });
+
+    const recurrence = (EntityCommandService.updateChecklist as jest.Mock).mock
+      .calls[0][2].recurrence;
+    expect(recurrence.frequency).toBe("weekly");
+    expect(recurrence.daysOfWeek).toEqual([6]);
+  });
+
+  it("V: multiple weekdays with a multi-week interval survive an edit", async () => {
+    (EntityCommandService.updateChecklist as jest.Mock).mockClear();
+
+    const biweekly = {
+      ...baseChecklist,
+      schedule: { date: "2026-08-29" },
+      recurrence: {
+        frequency: "weekly",
+        interval: 2,
+        daysOfWeek: [2, 4],
+      },
+    };
+
+    const { renderer } = await renderContent(biweekly);
+
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Edit checklist").props.onPress();
+    });
+    const titleInput = renderer.root.findAllByType(TextInput)[0];
+    await act(async () => {
+      titleInput.props.onChangeText("Biweekly routine renamed");
+    });
+    await act(async () => {
+      findByAccessibilityLabel(renderer, "Save checklist").props.onPress();
+    });
+
+    expect(EntityCommandService.updateChecklist).toHaveBeenCalledWith(
+      "checklist-1",
+      "inbox",
+      expect.objectContaining({
+        recurrence: expect.objectContaining({
+          frequency: "weekly",
+          interval: 2,
+          daysOfWeek: [2, 4],
+        }),
+      }),
     );
   });
 });

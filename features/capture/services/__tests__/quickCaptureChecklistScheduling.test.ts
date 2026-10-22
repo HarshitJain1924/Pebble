@@ -57,7 +57,7 @@ function CalendarTestHarness({ onHook }: { onHook: (hook: any) => void }) {
   return null;
 }
 
-describe("Quick Capture → Checklist Scheduling Regression Suite (A-L)", () => {
+describe("Quick Capture → Checklist Scheduling Regression Suite (A-W)", () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
     jest.clearAllMocks();
@@ -760,6 +760,76 @@ describe("Quick Capture → Checklist Scheduling Regression Suite (A-L)", () => 
     const saved = await saveParsedItem(emptyChecklist, INBOX_WORKSPACE_ID);
     expect(saved.id).toBeDefined();
     expect((saved as Checklist).items).toEqual([]);
+  });
+
+  test("W: Multi-week weekday selection survives entity construction and persistence", async () => {
+    const parsed = parseProductivityText(
+      "Checklist every 2 weeks on Tuesdays and Thursdays\n- Item 1\n- Item 2",
+    );
+    expect(parsed.type).toBe("checklist");
+    expect(parsed.title).toBe("Checklist");
+    expect(parsed.recurrence).toEqual({
+      type: "weekly",
+      interval: 2,
+      days: [2, 4],
+    });
+    expect(parsed.items).toEqual(["Item 1", "Item 2"]);
+
+    // Entity construction maps parser recurrence → canonical RecurrenceRule.
+    const entity = buildChecklist(parsed, INBOX_WORKSPACE_ID);
+    expect(entity.recurrence).toEqual(
+      expect.objectContaining({
+        frequency: "weekly",
+        interval: 2,
+        daysOfWeek: [2, 4],
+      }),
+    );
+
+    // Persistence keeps the same days and a clean title.
+    const saved = (await saveParsedItem(parsed, INBOX_WORKSPACE_ID)) as Checklist;
+    expect(saved.title).toBe("Checklist");
+    expect(saved.recurrence).toEqual(
+      expect.objectContaining({
+        frequency: "weekly",
+        interval: 2,
+        daysOfWeek: [2, 4],
+      }),
+    );
+    expect(saved.items.map((i) => i.title)).toEqual(["Item 1", "Item 2"]);
+
+    // A one-week interval with explicit weekdays persists as interval 1.
+    const weekly = parseProductivityText(
+      "Checklist every week on Tuesdays and Thursdays",
+    );
+    expect(weekly.recurrence?.days).toEqual([2, 4]);
+    const savedWeekly = (await saveParsedItem(
+      weekly,
+      INBOX_WORKSPACE_ID,
+    )) as Checklist;
+    expect(savedWeekly.recurrence).toEqual(
+      expect.objectContaining({
+        frequency: "weekly",
+        interval: 1,
+        daysOfWeek: [2, 4],
+      }),
+    );
+
+    // A single weekday with a multi-week interval keeps both the day and interval.
+    const single = parseProductivityText(
+      "Checklist every 3 weeks on Tuesdays",
+    );
+    expect(single.recurrence?.days).toEqual([2]);
+    const savedSingle = (await saveParsedItem(
+      single,
+      INBOX_WORKSPACE_ID,
+    )) as Checklist;
+    expect(savedSingle.recurrence).toEqual(
+      expect.objectContaining({
+        frequency: "weekly",
+        interval: 3,
+        daysOfWeek: [2],
+      }),
+    );
   });
 });
 

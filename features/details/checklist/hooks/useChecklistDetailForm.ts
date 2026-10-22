@@ -79,6 +79,46 @@ export function computeTriggerEpoch(
 }
 
 /**
+ * Weekday a weekly series anchors to when the user has not picked explicit
+ * days: the schedule date's weekday, else today's.
+ *
+ * This mirrors the canonical recurrence convention in
+ * `isRecurringOccurrenceForDate` (`daysOfWeek` absent → start-date weekday), so
+ * the editor default and the recurrence engine agree.
+ */
+export function defaultWeeklyDay(scheduleDate?: string): number {
+  if (scheduleDate && scheduleDate !== "inbox") {
+    const [y, m, d] = scheduleDate.split("-").map(Number);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      return new Date(y, m - 1, d).getDay();
+    }
+  }
+  return new Date().getDay();
+}
+
+/**
+ * Resolve the weekday set a weekly rule will actually repeat on.
+ *
+ * A weekly rule with an empty `daysOfWeek` array matches no date at all in the
+ * occurrence engine (an empty array is truthy, so the canonical start-weekday
+ * fallback never applies). The editor therefore always persists a concrete,
+ * non-empty set, derived from the same start-weekday convention.
+ */
+export function effectiveWeeklyDays(
+  days: number[] | undefined,
+  scheduleDate?: string,
+): number[] {
+  const cleaned = Array.from(
+    new Set(
+      (days || []).filter(
+        (d) => Number.isInteger(d) && d >= 0 && d <= 6,
+      ),
+    ),
+  ).sort((a, b) => a - b);
+  return cleaned.length > 0 ? cleaned : [defaultWeeklyDay(scheduleDate)];
+}
+
+/**
  * Owns the Checklist Detail edit-form state group (title, description,
  * workspace, items, linked resources, add-item draft, schedule, reminder, recurrence)
  * plus the derived item interactions.
@@ -127,6 +167,12 @@ export function useChecklistDetailForm() {
       recurrenceDayOfMonth = rec.dayOfMonth || 1;
       recurrenceEndDate = rec.endDate;
       recurrenceOccurrences = rec.occurrences;
+    }
+
+    // Surface the anchor weekday for a weekly rule that was stored without an
+    // explicit day set, so the editor shows what the series actually repeats on.
+    if (recurrenceType === "weekly" && recurrenceDays.length === 0) {
+      recurrenceDays = [defaultWeeklyDay(scheduleDate)];
     }
 
     setForm({
@@ -229,6 +275,20 @@ export function useChecklistDetailForm() {
     });
   }, []);
 
+  /**
+   * Select a recurrence type. Choosing "weekly" seeds a visible anchor day so
+   * the editor never presents (or saves) an empty weekday set.
+   */
+  const selectRecurrenceType = useCallback((type: string) => {
+    setForm((current) => ({
+      ...current,
+      recurrenceType: type,
+      ...(type === "weekly" && current.recurrenceDays.length === 0
+        ? { recurrenceDays: [defaultWeeklyDay(current.scheduleDate)] }
+        : {}),
+    }));
+  }, []);
+
   return {
     form,
     update,
@@ -241,5 +301,6 @@ export function useChecklistDetailForm() {
     moveItemDown,
     toggleResource,
     toggleDay,
+    selectRecurrenceType,
   };
 }

@@ -303,4 +303,122 @@ describe("nlpParser service unit tests", () => {
       expect(cleanResult.time).toBe("17:00");
     });
   });
+
+  describe("Multi-week recurrence weekday selection", () => {
+    // Pin the clock so the documented capture-day fallback is deterministic and
+    // the suite never depends on the weekday it happens to run on.
+    const PINNED_NOW = new Date("2026-10-23T12:00:00"); // Friday (getDay() === 5)
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(PINNED_NOW);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("keeps both explicit weekdays after a multi-week interval and strips the instruction from the title", () => {
+      const result = parseProductivityText(
+        "Checklist every 2 weeks on Tuesdays and Thursdays",
+      );
+
+      expect(result.type).toBe("checklist");
+      expect(result.recurrence).toEqual({
+        type: "weekly",
+        interval: 2,
+        days: [2, 4],
+      });
+      expect(result.title).toBe("Checklist");
+    });
+
+    it("supports multiple weekdays with a one-week interval", () => {
+      const result = parseProductivityText(
+        "Checklist every week on Tuesday and Thursday",
+      );
+
+      expect(result.type).toBe("checklist");
+      expect(result.recurrence).toEqual({
+        type: "weekly",
+        days: [2, 4],
+      });
+      expect(result.title).toBe("Checklist");
+    });
+
+    it("supports a single weekday with a multi-week interval", () => {
+      const result = parseProductivityText("Checklist every 2 weeks on Tuesdays");
+
+      expect(result.recurrence).toEqual({
+        type: "weekly",
+        interval: 2,
+        days: [2],
+      });
+      expect(result.title).toBe("Checklist");
+    });
+
+    it("resolves plural and abbreviated weekday spellings", () => {
+      expect(
+        parseProductivityText("Checklist every 2 weeks on Tues and Thurs")
+          .recurrence?.days,
+      ).toEqual([2, 4]);
+      expect(
+        parseProductivityText("Checklist every 2 weeks on Mondays and Fridays")
+          .recurrence?.days,
+      ).toEqual([1, 5]);
+    });
+
+    it("keeps the capture-day default when no weekday instruction is given", () => {
+      // Pinned to Friday: existing intended behavior anchors the series to the
+      // day the item was captured.
+      expect(
+        parseProductivityText("Checklist every 2 weeks").recurrence,
+      ).toEqual({ type: "weekly", interval: 2, days: [5] });
+      expect(
+        parseProductivityText("Checklist every week").recurrence,
+      ).toEqual({ type: "weekly", days: [5] });
+    });
+
+    it("does not change ordinary task parsing", () => {
+      const task = parseProductivityText("Call John tomorrow at 7");
+      expect(task.type).toBe("task");
+      expect(task.recurrence).toBeUndefined();
+      expect(task.title).toBe("Call John");
+      expect(task.time).toBe("07:00");
+    });
+
+    it("preserves habit semantics for recurring routines", () => {
+      const habit = parseProductivityText(
+        "Exercise every 2 weeks on Tuesdays and Thursdays",
+      );
+      expect(habit.type).toBe("habit");
+      expect(habit.recurrence).toEqual({
+        type: "weekly",
+        interval: 2,
+        days: [2, 4],
+      });
+      expect(habit.title).toBe("Exercise");
+
+      // Existing single-weekday recurrence remains unchanged.
+      const sunday = parseProductivityText("Buy milk every Sunday at 4pm");
+      expect(sunday.type).toBe("habit");
+      expect(sunday.recurrence?.days).toEqual([0]);
+      expect(sunday.time).toBe("16:00");
+    });
+
+    it("does not confuse a monthly day-of-month with a weekday list", () => {
+      const monthly = parseProductivityText(
+        "Submit project report every month on the 15th",
+      );
+      expect(monthly.recurrence).toEqual({
+        type: "monthly",
+        dayOfMonth: 15,
+      });
+    });
+
+    it("does not create weekly recurrence for a title that merely mentions a weekday", () => {
+      const plain = parseProductivityText("Weekly review");
+      expect(plain.recurrence).toBeUndefined();
+      expect(plain.title).toBe("Weekly review");
+    });
+  });
 });

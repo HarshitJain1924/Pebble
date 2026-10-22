@@ -1088,5 +1088,55 @@ describe("Quick Capture text-input concurrency, multiline & integrity suite", ()
       expect(saved).toBeDefined();
       expect((saved as any).attachments?.[0]?.name).toBe("Family photo");
     });
+
+    it("25. An explicitly cleared due date is not restored by later parsing and is not saved", async () => {
+      const renderer = await renderCapture();
+      const getTextInput = () => renderer.root.findByType(TextInput);
+      const countText = (text: string) =>
+        renderer.root.findAll((n: any) => n.props?.children === text).length;
+
+      act(() => {
+        getTextInput().props.onChangeText("Buy milk tomorrow");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+      await act(async () => {});
+
+      // The parsed due date is surfaced as an editable "Tomorrow" chip.
+      expect(countText("Tomorrow")).toBeGreaterThan(0);
+
+      // Clear it from the date picker.
+      await pressLabel(renderer, "Tomorrow");
+      await pressLabel(renderer, "No due date");
+      expect(countText("Tomorrow")).toBe(0);
+
+      // Editing the text triggers a fresh parse — the cleared date must stay cleared.
+      act(() => {
+        getTextInput().props.onChangeText("Buy milk tomorrow and eggs");
+      });
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+      await act(async () => {});
+      expect(countText("Tomorrow")).toBe(0);
+
+      // Saving must use the cleared value, not the parser's stale date.
+      await pressLabel(renderer, "Add");
+      await act(async () => {});
+
+      const tasks = await TaskRepository.getTasks("ws-work");
+      const saved = Object.values(tasks).find(
+        (t: any) => t.title === "Buy milk and eggs",
+      );
+      expect(saved).toBeDefined();
+      expect((saved as any).schedule?.date).toBe("inbox");
+    });
   });
 });

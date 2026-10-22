@@ -144,11 +144,13 @@ describe("UnifiedCapture metadata chip integration invariants", () => {
   });
 
   it("18. preserves user overrides when NLP reparses the capture text", () => {
-    expect(source).toContain("const userOverridesRef = useRef");
-    expect(source).toContain("if (userOverridesRef.current.type)");
-    expect(source).toContain("if (userOverridesRef.current.priority)");
-    expect(source).toContain("if (userOverridesRef.current.category)");
-    expect(source).toContain("if (userOverridesRef.current.recurrence !== undefined)");
+    // Every parse goes through the shared tri-state override model, so a
+    // cleared value cannot be distinguished from "never set" by accident.
+    // The behavioural contract is covered by
+    // features/capture/utils/__tests__/capture-overrides.test.ts and
+    // quickCaptureInput test 25 (clear → re-parse → save).
+    expect(source).toContain("const userOverridesRef = useRef<CaptureOverrides>");
+    expect(source).toContain("applyCaptureOverrides(");
   });
 
   it("19. type picker exposes only user-facing capture intents (no Link/File)", () => {

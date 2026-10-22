@@ -77,6 +77,10 @@ import {
 import { INBOX_WORKSPACE_ID, type Attachment } from "@/shared/types/domain.types";
 import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 import { saveParsedItem, mergeParsedChecklist, type SavedEntity } from "@/features/capture/services/CaptureService";
+import {
+  applyCaptureOverrides,
+  type CaptureOverrides,
+} from "@/features/capture/utils/capture-overrides";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { MetadataChipPicker, type ChipPickerOption } from "./MetadataChipPicker";
@@ -432,15 +436,9 @@ export default function UnifiedCapture({
   const [parsedItem, setParsedItem] = useState<ParsedProductivityItem | null>(null);
   const [duplicateResult, setDuplicateResult] = useState<DuplicateAnalysisResult | null>(null);
   const duplicateResultRef = useRef<DuplicateAnalysisResult | null>(null);
-  const userOverridesRef = useRef<{
-    type?: ParsedProductivityItem["type"];
-    priority?: ParsedProductivityItem["priority"];
-    date?: string;
-    time?: string;
-    category?: ParsedProductivityItem["category"];
-    recurrence?: ParsedProductivityItem["recurrence"];
-    reminderOffsetMinutes?: number;
-  }>({});
+  // Tri-state overrides: absent = parser decides, { value } = user value,
+  // { value: undefined } = explicitly cleared for this capture session.
+  const userOverridesRef = useRef<CaptureOverrides>({});
   // Guards stale async parse/duplicate/workspace results from overwriting newer input.
   const parseVersionRef = useRef(0);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(defaultWorkspaceId);
@@ -558,35 +556,11 @@ export default function UnifiedCapture({
   // Apply explicit user overrides (and entry-context defaults) to a freshly parsed item.
   // Shared by the idle parse path, the save catch-up path, and attachment removal.
   const applyUserOverrides = useCallback(
-    (parsed: ParsedProductivityItem): ParsedProductivityItem => {
-      if (userOverridesRef.current.type) {
-        parsed.type = userOverridesRef.current.type;
-      } else if (defaultType && parsed.type === "task" && parsed.detectionSignal === "default_task") {
-        parsed.type = defaultType;
-      }
-      if (userOverridesRef.current.date !== undefined) {
-        parsed.date = userOverridesRef.current.date;
-      } else if (defaultDate && (parsed.type === "task" || parsed.type === "checklist") && !parsed.date) {
-        parsed.date = defaultDate;
-      }
-      if (userOverridesRef.current.priority) {
-        parsed.priority = userOverridesRef.current.priority;
-        parsed.priorityDetected = true;
-      }
-      if (userOverridesRef.current.time !== undefined) {
-        parsed.time = userOverridesRef.current.time;
-      }
-      if (userOverridesRef.current.reminderOffsetMinutes !== undefined) {
-        parsed.reminderOffsetMinutes = userOverridesRef.current.reminderOffsetMinutes;
-      }
-      if (userOverridesRef.current.category) {
-        parsed.category = userOverridesRef.current.category;
-      }
-      if (userOverridesRef.current.recurrence !== undefined) {
-        parsed.recurrence = userOverridesRef.current.recurrence;
-      }
-      return parsed;
-    },
+    (parsed: ParsedProductivityItem): ParsedProductivityItem =>
+      applyCaptureOverrides(parsed, userOverridesRef.current, {
+        type: defaultType,
+        date: defaultDate,
+      }),
     [defaultType, defaultDate],
   );
 
@@ -685,7 +659,7 @@ export default function UnifiedCapture({
   // ─── Handlers ───────────────────────────────────────────────────────────
 
   const handleTypeChange = useCallback((newType: ParsedProductivityItem["type"]) => {
-    userOverridesRef.current.type = newType;
+    userOverridesRef.current = { ...userOverridesRef.current, type: newType };
     const liveText = inputRef.current?.getValue().trim();
     if (liveText) {
       setParsedItem(applyUserOverrides(parseProductivityText(liveText, { explicitType: newType })));
@@ -695,32 +669,32 @@ export default function UnifiedCapture({
   }, [applyUserOverrides]);
 
   const handlePriorityChange = useCallback((newPriority: ParsedProductivityItem["priority"] | undefined) => {
-    userOverridesRef.current.priority = newPriority;
+    userOverridesRef.current = { ...userOverridesRef.current, priority: { value: newPriority } };
     setParsedItem((prev) => (prev ? { ...prev, priority: newPriority, priorityDetected: !!newPriority } : null));
   }, []);
 
   const handleDateChange = useCallback((newDate: string | undefined) => {
-    userOverridesRef.current.date = newDate;
+    userOverridesRef.current = { ...userOverridesRef.current, date: { value: newDate } };
     setParsedItem((prev) => (prev ? { ...prev, date: newDate } : null));
   }, []);
 
   const handleTimeChange = useCallback((newTime: string | undefined) => {
-    userOverridesRef.current.time = newTime;
+    userOverridesRef.current = { ...userOverridesRef.current, time: { value: newTime } };
     setParsedItem((prev) => (prev ? { ...prev, time: newTime } : null));
   }, []);
 
   const handleReminderChange = useCallback((offset: number | undefined) => {
-    userOverridesRef.current.reminderOffsetMinutes = offset;
+    userOverridesRef.current = { ...userOverridesRef.current, reminderOffsetMinutes: { value: offset } };
     setParsedItem((prev) => (prev ? { ...prev, reminderOffsetMinutes: offset } : null));
   }, []);
 
   const handleCategoryChange = useCallback((newCategory: ParsedProductivityItem["category"]) => {
-    userOverridesRef.current.category = newCategory;
+    userOverridesRef.current = { ...userOverridesRef.current, category: { value: newCategory } };
     setParsedItem((prev) => (prev ? { ...prev, category: newCategory } : null));
   }, []);
 
   const handleRecurrenceChange = useCallback((newRecurrence: ParsedProductivityItem["recurrence"]) => {
-    userOverridesRef.current.recurrence = newRecurrence;
+    userOverridesRef.current = { ...userOverridesRef.current, recurrence: { value: newRecurrence } };
     setParsedItem((prev) => (prev ? { ...prev, recurrence: newRecurrence } : null));
   }, []);
 

@@ -23,6 +23,8 @@ export interface ChecklistDetailFormProps {
   form: ChecklistFormState;
   update: (patch: Partial<ChecklistFormState>) => void;
   toggleDay?: (idx: number) => void;
+  /** Selects a recurrence type; weekly seeds a visible anchor weekday. */
+  selectRecurrenceType?: (type: string) => void;
   addItem: () => void;
   setNewItemText: (text: string) => void;
   deleteItem: (id: string) => void;
@@ -53,6 +55,7 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
   form,
   update,
   toggleDay,
+  selectRecurrenceType,
   addItem,
   setNewItemText,
   deleteItem,
@@ -708,7 +711,11 @@ export const ChecklistDetailForm: React.FC<ChecklistDetailFormProps> = ({
                     borderWidth: 1,
                   },
                 ]}
-                onPress={() => update({ recurrenceType: r })}
+                onPress={() =>
+                  selectRecurrenceType
+                    ? selectRecurrenceType(r)
+                    : update({ recurrenceType: r })
+                }
               >
                 <Text
                   style={{

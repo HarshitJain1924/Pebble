@@ -1,7 +1,10 @@
 import { WorkspaceCommandHandler } from "./handlers/WorkspaceCommandHandler";
 import { TaskCommandHandler } from "./handlers/TaskCommandHandler";
 import { HabitCommandHandler } from "./handlers/HabitCommandHandler";
-import { ChecklistCommandHandler } from "./handlers/ChecklistCommandHandler";
+import {
+  ChecklistCommandHandler,
+  type ChecklistOccurrenceOverrides,
+} from "./handlers/ChecklistCommandHandler";
 import { ResourceCommandHandler } from "./handlers/ResourceCommandHandler";
 import { SystemCommandHandler } from "./handlers/SystemCommandHandler";
 import { ConversionCommandHandler } from "./handlers/ConversionCommandHandler";
@@ -100,7 +103,9 @@ export class EntityCommandService {
   }
 
   /**
-   * Atomically reschedules a single occurrence of a recurring Checklist.
+   * Atomically reschedules a single occurrence of a recurring Checklist,
+   * optionally applying content edits to the detached occurrence in the same
+   * write that records the master's recurrence exception.
    */
   static async rescheduleChecklistRecurringOccurrence(
     masterChecklistId: string,
@@ -108,6 +113,7 @@ export class EntityCommandService {
     occurrenceDate: string,
     dropTarget: { hour?: number | null; minute?: number | null; date?: string | null; durationMinutes?: number | null },
     options?: CreateEntityOptions,
+    occurrenceOverrides?: ChecklistOccurrenceOverrides,
   ): Promise<{ masterChecklist: Checklist; occurrenceChecklist: Checklist }> {
     return ChecklistCommandHandler.rescheduleRecurringOccurrence(
       masterChecklistId,
@@ -115,6 +121,7 @@ export class EntityCommandService {
       occurrenceDate,
       dropTarget,
       options,
+      occurrenceOverrides,
     );
   }
 

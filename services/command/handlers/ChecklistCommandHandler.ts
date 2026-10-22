@@ -32,6 +32,24 @@ import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetail
 
 import { CreateEntityOptions, isParsedProductivityItem } from "../types/command.types";
 
+/**
+ * Content edits applied to the detached occurrence checklist.
+ *
+ * Deliberately excludes identity/lifecycle fields (`id`, `workspaceId`,
+ * `recurrence`, `recurrenceExceptions`, `occurrenceHistory`, revisions): the
+ * command owns those so a detached occurrence can never re-enter the series or
+ * carry the master's runtime state.
+ */
+export interface ChecklistOccurrenceOverrides {
+  title?: string;
+  description?: string;
+  priority?: Checklist["priority"];
+  items?: Checklist["items"];
+  resourceIds?: string[];
+  schedule?: Checklist["schedule"];
+  reminder?: Checklist["reminder"];
+}
+
 export class ChecklistCommandHandler {
 static async moveChecklist(
     checklistId: string,
@@ -1037,6 +1055,7 @@ static async moveChecklist(
     occurrenceDate: string,
     dropTarget: { hour?: number | null; minute?: number | null; date?: string | null; durationMinutes?: number | null },
     options?: CreateEntityOptions,
+    occurrenceOverrides?: ChecklistOccurrenceOverrides,
   ): Promise<{ masterChecklist: Checklist; occurrenceChecklist: Checklist }> {
     const { withLock } = await import("@/shared/utils/mutex");
     const { generateId } = await import("@/shared/utils/id");
@@ -1118,7 +1137,7 @@ static async moveChecklist(
         }
       }
 
-      const newCopy: Checklist = {
+      const baseCopy: Checklist = {
         ...master,
         id: newChecklistId,
         workspaceId,
@@ -1143,6 +1162,20 @@ static async moveChecklist(
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
+
+      // 3b. Apply occurrence content edits inside the same locked write. Runtime
+      // notification IDs are never accepted from the caller: they are owned by
+      // the scheduler and regenerated below for the new copy.
+      let newCopy: Checklist = baseCopy;
+      if (occurrenceOverrides) {
+        const overrides: ChecklistOccurrenceOverrides = { ...occurrenceOverrides };
+        if ("reminder" in overrides) {
+          overrides.reminder = overrides.reminder
+            ? { ...overrides.reminder, notificationIds: undefined }
+            : undefined;
+        }
+        newCopy = { ...baseCopy, ...overrides };
+      }
 
       // 4. Atomic Domain Persistence: write BOTH master and copy in a SINGLE partition write
       await ChecklistRepository.saveChecklistsUnlocked(

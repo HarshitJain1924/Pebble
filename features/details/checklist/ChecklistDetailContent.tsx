@@ -64,6 +64,7 @@ import {
 import {
   useChecklistDetailForm,
   computeTriggerEpoch,
+  effectiveWeeklyDays,
 } from "@/features/details/checklist/hooks/useChecklistDetailForm";
 import { ChecklistDetailForm } from "@/features/details/checklist/components/ChecklistDetailForm";
 
@@ -115,6 +116,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     moveItemDown,
     toggleResource,
     toggleDay,
+    selectRecurrenceType,
   } = useChecklistDetailForm();
 
   const linkedResources = useMemo(() => {
@@ -282,12 +284,17 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         if (form.intervalVal !== (rec.interval || 1)) return true;
       }
       if (form.recurrenceType === "weekly") {
-        const sortedRecDaysCurrent = [...form.recurrenceDays].sort();
-        const sortedRecDaysItem = [...(rec.daysOfWeek || [])].sort();
-        if (
-          JSON.stringify(sortedRecDaysCurrent) !==
-          JSON.stringify(sortedRecDaysItem)
-        )
+        // Compare the effective weekday sets: a stored empty set means "anchor
+        // to the start weekday", which is exactly what the editor seeds.
+        const currentDays = effectiveWeeklyDays(
+          form.recurrenceDays,
+          form.scheduleDate,
+        );
+        const itemDays = effectiveWeeklyDays(
+          rec.daysOfWeek,
+          item.schedule?.date,
+        );
+        if (JSON.stringify(currentDays) !== JSON.stringify(itemDays))
           return true;
       }
       if (form.recurrenceType === "monthly") {
@@ -460,8 +467,12 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
           ...(form.recurrenceType === "custom" && form.recurrenceUnit
             ? { unit: form.recurrenceUnit }
             : {}),
+          // A weekly rule always persists at least one weekday: an empty
+          // `daysOfWeek` array would match no date in the occurrence engine.
           daysOfWeek:
-            form.recurrenceType === "weekly" ? form.recurrenceDays : undefined,
+            form.recurrenceType === "weekly"
+              ? effectiveWeeklyDays(form.recurrenceDays, form.scheduleDate)
+              : undefined,
           dayOfMonth:
             form.recurrenceType === "monthly"
               ? form.recurrenceDayOfMonth
@@ -483,53 +494,51 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       let savedItemForRefresh: Checklist | null = null;
 
       if (thisOccurrenceOnly && occurrenceDate) {
-        // Occurrence-only detachment
+        // Occurrence-only detachment: the master's recurrence exception and the
+        // detached copy are written in a single atomic partition write by the
+        // command handler, so an occurrence can never be suppressed without a
+        // valid replacement. The handler also emits `checklists_changed`.
         const targetOccurrenceDate =
           form.scheduleDate && form.scheduleDate !== (item.schedule?.date || "inbox")
             ? form.scheduleDate
             : occurrenceDate;
-        const newChecklistId = generateId("checklist-");
 
-        const newCopy: Checklist = {
-          ...item,
-          id: newChecklistId,
-          title: form.title.trim(),
-          description: form.description.trim() || undefined,
-          priority: form.priority || item.priority || "none",
+        const { occurrenceChecklist } =
+          await EntityCommandService.rescheduleChecklistRecurringOccurrence(
+            item.id,
+            oldFolderId,
+            occurrenceDate,
+            { date: targetOccurrenceDate },
+            { source: "checklist_detail" },
+            {
+              title: form.title.trim(),
+              description: form.description.trim() || undefined,
+              priority: form.priority || item.priority || "none",
+              items: form.items,
+              resourceIds: form.linkedCollectionIds,
+              schedule: {
+                ...(scheduleObj || { allDay: true }),
+                date: targetOccurrenceDate,
+              },
+              reminder: reminderObj,
+            },
+          );
+
+        // A single occurrence cannot change workspace inside the atomic
+        // partition write. The copy is created in the master's workspace and
+        // then moved through the journaled move command.
+        if (form.workspaceId !== oldFolderId) {
+          await EntityCommandService.moveChecklist(
+            occurrenceChecklist.id,
+            oldFolderId,
+            form.workspaceId,
+          );
+        }
+
+        savedItemForRefresh = {
+          ...occurrenceChecklist,
           workspaceId: form.workspaceId,
-          recurrence: undefined,
-          recurrenceExceptions: undefined,
-          occurrenceHistory: undefined,
-          items: form.items,
-          resourceIds: form.linkedCollectionIds,
-          schedule: {
-            ...(scheduleObj || { allDay: true }),
-            date: targetOccurrenceDate,
-          },
-          reminder: reminderObj,
-          updatedAt: Date.now(),
-          createdAt: Date.now(),
         };
-
-        const existingExceptions = item.recurrenceExceptions || [];
-        const updatedExceptions = existingExceptions.includes(targetOccurrenceDate)
-          ? existingExceptions
-          : [...existingExceptions, targetOccurrenceDate];
-
-        await EntityCommandService.updateChecklist(
-          item.id,
-          oldFolderId,
-          { recurrenceExceptions: updatedExceptions },
-          { skipEvents: true, skipAnalytics: true },
-        );
-
-        await EntityCommandService.createChecklist(
-          newCopy,
-          form.workspaceId,
-          { skipEvents: true, skipAnalytics: true },
-        );
-
-        savedItemForRefresh = newCopy;
       } else {
         await EntityCommandService.updateChecklist(item.id, oldFolderId, {
           title: form.title.trim(),
@@ -1020,6 +1029,7 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
             form={form}
             update={update}
             toggleDay={toggleDay}
+            selectRecurrenceType={selectRecurrenceType}
             addItem={addItem}
             setNewItemText={setNewItemText}
             deleteItem={deleteItem}

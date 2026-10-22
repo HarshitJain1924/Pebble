@@ -147,6 +147,60 @@ const weekdayMap: Record<string, number> = {
   saturday: 6, sat: 6
 };
 
+// Weekday names/abbreviations, in the forms people actually type in a
+// recurrence instruction ("Tuesdays", "Tues", "Thurs").
+const WEEKDAY_TOKEN_PATTERN =
+  "(?:sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday)s?";
+const WEEKDAY_LIST_PATTERN = `${WEEKDAY_TOKEN_PATTERN}(?:\\s*(?:,|&|\\band\\b)\\s*${WEEKDAY_TOKEN_PATTERN})*`;
+
+/**
+ * Resolve one weekday token (singular, plural or abbreviation) to its 0–6 index.
+ * Returns undefined for words that are not weekday names.
+ */
+function resolveWeekdayToken(token: string): number | undefined {
+  const clean = token.toLowerCase().replace(/[^a-z]/g, "");
+  if (!clean) return undefined;
+  if (weekdayMap[clean] !== undefined) return weekdayMap[clean];
+
+  const stem = clean.endsWith("s") ? clean.slice(0, -1) : clean;
+  if (stem !== clean && weekdayMap[stem] !== undefined) return weekdayMap[stem];
+
+  // Abbreviations that are not canonical keys ("tues", "thurs", "weds").
+  if (stem.length >= 3) {
+    for (const [name, index] of Object.entries(weekdayMap)) {
+      if (name.length > stem.length && name.startsWith(stem)) return index;
+    }
+  }
+  return undefined;
+}
+
+/** Collect weekday indices from an already-captured weekday phrase. */
+function extractWeekdayDays(text: string): number[] {
+  const days: number[] = [];
+  text.split(/[\s,&]+/).forEach((token) => {
+    const resolved = resolveWeekdayToken(token);
+    if (resolved !== undefined) days.push(resolved);
+  });
+  return Array.from(new Set(days)).sort((a, b) => a - b);
+}
+
+/**
+ * Find an "on <weekday list>" recurrence instruction anywhere in the text.
+ *
+ * Returns the matched phrase including the "on" connector so title cleanup can
+ * remove the whole instruction. The pattern only consumes weekday words and
+ * their separators, so surrounding text (title, time) is never swallowed.
+ */
+function findWeekdaySelection(
+  text: string,
+): { days: number[]; phrase: string } | undefined {
+  const match = text.match(new RegExp(`\\bon\\s+(${WEEKDAY_LIST_PATTERN})\\b`, "i"));
+  if (!match) return undefined;
+  const days = extractWeekdayDays(match[1]);
+  if (days.length === 0) return undefined;
+  return { days, phrase: match[0] };
+}
+
 // Helper to format time as HH:MM
 const formatTime = (date: Date): string => {
   const h = String(date.getHours()).padStart(2, "0");
@@ -380,21 +434,17 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
         temporalTextWorking = temporalTextWorking.replace(match[0], "");
         isIntervalWeeksMatched = true;
 
-        const onDaysMatch = temporalTextWorking.match(/^\s*on\s+([a-z\s,and&]+)\b/i);
-        if (onDaysMatch) {
-          const words = onDaysMatch[1].toLowerCase().split(/[\s,]+/);
-          const matchedDays: number[] = [];
-          words.forEach(w => {
-            const cleanWord = w.replace(/[^\w]/g, "");
-            if (weekdayMap[cleanWord] !== undefined) {
-              matchedDays.push(weekdayMap[cleanWord]);
-            }
-          });
-          if (matchedDays.length > 0) {
-            repeatDays = Array.from(new Set(matchedDays)).sort((a, b) => a - b);
-            matchedTemporalPhrases.push(onDaysMatch[0]);
-            temporalTextWorking = temporalTextWorking.replace(onDaysMatch[0], "");
-          }
+        // Weekday selection may follow the interval ("… on Tuesdays and
+        // Thursdays") anywhere in the sentence — the title normally precedes
+        // it, so this must not be anchored to the start of the text.
+        const weekdaySelection = findWeekdaySelection(temporalTextWorking);
+        if (weekdaySelection) {
+          repeatDays = weekdaySelection.days;
+          matchedTemporalPhrases.push(weekdaySelection.phrase);
+          temporalTextWorking = temporalTextWorking.replace(
+            weekdaySelection.phrase,
+            "",
+          );
         }
       }
     }
@@ -403,17 +453,10 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
     if (!isIntervalWeeksMatched) {
       const weeklyMatch = temporalTextWorking.match(/\bevery\s+([a-z\s,and&]+)\b/i);
       if (weeklyMatch) {
-        const words = weeklyMatch[1].toLowerCase().split(/[\s,]+/);
-        const matchedDays: number[] = [];
-        words.forEach(w => {
-          const cleanWord = w.replace(/[^\w]/g, "");
-          if (weekdayMap[cleanWord] !== undefined) {
-            matchedDays.push(weekdayMap[cleanWord]);
-          }
-        });
+        const matchedDays = extractWeekdayDays(weeklyMatch[1]);
         if (matchedDays.length > 0) {
           repeatType = "weekly";
-          repeatDays = Array.from(new Set(matchedDays)).sort((a, b) => a - b);
+          repeatDays = matchedDays;
           matchedTemporalPhrases.push(weeklyMatch[0]);
           temporalTextWorking = temporalTextWorking.replace(weeklyMatch[0], "");
           isWeeklyMatched = true;
@@ -428,6 +471,16 @@ export function extractProductivitySignals(text: string): ProductivitySignals {
         repeatDays = [new Date().getDay()];
         matchedTemporalPhrases.push(everyWeekMatch[0]);
         temporalTextWorking = temporalTextWorking.replace(everyWeekMatch[0], "");
+
+        const weekdaySelection = findWeekdaySelection(temporalTextWorking);
+        if (weekdaySelection) {
+          repeatDays = weekdaySelection.days;
+          matchedTemporalPhrases.push(weekdaySelection.phrase);
+          temporalTextWorking = temporalTextWorking.replace(
+            weekdaySelection.phrase,
+            "",
+          );
+        }
       } else {
         const adverbialWeekly = temporalTextWorking.match(/\bweekly(?:\s+(?:at|from|before|after|in|around|on)\b|[\s,.]*$)/i);
         if (adverbialWeekly && !/\b(?:called|named)\s+["']?weekly/i.test(temporalTextWorking)) {
