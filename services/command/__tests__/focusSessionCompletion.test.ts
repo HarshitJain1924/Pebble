@@ -5,6 +5,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 );
 
 import { GraphRepository } from "@/repositories/GraphRepository";
+import { RewardIntentRepository } from "@/repositories/RewardIntentRepository";
 import { FocusStatsRepository } from "@/repositories/FocusStatsRepository";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import {
@@ -19,6 +20,20 @@ const END = START + DURATION * 1000;
 async function readPebbleLog(): Promise<any[]> {
   const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
   return raw ? JSON.parse(raw) : [];
+}
+
+/**
+ * Fail the reward-ledger write only, leaving every other durable write intact.
+ * The completion must still commit and leave the owed reward recoverable.
+ */
+function failPebbleWrites(): () => void {
+  const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+  const original = setItem.getMockImplementation();
+  setItem.mockImplementation(async (key: string, value: string) => {
+    if (key === PEBBLE_LOG_KEY) throw new Error("reward log unavailable");
+    return original ? original(key, value) : undefined;
+  });
+  return () => setItem.mockImplementation(original as any);
 }
 
 describe("Focus session completion durability & idempotency", () => {
@@ -166,29 +181,31 @@ describe("Focus session completion durability & idempotency", () => {
     ).toHaveLength(1);
   });
 
-  it("a retry after a crash between the stats credit and the reward does not double credit", async () => {
-    const rewardSpy = jest
-      .spyOn(require("@/features/profile/services/pebble.service"), "earnPebble")
-      .mockRejectedValueOnce(new Error("reward log unavailable"));
+  it("a failure between the stats credit and the reward keeps the completion and credits exactly once on retry", async () => {
+    // The award write fails: the owed reward must stay durably recoverable and
+    // must NOT fail a completion whose session and stats already committed.
+    const restorePebbleWrites = failPebbleWrites();
 
-    await expect(
-      EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
-        sessionId: "focus_after_stats",
-        startedAt: START,
-        endedAt: END,
-      }),
-    ).rejects.toThrow("reward log unavailable");
-    rewardSpy.mockRestore();
+    await EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
+      sessionId: "focus_after_stats",
+      startedAt: START,
+      endedAt: END,
+    });
+    restorePebbleWrites();
 
-    const afterCrash = await FocusStatsRepository.getFocusStats();
-    expect(afterCrash.completedToday).toBe(1);
-    expect(afterCrash.totalFocusTime).toBe(25);
+    const afterFailure = await FocusStatsRepository.getFocusStats();
+    expect(afterFailure.completedToday).toBe(1);
+    expect(afterFailure.totalFocusTime).toBe(25);
     expect(
       (await readPebbleLog()).filter(
         (e) => e.rewardId === "focus:focus_after_stats",
       ),
     ).toHaveLength(0);
+    expect(
+      (await RewardIntentRepository.getIntents()).map((i) => i.rewardId),
+    ).toEqual(["focus:focus_after_stats"]);
 
+    // Retry of the same stable session id (timer recovery).
     await EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
       sessionId: "focus_after_stats",
       startedAt: START,

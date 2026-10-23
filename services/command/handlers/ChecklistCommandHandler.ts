@@ -12,7 +12,12 @@ import {
   rescheduleChecklistReminders,
 } from "@/services/scheduling/reminders.service";
 
-import { earnPebble } from "@/features/profile/services/pebble.service";
+import {
+  awardOwedRewardUnlocked,
+  ensureRewardIntent,
+  resolveOwedRewardsForEntity,
+} from "@/features/profile/services/reward-intent.service";
+import type { RewardIntent } from "@/repositories/RewardIntentRepository";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import { generateId } from "@/shared/utils/id";
@@ -686,6 +691,10 @@ static async moveChecklist(
       await assertLifecycleMutationAllowed("checklist", checklist, effectiveOptions);
 
       let updatedChecklist: Checklist;
+      // Owed-reward record for the one-time checklist reward, if this transition
+      // earns it. Written BEFORE the entity so a completed checklist can never
+      // exist without a recoverable reward.
+      let rewardIntent: RewardIntent | undefined;
 
       if (checklist.recurrence && dateKey) {
         // Occurrence-isolated completion for recurring series
@@ -731,7 +740,15 @@ static async moveChecklist(
         // product behavior. See pebbleRewardLifecycle.test.ts.
         if (allCompleted && !currentRecord.completedAt && !checklist.pebbleAwarded) {
           updatedChecklist.pebbleAwarded = true;
-          await earnPebble("checklist", `checklist:${checklist.id}:${dateKey}`);
+          rewardIntent = {
+            rewardId: `checklist:${checklist.id}:${dateKey}`,
+            type: "checklist",
+            entityType: "checklist",
+            entityId: checklist.id,
+            workspaceId: checklist.workspaceId,
+            dateKey,
+            createdAt: Date.now(),
+          };
         }
       } else {
         // Direct item completion for non-recurring checklists
@@ -768,11 +785,32 @@ static async moveChecklist(
         // never reverses it.
         if (isNowComplete && !wasComplete && !checklist.pebbleAwarded) {
           updatedChecklist.pebbleAwarded = true;
-          await earnPebble("checklist", `checklist:${checklist.id}`);
+          rewardIntent = {
+            rewardId: `checklist:${checklist.id}`,
+            type: "checklist",
+            entityType: "checklist",
+            entityId: checklist.id,
+            workspaceId: checklist.workspaceId,
+            createdAt: Date.now(),
+          };
         }
       }
 
+      // Fail-closed: without a durable intent, completing with the latch set
+      // could leave a permanently unrewarded checklist (the latch then blocks
+      // every later attempt). Abort here — nothing has been persisted yet.
+      if (rewardIntent) {
+        await ensureRewardIntent(rewardIntent);
+      }
+
       await ChecklistRepository.saveChecklistUnlocked(updatedChecklist);
+
+      // Credit only AFTER the completion + latch are durable, so a failed save
+      // can never leave a reward credited for a completion that never committed.
+      // A failed credit keeps the intent for replay/startup recovery.
+      if (rewardIntent) {
+        await awardOwedRewardUnlocked(rewardIntent);
+      }
 
       return { previous: checklist, updated: updatedChecklist };
     });
@@ -780,6 +818,14 @@ static async moveChecklist(
     if (!result) return null;
 
     const { previous, updated: updatedChecklist } = result;
+
+    // Checklist reward replay. The earned reward id names the occurrence that
+    // first completed, which a later toggle does not know, so any owed intent is
+    // looked up by entity. Paying it re-verifies the one-time latch, so this can
+    // repair a failed credit but never mint an extra reward.
+    if (updatedChecklist.pebbleAwarded) {
+      await resolveOwedRewardsForEntity("checklist", updatedChecklist.id);
+    }
 
     const wasComplete =
       !previous.recurrence &&

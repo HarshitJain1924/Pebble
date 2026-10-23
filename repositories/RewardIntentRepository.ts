@@ -30,7 +30,14 @@ export const REWARD_INTENTS_KEY = "pebble:v1:reward_intents";
 /** Lock key: intentionally identical to the storage key (one resource). */
 export const REWARD_INTENTS_LOCK = REWARD_INTENTS_KEY;
 
-export type RewardIntentEntityType = "task" | "habit";
+/**
+ * Entity domains whose completion can owe a reward.
+ *
+ * `focus` is not a workspace partition: its "entity" is one durable focus
+ * session in `pebble:v1:focus_sessions`, and its `workspaceId` is empty because
+ * a session has no owning workspace.
+ */
+export type RewardIntentEntityType = "task" | "habit" | "checklist" | "focus";
 
 export interface RewardIntent {
   /** Reward identity, identical to the `rewardId` used in the Pebble log. */
@@ -39,8 +46,12 @@ export interface RewardIntent {
   type: RewardIntentEntityType;
   entityType: RewardIntentEntityType;
   entityId: string;
+  /** Owning workspace; empty for `focus` intents (a session has none). */
   workspaceId: string;
-  /** Habit occurrence day (`YYYY-MM-DD`) the reward belongs to. */
+  /**
+   * Day the reward belongs to (`YYYY-MM-DD`): the Habit completion day, or the
+   * recurring-Checklist occurrence that first earned the one-time reward.
+   */
   dateKey?: string;
   createdAt: number;
 }
@@ -69,8 +80,9 @@ export class RewardIntentRepository {
    * Record an owed reward. Idempotent by `rewardId` (the first intent wins so a
    * retry cannot reset the owed-since timestamp).
    *
-   * Strict: throws when the write fails, so the caller can decide whether to
-   * continue (the completion must never fail because of reward bookkeeping).
+   * Strict: throws when the write fails. Completion callers treat that as
+   * fail-closed — they abort before persisting the completed state, so a
+   * completion can never exist without a recoverable reward.
    */
   static async addIntent(intent: RewardIntent): Promise<void> {
     if (!intent?.rewardId) {

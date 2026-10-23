@@ -13,18 +13,32 @@
  *   are separate keys, so the only way to keep the invariant "a completed
  *   entity always has a recoverable reward" is to refuse the completion rather
  *   than commit a state that could never be repaired.
- * - Resolution only awards while the entity is STILL in the rewarded state:
- *   a completed Task, or a Habit with a completion entry for the intent's
- *   `dateKey`. Otherwise the intent is discarded — an uncompleted, recycled,
- *   deleted or tombstoned entity is never paid later.
+ * - Resolution only awards while the entity is STILL in the rewarded state, and
+ *   each domain has its own validator:
+ *     - Task: still `completed`, not tombstoned.
+ *     - Habit: still has a completion entry for the intent's `dateKey`, not
+ *       tombstoned.
+ *     - Checklist: still carries the one-time `pebbleAwarded` latch (so the
+ *       completion that earned it committed) and the intent names exactly that
+ *       checklist's reward id, not tombstoned. A Checklist present but without
+ *       the latch (failed save) is never paid.
+ *     - Focus: the stable session id still exists in the persisted focus-session
+ *       ledger, so a session that failed to persist is never paid.
+ *   Otherwise the intent is discarded — an uncompleted, recycled, deleted,
+ *   tombstoned or never-persisted entity is never paid later.
  * - `earnPebble` is idempotent by `rewardId`, so concurrent resolution (startup
  *   pass vs. a user re-tap) converges on exactly one Pebble.
  * - The 15/day cap keeps its "dropped by design, no backlog" semantics: a
  *   `cap_reached` outcome clears the intent instead of leaving it to be paid on
  *   a later day.
  */
-import { HabitRepository, TaskRepository } from "@/repositories";
+import {
+  ChecklistRepository,
+  HabitRepository,
+  TaskRepository,
+} from "@/repositories";
 import { TombstoneRepository } from "@/repositories/TombstoneRepository";
+import { GraphRepository } from "@/repositories/GraphRepository";
 import {
   RewardIntentRepository,
   type RewardIntent,
@@ -32,8 +46,21 @@ import {
 import { earnPebbleWithOutcome } from "@/features/profile/services/pebble.service";
 import { withLock } from "@/shared/utils/mutex";
 
-/** Partition mutex that guards the intent's entity (same key commands use). */
+/**
+ * Partition mutex that guards the intent's entity (same key commands use).
+ *
+ * Focus intents resolve under the PER-SESSION completion key that
+ * `recordFocusSession` holds. It must not be the session-ledger key
+ * (`pebble:v1:focus_sessions`): the focus validator reads the ledger through
+ * `GraphRepository.getFocusSessions()`, which takes that key itself, so reusing
+ * it here would re-enter the mutex and deadlock. Lock order stays
+ * `focus_completion:<sessionId>` → `focus_sessions` for both the command and the
+ * resolver, so there is no inversion.
+ */
 export function rewardIntentPartitionKey(intent: RewardIntent): string {
+  if (intent.entityType === "focus") {
+    return `pebble:v1:focus_completion:${intent.entityId}`;
+  }
   return `pebble:v1:${intent.entityType}s:${intent.workspaceId}`;
 }
 
@@ -118,6 +145,38 @@ async function isRewardStillOwed(intent: RewardIntent): Promise<boolean> {
     ));
   }
 
+  if (intent.entityType === "checklist") {
+    const checklist = await ChecklistRepository.getChecklist(
+      intent.entityId,
+      intent.workspaceId,
+    );
+    // Missing = permanently deleted, recycled, or moved to another partition.
+    if (!checklist) return false;
+    // The one-time latch is written in the SAME publish as the completion, so a
+    // checklist without it never committed the completion that owes this reward
+    // (e.g. the save failed after the intent was recorded).
+    if (checklist.pebbleAwarded !== true) return false;
+    // Only the reward identity this checklist could have earned is payable: the
+    // bare id for a non-recurring checklist, or the exact occurrence id for a
+    // recurring one. A stale/foreign id can never be paid against the latch.
+    const expectedRewardId = intent.dateKey
+      ? `checklist:${checklist.id}:${intent.dateKey}`
+      : `checklist:${checklist.id}`;
+    if (intent.rewardId !== expectedRewardId) return false;
+    return !(await TombstoneRepository.isTombstoned(
+      "checklist",
+      checklist.id,
+      checklist.lifecycleGeneration,
+    ));
+  }
+
+  if (intent.entityType === "focus") {
+    // The durable session ledger is the identity: a session that never persisted
+    // must never be paid, and a session that did is owed its reward exactly once.
+    const sessions = await GraphRepository.getFocusSessions();
+    return sessions.some((session) => session.id === intent.entityId);
+  }
+
   if (!intent.dateKey) return false;
   const habit = await HabitRepository.getHabit(intent.entityId, intent.workspaceId);
   if (!habit) return false;
@@ -164,6 +223,35 @@ export async function resolveRewardIntent(rewardId: string): Promise<boolean> {
     );
     return false;
   }
+}
+
+/**
+ * Settle every owed reward recorded for ONE entity.
+ *
+ * Used by the Checklist replay path: unlike Task/Habit, the earned reward id
+ * carries the occurrence day of the first completion, which a later toggle does
+ * not know. Looking the intents up by entity id lets any later committed toggle
+ * repair a reward whose credit failed, without minting a new one.
+ */
+export async function resolveOwedRewardsForEntity(
+  entityType: RewardIntent["entityType"],
+  entityId: string,
+): Promise<number> {
+  let owed: RewardIntent[] = [];
+  try {
+    owed = (await RewardIntentRepository.getIntents()).filter(
+      (intent) => intent.entityType === entityType && intent.entityId === entityId,
+    );
+  } catch (e) {
+    console.warn("[RewardIntent] Failed to read reward intents", e);
+    return 0;
+  }
+
+  let settled = 0;
+  for (const intent of owed) {
+    if (await resolveRewardIntent(intent.rewardId)) settled++;
+  }
+  return settled;
 }
 
 export interface RewardIntentResolutionReport {

@@ -125,6 +125,18 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Guarantee**: a reorder cannot lose a create, revert a rename or completion, resurrect a delete, or bump revisions. `saveWorkspaces`/`saveTasks` remain unchanged for seeding and other bulk uses.
 - **Verification**: `services/command/__tests__/bulkSnapshotOrdering.test.ts` (8 tests). The three workspace and three task cases were confirmed to fail against the previous write path by temporarily restoring it (3 failures each, then reverted).
 
+### 23. Checklist Reward Durability (one-time latch)
+- **Affected Code**: `services/command/handlers/ChecklistCommandHandler.ts` (`toggleChecklistItem`), `features/profile/services/reward-intent.service.ts` (Checklist validator + `resolveOwedRewardsForEntity`), `repositories/RewardIntentRepository.ts` (intent domain widened to `checklist`)
+- **Current Fix**: The checklist set `pebbleAwarded: true` and then called `earnPebble`, which swallows a failed reward write — so a failed credit left the one-time latch permanently set with no Pebble, and every later toggle saw the latch and returned. Worse, the reward was credited *before* the checklist was persisted, so a failed save could credit a completion that never committed. The order is now intent → completion+latch → award: the latch and the completion are published together, and the award runs only after they are durable.
+- **Current Guarantee**: at most one Pebble ever per checklist (recurring series included — the latch never clears and no reversal exists); nothing is awarded for an incomplete checklist; a retry or concurrent toggle cannot duplicate it. A failed award keeps a durable intent, settled by startup recovery or by the next committed toggle (`resolveOwedRewardsForEntity`, since a later toggle does not know the winning occurrence's reward id). A Checklist intent is paid only when the checklist still exists, still carries `pebbleAwarded`, its reward id is exactly the one that checklist could have earned (bare id, or `:<dateKey>` for the occurrence), and it is not tombstoned — so an intent orphaned by a failed save or a deleted checklist is discarded, never paid.
+- **Verification**: `services/command/__tests__/checklistFocusRewardDurability.test.ts` (7 Checklist tests: reward-write failure then exactly-once recovery plus no double award on later toggles, next-toggle replay repair, entity-write failure discards the intent with no payout, intent-write failure aborts with no state change/event, incomplete checklist earns nothing, concurrent toggles plus concurrent recovery award once, recurring latch across two occurrences after a failed award). Six of the seven fail against the previous implementation (verified by temporary revert; restored). Daily-cap behavior is covered in the Focus block below.
+
+### 24. Focus Reward Durability (session identity)
+- **Affected Code**: `services/command/handlers/SystemCommandHandler.ts` (`recordFocusSession`), `features/profile/services/reward-intent.service.ts` (Focus validator + per-session partition key)
+- **Current Fix**: `earnPebble` swallowed a failed reward write while the command still resolved, so `useFocusState.completeTimerSession` released the active-session recovery marker (`todoapp:focus:current_session`) with nothing left to retry — the session was durable, its stats credited, and the Pebble gone. The command now records the owed reward (`focus:<sessionId>`) FIRST, persists the session and the stats credit, then credits the reward from that intent.
+- **Current Guarantee**: per stable session id, exactly one session row, one stats credit, one `focuses_on` edge and one Pebble, including across retries and a partial failure. A failed award after the session exists keeps a durable intent that replay or startup recovery settles. A failed intent write aborts the command **before** the session is persisted, so the timer's recovery marker is still valid and the next attempt reuses the same id (the marker is released by the hook only after the command resolves). A session that never persisted is never paid: the Focus validator requires the session id to exist in `pebble:v1:focus_sessions`. Resolution takes the per-session `pebble:v1:focus_completion:<sessionId>` lock (not the session-ledger key) so it cannot re-enter the mutex the validator's read acquires, and its order `focus_completion → focus_sessions` matches the command's. The 15/day cap keeps its documented "dropped, no backlog" behavior for both new domains.
+- **Verification**: `services/command/__tests__/checklistFocusRewardDurability.test.ts` (6 Focus tests: reward-write failure then exactly-once recovery, no payout for a session that never persisted, intent-write failure aborts with no session/stats/reward and the retry succeeds, retry does not duplicate session/stats/relationship/reward, focus daily cap, checklist daily cap). `services/command/__tests__/focusSessionCompletion.test.ts` was updated where it encoded the old contract (a failed award rejecting the command) to the durable-intent contract; the other seven cases are unchanged and pass. Five of the six new Focus tests plus the four rewritten/related ones fail against the previous implementation (verified by temporary revert; restored).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
@@ -137,13 +149,13 @@ These items exist in current code and have not yet been fully audited or hardene
 - **Why Existing Recovery Does Not Cover It**: these are the residual operations of each handler that were not individually driven through a hostile interleaving; the UI bulk-save paths that used to bypass this discipline are now order-only merges (CLOSED #22).
 - **Confidence Level**: Unverified for the residual operations only.
 
-### 2. Reward Paths Outside Task/Habit Completion
-- **Exact File**: `services/command/handlers/ChecklistCommandHandler.ts` (checklist latch), `services/command/handlers/SystemCommandHandler.ts` (focus reward), `features/profile/services/pebble.service.ts` (launch/streak rewards)
-- **Failure Condition**: A crash between the entity write and the reward write on those paths.
-- **Impact**: A lost or duplicated reward for that occurrence.
-- **Current Evidence**: Checklist rewards are latched on the entity (`pebbleAwarded`) and focus rewards are idempotent by stable session id (CLOSED #18); neither uses the reward-intent ledger introduced in CLOSED #20.
-- **Why Existing Recovery Does Not Cover It**: The intent ledger is only written by Task/Habit completion. Converting them is possible but not demonstrated to be necessary.
-- **Confidence Level**: Unverified for the checklist/focus boundaries; no failure test reproduces a loss there today.
+### 2. Reward Paths Outside Completion Commands
+- **Exact File**: `features/profile/services/pebble.service.ts` (launch/streak/first-run rewards and any other `earnPebble` caller outside the completion commands)
+- **Failure Condition**: A crash between the event that earns the reward and the reward write.
+- **Impact**: A lost reward for that event.
+- **Current Evidence**: Task/Habit (CLOSED #20), Checklist and Focus (CLOSED #23/#24) now all use the durable reward-intent ledger. Remaining callers are launch/streak-style rewards that are not tied to a persisted entity transition, so there is nothing for a validator to check.
+- **Why Existing Recovery Does Not Cover It**: The intent ledger requires a durable "rewarded state" to validate against; those rewards have none.
+- **Confidence Level**: Unverified for the remaining non-completion callers; no failure test reproduces a loss there today.
 
 ## INHERENT LIMITS (AsyncStorage)
 
@@ -151,7 +163,7 @@ These items exist in current code and have not yet been fully audited or hardene
 - Every such state is made *recoverable*, not atomic: the durable intent/journal (or retained Recycle Bin snapshot) is the source of truth for a retry. Anything that has not reached its journal-removal/snapshot-removal step may be replayed; replay is idempotent and must never be "repaired" by a second, competing mechanism.
 - `multiSet`/`multiRemove` are only as atomic as the platform implementation; this codebase treats them as sequential and relies on the journal/intent rather than claiming all-or-nothing semantics.
 - The in-memory mutex only serializes work inside one JS runtime. A second device/process writing the same keys is outside its protection; only idempotent recovery makes that safe.
-- A completion writes two keys (the entity partition and the reward-intent ledger) and they cannot be committed together. The order makes the failure modes honest: the intent is first, so a failed intent aborts a completion that has not happened yet, while a failed award leaves a durable, replayable intent. The residual window is a crash between the two writes, which leaves a completed entity plus a pending intent — repaired on the next replay or at startup, never paid twice.
+- A rewarding command writes at least three keys — the reward-intent ledger, the rewarded state (entity partition for Task/Habit/Checklist, the focus-session ledger for Focus), and the Pebble log — and none of them commit together. The order (intent → rewarded state → award) is what keeps the failure modes honest: a failed intent aborts a completion that has not happened yet, a failed rewarded-state write leaves an intent that the domain validator rejects, and a failed award leaves a durable, replayable intent. The residual window is a crash after the rewarded state commits, which leaves that state plus a pending intent — repaired on the next replay or at startup, never paid twice.
 
 ## HISTORICAL (No Longer Apply)
 
