@@ -184,7 +184,10 @@ export class HabitRepository {
    * Unlocked primitive required by Command layer for multi-key concurrency
    * operations (like updateHabit, moveHabit) where the canonical lock is already held.
    */
-  static async saveHabitUnlocked(habit: any): Promise<Habit> {
+  static async saveHabitUnlocked(
+    habit: any,
+    options?: { preserveRevision?: boolean },
+  ): Promise<Habit> {
     this.validateId(habit?.id, "saveHabitUnlocked");
     const workspaceId = habit.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getHabitsKey(workspaceId);
@@ -192,8 +195,10 @@ export class HabitRepository {
     const records = await this.getHabits(workspaceId);
 
     const cleanHabit: Habit = normalizeHabit(habit, workspaceId);
-    cleanHabit.updatedAt = Date.now();
-    cleanHabit.revision = (records[habit.id]?.revision || 0) + 1;
+    cleanHabit.updatedAt = options?.preserveRevision && habit.updatedAt ? habit.updatedAt : Date.now();
+    cleanHabit.revision = options?.preserveRevision && typeof habit.revision === "number"
+      ? Math.max(habit.revision, (records[habit.id]?.revision || 0) + 1)
+      : (records[habit.id]?.revision || 0) + 1;
     cleanHabit.lifecycleGeneration = habit.lifecycleGeneration || records[habit.id]?.lifecycleGeneration || 1;
 
     const validTrigger =

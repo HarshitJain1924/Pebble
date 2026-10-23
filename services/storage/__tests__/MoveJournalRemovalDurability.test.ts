@@ -95,7 +95,7 @@ describe("MoveJournal Removal Durability & Hostile Crash Recovery", () => {
       { source: "user_gesture" },
     );
     expect(userUpdatedTask.title).toBe("User Edited Title After Crash");
-    expect(userUpdatedTask.revision).toBe(2); // Initial in target workspace was 1, update bumped to 2
+    expect(userUpdatedTask.revision).toBe(3); // Initial in target workspace was 2 (advanced on move), update bumped to 3
 
     // 5. Startup Recovery / Reconciler Execution:
     // Reconciler discovers the lingering journal entry and must reconcile it
@@ -114,7 +114,7 @@ describe("MoveJournal Removal Durability & Hostile Crash Recovery", () => {
     const finalTargetTask = await TaskRepository.getTask("task-move-1", WS_B);
     expect(finalTargetTask).not.toBeNull();
     expect(finalTargetTask!.title).toBe("User Edited Title After Crash");
-    expect(finalTargetTask!.revision).toBe(2);
+    expect(finalTargetTask!.revision).toBe(3);
     expect(finalTargetTask!.workspaceId).toBe(WS_B);
   });
 

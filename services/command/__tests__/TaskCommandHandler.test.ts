@@ -2255,5 +2255,68 @@ describe("clearCompletedTasks data integrity", () => {
     const persisted = await TaskRepository.getTask("task-concurrent", "ws-1");
     expect(persisted?.status).toBe("completed");
   });
+
+  it("moveTask from revision 7 into empty workspace advances to 8, matches persisted record, and subsequent update advances to 9", async () => {
+    const wsSource = "ws-move-src";
+    const wsTarget = "ws-move-dst";
+    const taskId = "task-rev-7";
+
+    await WorkspaceRepository.saveWorkspaces([
+      { id: wsSource, name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() },
+      { id: wsTarget, name: "Target", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() },
+    ]);
+
+    // Seed task with revision 7 directly
+    await AsyncStorage.setItem(
+      `pebble:v1:tasks:${wsSource}`,
+      JSON.stringify({
+        [taskId]: {
+          id: taskId,
+          title: "High Revision Task",
+          workspaceId: wsSource,
+          revision: 7,
+          lifecycleGeneration: 1,
+          createdAt: 1000,
+          updatedAt: 1000,
+          status: "todo",
+          priority: "none",
+        },
+      }),
+    );
+
+    // Perform canonical move into empty workspace
+    const moved = await TaskCommandHandler.moveTask(taskId, wsSource, wsTarget, {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    // Returned entity must have revision 8 and workspaceId = wsTarget
+    expect(moved.workspaceId).toBe(wsTarget);
+    expect(moved.revision).toBe(8);
+
+    // Persisted record in target partition must also have revision 8 and matching timestamp
+    const targetMap = await TaskRepository.getTasks(wsTarget);
+    const persistedInTarget = targetMap[taskId];
+    expect(persistedInTarget).toBeDefined();
+    expect(persistedInTarget.revision).toBe(8);
+    expect(persistedInTarget.updatedAt).toBe(moved.updatedAt);
+
+    // Source partition must no longer contain the task
+    const sourceMap = await TaskRepository.getTasks(wsSource);
+    expect(sourceMap[taskId]).toBeUndefined();
+
+    // Subsequent update in target workspace advances monotonically to 9
+    const updated = await TaskCommandHandler.updateTask(
+      taskId,
+      wsTarget,
+      { title: "Updated After Move" },
+      { skipEvents: true, skipAnalytics: true },
+    );
+    expect(updated.revision).toBe(9);
+
+    const rePersistedInTarget = (await TaskRepository.getTasks(wsTarget))[taskId];
+    expect(rePersistedInTarget.revision).toBe(9);
+    expect(rePersistedInTarget.title).toBe("Updated After Move");
+  });
   });
 });

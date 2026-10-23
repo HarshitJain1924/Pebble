@@ -369,11 +369,16 @@ describe("useTasksState.handleBulkMove — task persistence and failure safety (
   });
 
   test("authoritative consistency: local state precisely reflects persisted revision and updatedAt after successful bulk move", async () => {
-    // Initial task with known revision=1 and timestamp=1000
-    const sourceTask = task("t-rev-check", "ws-1");
-    sourceTask.revision = 1;
-    sourceTask.updatedAt = 1000;
-    await TaskRepository.saveTask(sourceTask);
+    // Initial task with known revision=7 and timestamp=1000 in source workspace
+    const sourceTask = {
+      ...task("t-rev-check", "ws-1"),
+      revision: 7,
+      updatedAt: 1000,
+    };
+    await AsyncStorage.setItem(
+      "pebble:v1:tasks:ws-1",
+      JSON.stringify({ "t-rev-check": sourceTask }),
+    );
 
     const { api, unmount } = await mountHook();
     try {
@@ -382,7 +387,7 @@ describe("useTasksState.handleBulkMove — task persistence and failure safety (
       });
 
       expect(api().todos["ws-1"]?.[0]?.id).toBe("t-rev-check");
-      expect(api().todos["ws-1"]?.[0]?.revision).toBe(1);
+      expect(api().todos["ws-1"]?.[0]?.revision).toBe(7);
 
       act(() => {
         api().setIsBulkSelectActive(true);
@@ -397,12 +402,13 @@ describe("useTasksState.handleBulkMove — task persistence and failure safety (
       const ws2Tasks = await TaskRepository.getTasks("ws-2");
       const persistedRecord = ws2Tasks["t-rev-check"];
       expect(persistedRecord).toBeDefined();
-      expect(persistedRecord.revision).toBe(1);
+      expect(persistedRecord.revision).toBe(8); // Monotonically advances 7 -> 8, must NOT reset to 1!
 
       // Verify local in-memory UI state matches persisted reality authoritatively
       const localTask = api().todos["ws-2"].find((t) => t.id === "t-rev-check");
       expect(localTask).toBeDefined();
       expect(localTask?.workspaceId).toBe("ws-2");
+      expect(localTask?.revision).toBe(8);
       expect(localTask?.revision).toBe(persistedRecord.revision);
       expect(localTask?.updatedAt).toBe(persistedRecord.updatedAt);
     } finally {

@@ -1132,5 +1132,64 @@ describe("HabitCommandHandler Suite", () => {
         EntityCommandService.updateHabit("habit-a", "ws-1", { workspaceId: "ws-2" })
       ).rejects.toThrow("Workspace movement is not supported in updateHabit");
     });
+
+    test("moveHabit from revision 7 into empty workspace advances to 8, matches persisted record, and subsequent update advances to 9", async () => {
+      const wsSource = "ws-h-src";
+      const wsTarget = "ws-h-dst";
+      const habitId = "habit-rev-7";
+
+      await WorkspaceRepository.saveWorkspaces([
+        { id: wsSource, name: "Source", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() },
+        { id: wsTarget, name: "Target", revision: 1, lifecycleGeneration: 1, createdAt: Date.now(), updatedAt: Date.now() },
+      ]);
+
+      // Seed habit with revision 7 directly into source partition
+      await AsyncStorage.setItem(
+        `pebble:v1:habits:${wsSource}`,
+        JSON.stringify({
+          [habitId]: {
+            ...habitFixture(habitId, wsSource),
+            revision: 7,
+            lifecycleGeneration: 1,
+            createdAt: 1000,
+            updatedAt: 1000,
+          },
+        }),
+      );
+
+      // Perform canonical move into empty workspace
+      const moved = await HabitCommandHandler.moveHabit(habitId, wsSource, wsTarget, {
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+
+      // Returned entity must have revision 8 and workspaceId = wsTarget
+      expect(moved.workspaceId).toBe(wsTarget);
+      expect(moved.revision).toBe(8);
+
+      // Persisted record in target partition must also have revision 8 and matching timestamp
+      const targetMap = await HabitRepository.getHabits(wsTarget);
+      const persistedInTarget = targetMap[habitId];
+      expect(persistedInTarget).toBeDefined();
+      expect(persistedInTarget.revision).toBe(8);
+      expect(persistedInTarget.updatedAt).toBe(moved.updatedAt);
+
+      // Source partition must no longer contain the habit
+      const sourceMap = await HabitRepository.getHabits(wsSource);
+      expect(sourceMap[habitId]).toBeUndefined();
+
+      // Subsequent update in target workspace advances monotonically to 9
+      const updated = await HabitCommandHandler.updateHabit(
+        habitId,
+        wsTarget,
+        { title: "Updated Habit After Move" },
+        { skipEvents: true, skipAnalytics: true },
+      );
+      expect(updated.revision).toBe(9);
+
+      const rePersistedInTarget = (await HabitRepository.getHabits(wsTarget))[habitId];
+      expect(rePersistedInTarget.revision).toBe(9);
+      expect(rePersistedInTarget.title).toBe("Updated Habit After Move");
+    });
   });
 });

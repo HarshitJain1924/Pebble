@@ -238,6 +238,7 @@ export class TaskRepository {
   static async saveTaskUnlocked(
     task: any,
     existingRecords?: Record<string, Task>,
+    options?: { preserveRevision?: boolean },
   ): Promise<Task> {
     this.validateId(task?.id, "saveTaskUnlocked");
     const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
@@ -246,8 +247,10 @@ export class TaskRepository {
     const records = existingRecords ?? (await this.getTasks(workspaceId));
 
     const cleanTask: Task = normalizeTask(task, workspaceId);
-    cleanTask.updatedAt = Date.now();
-    cleanTask.revision = (records[task.id]?.revision || 0) + 1;
+    cleanTask.updatedAt = options?.preserveRevision && task.updatedAt ? task.updatedAt : Date.now();
+    cleanTask.revision = options?.preserveRevision && typeof task.revision === "number"
+      ? Math.max(task.revision, (records[task.id]?.revision || 0) + 1)
+      : (records[task.id]?.revision || 0) + 1;
     cleanTask.lifecycleGeneration = task.lifecycleGeneration || records[task.id]?.lifecycleGeneration || 1;
 
     const validTrigger =

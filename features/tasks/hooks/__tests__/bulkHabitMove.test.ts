@@ -430,4 +430,53 @@ describe("useTasksState.handleBulkMove — habit persistence (P1 regression)", (
       unmount();
     }
   });
+
+  test("authoritative consistency: local state and persisted record preserve monotonic revision after bulk habit move into empty workspace", async () => {
+    // Initial habit with known revision=5 and timestamp=1000 in source workspace
+    const sourceHabit = {
+      ...habit("habit-rev-check", "ws-1"),
+      revision: 5,
+      updatedAt: 1000,
+    };
+    await AsyncStorage.setItem(
+      "pebble:v1:habits:ws-1",
+      JSON.stringify({ "habit-rev-check": sourceHabit }),
+    );
+
+    const { api, unmount } = await mountHook();
+    try {
+      await act(async () => {
+        await api().loadHabits();
+      });
+
+      const initialHabitInState = api().habits.find((h) => h.id === "habit-rev-check");
+      expect(initialHabitInState).toBeDefined();
+      expect(initialHabitInState?.revision).toBe(5);
+
+      act(() => {
+        api().setIsBulkSelectActive(true);
+        api().setSelectedItemIds(new Set(["habit-rev-check"]));
+      });
+
+      await act(async () => {
+        await api().handleBulkMove("ws-2");
+      });
+
+      // Persisted record in empty destination workspace
+      const ws2Habits = await HabitRepository.getHabits("ws-2");
+      const persistedRecord = ws2Habits["habit-rev-check"];
+      expect(persistedRecord).toBeDefined();
+      expect(persistedRecord.revision).toBe(6); // Advances 5 -> 6, must NOT reset to 1!
+
+      // Local UI state after reconciliation
+      const localHabit = api().habits.find((h) => h.id === "habit-rev-check");
+      expect(localHabit).toBeDefined();
+      expect(localHabit?.workspaceId).toBe("ws-2");
+      expect(localHabit?.revision).toBe(6);
+      expect(localHabit?.revision).toBe(persistedRecord.revision);
+      expect(localHabit?.updatedAt).toBe(persistedRecord.updatedAt);
+    } finally {
+      unmount();
+    }
+  });
 });

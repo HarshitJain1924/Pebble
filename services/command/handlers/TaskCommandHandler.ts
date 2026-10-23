@@ -915,7 +915,7 @@ static async reorderTasks(
 
       // Save in new workspace first to avoid data loss, using unlocked primitives
       // to avoid deadlocking with our outer withLocks.
-      await TaskRepository.saveTaskUnlocked(movedTask);
+      const savedTask = await TaskRepository.saveTaskUnlocked(movedTask, undefined, { preserveRevision: true });
       
       // Then delete from old workspace, again using unlocked primitives.
       try {
@@ -939,7 +939,7 @@ static async reorderTasks(
 
       void syncWidgetData().catch(() => {});
 
-      return movedTask;
+      return savedTask;
     });
   }
 

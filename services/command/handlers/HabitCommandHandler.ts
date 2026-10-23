@@ -110,7 +110,7 @@ export class HabitCommandHandler {
         expectedRevision: existing.revision ?? 1,
       });
 
-      await HabitRepository.saveHabitUnlocked(moved);
+      const savedHabit = await HabitRepository.saveHabitUnlocked(moved, { preserveRevision: true });
       try {
         await HabitRepository.deleteHabitUnlocked(habitId, sourceWorkspaceId);
       } catch (e) {
@@ -118,7 +118,7 @@ export class HabitCommandHandler {
         throw e;
       }
 
-      return { moved, operationId };
+      return { moved: savedHabit, operationId };
     });
 
     const { MoveJournalRepository } = await import("@/repositories/MoveJournalRepository");
