@@ -1436,8 +1436,10 @@ static async reorderTasks(
       };
 
       // The owed-reward record is durable state written BEFORE the completed
-      // state is persisted, so a completed Task can never exist without a
-      // recoverable reward (see features/profile/services/reward-intent.service.ts).
+      // state, so a completed Task can never exist without a recoverable reward
+      // (see features/profile/services/reward-intent.service.ts). If the record
+      // cannot be written this throws and the completion aborts HERE: the Task
+      // stays uncompleted, and no event/plugin/analytics below runs.
       await ensureRewardIntent(rewardIntent);
 
       const saved = await TaskRepository.saveTaskUnlocked(updatedTask);

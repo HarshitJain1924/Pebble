@@ -7,8 +7,12 @@
  * --------
  * - A completion command records the intent BEFORE persisting the completed
  *   state, then awards inside the entity's partition lock. If the award write
- *   fails, the intent survives and the completion still commits (rewards never
- *   fail a completion).
+ *   fails, the intent survives and the completion still commits.
+ * - If the INTENT cannot be persisted, the completion ABORTS before any state
+ *   change (`ensureRewardIntent` throws). The entity write and the ledger write
+ *   are separate keys, so the only way to keep the invariant "a completed
+ *   entity always has a recoverable reward" is to refuse the completion rather
+ *   than commit a state that could never be repaired.
  * - Resolution only awards while the entity is STILL in the rewarded state:
  *   a completed Task, or a Habit with a completion entry for the intent's
  *   `dateKey`. Otherwise the intent is discarded — an uncompleted, recycled,
@@ -34,19 +38,37 @@ export function rewardIntentPartitionKey(intent: RewardIntent): string {
 }
 
 /**
- * Record an owed reward. Best effort by design: the completion's durability must
- * not depend on reward bookkeeping being writable.
+ * The owed-reward record could not be persisted. Completion callers let this
+ * propagate BEFORE writing the completed state, so a failed completion leaves no
+ * partial state behind: no entity change, no event, no plugin dispatch.
  */
-export async function ensureRewardIntent(intent: RewardIntent): Promise<boolean> {
+export class RewardIntentPersistenceError extends Error {
+  readonly rewardId: string;
+  readonly originalError: unknown;
+
+  constructor(rewardId: string, originalError: unknown) {
+    super(
+      `[RewardIntent] Could not record the owed reward for ${rewardId}; completion aborted before any state change`,
+    );
+    this.name = "RewardIntentPersistenceError";
+    this.rewardId = rewardId;
+    this.originalError = originalError;
+  }
+}
+
+/**
+ * Record an owed reward, or fail the completion.
+ *
+ * Fail-closed by design: completing without a durable intent would produce
+ * exactly the state this ledger exists to prevent (a completed entity whose
+ * Pebble can never be recovered if the award also fails). Callers invoke this
+ * before persisting the completed state, so throwing here is a no-op mutation.
+ */
+export async function ensureRewardIntent(intent: RewardIntent): Promise<void> {
   try {
     await RewardIntentRepository.addIntent(intent);
-    return true;
   } catch (e) {
-    console.warn(
-      `[RewardIntent] Failed to record reward intent ${intent.rewardId}; reward will be best-effort for this completion`,
-      e,
-    );
-    return false;
+    throw new RewardIntentPersistenceError(intent.rewardId, e);
   }
 }
 

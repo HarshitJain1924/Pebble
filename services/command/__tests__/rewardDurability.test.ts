@@ -16,6 +16,11 @@
  *   - startup resolution credits exactly once (idempotent by rewardId);
  *   - an intent whose entity is no longer in the rewarded state is discarded,
  *     never paid late (uncomplete / delete / different habit day).
+ *
+ * The fail-closed half of the contract is covered at the bottom: if the INTENT
+ * cannot be persisted, the completion aborts before any state change (no entity
+ * write, no event, no plugin dispatch), because a completed entity without a
+ * recoverable intent is exactly the state the ledger exists to prevent.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
@@ -33,8 +38,13 @@ import {
   RewardIntentRepository,
   REWARD_INTENTS_KEY,
 } from "@/repositories/RewardIntentRepository";
-import { resolveAllRewardIntents } from "@/features/profile/services/reward-intent.service";
+import {
+  RewardIntentPersistenceError,
+  resolveAllRewardIntents,
+} from "@/features/profile/services/reward-intent.service";
 import { getTodayDateKey } from "@/shared/utils/date-key";
+import { emitStateChange } from "@/services/events/state-events";
+import { pluginManager } from "@/plugin";
 import type { Habit, Task, Workspace } from "@/shared/types/domain.types";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
@@ -114,10 +124,13 @@ const silently = { skipEvents: true, skipAnalytics: true } as const;
 
 beforeEach(async () => {
   jest.restoreAllMocks();
+  (emitStateChange as jest.Mock).mockClear();
   jest.spyOn(
     require("@/services/analytics/productivity-history.service"),
     "recordDailyHistorySnapshot",
   ).mockResolvedValue(undefined);
+  jest.spyOn(pluginManager, "dispatchTaskCompleted").mockResolvedValue(undefined as any);
+  jest.spyOn(pluginManager, "dispatchHabitCompleted").mockResolvedValue(undefined as any);
 
   await AsyncStorage.clear();
   await WorkspaceRepository.saveWorkspace({
@@ -355,5 +368,181 @@ describe("Concurrent completion and recovery", () => {
 
     const task = await TaskRepository.getTask("task-fail-6", WS);
     expect(task?.status).toBe("completed");
+  });
+});
+
+/**
+ * Fail-closed intent persistence.
+ *
+ * Before this pass `ensureRewardIntent` swallowed its error and the completion
+ * continued, so when BOTH the ledger write and the Pebble write failed the
+ * entity was completed with no record that a reward was owed — unrecoverable.
+ * The completion now aborts before persisting anything.
+ */
+describe("Reward intent write failure aborts the completion", () => {
+  it("Task: both ledger and Pebble writes failing leaves the Task untouched and emits nothing", async () => {
+    await TaskRepository.saveTask(makeTask("task-intent-1"));
+
+    const restore = failWritesTo([REWARD_INTENTS_KEY, PEBBLE_LOG_KEY]);
+    await expect(
+      EntityCommandService.completeTask("task-intent-1", WS),
+    ).rejects.toThrow(RewardIntentPersistenceError);
+    restore();
+
+    // No completion state, no revision bump, no reward, no owed record.
+    const task = await TaskRepository.getTask("task-intent-1", WS);
+    expect(task?.status).toBe("todo");
+    expect(task?.completedAt).toBeUndefined();
+    expect(task?.revision).toBe(1);
+    expect(await pebbleRewards()).toEqual([]);
+    expect(await pendingIntentIds()).toEqual([]);
+
+    // No success side effects of any kind.
+    expect(emitStateChange).not.toHaveBeenCalled();
+    expect(pluginManager.dispatchTaskCompleted).not.toHaveBeenCalled();
+  });
+
+  it("Task: the completion succeeds exactly once after storage recovers", async () => {
+    await TaskRepository.saveTask(makeTask("task-intent-2"));
+
+    const restore = failWritesTo([REWARD_INTENTS_KEY, PEBBLE_LOG_KEY]);
+    await expect(
+      EntityCommandService.completeTask("task-intent-2", WS),
+    ).rejects.toThrow(RewardIntentPersistenceError);
+    restore();
+
+    const completed = await EntityCommandService.completeTask("task-intent-2", WS);
+    expect(completed?.updated.status).toBe("completed");
+    expect(await pebbleRewards()).toEqual(["task:task-intent-2"]);
+    expect(await pendingIntentIds()).toEqual([]);
+    expect(
+      (emitStateChange as jest.Mock).mock.calls.filter((c) => c[0] === "tasks_changed"),
+    ).toHaveLength(1);
+    expect(pluginManager.dispatchTaskCompleted).toHaveBeenCalledTimes(1);
+
+    // Replays stay at exactly one reward and never reopen a pending intent.
+    await EntityCommandService.completeTask("task-intent-2", WS);
+    expect(await pebbleRewards()).toEqual(["task:task-intent-2"]);
+    expect(await pendingIntentIds()).toEqual([]);
+  });
+
+  it("Task: an intent failure alone aborts before the Pebble write is even attempted", async () => {
+    await TaskRepository.saveTask(makeTask("task-intent-3"));
+
+    // Only the ledger key fails: the reward write path stays healthy.
+    const restore = failWritesTo([REWARD_INTENTS_KEY]);
+    await expect(
+      EntityCommandService.completeTask("task-intent-3", WS),
+    ).rejects.toThrow(RewardIntentPersistenceError);
+    restore();
+
+    expect((await TaskRepository.getTask("task-intent-3", WS))?.status).toBe("todo");
+    // Nothing was credited, so the failed attempt cannot have half-succeeded.
+    expect(await pebbleRewards()).toEqual([]);
+    expect(await pendingIntentIds()).toEqual([]);
+
+    await EntityCommandService.completeTask("task-intent-3", WS);
+    expect(await pebbleRewards()).toEqual(["task:task-intent-3"]);
+  });
+
+  it("Habit: both ledger and Pebble writes failing leaves the Habit untouched and emits nothing", async () => {
+    await HabitRepository.saveHabitUnlocked(makeHabit("habit-intent-1"));
+
+    const restore = failWritesTo([REWARD_INTENTS_KEY, PEBBLE_LOG_KEY]);
+    await expect(
+      EntityCommandService.completeHabit("habit-intent-1", WS),
+    ).rejects.toThrow(RewardIntentPersistenceError);
+    restore();
+
+    const habit = await HabitRepository.getHabit("habit-intent-1", WS);
+    expect(habit?.completionHistory).toEqual([]);
+    expect(habit?.lastCompletedDate).toBeUndefined();
+    expect(habit?.revision).toBe(1);
+    expect(await pebbleRewards()).toEqual([]);
+    expect(await pendingIntentIds()).toEqual([]);
+
+    expect(emitStateChange).not.toHaveBeenCalled();
+    expect(pluginManager.dispatchHabitCompleted).not.toHaveBeenCalled();
+  });
+
+  it("Habit: retry after recovery records exactly one day-scoped reward", async () => {
+    await HabitRepository.saveHabitUnlocked(makeHabit("habit-intent-2"));
+    const today = getTodayDateKey();
+
+    const restore = failWritesTo([REWARD_INTENTS_KEY, PEBBLE_LOG_KEY]);
+    await expect(
+      EntityCommandService.completeHabit("habit-intent-2", WS),
+    ).rejects.toThrow(RewardIntentPersistenceError);
+    restore();
+
+    const completed = await EntityCommandService.completeHabit("habit-intent-2", WS);
+    expect(completed?.updated.lastCompletedDate).toBe(today);
+    expect(await pebbleRewards()).toEqual([`habit:habit-intent-2:${today}`]);
+    expect(await pendingIntentIds()).toEqual([]);
+
+    // Same-day replay and the already-completed path stay at one reward.
+    await EntityCommandService.completeHabit("habit-intent-2", WS);
+    await EntityCommandService.completeHabit("habit-intent-2", WS);
+    expect(await pebbleRewards()).toEqual([`habit:habit-intent-2:${today}`]);
+    expect(await pendingIntentIds()).toEqual([]);
+  });
+
+  it("Habit: an intent failure alone aborts before the Pebble write is even attempted", async () => {
+    await HabitRepository.saveHabitUnlocked(makeHabit("habit-intent-3"));
+
+    const restore = failWritesTo([REWARD_INTENTS_KEY]);
+    await expect(
+      EntityCommandService.completeHabit("habit-intent-3", WS),
+    ).rejects.toThrow(RewardIntentPersistenceError);
+    restore();
+
+    const habit = await HabitRepository.getHabit("habit-intent-3", WS);
+    expect(habit?.completionHistory).toEqual([]);
+    expect(await pebbleRewards()).toEqual([]);
+    expect(await pendingIntentIds()).toEqual([]);
+
+    await EntityCommandService.completeHabit("habit-intent-3", WS);
+    expect(await pebbleRewards()).toEqual([
+      `habit:habit-intent-3:${getTodayDateKey()}`,
+    ]);
+  });
+
+  it("an entity-write failure after a durable intent leaves an orphan intent that is discarded, not paid", async () => {
+    await TaskRepository.saveTask(makeTask("task-intent-4"));
+
+    jest
+      .spyOn(TaskRepository, "saveTaskUnlocked")
+      .mockRejectedValueOnce(new Error("Disk Full"));
+
+    await expect(
+      EntityCommandService.completeTask("task-intent-4", WS),
+    ).rejects.toThrow("Disk Full");
+
+    expect((await TaskRepository.getTask("task-intent-4", WS))?.status).toBe("todo");
+    expect(await pendingIntentIds()).toEqual(["task:task-intent-4"]);
+
+    const report = await resolveAllRewardIntents();
+    expect(report.credited).toBe(0);
+    expect(await pebbleRewards()).toEqual([]);
+    expect(await pendingIntentIds()).toEqual([]);
+
+    // A genuine later completion is still rewarded exactly once.
+    await EntityCommandService.completeTask("task-intent-4", WS);
+    expect(await pebbleRewards()).toEqual(["task:task-intent-4"]);
+  });
+
+  it("the already-completed replay path never fails on an unreadable reward ledger", async () => {
+    await TaskRepository.saveTask(makeTask("task-intent-5"));
+    await EntityCommandService.completeTask("task-intent-5", WS);
+    expect(await pebbleRewards()).toEqual(["task:task-intent-5"]);
+
+    // Replaying a completed Task is a read-only settle of a possible intent; it
+    // must not turn a healthy completion into an error when storage is unwell.
+    const restore = failWritesTo([REWARD_INTENTS_KEY, PEBBLE_LOG_KEY]);
+    const replay = await EntityCommandService.completeTask("task-intent-5", WS);
+    restore();
+
+    expect(replay?.updated.status).toBe("completed");
+    expect(await pebbleRewards()).toEqual(["task:task-intent-5"]);
   });
 });

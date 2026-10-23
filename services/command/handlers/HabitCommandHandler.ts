@@ -598,7 +598,9 @@ static async recycleHabit(
 
       // The owed-reward record is durable state written BEFORE the completion is
       // persisted, so a completed day can never exist without a recoverable
-      // reward (see features/profile/services/reward-intent.service.ts).
+      // reward (see features/profile/services/reward-intent.service.ts). If the
+      // record cannot be written this throws and the completion aborts HERE: the
+      // Habit stays uncompleted and no event/plugin below runs.
       await ensureRewardIntent(rewardIntent);
 
       await HabitRepository.saveHabitUnlocked(updatedHabit);
