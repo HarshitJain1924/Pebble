@@ -31,6 +31,8 @@ export const TaskDatePickerModal: React.FC<TaskDatePickerModalProps> = ({
   colors,
   isDark,
 }) => {
+  if (!visible) return null;
+
   const todayKey = getTodayDateKey();
 
   const presets = useMemo(

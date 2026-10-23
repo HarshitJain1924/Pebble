@@ -40,6 +40,15 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
   children,
 }) => {
   const [modalVisible, setModalVisible] = useState(visible);
+  const isMountedRef = React.useRef(true);
+  const isClosingRef = React.useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Reanimated shared values
   const backdropOpacity = useSharedValue(0);
@@ -54,6 +63,7 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
   // Sync prop visibility changes
   useEffect(() => {
     if (visible) {
+      isClosingRef.current = false;
       setModalVisible(true);
       // Trigger entering animations
       backdropOpacity.value = withTiming(1, { duration: 250 });
@@ -63,18 +73,30 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
         contentScale.value = withSpring(1, SPRING_CONFIG);
         contentOpacity.value = withTiming(1, { duration: 200 });
       }
+    } else {
+      isClosingRef.current = false;
+      setModalVisible(false);
     }
   }, [visible, type, backdropOpacity, contentTranslateY, contentScale, contentOpacity]);
 
+  const finishClose = useCallback(() => {
+    if (isMountedRef.current) {
+      setModalVisible(false);
+    }
+    isClosingRef.current = false;
+    onClose();
+  }, [onClose]);
+
   const handleClose = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
     Keyboard.dismiss();
     // Trigger exiting animations
     backdropOpacity.value = withTiming(0, { duration: 200 });
 
     const onAnimationEnd = (finished?: boolean) => {
       if (finished) {
-        runOnJS(setModalVisible)(false);
-        runOnJS(onClose)();
+        runOnJS(finishClose)();
       }
     };
 
@@ -92,7 +114,7 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
         onAnimationEnd
       );
     }
-  }, [type, backdropOpacity, contentTranslateY, contentScale, contentOpacity, onClose]);
+  }, [type, backdropOpacity, contentTranslateY, contentScale, contentOpacity, finishClose]);
 
   const animatedBackdropStyle = useAnimatedStyle(() => ({
     opacity: backdropOpacity.value,

@@ -17,7 +17,7 @@ import {
 import { INBOX_WORKSPACE_ID, Task, Workspace } from "@/shared/types/domain.types";
 import { generateId } from "@/shared/utils/id";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 export interface UseTaskCrudDeps {
   todos: Record<string, Task[]>;
@@ -30,6 +30,7 @@ export interface UseTaskCrudDeps {
 
 export function useTaskCrud(deps: UseTaskCrudDeps) {
   const { todos, setTodos, selectedWorkspaceId, workspaces, showUndo, showToast } = deps;
+  const deletingTaskIdsRef = useRef<Set<string>>(new Set());
 
   // ── Focused Persistence Helpers ────────────────────────────────────────
 
@@ -165,6 +166,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       if (!targetTask) return;
       targetWorkspaceId = targetTask.workspaceId || targetWorkspaceId;
 
+      const priorTodos = todos;
       const updatedTodos: Record<string, Task[]> = {};
       for (const [wsId, list] of Object.entries(todos)) {
         if (list.some((t) => t.id === id)) {
@@ -179,8 +181,13 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       }
       setTodos(updatedTodos);
       
-      await EntityCommandService.updateTask(id, targetWorkspaceId, { title: newTitle }, { skipEvents: true });
-      finalizeMutation();
+      try {
+        await EntityCommandService.updateTask(id, targetWorkspaceId, { title: newTitle }, { skipEvents: true });
+        finalizeMutation();
+      } catch (err) {
+        console.warn("[useTaskCrud] updateTodoTitle failed:", err);
+        setTodos(priorTodos);
+      }
     },
     [todos, selectedWorkspaceId, setTodos, finalizeMutation],
   );
@@ -198,6 +205,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         updatedAt: Date.now(),
       };
 
+      const priorTodos = todos;
       const updated = {
         ...todos,
         [fromListId]: sourceTodos.filter((t) => t.id !== todoId),
@@ -208,9 +216,13 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       
       // Persist the move through EntityCommandService without emitting an event
       // since we already updated the optimistic local state.
-      await EntityCommandService.moveTask(todoId, fromListId, toListId, { skipEvents: true });
-      
-      finalizeMutation();
+      try {
+        await EntityCommandService.moveTask(todoId, fromListId, toListId, { skipEvents: true });
+        finalizeMutation();
+      } catch (err) {
+        console.warn("[useTaskCrud] moveTodoToList failed:", err);
+        setTodos(priorTodos);
+      }
     },
     [todos, setTodos, finalizeMutation],
   );
@@ -301,66 +313,81 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
 
   const deleteTodo = useCallback(
     async (id: string) => {
-      let targetWorkspaceId = selectedWorkspaceId;
-      let toDelete = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
-      if (!toDelete) {
-        for (const [wsId, list] of Object.entries(todos)) {
-          const found = list.find((t) => t.id === id);
-          if (found) {
-            toDelete = found;
-            targetWorkspaceId = wsId;
-            break;
+      if (deletingTaskIdsRef.current.has(id)) return;
+      deletingTaskIdsRef.current.add(id);
+
+      try {
+        let targetWorkspaceId = selectedWorkspaceId;
+        let toDelete = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
+        if (!toDelete) {
+          for (const [wsId, list] of Object.entries(todos)) {
+            const found = list.find((t) => t.id === id);
+            if (found) {
+              toDelete = found;
+              targetWorkspaceId = wsId;
+              break;
+            }
           }
         }
+        if (!toDelete) return;
+        targetWorkspaceId = toDelete.workspaceId || targetWorkspaceId;
+
+        const originalWorkspace =
+          workspaces.find((l) => l.id === targetWorkspaceId)?.name || "Inbox";
+
+        // Optimistically remove from UI state
+        const priorTodos = todos;
+        const updatedTodos: Record<string, Task[]> = {};
+        for (const [wsId, list] of Object.entries(todos)) {
+          updatedTodos[wsId] = list.filter((todo) => todo.id !== id);
+        }
+        setTodos(updatedTodos);
+
+        try {
+          // Delegate repository mutation and side effects to ECS
+          await EntityCommandService.recycleTask(
+            id,
+            targetWorkspaceId,
+            originalWorkspace,
+            { source: "useTaskCrud" }
+          );
+        } catch (e) {
+          console.warn("[useTaskCrud] Failed to recycle task:", e);
+          setTodos(priorTodos);
+          return;
+        }
+
+        pluginManager.dispatchTaskDeleted(id);
+        finalizeMutation();
+
+        showUndo({
+          message: `Deleted "${toDelete.title}"`,
+          onUndo: async () => {
+            try {
+              const restoredTask = await EntityCommandService.restoreTask(id, { skipEvents: true, skipAnalytics: true });
+              
+              setTodos((prevTodos) => {
+                const targetWs = restoredTask.workspaceId;
+                const currentList = prevTodos[targetWs] || [];
+                if (!currentList.some((t) => t.id === restoredTask.id)) {
+                  return {
+                    ...prevTodos,
+                    [targetWs]: [restoredTask, ...currentList],
+                  };
+                }
+                return prevTodos;
+              });
+              
+              finalizeMutation();
+            } catch (e) {
+              console.warn("Failed to restore task", e);
+              showToast("Failed to restore task");
+            }
+          },
+        });
+      } finally {
+        deletingTaskIdsRef.current.delete(id);
       }
-      if (!toDelete) return;
-      targetWorkspaceId = toDelete.workspaceId || targetWorkspaceId;
-
-      const originalWorkspace =
-        workspaces.find((l) => l.id === targetWorkspaceId)?.name || "Inbox";
-
-      // Delegate repository mutation and side effects to ECS
-      await EntityCommandService.recycleTask(
-        id,
-        targetWorkspaceId,
-        originalWorkspace,
-        { source: "useTaskCrud" }
-      );
-
-      const updatedTodos: Record<string, Task[]> = {};
-      for (const [wsId, list] of Object.entries(todos)) {
-        updatedTodos[wsId] = list.filter((todo) => todo.id !== id);
-      }
-      setTodos(updatedTodos);
-
-      pluginManager.dispatchTaskDeleted(id);
-      finalizeMutation();
-
-      showUndo({
-        message: `Deleted "${toDelete.title}"`,
-        onUndo: async () => {
-          try {
-            const restoredTask = await EntityCommandService.restoreTask(id, { skipEvents: true, skipAnalytics: true });
-            
-            setTodos((prevTodos) => {
-              const targetWs = restoredTask.workspaceId;
-              const currentList = prevTodos[targetWs] || [];
-              if (!currentList.some((t) => t.id === restoredTask.id)) {
-                return {
-                  ...prevTodos,
-                  [targetWs]: [restoredTask, ...currentList],
-                };
-              }
-              return prevTodos;
-            });
-            
-            finalizeMutation();
-          } catch (e) {
-            console.warn("Failed to restore task", e);
-            showToast("Failed to restore task");
-          }
-        },
-      });
     },
     [todos, selectedWorkspaceId, setTodos, workspaces, showUndo, showToast, finalizeMutation],
   );
@@ -381,6 +408,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       }
       targetWorkspaceId = targetTask?.workspaceId || targetWorkspaceId;
 
+      const priorTodos = todos;
       const updatedTodos: Record<string, Task[]> = {};
       for (const [wsId, list] of Object.entries(todos)) {
         if (list.some((t) => t.id === todoId)) {
@@ -393,8 +421,13 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       }
       setTodos(updatedTodos);
       
-      await EntityCommandService.updateTask(todoId, targetWorkspaceId, { categoryId: newCategory }, { skipEvents: true });
-      finalizeMutation();
+      try {
+        await EntityCommandService.updateTask(todoId, targetWorkspaceId, { categoryId: newCategory }, { skipEvents: true });
+        finalizeMutation();
+      } catch (err) {
+        console.warn("[useTaskCrud] updateTodoCategory failed:", err);
+        setTodos(priorTodos);
+      }
     },
     [todos, selectedWorkspaceId, setTodos, finalizeMutation],
   );
@@ -484,14 +517,18 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       }
       setTodos(nextTodos);
 
-      for (const task of activeTasks) {
-        const wsId = task.workspaceId || INBOX_WORKSPACE_ID;
-        await EntityCommandService.updateTask(
-          task.id,
-          wsId,
-          { schedule: { ...task.schedule, date: "inbox" } },
-          { source: "tasks_screen", skipAnalytics: true },
-        );
+      try {
+        for (const task of activeTasks) {
+          const wsId = task.workspaceId || INBOX_WORKSPACE_ID;
+          await EntityCommandService.updateTask(
+            task.id,
+            wsId,
+            { schedule: { ...task.schedule, date: "inbox" } },
+            { source: "tasks_screen", skipAnalytics: true },
+          );
+        }
+      } catch (e) {
+        console.warn("[useTaskCrud] saveEarlierForLater failed:", e);
       }
 
       finalizeMutation();

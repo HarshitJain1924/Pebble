@@ -875,6 +875,88 @@ describe("EntityItem Unified Architecture", () => {
       });
       expect(onAddResourceMock).toHaveBeenCalled();
     });
+
+    it("does not commit pending edits when delete button is pressed (prevents resurrection / ghost race)", async () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onSaveTitleMock = jest.fn();
+      const onSaveDescriptionMock = jest.fn();
+      const onDeleteMock = jest.fn();
+      const onCloseMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={onCloseMock}
+            title="Initial Title"
+            description="Initial Desc"
+            onSaveTitle={onSaveTitleMock}
+            onSaveDescription={onSaveDescriptionMock}
+            onDelete={onDeleteMock}
+            testIDPrefix="task"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const titleInput = root.findByProps({ testID: "task-title-input" });
+      // Simulate editing title in draft
+      act(() => {
+        titleInput.props.onChangeText("Edited Title Draft");
+      });
+
+      // Press delete button (and simulate rapid second tap)
+      const deleteButton = root.findByProps({ testID: "task-delete-button" });
+      const onDeletePress = deleteButton.props.onPress;
+      await act(async () => {
+        onDeletePress();
+        onDeletePress();
+        await Promise.resolve();
+      });
+
+      // Verify onDelete was called exactly once, and onSaveTitle was NOT called (no ghost mutation on deleted entity)
+      expect(onDeleteMock).toHaveBeenCalledTimes(1);
+      expect(onSaveTitleMock).not.toHaveBeenCalled();
+      expect(onSaveDescriptionMock).not.toHaveBeenCalled();
+    });
+
+    it("prevents duplicate commits on multiple rapid commit triggers", async () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onSaveTitleMock = jest.fn().mockResolvedValue(undefined);
+      const onCloseMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={onCloseMock}
+            title="Task Title"
+            onSaveTitle={onSaveTitleMock}
+            testIDPrefix="task"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const titleInput = root.findByProps({ testID: "task-title-input" });
+      act(() => {
+        titleInput.props.onChangeText("Task Title Updated");
+      });
+
+      // Simulate closing overlay
+      const overlay = root.findByType(require("@/shared/components/ui/AnimatedOverlay").AnimatedOverlay);
+      await act(async () => {
+        await overlay.props.onClose();
+        // Call a second time as if animation finished after external close
+        await overlay.props.onClose();
+      });
+
+      // onSaveTitle should only have been called once despite multiple close invocations
+      expect(onSaveTitleMock).toHaveBeenCalledTimes(1);
+      expect(onSaveTitleMock).toHaveBeenCalledWith("Task Title Updated");
+    });
   });
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -151,6 +151,12 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
   const [localTitle, setLocalTitle] = useState(title);
   const [localDescription, setLocalDescription] = useState(description);
 
+  // Deletion and commit in-flight guards
+  const isDeletingRef = useRef(false);
+  const isCommittingRef = useRef(false);
+  const lastCommittedTitleRef = useRef<string | null>(null);
+  const lastCommittedDescriptionRef = useRef<string | null>(null);
+
   // Disclosures within the sheet
   const [showPriorityPicker, setShowPriorityPicker] = useState(false);
 
@@ -158,13 +164,25 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
   useEffect(() => {
     setLocalTitle(title);
     setLocalDescription(description || "");
+    if (visible) {
+      isDeletingRef.current = false;
+      lastCommittedTitleRef.current = null;
+      lastCommittedDescriptionRef.current = null;
+    }
   }, [title, description, visible]);
 
   const commitTitleIfChanged = useCallback(async () => {
+    if (isDeletingRef.current) return;
     const trimmed = localTitle.trim();
-    if (trimmed && trimmed !== title && onSaveTitle) {
+    if (
+      trimmed &&
+      trimmed !== title &&
+      trimmed !== lastCommittedTitleRef.current &&
+      onSaveTitle
+    ) {
       try {
         await onSaveTitle(trimmed);
+        lastCommittedTitleRef.current = trimmed;
       } catch (e) {
         console.warn("[EntityQuickEditSheet] Failed to save title:", e);
       }
@@ -172,11 +190,17 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
   }, [localTitle, title, onSaveTitle]);
 
   const commitDescriptionIfChanged = useCallback(async () => {
+    if (isDeletingRef.current) return;
     const trimmed = localDescription.trim();
     const current = (description || "").trim();
-    if (trimmed !== current && onSaveDescription) {
+    if (
+      trimmed !== current &&
+      trimmed !== lastCommittedDescriptionRef.current &&
+      onSaveDescription
+    ) {
       try {
         await onSaveDescription(trimmed);
+        lastCommittedDescriptionRef.current = trimmed;
       } catch (e) {
         console.warn("[EntityQuickEditSheet] Failed to save description:", e);
       }
@@ -184,11 +208,19 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
   }, [localDescription, description, onSaveDescription]);
 
   const commitPendingEdits = useCallback(async () => {
-    await Promise.all([commitTitleIfChanged(), commitDescriptionIfChanged()]);
+    if (isDeletingRef.current || isCommittingRef.current) return;
+    isCommittingRef.current = true;
+    try {
+      await Promise.all([commitTitleIfChanged(), commitDescriptionIfChanged()]);
+    } finally {
+      isCommittingRef.current = false;
+    }
   }, [commitTitleIfChanged, commitDescriptionIfChanged]);
 
   const handleClose = useCallback(async () => {
-    await commitPendingEdits();
+    if (!isDeletingRef.current) {
+      await commitPendingEdits();
+    }
     setShowPriorityPicker(false);
     onClose();
   }, [commitPendingEdits, onClose]);
@@ -241,9 +273,10 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
 
             {onDelete && (
               <PressableScale
-                onPress={async () => {
+                onPress={() => {
+                  if (isDeletingRef.current) return;
+                  isDeletingRef.current = true;
                   Keyboard.dismiss();
-                  await commitPendingEdits();
                   close();
                   onDelete();
                 }}
@@ -550,6 +583,7 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
               {onPressReminder && (
                 <PressableScale
                   onPress={async () => {
+                    if (isDeletingRef.current) return;
                     Keyboard.dismiss();
                     await commitPendingEdits();
                     close();
@@ -598,6 +632,7 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
               {onPressSchedule && (
                 <PressableScale
                   onPress={async () => {
+                    if (isDeletingRef.current) return;
                     Keyboard.dismiss();
                     await commitPendingEdits();
                     close();
@@ -712,6 +747,7 @@ export const EntityQuickEditSheet: React.FC<EntityQuickEditSheetProps> = ({
           {onOpenFullDetails && (
             <PressableScale
               onPress={async () => {
+                if (isDeletingRef.current) return;
                 Keyboard.dismiss();
                 await commitPendingEdits();
                 close();
