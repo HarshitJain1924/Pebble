@@ -32,22 +32,32 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
   const { todos, setTodos, selectedWorkspaceId, workspaces, showUndo, showToast } = deps;
   const deletingTaskIdsRef = useRef<Set<string>>(new Set());
   const todosRef = useRef(todos);
-  todosRef.current = todos;
+  const prevTodosPropRef = useRef(todos);
+  if (prevTodosPropRef.current !== todos) {
+    prevTodosPropRef.current = todos;
+    todosRef.current = todos;
+  }
   const taskMutationChainsRef = useRef<Map<string, Promise<any>>>(new Map());
 
   /**
    * Updates state targetedly and keeps todosRef.current synchronously updated
    * so chained/microtask mutations immediately observe optimistic changes.
-   * Evaluates the pure updater once against current in-memory state and updates
+   * Evaluates the pure updater synchronously against current in-memory state and updates
    * both todosRef.current and React state deterministically.
    */
   const updateTodosTargeted = useCallback(
     (updater: (prev: Record<string, Task[]>) => Record<string, Task[]>) => {
+      // 1. Synchronously update todosRef.current so immediate subsequent reads see the optimistic change
+      const next = updater(todosRef.current);
+      todosRef.current = next;
+
+      // 2. Dispatch functional update to React to commit to UI state
       setTodos((prev) => {
-        const next = updater(prev);
-        todosRef.current = next;
-        return next;
+        const reconciled = updater(prev);
+        todosRef.current = reconciled;
+        return reconciled;
       });
+      return next;
     },
     [setTodos],
   );

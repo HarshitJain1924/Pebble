@@ -184,8 +184,12 @@ export function WorkspaceModal({
         setTodos((prev) => ({ ...prev, [newId]: [] }));
         setSelectedWorkspaceId(newId);
 
-        const { UiStateRepository } = await import("@/repositories");
-        await UiStateRepository.saveUiState({ activeWorkspaceId: newId });
+        try {
+          const { UiStateRepository } = await import("@/repositories");
+          await UiStateRepository.saveUiState({ activeWorkspaceId: newId });
+        } catch (uiErr) {
+          console.warn("[WorkspaceModal] Ancillary saveUiState failed after workspace creation:", uiErr);
+        }
 
         emitStateChange("workspace_changed", "tasks_screen");
         emitStateChange("tasks_changed", "tasks_screen");
@@ -235,16 +239,33 @@ export function WorkspaceModal({
             const workspace = workspaces.find((l) => l.id === editingWorkspaceId);
             if (!workspace) return;
 
+            let deleteCommitted = false;
             try {
               const { EntityCommandService } = await import("@/services/command/EntityCommandService");
               await EntityCommandService.deleteWorkspace(editingWorkspaceId);
+              deleteCommitted = true;
             } catch (e) {
-              console.warn("[WorkspaceModal] Failed to delete workspace via ECS:", e);
-              Alert.alert("Delete Failed", "Failed to delete workspace. Please try again.");
-              return;
+              console.warn("[WorkspaceModal] deleteWorkspace threw:", e);
+              try {
+                const { WorkspaceRepository } = await import("@/repositories");
+                const remainingWorkspaces = await WorkspaceRepository.getWorkspaces();
+                const isStillPresent = remainingWorkspaces.some((w) => w.id === editingWorkspaceId);
+
+                if (isStillPresent) {
+                  Alert.alert("Delete Failed", "Failed to delete workspace. Please try again.");
+                  return;
+                }
+                // Partial success: primary entity delete committed, but ancillary cleanup threw
+                deleteCommitted = true;
+              } catch (repoErr) {
+                Alert.alert("Delete Failed", "Failed to delete workspace. Please try again.");
+                return;
+              }
             }
 
-            // On successful deletion, reconcile local workspace/task/habit state from authoritative repository data
+            if (!deleteCommitted) return;
+
+            // Reconcile local workspace/task/habit state from authoritative outcome
             const updatedWorkspaces = workspaces.filter((l) => l.id !== editingWorkspaceId);
             const fallbackList = updatedWorkspaces.find((w) => !w.archivedAt)?.id || INBOX_WORKSPACE_ID;
 
@@ -264,8 +285,12 @@ export function WorkspaceModal({
               setActiveWorkspaceId(null);
             }
 
-            const { UiStateRepository } = await import("@/repositories");
-            await UiStateRepository.saveUiState({ activeWorkspaceId: fallbackList });
+            try {
+              const { UiStateRepository } = await import("@/repositories");
+              await UiStateRepository.saveUiState({ activeWorkspaceId: fallbackList });
+            } catch (uiErr) {
+              console.warn("[WorkspaceModal] Ancillary saveUiState failed after delete reconciliation:", uiErr);
+            }
 
             emitStateChange("tasks_changed", "tasks_screen");
             emitStateChange("habits_changed", "tasks_screen");

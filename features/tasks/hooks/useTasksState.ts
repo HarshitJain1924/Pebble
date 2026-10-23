@@ -1206,32 +1206,20 @@ export function useTasksState() {
           await loadState();
           emitStateChange("tasks_changed", "tasks_screen");
         } else {
-          // Persistence succeeded — reflect the move in local UI state.
-          const nextTodos = { ...todos };
-          const itemsToMove: Task[] = [];
-          for (const listId in nextTodos) {
-            const itemsToKeep: Task[] = [];
-            nextTodos[listId].forEach((t) => {
-              if (selectedItemIds.has(t.id)) {
-                itemsToMove.push({
-                  ...t,
-                  workspaceId: targetWorkspaceId,
-                  updatedAt: Date.now(),
-                });
-              } else {
-                itemsToKeep.push(t);
-              }
-            });
-            nextTodos[listId] = itemsToKeep;
+          // Persistence succeeded — reload affected partitions after persistence to ensure authoritative state
+          const affectedWorkspaceIds = new Set<string>([targetWorkspaceId]);
+          movesToExecute.forEach((m) => affectedWorkspaceIds.add(m.oldWorkspaceId));
+
+          const reloadedPartitions: Record<string, Task[]> = {};
+          for (const wsId of affectedWorkspaceIds) {
+            const tasksMap = await TaskRepository.getTasks(wsId);
+            reloadedPartitions[wsId] = Object.values(tasksMap);
           }
-          if (!nextTodos[targetWorkspaceId]) {
-            nextTodos[targetWorkspaceId] = [];
-          }
-          nextTodos[targetWorkspaceId] = [
-            ...itemsToMove,
-            ...nextTodos[targetWorkspaceId],
-          ];
-          setTodos(nextTodos);
+
+          setTodos((prev) => ({
+            ...prev,
+            ...reloadedPartitions,
+          }));
           emitStateChange("tasks_changed", "tasks_screen");
         }
       }
@@ -1283,13 +1271,8 @@ export function useTasksState() {
           await loadHabits();
           emitStateChange("habits_changed", "tasks_screen");
         } else {
-          // Persistence succeeded — reflect the move in local UI state.
-          const nextHabits = habits.map((h) =>
-            selectedItemIds.has(h.id)
-              ? { ...h, workspaceId: targetWorkspaceId, updatedAt: Date.now() }
-              : h,
-          );
-          setHabits(nextHabits);
+          // Persistence succeeded — reload habits from repository to ensure authoritative state
+          await loadHabits();
           emitStateChange("habits_changed", "tasks_screen");
         }
       }

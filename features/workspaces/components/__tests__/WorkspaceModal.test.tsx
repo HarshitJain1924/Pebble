@@ -22,7 +22,9 @@ jest.mock("@/repositories", () => ({
   UiStateRepository: {
     saveUiState: jest.fn(async () => undefined),
   },
-  WorkspaceRepository: {},
+  WorkspaceRepository: {
+    getWorkspaces: jest.fn(async () => existingWorkspaces),
+  },
   TaskRepository: {},
   HabitRepository: {},
 }));
@@ -377,4 +379,196 @@ describe("WorkspaceModal — Regression tests", () => {
       "Failed to delete workspace. Please try again.",
     );
   });
+
+  test("Create flow — Entity command failure before commit: halts flow, preserves state, alerts Save Failed", async () => {
+    const alertSpy = jest.spyOn(Alert, "alert");
+    (EntityCommandService.createWorkspace as jest.Mock).mockRejectedValueOnce(
+      new Error("Disk full or lock timeout before commit"),
+    );
+
+    const onClose = jest.fn();
+    const setWorkspaces = jest.fn();
+    const setTodos = jest.fn();
+    const setSelectedWorkspaceId = jest.fn();
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(
+        <WorkspaceModal
+          visible={true}
+          onClose={onClose}
+          editingWorkspaceId={null}
+          workspaces={existingWorkspaces}
+          setWorkspaces={setWorkspaces}
+          todos={existingTodos}
+          setTodos={setTodos}
+          selectedWorkspaceId="ws-1"
+          setSelectedWorkspaceId={setSelectedWorkspaceId}
+          activeWorkspaceId="ws-1"
+          setActiveWorkspaceId={jest.fn()}
+          habits={existingHabits}
+          setHabits={jest.fn()}
+        />,
+      );
+    });
+
+    const textInput = findTextInput(renderer.root);
+    expect(textInput).toBeDefined();
+    await act(async () => {
+      textInput.props.onChangeText("Failed Workspace");
+    });
+
+    const saveButton = findButtonByText(renderer.root, "Create Workspace");
+    await act(async () => {
+      await saveButton.props.onPress();
+    });
+
+    expect(EntityCommandService.createWorkspace).toHaveBeenCalledTimes(1);
+    expect(alertSpy).toHaveBeenCalledWith(
+      "Save Failed",
+      "Failed to save workspace. Please try again.",
+    );
+    expect(setWorkspaces).not.toHaveBeenCalled();
+    expect(setTodos).not.toHaveBeenCalled();
+    expect(setSelectedWorkspaceId).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("Create flow — UI-state write failure after successful creation: commits workspace entity and UI state truthfully without false error", async () => {
+    const alertSpy = jest.spyOn(Alert, "alert");
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    (EntityCommandService.createWorkspace as jest.Mock).mockResolvedValueOnce(undefined);
+    const { UiStateRepository } = require("@/repositories");
+    (UiStateRepository.saveUiState as jest.Mock).mockRejectedValueOnce(
+      new Error("Ancillary UI storage write failure"),
+    );
+
+    const onClose = jest.fn();
+    const setWorkspaces = jest.fn();
+    const setTodos = jest.fn();
+    const setSelectedWorkspaceId = jest.fn();
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(
+        <WorkspaceModal
+          visible={true}
+          onClose={onClose}
+          editingWorkspaceId={null}
+          workspaces={existingWorkspaces}
+          setWorkspaces={setWorkspaces}
+          todos={existingTodos}
+          setTodos={setTodos}
+          selectedWorkspaceId="ws-1"
+          setSelectedWorkspaceId={setSelectedWorkspaceId}
+          activeWorkspaceId="ws-1"
+          setActiveWorkspaceId={jest.fn()}
+          habits={existingHabits}
+          setHabits={jest.fn()}
+        />,
+      );
+    });
+
+    const textInput = findTextInput(renderer.root);
+    expect(textInput).toBeDefined();
+    await act(async () => {
+      textInput.props.onChangeText("Design Team");
+    });
+
+    const saveButton = findButtonByText(renderer.root, "Create Workspace");
+    await act(async () => {
+      await saveButton.props.onPress();
+    });
+
+    // Primary entity creation succeeded
+    expect(EntityCommandService.createWorkspace).toHaveBeenCalledTimes(1);
+    expect(setWorkspaces).toHaveBeenCalledTimes(1);
+    expect(setTodos).toHaveBeenCalledTimes(1);
+    expect(setSelectedWorkspaceId).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // CRITICAL: Must NOT show "Save Failed" alert or prompt duplicate retry
+    expect(alertSpy).not.toHaveBeenCalledWith(
+      "Save Failed",
+      expect.anything(),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  test("Delete flow — Cleanup failure after primary delete committed: reconciles local state, closes modal, and shows undo toast truthfully", async () => {
+    const alertSpy = jest.spyOn(Alert, "alert");
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    // deleteWorkspace throws secondary cleanup failure after primary commit
+    (EntityCommandService.deleteWorkspace as jest.Mock).mockRejectedValueOnce(
+      new Error("Workspace deleted, but some related data could not be fully cleaned up."),
+    );
+
+    // WorkspaceRepository confirms the workspace is indeed NO LONGER present
+    const { WorkspaceRepository } = require("@/repositories");
+    (WorkspaceRepository.getWorkspaces as jest.Mock).mockResolvedValueOnce([
+      existingWorkspaces[1], // Only ws-2 remains
+    ]);
+
+    const onClose = jest.fn();
+    const setWorkspaces = jest.fn();
+    const setTodos = jest.fn();
+    const setHabits = jest.fn();
+    const setSelectedWorkspaceId = jest.fn();
+    const setActiveWorkspaceId = jest.fn();
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(
+        <WorkspaceModal
+          visible={true}
+          onClose={onClose}
+          editingWorkspaceId="ws-1"
+          workspaces={existingWorkspaces}
+          setWorkspaces={setWorkspaces}
+          todos={existingTodos}
+          setTodos={setTodos}
+          selectedWorkspaceId="ws-1"
+          setSelectedWorkspaceId={setSelectedWorkspaceId}
+          activeWorkspaceId="ws-1"
+          setActiveWorkspaceId={setActiveWorkspaceId}
+          habits={existingHabits}
+          setHabits={setHabits}
+        />,
+      );
+    });
+
+    const deleteButton = findButtonByText(renderer.root, "Delete");
+    await act(async () => {
+      deleteButton.props.onPress();
+    });
+
+    const alertButtons = alertSpy.mock.calls[0][2] as any[];
+    const confirmDeleteBtn = alertButtons.find((b) => b.text === "Delete");
+
+    await act(async () => {
+      await confirmDeleteBtn.onPress();
+    });
+
+    // Reconciles local state truthfully despite secondary cleanup failure
+    expect(setWorkspaces).toHaveBeenCalledWith([existingWorkspaces[1]]);
+    expect(setHabits).toHaveBeenCalledTimes(1);
+    expect(setSelectedWorkspaceId).toHaveBeenCalledWith("ws-2");
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Shows Undo Toast wired to restore
+    expect(mockShowUndo).toHaveBeenCalledTimes(1);
+    expect(mockShowUndo.mock.calls[0][0].message).toContain("Engineering");
+
+    // Must NOT alert "Delete Failed" because the workspace was actually deleted
+    expect(alertSpy).not.toHaveBeenCalledWith(
+      "Delete Failed",
+      expect.anything(),
+    );
+
+    warnSpy.mockRestore();
+  });
 });
+

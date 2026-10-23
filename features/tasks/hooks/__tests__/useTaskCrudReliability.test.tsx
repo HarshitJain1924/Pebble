@@ -436,6 +436,136 @@ describe("useTaskCrud Reliability & Crash Prevention Regression Tests", () => {
     warnSpy.mockRestore();
   });
 
+  it("synchronization: two rapid title updates to the same task preserve monotonic ordering without lost updates", async () => {
+    (EntityCommandService.updateTask as jest.Mock).mockResolvedValue(undefined);
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask }],
+    });
+
+    let p1: Promise<any> | undefined;
+    let p2: Promise<any> | undefined;
+
+    act(() => {
+      p1 = ref.current?.updateTodoTitle("task-100", "Title Step 1");
+      p2 = ref.current?.updateTodoTitle("task-100", "Title Step 2");
+    });
+
+    await act(async () => {
+      await Promise.all([p1, p2]);
+    });
+
+    // Final state commits Title Step 2 (no lost update from stale todosRef)
+    expect(ref.todos["ws-1"][0].title).toBe("Title Step 2");
+    expect(EntityCommandService.updateTask).toHaveBeenNthCalledWith(
+      1,
+      "task-100",
+      "ws-1",
+      { title: "Title Step 1" },
+      { skipEvents: true }
+    );
+    expect(EntityCommandService.updateTask).toHaveBeenNthCalledWith(
+      2,
+      "task-100",
+      "ws-1",
+      { title: "Title Step 2" },
+      { skipEvents: true }
+    );
+  });
+
+  it("synchronization: rapid completion and update operations on the same task sequence deterministically", async () => {
+    (EntityCommandService.completeTask as jest.Mock).mockResolvedValueOnce({
+      updated: { ...initialTask, status: "completed", completedAt: 1234 },
+    });
+    (EntityCommandService.uncompleteTask as jest.Mock).mockResolvedValueOnce({
+      updated: { ...initialTask, status: "todo", completedAt: undefined },
+    });
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask }],
+    });
+
+    let pToggle1: Promise<any> | undefined;
+    let pToggle2: Promise<any> | undefined;
+
+    act(() => {
+      pToggle1 = ref.current?.toggleTodo("task-100");
+      pToggle2 = ref.current?.toggleTodo("task-100");
+    });
+
+    await act(async () => {
+      await Promise.all([pToggle1, pToggle2]);
+    });
+
+    // First toggle completed, second toggle uncompleted (read authoritative synced state)
+    expect(EntityCommandService.completeTask).toHaveBeenCalledTimes(1);
+    expect(EntityCommandService.uncompleteTask).toHaveBeenCalledTimes(1);
+    expect(ref.todos["ws-1"][0].status).toBe("todo");
+  });
+
+  it("synchronization: concurrent updates to different tasks commit independently without cross-task clobbering", async () => {
+    (EntityCommandService.updateTask as jest.Mock).mockResolvedValue(undefined);
+
+    const task200: Task = {
+      ...initialTask,
+      id: "task-200",
+      title: "Initial Title 200",
+    };
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask }, { ...task200 }],
+    });
+
+    let pA: Promise<any> | undefined;
+    let pB: Promise<any> | undefined;
+
+    act(() => {
+      pA = ref.current?.updateTodoTitle("task-100", "Concurrent Title A");
+      pB = ref.current?.updateTodoTitle("task-200", "Concurrent Title B");
+    });
+
+    await act(async () => {
+      await Promise.all([pA, pB]);
+    });
+
+    const t100 = ref.todos["ws-1"].find((t) => t.id === "task-100");
+    const t200 = ref.todos["ws-1"].find((t) => t.id === "task-200");
+
+    expect(t100?.title).toBe("Concurrent Title A");
+    expect(t200?.title).toBe("Concurrent Title B");
+  });
+
+  it("synchronization: a failed mutation followed by a successful mutation on the same task rolls back cleanly and allows recovery", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    // First update fails, second update succeeds
+    (EntityCommandService.updateTask as jest.Mock)
+      .mockRejectedValueOnce(new Error("Network glitch"))
+      .mockResolvedValueOnce(undefined);
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask }],
+    });
+
+    let pFail: Promise<any> | undefined;
+    let pSuccess: Promise<any> | undefined;
+
+    act(() => {
+      pFail = ref.current?.updateTodoTitle("task-100", "Failing Title");
+      pSuccess = ref.current?.updateTodoTitle("task-100", "Valid Recovered Title");
+    });
+
+    await act(async () => {
+      await Promise.all([pFail, pSuccess]);
+    });
+
+    // Final title is the recovered valid title, not corrupted by first rollback
+    expect(ref.todos["ws-1"][0].title).toBe("Valid Recovered Title");
+    expect(EntityCommandService.updateTask).toHaveBeenCalledTimes(2);
+
+    warnSpy.mockRestore();
+  });
+
   it("TaskDatePickerModal returns null when visible is false (prevents native window leak)", () => {
     let renderer: any;
     act(() => {

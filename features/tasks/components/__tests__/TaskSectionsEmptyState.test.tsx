@@ -22,6 +22,15 @@ const mockWorkspaces: Workspace[] = [
 ];
 
 describe("TaskSections Empty State Regression Suite (Phase 1C)", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-10-15T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   const upcomingTask: Task = {
     id: "task-upcoming-1",
     workspaceId: "ws-1",

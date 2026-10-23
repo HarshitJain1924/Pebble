@@ -367,4 +367,47 @@ describe("useTasksState.handleBulkMove — task persistence and failure safety (
       unmount();
     }
   });
+
+  test("authoritative consistency: local state precisely reflects persisted revision and updatedAt after successful bulk move", async () => {
+    // Initial task with known revision=1 and timestamp=1000
+    const sourceTask = task("t-rev-check", "ws-1");
+    sourceTask.revision = 1;
+    sourceTask.updatedAt = 1000;
+    await TaskRepository.saveTask(sourceTask);
+
+    const { api, unmount } = await mountHook();
+    try {
+      await act(async () => {
+        await api().loadState();
+      });
+
+      expect(api().todos["ws-1"]?.[0]?.id).toBe("t-rev-check");
+      expect(api().todos["ws-1"]?.[0]?.revision).toBe(1);
+
+      act(() => {
+        api().setIsBulkSelectActive(true);
+        api().setSelectedItemIds(new Set(["t-rev-check"]));
+      });
+
+      await act(async () => {
+        await api().handleBulkMove("ws-2");
+      });
+
+      // Fetch persisted record from repository
+      const ws2Tasks = await TaskRepository.getTasks("ws-2");
+      const persistedRecord = ws2Tasks["t-rev-check"];
+      expect(persistedRecord).toBeDefined();
+      expect(persistedRecord.revision).toBe(1);
+
+      // Verify local in-memory UI state matches persisted reality authoritatively
+      const localTask = api().todos["ws-2"].find((t) => t.id === "t-rev-check");
+      expect(localTask).toBeDefined();
+      expect(localTask?.workspaceId).toBe("ws-2");
+      expect(localTask?.revision).toBe(persistedRecord.revision);
+      expect(localTask?.updatedAt).toBe(persistedRecord.updatedAt);
+    } finally {
+      unmount();
+    }
+  });
 });
+
