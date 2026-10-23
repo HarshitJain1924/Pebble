@@ -15,6 +15,8 @@ jest.mock("@/services/command/EntityCommandService", () => ({
     clearCompletedTasks: jest.fn(),
     reorderTasks: jest.fn(),
     reorderWorkspaces: jest.fn(),
+    completeTask: jest.fn(),
+    uncompleteTask: jest.fn(),
   },
 }));
 
@@ -257,6 +259,145 @@ describe("useTaskCrud Reliability & Crash Prevention Regression Tests", () => {
     warnSpy.mockRestore();
   });
 
+  it("handles concurrent completion and uncompletion of the same task deterministically without race conditions", async () => {
+    let completeCallOrder = 0;
+    let uncompleteCallOrder = 0;
+    let sequenceCounter = 0;
+
+    (EntityCommandService.completeTask as jest.Mock).mockImplementation(async (id: string, wsId: string) => {
+      sequenceCounter++;
+      completeCallOrder = sequenceCounter;
+      return {
+        updated: { ...initialTask, status: "completed", completedAt: 1000 },
+      };
+    });
+
+    (EntityCommandService.uncompleteTask as jest.Mock).mockImplementation(async (id: string, wsId: string) => {
+      sequenceCounter++;
+      uncompleteCallOrder = sequenceCounter;
+      return {
+        updated: { ...initialTask, status: "todo", completedAt: undefined },
+      };
+    });
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask, status: "todo" }],
+    });
+
+    let p1: Promise<any> | undefined;
+    let p2: Promise<any> | undefined;
+
+    // Trigger toggle (complete) and immediate toggle (uncomplete) concurrently on the same task
+    act(() => {
+      p1 = ref.current?.toggleTodo("task-100");
+      p2 = ref.current?.toggleTodo("task-100");
+    });
+
+    await act(async () => {
+      await Promise.all([p1, p2]);
+    });
+
+    // Verify operations executed in strict sequence
+    expect(completeCallOrder).toBe(1);
+    expect(uncompleteCallOrder).toBe(2);
+    expect(EntityCommandService.completeTask).toHaveBeenCalledWith(
+      "task-100",
+      "ws-1",
+      expect.anything()
+    );
+    expect(EntityCommandService.uncompleteTask).toHaveBeenCalledWith(
+      "task-100",
+      "ws-1",
+      expect.anything()
+    );
+
+    // Final state must deterministically be uncompleted ("todo")
+    expect(ref.todos["ws-1"][0].status).toBe("todo");
+    expect(ref.todos["ws-1"][0].completedAt).toBeUndefined();
+  });
+
+  it("targeted rollback: failure in updateTodoTitle does NOT overwrite concurrent changes to other tasks", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    (EntityCommandService.updateTask as jest.Mock).mockImplementation(async (id: string) => {
+      if (id === "task-100") {
+        throw new Error("Simulated storage error on task-100");
+      }
+      return undefined;
+    });
+
+    const task200: Task = {
+      ...initialTask,
+      id: "task-200",
+      title: "Task Two",
+    };
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask }, { ...task200 }],
+    });
+
+    // 1. Concurrently edit task-100 (which will fail) and edit task-200 (which succeeds)
+    let p1: Promise<any> | undefined;
+    let p2: Promise<any> | undefined;
+
+    act(() => {
+      p1 = ref.current?.updateTodoTitle("task-100", "Failed Title Edit");
+      p2 = ref.current?.updateTodoTitle("task-200", "Successful Title Edit");
+    });
+
+    await act(async () => {
+      await Promise.all([p1, p2]);
+    });
+
+    // Task-100 rolls back to original title "Test Task"
+    const finalTask100 = ref.todos["ws-1"].find((t) => t.id === "task-100");
+    expect(finalTask100?.title).toBe("Test Task");
+
+    // Task-200 RETAINS its updated title "Successful Title Edit" — NOT overwritten by task-100 rollback!
+    const finalTask200 = ref.todos["ws-1"].find((t) => t.id === "task-200");
+    expect(finalTask200?.title).toBe("Successful Title Edit");
+
+    warnSpy.mockRestore();
+  });
+
+  it("targeted rollback: failure in deleteTodo does NOT overwrite concurrent changes to other tasks", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    (EntityCommandService.recycleTask as jest.Mock).mockRejectedValueOnce(
+      new Error("Simulated recycle failure")
+    );
+
+    const task200: Task = {
+      ...initialTask,
+      id: "task-200",
+      title: "Task Two",
+    };
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask }, { ...task200 }],
+    });
+
+    // Concurrently delete task-100 (which will fail) and edit task-200 (which will succeed)
+    let pDelete: Promise<any> | undefined;
+    let pEdit: Promise<any> | undefined;
+
+    act(() => {
+      pDelete = ref.current?.deleteTodo("task-100");
+      pEdit = ref.current?.updateTodoTitle("task-200", "Task Two Mutated");
+    });
+
+    await act(async () => {
+      await Promise.all([pDelete, pEdit]);
+    });
+
+    // Task-100 rollback re-inserts it into state
+    expect(ref.todos["ws-1"].some((t) => t.id === "task-100")).toBe(true);
+
+    // Task-200 mutation is preserved
+    const finalTask200 = ref.todos["ws-1"].find((t) => t.id === "task-200");
+    expect(finalTask200?.title).toBe("Task Two Mutated");
+
+    warnSpy.mockRestore();
+  });
+
   it("TaskDatePickerModal returns null when visible is false (prevents native window leak)", () => {
     let renderer: any;
     act(() => {
@@ -275,3 +416,4 @@ describe("useTaskCrud Reliability & Crash Prevention Regression Tests", () => {
     expect(renderer.toJSON()).toBeNull();
   });
 });
+

@@ -31,6 +31,63 @@ export interface UseTaskCrudDeps {
 export function useTaskCrud(deps: UseTaskCrudDeps) {
   const { todos, setTodos, selectedWorkspaceId, workspaces, showUndo, showToast } = deps;
   const deletingTaskIdsRef = useRef<Set<string>>(new Set());
+  const todosRef = useRef(todos);
+  todosRef.current = todos;
+  const taskMutationChainsRef = useRef<Map<string, Promise<any>>>(new Map());
+
+  /**
+   * Updates state targetedly and keeps todosRef.current synchronously updated
+   * so chained/microtask mutations immediately observe optimistic changes.
+   */
+  const updateTodosTargeted = useCallback(
+    (updater: (prev: Record<string, Task[]>) => Record<string, Task[]>) => {
+      const next = updater(todosRef.current);
+      todosRef.current = next;
+      setTodos((prev) => updater(prev));
+    },
+    [setTodos],
+  );
+
+  /**
+   * Serializes mutations strictly per-task ID.
+   * Mutations on distinct tasks run completely concurrently without blocking.
+   */
+  const runTaskMutation = useCallback(<T>(taskId: string, fn: () => Promise<T>): Promise<T> => {
+    const currentChain = taskMutationChainsRef.current.get(taskId) ?? Promise.resolve();
+    const nextChain = currentChain.then(fn, fn);
+    taskMutationChainsRef.current.set(taskId, nextChain);
+    nextChain.finally(() => {
+      if (taskMutationChainsRef.current.get(taskId) === nextChain) {
+        taskMutationChainsRef.current.delete(taskId);
+      }
+    });
+    return nextChain;
+  }, []);
+
+  /**
+   * Helper to find a task and its workspace in a given todos map.
+   */
+  const findTask = useCallback(
+    (id: string, sourceTodos: Record<string, Task[]>, defaultWorkspaceId: string) => {
+      let targetWorkspaceId = defaultWorkspaceId;
+      let targetTask = (sourceTodos[defaultWorkspaceId] ?? []).find((t) => t.id === id);
+      if (!targetTask) {
+        for (const [wsId, list] of Object.entries(sourceTodos)) {
+          const found = list.find((t) => t.id === id);
+          if (found) {
+            targetTask = found;
+            targetWorkspaceId = wsId;
+            break;
+          }
+        }
+      }
+      if (targetTask?.workspaceId) {
+        targetWorkspaceId = targetTask.workspaceId;
+      }
+      return { targetTask, targetWorkspaceId };
+    },
+    [],
+  );
 
   // ── Focused Persistence Helpers ────────────────────────────────────────
 
@@ -108,19 +165,19 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         priority: newTask.priority || "none",
       };
 
-      const listTodos = todos[targetWorkspaceId] ?? [];
-      const updatedTodos = {
-        ...todos,
-        [targetWorkspaceId]: [taskWithCreatedAt, ...listTodos],
-      };
-      setTodos(updatedTodos);
+      // Targeted optimistic addition
+      updateTodosTargeted((prev) => {
+        const listTodos = prev[targetWorkspaceId] ?? [];
+        return {
+          ...prev,
+          [targetWorkspaceId]: [taskWithCreatedAt, ...listTodos.filter((t) => t.id !== taskWithCreatedAt.id)],
+        };
+      });
 
       const wsName =
         workspaces.find((l) => l.id === targetWorkspaceId)?.name || "My Pebbles";
       showToast(`✓ Task added to ${wsName}`);
 
-      // Persist via ECS: creates the task, then persist non-task state separately.
-      // persistTaskState is intentionally skipped — ECS already persisted the entity.
       try {
         await EntityCommandService.createTask(taskWithCreatedAt, targetWorkspaceId, {
           skipEvents: true,
@@ -131,305 +188,313 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         recordAnalyticsSnapshot();
       } catch (e) {
         console.warn("Failed to persist current state:", e);
+        // Targeted rollback: remove the failed new task without touching concurrent mutations
+        updateTodosTargeted((prev) => {
+          const listTodos = prev[targetWorkspaceId] ?? [];
+          return {
+            ...prev,
+            [targetWorkspaceId]: listTodos.filter((t) => t.id !== taskWithCreatedAt.id),
+          };
+        });
+        return;
       }
 
       finalizeMutation();
-
       pluginManager.dispatchTaskCreated(taskWithCreatedAt);
     },
     [
-      todos,
-      setTodos,
+      updateTodosTargeted,
       selectedWorkspaceId,
       workspaces,
       showToast,
       persistUiState,
       persistWorkspaceState,
       recordAnalyticsSnapshot,
+      finalizeMutation,
     ],
   );
 
   const updateTodoTitle = useCallback(
-    async (id: string, newTitle: string) => {
-      let targetWorkspaceId = selectedWorkspaceId;
-      let targetTask = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
-      if (!targetTask) {
-        for (const [wsId, list] of Object.entries(todos)) {
-          const found = list.find((t) => t.id === id);
-          if (found) {
-            targetTask = found;
-            targetWorkspaceId = wsId;
-            break;
-          }
-        }
-      }
-      if (!targetTask) return;
-      targetWorkspaceId = targetTask.workspaceId || targetWorkspaceId;
+    (id: string, newTitle: string) => {
+      return runTaskMutation(id, async () => {
+        const { targetTask, targetWorkspaceId } = findTask(id, todosRef.current, selectedWorkspaceId);
+        if (!targetTask) return;
+        const previousTitle = targetTask.title;
 
-      const priorTodos = todos;
-      const updatedTodos: Record<string, Task[]> = {};
-      for (const [wsId, list] of Object.entries(todos)) {
-        if (list.some((t) => t.id === id)) {
-          updatedTodos[wsId] = list.map((todo) =>
-            todo.id === id
-              ? { ...todo, title: newTitle, updatedAt: Date.now() }
-              : todo,
-          );
-        } else {
-          updatedTodos[wsId] = list;
+        // Targeted optimistic update
+        updateTodosTargeted((prev) => {
+          const list = prev[targetWorkspaceId] ?? [];
+          return {
+            ...prev,
+            [targetWorkspaceId]: list.map((todo) =>
+              todo.id === id ? { ...todo, title: newTitle, updatedAt: Date.now() } : todo,
+            ),
+          };
+        });
+
+        try {
+          await EntityCommandService.updateTask(id, targetWorkspaceId, { title: newTitle }, { skipEvents: true });
+          finalizeMutation();
+        } catch (err) {
+          console.warn("[useTaskCrud] updateTodoTitle failed:", err);
+          // Targeted rollback: revert ONLY this task's title without touching other tasks
+          updateTodosTargeted((prev) => {
+            const list = prev[targetWorkspaceId] ?? [];
+            return {
+              ...prev,
+              [targetWorkspaceId]: list.map((todo) =>
+                todo.id === id ? { ...todo, title: previousTitle, updatedAt: Date.now() } : todo,
+              ),
+            };
+          });
         }
-      }
-      setTodos(updatedTodos);
-      
-      try {
-        await EntityCommandService.updateTask(id, targetWorkspaceId, { title: newTitle }, { skipEvents: true });
-        finalizeMutation();
-      } catch (err) {
-        console.warn("[useTaskCrud] updateTodoTitle failed:", err);
-        setTodos(priorTodos);
-      }
+      });
     },
-    [todos, selectedWorkspaceId, setTodos, finalizeMutation],
+    [runTaskMutation, findTask, selectedWorkspaceId, updateTodosTargeted, finalizeMutation],
   );
 
   const moveTodoToList = useCallback(
-    async (todoId: string, fromListId: string, toListId: string) => {
-      const sourceTodos = todos[fromListId] ?? [];
-      const targetTodos = todos[toListId] ?? [];
-      const todoToMove = sourceTodos.find((t) => t.id === todoId);
-      if (!todoToMove) return;
+    (todoId: string, fromListId: string, toListId: string) => {
+      return runTaskMutation(todoId, async () => {
+        const currentFrom = todosRef.current[fromListId] ?? [];
+        const todoToMove = currentFrom.find((t) => t.id === todoId);
+        if (!todoToMove) return;
 
-      const movedTodo: Task = {
-        ...todoToMove,
-        workspaceId: toListId,
-        updatedAt: Date.now(),
-      };
+        const previousTask = todoToMove;
+        const movedTodo: Task = {
+          ...previousTask,
+          workspaceId: toListId,
+          updatedAt: Date.now(),
+        };
 
-      const priorTodos = todos;
-      const updated = {
-        ...todos,
-        [fromListId]: sourceTodos.filter((t) => t.id !== todoId),
-        [toListId]: [movedTodo, ...targetTodos],
-      };
+        // Targeted optimistic move
+        updateTodosTargeted((prev) => {
+          const fromList = (prev[fromListId] ?? []).filter((t) => t.id !== todoId);
+          const toList = [movedTodo, ...(prev[toListId] ?? []).filter((t) => t.id !== todoId)];
+          return {
+            ...prev,
+            [fromListId]: fromList,
+            [toListId]: toList,
+          };
+        });
 
-      setTodos(updated);
-      
-      // Persist the move through EntityCommandService without emitting an event
-      // since we already updated the optimistic local state.
-      try {
-        await EntityCommandService.moveTask(todoId, fromListId, toListId, { skipEvents: true });
-        finalizeMutation();
-      } catch (err) {
-        console.warn("[useTaskCrud] moveTodoToList failed:", err);
-        setTodos(priorTodos);
-      }
+        try {
+          await EntityCommandService.moveTask(todoId, fromListId, toListId, { skipEvents: true });
+          finalizeMutation();
+        } catch (err) {
+          console.warn("[useTaskCrud] moveTodoToList failed:", err);
+          // Targeted rollback: restore previousTask back to fromListId and remove from toListId
+          updateTodosTargeted((prev) => {
+            const toList = (prev[toListId] ?? []).filter((t) => t.id !== todoId);
+            const fromList = [previousTask, ...(prev[fromListId] ?? []).filter((t) => t.id !== todoId)];
+            return {
+              ...prev,
+              [fromListId]: fromList,
+              [toListId]: toList,
+            };
+          });
+        }
+      });
     },
-    [todos, setTodos, finalizeMutation],
+    [runTaskMutation, updateTodosTargeted, finalizeMutation],
   );
 
   const toggleTodo = useCallback(
-    async (id: string) => {
-      let targetWorkspaceId = selectedWorkspaceId;
-      let todo = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
-      if (!todo) {
-        for (const [wsId, list] of Object.entries(todos)) {
-          const found = list.find((t) => t.id === id);
-          if (found) {
-            todo = found;
-            targetWorkspaceId = wsId;
-            break;
-          }
-        }
-      }
-      if (!todo) return;
-      targetWorkspaceId = todo.workspaceId || targetWorkspaceId;
+    (id: string) => {
+      return runTaskMutation(id, async () => {
+        const { targetTask, targetWorkspaceId } = findTask(id, todosRef.current, selectedWorkspaceId);
+        if (!targetTask) return;
 
-      const currentlyCompleted = isTaskCompleted(todo);
-      const nextCompleted = !currentlyCompleted;
+        const previousTodo = targetTask;
+        const currentlyCompleted = isTaskCompleted(targetTask);
+        const nextCompleted = !currentlyCompleted;
 
-      // 1. Optimistic local state update for instant UI feedback
-      const optimisticTodo: Task = {
-        ...todo,
-        status: nextCompleted ? "completed" : "todo",
-        completedAt: nextCompleted ? Date.now() : undefined,
-        updatedAt: Date.now(),
-      };
+        // 1. Targeted optimistic update for instant feedback
+        const optimisticTodo: Task = {
+          ...targetTask,
+          status: nextCompleted ? "completed" : "todo",
+          completedAt: nextCompleted ? Date.now() : undefined,
+          updatedAt: Date.now(),
+        };
 
-      const optimisticTodos: Record<string, Task[]> = {};
-      for (const [wsId, list] of Object.entries(todos)) {
-        if (list.some((t) => t.id === id)) {
-          optimisticTodos[wsId] = list.map((t) =>
-            t.id === id ? optimisticTodo : t,
-          );
-        } else {
-          optimisticTodos[wsId] = list;
-        }
-      }
-      setTodos(optimisticTodos);
+        updateTodosTargeted((prev) => {
+          const list = prev[targetWorkspaceId] ?? [];
+          return {
+            ...prev,
+            [targetWorkspaceId]: list.map((t) => (t.id === id ? optimisticTodo : t)),
+          };
+        });
 
-      // 2. Delegate persistence and side-effects to EntityCommandService
-      let result;
-      try {
-        if (nextCompleted) {
-          result = await EntityCommandService.completeTask(id, targetWorkspaceId, {
-            source: "tasks_screen",
-            skipAnalytics: true,
-            skipEvents: true,
-          });
-        } else {
-          result = await EntityCommandService.uncompleteTask(id, targetWorkspaceId, {
-            source: "tasks_screen",
-            skipAnalytics: true,
-            skipEvents: true,
-          });
-        }
-      } catch (err) {
-        console.warn("[useTaskCrud] EntityCommandService toggleTask failed", err);
-      }
-
-      if (!result) {
-        // Rollback to prior state if command handler rejected
-        setTodos(todos);
-        return;
-      }
-
-      const updatedTodo = result.updated;
-      const committedTodos: Record<string, Task[]> = {};
-      for (const [wsId, list] of Object.entries(todos)) {
-        if (list.some((t) => t.id === id)) {
-          committedTodos[wsId] = list.map((t) =>
-            t.id === id ? updatedTodo : t,
-          );
-        } else {
-          committedTodos[wsId] = list;
-        }
-      }
-      setTodos(committedTodos);
-
-      emitStateChange("tasks_changed", "tasks_screen");
-    },
-    [todos, selectedWorkspaceId, setTodos],
-  );
-
-  const deleteTodo = useCallback(
-    async (id: string) => {
-      if (deletingTaskIdsRef.current.has(id)) return;
-      deletingTaskIdsRef.current.add(id);
-
-      try {
-        let targetWorkspaceId = selectedWorkspaceId;
-        let toDelete = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === id);
-        if (!toDelete) {
-          for (const [wsId, list] of Object.entries(todos)) {
-            const found = list.find((t) => t.id === id);
-            if (found) {
-              toDelete = found;
-              targetWorkspaceId = wsId;
-              break;
-            }
-          }
-        }
-        if (!toDelete) return;
-        targetWorkspaceId = toDelete.workspaceId || targetWorkspaceId;
-
-        const originalWorkspace =
-          workspaces.find((l) => l.id === targetWorkspaceId)?.name || "Inbox";
-
-        // Optimistically remove from UI state
-        const priorTodos = todos;
-        const updatedTodos: Record<string, Task[]> = {};
-        for (const [wsId, list] of Object.entries(todos)) {
-          updatedTodos[wsId] = list.filter((todo) => todo.id !== id);
-        }
-        setTodos(updatedTodos);
-
+        // 2. Delegate persistence and side-effects to EntityCommandService
+        let result;
         try {
-          // Delegate repository mutation and side effects to ECS
-          await EntityCommandService.recycleTask(
-            id,
-            targetWorkspaceId,
-            originalWorkspace,
-            { source: "useTaskCrud" }
-          );
-        } catch (e) {
-          console.warn("[useTaskCrud] Failed to recycle task:", e);
-          setTodos(priorTodos);
+          if (nextCompleted) {
+            result = await EntityCommandService.completeTask(id, targetWorkspaceId, {
+              source: "tasks_screen",
+              skipAnalytics: true,
+              skipEvents: true,
+            });
+          } else {
+            result = await EntityCommandService.uncompleteTask(id, targetWorkspaceId, {
+              source: "tasks_screen",
+              skipAnalytics: true,
+              skipEvents: true,
+            });
+          }
+        } catch (err) {
+          console.warn("[useTaskCrud] EntityCommandService toggleTask failed", err);
+        }
+
+        if (!result) {
+          // Targeted rollback to previousTodo without overwriting concurrent mutations
+          updateTodosTargeted((prev) => {
+            const list = prev[targetWorkspaceId] ?? [];
+            return {
+              ...prev,
+              [targetWorkspaceId]: list.map((t) => (t.id === id ? previousTodo : t)),
+            };
+          });
           return;
         }
 
-        pluginManager.dispatchTaskDeleted(id);
-        finalizeMutation();
-
-        showUndo({
-          message: `Deleted "${toDelete.title}"`,
-          onUndo: async () => {
-            try {
-              const restoredTask = await EntityCommandService.restoreTask(id, { skipEvents: true, skipAnalytics: true });
-              
-              setTodos((prevTodos) => {
-                const targetWs = restoredTask.workspaceId;
-                const currentList = prevTodos[targetWs] || [];
-                if (!currentList.some((t) => t.id === restoredTask.id)) {
-                  return {
-                    ...prevTodos,
-                    [targetWs]: [restoredTask, ...currentList],
-                  };
-                }
-                return prevTodos;
-              });
-              
-              finalizeMutation();
-            } catch (e) {
-              console.warn("Failed to restore task", e);
-              showToast("Failed to restore task");
-            }
-          },
+        // 3. Commit authoritative result targetedly
+        const updatedTodo = result.updated;
+        updateTodosTargeted((prev) => {
+          const list = prev[targetWorkspaceId] ?? [];
+          return {
+            ...prev,
+            [targetWorkspaceId]: list.map((t) => (t.id === id ? updatedTodo : t)),
+          };
         });
-      } finally {
-        deletingTaskIdsRef.current.delete(id);
-      }
+
+        emitStateChange("tasks_changed", "tasks_screen");
+      });
     },
-    [todos, selectedWorkspaceId, setTodos, workspaces, showUndo, showToast, finalizeMutation],
+    [runTaskMutation, findTask, selectedWorkspaceId, updateTodosTargeted],
+  );
+
+  const deleteTodo = useCallback(
+    (id: string) => {
+      if (deletingTaskIdsRef.current.has(id)) return Promise.resolve();
+      deletingTaskIdsRef.current.add(id);
+
+      return runTaskMutation(id, async () => {
+        try {
+          const { targetTask, targetWorkspaceId } = findTask(id, todosRef.current, selectedWorkspaceId);
+          if (!targetTask) return;
+
+          const toDelete = targetTask;
+          const originalWorkspace =
+            workspaces.find((l) => l.id === targetWorkspaceId)?.name || "Inbox";
+
+          // Targeted optimistic deletion
+          updateTodosTargeted((prev) => {
+            const list = prev[targetWorkspaceId] ?? [];
+            return {
+              ...prev,
+              [targetWorkspaceId]: list.filter((t) => t.id !== id),
+            };
+          });
+
+          try {
+            await EntityCommandService.recycleTask(
+              id,
+              targetWorkspaceId,
+              originalWorkspace,
+              { source: "useTaskCrud" }
+            );
+          } catch (e) {
+            console.warn("[useTaskCrud] Failed to recycle task:", e);
+            // Targeted rollback: reinsert toDelete without touching concurrent changes
+            updateTodosTargeted((prev) => {
+              const list = prev[targetWorkspaceId] ?? [];
+              if (!list.some((t) => t.id === id)) {
+                return {
+                  ...prev,
+                  [targetWorkspaceId]: [toDelete, ...list],
+                };
+              }
+              return prev;
+            });
+            return;
+          }
+
+          pluginManager.dispatchTaskDeleted(id);
+          finalizeMutation();
+
+          showUndo({
+            message: `Deleted "${toDelete.title}"`,
+            onUndo: async () => {
+              try {
+                const restoredTask = await EntityCommandService.restoreTask(id, { skipEvents: true, skipAnalytics: true });
+                updateTodosTargeted((prevTodos) => {
+                  const targetWs = restoredTask.workspaceId;
+                  const currentList = prevTodos[targetWs] || [];
+                  if (!currentList.some((t) => t.id === restoredTask.id)) {
+                    return {
+                      ...prevTodos,
+                      [targetWs]: [restoredTask, ...currentList],
+                    };
+                  }
+                  return prevTodos;
+                });
+                finalizeMutation();
+              } catch (e) {
+                console.warn("Failed to restore task", e);
+                showToast("Failed to restore task");
+              }
+            },
+          });
+        } finally {
+          deletingTaskIdsRef.current.delete(id);
+        }
+      });
+    },
+    [runTaskMutation, findTask, selectedWorkspaceId, updateTodosTargeted, workspaces, finalizeMutation, showUndo, showToast],
   );
 
   const updateTodoCategory = useCallback(
-    async (todoId: string, newCategory: TaskCategory) => {
-      let targetWorkspaceId = selectedWorkspaceId;
-      let targetTask = (todos[selectedWorkspaceId] ?? []).find((t) => t.id === todoId);
-      if (!targetTask) {
-        for (const [wsId, list] of Object.entries(todos)) {
-          const found = list.find((t) => t.id === todoId);
-          if (found) {
-            targetTask = found;
-            targetWorkspaceId = wsId;
-            break;
-          }
-        }
-      }
-      targetWorkspaceId = targetTask?.workspaceId || targetWorkspaceId;
+    (todoId: string, newCategory: TaskCategory) => {
+      return runTaskMutation(todoId, async () => {
+        const { targetTask, targetWorkspaceId } = findTask(todoId, todosRef.current, selectedWorkspaceId);
+        if (!targetTask) return;
 
-      const priorTodos = todos;
-      const updatedTodos: Record<string, Task[]> = {};
-      for (const [wsId, list] of Object.entries(todos)) {
-        if (list.some((t) => t.id === todoId)) {
-          updatedTodos[wsId] = list.map((todo) =>
-            todo.id === todoId ? { ...todo, category: newCategory as any } : todo,
-          );
-        } else {
-          updatedTodos[wsId] = list;
+        const previousCategoryId = targetTask.categoryId;
+
+        // Targeted optimistic update
+        updateTodosTargeted((prev) => {
+          const list = prev[targetWorkspaceId] ?? [];
+          return {
+            ...prev,
+            [targetWorkspaceId]: list.map((todo) =>
+              todo.id === todoId
+                ? { ...todo, categoryId: newCategory, updatedAt: Date.now() }
+                : todo,
+            ),
+          };
+        });
+
+        try {
+          await EntityCommandService.updateTask(todoId, targetWorkspaceId, { categoryId: newCategory }, { skipEvents: true });
+          finalizeMutation();
+        } catch (err) {
+          console.warn("[useTaskCrud] updateTodoCategory failed:", err);
+          // Targeted rollback: revert ONLY this task's category
+          updateTodosTargeted((prev) => {
+            const list = prev[targetWorkspaceId] ?? [];
+            return {
+              ...prev,
+              [targetWorkspaceId]: list.map((todo) =>
+                todo.id === todoId
+                  ? { ...todo, categoryId: previousCategoryId, updatedAt: Date.now() }
+                  : todo,
+              ),
+            };
+          });
         }
-      }
-      setTodos(updatedTodos);
-      
-      try {
-        await EntityCommandService.updateTask(todoId, targetWorkspaceId, { categoryId: newCategory }, { skipEvents: true });
-        finalizeMutation();
-      } catch (err) {
-        console.warn("[useTaskCrud] updateTodoCategory failed:", err);
-        setTodos(priorTodos);
-      }
+      });
     },
-    [todos, selectedWorkspaceId, setTodos, finalizeMutation],
+    [runTaskMutation, findTask, selectedWorkspaceId, updateTodosTargeted, finalizeMutation],
   );
 
   const clearCompleted = useCallback(async () => {
@@ -441,13 +506,14 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
     try {
       await EntityCommandService.clearCompletedTasks(selectedWorkspaceId, { source: "tasks_screen" });
 
-      // Persistence succeeded — reflect the removal in local UI state.
-      const listTodos = todos[selectedWorkspaceId] ?? [];
-      const updated = {
-        ...todos,
-        [selectedWorkspaceId]: listTodos.filter((todo) => !isTaskCompleted(todo)),
-      };
-      setTodos(updated);
+      // Persistence succeeded — reflect the removal targetedly in local UI state.
+      updateTodosTargeted((prev) => {
+        const listTodos = prev[selectedWorkspaceId] ?? [];
+        return {
+          ...prev,
+          [selectedWorkspaceId]: listTodos.filter((todo) => !isTaskCompleted(todo)),
+        };
+      });
 
       finalizeMutation();
     } catch (e) {
@@ -455,7 +521,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       // the local UI is left untouched (no deletion claimed).
       console.warn("Failed to clear completed tasks", e);
     }
-  }, [todos, selectedWorkspaceId, setTodos, finalizeMutation]);
+  }, [selectedWorkspaceId, updateTodosTargeted, finalizeMutation]);
 
   const convertCollectionItemToTask = useCallback(
     async (item: any, targetWorkspaceId?: string) => {
@@ -484,10 +550,10 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           destinationWorkspaceId,
         );
         const refreshedTodos = Object.values(refreshedTasksMap);
-        setTodos({
-          ...todos,
+        setTodos((prev) => ({
+          ...prev,
           [destinationWorkspaceId]: refreshedTodos,
-        });
+        }));
 
         showToast("✓ Task created from reference");
         emitStateChange("tasks_changed", "tasks_screen");
@@ -495,7 +561,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         console.warn("Failed to convert collection item to task", e);
       }
     },
-    [todos, setTodos, showToast],
+    [setTodos, showToast],
   );
 
   const saveEarlierForLater = useCallback(
@@ -504,18 +570,20 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       if (activeTasks.length === 0) return;
 
       const { EntityCommandService } = await import("@/services/command/EntityCommandService");
-      const nextTodos = { ...todos };
-
-      for (const task of activeTasks) {
-        const wsId = task.workspaceId || INBOX_WORKSPACE_ID;
-        const currentList = nextTodos[wsId] ?? [];
-        nextTodos[wsId] = currentList.map((t) =>
-          t.id === task.id
-            ? { ...t, schedule: { ...t.schedule, date: "inbox" }, updatedAt: Date.now() }
-            : t,
-        );
-      }
-      setTodos(nextTodos);
+      
+      setTodos((prev) => {
+        const nextTodos = { ...prev };
+        for (const task of activeTasks) {
+          const wsId = task.workspaceId || INBOX_WORKSPACE_ID;
+          const currentList = nextTodos[wsId] ?? [];
+          nextTodos[wsId] = currentList.map((t) =>
+            t.id === task.id
+              ? { ...t, schedule: { ...t.schedule, date: "inbox" }, updatedAt: Date.now() }
+              : t,
+          );
+        }
+        return nextTodos;
+      });
 
       try {
         for (const task of activeTasks) {

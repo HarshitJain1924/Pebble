@@ -153,4 +153,73 @@ describe("TaskDatePickerModal", () => {
     expect(onSelectDate).toHaveBeenCalledWith(todayKey);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("handles hidden -> visible -> hidden -> visible transitions on the same instance without hook violations", () => {
+    const onClose = jest.fn();
+    const onSelectDate = jest.fn();
+
+    let root: any;
+    // 1. Initial render: hidden
+    act(() => {
+      root = create(
+        <TaskDatePickerModal
+          visible={false}
+          onClose={onClose}
+          selectedDate={todayKey}
+          onSelectDate={onSelectDate}
+          colors={mockColors}
+          isDark={true}
+        />
+      );
+    });
+    expect(root.toJSON()).toBeNull();
+
+    // 2. Transition to visible
+    act(() => {
+      root.update(
+        <TaskDatePickerModal
+          visible={true}
+          onClose={onClose}
+          selectedDate={todayKey}
+          onSelectDate={onSelectDate}
+          colors={mockColors}
+          isDark={true}
+        />
+      );
+    });
+    expect(root.toJSON()).not.toBeNull();
+    expect(root.root.findByProps({ testID: "mock-calendar" })).toBeDefined();
+
+    // 3. Transition back to hidden
+    act(() => {
+      root.update(
+        <TaskDatePickerModal
+          visible={false}
+          onClose={onClose}
+          selectedDate={todayKey}
+          onSelectDate={onSelectDate}
+          colors={mockColors}
+          isDark={true}
+        />
+      );
+    });
+    expect(root.toJSON()).toBeNull();
+
+    // 4. Transition to visible again
+    act(() => {
+      root.update(
+        <TaskDatePickerModal
+          visible={true}
+          onClose={onClose}
+          selectedDate={todayKey}
+          onSelectDate={onSelectDate}
+          colors={mockColors}
+          isDark={true}
+        />
+      );
+    });
+    expect(root.toJSON()).not.toBeNull();
+    expect(root.root.findByProps({ testID: "mock-calendar" })).toBeDefined();
+  });
 });
+

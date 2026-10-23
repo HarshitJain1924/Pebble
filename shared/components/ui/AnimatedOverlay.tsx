@@ -15,6 +15,7 @@ import Animated, {
   withTiming,
   runOnJS,
   useAnimatedKeyboard,
+  cancelAnimation,
 } from "react-native-reanimated";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -42,19 +43,26 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
   const [modalVisible, setModalVisible] = useState(visible);
   const isMountedRef = React.useRef(true);
   const isClosingRef = React.useRef(false);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+  const hasNotifiedCloseRef = React.useRef(!visible);
 
   // Reanimated shared values
   const backdropOpacity = useSharedValue(0);
   const contentTranslateY = useSharedValue(SCREEN_HEIGHT * 0.5);
   const contentScale = useSharedValue(0.95);
   const contentOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      hasNotifiedCloseRef.current = true;
+      isClosingRef.current = false;
+      cancelAnimation(backdropOpacity);
+      cancelAnimation(contentTranslateY);
+      cancelAnimation(contentScale);
+      cancelAnimation(contentOpacity);
+    };
+  }, [backdropOpacity, contentTranslateY, contentScale, contentOpacity]);
 
   // Reanimated native keyboard tracking (skips web & Jest to avoid warnings)
   const isExcluded = Platform.OS === "web" || process.env.NODE_ENV === "test";
@@ -63,6 +71,7 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
   // Sync prop visibility changes
   useEffect(() => {
     if (visible) {
+      hasNotifiedCloseRef.current = false;
       isClosingRef.current = false;
       setModalVisible(true);
       // Trigger entering animations
@@ -74,21 +83,39 @@ export const AnimatedOverlay: React.FC<AnimatedOverlayProps> = ({
         contentOpacity.value = withTiming(1, { duration: 200 });
       }
     } else {
+      hasNotifiedCloseRef.current = true;
       isClosingRef.current = false;
+      cancelAnimation(backdropOpacity);
+      cancelAnimation(contentTranslateY);
+      cancelAnimation(contentScale);
+      cancelAnimation(contentOpacity);
       setModalVisible(false);
+      // Reset values immediately to clear pending animations
+      backdropOpacity.value = 0;
+      if (type === "bottom-sheet") {
+        contentTranslateY.value = SCREEN_HEIGHT * 0.5;
+      } else {
+        contentScale.value = 0.95;
+        contentOpacity.value = 0;
+      }
     }
   }, [visible, type, backdropOpacity, contentTranslateY, contentScale, contentOpacity]);
 
   const finishClose = useCallback(() => {
+    if (!isMountedRef.current || hasNotifiedCloseRef.current) {
+      isClosingRef.current = false;
+      return;
+    }
+    hasNotifiedCloseRef.current = true;
+    isClosingRef.current = false;
     if (isMountedRef.current) {
       setModalVisible(false);
     }
-    isClosingRef.current = false;
     onClose();
   }, [onClose]);
 
   const handleClose = useCallback(() => {
-    if (isClosingRef.current) return;
+    if (isClosingRef.current || hasNotifiedCloseRef.current) return;
     isClosingRef.current = true;
     Keyboard.dismiss();
     // Trigger exiting animations
