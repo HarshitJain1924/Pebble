@@ -13,6 +13,7 @@ import {
 import {
   INBOX_WORKSPACE_ID,
   type Habit,
+  type Relationship,
   type Task,
   type Workspace,
 } from "@/shared/types/domain.types";
@@ -474,5 +475,207 @@ describe("workspace restore integrity", () => {
     expect(stored.title).toBe("Live edit");
     expect(stored.revision).toBe(7);
     expect(stored.updatedAt).toBe(999);
+  });
+});
+
+describe("workspace recycle → graph edges", () => {
+  const rel = (
+    id: string,
+    relationType: Relationship["relationType"],
+    source: { id: string; type: string },
+    target: { id: string; type: string },
+  ): Relationship => ({ id, source, target, relationType, createdAt: 1 });
+
+  const seedWorkspaceChildren = async (wsId: string) => {
+    await TaskRepository.saveTask(task("t-g", wsId));
+    await HabitRepository.saveHabit(habit("h-g", wsId));
+  };
+
+  it("restores edges owned by the workspace and drops cross-workspace edges", async () => {
+    const ws = fullWorkspace("ws-graph", "Graph");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await seedWorkspaceChildren("ws-graph");
+
+    // Internal edge: both endpoints are archived with the workspace.
+    const internal = rel(
+      "rel-internal",
+      "supports",
+      { id: "t-g", type: "task" },
+      { id: "h-g", type: "habit" },
+    );
+    // Boundary edge: the target lives outside the recycled dataset.
+    const external = rel(
+      "rel-external",
+      "related",
+      { id: "t-g", type: "task" },
+      { id: "t-inbox", type: "task" },
+    );
+    await GraphRepository.saveRelationship(internal);
+    await GraphRepository.saveRelationship(external);
+
+    await deleteWorkspaceLikeModal(ws);
+
+    // Recycling removes every edge touching the archived children.
+    expect((await GraphRepository.getAllRelationships()).map((r) => r.id)).toEqual([]);
+
+    await EntityCommandService.restoreWorkspace("rb-ws-graph", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const restored = await GraphRepository.getAllRelationships();
+    expect(restored.map((r) => r.relationType)).toEqual(["supports"]);
+    expect(restored[0].source.id).toBe("t-g");
+    expect(restored[0].target.id).toBe("h-g");
+    expect(restored.some((r) => r.id === "rel-external")).toBe(false);
+  });
+
+  it("restores focus provenance edges only while the session still exists", async () => {
+    const ws = fullWorkspace("ws-focus", "Focus");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await TaskRepository.saveTask(task("t-focus", "ws-focus"));
+    await GraphRepository.saveFocusSession({
+      id: "focus_session_1",
+      startedAt: 1,
+      endedAt: 2,
+      duration: 60,
+    });
+    await GraphRepository.saveRelationship(
+      rel(
+        "rel-focus",
+        "focuses_on",
+        { id: "focus_session_1", type: "focus" },
+        { id: "t-focus", type: "task" },
+      ),
+    );
+
+    await deleteWorkspaceLikeModal(ws);
+    expect((await GraphRepository.getAllRelationships()).length).toBe(0);
+
+    await EntityCommandService.restoreWorkspace("rb-ws-focus", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const restored = await GraphRepository.getAllRelationships();
+    expect(restored).toHaveLength(1);
+    expect(restored[0].relationType).toBe("focuses_on");
+    expect(restored[0].source.id).toBe("focus_session_1");
+  });
+
+  it("never resurrects an edge whose endpoint is not live again", async () => {
+    const ws = fullWorkspace("ws-dangling", "Dangling");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await TaskRepository.saveTask(task("t-here", "ws-dangling"));
+
+    // A package whose recorded edge references an entity that is not part of
+    // the restored partitions (nor a live focus session).
+    await addToRecycleBin(
+      "workspace",
+      {
+        list: ws,
+        todos: [task("t-here", "ws-dangling")],
+        habits: [],
+        checklists: [],
+        resources: [],
+        relationships: [
+          rel(
+            "rel-dangling",
+            "supports",
+            { id: "t-here", type: "task" },
+            { id: "h-missing", type: "habit" },
+          ),
+          rel(
+            "rel-dead-session",
+            "focuses_on",
+            { id: "focus_deleted", type: "focus" },
+            { id: "t-here", type: "task" },
+          ),
+        ],
+      },
+      "Workspaces",
+      { throwOnError: true },
+    );
+
+    await EntityCommandService.restoreWorkspace("rb-ws-dangling", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    expect(await GraphRepository.getAllRelationships()).toEqual([]);
+  });
+
+  it("retries edge restoration after failure without duplicating edges", async () => {
+    const ws = fullWorkspace("ws-retry-edge", "Retry Edge");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await seedWorkspaceChildren("ws-retry-edge");
+    await GraphRepository.saveRelationship(
+      rel(
+        "rel-retry",
+        "supports",
+        { id: "t-g", type: "task" },
+        { id: "h-g", type: "habit" },
+      ),
+    );
+
+    await deleteWorkspaceLikeModal(ws);
+
+    const saveRel = jest
+      .spyOn(GraphRepository, "saveRelationship")
+      .mockRejectedValueOnce(new Error("Disk Full"));
+
+    await expect(
+      EntityCommandService.restoreWorkspace("rb-ws-retry-edge", {
+        skipEvents: true,
+        skipAnalytics: true,
+      }),
+    ).rejects.toThrow("restored partially");
+    saveRel.mockRestore();
+
+    // The entities and workspace committed; the snapshot was retained.
+    expect((await WorkspaceRepository.getWorkspaces()).some((w) => w.id === "ws-retry-edge")).toBe(true);
+    expect((await getRecycleBinItems()).some((b) => b.entityId === "ws-retry-edge")).toBe(true);
+
+    await EntityCommandService.restoreWorkspace("rb-ws-retry-edge", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const edges = await GraphRepository.getAllRelationships();
+    expect(edges).toHaveLength(1);
+    expect(edges[0].relationType).toBe("supports");
+    expect((await getRecycleBinItems()).some((b) => b.entityId === "ws-retry-edge")).toBe(false);
+  });
+
+  it("is idempotent when the same package is replayed", async () => {
+    const ws = fullWorkspace("ws-replay", "Replay");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await seedWorkspaceChildren("ws-replay");
+    await GraphRepository.saveRelationship(
+      rel(
+        "rel-replay",
+        "related",
+        { id: "t-g", type: "task" },
+        { id: "h-g", type: "habit" },
+      ),
+    );
+
+    await deleteWorkspaceLikeModal(ws);
+    const snapshot = (await getRecycleBinItems()).find((b) => b.entityId === "ws-replay")!;
+
+    await EntityCommandService.restoreWorkspace("rb-ws-replay", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    // Simulate a crash that restored the data but never removed the bin entry,
+    // then replay the same package.
+    await storage.setItem("pebble:v1:recycle_bin", JSON.stringify([snapshot]));
+    await EntityCommandService.restoreWorkspace("rb-ws-replay", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    expect(await GraphRepository.getAllRelationships()).toHaveLength(1);
   });
 });

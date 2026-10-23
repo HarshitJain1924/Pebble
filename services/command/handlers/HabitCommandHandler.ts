@@ -26,7 +26,12 @@ import {
 } from "@/services/scheduling/reminders.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 
-import { earnPebble, reversePebbleReward } from "@/features/profile/services/pebble.service";
+import { reversePebbleReward } from "@/features/profile/services/pebble.service";
+import {
+  awardOwedRewardUnlocked,
+  ensureRewardIntent,
+  resolveRewardIntent,
+} from "@/features/profile/services/reward-intent.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import { generateId } from "@/shared/utils/id";
@@ -581,17 +586,41 @@ static async recycleHabit(
         updatedAt: Date.now(),
       };
 
+      const rewardIntent = {
+        rewardId: `habit:${updatedHabit.id}:${today}`,
+        type: "habit" as const,
+        entityType: "habit" as const,
+        entityId: updatedHabit.id,
+        workspaceId: updatedHabit.workspaceId,
+        dateKey: today,
+        createdAt: Date.now(),
+      };
+
+      // The owed-reward record is durable state written BEFORE the completion is
+      // persisted, so a completed day can never exist without a recoverable
+      // reward (see features/profile/services/reward-intent.service.ts).
+      await ensureRewardIntent(rewardIntent);
+
       await HabitRepository.saveHabitUnlocked(updatedHabit);
+
+      // Credit under the same partition lock so a concurrent uncomplete cannot
+      // interleave between "still completed today" and "award".
+      await awardOwedRewardUnlocked(rewardIntent);
 
       return { previous: habit, updated: updatedHabit, skipped: false, today };
     });
 
     if (!result) return null;
-    if (result.skipped) return { previous: result.previous, updated: result.updated };
+    if (result.skipped) {
+      // Replay of an already-completed day: settle a reward that was recorded but
+      // not credited. `resolveRewardIntent` re-verifies the completion entry, so
+      // a concurrent uncomplete can never be paid afterwards.
+      await resolveRewardIntent(`habit:${habitId}:${getTodayDateKey()}`);
+      return { previous: result.previous, updated: result.updated };
+    }
 
     const { previous, updated: updatedHabit, today } = result;
 
-    await earnPebble("habit", `habit:${updatedHabit.id}:${today}`);
     pluginManager.dispatchHabitCompleted(updatedHabit);
 
     if (!options?.skipAnalytics) {

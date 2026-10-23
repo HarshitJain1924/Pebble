@@ -34,6 +34,7 @@ export const PEBBLE_EXACT_OWNED_KEYS = new Set<string>([
   "pebble:v1:move_journal_seq",
   "pebble:v1:conversion_journal",
   "pebble:v1:conversion_journal_seq",
+  "pebble:v1:reward_intents",
   "pebble:v1:reconciler_running",
   "pebble:v1:graph_reconciler_running",
   RESTORE_INTENT_KEY,
@@ -249,6 +250,10 @@ export const PEBBLE_RESTORE_EPHEMERAL_KEYS = new Set<string>([
   "pebble:v1:move_journal_seq",
   "pebble:v1:conversion_journal",
   "pebble:v1:conversion_journal_seq",
+  // Owed completion rewards belong to the dataset being replaced: a restore
+  // swaps the entities AND resets the economy ledgers, so old intents must not
+  // be paid against the restored data.
+  "pebble:v1:reward_intents",
   "pebble:v1:reconciler_running",
   "pebble:v1:graph_reconciler_running",
   RESTORE_INTENT_KEY,

@@ -45,6 +45,7 @@ import {
   type Workspace,
   type RecycleBinItem,
   type MoveJournalEntry,
+  type Relationship,
   INBOX_WORKSPACE_ID,
   MY_PEBBLES_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
@@ -58,7 +59,10 @@ static async reorderWorkspaces(
     orderedWorkspaces: Workspace[],
     options?: CreateEntityOptions,
   ): Promise<void> {
-    await WorkspaceRepository.saveWorkspaces(orderedWorkspaces);
+    // Order-only merge: a reorder snapshot must never revert a concurrent
+    // rename nor delete a concurrently created workspace (see
+    // WorkspaceRepository.applyWorkspaceOrder).
+    await WorkspaceRepository.applyWorkspaceOrder(orderedWorkspaces);
     if (!options?.skipEvents) emitStateChange("workspace_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
   }
@@ -76,9 +80,11 @@ static async reorderWorkspaces(
    * The contained tasks/habits are re-persisted best-effort into their
    * partitioned storage keys (they normally already live there — the workspace
    * delete flow does not purge them — so this is idempotent and purely
-   * defensive). The bin entry is removed only after the workspace persist
-   * succeeds; saveWorkspace swallows errors, so the persisted workspace is
-   * read back to verify the restore actually happened.
+   * defensive). Graph edges recorded in the package are re-added after the
+   * partitions settle, but only when both endpoints are live again
+   * (`restoreArchivedRelationships`). The bin entry is removed only after the
+   * workspace persist succeeds; saveWorkspace swallows errors, so the persisted
+   * workspace is read back to verify the restore actually happened.
    */
   static async restoreWorkspace(
     recycleBinItemId: string,
@@ -208,6 +214,20 @@ static async reorderWorkspaces(
         );
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore resources for workspace ${workspace.id}`, e);
+        childRestoreSuccess = false;
+      }
+    }
+
+    // 5b. Rebuild the graph edges archived with the package. Runs after every
+    // child partition so endpoints can be verified against live state.
+    if (Array.isArray(parsed?.relationships) && parsed.relationships.length > 0) {
+      try {
+        await WorkspaceCommandHandler.restoreArchivedRelationships(
+          parsed.relationships,
+          workspace.id,
+        );
+      } catch (e) {
+        console.warn(`[EntityCommandService] Failed to restore relationships for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
       }
     }
@@ -361,7 +381,24 @@ static async reorderWorkspaces(
           }
         }
 
-        // 3. Add to Recycle Bin (Safe operation first)
+        // 3. Capture the graph edges this package owns BEFORE anything is
+        // destroyed. The entities travel with the package, but their
+        // relationships are deleted below; without recording them a later
+        // restore could never rebuild the internal graph (conversion
+        // "supports"/"references" edges, manual "related" links).
+        //
+        // Ownership rule: only edges whose endpoints are ALL part of this
+        // package are captured. An edge to an entity in another workspace is
+        // owned by that dataset and cannot be verified as live during a
+        // restore, so it is not resurrected. Focus provenance edges are
+        // captured because the focus-session ledger survives the workspace;
+        // the restore re-verifies that the session still exists.
+        const entityIdSet = new Set(allEntityIds);
+        const relationships = (await GraphRepository.getAllRelationships()).filter(
+          (rel) => WorkspaceCommandHandler.isWorkspaceOwnedEdge(rel, entityIdSet),
+        );
+
+        // 4. Add to Recycle Bin (Safe operation first)
         await RecycleBinRepository.addToRecycleBin(
           "workspace",
           {
@@ -370,18 +407,19 @@ static async reorderWorkspaces(
             habits,
             checklists,
             resources,
+            relationships,
           },
           "Workspaces",
           { throwOnError: true }
         );
 
-        // 4. Delete Workspace record FIRST (Commit Point)
+        // 5. Delete Workspace record FIRST (Commit Point)
         // This MUST happen before partition cleanup. If partition cleanup happens first 
         // and metadata deletion fails, a subsequent retry will overwrite the safe Recycle Bin backup 
         // with empty partitions, causing permanent data loss.
         await WorkspaceRepository.deleteWorkspace(workspaceId, { throwOnError: true });
 
-        // 5. Remove active partitions securely inside the lock boundary.
+        // 6. Remove active partitions securely inside the lock boundary.
         // We use a transactional multiRemove. If it fails, the partitions are orphaned on disk,
         // which is benign because they are inaccessible and will be safely overwritten if resurrected.
         const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
@@ -397,14 +435,23 @@ static async reorderWorkspaces(
           // We DO NOT throw here. The workspace metadata is already deleted. Throwing would abort the cleanup
           // of related entities (graph, notifications) and leave the system in a worse state.
         }
+
+        // 7. Delete the archived entities' graph edges INSIDE the lifecycle
+        // lock. Doing it after releasing the locks left a window where a
+        // concurrent restore could re-add the package's edges and then have
+        // them deleted by this (already committed) recycle.
+        if (allEntityIds.length > 0) {
+          try {
+            await GraphRepository.deleteRelationshipsForEntities(allEntityIds);
+          } catch (e) {
+            console.warn(`[EntityCommandService] Failed to clean up graph edges for workspace ${workspaceId}`, e);
+          }
+        }
       });
 
-      // 6. Secondary cleanup (executed OUTSIDE the partition locks to prevent ABBA deadlocks with GraphRepository)
+      // 8. Secondary cleanup (OUTSIDE the partition locks: OS notification calls
+      // must never extend the lock region).
       try {
-        if (allEntityIds.length > 0) {
-          await GraphRepository.deleteRelationshipsForEntities(allEntityIds);
-        }
-
         if (notificationIdsToCancel.length > 0) {
           await cancelReminderIds(notificationIdsToCancel, { throwOnError: false });
         }
@@ -445,6 +492,79 @@ static async reorderWorkspaces(
     // looks like a user edit to the move reconciler and invalidates the
     // optimistic-concurrency tokens held by open screens.
     await save(missing);
+  }
+
+  /**
+   * Whether a graph edge is owned by a workspace package, i.e. whether deleting
+   * the workspace destroys information that ONLY the package can restore.
+   */
+  private static isWorkspaceOwnedEdge(
+    rel: Relationship,
+    entityIds: Set<string>,
+  ): boolean {
+    if (!rel?.source?.id || !rel?.target?.id) return false;
+    const isChild = (endpoint: { id: string }) => entityIds.has(endpoint.id);
+    // Both endpoints travel with the package: fully owned by the workspace.
+    if (isChild(rel.source) && isChild(rel.target)) return true;
+    // Focus provenance: the session lives in its own ledger and survives the
+    // workspace, so this edge is restorable once the entity returns.
+    if (rel.source.type === "focus" && isChild(rel.target)) return true;
+    if (rel.target.type === "focus" && isChild(rel.source)) return true;
+    return false;
+  }
+
+  /**
+   * Re-add the graph edges archived with a workspace package.
+   *
+   * Endpoint existence is verified against LIVE state, so a restore can never
+   * resurrect a dangling edge: child endpoints must be present in their
+   * partitions after the merge, and focus endpoints must still exist in the
+   * focus-session ledger. `GraphRepository.saveRelationship` is idempotent by
+   * logical edge (relation type + endpoints), so retrying a partially-completed
+   * restore cannot duplicate an edge.
+   */
+  private static async restoreArchivedRelationships(
+    relationships: any[],
+    workspaceId: string,
+  ): Promise<void> {
+    const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
+    const { ResourceRepository } = await import("@/repositories/ResourceRepository");
+
+    const liveEntityIds = new Set<string>();
+    const livePartitions = await Promise.all([
+      TaskRepository.getTasks(workspaceId),
+      HabitRepository.getHabits(workspaceId),
+      ChecklistRepository.getChecklists(workspaceId),
+      ResourceRepository.getResources(workspaceId),
+    ]);
+    for (const partition of livePartitions) {
+      for (const id of Object.keys(partition as Record<string, unknown>)) {
+        liveEntityIds.add(id);
+      }
+    }
+
+    const focusSessionIds = new Set(
+      (await GraphRepository.getFocusSessions()).map((session) => session.id),
+    );
+
+    for (const rel of relationships) {
+      if (
+        !rel ||
+        typeof rel.id !== "string" ||
+        !rel.id ||
+        !rel.source?.id ||
+        !rel.target?.id ||
+        !rel.relationType
+      ) {
+        continue;
+      }
+      const endpointAlive = (endpoint: { id: string; type?: string }) =>
+        endpoint.type === "focus"
+          ? focusSessionIds.has(endpoint.id)
+          : liveEntityIds.has(endpoint.id);
+      if (!endpointAlive(rel.source) || !endpointAlive(rel.target)) continue;
+      await GraphRepository.saveRelationship(rel);
+    }
   }
 
   /**

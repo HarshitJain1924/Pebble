@@ -77,6 +77,61 @@ export class WorkspaceRepository {
     }
   }
 
+  /**
+   * Apply a caller-supplied ORDER to the persisted workspaces without letting a
+   * stale snapshot overwrite concurrent changes.
+   *
+   * `saveWorkspaces` replaces the whole collection, so a list captured before a
+   * concurrent create/rename/delete silently reverts it (a created workspace
+   * disappears entirely). Ordering is the only intent a reorder snapshot
+   * carries, so this method:
+   *   - keeps every persisted record's own fields (a concurrent rename wins),
+   *   - keeps workspaces the snapshot does not know about (concurrent create)
+   *     and appends them after the ordered ones,
+   *   - never resurrects an id that is no longer persisted (concurrent delete),
+   *   - writes the snapshot as-is only when nothing is persisted yet (bootstrap),
+   *   - and touches no `revision`/`updatedAt` because order is not an edit.
+   */
+  static async applyWorkspaceOrder(
+    orderedWorkspaces: Workspace[],
+    options?: { throwOnError?: boolean },
+  ): Promise<void> {
+    try {
+      await withLock(WORKSPACES_KEY, async () => {
+        const current = await this.getWorkspaces();
+        if (current.length === 0) {
+          // First run: there is nothing to merge with, so the snapshot is truth.
+          const normalized = (Array.isArray(orderedWorkspaces) ? orderedWorkspaces : []).map(
+            normalizeWorkspace,
+          );
+          await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(normalized));
+          return;
+        }
+
+        const byId = new Map(current.map((workspace) => [workspace.id, workspace]));
+        const ordered: Workspace[] = [];
+        const placed = new Set<string>();
+
+        for (const entry of Array.isArray(orderedWorkspaces) ? orderedWorkspaces : []) {
+          const existing = entry?.id ? byId.get(entry.id) : undefined;
+          if (!existing || placed.has(existing.id)) continue;
+          placed.add(existing.id);
+          ordered.push(existing);
+        }
+
+        for (const existing of current) {
+          if (placed.has(existing.id)) continue;
+          ordered.push(existing);
+        }
+
+        await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(ordered));
+      });
+    } catch (e) {
+      if (options?.throwOnError) throw e;
+      console.warn("Failed to apply workspace order", e);
+    }
+  }
+
   static async deleteWorkspace(id: string, options?: { throwOnError?: boolean }): Promise<void> {
     if (id === INBOX_WORKSPACE_ID || id === MY_PEBBLES_WORKSPACE_ID) {
       console.warn(`Cannot delete protected workspace: ${id}`);

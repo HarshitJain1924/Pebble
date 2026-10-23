@@ -106,6 +106,24 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Guarantee**: A retry cannot lose both source and destination, cannot duplicate the destination entity, and cannot duplicate edges (`saveRelationshipUnlocked` matches by endpoints, so the retarget is idempotent). Redundant execution after a crash between the final domain write and journal removal is safe.
 - **Verification**: `services/storage/__tests__/ConversionReconcilerHostileVerification.test.ts` (new `I2` crash-boundary edge-retarget tests for both directions, `I3` repeated-recovery idempotency, plus the existing A–K matrix); `services/command/__tests__/conversionHostileVerification.test.ts` (handler-level crash at PREPARED / DESTINATION_WRITTEN / source deletion / journal deletion, double conversion, concurrent edits).
 
+### 20. Completion Reward Durability (Task / Habit)
+- **Affected Code**: `repositories/RewardIntentRepository.ts`, `features/profile/services/reward-intent.service.ts`, `services/command/handlers/TaskCommandHandler.ts` (`completeTask`), `services/command/handlers/HabitCommandHandler.ts` (`completeHabit`), `services/startup/startup-recovery.ts`
+- **Current Fix**: The reward was persisted *after* the entity, and every replay of an already-completed entity returned before `earnPebble`, so a crash (or a failed economy write) between the two writes lost the Pebble permanently. Completion now records a durable owed-reward intent (`pebble:v1:reward_intents`, keyed by `rewardId`) BEFORE the completed state and credits it under the same partition lock; the already-completed replay settles a pending intent, and `runStartupRecovery` drains the ledger.
+- **Current Guarantee**: exactly-once per reward id. A completed Task/Habit cannot exist without a recoverable reward record; crediting is idempotent by `rewardId`; resolution pays only while the entity is still in the rewarded state (a completed Task, or a Habit with a completion entry for the intent's `dateKey`) and never pays an uncompleted, recycled, deleted or tombstoned entity; the 15/day cap keeps its documented "dropped, no backlog" behavior. Reward bookkeeping can no longer fail a completion (a rejection used to propagate after the entity had already committed).
+- **Verification**: `services/command/__tests__/rewardDurability.test.ts` (10 tests: failure between the entity write and the award, replay settlement, uncompletion/delete before recovery, out-of-band settlement, habit day scoping, concurrent completions plus concurrent recovery). The intent key is registered as an owned ephemeral key (cleared by backup restore); the registry-completeness test passes.
+
+### 21. Workspace Recycle → Restore Graph Edges
+- **Affected Code**: `services/command/handlers/WorkspaceCommandHandler.ts` (`deleteWorkspace`, `restoreWorkspace`, `isWorkspaceOwnedEdge`, `restoreArchivedRelationships`)
+- **Current Fix**: The workspace package snapshot now carries `relationships`, and the children's edges are deleted INSIDE the lifecycle lock (previously after release, where a concurrent restore could re-add edges that the committed recycle then deleted). Restore re-adds only edges whose endpoints are verifiably live again.
+- **Current Guarantee**: internal edges (both endpoints in the package) and focus-provenance edges (session still in the surviving ledger) survive recycle → restore. Edges to entities in another dataset are not resurrected, because their liveness cannot be verified from the package. Replay is idempotent by logical edge and never recreates a dangling edge. The snapshot change is additive (`relationships` is optional), so older packages still restore.
+- **Verification**: `services/command/__tests__/workspaceRestore.test.ts` (edges restored / cross-workspace edges dropped; focus provenance restored only with a live session; dangling edges not resurrected; an edge-restore failure retains the bin entry and the retry completes with exactly one edge; replaying a retained snapshot does not duplicate).
+
+### 22. Stale Bulk Snapshot Writes (`reorderWorkspaces` / `reorderTasks`)
+- **Affected Code**: `repositories/WorkspaceRepository.ts` (`applyWorkspaceOrder`), `repositories/TaskRepository.ts` (`applyTaskOrder`), `WorkspaceCommandHandler.reorderWorkspaces`, `TaskCommandHandler.reorderTasks`
+- **Current Fix**: Both reorder commands wrote the caller's snapshot wholesale. `saveWorkspaces` replaced the collection (a concurrently created workspace was deleted, a stale record reverted a rename, a concurrent delete was resurrected), and `saveTasks` rewrote every supplied record (bumping `revision`/`updatedAt`, reverting a rename, re-opening a completed task). Reorder is now an order-only merge under the existing key lock: persisted records keep their own fields, persisted-but-unknown records are appended, ids that are no longer persisted are never resurrected, and the snapshot is written verbatim only when nothing is persisted (first-run bootstrap).
+- **Current Guarantee**: a reorder cannot lose a create, revert a rename or completion, resurrect a delete, or bump revisions. `saveWorkspaces`/`saveTasks` remain unchanged for seeding and other bulk uses.
+- **Verification**: `services/command/__tests__/bulkSnapshotOrdering.test.ts` (8 tests). The three workspace and three task cases were confirmed to fail against the previous write path by temporarily restoring it (3 failures each, then reverted).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
@@ -115,24 +133,16 @@ These items exist in current code and have not yet been fully audited or hardene
 - **Failure Condition**: Highly concurrent offline cross-partition operations.
 - **Impact**: Unknown.
 - **Current Evidence**: The audited lifecycle commands (`updateTask`, `completeTask`/`uncompleteTask`, `moveTask`, `recycleTask(s)`, `restoreTask(s)`, `permanentlyDeleteTask`, `updateHabit`, `completeHabit`/`uncompleteHabit`, `archiveHabits`/`completeHabits`, `recycleHabit`, `restoreHabit`) all read fresh state under their partition mutex, honor the lifecycle/revision guard, and persist before emitting events. The effective acquisition order is `partition → move_journal → recycle_bin` (and `conversion_journal → partitions` for conversions); `_acquireRestoreLocks` uses the same hierarchy rather than plain alphabetical order, so no ABBA cycle was found between backup/restore/reconcilers/handlers.
-- **Why Existing Recovery Does Not Cover It**: the remaining risk is concentrated in UI bulk-save paths, not in the handlers above.
-- **Confidence Level**: Unverified for the residual bulks below.
+- **Why Existing Recovery Does Not Cover It**: these are the residual operations of each handler that were not individually driven through a hostile interleaving; the UI bulk-save paths that used to bypass this discipline are now order-only merges (CLOSED #22).
+- **Confidence Level**: Unverified for the residual operations only.
 
-### 2. Bulk UI Snapshot Writes (outside the command handlers)
-- **Exact File**: `repositories/WorkspaceRepository.ts` (`saveWorkspaces`), `features/tasks/hooks/useTaskCrud.ts` (`persistState` → `reorderTasks`/`reorderWorkspaces`)
-- **Exact Code Path**: A UI snapshot is written wholesale under the storage lock.
-- **Failure Condition**: A workspace created (or renamed) between the UI snapshot and `saveWorkspaces` is removed/overwritten, because the array is replaced rather than merged by id. `reorderTasks` likewise bumps `revision`/`updatedAt` of every task it is handed.
-- **Impact**: Lost concurrent edit / lost newly created workspace in a narrow interleaving.
-- **Why Existing Recovery Does Not Cover It**: There is no journal or CAS on these bulk paths, and they bypass the command layer's fresh-read-under-lock discipline.
-- **Confidence Level**: Demonstrated by inspection; not fixed in this pass (changing these write semantics is a broader behavioral change than the audited command handlers).
-
-### 3. Workspace Recycle Bin Snapshot Does Not Carry Graph Relationships
-- **Exact File**: `services/command/handlers/WorkspaceCommandHandler.ts` (`deleteWorkspace`, `restoreWorkspace`), `services/storage/GraphReconcilerService.ts`
-- **Exact Code Path**: `deleteWorkspace` snapshots `{ list, todos, habits, checklists, resources }` into the Recycle Bin and then calls `GraphRepository.deleteRelationshipsForEntities(allEntityIds)`; `restoreWorkspace` re-merges the four partitions only.
-- **Failure Condition**: Recycle → restore a workspace.
-- **Impact**: Cross-entity relationship edges between the workspace's children are not restored. Entity-embedded `resourceIds` survive because they live inside the snapshots; standalone edges do not. This is inherent to the current bin snapshot shape — the startup graph reconciler prunes dangling edges, so simply skipping the delete-time cleanup would not preserve them either.
-- **Why Existing Recovery Does Not Cover It**: Neither the bin snapshot nor the restore path carries edges, so nothing can rebuild them.
-- **Confidence Level**: Verified by code path; closing this requires a bin-format/snapshot change (out of scope for this pass).
+### 2. Reward Paths Outside Task/Habit Completion
+- **Exact File**: `services/command/handlers/ChecklistCommandHandler.ts` (checklist latch), `services/command/handlers/SystemCommandHandler.ts` (focus reward), `features/profile/services/pebble.service.ts` (launch/streak rewards)
+- **Failure Condition**: A crash between the entity write and the reward write on those paths.
+- **Impact**: A lost or duplicated reward for that occurrence.
+- **Current Evidence**: Checklist rewards are latched on the entity (`pebbleAwarded`) and focus rewards are idempotent by stable session id (CLOSED #18); neither uses the reward-intent ledger introduced in CLOSED #20.
+- **Why Existing Recovery Does Not Cover It**: The intent ledger is only written by Task/Habit completion. Converting them is possible but not demonstrated to be necessary.
+- **Confidence Level**: Unverified for the checklist/focus boundaries; no failure test reproduces a loss there today.
 
 ## INHERENT LIMITS (AsyncStorage)
 

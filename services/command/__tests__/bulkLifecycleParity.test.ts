@@ -79,9 +79,14 @@ beforeEach(async () => {
   GraphRepository.resetCache();
   await WorkspaceRepository.saveWorkspace(workspace);
 
+  // Completion credits go through the outcome-returning primitive so the owed
+  // reward intent can be settled only when the ledger accepted it (CLOSED #20).
   earnPebbleSpy = jest
-    .spyOn(require("@/features/profile/services/pebble.service"), "earnPebble")
-    .mockResolvedValue(true);
+    .spyOn(
+      require("@/features/profile/services/pebble.service"),
+      "earnPebbleWithOutcome",
+    )
+    .mockResolvedValue("awarded");
   cancelReminderIdsSpy = jest
     .spyOn(require("@/services/scheduling/reminders.service"), "cancelReminderIds")
     .mockResolvedValue(undefined);

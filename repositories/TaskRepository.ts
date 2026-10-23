@@ -292,6 +292,47 @@ export class TaskRepository {
   }
 
   /**
+   * Apply a caller-supplied ORDER to the persisted tasks of one workspace
+   * without letting a stale snapshot overwrite concurrent changes.
+   *
+   * `saveTasks` rewrites every supplied record (bumping `revision`/`updatedAt`)
+   * from a caller snapshot, so a list captured before a concurrent edit reverts
+   * a rename or even re-opens a completed task. A reorder snapshot only carries
+   * order, so this method re-keys the CURRENT records and leaves their fields
+   * untouched:
+   *   - tasks the snapshot does not know about keep their place after the
+   *     ordered ones (concurrent create),
+   *   - ids that are no longer persisted are never resurrected (concurrent
+   *     delete/move), and
+   *   - `revision`/`updatedAt` do not change, because order is not an edit.
+   *
+   * Returns the persisted order (ids only) for verification.
+   */
+  static async applyTaskOrder(
+    orderedTasks: Array<{ id?: string }>,
+    workspaceId: string,
+  ): Promise<string[]> {
+    const key = this.getTasksKey(workspaceId);
+    return withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
+      const ordered: Record<string, Task> = {};
+
+      for (const entry of Array.isArray(orderedTasks) ? orderedTasks : []) {
+        const id = entry?.id;
+        if (!id || ordered[id]) continue;
+        if (records[id]) ordered[id] = records[id];
+      }
+      for (const [id, task] of Object.entries(records)) {
+        if (ordered[id]) continue;
+        ordered[id] = task;
+      }
+
+      await AsyncStorage.setItem(key, JSON.stringify(ordered));
+      return Object.keys(ordered);
+    });
+  }
+
+  /**
    * Unlocked persistence primitive required specifically for WorkspaceCommandHandler
    * to restore tasks into a partition while the canonical lock is held dynamically.
    */

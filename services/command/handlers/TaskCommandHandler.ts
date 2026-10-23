@@ -24,7 +24,12 @@ import {
 } from "@/services/scheduling/reminders.service";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
 
-import { earnPebble, reversePebbleReward } from "@/features/profile/services/pebble.service";
+import { reversePebbleReward } from "@/features/profile/services/pebble.service";
+import {
+  awardOwedRewardUnlocked,
+  ensureRewardIntent,
+  resolveRewardIntent,
+} from "@/features/profile/services/reward-intent.service";
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { MoveJournalRepository } from "@/repositories/MoveJournalRepository";
 import { generateId } from "@/shared/utils/id";
@@ -59,7 +64,10 @@ static async reorderTasks(
     workspaceId: string,
     options?: CreateEntityOptions,
   ): Promise<void> {
-    await TaskRepository.saveTasks(orderedTasks, workspaceId);
+    // Order-only merge: a reorder snapshot must never rewrite task fields, so a
+    // stale list cannot revert a rename or re-open a completed task (see
+    // TaskRepository.applyTaskOrder).
+    await TaskRepository.applyTaskOrder(orderedTasks, workspaceId);
     if (!options?.skipEvents) emitStateChange("tasks_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
     void syncWidgetData().catch(() => {});
@@ -1418,23 +1426,51 @@ static async reorderTasks(
           : {}),
       };
 
+      const rewardIntent = {
+        rewardId: `task:${updatedTask.id}`,
+        type: "task" as const,
+        entityType: "task" as const,
+        entityId: updatedTask.id,
+        workspaceId: updatedTask.workspaceId,
+        createdAt: Date.now(),
+      };
+
+      // The owed-reward record is durable state written BEFORE the completed
+      // state is persisted, so a completed Task can never exist without a
+      // recoverable reward (see features/profile/services/reward-intent.service.ts).
+      await ensureRewardIntent(rewardIntent);
+
       const saved = await TaskRepository.saveTaskUnlocked(updatedTask);
+
+      // Credit inside the same partition lock: a concurrent uncomplete cannot
+      // interleave between "still completed" and "award". A failed credit keeps
+      // the intent for the replay path and startup recovery.
+      await awardOwedRewardUnlocked(rewardIntent);
 
       return { previous: task, updated: saved, skipped: false };
     });
 
     if (!result) return null;
-    if (result.skipped) return { previous: result.previous, updated: result.updated };
+    if (result.skipped) {
+      // Replay of an already-completed Task: settle a reward that a previous
+      // attempt recorded but failed to credit. Never mints a new reward.
+      await resolveRewardIntent(`task:${taskId}`);
+      return { previous: result.previous, updated: result.updated };
+    }
 
     const { previous, updated: updatedTask } = result;
 
     if (previous.reminder?.notificationIds) {
-      cancelReminderIds(previous.reminder.notificationIds, { throwOnError: false }).catch(e => {
+      // Cancellation is awaited: a fire-and-forget call can still be pending
+      // when the command reports success, leaving the OS reminder to fire for an
+      // already-completed task.
+      try {
+        await cancelReminderIds(previous.reminder.notificationIds, { throwOnError: false });
+      } catch (e) {
         console.warn(`[EntityCommandService] Failed to cancel reminders for completed task ${taskId}`, e);
-      });
+      }
     }
 
-    await earnPebble("task", `task:${updatedTask.id}`);
     pluginManager.dispatchTaskCompleted(updatedTask);
 
     if (!options?.skipAnalytics) {

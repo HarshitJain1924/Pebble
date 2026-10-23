@@ -18,7 +18,12 @@
  *    edges against the now-settled entity registry (after restore/moves/
  *    conversions/recycle-bin cleanup). Graph state is RECONCILED integrity:
  *    self-healing, idempotent, internally locked.
- * 7. `NotificationReconcilerService.reconcileAll` — rebuild missing OS
+ * 7. `resolveAllRewardIntents` — credit completion rewards that were recorded
+ *    but never awarded (interruption between the entity write and the award).
+ *    Idempotent by rewardId and gated on the entity still being in the rewarded
+ *    state, so it never pays an uncompleted/recycled/deleted entity. Tolerant of
+ *    failure so startup never crashes on economy errors.
+ * 8. `NotificationReconcilerService.reconcileAll` — rebuild missing OS
  *    notifications. Tolerant of failure so startup never crashes on
  *    notification errors; it never requests OS permission.
  *
@@ -32,6 +37,7 @@ import { GraphReconcilerService } from "@/services/storage/GraphReconcilerServic
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
 import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
 import { cleanupRecycleBin } from "@/services/storage/storage.service";
+import { resolveAllRewardIntents } from "@/features/profile/services/reward-intent.service";
 
 export async function runStartupRecovery(): Promise<void> {
   await BackupService.recoverInterruptedRestore();
@@ -40,6 +46,14 @@ export async function runStartupRecovery(): Promise<void> {
   await MoveReconcilerService.reconcileHistoricalGhosts();
   await cleanupRecycleBin();
   await GraphReconcilerService.reconcileAll();
+
+  // Completion rewards are owed-but-uncredited work, not derived state: resolve
+  // them once the entity surface has settled. Failure must not crash startup.
+  try {
+    await resolveAllRewardIntents();
+  } catch (e) {
+    console.warn("[Startup] Failed to resolve reward intents", e);
+  }
 
   // Notification reconciliation must finish before the UI mounts to prevent
   // races with user mutations, but failure must not crash startup.

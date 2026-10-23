@@ -68,10 +68,25 @@ export const PEBBLE_ECONOMY_LOCK = "pebble:v1:economy_lock";
 
 // ── Unlocked Core Primitives (RMW under PEBBLE_ECONOMY_LOCK) ─────────
 
+/**
+ * Why a reward was (or was not) recorded. Callers that must distinguish a
+ * deliberate drop from a transient failure use `earnPebbleWithOutcome`.
+ *
+ * - `awarded`         a new log entry was written
+ * - `already_earned`  this rewardId is already in the ledger (idempotent replay)
+ * - `cap_reached`     the global 15/day cap dropped it (deliberately no backlog)
+ * - `conflict`        the rewardId exists under a different reward type
+ */
+export type EarnPebbleOutcome =
+  | "awarded"
+  | "already_earned"
+  | "cap_reached"
+  | "conflict";
+
 export async function earnPebbleUnlocked(
   type: PebbleType,
   rewardId?: string
-): Promise<{ success: boolean; changed: boolean }> {
+): Promise<{ success: boolean; changed: boolean; outcome: EarnPebbleOutcome }> {
   const raw = await AsyncStorage.getItem(PEBBLE_LOG_KEY);
   let log: PebbleLogEntry[] = [];
   if (raw) {
@@ -90,9 +105,9 @@ export async function earnPebbleUnlocked(
         console.warn(
           `Conflicting rewardId type: "${rewardId}" was already recorded as type "${existing.type}", cannot re-award as type "${type}"`
         );
-        return { success: false, changed: false };
+        return { success: false, changed: false, outcome: "conflict" };
       }
-      return { success: true, changed: false };
+      return { success: true, changed: false, outcome: "already_earned" };
     }
   }
 
@@ -110,7 +125,7 @@ export async function earnPebbleUnlocked(
   // by design (no backlog) and the completion itself still commits.
   if (todayPebbles.length >= 15) {
     console.log("Daily pebble limit reached (15/day).");
-    return { success: false, changed: false };
+    return { success: false, changed: false, outcome: "cap_reached" };
   }
 
   const isFirstPebbleToday = todayPebbles.length === 0;
@@ -142,7 +157,7 @@ export async function earnPebbleUnlocked(
     }
   }
 
-  return { success: true, changed: true };
+  return { success: true, changed: true, outcome: "awarded" };
 }
 
 export async function reversePebbleRewardUnlocked(
@@ -688,17 +703,34 @@ export async function getPebbleCountsUnlocked(): Promise<PebbleCounts> {
 // ── Public Mutex-Protected API Boundary ─────────────────────────────
 
 export async function earnPebble(type: PebbleType, rewardId?: string): Promise<boolean> {
+  try {
+    const outcome = await earnPebbleWithOutcome(type, rewardId);
+    return outcome === "awarded" || outcome === "already_earned";
+  } catch (e) {
+    console.warn("Failed to earn pebble", e);
+    return false;
+  }
+}
+
+/**
+ * Reward boundary that reports WHY it succeeded or failed and **throws** when
+ * the ledger write itself fails.
+ *
+ * `earnPebble` keeps its historical swallow-and-return-boolean contract for
+ * callers that treat rewards as best effort. Durable completion paths use this
+ * variant so a write failure can be retried from the reward-intent ledger
+ * instead of being mistaken for a deliberate cap drop.
+ */
+export async function earnPebbleWithOutcome(
+  type: PebbleType,
+  rewardId?: string,
+): Promise<EarnPebbleOutcome> {
   return withLock(PEBBLE_ECONOMY_LOCK, async () => {
-    try {
-      const result = await earnPebbleUnlocked(type, rewardId);
-      if (result.changed) {
-        emitStateChange("pebbles_changed", "pebble_service");
-      }
-      return result.success;
-    } catch (e) {
-      console.warn("Failed to earn pebble", e);
-      return false;
+    const result = await earnPebbleUnlocked(type, rewardId);
+    if (result.changed) {
+      emitStateChange("pebbles_changed", "pebble_service");
     }
+    return result.outcome;
   });
 }
 
