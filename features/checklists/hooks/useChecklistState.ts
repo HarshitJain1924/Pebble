@@ -7,7 +7,31 @@ import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { globalChecklists } from "@/features/tasks/utils/task-formatting";
 import { getTodayDateKey } from "@/shared/utils/date-key";
-import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
+import {
+  getActiveOccurrenceDateKey,
+  isRecurringOccurrenceForDate,
+} from "@/services/scheduling/recurrence.service";
+
+/**
+ * Resolve the occurrence date a workspace-list interaction must read/write.
+ *
+ * - With an explicit reference date (the day the list represents) the write is
+ *   confined to that day: if the checklist is not an occurrence of it, there is
+ *   no legal target and the caller must not write at all. Falling back to
+ *   "next occurrence" here would silently complete a future date the user is
+ *   not looking at.
+ * - Without one (date-less legacy callers), keep the canonical resolution.
+ */
+function resolveOccurrenceDateKey(
+  checklist: Checklist,
+  referenceDateKey?: string,
+): string | undefined {
+  const baseKey = referenceDateKey || getTodayDateKey();
+  if (isRecurringOccurrenceForDate(checklist, baseKey)) return baseKey;
+  return referenceDateKey
+    ? undefined
+    : getActiveOccurrenceDateKey(checklist, baseKey);
+}
 
 export function useChecklistState(selectedWorkspaceId: string) {
   const [checklists, setChecklists] = useState<Record<string, Checklist[]>>(() => globalChecklists || {});
@@ -92,12 +116,17 @@ export function useChecklistState(selectedWorkspaceId: string) {
    * `toggleChecklistItem` command (never by writing the master `items` array).
    * Non-recurring checklists keep their existing whole-entity update behavior.
    */
-  const toggleChecklistItem = useCallback(async (checklist: Checklist, itemId: string) => {
+  const toggleChecklistItem = useCallback(async (
+    checklist: Checklist,
+    itemId: string,
+    referenceDateKey?: string,
+  ) => {
     try {
       const activeList = checklist.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
       if (checklist.recurrence) {
-        const dateKey = getActiveOccurrenceDateKey(checklist, getTodayDateKey());
+        const dateKey = resolveOccurrenceDateKey(checklist, referenceDateKey);
+        if (!dateKey) return;
         const result = await EntityCommandService.toggleChecklistItem(
           checklist.id,
           itemId,
@@ -140,12 +169,16 @@ export function useChecklistState(selectedWorkspaceId: string) {
    * checklists fan out to the canonical per-item command so only the resolved
    * occurrence changes; non-recurring checklists keep the existing single write.
    */
-  const toggleChecklistAllItems = useCallback(async (checklist: Checklist) => {
+  const toggleChecklistAllItems = useCallback(async (
+    checklist: Checklist,
+    referenceDateKey?: string,
+  ) => {
     try {
       const activeList = checklist.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
       if (checklist.recurrence) {
-        const dateKey = getActiveOccurrenceDateKey(checklist, getTodayDateKey());
+        const dateKey = resolveOccurrenceDateKey(checklist, referenceDateKey);
+        if (!dateKey) return;
         const completedIds = new Set(
           checklist.occurrenceHistory?.[dateKey || ""]?.completedItemIds || [],
         );

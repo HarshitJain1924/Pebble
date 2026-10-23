@@ -32,6 +32,38 @@ describe("GraphRepository Concurrent Append Regression Suite", () => {
     expect(sessions.map((s) => s.id)).toEqual(["focus-1", "focus-2"]);
   });
 
+  it("1b. saving the same session id twice upserts one durable record", async () => {
+    // A completion retried after a crash / concurrent recovery trigger must not
+    // append a duplicate session (the session id is the completion identity).
+    await GraphRepository.saveFocusSession({
+      id: "focus-retry",
+      startedAt: 100,
+      endedAt: 200,
+      duration: 300,
+    });
+    await GraphRepository.saveFocusSession({
+      id: "focus-retry",
+      startedAt: 100,
+      endedAt: 260,
+      duration: 300,
+    });
+
+    const sessions = await GraphRepository.getFocusSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe("focus-retry");
+    expect(sessions[0].endedAt).toBe(260);
+  });
+
+  it("1c. concurrent saves for the same session id still yield one record", async () => {
+    await Promise.all([
+      GraphRepository.saveFocusSession({ id: "focus-race", startedAt: 1, endedAt: 2, duration: 10 }),
+      GraphRepository.saveFocusSession({ id: "focus-race", startedAt: 1, endedAt: 3, duration: 10 }),
+    ]);
+
+    const sessions = await GraphRepository.getFocusSessions();
+    expect(sessions.filter((s) => s.id === "focus-race")).toHaveLength(1);
+  });
+
   it("2. two concurrent system-event appends preserve both events", async () => {
     const p1 = GraphRepository.logSystemEvent({
       id: "event-1",

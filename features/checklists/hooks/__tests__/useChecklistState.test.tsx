@@ -153,4 +153,49 @@ describe("useChecklistState checklist completion", () => {
     );
     expect(EntityCommandService.updateChecklist).not.toHaveBeenCalled();
   });
+
+  it("writes the selected day's occurrence instead of today's", async () => {
+    const recurring: Checklist = {
+      ...baseChecklist,
+      recurrence: { frequency: "daily", interval: 1 },
+      schedule: { date: "2026-01-05" },
+    };
+    toggleChecklistItemMock.mockResolvedValue({
+      previous: recurring,
+      updated: recurring,
+    });
+
+    const { ref } = renderHook();
+
+    await act(async () => {
+      await ref.current!.toggleChecklistItem(recurring, "i1", "2026-01-09");
+    });
+
+    expect(toggleChecklistItemMock).toHaveBeenCalledWith(
+      recurring.id,
+      "i1",
+      "ws-1",
+      "2026-01-09",
+      { source: "tasks_screen", skipEvents: true, skipAnalytics: true },
+    );
+  });
+
+  it("refuses to write an occurrence the selected day does not have", async () => {
+    // Weekly on Monday; the list is showing a Wednesday.
+    const recurring: Checklist = {
+      ...baseChecklist,
+      recurrence: { frequency: "weekly", interval: 1, daysOfWeek: [1] },
+      schedule: { date: "2026-01-05" },
+    };
+
+    const { ref } = renderHook();
+
+    await act(async () => {
+      await ref.current!.toggleChecklistItem(recurring, "i1", "2026-01-07");
+      await ref.current!.toggleChecklistAllItems(recurring, "2026-01-07");
+    });
+
+    expect(toggleChecklistItemMock).not.toHaveBeenCalled();
+    expect(EntityCommandService.updateChecklist).not.toHaveBeenCalled();
+  });
 });

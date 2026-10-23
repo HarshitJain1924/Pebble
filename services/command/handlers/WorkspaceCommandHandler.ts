@@ -131,26 +131,42 @@ static async reorderWorkspaces(
         throw new Error(`[EntityCommandService] Workspace ${workspace.id} was permanently deleted.`);
       }
 
-      workspace.revision = (workspace.revision ?? 1) + 1;
-      workspace.lifecycleGeneration = workspace.lifecycleGeneration ?? 1;
+      // 3. Persist the workspace metadata, but only if it is not already active.
+      //
+      // Retry safety: once the metadata write has committed, a later child
+      // failure leaves the workspace active with its bin snapshot retained. The
+      // retry must NOT re-apply the snapshot, or it would revert metadata the
+      // user edited after the first attempt. Metadata persistence is therefore
+      // the first durable checkpoint of the restore.
+      const alreadyActive = persistedWorkspaces.some(
+        (w) => w.id === workspace.id,
+      );
+      if (!alreadyActive) {
+        workspace.revision = (workspace.revision ?? 1) + 1;
+        workspace.lifecycleGeneration = workspace.lifecycleGeneration ?? 1;
+        await WorkspaceRepository.saveWorkspace(workspace);
 
-      // 3. Persist the workspace through the canonical repository.
-      await WorkspaceRepository.saveWorkspace(workspace);
+        // saveWorkspace swallows storage errors, so verify the workspace actually
+        // persisted. If it did not, abort WITHOUT removing the bin item.
+        const afterSave = await WorkspaceRepository.getWorkspaces();
+        if (!afterSave.some((w) => w.id === workspace.id)) {
+          throw new Error(`[EntityCommandService] Workspace ${workspace.id} failed to persist during restore`);
+        }
+      }
 
-    // 4. saveWorkspace swallows storage errors, so verify the workspace actually
-    // persisted. If it did not, abort WITHOUT removing the bin item.
-    const persistedWorkspaces = await WorkspaceRepository.getWorkspaces();
-    if (!persistedWorkspaces.some((w) => w.id === workspace.id)) {
-      throw new Error(`[EntityCommandService] Workspace ${workspace.id} failed to persist during restore`);
-    }
-
-    // 5. Best-effort restore of the contained tasks/habits into their canonical
-    // partitioned keys (idempotent — they normally already exist in storage).
+    // 5. Restore the archived children into their canonical partitions by MERGING
+    // on id — never by replacing the partition. A partition may already contain
+    // entities the user created (or the previous attempt already restored) after
+    // the snapshot was taken; those must survive the retry untouched.
     let childRestoreSuccess = true;
 
     if (Array.isArray(parsed?.todos) && parsed.todos.length > 0) {
       try {
-        await TaskRepository.saveTasksUnlocked(parsed.todos, workspace.id);
+        await WorkspaceCommandHandler.mergeArchivedChildren(
+          parsed.todos,
+          () => TaskRepository.getTasks(workspace.id),
+          (merged) => TaskRepository.saveTasksUnlocked(merged, workspace.id),
+        );
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore tasks for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -158,7 +174,11 @@ static async reorderWorkspaces(
     }
     if (Array.isArray(parsed?.habits) && parsed.habits.length > 0) {
       try {
-        await HabitRepository.saveHabitsUnlocked(parsed.habits, workspace.id);
+        await WorkspaceCommandHandler.mergeArchivedChildren(
+          parsed.habits,
+          () => HabitRepository.getHabits(workspace.id),
+          (merged) => HabitRepository.saveHabitsUnlocked(merged, workspace.id),
+        );
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore habits for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -167,7 +187,11 @@ static async reorderWorkspaces(
     if (Array.isArray(parsed?.checklists) && parsed.checklists.length > 0) {
       try {
         const { ChecklistRepository } = await import("@/repositories/ChecklistRepository");
-        await ChecklistRepository.saveChecklistsUnlocked(parsed.checklists, workspace.id);
+        await WorkspaceCommandHandler.mergeArchivedChildren(
+          parsed.checklists,
+          () => ChecklistRepository.getChecklists(workspace.id),
+          (merged) => ChecklistRepository.saveChecklistsUnlocked(merged, workspace.id),
+        );
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore checklists for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -176,7 +200,11 @@ static async reorderWorkspaces(
     if (Array.isArray(parsed?.resources) && parsed.resources.length > 0) {
       try {
         const { ResourceRepository } = await import("@/repositories/ResourceRepository");
-        await ResourceRepository.saveResourcesUnlocked(parsed.resources, workspace.id);
+        await WorkspaceCommandHandler.mergeArchivedChildren(
+          parsed.resources,
+          () => ResourceRepository.getResources(workspace.id),
+          (merged) => ResourceRepository.saveResourcesUnlocked(merged, workspace.id),
+        );
       } catch (e) {
         console.warn(`[EntityCommandService] Failed to restore resources for workspace ${workspace.id}`, e);
         childRestoreSuccess = false;
@@ -390,6 +418,200 @@ static async reorderWorkspaces(
     } catch (e) {
       console.warn("Failed to delete workspace", e);
       throw e;
+    }
+  }  /**
+   * Merge archived children into an active partition, keyed by entity id.
+   *
+   * Archived entities that already exist in the active partition are left as
+   * they are (they are either the result of a previous partial attempt or an
+   * entity the user created/edited afterwards). Only missing ids are added, so
+   * the operation is idempotent and never truncates live data.
+   */
+  private static async mergeArchivedChildren<T extends { id: string }>(
+    archived: T[],
+    readActive: () => Promise<Record<string, T>>,
+    save: (merged: T[]) => Promise<void>,
+  ): Promise<void> {
+    const activeMap = await readActive();
+    const missing = (Array.isArray(archived) ? archived : []).filter(
+      (child) => child?.id && !activeMap[child.id],
+    );
+    if (missing.length === 0) return;
+    await save([...Object.values(activeMap), ...missing]);
+  }
+
+  /**
+   * Permanently destroy a Workspace that is sitting in the Recycle Bin.
+   *
+   * This is the canonical counterpart of `permanentlyDeleteTask` for the
+   * workspace *package* snapshot written by `deleteWorkspace`
+   * (`{ list, todos, habits, checklists, resources }`). It:
+   *   1. adds tombstones for the workspace and every archived child,
+   *   2. purges the workspace metadata and its four partitioned keys,
+   *   3. deletes graph relationships for the archived children,
+   *   4. cancels the archived children's reminders,
+   *   5. removes the bin entry (strict write) as the final commit step.
+   *
+   * Step 5 runs inside the same lock region as the destructive steps, so a
+   * crash leaves the snapshot in the bin and the retry re-runs the sequence;
+   * every step is a no-op when it already applied.
+   */
+  static async permanentlyDeleteWorkspace(
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    if (
+      workspaceId === INBOX_WORKSPACE_ID ||
+      workspaceId === MY_PEBBLES_WORKSPACE_ID
+    ) {
+      throw new Error("Cannot delete protected workspace.");
+    }
+
+    const { RecycleBinRepository } = await import("@/repositories/RecycleBinRepository");
+    const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+    const { withLocks } = await import("@/shared/utils/mutex");
+
+    const binItems = await RecycleBinRepository.getRecycleBinItems();
+    const binItem = binItems.find(
+      (i) =>
+        i.entityType === "workspace" &&
+        (i.entityId === workspaceId ||
+          i.id === workspaceId ||
+          i.id === `rb-${workspaceId}` ||
+          i.id.startsWith(`rb-${workspaceId}-g`)),
+    );
+
+    let parsed: any = null;
+    if (binItem) {
+      try {
+        parsed = JSON.parse(binItem.snapshot);
+      } catch (e) {
+        throw new Error(
+          `[EntityCommandService] Failed to parse workspace snapshot for ${workspaceId}`,
+        );
+      }
+    }
+
+    const archivedWorkspace: Workspace | undefined =
+      parsed?.list ?? parsed ?? undefined;
+    const activeWorkspaces = await WorkspaceRepository.getWorkspaces();
+    const activeWorkspace = activeWorkspaces.find((w) => w.id === workspaceId);
+
+    // Nothing active and nothing archived: the workspace was already destroyed.
+    if (!activeWorkspace && !archivedWorkspace && !binItem) {
+      throw new Error(`Workspace ${workspaceId} not found`);
+    }
+
+    type ArchivedChild = {
+      type: "task" | "habit" | "checklist" | "resource";
+      entity: {
+        id?: string;
+        lifecycleGeneration?: number;
+        revision?: number;
+        reminder?: { notificationIds?: string[] };
+      };
+    };
+    const childPartitions: Array<[
+      ArchivedChild["type"],
+      any,
+    ]> = [
+      ["task", parsed?.todos],
+      ["habit", parsed?.habits],
+      ["checklist", parsed?.checklists],
+      ["resource", parsed?.resources],
+    ];
+    const archivedChildren: ArchivedChild[] = childPartitions.flatMap(
+      ([type, list]) =>
+        (Array.isArray(list) ? list : []).map((entity: any) => ({
+          type,
+          entity,
+        })),
+    );
+    const childIds = archivedChildren
+      .map((child) => child.entity?.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    const notificationIdsToCancel = archivedChildren.flatMap(
+      (child) => child.entity?.reminder?.notificationIds ?? [],
+    );
+
+    const partitionKeys = [
+      `pebble:v1:tasks:${workspaceId}`,
+      `pebble:v1:habits:${workspaceId}`,
+      `pebble:v1:checklists:${workspaceId}`,
+      `pebble:v1:resources:${workspaceId}`,
+    ];
+    const locks = [...partitionKeys, `ws_lifecycle_${workspaceId}`];
+
+    await withLocks(locks, async () => {
+      const now = Date.now();
+
+      // 1. Tombstones — workspace + archived children, so neither can be
+      // resurrected by a concurrent restore on the same device.
+      if (archivedWorkspace?.id || activeWorkspace?.id) {
+        const target = activeWorkspace ?? (archivedWorkspace as Workspace);
+        await TombstoneRepository.addTombstone({
+          id: `ts-workspace-${workspaceId}-g${target.lifecycleGeneration ?? 1}`,
+          entityType: "workspace",
+          entityId: workspaceId,
+          lifecycleGeneration: target.lifecycleGeneration ?? 1,
+          deletionRevision: target.revision ?? 1,
+          deletedAt: now,
+        });
+      }
+
+      for (const { type, entity } of archivedChildren) {
+        if (!entity?.id) continue;
+        await TombstoneRepository.addTombstone({
+          id: `ts-${type}-${entity.id}-g${entity.lifecycleGeneration ?? 1}`,
+          entityType: type,
+          entityId: entity.id,
+          lifecycleGeneration: entity.lifecycleGeneration ?? 1,
+          deletionRevision: entity.revision ?? 1,
+          deletedAt: now,
+        });
+      }
+
+      // 2. Workspace metadata + child partitions.
+      if (activeWorkspace) {
+        await WorkspaceRepository.deleteWorkspace(workspaceId, {
+          throwOnError: true,
+        });
+      }
+      const AsyncStorage = (
+        await import("@react-native-async-storage/async-storage")
+      ).default;
+      await AsyncStorage.multiRemove(partitionKeys);
+
+      // 3. Graph relationships.
+      if (childIds.length > 0) {
+        await GraphRepository.deleteRelationshipsForEntitiesUnlocked(childIds);
+      }
+
+      // 4. Bin entry removal is the commit point — strict write.
+      await RecycleBinRepository.removeRecycleBinItems(
+        [binItem?.id ?? workspaceId, workspaceId],
+        { throwOnError: true },
+      );
+    });
+
+    if (notificationIdsToCancel.length > 0) {
+      try {
+        await cancelReminderIds(notificationIdsToCancel, {
+          throwOnError: false,
+        });
+      } catch (e) {
+        console.warn(
+          `[EntityCommandService] Failed to cancel reminders for permanently deleted workspace ${workspaceId}`,
+          e,
+        );
+      }
+    }
+
+    if (!options?.skipEvents) {
+      emitStateChange("workspace_changed", options?.source);
+    }
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
     }
   }
 

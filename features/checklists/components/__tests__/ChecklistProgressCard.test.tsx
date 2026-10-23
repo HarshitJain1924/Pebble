@@ -170,8 +170,13 @@ describe("ChecklistProgressCard Component Redesign", () => {
       previewCheckbox.props.onPress();
     });
     // Per-item completion goes through the canonical command path, never a
-    // whole-entity `items` write.
-    expect(onToggleChecklistItemMock).toHaveBeenCalledWith(recurringChecklist, "i2");
+    // whole-entity `items` write. The row forwards the day it represents so the
+    // write cannot land on a different occurrence.
+    expect(onToggleChecklistItemMock).toHaveBeenCalledWith(
+      recurringChecklist,
+      "i2",
+      todayKey,
+    );
   });
 
   it("routes recurring bulk completion through the canonical bulk handler", () => {
@@ -201,7 +206,10 @@ describe("ChecklistProgressCard Component Redesign", () => {
       leadingCheckbox.props.onPress();
     });
 
-    expect(onToggleAllChecklistItemsMock).toHaveBeenCalledWith(baseChecklist);
+    expect(onToggleAllChecklistItemsMock).toHaveBeenCalledWith(
+      baseChecklist,
+      getTodayDateKey(),
+    );
     expect(onUpdateChecklistMock).not.toHaveBeenCalled();
   });
 

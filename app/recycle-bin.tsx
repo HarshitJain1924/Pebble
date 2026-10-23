@@ -14,12 +14,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { emitStateChange } from "@/services/events/state-events";
-import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import {
   getRecycleBinItems,
   restoreRecycleBinItems,
-  saveRecycleBinItems,
 } from "@/services/storage/storage.service";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -127,29 +124,54 @@ export default function RecycleBinScreen() {
     }
   };
 
+  /**
+   * Permanently delete bin items through the canonical command path.
+   *
+   * Local state is updated from the command's committed outcome only: items the
+   * command deleted disappear, items it failed to delete stay visible and the
+   * failure is surfaced so the user can retry.
+   */
+  const purgeBinItems = async (
+    targets: RecycleBinItem[],
+  ): Promise<{ deleted: number; failed: number }> => {
+    const { EntityCommandService } = await import(
+      "@/services/command/EntityCommandService"
+    );
+
+    const result = await EntityCommandService.permanentlyDeleteRecycleBinItems(
+      targets,
+    );
+
+    const deletedIds = new Set(result.deletedIds);
+    if (deletedIds.size > 0) {
+      setItems((prev) => prev.filter((i) => !deletedIds.has(i.id)));
+    }
+
+    if (result.failed.length > 0) {
+      // Re-read durable state so a partially failed bin is shown as it truly is.
+      await loadRecycleBin();
+      const details = result.failed
+        .slice(0, 3)
+        .map((f) => `• ${f.entityType}: ${f.message}`)
+        .join("\n");
+      Alert.alert(
+        "Some items were not deleted",
+        `${result.failed.length} item(s) are still in the Recycle Bin and can be retried.\n\n${details}`,
+      );
+    }
+
+    return { deleted: deletedIds.size, failed: result.failed.length };
+  };
+
   const handleRestoreItem = async (item: RecycleBinItem) => {
     try {
       setLoading(true);
       await restoreRecycleBinItems([item]);
 
-      // Remove from Recycle Bin state
+      // restoreRecycleBinItems already emitted the per-domain state events and
+      // removed the bin entry, so only mirror the committed result locally.
       const remaining = items.filter((i) => i.id !== item.id);
       setItems(remaining);
-
-      // State events are already emitted by restoreRecycleBinItems,
-      // but emit additional targeted events for immediate UI refresh
-      if (item.entityType === "task" || item.entityType === "workspace") {
-        emitStateChange("tasks_changed");
-      }
-      if (item.entityType === "habit" || item.entityType === "workspace") {
-        emitStateChange("habits_changed");
-      }
-      if (item.entityType === "resource") {
-        emitStateChange("resources_changed");
-      }
-      if (item.entityType === "workspace") {
-        emitStateChange("workspace_mode_changed");
-      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => {},
@@ -160,6 +182,11 @@ export default function RecycleBinScreen() {
       );
     } catch (e) {
       console.warn("Failed to restore item", e);
+      await loadRecycleBin();
+      Alert.alert(
+        "Restore failed",
+        `"${getItemTitle(item)}" could not be restored and is still in the Recycle Bin.`,
+      );
     } finally {
       setLoading(false);
     }
@@ -180,35 +207,21 @@ export default function RecycleBinScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            const snap = parseSnapshot(item.snapshot);
-            if (item.entityType === "task" || item.entityType === "habit") {
-              const notifIds = snap?.reminder?.notificationIds || snap?.notificationIds || [];
-              if (notifIds.length > 0) {
-                await cancelReminderIds(notifIds);
-              }
+            setLoading(true);
+            const { deleted } = await purgeBinItems([item]);
+            if (deleted > 0) {
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Warning,
+              ).catch(() => {});
             }
-
-            const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
-            const entityId = item.entityId || snap?.id || item.id;
-            const lifecycleGeneration = item.lifecycleGeneration ?? snap?.lifecycleGeneration ?? 1;
-            const revision = snap?.revision ?? 1;
-            await TombstoneRepository.addTombstone({
-              id: `ts-${item.entityType}-${entityId}-g${lifecycleGeneration}`,
-              entityType: item.entityType,
-              entityId,
-              lifecycleGeneration,
-              deletionRevision: revision,
-              deletedAt: Date.now(),
-            });
-
-            const remaining = items.filter((i) => i.id !== item.id);
-            await saveRecycleBinItems(remaining);
-            setItems(remaining);
-            Haptics.notificationAsync(
-              Haptics.NotificationFeedbackType.Warning,
-            ).catch(() => {});
           } catch (e) {
             console.warn("Failed to permanently delete item", e);
+            Alert.alert(
+              "Delete failed",
+              `"${itemTitle}" could not be permanently deleted. It is still in the Recycle Bin.`,
+            );
+          } finally {
+            setLoading(false);
           }
         },
       },
@@ -237,28 +250,21 @@ export default function RecycleBinScreen() {
               await restoreRecycleBinItems(tabItems);
 
               // Update Recycle Bin state
+              // restoreRecycleBinItems already emitted the per-domain events.
               const tabItemIds = new Set(tabItems.map((i) => i.id));
               const remaining = items.filter((i) => !tabItemIds.has(i.id));
               setItems(remaining);
-
-              if (activeTab === "task" || activeTab === "workspace") {
-                emitStateChange("tasks_changed");
-              }
-              if (activeTab === "habit" || activeTab === "workspace") {
-                emitStateChange("habits_changed");
-              }
-              if (activeTab === "resource") {
-                emitStateChange("resources_changed");
-              }
-              if (activeTab === "workspace") {
-                emitStateChange("workspace_mode_changed");
-              }
 
               Haptics.notificationAsync(
                 Haptics.NotificationFeedbackType.Success,
               ).catch(() => {});
             } catch (e) {
               console.warn("Failed to restore all items", e);
+              await loadRecycleBin();
+              Alert.alert(
+                "Restore failed",
+                "Some items could not be restored and remain in the Recycle Bin.",
+              );
             } finally {
               setLoading(false);
             }
@@ -282,30 +288,18 @@ export default function RecycleBinScreen() {
           onPress: async () => {
             setLoading(true);
             try {
-              const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
-              const tombstonesToAdd = items.map((item) => {
-                const snap = parseSnapshot(item.snapshot);
-                const entityId = item.entityId || snap?.id || item.id;
-                const lifecycleGeneration = item.lifecycleGeneration ?? snap?.lifecycleGeneration ?? 1;
-                const revision = snap?.revision ?? 1;
-                return {
-                  id: `ts-${item.entityType}-${entityId}-g${lifecycleGeneration}`,
-                  entityType: item.entityType,
-                  entityId,
-                  lifecycleGeneration,
-                  deletionRevision: revision,
-                  deletedAt: Date.now(),
-                };
-              });
-              await TombstoneRepository.addTombstones(tombstonesToAdd);
-
-              await saveRecycleBinItems([]);
-              setItems([]);
-              Haptics.notificationAsync(
-                Haptics.NotificationFeedbackType.Warning,
-              ).catch(() => {});
+              const { deleted } = await purgeBinItems(items);
+              if (deleted > 0) {
+                Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Warning,
+                ).catch(() => {});
+              }
             } catch (e) {
               console.warn("Failed to empty recycle bin", e);
+              Alert.alert(
+                "Empty failed",
+                "The Recycle Bin could not be emptied. Your items are still there.",
+              );
             } finally {
               setLoading(false);
             }

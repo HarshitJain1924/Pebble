@@ -7,6 +7,7 @@ import {
 import { AMBIENT_SOUNDS } from "@/shared/constants/sounds";
 
 import {
+  FocusStatsRepository,
   GraphRepository,
   HabitRepository,
   TaskRepository,
@@ -76,6 +77,8 @@ export function useFocusState() {
   const soundRef = useRef<any>(null);
   const loadedSoundIdRef = useRef<string | null>(null);
   const isDraggingProgressRef = useRef<boolean>(false);
+  /** Guards against two triggers completing the same timer session at once. */
+  const completingSessionIdRef = useRef<string | null>(null);
 
   const startTimeRef = useRef<number>(0);
   const elapsedBeforeStartRef = useRef<number>(0);
@@ -590,6 +593,54 @@ export function useFocusState() {
     } catch {}
   };
 
+  /**
+   * Durable timer completion (single path for expiry and recovery).
+   *
+   * Ordering invariant: the active-session recovery record is released ONLY after
+   * the command durably commits the session. If persistence fails the record
+   * survives, so the next foreground/recovery pass retries the same stable
+   * session id — the command layer is idempotent for that id, so a retry can
+   * neither duplicate the session nor credit it twice.
+   */
+  const completeTimerSession = async (session: {
+    startTime: number;
+    duration: number;
+    focusedTaskId?: string | null;
+    loggedMinutes?: number;
+  }): Promise<boolean> => {
+    const sessionId = `focus_timer_${session.startTime}`;
+    if (completingSessionIdRef.current === sessionId) return false;
+    completingSessionIdRef.current = sessionId;
+
+    try {
+      const isHabit = habitList.some((h) => h.id === session.focusedTaskId);
+      await EntityCommandService.recordFocusSession(
+        session.duration,
+        session.focusedTaskId || undefined,
+        isHabit ? "habit" : "task",
+        {
+          sessionId,
+          startedAt: session.startTime,
+          endedAt: Date.now(),
+          loggedMinutes: Math.max(0, Math.floor(session.loggedMinutes ?? 0)),
+        },
+      );
+
+      // Durable commit point reached — release the recovery record now.
+      await clearActiveSession();
+      await refreshFocusStats();
+      return true;
+    } catch (e) {
+      console.warn(
+        "Failed to persist focus session; keeping the recovery record for retry:",
+        e,
+      );
+      return false;
+    } finally {
+      completingSessionIdRef.current = null;
+    }
+  };
+
   const syncTimerFromSessionState = async () => {
     try {
       const raw = await AsyncStorage.getItem("todoapp:focus:current_session");
@@ -624,31 +675,20 @@ export function useFocusState() {
         setIsActive(false);
         setSessionTime(0);
         elapsedBeforeStartRef.current = 0;
-        await clearActiveSession();
 
         if (session.type === "work") {
-          const totalMinutes = Math.floor(duration / 60);
-          const logged = loggedMinutesInCurrentSessionRef.current;
-          const remainingMinutes = Math.max(0, totalMinutes - logged);
-          if (remainingMinutes > 0) {
-            await creditFocusTime(remainingMinutes);
-          }
-          const isHabit = habitList.some((h) => h.id === session.focusedTaskId);
-          const now = Date.now();
-          const startMs = session.startTime || now - duration * 1000;
-          await EntityCommandService.recordFocusSession(
+          const committed = await completeTimerSession({
+            startTime: session.startTime,
             duration,
-            session.focusedTaskId,
-            isHabit ? "habit" : "task",
-            {
-              sessionId: `focus_timer_${session.startTime}`,
-              startedAt: startMs,
-              endedAt: now,
-            }
-          );
-          await incrementCompletedSessions();
-          AlertFinishWork(session.focusedTaskId);
+            focusedTaskId: session.focusedTaskId ?? null,
+            loggedMinutes: session.loggedMinutes || 0,
+          });
+          if (committed) {
+            AlertFinishWork(session.focusedTaskId);
+          }
         } else {
+          // Break windows own no durable record; releasing the marker is safe.
+          await clearActiveSession();
           AlertFinishBreak();
         }
       } else {
@@ -712,49 +752,50 @@ export function useFocusState() {
   };
 
   const creditFocusTime = async (minutes: number) => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
     try {
-      const raw = await AsyncStorage.getItem("todoapp:focus:stats");
-      let completedTodayVal = 0;
-      let totalFocusTimeVal = 0;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        completedTodayVal = parsed.completedToday ?? 0;
-        totalFocusTimeVal = parsed.totalFocusTime ?? 0;
-      }
-      const nextTotalFocusTime = totalFocusTimeVal + minutes;
-      setTotalFocusTime(nextTotalFocusTime);
-      await AsyncStorage.setItem(
-        "todoapp:focus:stats",
-        JSON.stringify({
-          completedToday: completedTodayVal,
-          totalFocusTime: nextTotalFocusTime,
-        }),
-      );
-      void syncWidgetData(nextTotalFocusTime).catch(() => {});
-    } catch {}
+      const stats = await FocusStatsRepository.addFocusMinutes(minutes);
+      setTotalFocusTime(stats.totalFocusTime);
+      void syncWidgetData(stats.totalFocusTime).catch(() => {});
+    } catch (e) {
+      console.warn("Failed to credit focus minutes", e);
+    }
   };
 
-  const incrementCompletedSessions = async () => {
+  /**
+   * Re-derive the on-screen focus stats from the durable session list.
+   *
+   * The session list is the single source of truth for today's completed count,
+   * total focus time, average and longest session, so a retried or duplicated
+   * completion can never inflate the displayed values.
+   */
+  const refreshFocusStats = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem("todoapp:focus:stats");
-      let completedTodayVal = 0;
-      let totalFocusTimeVal = 0;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        completedTodayVal = parsed.completedToday ?? 0;
-        totalFocusTimeVal = parsed.totalFocusTime ?? 0;
-      }
-      const nextCompleted = completedTodayVal + 1;
-      setCompletedToday(nextCompleted);
-      await AsyncStorage.setItem(
-        "todoapp:focus:stats",
-        JSON.stringify({
-          completedToday: nextCompleted,
-          totalFocusTime: totalFocusTimeVal,
-        }),
+      const sessions = await GraphRepository.getFocusSessions();
+      const today = new Date().toDateString();
+      const todaySessions = sessions.filter(
+        (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
       );
-    } catch {}
-  };
+      const finishedToday = todaySessions.length;
+      const totalTime = todaySessions.reduce(
+        (acc, s) => acc + Math.floor(s.duration / 60),
+        0,
+      );
+      const avg =
+        finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+      const longest = todaySessions.reduce(
+        (max, s) => Math.max(max, Math.floor(s.duration / 60)),
+        0,
+      );
+      setCompletedToday(finishedToday);
+      setTotalFocusTime(totalTime);
+      setAverageSessionLength(avg);
+      setLongestSession(longest);
+      void syncWidgetData(totalTime).catch(() => {});
+    } catch (e) {
+      console.warn("Failed to refresh focus stats", e);
+    }
+  }, []);
 
   const logPartialMinutes = (totalElapsedSeconds: number) => {
     if (pomodoroMode !== "work") return;
@@ -797,33 +838,13 @@ export function useFocusState() {
           undefined,
           undefined,
           {
-            sessionId: `focus_sw_${swStartTimeRef.current}`,
+            sessionId: `focus_sw_${startMs}`,
             startedAt: startMs,
             endedAt: now,
           }
         );
 
-        // 4. Update Stats
-        const sessions = await GraphRepository.getFocusSessions();
-        const today = new Date().toDateString();
-        const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
-        );
-        const finishedToday = todaySessions.length;
-        const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.duration / 60),
-          0,
-        );
-        const avg =
-          finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
-        const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.duration / 60)),
-          0,
-        );
-        setCompletedToday(finishedToday);
-        setTotalFocusTime(totalTime);
-        setAverageSessionLength(avg);
-        setLongestSession(longest);
+        await refreshFocusStats();
       } catch (err) {
         console.warn("Failed to save current stopwatch focus session:", err);
       }
@@ -1038,51 +1059,19 @@ export function useFocusState() {
   const handleTimerExpiration = async () => {
     setIsActive(false);
     elapsedBeforeStartRef.current = 0;
-    await clearActiveSession();
 
     if (pomodoroMode === "work") {
-      try {
-        const isHabit = habitList.some((h) => h.id === focusedTaskId);
-        const now = Date.now();
-        const startMs = startTimeRef.current || now - totalSessionTime * 1000;
-        await EntityCommandService.recordFocusSession(
-          totalSessionTime,
-          focusedTaskId || undefined,
-          isHabit ? "habit" : "task",
-          {
-            sessionId: `focus_timer_${startTimeRef.current}`,
-            startedAt: startMs,
-            endedAt: now,
-          }
-        );
-
-        // 5. Update Stats
-        const sessions = await GraphRepository.getFocusSessions();
-        const today = new Date().toDateString();
-        const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
-        );
-        const finishedToday = todaySessions.length;
-        const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.duration / 60),
-          0,
-        );
-        const avg =
-          finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
-        const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.duration / 60)),
-          0,
-        );
-        setCompletedToday(finishedToday);
-        setTotalFocusTime(totalTime);
-        setAverageSessionLength(avg);
-        setLongestSession(longest);
-      } catch (err) {
-        console.warn("Failed to persist focus session:", err);
+      const committed = await completeTimerSession({
+        startTime: startTimeRef.current,
+        duration: totalSessionTime,
+        focusedTaskId,
+        loggedMinutes: loggedMinutesInCurrentSessionRef.current,
+      });
+      if (committed) {
+        AlertFinishWork(focusedTaskId);
       }
-
-      AlertFinishWork(focusedTaskId);
     } else {
+      await clearActiveSession();
       AlertFinishBreak();
     }
   };

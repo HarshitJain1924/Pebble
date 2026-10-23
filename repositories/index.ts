@@ -3,6 +3,11 @@ export { TaskRepository } from "./TaskRepository";
 export { HabitRepository } from "./HabitRepository";
 export { ChecklistRepository } from "./ChecklistRepository";
 export { GraphRepository } from "./GraphRepository";
+export {
+  FocusStatsRepository,
+  FOCUS_STATS_KEY,
+  type FocusStats,
+} from "./FocusStatsRepository";
 export { RecycleBinRepository } from "./RecycleBinRepository";
 export { ResourceRepository } from "./ResourceRepository";
 export { UiStateRepository } from "./UiStateRepository";

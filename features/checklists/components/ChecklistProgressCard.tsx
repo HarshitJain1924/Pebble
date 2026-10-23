@@ -30,20 +30,29 @@ import {
   getNextIncompleteChecklistItem,
 } from "@/shared/utils/domain-selectors";
 import { getTodayDateKey } from "@/shared/utils/date-key";
-import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
+import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
 import { getChecklistMetadataParts } from "@/features/checklists/utils/checklist-formatting";
 
 export interface ChecklistProgressCardProps {
   checklist: Checklist;
   colors: any;
   colorScheme: "light" | "dark" | null;
+  /** Date this row represents. Completion reads/writes target this key. */
+  selectedDateKey?: string;
   isExpanded: boolean;
   onToggleExpand: () => void;
   onToggleChecklist: () => void; // completes or uncompletes all items
   /** Canonical occurrence-aware item toggle (recurring checklists). */
-  onToggleChecklistItem?: (checklist: Checklist, itemId: string) => void;
+  onToggleChecklistItem?: (
+    checklist: Checklist,
+    itemId: string,
+    referenceDateKey?: string,
+  ) => void;
   /** Canonical occurrence-aware bulk toggle (recurring checklists). */
-  onToggleAllChecklistItems?: (checklist: Checklist) => void;
+  onToggleAllChecklistItems?: (
+    checklist: Checklist,
+    referenceDateKey?: string,
+  ) => void;
   onUpdateChecklist: (updated: Checklist) => void;
   onToggleLinkResource?: (itemId: string, itemType: "checklist", resourceId: string) => void;
   allResources?: any[];
@@ -56,6 +65,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   checklist,
   colors,
   colorScheme,
+  selectedDateKey,
   isExpanded,
   onToggleExpand,
   onToggleChecklist,
@@ -79,12 +89,15 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     setMenuVisible(true);
   };
 
-  // Recurring checklists surface the occurrence the list represents, never the
-  // master template's permanent item state. Non-recurring checklists read their
-  // own items through the same selector.
-  const occurrenceDateKey = checklist.recurrence
-    ? getActiveOccurrenceDateKey(checklist, getTodayDateKey())
-    : undefined;
+  // The row reads and writes the occurrence of the day the list represents.
+  // A recurring checklist that is not an occurrence of that day has no
+  // occurrence date here (the list is date-scoped, so it is not rendered in
+  // that case) — we never substitute a different day's occurrence.
+  const referenceDateKey = selectedDateKey || getTodayDateKey();
+  const occurrenceDateKey =
+    checklist.recurrence && isRecurringOccurrenceForDate(checklist, referenceDateKey)
+      ? referenceDateKey
+      : undefined;
 
   const handleEditPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -96,9 +109,9 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
     () =>
       getChecklistOccurrenceStats(
         checklist,
-        occurrenceDateKey ?? getTodayDateKey(),
+        occurrenceDateKey ?? referenceDateKey,
       ),
-    [checklist, occurrenceDateKey],
+    [checklist, occurrenceDateKey, referenceDateKey],
   );
   const completedCount = stats.completedCount;
   const totalCount = stats.total;
@@ -121,7 +134,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
 
   const handleToggleItem = (itemId: string) => {
     if (onToggleChecklistItem) {
-      onToggleChecklistItem(checklist, itemId);
+      onToggleChecklistItem(checklist, itemId, referenceDateKey);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       return;
     }
@@ -153,7 +166,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
 
   const checklistMetaParts = useMemo<EntityMetaPart[]>(() => {
     return getChecklistMetadataParts(checklist, {
-      referenceDate: occurrenceDateKey ?? getTodayDateKey(),
+      referenceDate: occurrenceDateKey ?? referenceDateKey,
       isCompleted: isAllCompleted,
       completedCount,
       totalCount,
@@ -173,6 +186,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
   }, [
     checklist,
     occurrenceDateKey,
+    referenceDateKey,
     isAllCompleted,
     completedCount,
     totalCount,
@@ -208,7 +222,7 @@ export const ChecklistProgressCard: React.FC<ChecklistProgressCardProps> = ({
         <PressableScale
           onPress={
             onToggleAllChecklistItems
-              ? () => onToggleAllChecklistItems(checklist)
+              ? () => onToggleAllChecklistItems(checklist, referenceDateKey)
               : onToggleChecklist
           }
           accessibilityRole="checkbox"

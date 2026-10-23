@@ -9,6 +9,10 @@ import { ResourceCommandHandler } from "./handlers/ResourceCommandHandler";
 import { SystemCommandHandler } from "./handlers/SystemCommandHandler";
 import { ConversionCommandHandler } from "./handlers/ConversionCommandHandler";
 import { GraphCommandHandler } from "./handlers/GraphCommandHandler";
+import {
+  RecycleBinCommandHandler,
+  type RecycleBinPurgeResult,
+} from "./handlers/RecycleBinCommandHandler";
 import { CreateEntityOptions } from "./types/command.types";
 import type { ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
 import {
@@ -18,6 +22,7 @@ import {
   type Resource,
   type Workspace,
   type Relationship,
+  type RecycleBinItem,
   INBOX_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
 
@@ -50,6 +55,20 @@ export class EntityCommandService {
    */
   static async deleteWorkspace(workspaceId: string): Promise<void> {
     return WorkspaceCommandHandler.deleteWorkspace(workspaceId);
+  }
+
+  /**
+   * Permanently destroy a Workspace that is already in the Recycle Bin,
+   * including its archived children, relationships and reminders.
+   */
+  static async permanentlyDeleteWorkspace(
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return WorkspaceCommandHandler.permanentlyDeleteWorkspace(
+      workspaceId,
+      options,
+    );
   }
 
   /**
@@ -535,6 +554,20 @@ export class EntityCommandService {
     return ResourceCommandHandler.permanentlyDeleteResource(resourceId, workspaceId, options);
   }
 
+  /**
+   * Permanently delete Recycle Bin items through the canonical per-entity
+   * lifecycle handlers (tombstones, relationship cleanup, reminder
+   * cancellation, partition cleanup).
+   *
+   * Reports partial failure instead of implying every item was deleted.
+   */
+  static async permanentlyDeleteRecycleBinItems(
+    items: RecycleBinItem[],
+    options?: CreateEntityOptions,
+  ): Promise<RecycleBinPurgeResult> {
+    return RecycleBinCommandHandler.permanentlyDeleteItems(items, options);
+  }
+
   // ─── BATCH 7D: RESTORE TASK ──────────────────────────────────────────────────
 
   /**
@@ -681,7 +714,13 @@ export class EntityCommandService {
     durationSeconds: number,
     taskId?: string,
     itemType?: "task" | "habit" | "checklist",
-    options?: { sessionId?: string; startedAt?: number; endedAt?: number }
+    options?: {
+      sessionId?: string;
+      startedAt?: number;
+      endedAt?: number;
+      /** Minutes already credited before completion (avoid double counting). */
+      loggedMinutes?: number;
+    }
   ): Promise<void> {
     return SystemCommandHandler.recordFocusSession(durationSeconds, taskId, itemType, options);
   }

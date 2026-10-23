@@ -24,13 +24,26 @@ export const RECYCLE_BIN_STORAGE_KEY = "pebble:recycle_bin";
 
 export const COLLECTIONS_STORAGE_KEY = "pebble:collections";
 export const CHECKLISTS_STORAGE_KEY = "pebble:checklists";
-export const DASHBOARD_FILTER_STORAGE_KEY = "todoapp:dashboard:filter";
-export const DASHBOARD_PRIORITY_STORAGE_KEY = "todoapp:dashboard:priority";
-export const DASHBOARD_WORKSPACE_STORAGE_KEY = "todoapp:dashboard:workspace";
-export const DASHBOARD_CATEGORY_STORAGE_KEY = "todoapp:dashboard:category";
-export const DASHBOARD_SCHEDULE_STORAGE_KEY = "todoapp:dashboard:schedule";
-export const DASHBOARD_STATUS_STORAGE_KEY = "todoapp:dashboard:status";
-export const DASHBOARD_SORT_STORAGE_KEY = "todoapp:dashboard:sort";
+// Dashboard filter keys are declared next to the ownership registry so the
+// registry and this module cannot drift apart.
+import {
+  DASHBOARD_CATEGORY_STORAGE_KEY,
+  DASHBOARD_FILTER_STORAGE_KEY,
+  DASHBOARD_PRIORITY_STORAGE_KEY,
+  DASHBOARD_SCHEDULE_STORAGE_KEY,
+  DASHBOARD_SORT_STORAGE_KEY,
+  DASHBOARD_STATUS_STORAGE_KEY,
+  DASHBOARD_WORKSPACE_STORAGE_KEY,
+} from "./storage-keys";
+export {
+  DASHBOARD_FILTER_STORAGE_KEY,
+  DASHBOARD_PRIORITY_STORAGE_KEY,
+  DASHBOARD_WORKSPACE_STORAGE_KEY,
+  DASHBOARD_CATEGORY_STORAGE_KEY,
+  DASHBOARD_SCHEDULE_STORAGE_KEY,
+  DASHBOARD_STATUS_STORAGE_KEY,
+  DASHBOARD_SORT_STORAGE_KEY,
+};
 export const GRATITUDE_HISTORY_STORAGE_KEY = "todoapp:gratitude_history";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;

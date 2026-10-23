@@ -48,6 +48,7 @@ import { SuggestionBanner } from "@/features/capture/components/SuggestionBanner
 import { ProgressSection } from "@/features/profile/components/ProgressSection";
 import { ResourceSection } from "@/features/resources/components/ResourceSection";
 import { ChecklistSection } from "@/features/checklists/components/ChecklistSection";
+import { DateScopedSectionHeader } from "@/features/workspaces/components/DateScopedSectionHeader";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { TaskFilterModal } from "@/features/tasks/components/TaskFilterModal";
@@ -60,6 +61,7 @@ import {
   applyHabitFilters,
   applyChecklistFilters,
   applyResourceFilters,
+  isChecklistInDateScope,
 } from "@/features/workspaces/hooks/useDomainFilters";
 
 import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
@@ -381,7 +383,14 @@ export function WorkspacesScreen() {
 
   const filteredChecklists = React.useMemo(() => {
     const folderChecklists = state.checklists[state.activeWorkspaceId || INBOX_WORKSPACE_ID] || [];
-    const activeChecklists = folderChecklists.filter((c) => !c.archivedAt);
+    // Date scope: checklists are a schedulable domain. Unscheduled checklists
+    // stay visible every day (like unscheduled tasks/habits); a dated checklist
+    // only appears on the day it is scheduled for, or on a recurrence
+    // occurrence of that day. `schedule` is the only placement authority — the
+    // reminder never affects visibility here.
+    const activeChecklists = folderChecklists.filter(
+      (c) => !c.archivedAt && isChecklistInDateScope(c, state.selectedDate),
+    );
     const searchFiltered =
       state.searchQuery.trim() === ""
         ? activeChecklists
@@ -390,14 +399,19 @@ export function WorkspacesScreen() {
             const matchesItems = c.items.some((i) => i.title.toLowerCase().includes(state.searchQuery.toLowerCase()));
             return matchesTitle || matchesItems;
           });
-    return applyChecklistFilters(searchFiltered, {
-      status: domainFilters.checklistStatusFilter,
-      items: domainFilters.checklistItemsFilter,
-      resources: domainFilters.checklistResourcesFilter,
-    });
+    return applyChecklistFilters(
+      searchFiltered,
+      {
+        status: domainFilters.checklistStatusFilter,
+        items: domainFilters.checklistItemsFilter,
+        resources: domainFilters.checklistResourcesFilter,
+      },
+      state.selectedDate,
+    );
   }, [
     state.checklists,
     state.activeWorkspaceId,
+    state.selectedDate,
     state.searchQuery,
     domainFilters.checklistStatusFilter,
     domainFilters.checklistItemsFilter,
@@ -880,19 +894,42 @@ export function WorkspacesScreen() {
                 {/* Checklists Section */}
                 {state.workspaceSegment === "checklists" && (
                   <View style={{ gap: 10, paddingBottom: 24 }}>
+                    <DateScopedSectionHeader
+                      dateKey={state.selectedDate}
+                      onSelectDate={(dateKey) => state.setSelectedDate(dateKey)}
+                      onOpenDatePicker={() => setIsDatePickerVisible(true)}
+                      colors={colors}
+                      isDark={isDark}
+                      itemCount={filteredChecklists.length}
+                    />
                     {filteredChecklists.length === 0 ? (
-                      <WorkspaceEmptyState
-                        context="checklists"
-                        searchQuery={state.searchQuery}
-                        onClearSearch={() => state.setSearchQuery("")}
-                        onCreateItem={() => emitStateChange("open_quick_add")}
-                        style={{ marginVertical: 16 }}
-                      />
+                      activeChecklistCount === 0 ? (
+                        <WorkspaceEmptyState
+                          context="checklists"
+                          searchQuery={state.searchQuery}
+                          onClearSearch={() => state.setSearchQuery("")}
+                          onCreateItem={() => emitStateChange("open_quick_add")}
+                          style={{ marginVertical: 16 }}
+                        />
+                      ) : (
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 13,
+                            fontStyle: "italic",
+                            paddingVertical: 16,
+                            textAlign: "center",
+                          }}
+                        >
+                          No checklists for this day.
+                        </Text>
+                      )
                     ) : (
                       <ChecklistSection
                         checklists={filteredChecklists}
                         colors={colors}
                         colorScheme={colorScheme}
+                        selectedDateKey={state.selectedDate}
                         onUpdateChecklist={state.updateChecklist}
                         onToggleChecklistItem={state.toggleChecklistItem}
                         onToggleAllChecklistItems={state.toggleChecklistAllItems}

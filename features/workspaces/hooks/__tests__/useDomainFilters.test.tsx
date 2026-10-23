@@ -5,6 +5,7 @@ import {
   applyHabitFilters,
   applyChecklistFilters,
   applyResourceFilters,
+  isChecklistInDateScope,
 } from "../useDomainFilters";
 import { Habit, Checklist, Resource } from "@/shared/types/domain.types";
 
@@ -198,6 +199,52 @@ describe("useDomainFilters Hook & Filtering Functions", () => {
         "2026-03-11",
       );
       expect(inProgress.map((c) => c.id)).toEqual(["c-recurring"]);
+    });
+  });
+
+  describe("isChecklistInDateScope", () => {
+    const makeChecklist = (overrides: Partial<Checklist> = {}): Checklist => ({
+      id: "c-scope",
+      workspaceId: "inbox",
+      title: "Scoped Checklist",
+      priority: "none",
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+      items: [{ id: "i-1", title: "Step", completed: false }],
+      ...overrides,
+    });
+
+    it("keeps unscheduled checklists visible on every day", () => {
+      expect(isChecklistInDateScope(makeChecklist(), "2026-03-10")).toBe(true);
+      expect(
+        isChecklistInDateScope(makeChecklist({ schedule: { date: "inbox" } }), "2026-03-10"),
+      ).toBe(true);
+    });
+
+    it("shows a dated checklist only on its scheduled day", () => {
+      const dated = makeChecklist({ schedule: { date: "2026-03-10" } });
+      expect(isChecklistInDateScope(dated, "2026-03-10")).toBe(true);
+      expect(isChecklistInDateScope(dated, "2026-03-11")).toBe(false);
+    });
+
+    it("shows recurring checklists on each recurrence occurrence only", () => {
+      const weekly = makeChecklist({
+        schedule: { date: "2026-03-02" }, // Monday
+        recurrence: { frequency: "weekly", interval: 1, daysOfWeek: [1] },
+      });
+      expect(isChecklistInDateScope(weekly, "2026-03-02")).toBe(true);
+      expect(isChecklistInDateScope(weekly, "2026-03-09")).toBe(true);
+      expect(isChecklistInDateScope(weekly, "2026-03-10")).toBe(false);
+    });
+
+    it("never places a checklist on a day because it has a reminder", () => {
+      const reminderOnly = makeChecklist({
+        schedule: { date: "2026-03-10" },
+        reminder: { enabled: true, triggerAt: Date.UTC(2026, 2, 12, 9, 0) },
+      });
+      expect(isChecklistInDateScope(reminderOnly, "2026-03-12")).toBe(false);
     });
   });
 

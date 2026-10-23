@@ -36,6 +36,7 @@ import { withLock } from "@/shared/utils/mutex";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   isPebbleOwnedKey,
+  isPreservedOnRestore,
   RESTORE_INTENT_KEY,
 } from "./storage-keys";
 
@@ -633,14 +634,37 @@ export class BackupService {
       kvPairsToSet.push(["pebble:v1:recycle_bin", "[]"]);
     }
 
-    if (parsed.focusSessions && parsed.focusSessions.length > 0) {
-      kvPairsToSet.push([
-        "pebble:v1:focus_sessions",
-        JSON.stringify(parsed.focusSessions),
-      ]);
-    } else {
-      kvPairsToSet.push(["pebble:v1:focus_sessions", "[]"]);
-    }
+    const restoredSessions: any[] =
+      parsed.focusSessions && parsed.focusSessions.length > 0
+        ? parsed.focusSessions
+        : [];
+    kvPairsToSet.push([
+      "pebble:v1:focus_sessions",
+      JSON.stringify(restoredSessions),
+    ]);
+
+    // `todoapp:focus:stats` is a derived cache over the session ledger, not
+    // independent content. Rebuild it from the restored history so the counters
+    // can never disagree with the sessions a user just restored.
+    const todayKey = new Date().toDateString();
+    const finishedToday = restoredSessions.filter(
+      (s: any) => s?.endedAt || s?.startedAt,
+    ).filter(
+      (s: any) => new Date(s.endedAt || s.startedAt).toDateString() === todayKey,
+    );
+    const restoredStats = {
+      completedToday: finishedToday.length,
+      totalFocusTime: restoredSessions.reduce(
+        (acc: number, s: any) =>
+          acc + Math.floor((Number(s?.duration) || 0) / 60),
+        0,
+      ),
+      updatedAt: Date.now(),
+    };
+    kvPairsToSet.push([
+      "todoapp:focus:stats",
+      JSON.stringify(restoredStats),
+    ]);
 
     if (parsed.systemEvents && parsed.systemEvents.length > 0) {
       kvPairsToSet.push([
@@ -738,8 +762,14 @@ export class BackupService {
     while (true) {
       // Snapshot Current State
       const allKeys = await AsyncStorage.getAllKeys();
+      // Preserved (device-local) keys are owned but must survive a restore, so
+      // they are neither removed nor restored from the payload.
       const keysToRemove = allKeys.filter((key) => {
-        return isPebbleOwnedKey(key) && key !== RESTORE_INTENT_KEY;
+        return (
+          isPebbleOwnedKey(key) &&
+          key !== RESTORE_INTENT_KEY &&
+          !isPreservedOnRestore(key)
+        );
       });
 
       // Determine all keys that will be involved (either read, removed, or set)
@@ -760,8 +790,11 @@ export class BackupService {
       await this._acquireRestoreLocks(rawLockKeys, async () => {
         // Refresh keysToRemove inside the lock in case new keys were created while waiting
         const lockedKeys = await AsyncStorage.getAllKeys();
-        const finalKeysToRemove = lockedKeys.filter((key) =>
-          isPebbleOwnedKey(key) && key !== RESTORE_INTENT_KEY,
+        const finalKeysToRemove = lockedKeys.filter(
+          (key) =>
+            isPebbleOwnedKey(key) &&
+            key !== RESTORE_INTENT_KEY &&
+            !isPreservedOnRestore(key),
         );
 
         // Verify that every key in finalKeysToRemove was actually locked in rawLockKeys.

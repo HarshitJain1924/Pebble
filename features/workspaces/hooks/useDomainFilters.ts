@@ -5,7 +5,10 @@ import {
   isHabitCompletedToday,
 } from "@/shared/utils/domain-selectors";
 import { getTodayDateKey } from "@/shared/utils/date-key";
-import { getActiveOccurrenceDateKey } from "@/services/scheduling/recurrence.service";
+import {
+  getActiveOccurrenceDateKey,
+  isRecurringOccurrenceForDate,
+} from "@/services/scheduling/recurrence.service";
 import {
   HabitStatusFilter,
   HabitPriorityFilter,
@@ -78,6 +81,24 @@ export function applyHabitFilters(
 
     return true;
   });
+}
+
+/**
+ * Whether a checklist belongs to the given calendar day.
+ *
+ * Schedule is the only placement authority:
+ * - Unscheduled checklists belong to every day (like unscheduled tasks/habits).
+ * - A dated checklist belongs to its scheduled day, or to a recurrence
+ *   occurrence of that day.
+ * - A reminder never places a checklist on a day.
+ */
+export function isChecklistInDateScope(
+  checklist: Checklist,
+  dateKey: string,
+): boolean {
+  const scheduleDate = checklist.schedule?.date;
+  if (!scheduleDate || scheduleDate === "inbox") return true;
+  return isRecurringOccurrenceForDate(checklist, dateKey);
 }
 
 /**

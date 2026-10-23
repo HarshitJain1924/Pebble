@@ -317,10 +317,23 @@ export class GraphRepository {
   }
 
   // Focus Sessions
+  /**
+   * Persist a completed focus session.
+   *
+   * Idempotent upsert keyed by session id: a completion retried after a crash,
+   * a background expiry, or a concurrent recovery trigger must converge on ONE
+   * durable record instead of appending a duplicate (the session id is the
+   * identity of a completion).
+   */
   static async saveFocusSession(session: any): Promise<void> {
     return withLock(this.FOCUS_SESSIONS_KEY, async () => {
       const raw = await AsyncStorage.getItem(this.FOCUS_SESSIONS_KEY);
       const sessions: any[] = raw ? JSON.parse(raw) : [];
+
+      const sessionId =
+        typeof session.id === "string" && session.id.length > 0
+          ? session.id
+          : `focus_${Date.now()}`;
 
       const taskId =
         session.taskId ||
@@ -333,14 +346,20 @@ export class GraphRepository {
           : session.durationSeconds || 0;
 
       const cleanSession: FocusSession = {
-        id: session.id,
+        id: sessionId,
         taskId,
         startedAt: session.startedAt,
         endedAt: session.endedAt || undefined,
         duration,
       };
 
-      sessions.push(cleanSession);
+      const existingIndex = sessions.findIndex((s: any) => s?.id === sessionId);
+      if (existingIndex >= 0) {
+        sessions[existingIndex] = { ...sessions[existingIndex], ...cleanSession };
+      } else {
+        sessions.push(cleanSession);
+      }
+
       await AsyncStorage.setItem(
         this.FOCUS_SESSIONS_KEY,
         JSON.stringify(sessions),
