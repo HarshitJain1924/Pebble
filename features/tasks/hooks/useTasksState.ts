@@ -465,7 +465,11 @@ export function useTasksState() {
         }
         if (todosChanged) {
           setTodos(updatedMap);
-          void persistState(currentLists, selectedWorkspaceId, updatedMap);
+          for (const updatedTask of rearmedTodos) {
+            void TaskRepository.saveTask(updatedTask).catch((err) =>
+              console.warn("Failed to persist rearmed web reminder", err)
+            );
+          }
         }
       }
       setIsTasksHydrated(true);
@@ -1098,7 +1102,6 @@ export function useTasksState() {
                       ...todos,
                       [selectedWorkspaceId]: refreshedTodos,
                     };
-                    await persistState(workspaces, selectedWorkspaceId, currentTodos);
                     setTodos(currentTodos);
                     emitStateChange("tasks_changed", "tasks_screen");
                   } catch (e) {
@@ -1160,119 +1163,146 @@ export function useTasksState() {
 
   const handleBulkMove = async (targetWorkspaceId: string) => {
     setIsMoveModalVisible(false);
-    const selectedIdsArray = Array.from(selectedItemIds);
-    const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
-    const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
-
-    if (taskIds.length > 0) {
-      const nextTodos = { ...todos };
-      const itemsToMove: Task[] = [];
-      const movesToExecute: { id: string; oldWorkspaceId: string }[] = [];
-      
-      for (const listId in nextTodos) {
-        const itemsToKeep: Task[] = [];
-        nextTodos[listId].forEach((t) => {
-          if (selectedItemIds.has(t.id)) {
-            itemsToMove.push({
-              ...t,
-              workspaceId: targetWorkspaceId,
-              updatedAt: Date.now(),
-            });
-            movesToExecute.push({ id: t.id, oldWorkspaceId: listId });
-          } else {
-            itemsToKeep.push(t);
-          }
-        });
-        nextTodos[listId] = itemsToKeep;
-      }
-      if (!nextTodos[targetWorkspaceId]) {
-        nextTodos[targetWorkspaceId] = [];
-      }
-      nextTodos[targetWorkspaceId] = [
-        ...itemsToMove,
-        ...nextTodos[targetWorkspaceId],
-      ];
-      setTodos(nextTodos);
-      
-      // Execute all moves via EntityCommandService (skipping events to avoid noisy refetches)
-      await Promise.all(
-        movesToExecute.map((move) =>
-          EntityCommandService.moveTask(move.id, move.oldWorkspaceId, targetWorkspaceId, {
-            skipEvents: true,
-            skipAnalytics: true,
-          })
-        )
-      );
-      
-      emitStateChange("tasks_changed", "tasks_screen");
-    }
-
+    let taskMoveFailed = false;
     let habitMoveFailed = false;
-    if (habitIds.length > 0) {
-      // Persist every selected habit through the canonical single-habit move
-      // command (save to target workspace, then delete from source) — the same
-      // semantics the task branch above uses with moveTask. Events/analytics are
-      // consolidated into a single emission below.
-      const movesToExecute: { id: string; sourceWorkspaceId: string }[] = [];
-      for (const habit of habits) {
-        if (selectedItemIds.has(habit.id)) {
-          movesToExecute.push({
-            id: habit.id,
-            sourceWorkspaceId: habit.workspaceId || INBOX_WORKSPACE_ID,
-          });
+
+    try {
+      const selectedIdsArray = Array.from(selectedItemIds);
+      const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
+      const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
+
+      if (taskIds.length > 0) {
+        const movesToExecute: { id: string; oldWorkspaceId: string }[] = [];
+        
+        for (const [listId, listTodos] of Object.entries(todos)) {
+          for (const t of listTodos) {
+            if (selectedItemIds.has(t.id)) {
+              movesToExecute.push({ id: t.id, oldWorkspaceId: t.workspaceId || listId });
+            }
+          }
+        }
+
+        // allSettled (not all): every move must settle before we reconcile UI
+        // state, so on partial failure the reload observes the final persisted
+        // state instead of an in-flight move.
+        const results = await Promise.allSettled(
+          movesToExecute.map((move) =>
+            EntityCommandService.moveTask(move.id, move.oldWorkspaceId, targetWorkspaceId, {
+              skipEvents: true,
+              skipAnalytics: true,
+            })
+          )
+        );
+        const failures = results.filter(
+          (r): r is PromiseRejectedResult => r.status === "rejected",
+        );
+
+        if (failures.length > 0) {
+          taskMoveFailed = true;
+          console.warn(
+            `Failed to move ${failures.length} of ${results.length} selected task(s)`,
+            failures.map((f) => f.reason),
+          );
+          await loadState();
+          emitStateChange("tasks_changed", "tasks_screen");
+        } else {
+          // Persistence succeeded — reflect the move in local UI state.
+          const nextTodos = { ...todos };
+          const itemsToMove: Task[] = [];
+          for (const listId in nextTodos) {
+            const itemsToKeep: Task[] = [];
+            nextTodos[listId].forEach((t) => {
+              if (selectedItemIds.has(t.id)) {
+                itemsToMove.push({
+                  ...t,
+                  workspaceId: targetWorkspaceId,
+                  updatedAt: Date.now(),
+                });
+              } else {
+                itemsToKeep.push(t);
+              }
+            });
+            nextTodos[listId] = itemsToKeep;
+          }
+          if (!nextTodos[targetWorkspaceId]) {
+            nextTodos[targetWorkspaceId] = [];
+          }
+          nextTodos[targetWorkspaceId] = [
+            ...itemsToMove,
+            ...nextTodos[targetWorkspaceId],
+          ];
+          setTodos(nextTodos);
+          emitStateChange("tasks_changed", "tasks_screen");
         }
       }
 
-      // allSettled (not all): every move must settle before we reconcile UI
-      // state, so on partial failure the reload observes the final persisted
-      // state instead of an in-flight move.
-      const results = await Promise.allSettled(
-        movesToExecute.map((move) =>
-          EntityCommandService.moveHabit(
-            move.id,
-            move.sourceWorkspaceId,
-            targetWorkspaceId,
-            {
-              skipEvents: true,
-              skipAnalytics: true,
-            },
-          )
-        ),
-      );
-      const failures = results.filter(
-        (r): r is PromiseRejectedResult => r.status === "rejected",
-      );
+      if (habitIds.length > 0) {
+        // Persist every selected habit through the canonical single-habit move
+        // command (save to target workspace, then delete from source) — the same
+        // semantics the task branch above uses with moveTask. Events/analytics are
+        // consolidated into a single emission below.
+        const movesToExecute: { id: string; sourceWorkspaceId: string }[] = [];
+        for (const habit of habits) {
+          if (selectedItemIds.has(habit.id)) {
+            movesToExecute.push({
+              id: habit.id,
+              sourceWorkspaceId: habit.workspaceId || INBOX_WORKSPACE_ID,
+            });
+          }
+        }
 
-      if (failures.length > 0) {
-        // Partial success is possible (each move is independent). Reload from
-        // the repository so the UI reflects exactly what was persisted instead
-        // of claiming every habit moved.
-        habitMoveFailed = true;
-        console.warn(
-          `Failed to move ${failures.length} of ${results.length} selected habit(s)`,
-          failures.map((f) => f.reason),
+        // allSettled (not all): every move must settle before we reconcile UI
+        // state, so on partial failure the reload observes the final persisted
+        // state instead of an in-flight move.
+        const results = await Promise.allSettled(
+          movesToExecute.map((move) =>
+            EntityCommandService.moveHabit(
+              move.id,
+              move.sourceWorkspaceId,
+              targetWorkspaceId,
+              {
+                skipEvents: true,
+                skipAnalytics: true,
+              },
+            )
+          ),
         );
-        await loadHabits();
-        emitStateChange("habits_changed", "tasks_screen");
-      } else {
-        // Persistence succeeded — reflect the move in local UI state.
-        const nextHabits = habits.map((h) =>
-          selectedItemIds.has(h.id)
-            ? { ...h, workspaceId: targetWorkspaceId, updatedAt: Date.now() }
-            : h,
+        const failures = results.filter(
+          (r): r is PromiseRejectedResult => r.status === "rejected",
         );
-        setHabits(nextHabits);
-        emitStateChange("habits_changed", "tasks_screen");
+
+        if (failures.length > 0) {
+          // Partial success is possible (each move is independent). Reload from
+          // the repository so the UI reflects exactly what was persisted instead
+          // of claiming every habit moved.
+          habitMoveFailed = true;
+          console.warn(
+            `Failed to move ${failures.length} of ${results.length} selected habit(s)`,
+            failures.map((f) => f.reason),
+          );
+          await loadHabits();
+          emitStateChange("habits_changed", "tasks_screen");
+        } else {
+          // Persistence succeeded — reflect the move in local UI state.
+          const nextHabits = habits.map((h) =>
+            selectedItemIds.has(h.id)
+              ? { ...h, workspaceId: targetWorkspaceId, updatedAt: Date.now() }
+              : h,
+          );
+          setHabits(nextHabits);
+          emitStateChange("habits_changed", "tasks_screen");
+        }
       }
+    } finally {
+      const anyFailed = taskMoveFailed || habitMoveFailed;
+      Haptics.notificationAsync(
+        anyFailed
+          ? Haptics.NotificationFeedbackType.Warning
+          : Haptics.NotificationFeedbackType.Success,
+      ).catch(() => {});
+      setIsBulkSelectActive(false);
+      setSelectedItemIds(new Set());
     }
-
-    Haptics.notificationAsync(
-      habitMoveFailed
-        ? Haptics.NotificationFeedbackType.Warning
-        : Haptics.NotificationFeedbackType.Success,
-    ).catch(() => {});
-    setIsBulkSelectActive(false);
-    setSelectedItemIds(new Set());
   };
 
   const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);

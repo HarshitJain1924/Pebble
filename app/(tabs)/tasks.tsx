@@ -26,6 +26,7 @@ import { MONTH_NAMES, WEEKDAY_NAMES } from "@/features/tasks/utils/task-formatti
 import { Task, Workspace, Checklist, Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { generateId } from "@/shared/utils/id";
 import { AppCard } from "@/shared/components/ui/AppCard";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 
 import { AppHeader } from "@/shared/components/ui/AppHeader";
 import { styles } from "@/shared/constants/taskStyles";
@@ -1053,13 +1054,21 @@ export function WorkspacesScreen() {
                                       text: "Rename",
                                       onPress: async (newName?: string) => {
                                         if (newName && newName.trim()) {
-                                          const updated = state.workspaces.map((l) =>
-                                            l.id === folder.id ? { ...l, name: newName.trim() } : l
-                                          );
-                                          state.setWorkspaces(updated);
-                                          await state.persistState(updated, state.selectedWorkspaceId, state.todos);
-                                          emitStateChange("tasks_changed");
-                                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                                          const trimmed = newName.trim();
+                                          try {
+                                            await EntityCommandService.updateWorkspace({
+                                              ...folder,
+                                              name: trimmed,
+                                            });
+                                            const updated = state.workspaces.map((l) =>
+                                              l.id === folder.id ? { ...l, name: trimmed } : l
+                                            );
+                                            state.setWorkspaces(updated);
+                                            emitStateChange("tasks_changed");
+                                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                                          } catch (err) {
+                                            console.warn("Failed to rename workspace", err);
+                                          }
                                         }
                                       }
                                     }
@@ -1107,16 +1116,20 @@ export function WorkspacesScreen() {
                                     text: "Archive",
                                     style: "destructive",
                                     onPress: async () => {
-                                      const updated = state.workspaces.map((l) =>
-                                        l.id === folder.id ? { ...l, archivedAt: Date.now() } : l
-                                      );
-                                      state.setWorkspaces(updated);
-                                      await state.persistState(updated, INBOX_WORKSPACE_ID, state.todos);
-                                      state.setActiveWorkspaceId(INBOX_WORKSPACE_ID);
-                                      state.setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
-                                      emitStateChange("tasks_changed");
-                                      emitStateChange("habits_changed");
-                                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                                      try {
+                                        await EntityCommandService.archiveWorkspace(folder.id);
+                                        const updated = state.workspaces.map((l) =>
+                                          l.id === folder.id ? { ...l, archivedAt: Date.now() } : l
+                                        );
+                                        state.setWorkspaces(updated);
+                                        state.setActiveWorkspaceId(INBOX_WORKSPACE_ID);
+                                        state.setSelectedWorkspaceId(INBOX_WORKSPACE_ID);
+                                        emitStateChange("tasks_changed");
+                                        emitStateChange("habits_changed");
+                                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                                      } catch (err) {
+                                        console.warn("Failed to archive workspace", err);
+                                      }
                                     }
                                   }
                                 ]

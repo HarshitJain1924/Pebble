@@ -64,14 +64,14 @@ interface WorkspaceModalProps {
   setSelectedWorkspaceId: (id: string) => void;
   activeWorkspaceId: string | null;
   setActiveWorkspaceId: (id: string | null) => void;
-  persistState: (
+  persistState?: (
     workspaces: Workspace[],
     selected: string,
     todos: Record<string, Task[]>,
   ) => Promise<void>;
   habits: Habit[];
   setHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
-  persistHabits: (nextHabits: Habit[]) => Promise<void>;
+  persistHabits?: (nextHabits: Habit[]) => Promise<void>;
 }
 
 export function WorkspaceModal({
@@ -131,7 +131,7 @@ export function WorkspaceModal({
     }
   }, [visible, editingWorkspaceId, workspaces]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const trimmed = workspaceNameInput.trim();
     if (!trimmed) return;
 
@@ -139,56 +139,66 @@ export function WorkspaceModal({
     const emojiVal = isIconType ? undefined : workspaceEmojiInput;
     const iconVal = isIconType ? workspaceIconInput : undefined;
 
-    let updatedWorkspaces = [...workspaces];
-    let updatedTodos = { ...todos };
-    let activeWsId = selectedWorkspaceId;
+    try {
+      const { EntityCommandService } = await import("@/services/command/EntityCommandService");
 
-    if (editingWorkspaceId) {
-      updatedWorkspaces = workspaces.map((l) =>
-        l.id === editingWorkspaceId
-          ? {
-              ...l,
-              name: trimmed,
-              iconType: workspaceIconTypeInput,
-              emoji: emojiVal,
-              icon: iconVal,
-              color: workspaceColorInput,
-              description: workspaceDescriptionInput.trim() || undefined,
-              updatedAt: Date.now(),
-            }
-          : l,
+      if (editingWorkspaceId) {
+        const existing = workspaces.find((l) => l.id === editingWorkspaceId);
+        if (!existing) return;
+
+        const updatedWorkspace: Workspace = {
+          ...existing,
+          name: trimmed,
+          iconType: workspaceIconTypeInput,
+          emoji: emojiVal,
+          icon: iconVal,
+          color: workspaceColorInput,
+          description: workspaceDescriptionInput.trim() || undefined,
+        };
+
+        await EntityCommandService.updateWorkspace(updatedWorkspace);
+
+        setWorkspaces((prev) =>
+          prev.map((l) => (l.id === editingWorkspaceId ? updatedWorkspace : l))
+        );
+        emitStateChange("workspace_changed", "tasks_screen");
+      } else {
+        const newId = `list-${Date.now()}`;
+        const newWorkspace: Workspace = {
+          id: newId,
+          name: trimmed,
+          iconType: workspaceIconTypeInput,
+          emoji: emojiVal,
+          icon: iconVal,
+          color: workspaceColorInput,
+          description: workspaceDescriptionInput.trim() || undefined,
+          revision: 1,
+          lifecycleGeneration: 1,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        await EntityCommandService.createWorkspace(newWorkspace);
+
+        setWorkspaces((prev) => [...prev, newWorkspace]);
+        setTodos((prev) => ({ ...prev, [newId]: [] }));
+        setSelectedWorkspaceId(newId);
+
+        const { UiStateRepository } = await import("@/repositories");
+        await UiStateRepository.saveUiState({ activeWorkspaceId: newId });
+
+        emitStateChange("workspace_changed", "tasks_screen");
+        emitStateChange("tasks_changed", "tasks_screen");
+      }
+
+      onClose();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
       );
-    } else {
-      const newId = `list-${Date.now()}`;
-      updatedWorkspaces.push({
-        id: newId,
-        name: trimmed,
-        iconType: workspaceIconTypeInput,
-        emoji: emojiVal,
-        icon: iconVal,
-        color: workspaceColorInput,
-        description: workspaceDescriptionInput.trim() || undefined,
-        revision: 1,
-        lifecycleGeneration: 1,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-      updatedTodos[newId] = [];
-      activeWsId = newId;
+    } catch (e) {
+      console.warn("[WorkspaceModal] Failed to save workspace:", e);
+      Alert.alert("Save Failed", "Failed to save workspace. Please try again.");
     }
-
-    setWorkspaces(updatedWorkspaces);
-    setTodos(updatedTodos);
-    setSelectedWorkspaceId(activeWsId);
-    void persistState(updatedWorkspaces, activeWsId, updatedTodos).then(() => {
-      emitStateChange("tasks_changed");
-      emitStateChange("habits_changed");
-      emitStateChange("workspace_changed");
-    });
-    onClose();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {},
-    );
   };
 
   const handleDelete = () => {
@@ -226,51 +236,56 @@ export function WorkspaceModal({
             if (!workspace) return;
 
             try {
-              const { EntityCommandService } = require("@/services/command/EntityCommandService");
+              const { EntityCommandService } = await import("@/services/command/EntityCommandService");
               await EntityCommandService.deleteWorkspace(editingWorkspaceId);
             } catch (e) {
-              console.warn("Failed to clear workspace via ECS:", e);
+              console.warn("[WorkspaceModal] Failed to delete workspace via ECS:", e);
+              Alert.alert("Delete Failed", "Failed to delete workspace. Please try again.");
+              return;
             }
 
-            // 3. Update state
+            // On successful deletion, reconcile local workspace/task/habit state from authoritative repository data
             const updatedWorkspaces = workspaces.filter((l) => l.id !== editingWorkspaceId);
-            const updatedTodos = { ...todos };
-            delete updatedTodos[editingWorkspaceId];
-            const updatedHabits = habits.filter(
-              (h) => h.workspaceId !== editingWorkspaceId,
-            );
-
-            const fallbackList = updatedWorkspaces[0]?.id || INBOX_WORKSPACE_ID;
-            if (!updatedTodos[fallbackList]) {
-              updatedTodos[fallbackList] = [];
-            }
+            const fallbackList = updatedWorkspaces.find((w) => !w.archivedAt)?.id || INBOX_WORKSPACE_ID;
 
             setWorkspaces(updatedWorkspaces);
-            setTodos(updatedTodos);
-            setHabits(updatedHabits);
+            setTodos((prev) => {
+              const next = { ...prev };
+              delete next[editingWorkspaceId];
+              if (!next[fallbackList]) {
+                next[fallbackList] = [];
+              }
+              return next;
+            });
+            setHabits((prev) => prev.filter((h) => h.workspaceId !== editingWorkspaceId));
             setSelectedWorkspaceId(fallbackList);
-
-            await persistState(updatedWorkspaces, fallbackList, updatedTodos);
-            await persistHabits(updatedHabits);
-            emitStateChange("tasks_changed");
-            emitStateChange("habits_changed");
-            emitStateChange("workspace_changed");
 
             if (activeWorkspaceId === editingWorkspaceId) {
               setActiveWorkspaceId(null);
             }
+
+            const { UiStateRepository } = await import("@/repositories");
+            await UiStateRepository.saveUiState({ activeWorkspaceId: fallbackList });
+
+            emitStateChange("tasks_changed", "tasks_screen");
+            emitStateChange("habits_changed", "tasks_screen");
+            emitStateChange("workspace_changed", "tasks_screen");
+
             onClose();
             Haptics.notificationAsync(
               Haptics.NotificationFeedbackType.Success,
             ).catch(() => {});
 
-            // 4. Show Undo Toast
+            // Show Undo Toast wired to canonical restoreWorkspace
             showUndo({
               message: `Deleted "${workspace.name}"`,
               onUndo: async () => {
                 try {
-                  const { EntityCommandService } = require("@/services/command/EntityCommandService");
+                  const { EntityCommandService } = await import("@/services/command/EntityCommandService");
                   await EntityCommandService.restoreWorkspace(`rb-${editingWorkspaceId}`);
+                  emitStateChange("tasks_changed", "tasks_screen");
+                  emitStateChange("habits_changed", "tasks_screen");
+                  emitStateChange("workspace_changed", "tasks_screen");
                 } catch (e) {
                   console.warn("Failed to undo workspace delete", e);
                 }

@@ -4,6 +4,7 @@ import { act, create } from "react-test-renderer";
 import { useResourceLinkState } from "@/features/resources/hooks/useResourceLinkState";
 import { Task, Workspace } from "@/shared/types/domain.types";
 import { TaskRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { addStateListener } from "@/services/events/state-events";
 
 let mockStore: Record<string, string> = {};
@@ -46,6 +47,7 @@ describe("Resource Link Mutation Architecture Suite", () => {
   beforeEach(() => {
     mockStore = {};
     jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
   it("1 & 2. performs successful link and unlink with persistence/reload consistency", async () => {
@@ -69,8 +71,6 @@ describe("Resource Link Mutation Architecture Suite", () => {
         "ws-1",
         null,
         [workspace],
-        jest.fn(async () => undefined),
-        jest.fn(async () => undefined)
       );
       return null;
     }
@@ -97,7 +97,7 @@ describe("Resource Link Mutation Architecture Suite", () => {
         await api!.toggleLinkResource("task-1", "task", "res-1");
       });
 
-      expect(latestTodos["ws-1"][0].resourceIds).toEqual([]);
+      expect(latestTodos["ws-1"][0].resourceIds || []).toEqual([]);
 
       reloaded = await TaskRepository.getTasks("ws-1");
       expect(reloaded["task-1"].resourceIds).toBeFalsy();
@@ -112,13 +112,13 @@ describe("Resource Link Mutation Architecture Suite", () => {
     await TaskRepository.saveTask(initialTask);
 
     let latestTodos: Record<string, Task[]> = { "ws-1": [initialTask] };
-    const setTodos = (updater: any) => {
+    const setTodos = jest.fn((updater: any) => {
       latestTodos = typeof updater === "function" ? updater(latestTodos) : updater;
-    };
-
-    const failingPersistState = jest.fn(async () => {
-      throw new Error("Disk Full / Storage Error");
     });
+
+    jest.spyOn(EntityCommandService, "updateTask").mockRejectedValueOnce(
+      new Error("Disk Full / Storage Error")
+    );
 
     let api: ReturnType<typeof useResourceLinkState> | undefined;
     function Harness() {
@@ -133,8 +133,6 @@ describe("Resource Link Mutation Architecture Suite", () => {
         "ws-1",
         null,
         [workspace],
-        failingPersistState,
-        jest.fn(async () => undefined)
       );
       return null;
     }
@@ -156,6 +154,7 @@ describe("Resource Link Mutation Architecture Suite", () => {
 
       expect(thrownErr).not.toBeNull();
       expect(thrownErr!.message).toBe("Disk Full / Storage Error");
+      expect(setTodos).not.toHaveBeenCalled();
       expect(latestTodos["ws-1"][0].resourceIds).toBeUndefined();
     } finally {
       act(() => {
@@ -168,16 +167,16 @@ describe("Resource Link Mutation Architecture Suite", () => {
     await TaskRepository.saveTask(initialTask);
 
     let latestTodos: Record<string, Task[]> = { "ws-1": [initialTask] };
-    let persistedTodos: Record<string, Task[]> = latestTodos;
-    const pendingResolves: Array<{ next: Record<string, Task[]>; resolve: () => void }> = [];
+    const pendingResolves: Array<{ resolve: () => void }> = [];
 
     const setTodos = (updater: any) => {
       latestTodos = typeof updater === "function" ? updater(latestTodos) : updater;
     };
 
-    const deferredPersistState = jest.fn(async (_lists: Workspace[], _selected: string, next: Record<string, Task[]>) => {
-      await new Promise<void>((resolve) => pendingResolves.push({ next, resolve }));
-      persistedTodos = next;
+    const origUpdate = EntityCommandService.updateTask.bind(EntityCommandService);
+    jest.spyOn(EntityCommandService, "updateTask").mockImplementation(async (id, ws, patch, opts) => {
+      await new Promise<void>((resolve) => pendingResolves.push({ resolve }));
+      return origUpdate(id, ws, patch, opts);
     });
 
     let api: ReturnType<typeof useResourceLinkState> | undefined;
@@ -193,8 +192,6 @@ describe("Resource Link Mutation Architecture Suite", () => {
         "ws-1",
         null,
         [workspace],
-        deferredPersistState,
-        jest.fn(async () => undefined)
       );
       return null;
     }
@@ -205,14 +202,12 @@ describe("Resource Link Mutation Architecture Suite", () => {
     });
 
     try {
-      let p1!: Promise<any>;
-      let p2!: Promise<any>;
+      // Start both calls without awaiting them inside act immediately
+      const p1 = api!.toggleLinkResource("task-1", "task", "res-1");
+      const p2 = api!.toggleLinkResource("task-1", "task", "res-1");
 
-      await act(async () => {
-        p1 = api!.toggleLinkResource("task-1", "task", "res-1");
-        p2 = api!.toggleLinkResource("task-1", "task", "res-1");
-      });
-
+      // Give microtasks time to start p1 and block p2 at mutex
+      await new Promise((r) => setTimeout(r, 20));
       expect(pendingResolves).toHaveLength(1);
 
       await act(async () => {
@@ -220,6 +215,8 @@ describe("Resource Link Mutation Architecture Suite", () => {
         await p1;
       });
 
+      // After p1 resolves, p2 proceeds and enters critical section
+      await new Promise((r) => setTimeout(r, 20));
       expect(pendingResolves).toHaveLength(2);
 
       await act(async () => {
@@ -227,8 +224,9 @@ describe("Resource Link Mutation Architecture Suite", () => {
         await p2;
       });
 
-      expect(latestTodos["ws-1"][0].resourceIds).toEqual([]);
-      expect(persistedTodos).toEqual(latestTodos);
+      expect(latestTodos["ws-1"][0].resourceIds || []).toEqual([]);
+      const persisted = await TaskRepository.getTasks("ws-1");
+      expect(persisted["task-1"].resourceIds).toBeFalsy();
     } finally {
       act(() => {
         renderer.unmount();
@@ -262,8 +260,6 @@ describe("Resource Link Mutation Architecture Suite", () => {
         "ws-1",
         null,
         [workspace],
-        jest.fn(async () => undefined),
-        jest.fn(async () => undefined)
       );
       return null;
     }

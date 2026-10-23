@@ -93,14 +93,26 @@ describe("AnimatedOverlay Lifecycle & Safety Regression Tests", () => {
 
     expect(triggerClose).toBeDefined();
 
+    // 1. Initial close request starts the animation
     act(() => {
-      triggerClose?.();
       triggerClose?.();
       triggerClose?.();
     });
 
+    // 2. Additional close requests during flight
+    act(() => {
+      jest.advanceTimersByTime(50);
+      triggerClose?.();
+    });
+
+    // 3. Advance timers fully to complete the animation and flush callbacks
     act(() => {
       jest.advanceTimersByTime(500);
+    });
+
+    // 4. Additional close request after animation has finished
+    act(() => {
+      triggerClose?.();
     });
 
     expect(onCloseMock).toHaveBeenCalledTimes(1);
@@ -133,6 +145,7 @@ describe("AnimatedOverlay Lifecycle & Safety Regression Tests", () => {
   });
 
   it("does not invoke onClose if component is unmounted during active exit animation", () => {
+    jest.useFakeTimers();
     let renderer: any;
     const onCloseMock = jest.fn();
     let triggerClose: (() => void) | undefined;
@@ -148,15 +161,25 @@ describe("AnimatedOverlay Lifecycle & Safety Regression Tests", () => {
       );
     });
 
-    act(() => {
-      renderer.unmount();
-    });
+    expect(triggerClose).toBeDefined();
 
-    // Attempt to invoke close callback after unmount
+    // 1. Start the close animation (isClosingRef becomes true, spring starts)
     act(() => {
       triggerClose?.();
     });
 
+    // 2. Unmount DURING the pending animation before it completes
+    act(() => {
+      renderer.unmount();
+    });
+
+    // 3. Advance timers so any pending animation frames/callbacks run
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+
+    // Verification: finishClose was cancelled / guarded by isMountedRef and onClose was never called
     expect(onCloseMock).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 });

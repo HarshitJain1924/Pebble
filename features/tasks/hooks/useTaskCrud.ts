@@ -38,12 +38,16 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
   /**
    * Updates state targetedly and keeps todosRef.current synchronously updated
    * so chained/microtask mutations immediately observe optimistic changes.
+   * Evaluates the pure updater once against current in-memory state and updates
+   * both todosRef.current and React state deterministically.
    */
   const updateTodosTargeted = useCallback(
     (updater: (prev: Record<string, Task[]>) => Record<string, Task[]>) => {
-      const next = updater(todosRef.current);
-      todosRef.current = next;
-      setTodos((prev) => updater(prev));
+      setTodos((prev) => {
+        const next = updater(prev);
+        todosRef.current = next;
+        return next;
+      });
     },
     [setTodos],
   );
@@ -51,17 +55,25 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
   /**
    * Serializes mutations strictly per-task ID.
    * Mutations on distinct tasks run completely concurrently without blocking.
+   * Cleans up settled queue entries on both success and rejection without
+   * creating unhandled promise rejections or poisoning subsequent operations.
    */
   const runTaskMutation = useCallback(<T>(taskId: string, fn: () => Promise<T>): Promise<T> => {
-    const currentChain = taskMutationChainsRef.current.get(taskId) ?? Promise.resolve();
-    const nextChain = currentChain.then(fn, fn);
-    taskMutationChainsRef.current.set(taskId, nextChain);
-    nextChain.finally(() => {
-      if (taskMutationChainsRef.current.get(taskId) === nextChain) {
+    const previous = taskMutationChainsRef.current.get(taskId) ?? Promise.resolve();
+
+    // The execution promise runs after previous settles (even if previous rejected)
+    const execution = previous.catch(() => {}).then(() => fn());
+
+    // The queue promise tracks serialization and ensures cleanup without unhandled rejections
+    const queuePromise = execution.catch(() => {}).then(() => {
+      if (taskMutationChainsRef.current.get(taskId) === queuePromise) {
         taskMutationChainsRef.current.delete(taskId);
       }
     });
-    return nextChain;
+
+    taskMutationChainsRef.current.set(taskId, queuePromise);
+
+    return execution;
   }, []);
 
   /**
@@ -146,6 +158,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         recordAnalyticsSnapshot(); // fire-and-forget, matching original behavior
       } catch (e) {
         console.warn("Failed to persist current state:", e);
+        throw e;
       }
     },
     [persistUiState, persistWorkspaceState, persistTaskState, recordAnalyticsSnapshot],
@@ -184,7 +197,6 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           skipAnalytics: true,
         });
         await persistUiState(selectedWorkspaceId);
-        await persistWorkspaceState(workspaces);
         recordAnalyticsSnapshot();
       } catch (e) {
         console.warn("Failed to persist current state:", e);
@@ -208,7 +220,6 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       workspaces,
       showToast,
       persistUiState,
-      persistWorkspaceState,
       recordAnalyticsSnapshot,
       finalizeMutation,
     ],
@@ -220,14 +231,15 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         const { targetTask, targetWorkspaceId } = findTask(id, todosRef.current, selectedWorkspaceId);
         if (!targetTask) return;
         const previousTitle = targetTask.title;
+        const now = Date.now();
 
-        // Targeted optimistic update
+        // Targeted optimistic update with pure updater
         updateTodosTargeted((prev) => {
           const list = prev[targetWorkspaceId] ?? [];
           return {
             ...prev,
             [targetWorkspaceId]: list.map((todo) =>
-              todo.id === id ? { ...todo, title: newTitle, updatedAt: Date.now() } : todo,
+              todo.id === id ? { ...todo, title: newTitle, updatedAt: now } : todo,
             ),
           };
         });
@@ -237,13 +249,14 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           finalizeMutation();
         } catch (err) {
           console.warn("[useTaskCrud] updateTodoTitle failed:", err);
+          const rollbackTime = Date.now();
           // Targeted rollback: revert ONLY this task's title without touching other tasks
           updateTodosTargeted((prev) => {
             const list = prev[targetWorkspaceId] ?? [];
             return {
               ...prev,
               [targetWorkspaceId]: list.map((todo) =>
-                todo.id === id ? { ...todo, title: previousTitle, updatedAt: Date.now() } : todo,
+                todo.id === id ? { ...todo, title: previousTitle, updatedAt: rollbackTime } : todo,
               ),
             };
           });
@@ -460,15 +473,16 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         if (!targetTask) return;
 
         const previousCategoryId = targetTask.categoryId;
+        const optimisticUpdatedAt = Date.now();
 
-        // Targeted optimistic update
+        // Targeted optimistic update with pure updater
         updateTodosTargeted((prev) => {
           const list = prev[targetWorkspaceId] ?? [];
           return {
             ...prev,
             [targetWorkspaceId]: list.map((todo) =>
               todo.id === todoId
-                ? { ...todo, categoryId: newCategory, updatedAt: Date.now() }
+                ? { ...todo, categoryId: newCategory, updatedAt: optimisticUpdatedAt }
                 : todo,
             ),
           };
@@ -479,6 +493,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           finalizeMutation();
         } catch (err) {
           console.warn("[useTaskCrud] updateTodoCategory failed:", err);
+          const rollbackUpdatedAt = Date.now();
           // Targeted rollback: revert ONLY this task's category
           updateTodosTargeted((prev) => {
             const list = prev[targetWorkspaceId] ?? [];
@@ -486,7 +501,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
               ...prev,
               [targetWorkspaceId]: list.map((todo) =>
                 todo.id === todoId
-                  ? { ...todo, categoryId: previousCategoryId, updatedAt: Date.now() }
+                  ? { ...todo, categoryId: previousCategoryId, updatedAt: rollbackUpdatedAt }
                   : todo,
               ),
             };
@@ -550,7 +565,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           destinationWorkspaceId,
         );
         const refreshedTodos = Object.values(refreshedTasksMap);
-        setTodos((prev) => ({
+        updateTodosTargeted((prev) => ({
           ...prev,
           [destinationWorkspaceId]: refreshedTodos,
         }));
@@ -561,7 +576,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         console.warn("Failed to convert collection item to task", e);
       }
     },
-    [setTodos, showToast],
+    [updateTodosTargeted, showToast],
   );
 
   const saveEarlierForLater = useCallback(
@@ -570,15 +585,16 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
       if (activeTasks.length === 0) return;
 
       const { EntityCommandService } = await import("@/services/command/EntityCommandService");
-      
-      setTodos((prev) => {
+      const now = Date.now();
+
+      updateTodosTargeted((prev) => {
         const nextTodos = { ...prev };
         for (const task of activeTasks) {
           const wsId = task.workspaceId || INBOX_WORKSPACE_ID;
           const currentList = nextTodos[wsId] ?? [];
           nextTodos[wsId] = currentList.map((t) =>
             t.id === task.id
-              ? { ...t, schedule: { ...t.schedule, date: "inbox" }, updatedAt: Date.now() }
+              ? { ...t, schedule: { ...t.schedule, date: "inbox" }, updatedAt: now }
               : t,
           );
         }
@@ -604,7 +620,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         `✓ Saved ${activeTasks.length} task${activeTasks.length === 1 ? "" : "s"} for later`,
       );
     },
-    [todos, setTodos, finalizeMutation, showToast],
+    [updateTodosTargeted, finalizeMutation, showToast],
   );
 
   return {

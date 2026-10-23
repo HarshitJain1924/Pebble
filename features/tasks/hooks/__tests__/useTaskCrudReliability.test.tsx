@@ -398,6 +398,44 @@ describe("useTaskCrud Reliability & Crash Prevention Regression Tests", () => {
     warnSpy.mockRestore();
   });
 
+  it("forces an unexpected mutation rejection, verifies cleanup, and confirms a subsequent operation for the same task can execute without poisoning the queue", async () => {
+    const unhandledRejections: any[] = [];
+    const rejectionHandler = (reason: any) => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", rejectionHandler);
+
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    // First operation on task-100 will fail with an unexpected error
+    (EntityCommandService.updateTask as jest.Mock)
+      .mockRejectedValueOnce(new Error("Forced unexpected mutation rejection"))
+      .mockResolvedValueOnce(undefined);
+
+    const { ref } = renderTaskCrud({
+      "ws-1": [{ ...initialTask }],
+    });
+
+    // 1. Force unexpected rejection on task-100
+    await act(async () => {
+      await ref.current?.updateTodoTitle("task-100", "Failed Title");
+    });
+
+    // Verify cleanup: no unhandled promise rejections were emitted
+    expect(unhandledRejections).toHaveLength(0);
+
+    // 2. Confirm subsequent operation on the same task ID executes and is NOT poisoned
+    await act(async () => {
+      await ref.current?.updateTodoTitle("task-100", "Recovered Subsequent Title");
+    });
+
+    expect(ref.todos["ws-1"][0].title).toBe("Recovered Subsequent Title");
+    expect(EntityCommandService.updateTask).toHaveBeenCalledTimes(2);
+
+    process.off("unhandledRejection", rejectionHandler);
+    warnSpy.mockRestore();
+  });
+
   it("TaskDatePickerModal returns null when visible is false (prevents native window leak)", () => {
     let renderer: any;
     act(() => {
