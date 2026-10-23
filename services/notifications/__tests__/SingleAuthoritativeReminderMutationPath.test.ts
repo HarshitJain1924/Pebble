@@ -14,6 +14,7 @@ import * as remindersService from "@/services/scheduling/reminders.service";
 import { Task, Habit, Checklist, Workspace } from "@/shared/types/domain.types";
 import { useReminderState } from "@/services/scheduling/hooks/useReminderState";
 import { buildNotificationLogicalSignature, buildNotificationScheduleKey } from "../notification-identity";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
 
 jest.mock("expo-notifications", () => ({
   scheduleNotificationAsync: jest.fn().mockResolvedValue("mock-os-notif-1"),
@@ -229,10 +230,15 @@ describe("Single Authoritative Reminder Mutation Path — Comprehensive Audit", 
 
   // ── 5: Quick Capture scheduling path ──────────────────────────────────────
   it("5: Quick Capture delegates to EntityCommandService without independent OS scheduling", async () => {
+    const createSpy = jest.spyOn(EntityCommandService, "createTask");
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const futureDateStr = dateKeyFromDate(futureDate);
+
     const parsedItem = {
       type: "task" as const,
       title: "Quick Capture Task",
       category: "work" as const,
+      date: futureDateStr,
       time: "17:00",
       offsetMinutes: 0,
       confidence: 0.9,
@@ -240,6 +246,7 @@ describe("Single Authoritative Reminder Mutation Path — Comprehensive Audit", 
     };
 
     const created = await saveParsedItem(parsedItem as any, wsId);
+    expect(createSpy).toHaveBeenCalledWith(parsedItem, wsId, { skipAnalytics: true });
     expect(created.title).toBe("Quick Capture Task");
     expect(created.workspaceId).toBe(wsId);
     expect(inMemoryTasks[created.id]).toBeDefined();
