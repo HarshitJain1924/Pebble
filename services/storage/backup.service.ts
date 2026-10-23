@@ -494,7 +494,17 @@ export class BackupService {
       }
     }
 
-    // Validate recycle bin items
+    // Validate recycle bin items. A bin item is only useful if it can be
+    // replayed later, so an unsupported entity type or an unparseable snapshot
+    // is rejected here — before any destructive mutation — instead of becoming
+    // a permanently un-restorable entry in the restored bin.
+    const supportedBinTypes = [
+      "workspace",
+      "task",
+      "habit",
+      "checklist",
+      "resource",
+    ];
     if (parsed.recycleBin) {
       for (const item of parsed.recycleBin) {
         if (
@@ -506,6 +516,30 @@ export class BackupService {
           throw new Error(
             "Invalid backup format: Every recycle bin item must have a valid ID.",
           );
+        }
+
+        if (
+          item.entityType !== undefined &&
+          !supportedBinTypes.includes(item.entityType)
+        ) {
+          throw new Error(
+            `Invalid backup format: Recycle bin item ${item.id} has unsupported entity type '${String(item.entityType)}'.`,
+          );
+        }
+
+        if (item.snapshot !== undefined) {
+          if (typeof item.snapshot !== "string") {
+            throw new Error(
+              `Invalid backup format: Recycle bin item ${item.id} snapshot must be a string.`,
+            );
+          }
+          try {
+            JSON.parse(item.snapshot);
+          } catch {
+            throw new Error(
+              `Invalid backup format: Recycle bin item ${item.id} has an unparseable snapshot.`,
+            );
+          }
         }
       }
     }

@@ -138,6 +138,7 @@ static async reorderWorkspaces(
       // retry must NOT re-apply the snapshot, or it would revert metadata the
       // user edited after the first attempt. Metadata persistence is therefore
       // the first durable checkpoint of the restore.
+      const persistedWorkspaces = await WorkspaceRepository.getWorkspaces();
       const alreadyActive = persistedWorkspaces.some(
         (w) => w.id === workspace.id,
       );
@@ -424,20 +425,26 @@ static async reorderWorkspaces(
    *
    * Archived entities that already exist in the active partition are left as
    * they are (they are either the result of a previous partial attempt or an
-   * entity the user created/edited afterwards). Only missing ids are added, so
-   * the operation is idempotent and never truncates live data.
+   * entity the user created/edited afterwards). Only missing ids are added and
+   * only those ids are written, so the operation is idempotent and never
+   * truncates or rewrites live data.
    */
   private static async mergeArchivedChildren<T extends { id: string }>(
     archived: T[],
     readActive: () => Promise<Record<string, T>>,
-    save: (merged: T[]) => Promise<void>,
+    save: (missing: T[]) => Promise<void>,
   ): Promise<void> {
     const activeMap = await readActive();
     const missing = (Array.isArray(archived) ? archived : []).filter(
       (child) => child?.id && !activeMap[child.id],
     );
     if (missing.length === 0) return;
-    await save([...Object.values(activeMap), ...missing]);
+    // Persist ONLY the archived ids that are absent from the live partition.
+    // Re-writing the whole merged map would bump `revision`/`updatedAt` on
+    // unrelated live entities on every retry of an interrupted restore, which
+    // looks like a user edit to the move reconciler and invalidates the
+    // optimistic-concurrency tokens held by open screens.
+    await save(missing);
   }
 
   /**

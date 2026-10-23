@@ -7,7 +7,10 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { FocusStatsRepository } from "@/repositories/FocusStatsRepository";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
-import { PEBBLE_LOG_KEY } from "@/features/profile/services/pebble.service";
+import {
+  PEBBLE_LOG_KEY,
+  earnPebble,
+} from "@/features/profile/services/pebble.service";
 
 const DURATION = 25 * 60; // 25 minutes
 const START = 1_700_000_000_000;
@@ -110,6 +113,140 @@ describe("Focus session completion durability & idempotency", () => {
       ),
     ).toHaveLength(1);
 
+    const stats = await FocusStatsRepository.getFocusStats();
+    expect(stats.completedToday).toBe(1);
+    expect(stats.totalFocusTime).toBe(25);
+  });
+
+  it("a retry after a crash between the session write and the stats credit credits once", async () => {
+    const creditSpy = jest
+      .spyOn(FocusStatsRepository, "creditCompletedSession")
+      .mockRejectedValueOnce(new Error("storage unavailable"));
+
+    await expect(
+      EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
+        sessionId: "focus_after_session",
+        startedAt: START,
+        endedAt: END,
+      }),
+    ).rejects.toThrow("storage unavailable");
+    creditSpy.mockRestore();
+
+    // Only the session record committed; no stats credit and no reward yet.
+    expect(
+      (await GraphRepository.getFocusSessions()).filter(
+        (s) => s.id === "focus_after_session",
+      ),
+    ).toHaveLength(1);
+    expect((await FocusStatsRepository.getFocusStats()).totalFocusTime).toBe(0);
+    expect(
+      (await readPebbleLog()).filter(
+        (e) => e.rewardId === "focus:focus_after_session",
+      ),
+    ).toHaveLength(0);
+
+    await EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
+      sessionId: "focus_after_session",
+      startedAt: START,
+      endedAt: END,
+    });
+
+    expect(
+      (await GraphRepository.getFocusSessions()).filter(
+        (s) => s.id === "focus_after_session",
+      ),
+    ).toHaveLength(1);
+    const stats = await FocusStatsRepository.getFocusStats();
+    expect(stats.completedToday).toBe(1);
+    expect(stats.totalFocusTime).toBe(25);
+    expect(
+      (await readPebbleLog()).filter(
+        (e) => e.rewardId === "focus:focus_after_session",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("a retry after a crash between the stats credit and the reward does not double credit", async () => {
+    const rewardSpy = jest
+      .spyOn(require("@/features/profile/services/pebble.service"), "earnPebble")
+      .mockRejectedValueOnce(new Error("reward log unavailable"));
+
+    await expect(
+      EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
+        sessionId: "focus_after_stats",
+        startedAt: START,
+        endedAt: END,
+      }),
+    ).rejects.toThrow("reward log unavailable");
+    rewardSpy.mockRestore();
+
+    const afterCrash = await FocusStatsRepository.getFocusStats();
+    expect(afterCrash.completedToday).toBe(1);
+    expect(afterCrash.totalFocusTime).toBe(25);
+    expect(
+      (await readPebbleLog()).filter(
+        (e) => e.rewardId === "focus:focus_after_stats",
+      ),
+    ).toHaveLength(0);
+
+    await EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
+      sessionId: "focus_after_stats",
+      startedAt: START,
+      endedAt: END,
+    });
+
+    const stats = await FocusStatsRepository.getFocusStats();
+    expect(stats.completedToday).toBe(1);
+    expect(stats.totalFocusTime).toBe(25);
+    expect(
+      (await readPebbleLog()).filter(
+        (e) => e.rewardId === "focus:focus_after_stats",
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await GraphRepository.getFocusSessions()).filter(
+        (s) => s.id === "focus_after_stats",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("a retry after a crash between the reward and the relationship keeps one reward", async () => {
+    expect(typeof earnPebble).toBe("function");
+    const relationshipSpy = jest
+      .spyOn(GraphRepository, "saveRelationship")
+      .mockRejectedValueOnce(new Error("graph unavailable"));
+
+    await expect(
+      EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
+        sessionId: "focus_after_reward",
+        startedAt: START,
+        endedAt: END,
+      }),
+    ).rejects.toThrow("graph unavailable");
+    relationshipSpy.mockRestore();
+
+    expect(
+      (await readPebbleLog()).filter(
+        (e) => e.rewardId === "focus:focus_after_reward",
+      ),
+    ).toHaveLength(1);
+
+    await EntityCommandService.recordFocusSession(DURATION, "task-1", "task", {
+      sessionId: "focus_after_reward",
+      startedAt: START,
+      endedAt: END,
+    });
+
+    expect(
+      (await readPebbleLog()).filter(
+        (e) => e.rewardId === "focus:focus_after_reward",
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await GraphRepository.getAllRelationships()).filter(
+        (r) => r.source.id === "focus_after_reward",
+      ),
+    ).toHaveLength(1);
     const stats = await FocusStatsRepository.getFocusStats();
     expect(stats.completedToday).toBe(1);
     expect(stats.totalFocusTime).toBe(25);

@@ -20,12 +20,16 @@ import {
   DASHBOARD_SORT_STORAGE_KEY,
   DASHBOARD_STATUS_STORAGE_KEY,
   DASHBOARD_WORKSPACE_STORAGE_KEY,
+  classifyKeyForRestore,
   getRestorePolicy,
   isEphemeralStorageKey,
   isPebbleOwnedKey,
   isPreservedOnRestore,
+  PEBBLE_BACKUP_PAYLOAD_KEYS,
+  PEBBLE_EXACT_OWNED_KEYS,
   PEBBLE_RESTORE_EPHEMERAL_KEYS,
   PEBBLE_RESTORE_PRESERVED_KEYS,
+  PEBBLE_RESTORE_RESET_KEYS,
   RESTORE_INTENT_KEY,
 } from "@/services/storage/storage-keys";
 import {
@@ -168,6 +172,67 @@ describe("Pebble storage key ownership registry", () => {
       PEBBLE_RESTORE_EPHEMERAL_KEYS.has(key),
     );
     expect(overlap).toEqual([]);
+  });
+
+  it("classifies every owned key explicitly for restore", () => {
+    const policySets = [
+      PEBBLE_BACKUP_PAYLOAD_KEYS,
+      PEBBLE_RESTORE_PRESERVED_KEYS,
+      PEBBLE_RESTORE_EPHEMERAL_KEYS,
+      PEBBLE_RESTORE_RESET_KEYS,
+    ];
+
+    // Four-way classification must be unambiguous for exact owned keys.
+    for (let i = 0; i < policySets.length; i++) {
+      for (let j = i + 1; j < policySets.length; j++) {
+        const overlap = [...policySets[i]].filter((key) => policySets[j].has(key));
+        expect(overlap).toEqual([]);
+      }
+    }
+
+    // A key that reaches the "reset" fallback must carry an explicit decision.
+    const undeclared: string[] = [];
+    for (const key of PEBBLE_EXACT_OWNED_KEYS) {
+      const classification = classifyKeyForRestore(key);
+      const hasExplicitEntry =
+        classification === "restored"
+          ? PEBBLE_BACKUP_PAYLOAD_KEYS.has(key)
+          : classification === "preserved"
+            ? PEBBLE_RESTORE_PRESERVED_KEYS.has(key)
+            : classification === "ephemeral"
+              ? PEBBLE_RESTORE_EPHEMERAL_KEYS.has(key)
+              : PEBBLE_RESTORE_RESET_KEYS.has(key);
+      if (!hasExplicitEntry) undeclared.push(`${key} (${classification})`);
+    }
+    expect(undeclared).toEqual([]);
+  });
+
+  it("classifies dynamic entity partitions as payload-carried", () => {
+    for (const key of [
+      "pebble:v1:tasks:ws-1",
+      "pebble:v1:habits:ws-1",
+      "pebble:v1:checklists:ws-1",
+      "pebble:v1:resources:ws-1",
+    ]) {
+      expect(classifyKeyForRestore(key)).toBe("restored");
+    }
+  });
+
+  it("declares dataset-scoped ledgers and deletion lineage as an explicit reset", () => {
+    // Backup v1 does not carry these, so restore must not silently mix the old
+    // dataset's counted rewards / tombstone lineage into the restored one.
+    for (const key of [
+      "pebble:v1:tombstones",
+      PEBBLE_LOG_KEY,
+      PEBBLE_SPENT_KEY,
+      GEMS_BONUS_KEY,
+      GEMS_SPENT_KEY,
+      STREAK_RECOVERIES_KEY,
+    ]) {
+      expect(isPebbleOwnedKey(key)).toBe(true);
+      expect(classifyKeyForRestore(key)).toBe("reset");
+      expect(PEBBLE_RESTORE_RESET_KEYS.has(key)).toBe(true);
+    }
   });
 
   it("classifies the focus preference and in-flight policies explicitly", () => {

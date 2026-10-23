@@ -1,6 +1,6 @@
 # Pebble Integrity Status
 
-> **Truth as of 2026-10-02.** Verified against the active codebase on this date. If the code has changed since, the code wins.
+> **Truth as of 2026-10-24.** Verified against the active codebase on this date. If the code has changed since, the code wins.
 
 This document tracks the verified state of data-integrity vulnerabilities in the current codebase.
 
@@ -83,24 +83,63 @@ The following vulnerabilities have been fixed and hostile-verified in current pr
 - **Current Guarantee**: Move Journal removal is intentionally a separate persistence write after domain mutations. Under hostile crashes where domain writes commit (target written, source deleted) but journal removal fails or is interrupted, the lingering journal entry is deterministically handled by `MoveReconcilerService.reconcileAll()`. Reconciler detects the committed state (`!sourceData && targetData`), leaves the target entity intact, preserves any subsequent user edits, prevents source resurrection, and idempotently cleans the journal. If crashes occur during partial domain writes or chained moves, reconciler safely converges without duplicating entities or resurrecting deleted/tombstoned data.
 - **Verification**: `services/storage/__tests__/MoveJournalRemovalDurability.test.ts` (domain commit + journal crash + subsequent target edit preservation; partial write crash; chained moves to 3rd workspace; tombstone protection against zombie resurrection; and double recovery idempotency).
 
+### 16. Workspace Restore Compile Break, Retry Rewrite & Bin Ghost
+- **Affected Code**: `services/command/handlers/WorkspaceCommandHandler.ts` (`restoreWorkspace`, `mergeArchivedChildren`)
+- **Current Fix**: The metadata checkpoint read `persistedWorkspaces` was never bound, so *every* workspace restore threw `ReferenceError` (the file did not typecheck; 13/14 restore tests failed). It is now read inside the restore lock. In addition, the archived-child merge persisted the *entire* merged partition instead of only the missing ids, which bumped `revision`/`updatedAt` of live entities on every retry — a fake "user edited" signal for `MoveReconcilerService` and an invalidation of the optimistic-concurrency tokens held by open screens. Only the archived ids absent from the live partition are written now.
+- **Current Guarantee**: Metadata is the first durable checkpoint; a later child failure aborts with the Recycle Bin snapshot retained; a retry skips the metadata write, never overwrites/rewrites live children that already exist, backfills only the missing archived children, and removes the bin entry only after all four partitions commit. Partial restores are explicit (never claimed atomic).
+- **Verification**: `services/command/__tests__/workspaceRestore.test.ts` (checklist/resource partition failure-injection, retry after partial failure preserving an intervening user edit and its revision, live-child preservation, bin retention, plus the existing task/habit/metadata failure cases); `workspaceRestoreRecovery.test.ts`. `npx tsc --noEmit` passes.
+
+### 17. Backup Restore Key Policy & Pre-Mutation Bin Validation
+- **Affected Code**: `services/storage/storage-keys.ts`, `services/storage/backup.service.ts` (`validateBackupPayload`)
+- **Current Fix**: Restore policy is now a complete four-way declaration instead of an implicit default: `PEBBLE_BACKUP_PAYLOAD_KEYS` (restored), `PEBBLE_RESTORE_PRESERVED_KEYS`, `PEBBLE_RESTORE_EPHEMERAL_KEYS`, `PEBBLE_RESTORE_RESET_KEYS` (deliberate destruction, with the reason per group). `classifyKeyForRestore` is the single classifier and `getRestorePolicy` delegates to it, so behavior is unchanged but every owned key now carries an explicit decision. Recycle-bin items are validated before mutation: an unparseable `snapshot` or an unsupported `entityType` now rejects the whole backup instead of becoming a permanently un-restorable bin entry.
+- **Current Guarantee**: Device-local preferences survive; in-flight keys are cleared; tombstones and dataset-scoped economy ledgers are deliberately reset (documented rationale: the restored dataset must not inherit the replaced dataset's deletion lineage or counted rewards); malformed bin payloads fail before the destructive remove/write.
+- **Verification**: `services/storage/__tests__/storageKeyRegistry.test.ts` (classification completeness, set disjointness, dynamic-partition classification, explicit ledger/tombstone reset policy, preserved-vs-reset restore behavior); `services/storage/__tests__/BackupService.test.ts` (malformed bin snapshot / unsupported entity type rejected with zero `multiRemove` calls).
+
+### 18. Focus Completion Crash-Boundary Idempotency
+- **Affected Code**: `services/command/handlers/SystemCommandHandler.ts` (`recordFocusSession`), `repositories/FocusStatsRepository.ts`, `repositories/GraphRepository.ts` (`saveFocusSession`)
+- **Current Guarantee**: Per stable session id, the session upsert, the stats credit (durable `creditedSessionIds` ledger), the Pebble award (`focus:<sessionId>` reward id) and the focus→target edge (deterministic id + endpoint dedupe) are each individually idempotent, so a retry converges after a crash at *any* boundary. Verified for: crash between the session write and the stats credit, crash between the stats credit and the reward, and crash between the reward and the relationship edge. No duplicate session rows, minutes, rewards, or edges.
+- **Verification**: `services/command/__tests__/focusSessionCompletion.test.ts` (8 tests, including the three new crash-boundary retries, concurrent double completion, and partial-minute remainder crediting).
+
+### 19. Conversion Journal Roll-Forward Edge Transfer
+- **Affected Code**: `services/storage/ConversionReconcilerService.ts` (`retargetRelationships`, both directions)
+- **Current Fix**: The journal removal is the last write, and the reconciler already converged after a crash anywhere between destination write and journal removal. The one remaining hole was the roll-forward crash *after* the source deletion but *before* the graph edges were re-pointed: the `target exists / source missing` branch cleared the journal without completing the transfer, so `GraphReconcilerService` later pruned the edges and the converted entity silently lost its links. Both directions now re-point edges to the destination before clearing the journal.
+- **Current Guarantee**: A retry cannot lose both source and destination, cannot duplicate the destination entity, and cannot duplicate edges (`saveRelationshipUnlocked` matches by endpoints, so the retarget is idempotent). Redundant execution after a crash between the final domain write and journal removal is safe.
+- **Verification**: `services/storage/__tests__/ConversionReconcilerHostileVerification.test.ts` (new `I2` crash-boundary edge-retarget tests for both directions, `I3` repeated-recovery idempotency, plus the existing A–K matrix); `services/command/__tests__/conversionHostileVerification.test.ts` (handler-level crash at PREPARED / DESTINATION_WRITTEN / source deletion / journal deletion, double conversion, concurrent edits).
+
 ## OPEN / UNVERIFIED
 
 These items exist in current code and have not yet been fully audited or hardened.
 
-### 1. Conversion Journal Removal Atomicity
-- **Exact File**: `services/storage/ConversionReconcilerService.ts` and `repositories/ConversionJournalRepository.ts`
-- **Exact Code Path**: Reconcilers perform a domain write, followed by a separate `removeOperationUnlocked` write to the conversion journal. (Move Journal removal was audited and hostile-verified safe in Phase 10H; Conversion Journal remains unverified).
-- **Failure Condition**: The app crashes between the destination write/source deletion and journal removal.
-- **Impact**: Idempotent redundant execution during startup recovery.
-- **Why Existing Recovery Does Not Cover It**: Separate write boundaries exist in non-ACID AsyncStorage.
-- **Confidence Level**: Low severity (P2), but architecturally un-atomic.
-
-### 2. Secondary Command Handler Hardening
+### 1. Secondary Command Handler Hardening
 - **Exact File**: Remaining secondary operations in `HabitCommandHandler.ts` and `TaskCommandHandler.ts`. (`ChecklistCommandHandler.ts` audited and verified in Phase 10E; `ResourceCommandHandler.ts` audited and verified in Phase 10F).
 - **Failure Condition**: Highly concurrent offline cross-partition operations.
 - **Impact**: Unknown.
-- **Why Existing Recovery Does Not Cover It**: While Workspace, Task (core), Checklist, Resource, and Recycle Bin have received full mutex lock verification, remaining secondary commands have not been explicitly subjected to hostile concurrency tests.
-- **Confidence Level**: Unverified.
+- **Current Evidence**: The audited lifecycle commands (`updateTask`, `completeTask`/`uncompleteTask`, `moveTask`, `recycleTask(s)`, `restoreTask(s)`, `permanentlyDeleteTask`, `updateHabit`, `completeHabit`/`uncompleteHabit`, `archiveHabits`/`completeHabits`, `recycleHabit`, `restoreHabit`) all read fresh state under their partition mutex, honor the lifecycle/revision guard, and persist before emitting events. The effective acquisition order is `partition → move_journal → recycle_bin` (and `conversion_journal → partitions` for conversions); `_acquireRestoreLocks` uses the same hierarchy rather than plain alphabetical order, so no ABBA cycle was found between backup/restore/reconcilers/handlers.
+- **Why Existing Recovery Does Not Cover It**: the remaining risk is concentrated in UI bulk-save paths, not in the handlers above.
+- **Confidence Level**: Unverified for the residual bulks below.
+
+### 2. Bulk UI Snapshot Writes (outside the command handlers)
+- **Exact File**: `repositories/WorkspaceRepository.ts` (`saveWorkspaces`), `features/tasks/hooks/useTaskCrud.ts` (`persistState` → `reorderTasks`/`reorderWorkspaces`)
+- **Exact Code Path**: A UI snapshot is written wholesale under the storage lock.
+- **Failure Condition**: A workspace created (or renamed) between the UI snapshot and `saveWorkspaces` is removed/overwritten, because the array is replaced rather than merged by id. `reorderTasks` likewise bumps `revision`/`updatedAt` of every task it is handed.
+- **Impact**: Lost concurrent edit / lost newly created workspace in a narrow interleaving.
+- **Why Existing Recovery Does Not Cover It**: There is no journal or CAS on these bulk paths, and they bypass the command layer's fresh-read-under-lock discipline.
+- **Confidence Level**: Demonstrated by inspection; not fixed in this pass (changing these write semantics is a broader behavioral change than the audited command handlers).
+
+### 3. Workspace Recycle Bin Snapshot Does Not Carry Graph Relationships
+- **Exact File**: `services/command/handlers/WorkspaceCommandHandler.ts` (`deleteWorkspace`, `restoreWorkspace`), `services/storage/GraphReconcilerService.ts`
+- **Exact Code Path**: `deleteWorkspace` snapshots `{ list, todos, habits, checklists, resources }` into the Recycle Bin and then calls `GraphRepository.deleteRelationshipsForEntities(allEntityIds)`; `restoreWorkspace` re-merges the four partitions only.
+- **Failure Condition**: Recycle → restore a workspace.
+- **Impact**: Cross-entity relationship edges between the workspace's children are not restored. Entity-embedded `resourceIds` survive because they live inside the snapshots; standalone edges do not. This is inherent to the current bin snapshot shape — the startup graph reconciler prunes dangling edges, so simply skipping the delete-time cleanup would not preserve them either.
+- **Why Existing Recovery Does Not Cover It**: Neither the bin snapshot nor the restore path carries edges, so nothing can rebuild them.
+- **Confidence Level**: Verified by code path; closing this requires a bin-format/snapshot change (out of scope for this pass).
+
+## INHERENT LIMITS (AsyncStorage)
+
+- Restore, workspace restore, move/conversion journal removal and recycle-bin moves are **not** transactions. Each step is a separate `setItem`/`multiRemove` write, so a crash can leave a partially applied state.
+- Every such state is made *recoverable*, not atomic: the durable intent/journal (or retained Recycle Bin snapshot) is the source of truth for a retry. Anything that has not reached its journal-removal/snapshot-removal step may be replayed; replay is idempotent and must never be "repaired" by a second, competing mechanism.
+- `multiSet`/`multiRemove` are only as atomic as the platform implementation; this codebase treats them as sequential and relies on the journal/intent rather than claiming all-or-nothing semantics.
+- The in-memory mutex only serializes work inside one JS runtime. A second device/process writing the same keys is outside its protection; only idempotent recovery makes that safe.
 
 ## HISTORICAL (No Longer Apply)
 

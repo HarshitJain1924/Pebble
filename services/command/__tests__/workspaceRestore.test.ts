@@ -348,4 +348,131 @@ describe("workspace restore integrity", () => {
     const bin = await getRecycleBinItems();
     expect(bin.some((b) => b.entityId === "ws-habit-fail")).toBe(true);
   });
+
+  it("Checklist restoration failure preserves the snapshot", async () => {
+    const ws = fullWorkspace("ws-checklist-fail", "Checklist Fail");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await ChecklistRepository.saveChecklist({
+      id: "c-f",
+      workspaceId: "ws-checklist-fail",
+      title: "C",
+      items: [],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await deleteWorkspaceLikeModal(ws);
+
+    jest.spyOn(ChecklistRepository, "saveChecklistsUnlocked").mockRejectedValueOnce(new Error("Disk Full"));
+
+    await expect(
+      EntityCommandService.restoreWorkspace("rb-ws-checklist-fail", { skipEvents: true, skipAnalytics: true })
+    ).rejects.toThrow("Workspace ws-checklist-fail restored partially. Recovery snapshot retained.");
+
+    const bin = await getRecycleBinItems();
+    expect(bin.some((b) => b.entityId === "ws-checklist-fail")).toBe(true);
+  });
+
+  it("Resource restoration failure preserves the snapshot", async () => {
+    const ws = fullWorkspace("ws-resource-fail", "Resource Fail");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await ResourceRepository.saveResource({
+      id: "r-f",
+      workspaceId: "ws-resource-fail",
+      title: "R",
+      type: "note",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await deleteWorkspaceLikeModal(ws);
+
+    jest.spyOn(ResourceRepository, "saveResourcesUnlocked").mockRejectedValueOnce(new Error("Disk Full"));
+
+    await expect(
+      EntityCommandService.restoreWorkspace("rb-ws-resource-fail", { skipEvents: true, skipAnalytics: true })
+    ).rejects.toThrow("Workspace ws-resource-fail restored partially. Recovery snapshot retained.");
+
+    const bin = await getRecycleBinItems();
+    expect(bin.some((b) => b.entityId === "ws-resource-fail")).toBe(true);
+  });
+
+  it("retry after a partial failure preserves intervening edits and completes the restore", async () => {
+    const ws = fullWorkspace("ws-retry", "Retry");
+    await WorkspaceRepository.saveWorkspace(ws);
+    await TaskRepository.saveTask(task("t-retry", "ws-retry"));
+    await HabitRepository.saveHabit(habit("h-retry", "ws-retry"));
+    await deleteWorkspaceLikeModal(ws);
+
+    const habitSave = jest
+      .spyOn(HabitRepository, "saveHabitsUnlocked")
+      .mockRejectedValueOnce(new Error("Disk Full"));
+
+    await expect(
+      EntityCommandService.restoreWorkspace("rb-ws-retry", { skipEvents: true, skipAnalytics: true }),
+    ).rejects.toThrow("restored partially");
+    habitSave.mockRestore();
+
+    // The metadata commit and the task partition landed; the habit did not.
+    expect((await WorkspaceRepository.getWorkspaces()).some((w) => w.id === "ws-retry")).toBe(true);
+    expect((await TaskRepository.getTasks("ws-retry"))["t-retry"]).toBeDefined();
+    expect((await HabitRepository.getHabits("ws-retry"))["h-retry"]).toBeUndefined();
+
+    // User edits the restored task before retrying.
+    await EntityCommandService.updateTask(
+      "t-retry",
+      "ws-retry",
+      { title: "Edited after partial restore" },
+      { skipEvents: true, skipAnalytics: true },
+    );
+    const beforeRetry = (await TaskRepository.getTasks("ws-retry"))["t-retry"];
+    expect(beforeRetry.title).toBe("Edited after partial restore");
+
+    await EntityCommandService.restoreWorkspace("rb-ws-retry", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const afterRetry = (await TaskRepository.getTasks("ws-retry"))["t-retry"];
+    expect(afterRetry.title).toBe("Edited after partial restore");
+    // The retry must not rewrite live rows: no revision bump, no fake `updatedAt`.
+    expect(afterRetry.revision).toBe(beforeRetry.revision);
+
+    expect((await HabitRepository.getHabits("ws-retry"))["h-retry"]).toBeDefined();
+    expect((await getRecycleBinItems()).some((b) => b.entityId === "ws-retry")).toBe(false);
+  });
+
+  it("does not rewrite a live child that shares the archived id", async () => {
+    const ws = fullWorkspace("ws-live", "Live");
+    const liveTask: Task = {
+      ...task("t-live", "ws-live"),
+      title: "Live edit",
+      revision: 7,
+      updatedAt: 999,
+    };
+    await storage.setItem(
+      "pebble:v1:tasks:ws-live",
+      JSON.stringify({ "t-live": liveTask }),
+    );
+    await addToRecycleBin(
+      "workspace",
+      {
+        list: ws,
+        todos: [{ ...liveTask, title: "Archived copy", revision: 1, updatedAt: 1 }],
+        habits: [],
+        checklists: [],
+        resources: [],
+      },
+      "Workspaces",
+      { throwOnError: true },
+    );
+
+    await EntityCommandService.restoreWorkspace("rb-ws-live", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const stored = (await TaskRepository.getTasks("ws-live"))["t-live"];
+    expect(stored.title).toBe("Live edit");
+    expect(stored.revision).toBe(7);
+    expect(stored.updatedAt).toBe(999);
+  });
 });

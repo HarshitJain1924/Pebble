@@ -92,8 +92,10 @@ describe("Checklist Mutations Regression Suite", () => {
       ],
       revision: 1,
       lifecycleGeneration: 1,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      // The series must already be running on date1: an occurrence before the
+      // checklist's own start date is correctly rejected by the command.
+      createdAt: new Date(2026, 0, 1).getTime(),
+      updatedAt: new Date(2026, 0, 1).getTime(),
     };
 
     await ChecklistRepository.saveChecklist(recurringChecklist);
@@ -180,8 +182,9 @@ describe("Checklist Mutations Regression Suite", () => {
       ],
       revision: 1,
       lifecycleGeneration: 1,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      // Same start-date rule as above: date1 must be an existing occurrence.
+      createdAt: new Date(2026, 0, 1).getTime(),
+      updatedAt: new Date(2026, 0, 1).getTime(),
     };
 
     await ChecklistRepository.saveChecklist(recurringChecklist);

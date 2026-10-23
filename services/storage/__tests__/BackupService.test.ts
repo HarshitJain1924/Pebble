@@ -512,6 +512,53 @@ beforeEach(async () => {
     expect(await storage.getItem("pebble:v1:tasks:ws-old")).not.toBeNull();
   });
 
+  it("rejects an unparseable recycle bin snapshot before touching storage", async () => {
+    const removeSpy = jest.spyOn(storage, "multiRemove");
+    const payload = backup();
+    payload.recycleBin = [
+      {
+        id: "rb-broken",
+        entityId: "task-a",
+        entityType: "task",
+        lifecycleGeneration: 1,
+        snapshot: "not json {",
+        deletedAt: 1,
+      } as any,
+    ];
+
+    await expect(
+      BackupService.restoreStructuredBackup(JSON.stringify(payload)),
+    ).rejects.toThrow(
+      "Invalid backup format: Recycle bin item rb-broken has an unparseable snapshot.",
+    );
+
+    expect(removeSpy).not.toHaveBeenCalled();
+    expect(await storage.getItem("pebble:v1:tasks:ws-old")).not.toBeNull();
+  });
+
+  it("rejects an unsupported recycle bin entity type before touching storage", async () => {
+    const removeSpy = jest.spyOn(storage, "multiRemove");
+    const payload = backup();
+    payload.recycleBin = [
+      {
+        id: "rb-weird",
+        entityId: "x-1",
+        entityType: "project" as any,
+        snapshot: JSON.stringify({ id: "x-1" }),
+        deletedAt: 1,
+      } as any,
+    ];
+
+    await expect(
+      BackupService.restoreStructuredBackup(JSON.stringify(payload)),
+    ).rejects.toThrow(
+      "Invalid backup format: Recycle bin item rb-weird has unsupported entity type 'project'.",
+    );
+
+    expect(removeSpy).not.toHaveBeenCalled();
+    expect(await storage.getItem("pebble:v1:tasks:ws-old")).not.toBeNull();
+  });
+
   test("preserves onboarding on successful content restore", async () => {
     await BackupService.restoreStructuredBackup(JSON.stringify(backup()));
     expect(await storage.getItem("todoapp:onboarding_completed")).toBe("true");

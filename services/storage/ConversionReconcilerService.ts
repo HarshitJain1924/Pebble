@@ -34,6 +34,46 @@ export class ConversionReconcilerService {
     return `pebble:v1:${entityType}s:${workspaceId}`;
   }
 
+  /**
+   * Re-point every graph edge from the conversion source at the destination.
+   *
+   * Must run while the conversion journal entry still exists: the source is
+   * already deleted at this point, so a crash before the edges are re-pointed
+   * would otherwise leave them dangling (the graph reconciler prunes them and
+   * the converted entity silently loses its resource/relationship links).
+   *
+   * Idempotent: `saveRelationshipUnlocked` matches on endpoints, so re-running
+   * an already-completed retarget updates the same edge instead of duplicating
+   * it.
+   */
+  private static async retargetRelationships(
+    sourceId: string,
+    sourceType: "task" | "habit",
+    targetId: string,
+    targetType: "task" | "habit",
+    targetGeneration?: number,
+  ): Promise<void> {
+    const { GraphRepository } = await import("@/repositories/GraphRepository");
+    await GraphRepository.ensureLoadedUnlocked();
+    const relationships = await GraphRepository.getAllRelationshipsUnlocked();
+    for (const rel of relationships) {
+      let changed = false;
+      let s = rel.source;
+      let t = rel.target;
+      if (s.id === sourceId && s.type === sourceType) {
+        s = { id: targetId, type: targetType, lifecycleGeneration: targetGeneration };
+        changed = true;
+      }
+      if (t.id === sourceId && t.type === sourceType) {
+        t = { id: targetId, type: targetType, lifecycleGeneration: targetGeneration };
+        changed = true;
+      }
+      if (changed) {
+        await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
+      }
+    }
+  }
+
   private static async reconcileOperation(op: ConversionJournalEntry): Promise<void> {
     // 1. Determine partition names based on operationType
     const isHabitToTask = op.operationType === "habit_to_task";
@@ -122,31 +162,29 @@ export class ConversionReconcilerService {
       }
 
       // Transfer graph relationships from source Habit to target Task
-      const { GraphRepository } = await import("@/repositories/GraphRepository");
-      await GraphRepository.ensureLoadedUnlocked();
-      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
-      for (const rel of relationships) {
-        let changed = false;
-        let s = rel.source;
-        let t = rel.target;
-        if (s.id === op.sourceId && s.type === "habit") {
-          s = { id: op.targetId, type: "task", lifecycleGeneration: task.lifecycleGeneration };
-          changed = true;
-        }
-        if (t.id === op.sourceId && t.type === "habit") {
-          t = { id: op.targetId, type: "task", lifecycleGeneration: task.lifecycleGeneration };
-          changed = true;
-        }
-        if (changed) {
-          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
-        }
-      }
+      await this.retargetRelationships(
+        op.sourceId,
+        "habit",
+        op.targetId,
+        "task",
+        task.lifecycleGeneration,
+      );
 
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
       return;
     }
 
     if (taskExists && !habitExists) {
+      // Roll-forward crashed after the source deletion (the journal removal is
+      // the last step). Finish the relationship transfer before clearing the
+      // entry so the converted Task keeps the edges the Habit had.
+      await this.retargetRelationships(
+        op.sourceId,
+        "habit",
+        op.targetId,
+        "task",
+        task.lifecycleGeneration,
+      );
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
       return;
     }
@@ -226,31 +264,29 @@ export class ConversionReconcilerService {
       }
 
       // Transfer graph relationships from source Task to target Habit
-      const { GraphRepository } = await import("@/repositories/GraphRepository");
-      await GraphRepository.ensureLoadedUnlocked();
-      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
-      for (const rel of relationships) {
-        let changed = false;
-        let s = rel.source;
-        let t = rel.target;
-        if (s.id === op.sourceId && s.type === "task") {
-          s = { id: op.targetId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
-          changed = true;
-        }
-        if (t.id === op.sourceId && t.type === "task") {
-          t = { id: op.targetId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
-          changed = true;
-        }
-        if (changed) {
-          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
-        }
-      }
+      await this.retargetRelationships(
+        op.sourceId,
+        "task",
+        op.targetId,
+        "habit",
+        habit.lifecycleGeneration,
+      );
 
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
       return;
     }
 
     if (habitExists && !taskExists) {
+      // Same crash boundary as the habit→task direction: the source deletion
+      // committed but the edge transfer did not. Repair before clearing the
+      // journal so links are never silently pruned.
+      await this.retargetRelationships(
+        op.sourceId,
+        "task",
+        op.targetId,
+        "habit",
+        habit.lifecycleGeneration,
+      );
       await ConversionJournalRepository.removeOperationUnlocked(op.operationId);
       return;
     }

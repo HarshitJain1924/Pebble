@@ -10,6 +10,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { generateEntityFingerprint } from "@/shared/utils/fingerprint";
 import { normalizeTask } from "@/repositories/TaskRepository";
 import { normalizeHabit } from "@/repositories/HabitRepository";
+import { GraphRepository } from "@/repositories/GraphRepository";
 
 const mockStore = new Map<string, string>();
 
@@ -81,8 +82,27 @@ function journal() { return JSON.parse(mockStore.get("pebble:v1:conversion_journ
 function habits()  { return JSON.parse(mockStore.get("pebble:v1:habits:ws-1")  || "{}"); }
 function tasks()   { return JSON.parse(mockStore.get("pebble:v1:tasks:ws-1")   || "{}"); }
 
+/** Seed a single resource edge from the conversion source (habit-1 / task-1). */
+function setSourceResourceEdge(id: string, sourceType: "habit" | "task") {
+  mockStore.set(
+    "pebble:v1:relationships",
+    JSON.stringify({
+      [id]: {
+        id,
+        source: { id: sourceType === "habit" ? "habit-1" : "task-1", type: sourceType },
+        target: { id: "res-1", type: "resource" },
+        relationType: "uses",
+        createdAt: 1,
+      },
+    }),
+  );
+}
+function relationships(): Record<string, any> {
+  return JSON.parse(mockStore.get("pebble:v1:relationships") || "{}");
+}
+
 describe("Habit -> Task recovery matrix", () => {
-  beforeEach(() => { jest.clearAllMocks(); mockStore.clear(); });
+  beforeEach(() => { jest.clearAllMocks(); mockStore.clear(); GraphRepository.resetCache(); });
 
   test("A. Exact intended destination -> source deleted", async () => {
     setHabit(BASE_HABIT); setTask(BASE_TASK); h2tJournal();
@@ -165,10 +185,43 @@ describe("Habit -> Task recovery matrix", () => {
     expect(tasks()["task-1"]).toBeDefined();
     expect(journal()).toHaveLength(0);
   });
+
+  test("I2. Crash after source deletion but before edge transfer -> edges re-pointed, not lost", async () => {
+    setHabit(null);
+    setTask(BASE_TASK);
+    setSourceResourceEdge("rel-1", "habit");
+    h2tJournal({ phase: "DESTINATION_WRITTEN" });
+
+    await ConversionReconcilerService.reconcileAll();
+
+    const rels = relationships();
+    expect(Object.keys(rels)).toHaveLength(1);
+    expect(rels["rel-1"].source).toMatchObject({ id: "task-1", type: "task" });
+    expect(JSON.stringify(rels)).not.toContain("habit-1");
+    expect(journal()).toHaveLength(0);
+  });
+
+  test("I3. Recovery of a half-transferred edge set is idempotent", async () => {
+    setHabit(null);
+    setTask(BASE_TASK);
+    setSourceResourceEdge("rel-1", "habit");
+    h2tJournal({ phase: "DESTINATION_WRITTEN" });
+
+    await ConversionReconcilerService.reconcileAll();
+    // Simulate the journal removal failing after the repair: replay the same
+    // entry. The retarget must converge on ONE edge with the same identity.
+    h2tJournal({ phase: "DESTINATION_WRITTEN" });
+    await ConversionReconcilerService.reconcileAll();
+
+    const rels = relationships();
+    expect(Object.keys(rels)).toHaveLength(1);
+    expect(rels["rel-1"].source).toMatchObject({ id: "task-1", type: "task" });
+    expect(journal()).toHaveLength(0);
+  });
 });
 
 describe("Task -> Habit recovery matrix", () => {
-  beforeEach(() => { jest.clearAllMocks(); mockStore.clear(); });
+  beforeEach(() => { jest.clearAllMocks(); mockStore.clear(); GraphRepository.resetCache(); });
 
   test("A. Exact intended destination -> source deleted", async () => {
     setTask(BASE_TASK); setHabit(BASE_HABIT); t2hJournal();
@@ -251,10 +304,25 @@ describe("Task -> Habit recovery matrix", () => {
     expect(habits()["habit-1"]).toBeDefined();
     expect(journal()).toHaveLength(0);
   });
+
+  test("I2. Crash after source deletion but before edge transfer -> edges re-pointed, not lost", async () => {
+    setTask(null);
+    setHabit(BASE_HABIT);
+    setSourceResourceEdge("rel-1", "task");
+    t2hJournal({ phase: "DESTINATION_WRITTEN" });
+
+    await ConversionReconcilerService.reconcileAll();
+
+    const rels = relationships();
+    expect(Object.keys(rels)).toHaveLength(1);
+    expect(rels["rel-1"].source).toMatchObject({ id: "habit-1", type: "habit" });
+    expect(JSON.stringify(rels)).not.toContain("task-1");
+    expect(journal()).toHaveLength(0);
+  });
 });
 
 describe("K. Proof that targetCreatedAt alone was insufficient", () => {
-  beforeEach(() => { jest.clearAllMocks(); mockStore.clear(); });
+  beforeEach(() => { jest.clearAllMocks(); mockStore.clear(); GraphRepository.resetCache(); });
 
   test("K1 (habit->task): same targetId + same createdAt but unrelated payload -> fingerprint saves source", async () => {
     const impostor = {
