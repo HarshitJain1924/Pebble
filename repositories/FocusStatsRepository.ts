@@ -13,6 +13,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { withLock } from "@/shared/utils/mutex";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 export const FOCUS_STATS_KEY = "todoapp:focus:stats";
 const FOCUS_STATS_LOCK = "pebble:v1:focus_stats";
@@ -22,6 +23,11 @@ const MAX_CREDITED_SESSION_IDS = 250;
 export interface FocusStats {
   completedToday: number;
   totalFocusTime: number;
+  /**
+   * Local date (`YYYY-MM-DD`) `completedToday` belongs to. A counter without a
+   * date is treated as stale (its day has rolled over) rather than lifetime.
+   */
+  completedTodayDate?: string;
   /** Session ids already credited to the counters above. */
   creditedSessionIds?: string[];
   updatedAt?: number;
@@ -31,6 +37,10 @@ function normalize(raw: any): FocusStats {
   return {
     completedToday: typeof raw?.completedToday === "number" ? raw.completedToday : 0,
     totalFocusTime: typeof raw?.totalFocusTime === "number" ? raw.totalFocusTime : 0,
+    completedTodayDate:
+      typeof raw?.completedTodayDate === "string"
+        ? raw.completedTodayDate
+        : undefined,
     creditedSessionIds: Array.isArray(raw?.creditedSessionIds)
       ? raw.creditedSessionIds.filter((id: unknown) => typeof id === "string")
       : [],
@@ -39,12 +49,22 @@ function normalize(raw: any): FocusStats {
 }
 
 export class FocusStatsRepository {
-  /** Pure read of the persisted counters (no lock needed for a single get). */
+  /**
+   * Read the persisted counters.
+   *
+   * `completedToday` is a DAILY counter: a value recorded on an earlier day is
+   * reported as 0 (and rewritten by the next credit) instead of being surfaced
+   * as "today" forever.
+   */
   static async getFocusStats(): Promise<FocusStats> {
     const raw = await AsyncStorage.getItem(FOCUS_STATS_KEY);
     if (!raw) return normalize(null);
     try {
-      return normalize(JSON.parse(raw));
+      const stats = normalize(JSON.parse(raw));
+      if (stats.completedTodayDate !== getTodayDateKey()) {
+        return { ...stats, completedToday: 0 };
+      }
+      return stats;
     } catch {
       return normalize(null);
     }
@@ -73,9 +93,14 @@ export class FocusStatsRepository {
 
       const safeMinutes =
         Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+      const today = getTodayDateKey();
+      // A previous day's count must not be carried into today.
+      const completedToday =
+        (current.completedTodayDate === today ? current.completedToday : 0) + 1;
 
       const next: FocusStats = {
-        completedToday: current.completedToday + 1,
+        completedToday,
+        completedTodayDate: today,
         totalFocusTime: current.totalFocusTime + safeMinutes,
         creditedSessionIds: [...creditedIds, sessionId].slice(-MAX_CREDITED_SESSION_IDS),
         updatedAt: Date.now(),
@@ -96,8 +121,14 @@ export class FocusStatsRepository {
       const current = await this.getFocusStats();
       const safeMinutes =
         Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+      const today = getTodayDateKey();
       const next: FocusStats = {
         ...current,
+        // Carrying a stale day's count forward would resurrect yesterday's
+        // completions; reset it while adding incremental minutes.
+        completedToday:
+          current.completedTodayDate === today ? current.completedToday : 0,
+        completedTodayDate: today,
         totalFocusTime: current.totalFocusTime + safeMinutes,
         updatedAt: Date.now(),
       };

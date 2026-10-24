@@ -52,6 +52,7 @@ import { emitStateChange } from "@/services/events/state-events";
 import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 export default function CalendarScreen() {
   const {
@@ -229,10 +230,19 @@ export default function CalendarScreen() {
     async (habitId: string, workspaceId?: string) => {
       try {
         const habit = allHabits.find((h) => h.id === habitId);
+        if (!habit) return;
+
+        // Habit completion commands operate on TODAY's occurrence. Tapping a
+        // habit while viewing another date previously wrote today's completion
+        // (and raised today's belief) while the visible day stayed untouched.
+        // The popover hides the action off-today; this guard protects every
+        // other caller.
+        if (selectedDate !== getTodayDateKey()) return;
+
         const isCompleted = isHabitCompletedToday(habit, selectedDate);
         const targetWs =
           workspaceId ||
-          habit?.workspaceId ||
+          habit.workspaceId ||
           activeWorkspaceId ||
           INBOX_WORKSPACE_ID;
 

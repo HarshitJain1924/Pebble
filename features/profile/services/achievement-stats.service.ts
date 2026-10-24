@@ -12,7 +12,8 @@
  * Pebble/Gem currency totals are NOT computed here; those come from
  * `pebble.service.ts` (`getPebbleCounts` / `getGemsBalance`).
  */
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getAllHistory } from "@/services/analytics/productivity-history.service";
+import { FocusStatsRepository } from "@/repositories/FocusStatsRepository";
 import {
   HabitRepository,
   TaskRepository,
@@ -29,8 +30,6 @@ import {
 import { getTodayDateKey } from "@/shared/utils/date-key";
 import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 
-const FOCUS_STATS_KEY = "todoapp:focus:stats";
-const HISTORY_KEY = "pebble:history";
 
 export interface AchievementStats {
   todosCompleted: number;
@@ -70,38 +69,21 @@ export async function getAchievementStats(): Promise<AchievementStats> {
     });
   }
 
-  // Lifetime history for days before today (same semantics as before).
-  const rawHistory = await AsyncStorage.getItem(HISTORY_KEY);
+  // Lifetime history for days before today (same semantics as before), read
+  // through the owning service instead of the raw storage key.
+  const historyList = await getAllHistory();
   let pastTodosCompleted = 0;
   let pastHabitsCompleted = 0;
-  if (rawHistory) {
-    try {
-      const historyList = JSON.parse(rawHistory);
-      if (Array.isArray(historyList)) {
-        historyList.forEach((entry: any) => {
-          if (entry.date !== todayKey) {
-            pastTodosCompleted += entry.completedTodos || 0;
-            pastHabitsCompleted += entry.completedHabits || 0;
-          }
-        });
-      }
-    } catch {
-      // ignore malformed history
+  historyList.forEach((entry: any) => {
+    if (entry.date !== todayKey) {
+      pastTodosCompleted += entry.completedTodos || 0;
+      pastHabitsCompleted += entry.completedHabits || 0;
     }
-  }
+  });
 
   const pebbleCounts = await getPebbleCounts();
 
-  let focusTime = 0;
-  const rawFocus = await AsyncStorage.getItem(FOCUS_STATS_KEY);
-  if (rawFocus) {
-    try {
-      const parsed = JSON.parse(rawFocus);
-      focusTime = parsed.totalFocusTime ?? 0;
-    } catch {
-      // ignore malformed focus stats
-    }
-  }
+  const focusTime = (await FocusStatsRepository.getFocusStats()).totalFocusTime;
 
   return {
     todosCompleted: pastTodosCompleted + totalCompletedTodos,

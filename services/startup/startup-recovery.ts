@@ -21,16 +21,23 @@
  * 7. `resolveAllRewardIntents` — credit completion rewards that were recorded
  *    but never awarded (interruption between the entity write and the award).
  *    Idempotent by rewardId and gated on the entity still being in the rewarded
- *    state, so it never pays an uncompleted/recycled/deleted entity. Tolerant of
- *    failure so startup never crashes on economy errors.
+ *    state, so it never pays an uncompleted/recycled/deleted entity.
  * 8. `NotificationReconcilerService.reconcileAll` — rebuild missing OS
- *    notifications. Tolerant of failure so startup never crashes on
- *    notification errors; it never requests OS permission.
+ *    notifications; it never requests OS permission.
  *
  * Each step is idempotent and internally locked. This function intentionally
  * performs NO cross-step transaction — AsyncStorage cannot provide one, and
  * every step is designed to converge on repeated runs (RECONCILED model).
+ *
+ * FAILURE ISOLATION: one step's failure must not skip the steps after it. An
+ * unreadable store or a transient storage error in step 1 previously propagated
+ * out of this function, so move/conversion replay, recycle-bin cleanup, graph
+ * pruning and notification repair all never ran — and the caller's onboarding
+ * routing was skipped too. Each step is now settled independently: it is
+ * awaited (so ordering still holds), its rejection is logged, and the sequence
+ * continues. The function itself does not reject.
  */
+
 import { BackupService } from "@/services/storage/backup.service";
 import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import { GraphReconcilerService } from "@/services/storage/GraphReconcilerService";
@@ -39,27 +46,47 @@ import { NotificationReconcilerService } from "@/services/notifications/Notifica
 import { cleanupRecycleBin } from "@/services/storage/storage.service";
 import { resolveAllRewardIntents } from "@/features/profile/services/reward-intent.service";
 
+/**
+ * Run one recovery step, logging (never propagating) its failure.
+ *
+ * Steps are still awaited one at a time: a later step may depend on an earlier
+ * one having run, so they must not execute concurrently. Only the failure is
+ * contained.
+ */
+async function settle(label: string, step: () => Promise<unknown>): Promise<void> {
+  try {
+    await step();
+  } catch (e) {
+    console.warn(
+      `[Startup] Recovery step "${label}" failed; continuing with the remaining steps`,
+      e,
+    );
+  }
+}
+
 export async function runStartupRecovery(): Promise<void> {
-  await BackupService.recoverInterruptedRestore();
-  await MoveReconcilerService.reconcileAll();
-  await ConversionReconcilerService.reconcileAll();
-  await MoveReconcilerService.reconcileHistoricalGhosts();
-  await cleanupRecycleBin();
-  await GraphReconcilerService.reconcileAll();
+  await settle("recoverInterruptedRestore", () =>
+    BackupService.recoverInterruptedRestore(),
+  );
+  await settle("moveReconcileAll", () => MoveReconcilerService.reconcileAll());
+  await settle("conversionReconcileAll", () =>
+    ConversionReconcilerService.reconcileAll(),
+  );
+  await settle("reconcileHistoricalGhosts", () =>
+    MoveReconcilerService.reconcileHistoricalGhosts(),
+  );
+  await settle("cleanupRecycleBin", () => cleanupRecycleBin());
+  await settle("graphReconcileAll", () =>
+    GraphReconcilerService.reconcileAll(),
+  );
 
   // Completion rewards are owed-but-uncredited work, not derived state: resolve
-  // them once the entity surface has settled. Failure must not crash startup.
-  try {
-    await resolveAllRewardIntents();
-  } catch (e) {
-    console.warn("[Startup] Failed to resolve reward intents", e);
-  }
+  // them once the entity surface has settled.
+  await settle("resolveRewardIntents", () => resolveAllRewardIntents());
 
   // Notification reconciliation must finish before the UI mounts to prevent
-  // races with user mutations, but failure must not crash startup.
-  try {
-    await NotificationReconcilerService.reconcileAll();
-  } catch (e) {
-    console.warn("[Startup] Failed to run NotificationReconcilerService", e);
-  }
+  // races with user mutations.
+  await settle("notificationReconcileAll", () =>
+    NotificationReconcilerService.reconcileAll(),
+  );
 }

@@ -1,5 +1,5 @@
 import type { Reminder } from "@/shared/types/domain.types";
-import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
+import { computeTriggerEpoch } from "@/shared/utils/schedule-time";
 
 export interface SchedulableEntity {
   schedule?: {

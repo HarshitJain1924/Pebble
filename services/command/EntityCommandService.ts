@@ -12,6 +12,7 @@ import { GraphCommandHandler } from "./handlers/GraphCommandHandler";
 import {
   RecycleBinCommandHandler,
   type RecycleBinPurgeResult,
+  type RecycleBinRestoreResult,
 } from "./handlers/RecycleBinCommandHandler";
 import { CreateEntityOptions } from "./types/command.types";
 import type { ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
@@ -45,8 +46,11 @@ export class EntityCommandService {
   /**
    * Update and persist a Workspace entity (e.g. rename workspace).
    */
-  static async updateWorkspace(workspace: Workspace): Promise<void> {
-    return WorkspaceCommandHandler.updateWorkspace(workspace);
+  static async updateWorkspace(
+    workspace: Workspace,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return WorkspaceCommandHandler.updateWorkspace(workspace, options);
   }
 
   /**
@@ -77,16 +81,22 @@ export class EntityCommandService {
    * but does not cascade to children. Contextual filtering of children
    * is handled by selectors.
    */
-  static async archiveWorkspace(workspaceId: string): Promise<void> {
-    return WorkspaceCommandHandler.archiveWorkspace(workspaceId);
+  static async archiveWorkspace(
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return WorkspaceCommandHandler.archiveWorkspace(workspaceId, options);
   }
 
   /**
    * Restore an archived Workspace entity.
    * Restores the workspace to active state without touching children.
    */
-  static async restoreWorkspaceArchive(workspaceId: string): Promise<void> {
-    return WorkspaceCommandHandler.restoreWorkspaceArchive(workspaceId);
+  static async restoreWorkspaceArchive(
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    return WorkspaceCommandHandler.restoreWorkspaceArchive(workspaceId, options);
   }
 
   /**
@@ -566,6 +576,18 @@ export class EntityCommandService {
     options?: CreateEntityOptions,
   ): Promise<RecycleBinPurgeResult> {
     return RecycleBinCommandHandler.permanentlyDeleteItems(items, options);
+  }
+
+  /**
+   * Restore Recycle Bin items through the canonical per-entity restore
+   * handlers. The single restore orchestrator: per-item failures are isolated
+   * and reported, and each domain that actually changed emits its own event.
+   */
+  static async restoreRecycleBinItems(
+    items: RecycleBinItem[],
+    options?: CreateEntityOptions,
+  ): Promise<RecycleBinRestoreResult> {
+    return RecycleBinCommandHandler.restoreItems(items, options);
   }
 
   // ─── BATCH 7D: RESTORE TASK ──────────────────────────────────────────────────

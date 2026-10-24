@@ -33,7 +33,7 @@ import {
   isRecurringOccurrenceForDate,
   recurrenceSupportsDateExceptions,
 } from "@/services/scheduling/recurrence.service";
-import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
+import { computeTriggerEpoch } from "@/shared/utils/schedule-time";
 
 import { CreateEntityOptions, isParsedProductivityItem } from "../types/command.types";
 
@@ -1006,7 +1006,7 @@ static async moveChecklist(
           const [h, m] = input.schedule.startTime.split(":").map(Number);
           if (!isNaN(h) && !isNaN(m)) {
             const dateStr = input.schedule.date && input.schedule.date !== "inbox" ? input.schedule.date : undefined;
-            const { computeTriggerEpoch } = await import("@/features/details/task/hooks/useTaskDetailForm");
+            const { computeTriggerEpoch } = await import("@/shared/utils/schedule-time");
             const epoch = computeTriggerEpoch(h, m, dateStr);
             candidateReminder = { enabled: true, triggerAt: epoch };
           }

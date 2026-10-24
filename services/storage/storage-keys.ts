@@ -264,6 +264,22 @@ export function isPreservedOnRestore(key: string): boolean {
   return PEBBLE_RESTORE_PRESERVED_KEYS.has(key);
 }
 
+/**
+ * Whether a *content* reset (`clearRepositoryStorage`) must leave this key alone.
+ *
+ * Device-local presentation preferences are preserved by policy. Onboarding
+ * completion is included because a content reset deletes Pebble's data, not
+ * this installation's first-run state — dropping it would send the user back
+ * through onboarding. (A user-facing backup restore has its own rule and clears
+ * onboarding when the backup was not taken after onboarding.)
+ */
+export function isPreservedByContentReset(key: string): boolean {
+  return (
+    PEBBLE_RESTORE_PRESERVED_KEYS.has(key) ||
+    key === "todoapp:onboarding_completed"
+  );
+}
+
 /** Whether this key is in-flight/infrastructure state rather than user data. */
 export function isEphemeralStorageKey(key: string): boolean {
   return PEBBLE_RESTORE_EPHEMERAL_KEYS.has(key);

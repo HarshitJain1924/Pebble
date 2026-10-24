@@ -30,6 +30,7 @@ import {
   TombstoneRepository,
   WorkspaceRepository,
 } from "@/repositories";
+import * as pebbleService from "@/features/profile/services/pebble.service";
 import {
   PEBBLE_LOG_KEY,
   earnPebbleWithOutcome,
@@ -545,4 +546,170 @@ describe("Reward intent write failure aborts the completion", () => {
     expect(replay?.updated.status).toBe("completed");
     expect(await pebbleRewards()).toEqual(["task:task-intent-5"]);
   });
+});
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("condition never became true");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
+
+/**
+ * Reward reversal serialization (F5).
+ *
+ * The defect: `uncompleteTask`/`uncompleteHabit` released the partition lock
+ * after writing the uncompleted state and only then reversed the Pebble. A
+ * completion that committed in that window saw the old ledger entry, settled on
+ * `already_earned`, and deleted its intent; the reversal then removed the reward
+ * for an entity that was completed again. Result: completed entity, zero Pebbles,
+ * nothing left to repair it.
+ *
+ * These tests hold the reversal at its ledger read and try to complete the entity
+ * in that exact window. With reversal inside the partition lock the completion
+ * cannot progress (it is queued behind the same lock), so the final state is
+ * completed with exactly one Pebble.
+ */
+describe("Reward reversal is serialized with completion", () => {
+  /**
+   * Pause the FIRST reward reversal the uncompletion performs, before it takes
+   * the economy lock, then run the real implementation once released.
+   *
+   * Gating the ledger read instead would not discriminate: that read happens
+   * while `reversePebbleReward` already holds the economy lock, so a concurrent
+   * award would block there even in the defect.
+   */
+  function gateRewardReversal(): {
+    reached: () => boolean;
+    release: () => void;
+    restore: () => void;
+  } {
+    const original = pebbleService.reversePebbleReward;
+    let gated = false;
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+
+    jest
+      .spyOn(pebbleService, "reversePebbleReward")
+      .mockImplementation(async (rewardId: string) => {
+        if (!gated) {
+          gated = true;
+          await gate;
+        }
+        return original(rewardId);
+      });
+
+    return {
+      reached: () => gated,
+      release: () => releaseGate(),
+      restore: () => {
+        (pebbleService.reversePebbleReward as jest.Mock).mockRestore?.();
+        (pebbleService.reversePebbleReward as unknown as jest.Mock).mockImplementation?.(
+          original,
+        );
+      },
+    };
+  }
+
+  it("Task: a completion racing an uncompletion keeps the reward", async () => {
+    await TaskRepository.saveTask(makeTask("task-race-1"));
+    await EntityCommandService.completeTask("task-race-1", WS, silently);
+    expect(await pebbleRewards()).toEqual(["task:task-race-1"]);
+
+    const gate = gateRewardReversal();
+    try {
+      const uncomplete = EntityCommandService.uncompleteTask(
+        "task-race-1",
+        WS,
+        silently,
+      );
+      await waitUntil(gate.reached);
+
+      const complete = EntityCommandService.completeTask(
+        "task-race-1",
+        WS,
+        silently,
+      );
+
+      // If the reversal were still outside the lock, the completion would run to
+      // completion here against the un-reversed ledger.
+      const progressed = await Promise.race([
+        complete.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+      ]);
+      expect(progressed).toBe(false);
+
+      gate.release();
+      await uncomplete;
+      await complete;
+    } finally {
+      gate.release();
+      gate.restore();
+    }
+
+    const task = await TaskRepository.getTask("task-race-1", WS);
+    expect(task?.status).toBe("completed");
+    expect(await pebbleRewards()).toEqual(["task:task-race-1"]);
+    expect(await pendingIntentIds()).toEqual([]);
+  });
+
+  it("Habit: a completion racing an uncompletion keeps the day's reward", async () => {
+    const today = getTodayDateKey();
+    await HabitRepository.saveHabitUnlocked(makeHabit("habit-race-1"));
+    await EntityCommandService.completeHabit("habit-race-1", WS, silently);
+    expect(await pebbleRewards()).toEqual([`habit:habit-race-1:${today}`]);
+
+    const gate = gateRewardReversal();
+    try {
+      const uncomplete = EntityCommandService.uncompleteHabit(
+        "habit-race-1",
+        WS,
+        silently,
+      );
+      await waitUntil(gate.reached);
+
+      const complete = EntityCommandService.completeHabit(
+        "habit-race-1",
+        WS,
+        silently,
+      );
+      const progressed = await Promise.race([
+        complete.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+      ]);
+      expect(progressed).toBe(false);
+
+      gate.release();
+      await uncomplete;
+      await complete;
+    } finally {
+      gate.release();
+      gate.restore();
+    }
+
+    const habit = await HabitRepository.getHabit("habit-race-1", WS);
+    expect(habit?.completionHistory?.some((e) => e.date === today)).toBe(true);
+    expect(await pebbleRewards()).toEqual([`habit:habit-race-1:${today}`]);
+    expect(await pendingIntentIds()).toEqual([]);
+  });
+
+  it("Task: a plain uncompletion still reverses its reward", async () => {
+    await TaskRepository.saveTask(makeTask("task-race-2"));
+    await EntityCommandService.completeTask("task-race-2", WS, silently);
+    await EntityCommandService.uncompleteTask("task-race-2", WS, silently);
+
+    expect((await TaskRepository.getTask("task-race-2", WS))?.status).toBe("todo");
+    expect(await pebbleRewards()).toEqual([]);
+    expect(await pendingIntentIds()).toEqual([]);
+
+    // Re-completing is a genuine new completion and earns exactly one again.
+    await EntityCommandService.completeTask("task-race-2", WS, silently);
+    expect(await pebbleRewards()).toEqual(["task:task-race-2"]);
+  });
+
 });

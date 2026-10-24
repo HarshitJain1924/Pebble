@@ -6,7 +6,11 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 
 import { GraphRepository } from "@/repositories/GraphRepository";
 import { RewardIntentRepository } from "@/repositories/RewardIntentRepository";
-import { FocusStatsRepository } from "@/repositories/FocusStatsRepository";
+import {
+  FocusStatsRepository,
+  FOCUS_STATS_KEY,
+} from "@/repositories/FocusStatsRepository";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 import {
   PEBBLE_LOG_KEY,
@@ -35,6 +39,52 @@ function failPebbleWrites(): () => void {
   });
   return () => setItem.mockImplementation(original as any);
 }
+
+describe("Focus stats daily counter", () => {
+  test("completedToday is day-scoped: a prior day's count is not reported as today", async () => {
+    await AsyncStorage.setItem(
+      FOCUS_STATS_KEY,
+      JSON.stringify({
+        completedToday: 7,
+        completedTodayDate: "1999-01-01",
+        totalFocusTime: 120,
+      }),
+    );
+
+    expect((await FocusStatsRepository.getFocusStats()).completedToday).toBe(0);
+
+    const { stats } = await FocusStatsRepository.creditCompletedSession(
+      "focus-rollover-1",
+      10,
+    );
+    expect(stats.completedToday).toBe(1);
+    expect(stats.completedTodayDate).toBe(getTodayDateKey());
+    expect(stats.totalFocusTime).toBe(130);
+
+    // A second completion today increments the same day's counter.
+    const second = await FocusStatsRepository.creditCompletedSession(
+      "focus-rollover-2",
+      5,
+    );
+    expect(second.stats.completedToday).toBe(2);
+  });
+
+  test("incremental minutes do not resurrect a stale day's completed count", async () => {
+    await AsyncStorage.setItem(
+      FOCUS_STATS_KEY,
+      JSON.stringify({
+        completedToday: 4,
+        completedTodayDate: "1999-01-01",
+        totalFocusTime: 60,
+      }),
+    );
+
+    const stats = await FocusStatsRepository.addFocusMinutes(10);
+    expect(stats.completedToday).toBe(0);
+    expect(stats.completedTodayDate).toBe(getTodayDateKey());
+    expect(stats.totalFocusTime).toBe(70);
+  });
+});
 
 describe("Focus session completion durability & idempotency", () => {
   beforeEach(async () => {

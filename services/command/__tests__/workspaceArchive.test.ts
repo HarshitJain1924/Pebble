@@ -46,7 +46,8 @@ describe("Workspace Archive Foundation", () => {
           id: "ws-1",
           archivedAt: now,
           updatedAt: now,
-        })
+        }),
+        { throwOnError: true }
       );
     });
 
@@ -86,7 +87,8 @@ describe("Workspace Archive Foundation", () => {
           id: "ws-1",
           archivedAt: undefined,
           updatedAt: now,
-        })
+        }),
+        { throwOnError: true }
       );
     });
 

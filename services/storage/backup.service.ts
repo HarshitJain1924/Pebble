@@ -16,6 +16,7 @@ import { RecycleBinRepository } from "@/repositories/RecycleBinRepository";
 import { ConversionJournalRepository } from "@/repositories/ConversionJournalRepository";
 import { ConversionReconcilerService } from "@/services/storage/ConversionReconcilerService";
 import { MoveReconcilerService } from "@/services/storage/MoveReconcilerService";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 import {
   getGratitudeHistory,
   GRATITUDE_HISTORY_STORAGE_KEY,
@@ -688,6 +689,9 @@ export class BackupService {
     );
     const restoredStats = {
       completedToday: finishedToday.length,
+      // Same daily scoping as FocusStatsRepository: without the date the next
+      // read would treat the restored count as a stale prior day.
+      completedTodayDate: getTodayDateKey(),
       totalFocusTime: restoredSessions.reduce(
         (acc: number, s: any) =>
           acc + Math.floor((Number(s?.duration) || 0) / 60),

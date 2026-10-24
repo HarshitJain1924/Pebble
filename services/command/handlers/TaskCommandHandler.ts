@@ -961,13 +961,24 @@ static async reorderTasks(
   ): Promise<Task[]> {
     const updated: Task[] = [];
     for (const item of items) {
-      const task = await this.updateTask(
-        item.taskId,
-        item.workspaceId,
-        { archivedAt: Date.now(), updatedAt: Date.now() },
-        { source: options?.source, skipEvents: true, skipAnalytics: true },
-      );
-      updated.push(task);
+      // Per-item failure isolation (Habit parity): a concurrent move/delete,
+      // lifecycle conflict or failed reward-intent write on ONE selected Task
+      // must not abort the batch. Each item is an independent locked RMW, so the
+      // committed subset stays correct and a retry converges.
+      try {
+        const task = await this.updateTask(
+          item.taskId,
+          item.workspaceId,
+          { archivedAt: Date.now(), updatedAt: Date.now() },
+          { source: options?.source, skipEvents: true, skipAnalytics: true },
+        );
+        updated.push(task);
+      } catch (e) {
+        console.warn(
+          `[EntityCommandService] Failed to archive task ${item.taskId} during bulk archive:`,
+          e,
+        );
+      }
     }
     if (updated.length > 0) {
       if (!options?.skipAnalytics) {
@@ -990,12 +1001,21 @@ static async reorderTasks(
   ): Promise<Task[]> {
     const updated: Task[] = [];
     for (const item of items) {
-      const result = await this.completeTask(item.taskId, item.workspaceId, {
-        source: options?.source,
-        skipEvents: true,
-        skipAnalytics: true,
-      });
-      if (result) updated.push(result.updated);
+      // Per-item failure isolation (Habit parity). Earlier committed items are
+      // returned and emitted; a failure is logged and the batch continues.
+      try {
+        const result = await this.completeTask(item.taskId, item.workspaceId, {
+          source: options?.source,
+          skipEvents: true,
+          skipAnalytics: true,
+        });
+        if (result) updated.push(result.updated);
+      } catch (e) {
+        console.warn(
+          `[EntityCommandService] Failed to complete task ${item.taskId} during bulk completion:`,
+          e,
+        );
+      }
     }
     if (updated.length > 0) {
       if (!options?.skipAnalytics) {
@@ -1214,11 +1234,21 @@ static async reorderTasks(
 
     // 2. OS Notification Scheduling SECOND (isolated)
     if (needsReminderUpdate) {
-      // Fire and forget cancel existing
+      // Awaited, like `completeTask`: a fire-and-forget cancellation can still
+      // be pending when the command reports success, so the old OS reminder may
+      // fire for a rescheduled/archived/completed task before the reconciler
+      // catches it. Failure is non-fatal (the new schedule may still be valid).
       if (existing.reminder?.notificationIds?.length) {
-        cancelReminderIds(existing.reminder.notificationIds, { throwOnError: false }).catch(e => {
-          console.warn("[EntityCommandService] Failed to cancel old reminder IDs during task update", e);
-        });
+        try {
+          await cancelReminderIds(existing.reminder.notificationIds, {
+            throwOnError: false,
+          });
+        } catch (e) {
+          console.warn(
+            "[EntityCommandService] Failed to cancel old reminder IDs during task update",
+            e,
+          );
+        }
       }
       
       // Reschedule if still applicable
@@ -1320,6 +1350,25 @@ static async reorderTasks(
 
       // 1. Domain persistence FIRST
       const saved = await TaskRepository.saveTaskUnlocked(cleanTask);
+
+      // 2. Reward reversal SECOND, still inside the partition lock.
+      //
+      // Reversal is the inverse of completion and must obey the same
+      // serialization. If it ran after the lock was released, this interleaving
+      // would delete a reward that belongs to a completed Task:
+      //   uncomplete writes "todo" -> releases lock ->
+      //   concurrent completeTask writes "completed" + settles on
+      //   "already_earned" (the ledger still holds the reward) ->
+      //   this reversal finally runs and removes that reward.
+      // The Task would then be completed with no Pebble and no intent to repair
+      // it. Holding the lock makes the reversal observe only completions that
+      // committed before this uncompletion.
+      //
+      // A failed reversal keeps the ledger entry (over-credit, never loss); a
+      // later re-completion then settles on "already_earned" and the net result
+      // is still exactly one Pebble.
+      await reversePebbleReward(`task:${task.id}`);
+
       return { previous: task, updated: saved, skipped: false };
     });
 
@@ -1329,9 +1378,7 @@ static async reorderTasks(
     const { previous } = result;
     let updatedTask = result.updated;
 
-    await reversePebbleReward(`task:${previous.id}`);
-
-    // 2. OS Notification Scheduling SECOND (isolated)
+    // 3. OS Notification Scheduling THIRD (isolated)
     let generatedNotificationIds: string[] | undefined = undefined;
     try {
       // If the task has an enabled reminder in the future or recurrence, it must be re-scheduled
@@ -1524,7 +1571,7 @@ static async reorderTasks(
           const [h, m] = input.schedule.startTime.split(":").map(Number);
           if (!isNaN(h) && !isNaN(m)) {
             const dateStr = input.schedule.date && input.schedule.date !== "inbox" ? input.schedule.date : undefined;
-            const { computeTriggerEpoch } = await import("@/features/details/task/hooks/useTaskDetailForm");
+            const { computeTriggerEpoch } = await import("@/shared/utils/schedule-time");
             const epoch = computeTriggerEpoch(h, m, dateStr);
             candidateReminder = { enabled: true, triggerAt: epoch };
           }

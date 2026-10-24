@@ -14,10 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import {
-  getRecycleBinItems,
-  restoreRecycleBinItems,
-} from "@/services/storage/storage.service";
+import { getRecycleBinItems } from "@/services/storage/storage.service";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Colors, Palette } from "@/shared/constants/theme";
@@ -166,20 +163,30 @@ export default function RecycleBinScreen() {
   const handleRestoreItem = async (item: RecycleBinItem) => {
     try {
       setLoading(true);
-      await restoreRecycleBinItems([item]);
-
-      // restoreRecycleBinItems already emitted the per-domain state events and
-      // removed the bin entry, so only mirror the committed result locally.
-      const remaining = items.filter((i) => i.id !== item.id);
-      setItems(remaining);
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        () => {},
+      const { EntityCommandService } = await import(
+        "@/services/command/EntityCommandService"
       );
-      Alert.alert(
-        "Restored",
-        `"${getItemTitle(item)}" has been restored successfully!`,
-      );
+      // Canonical restore orchestrator: per-item failure is reported instead of
+      // thrown, and each restored domain emits its own change event.
+      const result = await EntityCommandService.restoreRecycleBinItems([item]);
+
+      if (result.restoredIds.length > 0) {
+        setItems((prev) => prev.filter((i) => i.id !== item.id));
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        ).catch(() => {});
+        Alert.alert(
+          "Restored",
+          `"${getItemTitle(item)}" has been restored successfully!`,
+        );
+      } else {
+        // Re-read durable state: the bin entry is the source of truth.
+        await loadRecycleBin();
+        Alert.alert(
+          "Restore failed",
+          `"${getItemTitle(item)}" could not be restored and is still in the Recycle Bin.`,
+        );
+      }
     } catch (e) {
       console.warn("Failed to restore item", e);
       await loadRecycleBin();
@@ -247,17 +254,31 @@ export default function RecycleBinScreen() {
           onPress: async () => {
             setLoading(true);
             try {
-              await restoreRecycleBinItems(tabItems);
+              const { EntityCommandService } = await import(
+                "@/services/command/EntityCommandService"
+              );
+              const result = await EntityCommandService.restoreRecycleBinItems(
+                tabItems,
+              );
 
-              // Update Recycle Bin state
-              // restoreRecycleBinItems already emitted the per-domain events.
-              const tabItemIds = new Set(tabItems.map((i) => i.id));
-              const remaining = items.filter((i) => !tabItemIds.has(i.id));
-              setItems(remaining);
+              // Remove only the items that actually left the bin. A single
+              // failure previously aborted the whole batch; now the committed
+              // subset is reflected and the rest stay retryable.
+              const restoredIds = new Set(result.restoredIds);
+              if (restoredIds.size > 0) {
+                setItems((prev) => prev.filter((i) => !restoredIds.has(i.id)));
+                Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Success,
+                ).catch(() => {});
+              }
 
-              Haptics.notificationAsync(
-                Haptics.NotificationFeedbackType.Success,
-              ).catch(() => {});
+              if (result.failed.length > 0) {
+                await loadRecycleBin();
+                Alert.alert(
+                  "Some items were not restored",
+                  `${result.failed.length} item(s) are still in the Recycle Bin and can be retried.`,
+                );
+              }
             } catch (e) {
               console.warn("Failed to restore all items", e);
               await loadRecycleBin();

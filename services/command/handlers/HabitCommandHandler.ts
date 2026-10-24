@@ -519,15 +519,21 @@ static async recycleHabit(
 
       await HabitRepository.saveHabitUnlocked(updatedHabit);
 
+      // Reward reversal stays inside the partition lock, exactly like
+      // `completeHabit`'s award. Outside it, a concurrent completion of the same
+      // day could commit "completed" and settle on `already_earned` (the ledger
+      // still holds the reward) before this reversal removed it, leaving the day
+      // completed with no Pebble and no recoverable intent. A failed reversal
+      // keeps the entry (over-credit, never loss).
+      await reversePebbleReward(`habit:${habit.id}:${today}`);
+
       return { previous: habit, updated: updatedHabit, skipped: false, today };
     });
 
     if (!result) return null;
     if (result.skipped) return { previous: result.previous, updated: result.updated };
 
-    const { previous, updated: updatedHabit, today } = result;
-
-    await reversePebbleReward(`habit:${updatedHabit.id}:${today}`);
+    const { previous, updated: updatedHabit } = result;
 
     if (!options?.skipAnalytics) {
       void recordDailyHistorySnapshot().catch(() => {});
@@ -866,7 +872,7 @@ static async recycleHabit(
         if (!candidateReminder && input.schedule?.startTime) {
           const [h, m] = input.schedule.startTime.split(":").map(Number);
           if (!isNaN(h) && !isNaN(m)) {
-            const { computeTriggerEpoch } = await import("@/features/details/task/hooks/useTaskDetailForm");
+            const { computeTriggerEpoch } = await import("@/shared/utils/schedule-time");
             const epoch = computeTriggerEpoch(h, m);
             candidateReminder = { enabled: true, triggerAt: epoch };
           }

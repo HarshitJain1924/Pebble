@@ -465,10 +465,42 @@ export function useTasksState() {
         }
         if (todosChanged) {
           setTodos(updatedMap);
+          // Persist notification ids through the canonical CAS primitive, NOT a
+          // whole-record save. `saveTask` replaces the persisted Task with this
+          // pre-scheduling snapshot (and bumps revision), so a concurrent
+          // complete/rename/move committed while the scheduler ran would be
+          // reverted and presented as a fresh user edit. `updateNotificationIds`
+          // only touches notification ids and refuses when the entity changed.
           for (const updatedTask of rearmedTodos) {
-            void TaskRepository.saveTask(updatedTask).catch((err) =>
-              console.warn("Failed to persist rearmed web reminder", err)
-            );
+            const scheduledIds = updatedTask.reminder?.notificationIds;
+            if (!scheduledIds || scheduledIds.length === 0) continue;
+            try {
+              const outcome = await TaskRepository.updateNotificationIds(
+                updatedTask.id,
+                updatedTask.workspaceId,
+                scheduledIds,
+                {
+                  reminder: updatedTask.reminder,
+                  status: updatedTask.status,
+                  archivedAt: updatedTask.archivedAt,
+                  updatedAt: updatedTask.updatedAt,
+                  revision: updatedTask.revision,
+                  lifecycleGeneration: updatedTask.lifecycleGeneration,
+                },
+              );
+              if (outcome !== "updated") {
+                // A concurrent mutation won: the notifications we created for
+                // the stale snapshot must not survive it.
+                const { cancelReminderIds } = await import(
+                  "@/services/scheduling/reminders.service"
+                );
+                await cancelReminderIds(scheduledIds, {
+                  throwOnError: false,
+                }).catch(() => {});
+              }
+            } catch (err) {
+              console.warn("Failed to persist rearmed web reminder", err);
+            }
           }
         }
       }
@@ -924,20 +956,28 @@ export function useTasksState() {
       // Route through ECS so bulk completion has the same lifecycle side effects
       // as single completion (pebble rewards, reminder cancellation, plugin
       // events, widget sync, analytics) and writes the canonical status field.
-      const updatedTasks = await EntityCommandService.completeTasks(
-        itemsToComplete,
-        { source: "tasks_screen" },
-      );
+      // The command isolates per-item failures; this guard only contains an
+      // unexpected rejection so the rest of the batch and the UI state still
+      // update truthfully.
+      try {
+        const updatedTasks = await EntityCommandService.completeTasks(
+          itemsToComplete,
+          { source: "tasks_screen" },
+        );
 
-      if (updatedTasks.length > 0) {
+        if (updatedTasks.length > 0) {
         const updatedById = new Map(updatedTasks.map((t) => [t.id, t]));
-        setTodos((prev) => {
-          const next: Record<string, Task[]> = {};
-          for (const [listId, listTodos] of Object.entries(prev)) {
-            next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
-          }
-          return next;
-        });
+          setTodos((prev) => {
+            const next: Record<string, Task[]> = {};
+            for (const [listId, listTodos] of Object.entries(prev)) {
+              next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        console.warn("[useTasksState] Bulk complete failed", err);
+        showToast("Some tasks couldn't be completed. Please try again.");
       }
     }
 
@@ -989,21 +1029,27 @@ export function useTasksState() {
       }
 
       // Route through ECS so bulk archiving cancels native reminders and clears
-      // notification IDs exactly like the single-item archive path.
-      const updatedTasks = await EntityCommandService.archiveTasks(
-        itemsToArchive,
-        { source: "tasks_screen" },
-      );
+      // notification IDs exactly like the single-item archive path. Committed
+      // items are projected even when another item in the batch failed.
+      try {
+        const updatedTasks = await EntityCommandService.archiveTasks(
+          itemsToArchive,
+          { source: "tasks_screen" },
+        );
 
-      if (updatedTasks.length > 0) {
-        const updatedById = new Map(updatedTasks.map((t) => [t.id, t]));
-        setTodos((prev) => {
-          const next: Record<string, Task[]> = {};
-          for (const [listId, listTodos] of Object.entries(prev)) {
-            next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
-          }
-          return next;
-        });
+        if (updatedTasks.length > 0) {
+          const updatedById = new Map(updatedTasks.map((t) => [t.id, t]));
+          setTodos((prev) => {
+            const next: Record<string, Task[]> = {};
+            for (const [listId, listTodos] of Object.entries(prev)) {
+              next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        console.warn("[useTasksState] Bulk archive failed", err);
+        showToast("Some tasks couldn't be archived. Please try again.");
       }
     }
 

@@ -157,22 +157,36 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
       const currentlyCompleted = isHabitCompletedToday(habit, today);
       const isCompleting = !currentlyCompleted;
 
+      // The habit's own workspace owns the partition. `selectedWorkspaceId` can
+      // diverge from `activeWorkspaceId` (modal-driven flows write them
+      // separately), and passing the wrong partition made the command return
+      // null — a silent no-op the caller could not distinguish from success.
+      const targetWorkspaceId = habit.workspaceId ?? INBOX_WORKSPACE_ID;
+
       let result;
-      if (isCompleting) {
-        result = await EntityCommandService.completeHabit(id, selectedWorkspaceId || INBOX_WORKSPACE_ID, {
-          source: "tasks_screen",
-          skipAnalytics: true,
-          skipEvents: true,
-        });
-        Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success,
-        ).catch(() => {});
-      } else {
-        result = await EntityCommandService.uncompleteHabit(id, selectedWorkspaceId || INBOX_WORKSPACE_ID, {
-          source: "tasks_screen",
-          skipAnalytics: true,
-          skipEvents: true,
-        });
+      try {
+        if (isCompleting) {
+          result = await EntityCommandService.completeHabit(id, targetWorkspaceId, {
+            source: "tasks_screen",
+            skipAnalytics: true,
+            skipEvents: true,
+          });
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success,
+          ).catch(() => {});
+        } else {
+          result = await EntityCommandService.uncompleteHabit(id, targetWorkspaceId, {
+            source: "tasks_screen",
+            skipAnalytics: true,
+            skipEvents: true,
+          });
+        }
+      } catch (e) {
+        // A rejection must not become an unhandled promise rejection: the
+        // checkbox already reverted and the user needs to know why.
+        console.warn("Failed to toggle habit completion:", e);
+        showToast("Couldn't update the habit. Please try again.");
+        return;
       }
 
       if (!result) return;
@@ -184,7 +198,7 @@ export function useHabitCrud(deps: UseHabitCrudDeps) {
 
       emitStateChange("habits_changed", "tasks_screen");
     },
-    [habits, setHabits, persistHabits, selectedWorkspaceId],
+    [habits, setHabits, persistHabits, showToast],
   );
 
   return {

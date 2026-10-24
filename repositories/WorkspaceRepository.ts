@@ -44,7 +44,19 @@ export class WorkspaceRepository {
     }
   }
 
-  static async saveWorkspace(workspace: Workspace, options?: { throwOnError?: boolean }): Promise<void> {
+  /**
+   * Persist one Workspace.
+   *
+   * STRICT BY DEFAULT: a failed `setItem` propagates, so a caller can never
+   * emit a success event for a write that did not commit. Best-effort callers
+   * must opt in explicitly with `{ tolerateFailure: true }` (kept for callers
+   * that treat persistence as advisory); `{ throwOnError: false }` is honoured
+   * for backward compatibility.
+   */
+  static async saveWorkspace(
+    workspace: Workspace,
+    options?: { throwOnError?: boolean; tolerateFailure?: boolean },
+  ): Promise<void> {
     try {
       await withLock(WORKSPACES_KEY, async () => {
         const workspaces = await this.getWorkspaces();
@@ -60,20 +72,30 @@ export class WorkspaceRepository {
         await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
       });
     } catch (e) {
-      if (options?.throwOnError) throw e;
-      console.warn("Failed to save workspace", e);
+      if (options?.tolerateFailure === true || options?.throwOnError === false) {
+        console.warn("Failed to save workspace", e);
+        return;
+      }
+      throw e;
     }
   }
 
-  static async saveWorkspaces(workspaces: Workspace[], options?: { throwOnError?: boolean }): Promise<void> {
+  /** Persist the whole collection. STRICT BY DEFAULT (see `saveWorkspace`). */
+  static async saveWorkspaces(
+    workspaces: Workspace[],
+    options?: { throwOnError?: boolean; tolerateFailure?: boolean },
+  ): Promise<void> {
     try {
       await withLock(WORKSPACES_KEY, async () => {
         const normalized = workspaces.map(normalizeWorkspace);
         await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(normalized));
       });
     } catch (e) {
-      if (options?.throwOnError) throw e;
-      console.warn("Failed to save workspaces batch", e);
+      if (options?.tolerateFailure === true || options?.throwOnError === false) {
+        console.warn("Failed to save workspaces batch", e);
+        return;
+      }
+      throw e;
     }
   }
 
@@ -94,7 +116,7 @@ export class WorkspaceRepository {
    */
   static async applyWorkspaceOrder(
     orderedWorkspaces: Workspace[],
-    options?: { throwOnError?: boolean },
+    options?: { throwOnError?: boolean; tolerateFailure?: boolean },
   ): Promise<void> {
     try {
       await withLock(WORKSPACES_KEY, async () => {
@@ -127,8 +149,11 @@ export class WorkspaceRepository {
         await AsyncStorage.setItem(WORKSPACES_KEY, JSON.stringify(ordered));
       });
     } catch (e) {
-      if (options?.throwOnError) throw e;
-      console.warn("Failed to apply workspace order", e);
+      if (options?.tolerateFailure === true || options?.throwOnError === false) {
+        console.warn("Failed to apply workspace order", e);
+        return;
+      }
+      throw e;
     }
   }
 

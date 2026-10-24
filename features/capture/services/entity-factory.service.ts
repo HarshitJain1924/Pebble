@@ -29,7 +29,7 @@ import { type ParsedProductivityItem } from "@/features/capture/services/nlp-par
 import { getDateKey } from "@/services/scheduling/recurrence.service";
 import { parseTimeString } from "@/services/scheduling/scheduling.service";
 import { generateId } from "@/shared/utils/id";
-import { computeTriggerEpoch } from "@/features/details/task/hooks/useTaskDetailForm";
+import { computeTriggerEpoch } from "@/shared/utils/schedule-time";
 
 export function parseTime(item: ParsedProductivityItem): {
   hours: number | undefined;

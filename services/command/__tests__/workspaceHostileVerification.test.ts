@@ -3,6 +3,59 @@ import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { TaskRepository, WorkspaceRepository, RecycleBinRepository } from "@/repositories";
 import type { Task, Workspace } from "@/shared/types/domain.types";
 import { withLocks } from "@/shared/utils/mutex";
+import * as stateEvents from "@/services/events/state-events";
+
+const WORKSPACES_KEY = "pebble:v1:workspaces";
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("condition never became true");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
+
+/** Fail the next write(s) to the workspaces key. */
+function failWorkspaceWrites(): () => void {
+  const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+  const original = setItem.getMockImplementation();
+  setItem.mockImplementation(async (key: string, value: string) => {
+    if (key === WORKSPACES_KEY) {
+      throw new Error("disk failure writing workspaces");
+    }
+    return original ? original(key, value) : undefined;
+  });
+  return () => setItem.mockImplementation(original as any);
+}
+
+/** Pause the first write to the workspaces key so a race can be interleaved. */
+function gateWorkspaceWrite(): {
+  reached: () => boolean;
+  release: () => void;
+  restore: () => void;
+} {
+  const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+  const original = setItem.getMockImplementation();
+  let gated = false;
+  let releaseGate!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  setItem.mockImplementation(async (key: string, value: string) => {
+    if (key === WORKSPACES_KEY && !gated) {
+      gated = true;
+      await gate;
+    }
+    return original ? original(key, value) : undefined;
+  });
+  return {
+    reached: () => gated,
+    release: () => releaseGate(),
+    restore: () => setItem.mockImplementation(original as any),
+  };
+}
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
@@ -106,6 +159,136 @@ describe("Hostile Workspace Verification", () => {
         expect(workspaces.some(w => w.id === "ws-delete")).toBe(true);
 
         RecycleBinRepository.removeRecycleBinItems = origRemove;
+    });
+  });
+
+  describe("5. Lifecycle lock coverage and strict writes", () => {
+    it("archive vs concurrent rename: both survive (no stale record overwrite)", async () => {
+      await WorkspaceRepository.saveWorkspace(ws("ws-lc"));
+      const before = (await WorkspaceRepository.getWorkspaces()).find(
+        (w) => w.id === "ws-lc",
+      )!;
+
+      const gate = gateWorkspaceWrite();
+      try {
+        const archive = EntityCommandService.archiveWorkspace("ws-lc", {
+          skipEvents: true,
+        });
+        await waitUntil(gate.reached);
+
+        // Rename issued while the archive write is paused. It carries the
+        // pre-archive snapshot, exactly like a UI handler holding old state.
+        const rename = EntityCommandService.updateWorkspace(
+          { ...before, name: "Renamed" },
+          { skipEvents: true },
+        );
+
+        gate.release();
+        await Promise.all([archive, rename]);
+      } finally {
+        gate.release();
+        gate.restore();
+      }
+
+      const record = (await WorkspaceRepository.getWorkspaces()).find(
+        (w) => w.id === "ws-lc",
+      );
+      expect(record?.name).toBe("Renamed");
+      expect(record?.archivedAt).toBeDefined();
+      expect(record?.revision).toBeGreaterThan(before.revision ?? 1);
+    });
+
+    it("archive write failure rejects and emits nothing", async () => {
+      await WorkspaceRepository.saveWorkspace(ws("ws-archive-fail"));
+      const emit = jest.spyOn(stateEvents, "emitStateChange");
+      const restore = failWorkspaceWrites();
+
+      await expect(
+        EntityCommandService.archiveWorkspace("ws-archive-fail"),
+      ).rejects.toThrow("disk failure writing workspaces");
+      restore();
+
+      const record = (await WorkspaceRepository.getWorkspaces()).find(
+        (w) => w.id === "ws-archive-fail",
+      );
+      expect(record?.archivedAt).toBeUndefined();
+      expect(emit).not.toHaveBeenCalled();
+      emit.mockRestore();
+    });
+
+    it("reorder write failure rejects, emits nothing, and keeps the old order", async () => {
+      await WorkspaceRepository.saveWorkspaces([ws("ws-a"), ws("ws-b")]);
+      const emit = jest.spyOn(stateEvents, "emitStateChange");
+      const restore = failWorkspaceWrites();
+
+      await expect(
+        EntityCommandService.reorderWorkspaces(
+          [ws("ws-b"), ws("ws-a")],
+          { skipAnalytics: true },
+        ),
+      ).rejects.toThrow("disk failure writing workspaces");
+      restore();
+
+      const ids = (await WorkspaceRepository.getWorkspaces()).map((w) => w.id);
+      expect(ids).toEqual(["ws-a", "ws-b"]);
+      expect(emit).not.toHaveBeenCalled();
+      emit.mockRestore();
+    });
+
+    it("permanent delete decides on state observed after the lock, not before", async () => {
+      await WorkspaceRepository.saveWorkspaces([ws("ws-pd")]);
+      await TaskRepository.saveTask(task("task-1", "ws-pd"));
+      await EntityCommandService.deleteWorkspace("ws-pd");
+
+      const locks = [
+        "pebble:v1:tasks:ws-pd",
+        "pebble:v1:habits:ws-pd",
+        "pebble:v1:checklists:ws-pd",
+        "pebble:v1:resources:ws-pd",
+        "ws_lifecycle_ws-pd",
+      ];
+      let releaseHold!: () => void;
+      const hold = new Promise<void>((resolve) => {
+        releaseHold = resolve;
+      });
+      let acquired!: () => void;
+      const held = new Promise<void>((resolve) => {
+        acquired = resolve;
+      });
+      const holder = withLocks(locks, async () => {
+        acquired();
+        await hold;
+      });
+      await held;
+
+      // Queue the permanent delete while we own the locks: its pre-lock reads
+      // (the defect) would now capture "workspace is gone, bin item exists".
+      const deletion = EntityCommandService.permanentlyDeleteWorkspace("ws-pd", {
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // Concurrent restore commits first: metadata + child partition return and
+      // the bin entry is removed — all before the delete acquires the locks.
+      await WorkspaceRepository.saveWorkspace(ws("ws-pd"));
+      // Unlocked primitive: we already own this partition's lock.
+      await TaskRepository.saveTaskUnlocked(task("task-restored", "ws-pd"));
+      const bins = await RecycleBinRepository.getRecycleBinItems();
+      await RecycleBinRepository.removeRecycleBinItems(
+        bins.map((item) => item.id),
+        { throwOnError: true },
+      );
+
+      releaseHold();
+      await holder;
+      await deletion;
+
+      // The delete observed the restored workspace at commit time, so it must
+      // remove it completely. The defect left the restored metadata orphaned
+      // with purged partitions and a tombstone for a live generation.
+      const workspaces = await WorkspaceRepository.getWorkspaces();
+      expect(workspaces.some((w) => w.id === "ws-pd")).toBe(false);
     });
   });
 

@@ -9,6 +9,7 @@ import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { getCalendarItemType, CalendarViewContext } from "@/features/calendar/types";
 import { getCalendarEntityPresentation } from "@/features/calendar/constants/calendarEntityTokens";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 export interface CalendarPopoverItem {
   id: string;
@@ -89,6 +90,11 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
   const type = getCalendarItemType(item);
   const config = getCalendarEntityPresentation(type, isLight);
   const isCompleted = !!item.completed;
+  // Habit completion is date-scoped to TODAY in the command layer. Offering the
+  // action while the user is looking at another day would mutate today's
+  // occurrence and leave the visible day unchanged (F2), so the affordance is
+  // only shown for today.
+  const canCompleteHabit = selectedDate === getTodayDateKey();
   const showProgress = viewContext === "week" && type === "checklist";
 
   // Metadata
@@ -345,7 +351,7 @@ export const CalendarItemPopover: React.FC<CalendarItemPopoverProps> = React.mem
               </PressableScale>
             )}
 
-            {type === "habit" && onToggleCompleteHabit && (
+            {type === "habit" && onToggleCompleteHabit && canCompleteHabit && (
               <PressableScale
                 onPress={async () => {
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});

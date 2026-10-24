@@ -67,12 +67,19 @@ export default function RootLayout() {
     }
 
     const checkOnboarding = async () => {
+      // Recovery and routing are independent. `runStartupRecovery` isolates its
+      // own steps, but a throw here must still not strand the user on the wrong
+      // screen with onboarding undecided.
       try {
         // Single, testable startup recovery sequence: interrupted-restore
         // recovery, move/conversion journal replay, ghost pruning, recycle-bin
         // cleanup, graph reconciliation, and notification reconciliation.
         await runStartupRecovery();
+      } catch (error) {
+        console.warn("Startup recovery failed unexpectedly:", error);
+      }
 
+      try {
         const completed = await OnboardingService.isOnboardingCompleted();
         const inOnboarding = segments[0] === "onboarding";
 

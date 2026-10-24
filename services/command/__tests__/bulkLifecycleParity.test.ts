@@ -309,6 +309,88 @@ describe("bulk vs single lifecycle side-effect parity", () => {
     expect(habits["habit-c"].reminder?.notificationIds).toBeUndefined();
   });
 
+  describe("bulk task operations isolate per-item failures (F4)", () => {
+    // The original defect: the loop awaited every item with no try/catch, so a
+    // failure on ANY item aborted the batch. Earlier items were already
+    // committed, but the caller never saw them (the projection ran after the
+    // await), no event was emitted, and the press handler rejected.
+    const positions = [0, 1, 2] as const;
+
+    test.each(positions)(
+      "completeTasks commits the other items when item %i fails",
+      async (failingIndex) => {
+        const ids = ["task-b0", "task-b1", "task-b2"];
+        for (const id of ids) await TaskRepository.saveTask(task(id));
+        const failingId = ids[failingIndex];
+
+        const original = TaskRepository.saveTaskUnlocked.bind(TaskRepository);
+        jest
+          .spyOn(TaskRepository, "saveTaskUnlocked")
+          .mockImplementation(async (candidate: Task, existing?: any) => {
+            if (candidate.id === failingId) {
+              throw new Error(`simulated write failure for ${failingId}`);
+            }
+            return original(candidate, existing);
+          });
+
+        const updated = await EntityCommandService.completeTasks(
+          ids.map((taskId) => ({ taskId, workspaceId: "ws-1" })),
+          { source: "tasks_screen" },
+        );
+
+        expect(updated.map((t) => t.id)).toEqual(
+          ids.filter((id) => id !== failingId),
+        );
+
+        const persisted = await TaskRepository.getTasks("ws-1");
+        for (const id of ids) {
+          expect(persisted[id].status).toBe(
+            id === failingId ? "todo" : "completed",
+          );
+        }
+        // The committed subset is still announced to the UI.
+        expect(
+          emitStateChangeSpy.mock.calls.filter((c) => c[0] === "tasks_changed"),
+        ).toHaveLength(1);
+      },
+    );
+
+    test.each(positions)(
+      "archiveTasks commits the other items when item %i fails",
+      async (failingIndex) => {
+        const ids = ["task-a0", "task-a1", "task-a2"];
+        for (const id of ids) await TaskRepository.saveTask(task(id));
+        const failingId = ids[failingIndex];
+
+        const original = TaskRepository.saveTaskUnlocked.bind(TaskRepository);
+        jest
+          .spyOn(TaskRepository, "saveTaskUnlocked")
+          .mockImplementation(async (candidate: Task, existing?: any) => {
+            if (candidate.id === failingId) {
+              throw new Error(`simulated write failure for ${failingId}`);
+            }
+            return original(candidate, existing);
+          });
+
+        const updated = await EntityCommandService.archiveTasks(
+          ids.map((taskId) => ({ taskId, workspaceId: "ws-1" })),
+          { source: "tasks_screen" },
+        );
+
+        expect(updated.map((t) => t.id)).toEqual(
+          ids.filter((id) => id !== failingId),
+        );
+        const persisted = await TaskRepository.getTasks("ws-1");
+        for (const id of ids) {
+          expect(persisted[id].archivedAt === undefined).toBe(id === failingId);
+        }
+        expect(
+          emitStateChangeSpy.mock.calls.filter((c) => c[0] === "tasks_changed"),
+        ).toHaveLength(1);
+      },
+    );
+  });
+
   test("bulk complete skips already-completed tasks and still emits one event", async () => {
     await TaskRepository.saveTask(task("task-a"));
     await TaskRepository.saveTask(task("task-b"));

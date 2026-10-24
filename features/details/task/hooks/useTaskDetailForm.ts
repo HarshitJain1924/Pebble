@@ -52,22 +52,9 @@ const INITIAL_FORM: TaskFormState = {
  * plus a target reminder date string (YYYY-MM-DD). When no concrete date is given,
  * falls back to today in local time.
  */
-export function computeTriggerEpoch(
-  hour: number,
-  minute: number,
-  dateStr?: string,
-): number {
-  if (dateStr && dateStr !== "inbox") {
-    const [y, m, d] = dateStr.split("-").map(Number);
-    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-      return new Date(y, m - 1, d, hour, minute, 0, 0).getTime();
-    }
-  }
-  // No specific date — use today as fallback for scheduling
-  const d = new Date();
-  d.setHours(hour, minute, 0, 0);
-  return d.getTime();
-}
+// Re-exported for existing UI/test importers. The implementation is now
+// framework-independent so the command layer never imports a React hook module.
+export { computeTriggerEpoch } from "@/shared/utils/schedule-time";
 
 /**
  * Owns the Task Detail edit-form state group (title, description, category,

@@ -181,6 +181,66 @@ describe("Habit Calendar Scheduling & Completion Invariants (Fix #13)", () => {
     }
   });
 
+  // TEST 3: Planning a habit writes SCHEDULE (calendar placement), not only a reminder
+  test("TEST 3: planHabit persists schedule.startTime and moves the calendar slot", async () => {
+    const habit: Habit = {
+      id: "habit-plan-1",
+      workspaceId: "ws-main",
+      title: "Deep Reading",
+      recurrence: { frequency: "daily", interval: 1 },
+      completionHistory: [],
+      revision: 1,
+      lifecycleGeneration: 1,
+      createdAt: 1000,
+      updatedAt: 1000,
+    };
+    await HabitRepository.saveHabit(habit);
+
+    let state: ReturnType<typeof useCalendarState> | undefined;
+    function Harness() {
+      state = useCalendarState();
+      return null;
+    }
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(React.createElement(Harness));
+    });
+
+    try {
+      await act(async () => {
+        state!.setSelectedDate("2026-08-30");
+      });
+
+      let planned = false;
+      await act(async () => {
+        planned = await state!.planHabit("habit-plan-1", {
+          date: "2026-08-30",
+          hour: 14,
+          minute: 30,
+        });
+      });
+      expect(planned).toBe(true);
+
+      // Placement is owned by schedule; writing reminder.triggerAt alone left
+      // the habit in "Anytime" and silently moved its notification instead.
+      const reloaded = await HabitRepository.getHabit("habit-plan-1", "ws-main");
+      expect(reloaded?.schedule?.date).toBe("2026-08-30");
+      expect(reloaded?.schedule?.startTime).toBe("14:30");
+
+      await act(async () => {
+        state!.setSelectedDate("2026-08-30");
+      });
+      const item = state!.timelineItems.find((h) => h.id === "habit-plan-1");
+      expect(item).toBeDefined();
+      expect(state!.allDayItems.map((h) => h.id)).not.toContain("habit-plan-1");
+    } finally {
+      act(() => {
+        renderer.unmount();
+      });
+    }
+  });
+
   // TEST 4 & 5: Completion history is preserved and correctly read per date
   test("TEST 4 & 5: Completion history correctly reflects completed status on completed date and incomplete on other dates", async () => {
     const habitWithHistory: Habit = {

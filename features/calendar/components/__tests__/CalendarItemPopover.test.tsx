@@ -2,6 +2,7 @@ import React from "react";
 import { create, act } from "react-test-renderer";
 import { CalendarItemPopover, CalendarPopoverItem } from "../CalendarItemPopover";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 const mockColors = {
   text: "#000000",
@@ -83,6 +84,64 @@ describe("CalendarItemPopover Unit Tests", () => {
     expect(textContents).toContain("Study Kubernetes Architecture");
     expect(textContents).toContain("TASK");
     expect(textContents).toContain("High Priority");
+  });
+
+  test("Habit completion action is hidden when viewing a different day", () => {
+    const onToggleCompleteHabit = jest.fn();
+    const onClose = jest.fn();
+
+    let root: any;
+    act(() => {
+      root = create(
+        <CalendarItemPopover
+          visible={true}
+          item={habitItem}
+          selectedDate="2026-09-01"
+          onClose={onClose}
+          onOpenDetails={jest.fn()}
+          onToggleCompleteHabit={onToggleCompleteHabit}
+          colors={mockColors}
+          isLight={true}
+        />
+      );
+    });
+
+    const textContents = root.root
+      .findAllByType("Text" as any)
+      .map((t: any) => t.props.children)
+      .flat();
+
+    // Habit completion is today-scoped; offering it off-today would mutate
+    // today's occurrence while the visible day stays untouched.
+    expect(textContents).not.toContain("Complete today");
+    expect(textContents).not.toContain("Mark incomplete");
+  });
+
+  test("Habit completion action is offered for today", () => {
+    const onToggleCompleteHabit = jest.fn();
+    const onClose = jest.fn();
+
+    let root: any;
+    act(() => {
+      root = create(
+        <CalendarItemPopover
+          visible={true}
+          item={habitItem}
+          selectedDate={getTodayDateKey()}
+          onClose={onClose}
+          onOpenDetails={jest.fn()}
+          onToggleCompleteHabit={onToggleCompleteHabit}
+          colors={mockColors}
+          isLight={true}
+        />
+      );
+    });
+
+    const textContents = root.root
+      .findAllByType("Text" as any)
+      .map((t: any) => t.props.children)
+      .flat();
+    expect(textContents).toContain("Complete today");
   });
 
   // Test 2: Habit Popover Renders Streak and Recurrence

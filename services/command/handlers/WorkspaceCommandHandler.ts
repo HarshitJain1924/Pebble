@@ -62,7 +62,11 @@ static async reorderWorkspaces(
     // Order-only merge: a reorder snapshot must never revert a concurrent
     // rename nor delete a concurrently created workspace (see
     // WorkspaceRepository.applyWorkspaceOrder).
-    await WorkspaceRepository.applyWorkspaceOrder(orderedWorkspaces);
+    // Strict: a failed write must reject the command instead of emitting a
+    // success event while the persisted order stays the old one (task parity).
+    await WorkspaceRepository.applyWorkspaceOrder(orderedWorkspaces, {
+      throwOnError: true,
+    });
     if (!options?.skipEvents) emitStateChange("workspace_changed", options?.source);
     if (!options?.skipAnalytics) void recordDailyHistorySnapshot().catch(() => {});
   }
@@ -244,9 +248,25 @@ static async reorderWorkspaces(
       console.warn(`[EntityCommandService] Failed to remove workspace from Recycle Bin after restore. Recycle Bin contains a ghost.`, e);
     }
 
-    // 7. Emit the workspace state event.
+    // 7. Emit one event per domain that actually changed. The workspace event
+    // alone left open lists (tasks/habits/checklists/resources) showing stale
+    // data until an unrelated event or refocus, because each screen subscribes
+    // to its own domain event.
     if (!options?.skipEvents) {
       emitStateChange("workspace_mode_changed", options?.source);
+      emitStateChange("workspace_changed", options?.source);
+      if (Array.isArray(parsed?.todos) && parsed.todos.length > 0) {
+        emitStateChange("tasks_changed", options?.source);
+      }
+      if (Array.isArray(parsed?.habits) && parsed.habits.length > 0) {
+        emitStateChange("habits_changed", options?.source);
+      }
+      if (Array.isArray(parsed?.checklists) && parsed.checklists.length > 0) {
+        emitStateChange("checklists_changed", options?.source);
+      }
+      if (Array.isArray(parsed?.resources) && parsed.resources.length > 0) {
+        emitStateChange("resources_changed", options?.source);
+      }
     }
 
     // 8. Reconcile notifications for restored workspace entities
@@ -262,54 +282,122 @@ static async reorderWorkspaces(
    * Restore an archived Workspace entity.
    * Restores the workspace to active state without touching children.
    */
-  static async restoreWorkspaceArchive(workspaceId: string): Promise<void> {
-    const workspaces = await WorkspaceRepository.getWorkspaces();
-    const workspace = workspaces.find((w) => w.id === workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+  static async restoreWorkspaceArchive(
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
+    const { withLock } = await import("@/shared/utils/mutex");
 
-    if (!workspace.archivedAt) {
-      // Already active, idempotent
-      return;
+    // Lifecycle mutation: read, decide and write inside the workspace lifecycle
+    // lock so a concurrent rename/archive cannot be reverted by a stale record,
+    // and a failed write cannot be reported as success.
+    const changed = await withLock(`ws_lifecycle_${workspaceId}`, async () => {
+      const workspaces = await WorkspaceRepository.getWorkspaces();
+      const workspace = workspaces.find((w) => w.id === workspaceId);
+      if (!workspace) throw new Error("Workspace not found");
+
+      const { assertLifecycleMutationAllowed } = await import(
+        "../shared/command-lifecycle-guard"
+      );
+      await assertLifecycleMutationAllowed("workspace", workspace, options);
+
+      if (!workspace.archivedAt) {
+        // Already active, idempotent: no write, no event.
+        return false;
+      }
+
+      const updated: Workspace = {
+        ...workspace,
+        archivedAt: undefined,
+        revision: (workspace.revision ?? 1) + 1,
+        lifecycleGeneration: workspace.lifecycleGeneration ?? 1,
+        updatedAt: Date.now(),
+      };
+
+      await WorkspaceRepository.saveWorkspace(updated, { throwOnError: true });
+      return true;
+    });
+
+    if (changed && !options?.skipEvents) {
+      emitStateChange("workspace_changed", options?.source);
     }
-
-    const updated = {
-      ...workspace,
-      archivedAt: undefined,
-      updatedAt: Date.now(),
-    };
-
-    await WorkspaceRepository.saveWorkspace(updated);
-    emitStateChange("workspace_changed");
   }
 
-/**
-   * Archive a Workspace entity.
-   * This is a foundation command. It marks the workspace as archived
-   * but does not cascade to children. Contextual filtering of children
-   * is handled by selectors.
-   */
-  static async archiveWorkspace(workspaceId: string): Promise<void> {
+  static async archiveWorkspace(
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<void> {
     if (workspaceId === INBOX_WORKSPACE_ID || workspaceId === MY_PEBBLES_WORKSPACE_ID) {
       throw new Error("Cannot archive protected workspace.");
     }
 
-    const workspaces = await WorkspaceRepository.getWorkspaces();
-    const workspace = workspaces.find((w) => w.id === workspaceId);
-    if (!workspace) throw new Error("Workspace not found");
+    const { withLock } = await import("@/shared/utils/mutex");
 
-    if (workspace.archivedAt) {
-      // Already archived, idempotent
-      return;
+    // Same lifecycle discipline as `restoreWorkspaceArchive` and
+    // `updateWorkspace`: the whole read/decide/write sequence runs under
+    // `ws_lifecycle_<id>`, the write is strict, and events are emitted only
+    // after the record was durably persisted.
+    const changed = await withLock(`ws_lifecycle_${workspaceId}`, async () => {
+      const workspaces = await WorkspaceRepository.getWorkspaces();
+      const workspace = workspaces.find((w) => w.id === workspaceId);
+      if (!workspace) throw new Error("Workspace not found");
+
+      const { assertLifecycleMutationAllowed } = await import(
+        "../shared/command-lifecycle-guard"
+      );
+      await assertLifecycleMutationAllowed("workspace", workspace, options);
+
+      if (workspace.archivedAt) {
+        // Already archived, idempotent: no write, no event.
+        return false;
+      }
+
+      const now = Date.now();
+      const updated: Workspace = {
+        ...workspace,
+        archivedAt: now,
+        revision: (workspace.revision ?? 1) + 1,
+        lifecycleGeneration: workspace.lifecycleGeneration ?? 1,
+        updatedAt: now,
+      };
+
+      await WorkspaceRepository.saveWorkspace(updated, { throwOnError: true });
+      return true;
+    });
+
+    if (!changed) return;
+
+    // Archiving the workspace must also silence its children's scheduled
+    // reminders. They are cancelled after the durable archive commit (the
+    // reconciler would eventually catch them, but only on its next pass, so the
+    // reminder could fire for an archived workspace first). Cancellation is
+    // best effort: the archive itself is already committed.
+    try {
+      const [tasksMap, habitsMap] = await Promise.all([
+        TaskRepository.getTasks(workspaceId),
+        HabitRepository.getHabits(workspaceId),
+      ]);
+      const ids = [
+        ...Object.values(tasksMap).flatMap(
+          (task) => task.reminder?.notificationIds ?? [],
+        ),
+        ...Object.values(habitsMap).flatMap(
+          (habit) => habit.reminder?.notificationIds ?? [],
+        ),
+      ];
+      if (ids.length > 0) {
+        await cancelReminderIds(ids, { throwOnError: false });
+      }
+    } catch (e) {
+      console.warn(
+        `[EntityCommandService] Failed to cancel reminders for archived workspace ${workspaceId}`,
+        e,
+      );
     }
 
-    const updated = {
-      ...workspace,
-      archivedAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    await WorkspaceRepository.saveWorkspace(updated);
-    emitStateChange("workspace_changed");
+    if (!options?.skipEvents) {
+      emitStateChange("workspace_changed", options?.source);
+    }
   }
 
 /**
@@ -598,36 +686,13 @@ static async reorderWorkspaces(
     const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
     const { withLocks } = await import("@/shared/utils/mutex");
 
-    const binItems = await RecycleBinRepository.getRecycleBinItems();
-    const binItem = binItems.find(
-      (i) =>
-        i.entityType === "workspace" &&
-        (i.entityId === workspaceId ||
-          i.id === workspaceId ||
-          i.id === `rb-${workspaceId}` ||
-          i.id.startsWith(`rb-${workspaceId}-g`)),
-    );
-
-    let parsed: any = null;
-    if (binItem) {
-      try {
-        parsed = JSON.parse(binItem.snapshot);
-      } catch (e) {
-        throw new Error(
-          `[EntityCommandService] Failed to parse workspace snapshot for ${workspaceId}`,
-        );
-      }
-    }
-
-    const archivedWorkspace: Workspace | undefined =
-      parsed?.list ?? parsed ?? undefined;
-    const activeWorkspaces = await WorkspaceRepository.getWorkspaces();
-    const activeWorkspace = activeWorkspaces.find((w) => w.id === workspaceId);
-
-    // Nothing active and nothing archived: the workspace was already destroyed.
-    if (!activeWorkspace && !archivedWorkspace && !binItem) {
-      throw new Error(`Workspace ${workspaceId} not found`);
-    }
+    const partitionKeys = [
+      `pebble:v1:tasks:${workspaceId}`,
+      `pebble:v1:habits:${workspaceId}`,
+      `pebble:v1:checklists:${workspaceId}`,
+      `pebble:v1:resources:${workspaceId}`,
+    ];
+    const locks = [...partitionKeys, `ws_lifecycle_${workspaceId}`];
 
     type ArchivedChild = {
       type: "task" | "habit" | "checklist" | "resource";
@@ -638,38 +703,73 @@ static async reorderWorkspaces(
         reminder?: { notificationIds?: string[] };
       };
     };
-    const childPartitions: Array<[
-      ArchivedChild["type"],
-      any,
-    ]> = [
-      ["task", parsed?.todos],
-      ["habit", parsed?.habits],
-      ["checklist", parsed?.checklists],
-      ["resource", parsed?.resources],
-    ];
-    const archivedChildren: ArchivedChild[] = childPartitions.flatMap(
-      ([type, list]) =>
-        (Array.isArray(list) ? list : []).map((entity: any) => ({
-          type,
-          entity,
-        })),
-    );
-    const childIds = archivedChildren
-      .map((child) => child.entity?.id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0);
-    const notificationIdsToCancel = archivedChildren.flatMap(
-      (child) => child.entity?.reminder?.notificationIds ?? [],
-    );
 
-    const partitionKeys = [
-      `pebble:v1:tasks:${workspaceId}`,
-      `pebble:v1:habits:${workspaceId}`,
-      `pebble:v1:checklists:${workspaceId}`,
-      `pebble:v1:resources:${workspaceId}`,
-    ];
-    const locks = [...partitionKeys, `ws_lifecycle_${workspaceId}`];
+    let notificationIdsToCancel: string[] = [];
 
     await withLocks(locks, async () => {
+      // EVERY input to the destructive decision is read INSIDE the lock.
+      //
+      // The previous version resolved the bin item, the archived snapshot and
+      // the active workspace before acquiring the locks. A concurrent
+      // `restoreWorkspace` (or a create reusing the id) committing in that
+      // window made those pre-lock values stale: `activeWorkspace` stayed
+      // undefined, so the metadata survived while the partitions were purged and
+      // tombstones were written for a now-live workspace. Reading inside the lock
+      // makes the decision observe the state it is about to destroy.
+      const binItems = await RecycleBinRepository.getRecycleBinItems();
+      const binItem = binItems.find(
+        (i) =>
+          i.entityType === "workspace" &&
+          (i.entityId === workspaceId ||
+            i.id === workspaceId ||
+            i.id === `rb-${workspaceId}` ||
+            i.id.startsWith(`rb-${workspaceId}-g`)),
+      );
+
+      let parsed: any = null;
+      if (binItem) {
+        try {
+          parsed = JSON.parse(binItem.snapshot);
+        } catch (e) {
+          // Malformed snapshot: fail before any destructive step runs.
+          throw new Error(
+            `[EntityCommandService] Failed to parse workspace snapshot for ${workspaceId}`,
+          );
+        }
+      }
+
+      const archivedWorkspace: Workspace | undefined =
+        parsed?.list ?? parsed ?? undefined;
+      const activeWorkspaces = await WorkspaceRepository.getWorkspaces();
+      const activeWorkspace = activeWorkspaces.find(
+        (w) => w.id === workspaceId,
+      );
+
+      // Nothing active and nothing archived: the workspace was already destroyed.
+      if (!activeWorkspace && !archivedWorkspace && !binItem) {
+        throw new Error(`Workspace ${workspaceId} not found`);
+      }
+
+      const childPartitions: Array<[ArchivedChild["type"], any]> = [
+        ["task", parsed?.todos],
+        ["habit", parsed?.habits],
+        ["checklist", parsed?.checklists],
+        ["resource", parsed?.resources],
+      ];
+      const archivedChildren: ArchivedChild[] = childPartitions.flatMap(
+        ([type, list]) =>
+          (Array.isArray(list) ? list : []).map((entity: any) => ({
+            type,
+            entity,
+          })),
+      );
+      const childIds = archivedChildren
+        .map((child) => child.entity?.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      notificationIdsToCancel = archivedChildren.flatMap(
+        (child) => child.entity?.reminder?.notificationIds ?? [],
+      );
+
       const now = Date.now();
 
       // 1. Tombstones — workspace + archived children, so neither can be
@@ -762,6 +862,14 @@ static async reorderWorkspaces(
         const merged: Workspace = {
           ...existing,
           ...workspace,
+          // Lifecycle state is owned by archive/restore, not by an edit. The
+          // caller passes a whole snapshot that may predate a concurrent
+          // archive (normalizeWorkspace always materializes `archivedAt`), so
+          // taking it verbatim could silently unarchive the workspace when a
+          // rename lands after an archive.
+          id: existing.id,
+          createdAt: existing.createdAt,
+          archivedAt: existing.archivedAt,
           revision: (existing.revision ?? 1) + 1,
           lifecycleGeneration: existing.lifecycleGeneration ?? 1,
           updatedAt: Date.now(),

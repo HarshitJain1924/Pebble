@@ -1080,29 +1080,34 @@ export function useCalendarState() {
           EntityCommandService,
         } = require("@/services/command/EntityCommandService");
 
-        const [year, monthVal, dayVal] = selDate.split("-").map(Number);
-        const hHour = options?.hour ?? 9;
-        const hMin = options?.minute ?? 0;
-        const triggerDate = new Date(
-          year,
-          monthVal - 1,
-          dayVal,
-          hHour,
-          hMin,
-          0,
-          0,
-        );
+        // Schedule is calendar placement; Reminder is notification delivery.
+        // Writing only `reminder.triggerAt` left the habit in its old slot
+        // ("Anytime" when it had no schedule) while silently moving the
+        // notification. Habits are placed exactly like Tasks and Checklists.
+        const updates = options?.isAllDay
+          ? {
+              schedule: {
+                ...(habit.schedule || {}),
+                date: selDate,
+                startTime: undefined,
+                endTime: undefined,
+                allDay: true,
+              },
+            }
+          : calculateRescheduledTask(
+              habit as any,
+              {
+                hour: options?.hour ?? 9,
+                minute: options?.minute ?? 0,
+                date: selDate,
+              },
+              selDate,
+            );
 
         await EntityCommandService.updateHabit(
           habit.id,
           targetWorkspace,
-          {
-            reminder: {
-              ...(habit.reminder || { enabled: true }),
-              enabled: true,
-              triggerAt: triggerDate.getTime(),
-            },
-          },
+          updates,
           { source: "daily_planner", skipEvents: false },
         );
 
@@ -1546,24 +1551,18 @@ export function useCalendarState() {
               const habitMap = await HabitRepository.getHabits(targetWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
-                const [year, monthVal, dayVal] = targetDate.split("-").map(Number);
-                const newReminderDate = new Date(
-                  year,
-                  monthVal - 1,
-                  dayVal,
-                  dropHour,
-                  dropMinute,
-                  0,
-                  0,
+                const updates = calculateRescheduledTask(
+                  habit,
+                  { hour: dropHour, minute: dropMinute, date: targetDate },
+                  targetDate,
                 );
                 const { EntityCommandService } = require("@/services/command/EntityCommandService");
-                await EntityCommandService.updateHabit(habit.id, targetWorkspace, {
-                  reminder: {
-                    ...(habit.reminder || { enabled: true }),
-                    enabled: true,
-                    triggerAt: newReminderDate.getTime(),
-                  },
-                }, { source: "calendar_drag_drop", skipEvents: true });
+                await EntityCommandService.updateHabit(
+                  habit.id,
+                  targetWorkspace,
+                  updates,
+                  { source: "calendar_drag_drop", skipEvents: true },
+                );
               }
             } else if (isChecklist) {
               const checklistMap = await ChecklistRepository.getChecklists(targetWorkspace);
@@ -1641,27 +1640,14 @@ export function useCalendarState() {
               const habitMap = await HabitRepository.getHabits(targetWorkspace);
               const habit = habitMap[dragItem.id] as any;
               if (habit) {
-                const [year, monthVal, dayVal] = hDate.split("-").map(Number);
-                const existingDate = habit.reminder?.triggerAt
-                  ? new Date(habit.reminder.triggerAt)
-                  : new Date();
-                const newReminderDate = new Date(
-                  year,
-                  monthVal - 1,
-                  dayVal,
-                  existingDate.getHours(),
-                  existingDate.getMinutes(),
-                  0,
-                  0,
-                );
+                const updates = calculateRescheduledTask(habit, { date: hDate });
                 const { EntityCommandService } = require("@/services/command/EntityCommandService");
-                await EntityCommandService.updateHabit(habit.id, targetWorkspace, {
-                  reminder: {
-                    ...(habit.reminder || { enabled: true }),
-                    enabled: true,
-                    triggerAt: newReminderDate.getTime(),
-                  },
-                }, { source: "calendar_drag_drop", skipEvents: true });
+                await EntityCommandService.updateHabit(
+                  habit.id,
+                  targetWorkspace,
+                  updates,
+                  { source: "calendar_drag_drop", skipEvents: true },
+                );
               }
             } else if (isChecklist) {
               const checklistMap = await ChecklistRepository.getChecklists(targetWorkspace);

@@ -366,6 +366,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
           }
         } catch (err) {
           console.warn("[useTaskCrud] EntityCommandService toggleTask failed", err);
+          showToast("Couldn't update the task. Please try again.");
         }
 
         if (!result) {
@@ -393,7 +394,7 @@ export function useTaskCrud(deps: UseTaskCrudDeps) {
         emitStateChange("tasks_changed", "tasks_screen");
       });
     },
-    [runTaskMutation, findTask, selectedWorkspaceId, updateTodosTargeted],
+    [runTaskMutation, findTask, selectedWorkspaceId, updateTodosTargeted, showToast],
   );
 
   const deleteTodo = useCallback(

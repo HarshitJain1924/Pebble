@@ -311,7 +311,9 @@ describe("WorkspaceModal — Regression tests", () => {
     await act(async () => {
       await undoPayload.onUndo();
     });
-    expect(EntityCommandService.restoreWorkspace).toHaveBeenCalledWith("rb-ws-1");
+    // The entity id is the canonical handle: `restoreWorkspace` resolves the
+    // live bin entry (including generational `rb-<id>-g<n>` ids) itself.
+    expect(EntityCommandService.restoreWorkspace).toHaveBeenCalledWith("ws-1");
   });
 
   test("Delete flow — Failed: halts on ECS failure, stops flow and does NOT modify local state", async () => {

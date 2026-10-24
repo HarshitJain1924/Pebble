@@ -1,5 +1,6 @@
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 import {
   HabitRepository,
@@ -74,15 +75,26 @@ export async function getAllHistory(): Promise<DailyHistory[]> {
   }
 }
 
+/**
+ * Serializes the daily-history read-modify-write.
+ *
+ * Nearly every command invokes this fire-and-forget. Without a lock, two
+ * concurrent invocations read the same array and each writes
+ * `[todaySnapshot, ...]`; the second write drops the first snapshot's content
+ * (only today's entry changes, so older days survive, but the derived score can
+ * still regress to a stale value). The lock keeps each writer's read and write
+ * in one critical section.
+ */
+const HISTORY_LOCK = "pebble:v1:history";
+
 export async function recordDailyHistorySnapshot() {
   const today = getTodayDateKey();
   const uiState = await UiStateRepository.getUiState();
   const wsId = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
 
-  const [tasksMap, habitsMap, historyRaw] = await Promise.all([
+  const [tasksMap, habitsMap] = await Promise.all([
     TaskRepository.getTasks(wsId),
     HabitRepository.getHabits(wsId),
-    AsyncStorage.getItem(HISTORY_STORAGE_KEY),
   ]);
 
   const habits = Object.values(habitsMap).filter((h) => !h.archivedAt);
@@ -112,20 +124,23 @@ export async function recordDailyHistorySnapshot() {
       .map((todo) => todo.title),
   };
 
-  let history: DailyHistory[] = [];
-  if (historyRaw) {
-    try {
-      history = JSON.parse(historyRaw) as DailyHistory[];
-    } catch {
-      history = [];
+  await withLock(HISTORY_LOCK, async () => {
+    const historyRaw = await AsyncStorage.getItem(HISTORY_STORAGE_KEY);
+    let history: DailyHistory[] = [];
+    if (historyRaw) {
+      try {
+        history = JSON.parse(historyRaw) as DailyHistory[];
+      } catch {
+        history = [];
+      }
     }
-  }
 
-  const nextHistory = [
-    snapshot,
-    ...history.filter((entry) => entry.date !== today),
-  ];
-  await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
+    const nextHistory = [
+      snapshot,
+      ...history.filter((entry) => entry.date !== today),
+    ];
+    await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
+  });
 
   return snapshot;
 }

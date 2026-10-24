@@ -22,6 +22,24 @@ export interface RecycleBinPurgeFailure {
   message: string;
 }
 
+export interface RecycleBinRestoreFailure {
+  /** Recycle Bin item id (stable across retries). */
+  id: string;
+  entityType: RecycleBinItem["entityType"];
+  entityId: string;
+  message: string;
+}
+
+export interface RecycleBinRestoreResult {
+  /** Bin item ids whose restore completed (their bin entry is gone). */
+  restoredIds: string[];
+  /**
+   * Items still present in the bin after the attempt. The caller must keep
+   * these visible so the user can retry; they are never silently dropped.
+   */
+  failed: RecycleBinRestoreFailure[];
+}
+
 export interface RecycleBinPurgeResult {
   /** Bin item ids whose durable deletion completed. */
   deletedIds: string[];
@@ -175,6 +193,141 @@ export class RecycleBinCommandHandler {
           id: target.binItemId,
           entityType: item.entityType,
           entityId: target.entityId,
+          message:
+            error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    await this.emitBatchEffects(touchedTypes, options);
+
+    return result;
+  }
+
+  /**
+   * Restore one or more Recycle Bin items through their domain command
+   * handlers.
+   *
+   * This is the single restore orchestrator. It previously lived in
+   * `services/storage/storage.service.ts`, duplicated restore policy outside the
+   * command layer, and its un-guarded loop aborted the whole "Restore All"
+   * batch on the first failure while emitting only `workspace_mode_changed` for
+   * restored workspaces (so child-domain screens never reloaded).
+   *
+   * Semantics:
+   * - Sequential, one entity at a time; per-item failures are isolated and
+   *   reported. Successfully restored items are removed from the bin by their
+   *   domain handler and must not be retried.
+   * - Tasks keep their existing batch restore path, which already resolves bin
+   *   items against current state and reports per-item success.
+   * - One consolidated event pass per touched domain runs after the loop, so a
+   *   partly failed batch still refreshes everything that did change.
+   */
+  static async restoreItems(
+    items: RecycleBinItem[],
+    options?: CreateEntityOptions,
+  ): Promise<RecycleBinRestoreResult> {
+    const result: RecycleBinRestoreResult = { restoredIds: [], failed: [] };
+    if (items.length === 0) return result;
+
+    const touchedTypes = new Set<RecycleBinItem["entityType"]>();
+
+    const { EntityCommandService } = await import("../EntityCommandService");
+    const { RecycleBinRepository } = await import(
+      "@/repositories/RecycleBinRepository"
+    );
+
+    const childOptions: CreateEntityOptions = {
+      ...options,
+      skipEvents: true,
+      skipAnalytics: true,
+    };
+
+    const taskItems = items.filter((item) => item.entityType === "task");
+    if (taskItems.length > 0) {
+      try {
+        const { successfulItemIds, failedItemIds } =
+          await EntityCommandService.restoreTasks(taskItems, childOptions);
+        for (const id of successfulItemIds) {
+          result.restoredIds.push(id);
+          touchedTypes.add("task");
+        }
+        for (const id of failedItemIds) {
+          const item = taskItems.find(
+            (candidate) => candidate.id === id || candidate.entityId === id,
+          );
+          result.failed.push({
+            id,
+            entityType: "task",
+            entityId: item?.entityId ?? id,
+            message: "Task could not be restored",
+          });
+        }
+      } catch (error) {
+        for (const item of taskItems) {
+          result.failed.push({
+            id: item.id,
+            entityType: "task",
+            entityId: item.entityId,
+            message:
+              error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
+    for (const item of items) {
+      if (item.entityType === "task") continue;
+
+      try {
+        switch (item.entityType) {
+          case "habit":
+            await EntityCommandService.restoreHabit(item.id, childOptions);
+            break;
+          case "workspace":
+            await EntityCommandService.restoreWorkspace(item.id, childOptions);
+            break;
+          case "checklist":
+            await EntityCommandService.restoreChecklist(item.id, childOptions);
+            break;
+          case "resource":
+            await EntityCommandService.restoreResource(item.id, childOptions);
+            break;
+          default:
+            throw new Error(
+              `Unsupported recycle bin entity type: ${String(item.entityType)}`,
+            );
+        }
+
+        result.restoredIds.push(item.id);
+        touchedTypes.add(item.entityType);
+      } catch (error) {
+        // A concurrent restore may have completed this item between our read
+        // and the handler call. Verify against durable state before reporting a
+        // failure: if the bin entry is gone, the restore happened.
+        let stillPending = true;
+        try {
+          const remaining = await RecycleBinRepository.getRecycleBinItems();
+          stillPending = remaining.some(
+            (binItem) =>
+              binItem.id === item.id ||
+              (binItem.entityId === item.entityId &&
+                binItem.entityType === item.entityType),
+          );
+        } catch {
+          stillPending = true;
+        }
+
+        if (!stillPending) {
+          result.restoredIds.push(item.id);
+          touchedTypes.add(item.entityType);
+          continue;
+        }
+
+        result.failed.push({
+          id: item.id,
+          entityType: item.entityType,
+          entityId: item.entityId,
           message:
             error instanceof Error ? error.message : String(error),
         });

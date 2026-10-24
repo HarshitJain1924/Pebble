@@ -116,6 +116,70 @@ describe("startup recovery sequence (runStartupRecovery)", () => {
     expect(getPermissionsAsync).not.toHaveBeenCalled();
   });
 
+  it("5: a failure in the first step does not skip any later recovery step", async () => {
+    (BackupService.recoverInterruptedRestore as jest.Mock).mockRejectedValueOnce(
+      new Error("unreadable restore journal"),
+    );
+
+    await expect(runStartupRecovery()).resolves.toBeUndefined();
+
+    // The failing step contributed no entry; every later step still ran, in the
+    // documented order. Previously the rejection aborted the whole sequence.
+    expect(calls).toEqual([
+      "moveReconcileAll",
+      "conversionReconcileAll",
+      "reconcileHistoricalGhosts",
+      "cleanupRecycleBin",
+      "graphReconcileAll",
+      "notificationReconcileAll",
+    ]);
+  });
+
+  it("6: multiple independent failures are contained and the remaining steps converge", async () => {
+    (MoveReconcilerService.reconcileAll as jest.Mock).mockRejectedValueOnce(
+      new Error("move journal corrupt"),
+    );
+    (ConversionReconcilerService.reconcileAll as jest.Mock).mockRejectedValueOnce(
+      new Error("conversion journal corrupt"),
+    );
+    (GraphReconcilerService.reconcileAll as jest.Mock).mockRejectedValueOnce(
+      new Error("graph store corrupt"),
+    );
+
+    await expect(runStartupRecovery()).resolves.toBeUndefined();
+
+    expect(calls).toEqual([
+      "recoverInterruptedRestore",
+      "reconcileHistoricalGhosts",
+      "cleanupRecycleBin",
+      "notificationReconcileAll",
+    ]);
+  });
+
+  it("7: startup never rejects even when every step fails", async () => {
+    (BackupService.recoverInterruptedRestore as jest.Mock).mockRejectedValue(
+      new Error("1"),
+    );
+    (MoveReconcilerService.reconcileAll as jest.Mock).mockRejectedValue(new Error("2"));
+    (ConversionReconcilerService.reconcileAll as jest.Mock).mockRejectedValue(
+      new Error("3"),
+    );
+    (MoveReconcilerService.reconcileHistoricalGhosts as jest.Mock).mockRejectedValue(
+      new Error("4"),
+    );
+    (storageService.cleanupRecycleBin as jest.Mock).mockRejectedValue(
+      new Error("5"),
+    );
+    (GraphReconcilerService.reconcileAll as jest.Mock).mockRejectedValue(
+      new Error("6"),
+    );
+    (NotificationReconcilerService.reconcileAll as jest.Mock).mockRejectedValue(
+      new Error("7"),
+    );
+
+    await expect(runStartupRecovery()).resolves.toBeUndefined();
+  });
+
   it("4: a notification reconciliation failure does not crash startup, and all other steps still ran", async () => {
     (NotificationReconcilerService.reconcileAll as jest.Mock).mockRejectedValueOnce(
       new Error("native notification failure"),

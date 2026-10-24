@@ -307,10 +307,12 @@ export function WorkspaceModal({
               onUndo: async () => {
                 try {
                   const { EntityCommandService } = await import("@/services/command/EntityCommandService");
-                  await EntityCommandService.restoreWorkspace(`rb-${editingWorkspaceId}`);
-                  emitStateChange("tasks_changed", "tasks_screen");
-                  emitStateChange("habits_changed", "tasks_screen");
-                  emitStateChange("workspace_changed", "tasks_screen");
+                  // Pass the entity id; the command resolves the live bin entry
+                  // itself (ids are `rb-<entityId>` or `rb-<entityId>-g<generation>`).
+                  // Hardcoding `rb-${id}` here duplicated the bin-id shape in a
+                  // component and bypassed the command's resolution contract.
+                  await EntityCommandService.restoreWorkspace(workspace.id);
+                  // restoreWorkspace now emits the child-domain events itself.
                 } catch (e) {
                   console.warn("Failed to undo workspace delete", e);
                 }

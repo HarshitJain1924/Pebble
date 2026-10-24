@@ -11,7 +11,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useRouter, Stack } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getAllHistory } from "@/services/analytics/productivity-history.service";
+import { FocusStatsRepository } from "@/repositories/FocusStatsRepository";
 import * as Haptics from "expo-haptics";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -176,28 +177,18 @@ export default function StatsScreen() {
         }
       });
 
-      const rawHistory = await AsyncStorage.getItem("pebble:history");
-      let historyList: any[] = [];
+      // Read through the owning service: key names and malformed-data
+      // normalization live in one place, not four independent readers.
+      const historyList = await getAllHistory();
       let pastTodosCompleted = 0;
       let pastHabitsCompleted = 0;
       const todayKey = getTodayDateKey();
-      if (rawHistory) {
-        try {
-          historyList = JSON.parse(rawHistory);
-          if (Array.isArray(historyList)) {
-            historyList.forEach((entry: any) => {
-              if (entry.date !== todayKey) {
-                pastTodosCompleted += entry.completedTodos || 0;
-                pastHabitsCompleted += entry.completedHabits || 0;
-              }
-            });
-          } else {
-            historyList = [];
-          }
-        } catch {
-          historyList = [];
+      historyList.forEach((entry: any) => {
+        if (entry.date !== todayKey) {
+          pastTodosCompleted += entry.completedTodos || 0;
+          pastHabitsCompleted += entry.completedHabits || 0;
         }
-      }
+      });
 
       let peakProductiveDayString: string | null = null;
       if (historyList.length > 0) {
@@ -225,16 +216,8 @@ export default function StatsScreen() {
 
       // Session count is lifetime and comes from the canonical pebble log;
       // `completedToday` is a daily-reset counter and must not be used here.
-      const rawFocus = await AsyncStorage.getItem("todoapp:focus:stats");
-      let focusTime = 0;
-      if (rawFocus) {
-        try {
-          const parsed = JSON.parse(rawFocus);
-          focusTime = parsed.totalFocusTime ?? 0;
-        } catch {
-          // ignore malformed focus stats
-        }
-      }
+      const focusStats = await FocusStatsRepository.getFocusStats();
+      const focusTime = focusStats.totalFocusTime;
 
       const actualTodosCompleted = pastTodosCompleted + totalCompletedTodos;
       const actualHabitsCompleted = pastHabitsCompleted + totalCompletedHabits;

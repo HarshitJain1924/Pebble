@@ -25,6 +25,24 @@ import { Alert, AppState, AppStateStatus } from "react-native";
 import { getRecycleBinItems, saveRecycleBinItems } from "@/services/storage/storage.service";
 import { EntityCommandService } from "@/services/command/EntityCommandService";
 
+/**
+ * Durable recovery record for a finished stopwatch session.
+ *
+ * Written BEFORE `todoapp:focus:current_stopwatch` is cleared. Once that live
+ * record is gone the elapsed time exists only in React state, so a rejected
+ * `recordFocusSession` would lose the session outright (F1). The record carries
+ * the same stable `focus_sw_<start>` id the command is idempotent on, so a
+ * retry after a crash or a failed write converges on exactly one session.
+ */
+const PENDING_STOPWATCH_KEY = "todoapp:focus:pending_stopwatch_session";
+
+type PendingStopwatchSession = {
+  sessionId: string;
+  startedAt: number;
+  endedAt: number;
+  durationSeconds: number;
+};
+
 export function useFocusState() {
   // Core states
   const [sessionTime, setSessionTime] = useState(25 * 60); // 25 mins Pomodoro
@@ -328,7 +346,7 @@ export function useFocusState() {
 
   // AppState listening for background/kill resilience
   useEffect(() => {
-    const handleAppStateChange = (nextState: AppStateStatus) => {
+    const handleAppStateChange = async (nextState: AppStateStatus) => {
       setAppState(nextState);
       if (nextState === "active") {
         syncTimerFromSessionState();
@@ -338,8 +356,10 @@ export function useFocusState() {
           const elapsed =
             elapsedBeforeStartRef.current +
             Math.floor((Date.now() - startTimeRef.current) / 1000);
-          logPartialMinutes(elapsed);
-          saveActiveSession(
+          // Persist the marker AFTER the credit settles so `loggedMinutes` it
+          // records matches what was actually credited.
+          await logPartialMinutes(elapsed);
+          await saveActiveSession(
             pomodoroMode,
             startTimeRef.current,
             totalSessionTime,
@@ -516,8 +536,8 @@ export function useFocusState() {
       const remaining = Math.max(0, totalSessionTimeRef.current - elapsed);
       setSessionTime(remaining);
 
-      // Log partial minutes in real-time
-      logPartialMinutes(elapsed);
+      // Log partial minutes in real-time (serialized inside the helper)
+      void logPartialMinutes(elapsed);
 
       if (soundRef.current) {
         if (!isDraggingProgressRef.current) {
@@ -728,7 +748,58 @@ export function useFocusState() {
     } catch {}
   };
 
+  /**
+   * Retry a finished stopwatch session whose record was interrupted.
+   *
+   * Safe to call from every sync trigger (mount, foreground, focus_changed):
+   * `recordFocusSession` is idempotent on the stable session id, so concurrent
+   * or repeated flushes converge on one session record, one stats credit, one
+   * relationship and one Pebble. A corrupt/unreadable marker is dropped rather
+   * than blocking the UI forever.
+   */
+  const flushPendingStopwatchSession = async (): Promise<void> => {
+    try {
+      const raw = await AsyncStorage.getItem(PENDING_STOPWATCH_KEY);
+      if (!raw) return;
+
+      let pending: PendingStopwatchSession | null = null;
+      try {
+        pending = JSON.parse(raw);
+      } catch {
+        pending = null;
+      }
+      if (
+        !pending ||
+        typeof pending.sessionId !== "string" ||
+        !Number.isFinite(pending.durationSeconds) ||
+        pending.durationSeconds < 10
+      ) {
+        await AsyncStorage.removeItem(PENDING_STOPWATCH_KEY);
+        return;
+      }
+
+      await EntityCommandService.recordFocusSession(
+        pending.durationSeconds,
+        undefined,
+        undefined,
+        {
+          sessionId: pending.sessionId,
+          startedAt: pending.startedAt,
+          endedAt: pending.endedAt,
+        },
+      );
+
+      // Durable commit point reached: release the recovery record.
+      await AsyncStorage.removeItem(PENDING_STOPWATCH_KEY);
+      await refreshFocusStats();
+    } catch (e) {
+      // Keep the marker: the next trigger retries the same stable session id.
+      console.warn("Failed to flush pending stopwatch focus session:", e);
+    }
+  };
+
   const syncStopwatchFromState = async () => {
+    void flushPendingStopwatchSession();
     try {
       const raw = await AsyncStorage.getItem("todoapp:focus:current_stopwatch");
       if (!raw) return;
@@ -751,14 +822,16 @@ export function useFocusState() {
     } catch {}
   };
 
-  const creditFocusTime = async (minutes: number) => {
-    if (!Number.isFinite(minutes) || minutes <= 0) return;
+  const creditFocusTime = async (minutes: number): Promise<boolean> => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return true;
     try {
       const stats = await FocusStatsRepository.addFocusMinutes(minutes);
       setTotalFocusTime(stats.totalFocusTime);
       void syncWidgetData(stats.totalFocusTime).catch(() => {});
+      return true;
     } catch (e) {
       console.warn("Failed to credit focus minutes", e);
+      return false;
     }
   };
 
@@ -797,14 +870,34 @@ export function useFocusState() {
     }
   }, []);
 
-  const logPartialMinutes = (totalElapsedSeconds: number) => {
+  /**
+   * Credit the minutes elapsed since the last checkpoint.
+   *
+   * The checkpoint (`loggedMinutesInCurrentSessionRef`) advances ONLY after the
+   * stats write committed. Previously the ref advanced immediately while the
+   * write was unawaited, so a failed write silently lost those minutes: the
+   * completion subtracts `loggedMinutes` and never re-credits them (P2).
+   * Serialized through a ref because the 500 ms interval can tick again before
+   * the previous credit settles; two overlapping ticks would otherwise credit
+   * the same delta twice.
+   */
+  const partialCreditInFlightRef = useRef(false);
+  const logPartialMinutes = async (totalElapsedSeconds: number) => {
     if (pomodoroMode !== "work") return;
+    if (partialCreditInFlightRef.current) return;
     const totalMinutesElapsed = Math.floor(totalElapsedSeconds / 60);
     const newMinutesToLog =
       totalMinutesElapsed - loggedMinutesInCurrentSessionRef.current;
-    if (newMinutesToLog > 0) {
-      creditFocusTime(newMinutesToLog);
-      loggedMinutesInCurrentSessionRef.current = totalMinutesElapsed;
+    if (newMinutesToLog <= 0) return;
+
+    partialCreditInFlightRef.current = true;
+    try {
+      const credited = await creditFocusTime(newMinutesToLog);
+      if (credited) {
+        loggedMinutesInCurrentSessionRef.current = totalMinutesElapsed;
+      }
+    } finally {
+      partialCreditInFlightRef.current = false;
     }
   };
 
@@ -824,6 +917,33 @@ export function useFocusState() {
 
   const swReset = async () => {
     const elapsed = swTime;
+    const now = Date.now();
+    const startMs = swStartTimeRef.current || now - elapsed * 1000;
+    const sessionId = `focus_sw_${startMs}`;
+
+    // A billable stopwatch session gets its recovery record BEFORE the live
+    // stopwatch record is dropped. If that marker cannot be written we keep the
+    // stopwatch state untouched and abort: clearing it would leave the elapsed
+    // time only in React state, exactly the unrecoverable state this marker
+    // exists to prevent.
+    if (elapsed >= 10) {
+      try {
+        const pending: PendingStopwatchSession = {
+          sessionId,
+          startedAt: startMs,
+          endedAt: now,
+          durationSeconds: elapsed,
+        };
+        await AsyncStorage.setItem(PENDING_STOPWATCH_KEY, JSON.stringify(pending));
+      } catch (err) {
+        console.warn(
+          "Failed to persist stopwatch recovery record; keeping the stopwatch state:",
+          err,
+        );
+        return;
+      }
+    }
+
     setSwRunning(false);
     setSwTime(0);
     setSwLaps([]);
@@ -831,21 +951,22 @@ export function useFocusState() {
 
     if (elapsed >= 10) {
       try {
-        const now = Date.now();
-        const startMs = swStartTimeRef.current || now - elapsed * 1000;
         await EntityCommandService.recordFocusSession(
           elapsed,
           undefined,
           undefined,
           {
-            sessionId: `focus_sw_${startMs}`,
+            sessionId,
             startedAt: startMs,
             endedAt: now,
           }
         );
 
+        await AsyncStorage.removeItem(PENDING_STOPWATCH_KEY);
         await refreshFocusStats();
       } catch (err) {
+        // The marker stays: the next mount/foreground pass retries the same
+        // stable session id, which is idempotent in the command layer.
         console.warn("Failed to save current stopwatch focus session:", err);
       }
     }
@@ -1105,7 +1226,7 @@ export function useFocusState() {
     }
   };
 
-  const handleStartPause = () => {
+  const handleStartPause = async () => {
     const nextActive = !isActive;
     setIsActive(nextActive);
     if (nextActive) {
@@ -1125,7 +1246,9 @@ export function useFocusState() {
       );
       const newElapsed = elapsedBeforeStartRef.current + elapsedThisPeriod;
       elapsedBeforeStartRef.current = newElapsed;
-      logPartialMinutes(newElapsed);
+      // Await the credit before writing the marker so its `loggedMinutes`
+      // reflects the committed checkpoint (see logPartialMinutes).
+      await logPartialMinutes(newElapsed);
       void saveActiveSession(
         pomodoroMode,
         0,

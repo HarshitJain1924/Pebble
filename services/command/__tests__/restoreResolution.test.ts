@@ -209,3 +209,102 @@ describe("restore resolution by entity ID (delete-Undo paths)", () => {
     expect(bin.some((i) => i.entityId === "habit-2")).toBe(false);
   });
 });
+
+describe("canonical Recycle Bin restore orchestrator", () => {
+  const emitSpy = () =>
+    jest.spyOn(
+      require("@/services/events/state-events"),
+      "emitStateChange",
+    );
+
+  test("a failing item does not abort the batch and stays retryable in the bin", async () => {
+    await HabitRepository.saveHabit(habit("habit-ok"));
+    await HabitRepository.saveHabit(habit("habit-bad"));
+    await EntityCommandService.recycleHabit("habit-ok", "ws-1", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+    await EntityCommandService.recycleHabit("habit-bad", "ws-1", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    const badItem = bin.find((i) => i.entityId === "habit-bad")!;
+    const okItem = bin.find((i) => i.entityId === "habit-ok")!;
+
+    const originalRestoreHabit = EntityCommandService.restoreHabit.bind(
+      EntityCommandService,
+    );
+    jest
+      .spyOn(EntityCommandService, "restoreHabit")
+      .mockImplementation(async (idOrItemId: string, options?: any) => {
+        if (
+          idOrItemId === badItem.id ||
+          idOrItemId === badItem.entityId
+        ) {
+          throw new Error("simulated restore failure");
+        }
+        return originalRestoreHabit(idOrItemId, options);
+      });
+
+    const result = await EntityCommandService.restoreRecycleBinItems([
+      badItem,
+      okItem,
+    ]);
+
+    expect(result.restoredIds).toEqual([okItem.id]);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].entityId).toBe("habit-bad");
+
+    // The committed item is live; the failed one is still in the bin.
+    expect((await HabitRepository.getHabits("ws-1"))["habit-ok"]).toBeDefined();
+    const remaining = await RecycleBinRepository.getRecycleBinItems();
+    expect(remaining.some((i) => i.entityId === "habit-bad")).toBe(true);
+    expect(remaining.some((i) => i.entityId === "habit-ok")).toBe(false);
+  });
+
+  test("each restored domain emits its own change event", async () => {
+    const emit = emitSpy();
+    await HabitRepository.saveHabit(habit("habit-event"));
+    await EntityCommandService.recycleHabit("habit-event", "ws-1", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    const result = await EntityCommandService.restoreRecycleBinItems(bin);
+
+    expect(result.restoredIds).toHaveLength(1);
+    expect(result.failed).toHaveLength(0);
+    expect(emit).toHaveBeenCalledWith("habits_changed", undefined);
+
+    emit.mockRestore();
+  });
+
+  test("a task batch and a habit restore in one call touch both domains", async () => {
+    const emit = emitSpy();
+    await TaskRepository.saveTask(task("task-restore"));
+    await HabitRepository.saveHabit(habit("habit-restore"));
+    await EntityCommandService.recycleTask(
+      "task-restore",
+      "ws-1",
+      "Workspace 1",
+      { skipEvents: true, skipAnalytics: true },
+    );
+    await EntityCommandService.recycleHabit("habit-restore", "ws-1", {
+      skipEvents: true,
+      skipAnalytics: true,
+    });
+
+    const bin = await RecycleBinRepository.getRecycleBinItems();
+    const result = await EntityCommandService.restoreRecycleBinItems(bin);
+
+    expect(result.restoredIds).toHaveLength(2);
+    expect(result.failed).toHaveLength(0);
+    expect(emit).toHaveBeenCalledWith("tasks_changed", undefined);
+    expect(emit).toHaveBeenCalledWith("habits_changed", undefined);
+
+    emit.mockRestore();
+  });
+});
