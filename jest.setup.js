@@ -33,22 +33,10 @@ jest.mock('react-native-gesture-handler/lib/module/GestureHandlerRootViewContext
   return { __esModule: true, default: React.createContext(true) };
 });
 
-// Expo SDK 58 native module builds call the runtime-installed globals
-// `requireNativeModule` / `requireOptionalNativeModule` directly (see
-// expo-notifications/build/*.native.js). Those globals exist on device but not
-// in Jest, which made every `import * as Notifications from
-// 'expo-notifications'` throw "requireOptionalNativeModule is not defined" and
-// prevented even `jest.mock('expo-notifications')` (automock loads the real
-// module first). Delegate to the mocked expo-modules-core implementation, which
-// the jest-expo preset already configures.
-const ExpoModulesCore = require('expo-modules-core');
-if (typeof globalThis.requireNativeModule !== 'function') {
-  globalThis.requireNativeModule = (name) => ExpoModulesCore.requireNativeModule(name);
-}
-if (typeof globalThis.requireOptionalNativeModule !== 'function') {
-  globalThis.requireOptionalNativeModule = (name) =>
-    ExpoModulesCore.requireOptionalNativeModule(name);
-}
+// `expo-notifications` 58 ships `.native` entry points that call
+// `requireOptionalNativeModule(...)` as a free variable. `scripts/patch-expo-notifications.js`
+// (wired to postinstall) imports it explicitly; no global shim is installed here so a
+// missing patch fails loudly in tests instead of being masked.
 
 // React 19 schedules work on `setImmediate`. Suites that render with
 // `react-test-renderer` directly (rather than RNTL, which auto-unmounts) can

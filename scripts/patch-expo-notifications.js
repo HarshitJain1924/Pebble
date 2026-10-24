@@ -54,7 +54,53 @@ for (const { file, moduleName } of nativeModuleFiles) {
   }
 }
 
-// 3. Patch getAllScheduledNotificationsAsync to handle null/undefined from NotificationScheduler
+// 3. SDK 58 ships three `.native` entry points that call
+//    `requireOptionalNativeModule(...)` as a free variable instead of importing
+//    it. Nothing defines that free variable in the app runtime, so importing
+//    expo-notifications crashes with
+//    "[ReferenceError: Property 'requireOptionalNativeModule' doesn't exist]" and
+//    every export after that line (SchedulableTriggerInputTypes,
+//    cancelScheduledNotificationAsync, …) stays undefined. Jest hit the same
+//    failure, which is why this is repaired on disk rather than shimmed in
+//    tests. `expo` re-exports the helper, so extend the existing import when
+//    present and otherwise add one.
+const nativeGlobalFiles = [
+  path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'build'),
+  path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'src'),
+];
+
+const usesBareOptionalNativeModule = (content) =>
+  /(^|[^.\w])requireOptionalNativeModule\(/m.test(content) &&
+  !/import\s*\{[^}]*requireOptionalNativeModule[^}]*\}\s*from/.test(content);
+
+for (const dir of nativeGlobalFiles) {
+  if (!fs.existsSync(dir)) continue;
+
+  for (const fileName of fs.readdirSync(dir)) {
+    if (!/\.(js|ts)$/.test(fileName)) continue;
+
+    const file = path.join(dir, fileName);
+    let content = fs.readFileSync(file, 'utf8');
+    if (!usesBareOptionalNativeModule(content)) continue;
+
+    const expoImport = /import\s*\{([^}]*)\}\s*from\s*'expo';/;
+    if (expoImport.test(content)) {
+      content = content.replace(
+        expoImport,
+        (_match, names) => `import {${names.trimEnd()}, requireOptionalNativeModule } from 'expo';`
+      );
+    } else {
+      content = `import { requireOptionalNativeModule } from 'expo';\n${content}`;
+    }
+
+    fs.writeFileSync(file, content, 'utf8');
+    console.log(
+      `[patch-expo-notifications] Imported requireOptionalNativeModule in ${fileName}.`
+    );
+  }
+}
+
+// 4. Patch getAllScheduledNotificationsAsync to handle null/undefined from NotificationScheduler
 const schedulerFiles = [
   path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'build', 'getAllScheduledNotificationsAsync.js'),
   path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'src', 'getAllScheduledNotificationsAsync.ts'),
