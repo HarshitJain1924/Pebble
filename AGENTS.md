@@ -2,7 +2,7 @@
 
 > **Truth as of 2026-10-02.** The facts below were verified against the active codebase on this date. If the code has changed since, the code wins — update this document instead of trusting the date.
 
-Pebble is a local-first React Native app built on **Expo SDK 57** (React Native 0.86, React 19.2, New Architecture + React Compiler).
+Pebble is a local-first React Native app built on **Expo SDK 58** (React Native 0.88, React 19.3, New Architecture + React Compiler).
 
 - **Primary Project Guidelines & Skill Activation**: Refer to [.agents/AGENTS.md](file:///.agents/AGENTS.md) for active engineering guardrails, skill taxonomy, and workflow.
 - **Current Product & Architecture Map**: Refer to [AI_CONTEXT.md](file:///AI_CONTEXT.md) first, then [docs/current_state.md](file:///docs/current_state.md) and [docs/integrity_status.md](file:///docs/integrity_status.md). Architecture memory lives in [docs/architecture/decision_log.md](file:///docs/architecture/decision_log.md).
@@ -14,7 +14,7 @@ Pebble is a local-first React Native app built on **Expo SDK 57** (React Native 
   - Quality Filter (Major Redesign): [.agents/skills/world-class-product-review/SKILL.md](file:///.agents/skills/world-class-product-review/SKILL.md)
   - List & Render Optimization: [.agents/skills/react-native-performance/SKILL.md](file:///.agents/skills/react-native-performance/SKILL.md)
 - **Mascot & Voice System**: Refer to [docs/cairn_voice_guide.md](file:///docs/cairn_voice_guide.md) for Cairn's product behavior specification, presence rules, and voice constraints.
-- **Expo SDK 57 Documentation**: Check versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing Expo code.
+- **Expo SDK 58 Documentation**: Check versioned docs at https://docs.expo.dev/versions/v58.0.0/ before writing Expo code.
 
 ## Core Design & Architecture Invariants
 

@@ -1,7 +1,13 @@
 import React from "react";
 import { CalendarDotColors } from "@/shared/constants/categoryColors";
 import { Palette } from "@/shared/constants/theme";
-import { View, Pressable, Platform, StyleSheet } from "react-native";
+import {
+  View,
+  Pressable,
+  Platform,
+  StyleSheet,
+  type ViewInstance,
+} from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Animated from "react-native-reanimated";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -27,8 +33,8 @@ interface CalendarNavigationCardProps {
   calendarCells: any[];
   weekDaysStrip: any[];
   hoveredDate: string | null;
-  monthGridRef: React.RefObject<View | null>;
-  weekStripRef: React.RefObject<View | null>;
+  monthGridRef: React.RefObject<ViewInstance | null>;
+  weekStripRef: React.RefObject<ViewInstance | null>;
   measureMonthGrid: () => void;
   measureWeekStrip: () => void;
   allTodos: any[];

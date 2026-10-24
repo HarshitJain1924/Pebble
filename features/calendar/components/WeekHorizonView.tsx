@@ -9,6 +9,8 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   LayoutChangeEvent,
+  type ScrollViewInstance,
+  type ViewInstance,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -55,8 +57,8 @@ interface WeekHorizonViewProps {
   hoveredTargetTime?: DraggedItemTimeTarget | null;
   activeDragItem?: any;
   createPanGesture?: (item: any) => any;
-  weekGridRef?: React.RefObject<View | null>;
-  horizontalScrollRef?: React.RefObject<ScrollView | null>;
+  weekGridRef?: React.RefObject<ViewInstance | null>;
+  horizontalScrollRef?: React.RefObject<ScrollViewInstance | null>;
   onLayoutWeekGrid?: (
     dayColWidth?: number,
     scrollOffsetX?: number,
@@ -99,9 +101,9 @@ export const WeekHorizonView: React.FC<WeekHorizonViewProps> = React.memo(({
 }) => {
   const { width: windowWidth } = useWindowDimensions();
   const [containerWidth, setContainerWidth] = useState<number>(windowWidth - 28);
-  const internalScrollRef = useRef<ScrollView>(null);
+  const internalScrollRef = useRef<ScrollViewInstance>(null);
   const horizontalScrollRef = propHorizontalScrollRef || internalScrollRef;
-  const internalGridRef = useRef<View>(null);
+  const internalGridRef = useRef<ViewInstance>(null);
   const weekGridRef = propWeekGridRef || internalGridRef;
 
   const [currentPage, setCurrentPage] = useState(0);

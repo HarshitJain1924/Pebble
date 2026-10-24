@@ -1,0 +1,10 @@
+npm notice run pebble@1.0.0 npx
+npm notice run expo start --port 8081
+Starting project at C:\Users\harsh\OneDrive\Desktop\todoapp
+React Compiler enabled
+Starting Metro Bundler
+
+Waiting on http://localhost:8081
+
+Logs for your project will appear below.
+Android Bundled 42717ms node_modules\expo-router\entry.js (3046 modules)

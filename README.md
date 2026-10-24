@@ -1,4 +1,4 @@
-# Pebble Productivity App (Expo SDK 57)
+# Pebble Productivity App (Expo SDK 58)
 
 > **Truth as of 2026-10-02.** Verified against the active codebase on this date. If the code has changed since, the code wins — see `AGENTS.md` for the source-of-truth order.
 
@@ -81,8 +81,8 @@ For the authoritative source of truth on Pebble's crash recovery, persistence, a
 ---
 
 ## 🛠️ Technical Stack
-- **React Native 0.86** on **React 19.2** (New Architecture & React Compiler enabled)
-- **Expo SDK 57** (Expo Router, expo-notifications, expo-blur, expo-haptics)
+- **React Native 0.88** on **React 19.3** (New Architecture & React Compiler enabled)
+- **Expo SDK 58** (Expo Router, expo-notifications, expo-blur, expo-haptics)
 - **Storage**: `@react-native-async-storage/async-storage` (local-first, no backend)
 - **UI Components**: `@gorhom/bottom-sheet`, `react-native-calendars` (date pickers/detail calendars), `react-native-reanimated`, `react-native-gesture-handler`
 

@@ -1,6 +1,6 @@
 ---
 name: emil-design-eng
-description: Interaction, motion craft, and tactile polish for Pebble on React Native, Expo SDK 57, and Reanimated. Enforces UI thread purity, gesture momentum, and intentional feedback heuristics.
+description: Interaction, motion craft, and tactile polish for Pebble on React Native, Expo SDK 58, and Reanimated. Enforces UI thread purity, gesture momentum, and intentional feedback heuristics.
 ---
 
 # Interaction & Motion Craft (Pebble Edition)
@@ -10,7 +10,7 @@ description: Interaction, motion craft, and tactile polish for Pebble on React N
 This skill governs the micro-interactions, gestures, springs, timings, and tactile feedback in Pebble. It guides judgment rather than imposing rigid dogma.
 
 > **CRITICAL PLATFORM BOUNDARY:**
-> - **React Native / Expo SDK 57**: Pebble is a local-first mobile app running React Native 0.86, React 19.2, and Expo SDK 57.
+> - **React Native / Expo SDK 58**: Pebble is a local-first mobile app running React Native 0.88, React 19.3, and Expo SDK 58.
 > - **UI Thread Motion**: All motion is powered by `react-native-reanimated` (`withSpring`, `withTiming`, `useSharedValue`, `useAnimatedStyle`) and `react-native-gesture-handler`.
 > - **No Web-Only Libraries**: NEVER recommend CSS transitions, pseudo-classes (`:hover`, `:active`), Framer Motion, Motion, Radix UI, Base UI, or DOM manipulation.
 > - **Authority Sequence**: This skill is subordinate to active code, `pebble-design`, and `design-tokens`. It guides interaction craft, not visual styling or product architecture.

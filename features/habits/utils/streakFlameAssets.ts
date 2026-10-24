@@ -1,4 +1,8 @@
-import type { ImageSourcePropType } from "react-native";
+// Only `require()`d local GIFs are registered here, so the narrow
+// `ImageRequireSource` (a number) is the honest type. The wider
+// `ImageSourcePropType` admitted `readonly ImageURISource[]`, which
+// `expo-image`'s `source` (RN 0.88 / expo-image 58) rejects.
+import type { ImageRequireSource } from "react-native";
 import type { HabitStreakStage } from "./habitStreakStage";
 
 /**
@@ -32,7 +36,7 @@ import type { HabitStreakStage } from "./habitStreakStage";
  */
 export const STREAK_FLAME_ASSETS: Record<
   HabitStreakStage,
-  ImageSourcePropType | null
+  ImageRequireSource | null
 > = {
   0: null, // inactive — deliberately has no flame artwork
   1: require("@/assets/images/streak/flame_stage_1.gif"),
@@ -45,6 +49,6 @@ export const STREAK_FLAME_ASSETS: Record<
 /** Resolves the flame artwork for a stage, or `null` when it is not registered. */
 export function resolveStreakFlameSource(
   stage: HabitStreakStage,
-): ImageSourcePropType | null {
+): ImageRequireSource | null {
   return STREAK_FLAME_ASSETS[stage] ?? null;
 }

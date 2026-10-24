@@ -15,7 +15,14 @@ import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import {
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+  type ScrollViewInstance,
+  type ViewInstance,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, {
   FadeInDown,
@@ -102,8 +109,10 @@ export function TodayScreen() {
   const [flyingPebbles, setFlyingPebbles] = useState<
     { id: string; startX: number; startY: number; type: "task" | "habit" }[]
   >([]);
-  const miniJarRef = useRef<View>(null);
-  const parentScrollRef = useRef<ScrollView>(null);
+  // RN 0.88 Strict TypeScript API: the generic must be the INSTANCE type, not
+  // the component value (`View`/`ScrollView` now denote the component itself).
+  const miniJarRef = useRef<ViewInstance>(null);
+  const parentScrollRef = useRef<ScrollViewInstance>(null);
   const scrollOffsetRef = useRef<number>(0);
   const baseJarCoordsRef = useRef<{ x: number; y: number } | null>(null);
   const [targetCoordinates, setTargetCoordinates] = useState<{

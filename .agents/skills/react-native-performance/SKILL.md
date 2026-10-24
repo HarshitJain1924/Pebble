@@ -5,7 +5,7 @@ description: Specialized engineering skill for React Native list rendering, work
 
 # React Native Performance Guide
 
-> **Truth as of 2026-10-02.** Verified against active React Native 0.86 and Expo SDK 57 architecture.
+> **Truth as of 2026-10-25.** Verified against active React Native 0.88 and Expo SDK 58 architecture.
 
 This skill governs codebase rendering performance, memory efficiency, and list optimization in Pebble.
 

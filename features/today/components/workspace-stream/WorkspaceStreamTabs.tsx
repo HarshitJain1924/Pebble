@@ -1,5 +1,11 @@
 import React from "react";
-import { Dimensions, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  View,
+  type ScrollViewInstance,
+} from "react-native";
 import { Feather } from "@expo/vector-icons";
 
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -31,7 +37,7 @@ export const WorkspaceStreamTabs: React.FC<WorkspaceStreamTabsProps> = ({
   onSelect,
 }) => {
   const isDark = colorScheme !== "light";
-  const tabScrollRef = React.useRef<ScrollView>(null);
+  const tabScrollRef = React.useRef<ScrollViewInstance>(null);
   const tabLayouts = React.useRef<Record<string, { x: number; width: number }>>({});
   const [tabsMeasured, setTabsMeasured] = React.useState(false);
   const windowWidth = Dimensions.get("window").width;

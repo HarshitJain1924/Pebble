@@ -163,7 +163,12 @@ describe("export.service - Manual Data Export", () => {
 
     it("falls back to React Native Share when Sharing.isAvailableAsync is false", async () => {
       (Sharing.isAvailableAsync as jest.Mock).mockResolvedValue(false);
-      const shareSpy = jest.spyOn(Share, "share").mockResolvedValue({ action: "sharedAction" as any });
+      // RN 0.88 types every Share result with `activityType`; the mock mirrors the
+      // real API instead of casting the shape away.
+      const shareSpy = jest.spyOn(Share, "share").mockResolvedValue({
+        action: "sharedAction" as any,
+        activityType: undefined,
+      });
 
       const testDate = new Date(2026, 8, 11);
       const result = await exportBackupFile({ now: testDate });
@@ -180,7 +185,10 @@ describe("export.service - Manual Data Export", () => {
 
     it("handles user cancellation in Share fallback cleanly", async () => {
       (Sharing.isAvailableAsync as jest.Mock).mockResolvedValue(false);
-      const shareSpy = jest.spyOn(Share, "share").mockResolvedValue({ action: "dismissedAction" as any });
+      const shareSpy = jest.spyOn(Share, "share").mockResolvedValue({
+        action: "dismissedAction" as any,
+        activityType: undefined,
+      });
 
       const result = await exportBackupFile();
 

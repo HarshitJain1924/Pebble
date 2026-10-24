@@ -15,7 +15,7 @@ This file is a compressed memory layer optimized for future AI sessions. It serv
 ---
 
 ## 1. Project Summary
-Pebble is a premium, local-first productivity app built on **Expo SDK 57 / React Native 0.86 / React 19.2** (New Architecture + React Compiler). It integrates daily task planning, habit consistency tracking, Pomodoro and stopwatch focus timers, localized reminders, a calendar/schedule planner, and a completely offline natural language capture engine. The visual experience is gamified through earning Pebbles and Gems, guided by a calm crow companion named **Cairn** (`docs/cairn_voice_guide.md`).
+Pebble is a premium, local-first productivity app built on **Expo SDK 58 / React Native 0.88 / React 19.3** (New Architecture + React Compiler). It integrates daily task planning, habit consistency tracking, Pomodoro and stopwatch focus timers, localized reminders, a calendar/schedule planner, and a completely offline natural language capture engine. The visual experience is gamified through earning Pebbles and Gems, guided by a calm crow companion named **Cairn** (`docs/cairn_voice_guide.md`).
 
 ---
 

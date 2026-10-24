@@ -4,7 +4,7 @@
 
 ## 1. Overview
 **Product Name:** Pebble  
-**Platform:** React Native (Expo SDK 57, React Native 0.86, React 19.2) - iOS, Android, Web  
+**Platform:** React Native (Expo SDK 58, React Native 0.88, React 19.3) - iOS, Android, Web  
 **Core Value Proposition:** A local-first, premium productivity suite combining daily task planning, habit tracking, focus timers (Pomodoro), localized alarms, and a fully offline-compatible **Pebble Capture Engine** without requiring a backend database or cloud AI APIs.
 
 ---
@@ -70,7 +70,7 @@ graph TD
 ---
 
 ## 5. Technical Stack & Non-Functional Requirements
-- **Framework:** Expo SDK 57, React Native 0.86, React 19.2 (New Architecture & React Compiler enabled), Expo Router with Typed Routes.
+- **Framework:** Expo SDK 58, React Native 0.88, React 19.3 (New Architecture & React Compiler enabled), Expo Router with Typed Routes.
 - **Core Libraries:** `chrono-node` (date/time parser) plus regex/pattern heuristics. (`compromise` remains listed in `package.json` but is no longer imported by any module — see the Smart Capture ADR.)
 - **Storage:** `@react-native-async-storage/async-storage` (100% offline local-first state).
 - **UI & Transitions:** `react-native-reanimated` (animations), `react-native-gesture-handler` (interactions), `expo-blur` (targeted translucency), `@gorhom/bottom-sheet` (bottom sheet modals).

@@ -8,6 +8,7 @@ import {
   Image,
   Alert,
   useWindowDimensions,
+  type ScrollViewInstance,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppText as Text } from "@/shared/components/ui/AppText";
@@ -777,7 +778,7 @@ export default function OnboardingScreen() {
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
   const router = useRouter();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const { width: windowWidth } = useWindowDimensions();
   
   const [activeIndex, setActiveIndex] = useState(0);

@@ -120,7 +120,7 @@ Follow this deterministic 7-step engineering sequence:
   * Repositories are pure data-access objects.
   * Mutex-protected Read-Modify-Write (RMW) operations must call `*Unlocked` repository primitives within command handlers to prevent re-entrant deadlocks.
   * Follow established lock ordering (`withLocks` / canonical lifecycle sequences in `docs/current_state.md`).
-* **Expo SDK Versioning**: This project runs Expo SDK 57 (React Native 0.86, React 19.2). Check versioned docs at https://docs.expo.dev/versions/v57.0.0/ when working with Expo APIs.
+* **Expo SDK Versioning**: This project runs Expo SDK 58 (React Native 0.88, React 19.3). Check versioned docs at https://docs.expo.dev/versions/v58.0.0/ when working with Expo APIs.
 
 ---
 

@@ -303,7 +303,8 @@ RadialOptionNode.displayName = "RadialOptionNode";
 
 export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
   state,
-  navigation,
+  // SDK 58 replaced the `navigation` prop with `navigateToTab(routeKey)`.
+  navigateToTab,
   onQuickAddPress,
 }) => {
   const insets = useSafeAreaInsets();
@@ -466,12 +467,12 @@ export const PebbleRadialTabBar: React.FC<PebbleRadialTabBarProps> = ({
       if (targetRoute) {
         const isCurrent = state.routes[state.index]?.name === selected.name;
         if (!isCurrent) {
-          navigation.navigate(selected.name);
+          navigateToTab(targetRoute.key);
         }
       }
       closeDial();
     },
-    [closeDial, navigation, onQuickAddPress, state.index, state.routes],
+    [closeDial, navigateToTab, onQuickAddPress, state.index, state.routes],
   );
 
   // PanResponder with tap-to-stick, hold-drag, and clean toggle close

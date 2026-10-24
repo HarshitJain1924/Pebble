@@ -97,7 +97,8 @@ export default function TabLayout() {
           options={{
             title: "Today",
             tabBarIcon: ({ color, size }) => (
-              <Feather name="home" size={size || 20} color={color} />
+              // RN 0.88 brands `ColorValue`; vector-icon fonts take the string form.
+              <Feather name="home" size={size || 20} color={color as string} />
             ),
           }}
         />
@@ -106,7 +107,7 @@ export default function TabLayout() {
           options={{
             title: "Workspaces",
             tabBarIcon: ({ color, size }) => (
-              <Feather name="folder" size={size || 20} color={color} />
+              <Feather name="folder" size={size || 20} color={color as string} />
             ),
           }}
         />
@@ -115,7 +116,7 @@ export default function TabLayout() {
           options={{
             title: "Schedule",
             tabBarIcon: ({ color, size }) => (
-              <Feather name="calendar" size={size || 20} color={color} />
+              <Feather name="calendar" size={size || 20} color={color as string} />
             ),
           }}
         />
@@ -124,7 +125,7 @@ export default function TabLayout() {
           options={{
             title: "Focus",
             tabBarIcon: ({ color, size }) => (
-              <Feather name="target" size={size || 20} color={color} />
+              <Feather name="target" size={size || 20} color={color as string} />
             ),
           }}
         />

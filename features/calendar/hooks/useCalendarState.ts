@@ -11,7 +11,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, ScrollView, View } from "react-native";
+import {
+  Dimensions,
+  ScrollView,
+  View,
+  type ScrollViewInstance,
+  type ViewInstance,
+} from "react-native";
 import { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
 import {
@@ -282,12 +288,13 @@ export function useCalendarState() {
   const dragLifecycleRef = useRef<DragLifecycleState>("idle");
   const touchStartRef = useRef({ x: 0, y: 0 });
   const grabOffsetYRef = useRef<number>(0);
-  const monthGridRef = useRef<View>(null);
-  const weekStripRef = useRef<View>(null);
-  const weekGridRef = useRef<View>(null);
-  const weekHorizontalScrollRef = useRef<ScrollView>(null);
-  const timelineGridRef = useRef<View>(null);
-  const scrollRef = useRef<ScrollView>(null);
+  // RN 0.88 Strict TypeScript API: refs hold the imperative INSTANCE type.
+  const monthGridRef = useRef<ViewInstance>(null);
+  const weekStripRef = useRef<ViewInstance>(null);
+  const weekGridRef = useRef<ViewInstance>(null);
+  const weekHorizontalScrollRef = useRef<ScrollViewInstance>(null);
+  const timelineGridRef = useRef<ViewInstance>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const scrollYRef = useRef(0);
   const hasScrolledRef = useRef(false);
 

@@ -1,5 +1,11 @@
 import React, { useMemo } from "react";
-import { View, Pressable, StyleSheet, ScrollView } from "react-native";
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  type ViewInstance,
+} from "react-native";
 import { Palette } from "@/shared/constants/theme";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -32,7 +38,7 @@ interface MonthOverviewViewProps {
   allChecklists: any[];
   onOpenItem: (item: any) => void;
   onPlanAtDate: (date: string) => void;
-  monthGridRef: React.RefObject<View | null>;
+  monthGridRef: React.RefObject<ViewInstance | null>;
   measureMonthGrid: () => void;
   colors: any;
   isLight: boolean;

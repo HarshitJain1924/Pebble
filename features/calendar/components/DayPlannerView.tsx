@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { Palette } from "@/shared/constants/theme";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, type ViewInstance } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { AllDaySection } from "./AllDaySection";
 import { TimelineGrid } from "./TimelineGrid";
@@ -13,7 +13,7 @@ import {
 } from "@/features/calendar/utils/timelineCollapsibleLayout";
 
 interface DayPlannerViewProps {
-  timelineGridRef: React.RefObject<View | null>;
+  timelineGridRef: React.RefObject<ViewInstance | null>;
   onLayoutTimeline: () => void;
   filteredAllDayItems: any[];
   filteredTimedItems: any[];

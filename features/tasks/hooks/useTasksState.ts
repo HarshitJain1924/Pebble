@@ -14,6 +14,8 @@ import {
   Platform,
   TextInput as RNTextInput,
   ScrollView,
+  type ScrollViewInstance,
+  type TextInputInstance,
 } from "react-native";
 
 import {
@@ -154,8 +156,9 @@ export function useTasksState() {
     deleteChecklistItem,
   } = useChecklistState(selectedWorkspaceId);
 
-  const scrollViewRef = useRef<ScrollView>(null);
-  const addTaskInputRef = useRef<RNTextInput>(null);
+  // RN 0.88 Strict TypeScript API: refs hold the imperative INSTANCE type.
+  const scrollViewRef = useRef<ScrollViewInstance>(null);
+  const addTaskInputRef = useRef<TextInputInstance>(null);
   const focusTodoId =
     typeof params.focusItemId === "string" && params.focusItemType === "todo"
       ? params.focusItemId

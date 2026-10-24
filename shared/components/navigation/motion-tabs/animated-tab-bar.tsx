@@ -53,7 +53,8 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
   (
     props: IAnimatedTabBarProps & ComponentProps<typeof AnimatedTabBar>,
   ): (ReactNode & ReactElement & JSX.Element) | null => {
-    const { descriptors, navigation, renderPopupBody, state } = props;
+    // SDK 58 replaced the tab bar `navigation` prop with `navigateToTab(routeKey)`.
+    const { descriptors, navigateToTab, renderPopupBody, state } = props;
     const insets = useSafeAreaInsets();
     const scheme = (useColorScheme() ?? "light") as "light" | "dark";
     const colors = useMemo<IPalette>(() => palette(scheme), [scheme]);
@@ -225,7 +226,12 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
 
       const isFocused = state.routes[state.index]?.name === item.routeName;
       if (!isFocused) {
-        navigation.navigate(item.routeName);
+        const targetRoute = state.routes.find(
+          (route) => route.name === item.routeName,
+        );
+        if (targetRoute) {
+          navigateToTab(targetRoute.key);
+        }
         transition.close();
       } else {
         transition.setNextView(item);

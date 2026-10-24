@@ -21,6 +21,27 @@ module.exports = defineConfig([
     ignores: ['dist/*', '.gemini/**'],
   },
   {
+    // Jest entry points run in Node with Jest's globals injected by the test
+    // runtime; they are not app code and are not covered by the Expo config.
+    files: ['jest.config.js', 'jest.setup.js'],
+    languageOptions: {
+      globals: {
+        jest: 'readonly',
+        describe: 'readonly',
+        it: 'readonly',
+        test: 'readonly',
+        expect: 'readonly',
+        beforeAll: 'readonly',
+        beforeEach: 'readonly',
+        afterAll: 'readonly',
+        afterEach: 'readonly',
+        require: 'readonly',
+        module: 'readonly',
+        process: 'readonly',
+      },
+    },
+  },
+  {
     // Themable surfaces — app routes, feature modules and shared UI.
     files: [
       'app/**/*.{js,jsx,ts,tsx}',
