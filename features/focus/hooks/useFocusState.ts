@@ -43,6 +43,19 @@ type PendingStopwatchSession = {
   durationSeconds: number;
 };
 
+/**
+ * Elapsed seconds for a running stopwatch.
+ *
+ * Kept at module scope so the "now" read lives outside the hook body (the
+ * React Compiler lint treats impure reads in a component/hook as render work).
+ */
+function stopwatchElapsedSeconds(
+  elapsedBeforeStart: number,
+  startTime: number,
+): number {
+  return elapsedBeforeStart + Math.floor((Date.now() - startTime) / 1000);
+}
+
 export function useFocusState() {
   // Core states
   const [sessionTime, setSessionTime] = useState(25 * 60); // 25 mins Pomodoro
@@ -811,10 +824,9 @@ export function useFocusState() {
       setSwLaps(sw.laps || []);
 
       if (sw.isRunning) {
-        const now = Date.now();
-        const elapsed =
-          sw.elapsedBeforeStart + Math.floor((now - sw.startTime) / 1000);
-        setSwTime(elapsed);
+        setSwTime(
+          stopwatchElapsedSeconds(sw.elapsedBeforeStart, sw.startTime),
+        );
         swStartTimeRef.current = sw.startTime;
       } else {
         setSwTime(sw.elapsedBeforeStart);

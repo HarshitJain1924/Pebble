@@ -229,3 +229,36 @@ Statuses used: **Confirmed violation** (an architectural invariant is broken), *
 - The lock hierarchy is consistently implemented: partition keys first, then `move_journal`, then `recycle_bin`; conversion takes `conversion_journal` first then partitions; backup restore uses explicit numeric priorities (`backup.service.ts:208-230`). No ABBA cycle was found in the traced paths, and every unlocked primitive (`*Unlocked`) is paired with a held lock.
 - Events are emitted after durable writes in all traced command handlers (exceptions: F4's partial batch and V2/V3's false success).
 - Reward-intent validators are domain-specific and tombstone-aware; the ledger cannot pay a deleted/recycled/uncompleted entity, and the daily cap is terminal (no backlog), as documented.
+
+---
+
+## F. Repair status
+
+> **Repair pass:** commit `650d5ae` · `migration/runtime-parity`. No application code was changed by this table; it records the verified outcome of the repairs against the findings above. Guarantees and per-finding evidence live in `docs/integrity_status.md` (CLOSED #25–#33).
+
+| Finding | Status | Where the fix is / why not |
+|---|---|---|
+| **V1** load-time reminder re-arm | **Fixed** | `useTasksState` persists ids through `TaskRepository.updateNotificationIds` (expected-state CAS) and cancels ids it scheduled when the CAS loses. No dedicated hook-level failure test — see CLOSED #32 gap. |
+| **V2** workspace archive/unarchive | **Fixed** | Both handlers run under `ws_lifecycle_<id>` with a fresh read, lifecycle guard, `revision + 1` and strict persistence; child reminders cancelled after commit. CLOSED #25. |
+| **V3** `reorderWorkspaces` false success | **Fixed** | `applyWorkspaceOrder(..., { throwOnError: true })`; `saveWorkspace(s)`/`applyWorkspaceOrder` are strict by default. CLOSED #25. |
+| **V4** command layer imports a hook module | **Fixed** | `computeTriggerEpoch` moved to `shared/utils/schedule-time.ts`; the hook re-exports it. CLOSED #32. |
+| **V5** divergent ownership predicate | **Fixed** | `clearRepositoryStorage` uses `isPebbleOwnedKey`; device-local prefs and onboarding survive a content reset. CLOSED #32. |
+| **V6** duplicate Recycle-Bin orchestrator | **Fixed** | Removed from `storage.service`; `RecycleBinCommandHandler.restoreItems` is the single orchestrator with per-item isolation and per-domain events. CLOSED #30. |
+| **V7** raw storage-key reads in profile | **Fixed** | Profile screens and `achievement-stats.service` use `getAllHistory()` / `FocusStatsRepository.getFocusStats()`. CLOSED #32. |
+| **V8** permanent delete decides pre-lock | **Fixed** | Bin item, package, metadata and partitions are read inside the locks. CLOSED #25. |
+| **F1** stopwatch reset can lose the session | **Fixed** | Durable `pending_stopwatch_session` record written before the UI/live state is cleared, cleared only after the command commits, retried idempotently. CLOSED #27. |
+| **F2** habit completion from another date mutates today | **Fixed** | Off-today affordance hidden and every caller guarded (the audit's smaller, behavior-preserving option). CLOSED #28. |
+| **F3** habit reschedule writes only Reminder | **Fixed** | Habits write `schedule` via `calculateRescheduledTask` in planner and week/month drags. CLOSED #28. |
+| **F4** task bulk operations not failure-isolated | **Fixed** | Per-item isolation + committed-subset return/emit + hook `try/catch` with a truthful toast. CLOSED #29. |
+| **F5** reward reversal outside the partition lock | **Fixed** | Reversal runs inside the partition lock immediately after the committed uncomplete/recycle write. CLOSED #26. |
+| **F6** silent failed UI mutations | **Fixed** | Task toggle, habit toggle and bulk handlers surface a toast instead of reverting/unhandling silently. CLOSED #28/#29. |
+| **F7** habit toggle uses `selectedWorkspaceId` | **Fixed** | Partition resolved from `habit.workspaceId`; `null` result no longer silently swallowed. CLOSED #28. |
+| **F8** workspace undo hardcodes `rb-<id>` | **Fixed** | The modal passes the entity id and the command resolves the live bin entry. CLOSED #30. |
+| **P1** startup recovery not step-isolated | **Fixed** | Every step settled independently (ordering preserved) and routing decoupled from recovery success. CLOSED #31. |
+| **P2** incremental focus minutes unawaited | **Fixed** | Credit awaited and serialized; checkpoint advances only after commit; marker written after the credit settles. CLOSED #27. |
+| **P3** GraphRepository cache | **Deferred by design** | Single-runtime paths all `resetCache`; the risk requires a second writer. Documented in OPEN #3. |
+| **P4** fire-and-forget reminder cancel in `updateTask` | **Fixed** | Cancellation is awaited with contained failure, matching `completeTask`. |
+| **P5** tolerant `saveWorkspace(s)` default | **Fixed** | Strict by default with an explicit `tolerateFailure: true` opt-out. CLOSED #25. |
+| **P6** workspace restore emits no child events | **Fixed** | Restore emits one event per domain that actually changed. CLOSED #30. |
+| **P7** `completedToday` never resets | **Fixed** | Daily counter carries `completedTodayDate`; a stale day reports 0 and is reset on the next credit. CLOSED #33. |
+| **P8** unlocked daily-history RMW | **Fixed** | Read and write run under the `pebble:v1:history` lock. CLOSED #33. |
