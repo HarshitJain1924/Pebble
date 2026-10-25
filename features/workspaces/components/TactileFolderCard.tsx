@@ -84,7 +84,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
     if (checklistCount > 0) {
       list.push({
         key: "checklists",
-        label: checklistCount === 1 ? "Checklist" : "Checklists",
+        label: checklistCount === 1 ? "List" : "Lists",
         count: checklistCount,
         icon: "list",
         color: Palette.emerald500,
@@ -93,7 +93,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
     if (resourceCount > 0) {
       list.push({
         key: "resources",
-        label: resourceCount === 1 ? "Resource" : "Resources",
+        label: "Res.",
         count: resourceCount,
         icon: "paperclip",
         color: Palette.violet500,
@@ -227,15 +227,13 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
                     },
                   ]}
                 >
-                  <Feather name={item.icon} size={10} color={item.color} />
+                  <Feather name={item.icon} size={9} color={item.color} />
                   <Text
                     style={[
                       styles.inventoryChipText,
                       { color: isDark ? "rgba(255,255,255,0.9)" : Palette.slate700 },
                     ]}
                     numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.75}
                   >
                     {item.count} {item.label}
                   </Text>
@@ -427,21 +425,23 @@ const styles = StyleSheet.create({
   inventoryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 4,
+    columnGap: 4,
+    rowGap: 5,
     justifyContent: "space-between",
   },
   inventoryChip: {
-    width: "48.5%",
+    width: "48%",
+    minHeight: 21,
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    paddingHorizontal: 4.5,
-    paddingVertical: 3.5,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
   },
   inventoryChipText: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: "600",
     flex: 1,
   },
