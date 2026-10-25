@@ -24,6 +24,10 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { AVATAR_MAP } from "./RenderAvatar";
+import { PebbleStageVisuals } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
+import { calculateVisiblePebbleCount } from "@/shared/utils/pebble-milestones";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 
 const isWeb = Platform.OS === "web";
 const AnimatedG = Animated.createAnimatedComponent(G) as any;
@@ -53,8 +57,16 @@ const pebbleLegendary2 = require("@/assets/images/jar_pebbles/pebble_legendary_2
 export function FloatingNode({ delay, color }: { delay: number; color: string }) {
   const translateY = useSharedValue(0);
   const opacity = useSharedValue(0.3);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Floating fireflies are ambient decoration — hold them still (mid opacity)
+    // when reduce-motion is on.
+    if (reducedMotion) {
+      translateY.value = 0;
+      opacity.value = 0.5;
+      return;
+    }
     translateY.value = withRepeat(
       withSequence(
         withTiming(-8, { duration: 1500 + delay }),
@@ -71,7 +83,7 @@ export function FloatingNode({ delay, color }: { delay: number; color: string })
       -1,
       true,
     );
-  }, [delay, translateY, opacity]);
+  }, [delay, translateY, opacity, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -87,20 +99,9 @@ export function FloatingNode({ delay, color }: { delay: number; color: string })
   );
 }
 
-export const PEBBLE_THRESHOLDS = [
-  // Stage 1 (0-10): 10 pebbles
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-  // Stage 2 (11-25): 15 pebbles
-  11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-  // Stage 3 (26-50): 15 pebbles
-  26, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 46, 48, 49, 50,
-  // Stage 4 (51-100): 10 pebbles
-  52, 55, 60, 65, 70, 75, 80, 85, 90, 100,
-];
-
 // Predefined coordinates for pebbles inside the jar (fits within x:32 to 88, y:25 to 94)
 export const PEBBLE_POSITIONS = [
-  // --- Stage 1: Base Row/Bottom layer (1 to 10) ---
+  // --- Layer 1: Base Row / Bottom pile (slots 0 to 9) ---
   { cx: 60, cy: 90, rx: 6, ry: 4, rot: 15 },
   { cx: 50, cy: 89, rx: 5.5, ry: 3.8, rot: -20 },
   { cx: 70, cy: 89, rx: 5.8, ry: 4, rot: 10 },
@@ -112,7 +113,7 @@ export const PEBBLE_POSITIONS = [
   { cx: 36, cy: 80, rx: 4.8, ry: 3.5, rot: 35 },
   { cx: 84, cy: 80, rx: 4.8, ry: 3.5, rot: -35 },
 
-  // --- Stage 2: Layer 2 (11 to 25) ---
+  // --- Layer 2: Lower-mid pile (slots 10 to 24) ---
   { cx: 60, cy: 78, rx: 6, ry: 4, rot: -10 },
   { cx: 45, cy: 77, rx: 5.5, ry: 3.8, rot: 30 },
   { cx: 75, cy: 77, rx: 5.8, ry: 4, rot: -25 },
@@ -129,7 +130,7 @@ export const PEBBLE_POSITIONS = [
   { cx: 63, cy: 65, rx: 5.2, ry: 3.8, rot: -12 },
   { cx: 50, cy: 61, rx: 5, ry: 3.6, rot: -25 },
 
-  // --- Stage 3: Layer 3 (26 to 50) ---
+  // --- Layer 3: Upper-mid pile (slots 25 to 39) ---
   { cx: 70, cy: 61, rx: 5.2, ry: 3.6, rot: 25 },
   { cx: 36, cy: 58, rx: 4.6, ry: 3.4, rot: 45 },
   { cx: 84, cy: 58, rx: 4.6, ry: 3.4, rot: -45 },
@@ -146,7 +147,7 @@ export const PEBBLE_POSITIONS = [
   { cx: 55, cy: 41, rx: 4.8, ry: 3.5, rot: 15 },
   { cx: 65, cy: 41, rx: 4.8, ry: 3.5, rot: -15 },
 
-  // --- Stage 4: Layer 4 (51 to 100) ---
+  // --- Layer 4: Top pile crest (slots 40 to 49) ---
   { cx: 40, cy: 38, rx: 4.6, ry: 3.4, rot: -30 },
   { cx: 80, cy: 38, rx: 4.6, ry: 3.4, rot: 30 },
   { cx: 60, cy: 36, rx: 5.4, ry: 3.6, rot: 5 },
@@ -171,9 +172,12 @@ export interface PebbleJarProps {
   crowX: SharedValue<number>;
   crowY: SharedValue<number>;
   crowOpacity: SharedValue<number>;
-  crowStage: "beginner" | "advanced" | "power";
-  monthlyTypes?: { task: number; habit: number; focus: number };
-  fallingPebbleType?: "task" | "habit" | "focus";
+  crowStage?: "beginner" | "advanced" | "power";
+  /** Lifetime Pebble types distribution for color styling. */
+  pebbleTypes?: { task: number; habit: number; focus: number; checklist: number };
+  /** @deprecated Use pebbleTypes instead */
+  monthlyTypes?: { task: number; habit: number; focus: number; checklist: number };
+  fallingPebbleType?: "task" | "habit" | "focus" | "checklist";
   profileAvatar?: string;
 }
 
@@ -190,16 +194,27 @@ export function PebbleJar({
   crowY,
   crowOpacity,
   crowStage,
+  pebbleTypes,
   monthlyTypes,
   fallingPebbleType,
   profileAvatar,
 }: PebbleJarProps) {
+  const resolvedPebbleTypes = pebbleTypes ?? monthlyTypes;
   const isMasterStage = totalPebbles >= 500;
+  const isLight = colorScheme === "light";
+  const stage = PebbleStageVisuals;
+  const stageKey = isMasterStage ? "master" : "ocean";
+  const jarGlass = isLight ? stage.jarGlassBack.light : stage.jarGlassBack.dark;
+  const staticStops = isLight ? stage.staticPebble.light : stage.staticPebble.dark;
+  const shinyStops = isLight ? stage.shinyPebble.light : stage.shinyPebble.dark;
+  const liquidStops = stage.liquid[stageKey];
+  const submergedStops = stage.submergedTint[stageKey];
+  const surfaceStops = stage.surfaceHighlight[stageKey];
   const jarColor = isMasterStage
     ? colors.warning
-    : colorScheme === "light"
-      ? "#312E81"
-      : "#A5B4FC";
+    : isLight
+      ? stage.jarStroke.light
+      : stage.jarStroke.dark;
   const jarStrokeOpacity = colorScheme === "light" ? 0.25 : 0.45;
   const twigColor =
     colorScheme === "light" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.12)";
@@ -208,8 +223,17 @@ export function PebbleJar({
   const crowIdleY = useSharedValue(0);
   const crowIdleRot = useSharedValue(0);
   const crowIdleWingScale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Idle crow bob/rotation is ambient decoration — park it at rest when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      crowIdleY.value = 0;
+      crowIdleRot.value = 0;
+      crowIdleWingScale.value = 1;
+      return;
+    }
     crowIdleY.value = withRepeat(
       withSequence(
         withTiming(-1.5, { duration: 2200 }),
@@ -234,12 +258,48 @@ export function PebbleJar({
       -1,
       true,
     );
-  }, []);
+  }, [reducedMotion]);
+
+  // Calm ambient water surface breathing and horizontal wave sway
+  const waveY = useSharedValue(0);
+  const waveSway = useSharedValue(0);
+
+  useEffect(() => {
+    // Decorative water surface motion — hold the surface still when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      waveY.value = 0;
+      waveSway.value = 0;
+      return;
+    }
+    waveY.value = withRepeat(
+      withSequence(
+        withTiming(1.2, { duration: 2200 }),
+        withTiming(-1.2, { duration: 2200 }),
+      ),
+      -1,
+      true,
+    );
+    waveSway.value = withRepeat(
+      withSequence(
+        withTiming(2.5, { duration: 3000 }),
+        withTiming(-2.5, { duration: 3000 }),
+      ),
+      -1,
+      true,
+    );
+  }, [waveY, waveSway, reducedMotion]);
 
   const animatedFillStyle = useAnimatedStyle(() => {
-    const translateY = 315 - fillPctValue.value * 130;
+    const baseTranslateY = 315 - fillPctValue.value * 130;
     return {
-      transform: [{ translateY }],
+      transform: [{ translateY: baseTranslateY + waveY.value }],
+    };
+  });
+
+  const animatedWaveSwayStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: waveSway.value }],
     };
   });
 
@@ -330,12 +390,13 @@ export function PebbleJar({
     return x - Math.floor(x);
   };
 
-  const pebbleTypesList: ("task" | "habit" | "focus")[] = [];
-  if (monthlyTypes) {
-    const { task = 0, habit = 0, focus = 0 } = monthlyTypes;
+  const pebbleTypesList: ("task" | "habit" | "focus" | "checklist")[] = [];
+  if (resolvedPebbleTypes) {
+    const { task = 0, habit = 0, focus = 0, checklist = 0 } = resolvedPebbleTypes;
     for (let i = 0; i < task; i++) pebbleTypesList.push("task");
     for (let i = 0; i < habit; i++) pebbleTypesList.push("habit");
     for (let i = 0; i < focus; i++) pebbleTypesList.push("focus");
+    for (let i = 0; i < checklist; i++) pebbleTypesList.push("checklist");
   }
 
   const shuffledTypes = [...pebbleTypesList];
@@ -379,7 +440,7 @@ export function PebbleJar({
           <View style={{ position: "absolute", top: 35, left: 120 }}>
             <FloatingNode
               delay={400}
-              color={colorScheme === "light" ? "#000" : "#fff"}
+              color={colorScheme === "light" ? Palette.black : Palette.white}
             />
           </View>
           <View style={{ position: "absolute", top: 20, left: 240 }}>
@@ -406,31 +467,80 @@ export function PebbleJar({
           <LinearGradient id="jarGlassBack" x1="0%" x2="100%" y1="0%" y2="100%">
             <Stop
               offset="0%"
-              stopColor={colorScheme === "light" ? "#818CF8" : "#312E81"}
+              stopColor={jarGlass.top}
               stopOpacity={colorScheme === "light" ? 0.15 : 0.4}
             />
             <Stop
               offset="100%"
-              stopColor={colorScheme === "light" ? "#EEF2F6" : "#1E1B4B"}
+              stopColor={jarGlass.bottom}
               stopOpacity={colorScheme === "light" ? 0.05 : 0.2}
             />
           </LinearGradient>
 
-          {/* Liquid Fill Gradient */}
+          {/* Liquid Fill Gradient (Body behind pebbles) */}
           <LinearGradient id="liquidGrad" x1="0%" x2="0%" y1="0%" y2="100%">
-            <Stop offset="0%" stopColor="#0EA5E9" stopOpacity={0.65} />
-            <Stop offset="100%" stopColor="#38BDF8" stopOpacity={0.2} />
+            <Stop
+              offset="0%"
+              stopColor={liquidStops[0]}
+              stopOpacity={0.65}
+            />
+            <Stop
+              offset="50%"
+              stopColor={liquidStops[1]}
+              stopOpacity={0.45}
+            />
+            <Stop
+              offset="100%"
+              stopColor={liquidStops[2]}
+              stopOpacity={0.25}
+            />
+          </LinearGradient>
+
+          {/* Submerged Liquid Depth Tint (Covers submerged pebble layer) */}
+          <LinearGradient id="submergedTintGrad" x1="0%" x2="0%" y1="0%" y2="100%">
+            <Stop
+              offset="0%"
+              stopColor={submergedStops[0]}
+              stopOpacity={0.28}
+            />
+            <Stop
+              offset="30%"
+              stopColor={submergedStops[1]}
+              stopOpacity={0.38}
+            />
+            <Stop
+              offset="100%"
+              stopColor={submergedStops[2]}
+              stopOpacity={0.52}
+            />
+          </LinearGradient>
+
+          {/* Water Surface Meniscus Highlight */}
+          <LinearGradient id="surfaceHighlightGrad" x1="0%" x2="100%" y1="0%" y2="0%">
+            <Stop offset="0%" stopColor={stage.highlight} stopOpacity={0.3} />
+            <Stop
+              offset="25%"
+              stopColor={surfaceStops[0]}
+              stopOpacity={0.9}
+            />
+            <Stop offset="50%" stopColor={stage.highlight} stopOpacity={1.0} />
+            <Stop
+              offset="75%"
+              stopColor={surfaceStops[1]}
+              stopOpacity={0.9}
+            />
+            <Stop offset="100%" stopColor={stage.highlight} stopOpacity={0.3} />
           </LinearGradient>
 
           {/* Glowing Falling Pebble Gradient */}
           <RadialGradient id="pebbleGrad" cx="30%" cy="30%" r="70%">
             <Stop
               offset="0%"
-              stopColor={isMasterStage ? "#FFE082" : colors.primaryLight}
+              stopColor={isMasterStage ? stage.pebbleGlowMaster : colors.primaryLight}
             />
             <Stop
               offset="100%"
-              stopColor={isMasterStage ? "#D97706" : colors.primary}
+              stopColor={isMasterStage ? stage.pebbleGlowMasterEdge : colors.primary}
             />
           </RadialGradient>
 
@@ -438,15 +548,15 @@ export function PebbleJar({
           <RadialGradient id="staticPebbleGrad" cx="35%" cy="35%" r="65%">
             <Stop
               offset="0%"
-              stopColor={colorScheme === "light" ? "#C7D2FE" : "#818CF8"}
+              stopColor={staticStops[0]}
             />
             <Stop
               offset="70%"
-              stopColor={colorScheme === "light" ? "#6366F1" : "#4F46E5"}
+              stopColor={staticStops[1]}
             />
             <Stop
               offset="100%"
-              stopColor={colorScheme === "light" ? "#312E81" : "#1E1B4B"}
+              stopColor={staticStops[2]}
             />
           </RadialGradient>
 
@@ -454,23 +564,23 @@ export function PebbleJar({
           <RadialGradient id="shinyPebbleGrad" cx="30%" cy="30%" r="70%">
             <Stop
               offset="0%"
-              stopColor={colorScheme === "light" ? "#EEF2F6" : "#C084FC"}
+              stopColor={shinyStops[0]}
             />
             <Stop
               offset="60%"
-              stopColor={colorScheme === "light" ? "#818CF8" : "#7C3AED"}
+              stopColor={shinyStops[1]}
             />
             <Stop
               offset="100%"
-              stopColor={colorScheme === "light" ? "#4C1D95" : "#2E1065"}
+              stopColor={shinyStops[2]}
             />
           </RadialGradient>
 
           {/* Golden/Legendary Pebbles Gradient */}
           <RadialGradient id="goldPebbleGrad" cx="30%" cy="30%" r="70%">
-            <Stop offset="0%" stopColor="#FDE047" />
-            <Stop offset="45%" stopColor="#EC4899" />
-            <Stop offset="100%" stopColor="#4C1D95" />
+            <Stop offset="0%" stopColor={stage.legendary[0]} />
+            <Stop offset="45%" stopColor={stage.legendary[1]} />
+            <Stop offset="100%" stopColor={stage.legendary[2]} />
           </RadialGradient>
 
           {/* Jar ClipPath (Narrowed to fit the interior cavity of the generated jar PNG) */}
@@ -525,58 +635,29 @@ export function PebbleJar({
           opacity={colorScheme === "light" ? 0.85 : 0.95}
         />
 
-        {/* Jar Liquid Fill (Clipped & Animated) */}
+        {/* Deep Water Body Fill behind pebbles (Clipped & Animated) */}
         <G clipPath="url(#jarClip)">
           <AnimatedG style={animatedFillStyle}>
             <Rect
-              x={150}
+              x={146}
               y={0}
-              width={100}
-              height={150}
+              width={108}
+              height={160}
               fill="url(#liquidGrad)"
             />
           </AnimatedG>
         </G>
 
-        {/* Falling Pebble (Raster PNG) */}
-        <AnimatedG style={animatedPebbleStyle}>
-          <G transform="rotate(10)">
-            <SvgImage
-              href={pebbleRegular1}
-              x={-9.5}
-              y={-6.5}
-              width={19}
-              height={13}
-            />
-            {fallingPebbleType && (
-              <Ellipse
-                cx={0}
-                cy={0}
-                rx={9.5}
-                ry={6.5}
-                fill={
-                  fallingPebbleType === "focus"
-                    ? "#10B981"
-                    : fallingPebbleType === "habit"
-                      ? "#F59E0B"
-                      : "#6366F1"
-                }
-                opacity={0.35}
-              />
-            )}
-          </G>
-        </AnimatedG>
-
-        {/* Predefined Pebbles rendered dynamically (Raster PNGs) */}
+        {/* Static Pebbles rendered dynamically inside jar cavity */}
         <G clipPath="url(#jarClip)">
           {convertedPebbles.map((pos, index) => {
-            const threshold = PEBBLE_THRESHOLDS[index] ?? 1000;
-            if (totalPebbles < threshold) return null;
+            const visibleCount = calculateVisiblePebbleCount(totalPebbles);
+            if (index >= visibleCount) return null;
 
             const isLegendary = totalPebbles >= 500;
             const isShiny = !isLegendary && (
-              (totalPebbles >= 251 && index >= 20) ||
-              (totalPebbles >= 101 && index >= 35)
+              (totalPebbles >= 250 && index >= 20) ||
+              (totalPebbles >= 100 && index >= 28)
             );
 
             // Alternate variant PNG assets to create a natural, varied pile
@@ -588,12 +669,7 @@ export function PebbleJar({
                 : (isAlt ? pebbleRegular2 : pebbleRegular1);
 
             const pType = getPebbleTypeAtIndex(index);
-            const overlayColor =
-              pType === "focus"
-                ? "#10B981"
-                : pType === "habit"
-                  ? "#F59E0B"
-                  : "#6366F1";
+            const overlayColor = stage.overlay[pType];
 
             return (
               <G
@@ -621,6 +697,67 @@ export function PebbleJar({
             );
           })}
         </G>
+
+        {/* Submerged Liquid Depth Tint (Renders translucent water depth over submerged stones) */}
+        <G clipPath="url(#jarClip)">
+          <AnimatedG style={animatedFillStyle}>
+            <Rect
+              x={146}
+              y={0}
+              width={108}
+              height={160}
+              fill="url(#submergedTintGrad)"
+            />
+          </AnimatedG>
+        </G>
+
+        {/* Water Surface Meniscus & Wave Highlight at the waterline */}
+        <G clipPath="url(#jarClip)">
+          <AnimatedG style={animatedFillStyle}>
+            <AnimatedG style={animatedWaveSwayStyle}>
+              {/* Soft ambient surface glow */}
+              <Path
+                d="M 144,-1 Q 174,2 200,-0.5 Q 226,-2 256,-1"
+                stroke={isMasterStage ? stage.meniscus.master : stage.meniscus.ocean}
+                strokeWidth={5}
+                fill="none"
+                opacity={0.4}
+              />
+              {/* Sharp crisp meniscus highlight */}
+              <Path
+                d="M 144,-1 Q 174,2 200,-0.5 Q 226,-2 256,-1"
+                stroke="url(#surfaceHighlightGrad)"
+                strokeWidth={2}
+                fill="none"
+                strokeLinecap="round"
+                opacity={0.9}
+              />
+            </AnimatedG>
+          </AnimatedG>
+        </G>
+
+        {/* Falling Pebble when reward mode is active */}
+        <AnimatedG style={animatedPebbleStyle}>
+          <G transform="rotate(10)">
+            <SvgImage
+              href={pebbleRegular1}
+              x={-9.5}
+              y={-6.5}
+              width={19}
+              height={13}
+            />
+            {fallingPebbleType && (
+              <Ellipse
+                cx={0}
+                cy={0}
+                rx={9.5}
+                ry={6.5}
+                fill={stage.overlay[fallingPebbleType]}
+                opacity={0.35}
+              />
+            )}
+          </G>
+        </AnimatedG>
 
         {/* Floating Sparks for stage 7 (500+ pebbles) */}
         {isMasterStage && (
@@ -683,8 +820,15 @@ export function CrowMascot({
   size = 100,
 }: CrowMascotProps) {
   const breathing = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Mascot idle breathing is ambient decoration — hold at rest when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      breathing.value = 0;
+      return;
+    }
     breathing.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 2000 }),
@@ -693,7 +837,7 @@ export function CrowMascot({
       -1,
       true,
     );
-  }, []);
+  }, [reducedMotion]);
 
   const scale = size / 50;
 
@@ -732,8 +876,15 @@ export function CrowMascot({
 
 export function CrowStreakMascot({ size = 100 }: { size?: number }) {
   const breathing = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Mascot idle breathing is ambient decoration — hold at rest when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      breathing.value = 0;
+      return;
+    }
     breathing.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 2000 }),
@@ -742,7 +893,7 @@ export function CrowStreakMascot({ size = 100 }: { size?: number }) {
       -1,
       true,
     );
-  }, []);
+  }, [reducedMotion]);
 
   const scale = size / 50;
 

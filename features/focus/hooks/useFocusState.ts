@@ -1,16 +1,60 @@
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { getTodayDateKey, parseDateKey } from "@/shared/utils/date-key";
+import {
+  addStateListener,
+  emitStateChange,
+} from "@/services/events/state-events";
 import { AMBIENT_SOUNDS } from "@/shared/constants/sounds";
-import { earnPebble } from "@/features/profile/services/pebble.service";
-import { emitStateChange, addStateListener } from "@/services/events/state-events";
 
+import {
+  FocusStatsRepository,
+  GraphRepository,
+  HabitRepository,
+  TaskRepository,
+  WorkspaceRepository,
+} from "@/repositories";
 import { syncWidgetData } from "@/services/analytics/widget-data.service";
+import {
+  isTaskCompleted
+} from "@/shared/utils/domain-selectors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, AppStateStatus } from "react-native";
-import { GraphRepository, WorkspaceRepository, TaskRepository, HabitRepository } from "@/repositories";
-import { DomainEventBus } from "@/services/events/domain-events";
-import { DEFAULT_WORKSPACE_ID } from "@/shared/types/repository.types";
+import { getRecycleBinItems, saveRecycleBinItems } from "@/services/storage/storage.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
+
+/**
+ * Durable recovery record for a finished stopwatch session.
+ *
+ * Written BEFORE `todoapp:focus:current_stopwatch` is cleared. Once that live
+ * record is gone the elapsed time exists only in React state, so a rejected
+ * `recordFocusSession` would lose the session outright (F1). The record carries
+ * the same stable `focus_sw_<start>` id the command is idempotent on, so a
+ * retry after a crash or a failed write converges on exactly one session.
+ */
+const PENDING_STOPWATCH_KEY = "todoapp:focus:pending_stopwatch_session";
+
+type PendingStopwatchSession = {
+  sessionId: string;
+  startedAt: number;
+  endedAt: number;
+  durationSeconds: number;
+};
+
+/**
+ * Elapsed seconds for a running stopwatch.
+ *
+ * Kept at module scope so the "now" read lives outside the hook body (the
+ * React Compiler lint treats impure reads in a component/hook as render work).
+ */
+function stopwatchElapsedSeconds(
+  elapsedBeforeStart: number,
+  startTime: number,
+): number {
+  return elapsedBeforeStart + Math.floor((Date.now() - startTime) / 1000);
+}
 
 export function useFocusState() {
   // Core states
@@ -64,6 +108,8 @@ export function useFocusState() {
   const soundRef = useRef<any>(null);
   const loadedSoundIdRef = useRef<string | null>(null);
   const isDraggingProgressRef = useRef<boolean>(false);
+  /** Guards against two triggers completing the same timer session at once. */
+  const completingSessionIdRef = useRef<string | null>(null);
 
   const startTimeRef = useRef<number>(0);
   const elapsedBeforeStartRef = useRef<number>(0);
@@ -77,34 +123,27 @@ export function useFocusState() {
   const loadActiveTasks = async () => {
     try {
       const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
-      
+      const folderIds = Array.from(
+        new Set([INBOX_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
+      );
+
       const incomplete: any[] = [];
       const allHabits: any[] = [];
-      const todayStr = new Date().toISOString().split("T")[0];
 
       for (const fId of folderIds) {
         // Load tasks
         const tasksMap = await TaskRepository.getTasks(fId);
         Object.values(tasksMap).forEach((t) => {
-          if (!t.completed && !t.archived) {
-            incomplete.push({
-              ...t,
-              folderId: fId,
-              scheduledDate: t.scheduledDate || t.dueDate,
-            });
+          if (!isTaskCompleted(t) && !t.archivedAt) {
+            incomplete.push(t);
           }
         });
 
         // Load habits
         const habitsMap = await HabitRepository.getHabits(fId);
         Object.values(habitsMap).forEach((h) => {
-          if (!h.archived) {
-            allHabits.push({
-              ...h,
-              folderId: fId,
-              completedToday: h.completedDates?.includes(todayStr) || false,
-            });
+          if (!h.archivedAt) {
+            allHabits.push(h);
           }
         });
       }
@@ -265,32 +304,35 @@ export function useFocusState() {
           setIsRepeat(val === "true");
         }
       });
-      GraphRepository.getFocusSessions().then((sessions) => {
-        const today = new Date().toDateString();
-        const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt).toDateString() === today
-        );
-        const finishedToday = todaySessions.length;
-        const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
-          0
-        );
-        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
-        const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
-          0
-        );
+      GraphRepository.getFocusSessions()
+        .then((sessions) => {
+          const today = new Date().toDateString();
+          const todaySessions = sessions.filter(
+            (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
+          );
+          const finishedToday = todaySessions.length;
+          const totalTime = todaySessions.reduce(
+            (acc, s) => acc + Math.floor(s.duration / 60),
+            0,
+          );
+          const avg =
+            finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+          const longest = todaySessions.reduce(
+            (max, s) => Math.max(max, Math.floor(s.duration / 60)),
+            0,
+          );
 
-        setCompletedToday(finishedToday);
-        setTotalFocusTime(totalTime);
-        setAverageSessionLength(avg);
-        setLongestSession(longest);
-      }).catch(() => {
-        setCompletedToday(0);
-        setTotalFocusTime(0);
-        setAverageSessionLength(0);
-        setLongestSession(0);
-      });
+          setCompletedToday(finishedToday);
+          setTotalFocusTime(totalTime);
+          setAverageSessionLength(avg);
+          setLongestSession(longest);
+        })
+        .catch(() => {
+          setCompletedToday(0);
+          setTotalFocusTime(0);
+          setAverageSessionLength(0);
+          setLongestSession(0);
+        });
       AsyncStorage.getItem("todoapp:focus:glow_enabled").then((val) => {
         if (val !== null) {
           setGlowEnabled(val === "true");
@@ -317,7 +359,7 @@ export function useFocusState() {
 
   // AppState listening for background/kill resilience
   useEffect(() => {
-    const handleAppStateChange = (nextState: AppStateStatus) => {
+    const handleAppStateChange = async (nextState: AppStateStatus) => {
       setAppState(nextState);
       if (nextState === "active") {
         syncTimerFromSessionState();
@@ -327,8 +369,10 @@ export function useFocusState() {
           const elapsed =
             elapsedBeforeStartRef.current +
             Math.floor((Date.now() - startTimeRef.current) / 1000);
-          logPartialMinutes(elapsed);
-          saveActiveSession(
+          // Persist the marker AFTER the credit settles so `loggedMinutes` it
+          // records matches what was actually credited.
+          await logPartialMinutes(elapsed);
+          await saveActiveSession(
             pomodoroMode,
             startTimeRef.current,
             totalSessionTime,
@@ -505,8 +549,8 @@ export function useFocusState() {
       const remaining = Math.max(0, totalSessionTimeRef.current - elapsed);
       setSessionTime(remaining);
 
-      // Log partial minutes in real-time
-      logPartialMinutes(elapsed);
+      // Log partial minutes in real-time (serialized inside the helper)
+      void logPartialMinutes(elapsed);
 
       if (soundRef.current) {
         if (!isDraggingProgressRef.current) {
@@ -582,6 +626,54 @@ export function useFocusState() {
     } catch {}
   };
 
+  /**
+   * Durable timer completion (single path for expiry and recovery).
+   *
+   * Ordering invariant: the active-session recovery record is released ONLY after
+   * the command durably commits the session. If persistence fails the record
+   * survives, so the next foreground/recovery pass retries the same stable
+   * session id — the command layer is idempotent for that id, so a retry can
+   * neither duplicate the session nor credit it twice.
+   */
+  const completeTimerSession = async (session: {
+    startTime: number;
+    duration: number;
+    focusedTaskId?: string | null;
+    loggedMinutes?: number;
+  }): Promise<boolean> => {
+    const sessionId = `focus_timer_${session.startTime}`;
+    if (completingSessionIdRef.current === sessionId) return false;
+    completingSessionIdRef.current = sessionId;
+
+    try {
+      const isHabit = habitList.some((h) => h.id === session.focusedTaskId);
+      await EntityCommandService.recordFocusSession(
+        session.duration,
+        session.focusedTaskId || undefined,
+        isHabit ? "habit" : "task",
+        {
+          sessionId,
+          startedAt: session.startTime,
+          endedAt: Date.now(),
+          loggedMinutes: Math.max(0, Math.floor(session.loggedMinutes ?? 0)),
+        },
+      );
+
+      // Durable commit point reached — release the recovery record now.
+      await clearActiveSession();
+      await refreshFocusStats();
+      return true;
+    } catch (e) {
+      console.warn(
+        "Failed to persist focus session; keeping the recovery record for retry:",
+        e,
+      );
+      return false;
+    } finally {
+      completingSessionIdRef.current = null;
+    }
+  };
+
   const syncTimerFromSessionState = async () => {
     try {
       const raw = await AsyncStorage.getItem("todoapp:focus:current_session");
@@ -616,19 +708,20 @@ export function useFocusState() {
         setIsActive(false);
         setSessionTime(0);
         elapsedBeforeStartRef.current = 0;
-        await clearActiveSession();
 
         if (session.type === "work") {
-          const totalMinutes = Math.floor(duration / 60);
-          const logged = loggedMinutesInCurrentSessionRef.current;
-          const remainingMinutes = Math.max(0, totalMinutes - logged);
-          if (remainingMinutes > 0) {
-            await creditFocusTime(remainingMinutes);
+          const committed = await completeTimerSession({
+            startTime: session.startTime,
+            duration,
+            focusedTaskId: session.focusedTaskId ?? null,
+            loggedMinutes: session.loggedMinutes || 0,
+          });
+          if (committed) {
+            AlertFinishWork(session.focusedTaskId);
           }
-          void earnPebble("focus");
-          await incrementCompletedSessions();
-          AlertFinishWork(session.focusedTaskId);
         } else {
+          // Break windows own no durable record; releasing the marker is safe.
+          await clearActiveSession();
           AlertFinishBreak();
         }
       } else {
@@ -668,7 +761,58 @@ export function useFocusState() {
     } catch {}
   };
 
+  /**
+   * Retry a finished stopwatch session whose record was interrupted.
+   *
+   * Safe to call from every sync trigger (mount, foreground, focus_changed):
+   * `recordFocusSession` is idempotent on the stable session id, so concurrent
+   * or repeated flushes converge on one session record, one stats credit, one
+   * relationship and one Pebble. A corrupt/unreadable marker is dropped rather
+   * than blocking the UI forever.
+   */
+  const flushPendingStopwatchSession = async (): Promise<void> => {
+    try {
+      const raw = await AsyncStorage.getItem(PENDING_STOPWATCH_KEY);
+      if (!raw) return;
+
+      let pending: PendingStopwatchSession | null = null;
+      try {
+        pending = JSON.parse(raw);
+      } catch {
+        pending = null;
+      }
+      if (
+        !pending ||
+        typeof pending.sessionId !== "string" ||
+        !Number.isFinite(pending.durationSeconds) ||
+        pending.durationSeconds < 10
+      ) {
+        await AsyncStorage.removeItem(PENDING_STOPWATCH_KEY);
+        return;
+      }
+
+      await EntityCommandService.recordFocusSession(
+        pending.durationSeconds,
+        undefined,
+        undefined,
+        {
+          sessionId: pending.sessionId,
+          startedAt: pending.startedAt,
+          endedAt: pending.endedAt,
+        },
+      );
+
+      // Durable commit point reached: release the recovery record.
+      await AsyncStorage.removeItem(PENDING_STOPWATCH_KEY);
+      await refreshFocusStats();
+    } catch (e) {
+      // Keep the marker: the next trigger retries the same stable session id.
+      console.warn("Failed to flush pending stopwatch focus session:", e);
+    }
+  };
+
   const syncStopwatchFromState = async () => {
+    void flushPendingStopwatchSession();
     try {
       const raw = await AsyncStorage.getItem("todoapp:focus:current_stopwatch");
       if (!raw) return;
@@ -680,10 +824,9 @@ export function useFocusState() {
       setSwLaps(sw.laps || []);
 
       if (sw.isRunning) {
-        const now = Date.now();
-        const elapsed =
-          sw.elapsedBeforeStart + Math.floor((now - sw.startTime) / 1000);
-        setSwTime(elapsed);
+        setSwTime(
+          stopwatchElapsedSeconds(sw.elapsedBeforeStart, sw.startTime),
+        );
         swStartTimeRef.current = sw.startTime;
       } else {
         setSwTime(sw.elapsedBeforeStart);
@@ -691,59 +834,82 @@ export function useFocusState() {
     } catch {}
   };
 
-  const creditFocusTime = async (minutes: number) => {
+  const creditFocusTime = async (minutes: number): Promise<boolean> => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return true;
     try {
-      const raw = await AsyncStorage.getItem("todoapp:focus:stats");
-      let completedTodayVal = 0;
-      let totalFocusTimeVal = 0;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        completedTodayVal = parsed.completedToday ?? 0;
-        totalFocusTimeVal = parsed.totalFocusTime ?? 0;
-      }
-      const nextTotalFocusTime = totalFocusTimeVal + minutes;
-      setTotalFocusTime(nextTotalFocusTime);
-      await AsyncStorage.setItem(
-        "todoapp:focus:stats",
-        JSON.stringify({
-          completedToday: completedTodayVal,
-          totalFocusTime: nextTotalFocusTime,
-        }),
-      );
-      void syncWidgetData(nextTotalFocusTime).catch(() => {});
-    } catch {}
+      const stats = await FocusStatsRepository.addFocusMinutes(minutes);
+      setTotalFocusTime(stats.totalFocusTime);
+      void syncWidgetData(stats.totalFocusTime).catch(() => {});
+      return true;
+    } catch (e) {
+      console.warn("Failed to credit focus minutes", e);
+      return false;
+    }
   };
 
-  const incrementCompletedSessions = async () => {
+  /**
+   * Re-derive the on-screen focus stats from the durable session list.
+   *
+   * The session list is the single source of truth for today's completed count,
+   * total focus time, average and longest session, so a retried or duplicated
+   * completion can never inflate the displayed values.
+   */
+  const refreshFocusStats = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem("todoapp:focus:stats");
-      let completedTodayVal = 0;
-      let totalFocusTimeVal = 0;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        completedTodayVal = parsed.completedToday ?? 0;
-        totalFocusTimeVal = parsed.totalFocusTime ?? 0;
-      }
-      const nextCompleted = completedTodayVal + 1;
-      setCompletedToday(nextCompleted);
-      await AsyncStorage.setItem(
-        "todoapp:focus:stats",
-        JSON.stringify({
-          completedToday: nextCompleted,
-          totalFocusTime: totalFocusTimeVal,
-        }),
+      const sessions = await GraphRepository.getFocusSessions();
+      const today = new Date().toDateString();
+      const todaySessions = sessions.filter(
+        (s) => new Date(s.endedAt || s.startedAt).toDateString() === today,
       );
-    } catch {}
-  };
+      const finishedToday = todaySessions.length;
+      const totalTime = todaySessions.reduce(
+        (acc, s) => acc + Math.floor(s.duration / 60),
+        0,
+      );
+      const avg =
+        finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
+      const longest = todaySessions.reduce(
+        (max, s) => Math.max(max, Math.floor(s.duration / 60)),
+        0,
+      );
+      setCompletedToday(finishedToday);
+      setTotalFocusTime(totalTime);
+      setAverageSessionLength(avg);
+      setLongestSession(longest);
+      void syncWidgetData(totalTime).catch(() => {});
+    } catch (e) {
+      console.warn("Failed to refresh focus stats", e);
+    }
+  }, []);
 
-  const logPartialMinutes = (totalElapsedSeconds: number) => {
+  /**
+   * Credit the minutes elapsed since the last checkpoint.
+   *
+   * The checkpoint (`loggedMinutesInCurrentSessionRef`) advances ONLY after the
+   * stats write committed. Previously the ref advanced immediately while the
+   * write was unawaited, so a failed write silently lost those minutes: the
+   * completion subtracts `loggedMinutes` and never re-credits them (P2).
+   * Serialized through a ref because the 500 ms interval can tick again before
+   * the previous credit settles; two overlapping ticks would otherwise credit
+   * the same delta twice.
+   */
+  const partialCreditInFlightRef = useRef(false);
+  const logPartialMinutes = async (totalElapsedSeconds: number) => {
     if (pomodoroMode !== "work") return;
+    if (partialCreditInFlightRef.current) return;
     const totalMinutesElapsed = Math.floor(totalElapsedSeconds / 60);
     const newMinutesToLog =
       totalMinutesElapsed - loggedMinutesInCurrentSessionRef.current;
-    if (newMinutesToLog > 0) {
-      creditFocusTime(newMinutesToLog);
-      loggedMinutesInCurrentSessionRef.current = totalMinutesElapsed;
+    if (newMinutesToLog <= 0) return;
+
+    partialCreditInFlightRef.current = true;
+    try {
+      const credited = await creditFocusTime(newMinutesToLog);
+      if (credited) {
+        loggedMinutesInCurrentSessionRef.current = totalMinutesElapsed;
+      }
+    } finally {
+      partialCreditInFlightRef.current = false;
     }
   };
 
@@ -763,6 +929,33 @@ export function useFocusState() {
 
   const swReset = async () => {
     const elapsed = swTime;
+    const now = Date.now();
+    const startMs = swStartTimeRef.current || now - elapsed * 1000;
+    const sessionId = `focus_sw_${startMs}`;
+
+    // A billable stopwatch session gets its recovery record BEFORE the live
+    // stopwatch record is dropped. If that marker cannot be written we keep the
+    // stopwatch state untouched and abort: clearing it would leave the elapsed
+    // time only in React state, exactly the unrecoverable state this marker
+    // exists to prevent.
+    if (elapsed >= 10) {
+      try {
+        const pending: PendingStopwatchSession = {
+          sessionId,
+          startedAt: startMs,
+          endedAt: now,
+          durationSeconds: elapsed,
+        };
+        await AsyncStorage.setItem(PENDING_STOPWATCH_KEY, JSON.stringify(pending));
+      } catch (err) {
+        console.warn(
+          "Failed to persist stopwatch recovery record; keeping the stopwatch state:",
+          err,
+        );
+        return;
+      }
+    }
+
     setSwRunning(false);
     setSwTime(0);
     setSwLaps([]);
@@ -770,55 +963,22 @@ export function useFocusState() {
 
     if (elapsed >= 10) {
       try {
-        const focusSession = {
-          id: `focus_sw_${Date.now()}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
-          startedAt: Date.now() - elapsed * 1000,
-          endedAt: Date.now(),
-          durationSeconds: elapsed,
-        };
-
-        // 1. Save FocusSession
-        await GraphRepository.saveFocusSession(focusSession);
-
-        // 2. Log System Event
-        await GraphRepository.logSystemEvent({
-          id: `log_${focusSession.id}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
-          itemId: focusSession.id,
-          itemType: "focus_session",
-          action: "focused",
-          timestamp: Date.now(),
-          value: elapsed,
-        });
-
-        // 3. Emit Domain Event
-        DomainEventBus.emit("focus.session_ended", {
-          type: "focus.session_ended",
-          payload: { session: focusSession },
-        });
-
-        // 4. Update Stats
-        const sessions = await GraphRepository.getFocusSessions();
-        const today = new Date().toDateString();
-        const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt).toDateString() === today
+        await EntityCommandService.recordFocusSession(
+          elapsed,
+          undefined,
+          undefined,
+          {
+            sessionId,
+            startedAt: startMs,
+            endedAt: now,
+          }
         );
-        const finishedToday = todaySessions.length;
-        const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
-          0
-        );
-        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
-        const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
-          0
-        );
-        setCompletedToday(finishedToday);
-        setTotalFocusTime(totalTime);
-        setAverageSessionLength(avg);
-        setLongestSession(longest);
+
+        await AsyncStorage.removeItem(PENDING_STOPWATCH_KEY);
+        await refreshFocusStats();
       } catch (err) {
+        // The marker stays: the next mount/foreground pass retries the same
+        // stable session id, which is idempotent in the command layer.
         console.warn("Failed to save current stopwatch focus session:", err);
       }
     }
@@ -855,13 +1015,8 @@ export function useFocusState() {
     }
 
     if (isHabit && habitObj) {
-      const today = new Date();
-      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const todayKey = getTodayDateKey();
 
-      const parseDateKey = (val: string) => {
-        const [y, m, d] = val.split("-").map(Number);
-        return new Date(y, (m || 1) - 1, d || 1);
-      };
       const dayDiff = (from: string, to: string) => {
         return Math.floor(
           (parseDateKey(to).getTime() - parseDateKey(from).getTime()) /
@@ -886,29 +1041,23 @@ export function useFocusState() {
               text: "Awesome",
               onPress: async () => {
                 try {
-                  if (!taskId) { setFocusedTaskId(null); transitionToBreak(); return; }
-                  const habit = await HabitRepository.getHabit(taskId, habitObj.folderId || "default");
+                  if (!taskId) {
+                    setFocusedTaskId(null);
+                    transitionToBreak();
+                    return;
+                  }
+                  const habit = await HabitRepository.getHabit(
+                    taskId,
+                    habitObj.workspaceId || INBOX_WORKSPACE_ID,
+                  );
                   if (habit) {
-                    const yesterday = new Date(
-                      today.getTime() - 24 * 60 * 60 * 1000,
+                    await EntityCommandService.recoverHabitStreak(
+                      habit.id,
+                      habitObj.workspaceId || INBOX_WORKSPACE_ID
                     );
-                    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-                    await HabitRepository.saveHabit({
-                      ...habit,
-                      streak: (habit as any).previousStreak || habit.streak,
-                      bestStreak: Math.max(
-                        habit.bestStreak || 0,
-                        (habit as any).previousStreak || 0,
-                      ),
-                      lastCompletedDate: yesterdayKey,
-                      previousStreak: undefined,
-                      streakBrokenDate: undefined,
-                    } as any);
-                    emitStateChange("habits_changed");
-                    emitStateChange("pebbles_changed");
                   }
                 } catch (e) {
-                  console.warn("Failed to auto-recover habit streak:", e);
+                  console.warn("Failed to recover habit streak", e);
                 }
                 setFocusedTaskId(null);
                 transitionToBreak();
@@ -1004,6 +1153,8 @@ export function useFocusState() {
   };
 
   const transitionToBreak = () => {
+    if (mode === "pomodoro" && pomodoroMode === "break") return;
+    setMode("pomodoro");
     setPomodoroMode("break");
     const duration = breakType === "short" ? 5 * 60 : 15 * 60;
     setSessionTime(duration);
@@ -1015,81 +1166,45 @@ export function useFocusState() {
     emitStateChange("focus_changed", "useFocusState");
   };
 
+  const transitionToWork = () => {
+    if (mode === "pomodoro" && pomodoroMode === "work") return;
+    setMode("pomodoro");
+    setPomodoroMode("work");
+    const duration = showCustomInput ? customMinutes * 60 : 25 * 60;
+    setSessionTime(duration);
+    setTotalSessionTime(duration);
+    totalSessionTimeRef.current = duration;
+    elapsedBeforeStartRef.current = 0;
+    loggedMinutesInCurrentSessionRef.current = 0;
+    setIsActive(false);
+    emitStateChange("focus_changed", "useFocusState");
+  };
+
+  const transitionToStopwatch = () => {
+    if (mode === "stopwatch") return;
+    if (isActive) {
+      setIsActive(false);
+    }
+    setMode("stopwatch");
+    emitStateChange("focus_changed", "useFocusState");
+  };
+
   const handleTimerExpiration = async () => {
     setIsActive(false);
     elapsedBeforeStartRef.current = 0;
-    await clearActiveSession();
 
     if (pomodoroMode === "work") {
-      try {
-        const isHabit = habitList.some((h) => h.id === focusedTaskId);
-        const focusSession = {
-          id: `focus_${Date.now()}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
-          startedAt: Date.now() - totalSessionTime * 1000,
-          endedAt: Date.now(),
-          durationSeconds: totalSessionTime,
-          linkedItem: focusedTaskId ? { id: focusedTaskId, type: isHabit ? "habit" as const : "task" as const } : undefined,
-        };
-
-        // 1. Save Focus Session log
-        await GraphRepository.saveFocusSession(focusSession);
-
-        // 2. Save focuses_on relationship if linked
-        if (focusedTaskId) {
-          await GraphRepository.saveRelationship({
-            id: `rel_${focusSession.id}_${focusedTaskId}`,
-            source: { id: focusSession.id, type: "focus_session" },
-            target: { id: focusedTaskId, type: isHabit ? "habit" : "task" },
-            relationType: "focuses_on",
-            createdAt: Date.now(),
-          });
-        }
-
-        // 3. Log System Event
-        await GraphRepository.logSystemEvent({
-          id: `log_${focusSession.id}`,
-          workspaceId: DEFAULT_WORKSPACE_ID,
-          itemId: focusSession.id,
-          itemType: "focus_session",
-          action: "focused",
-          timestamp: Date.now(),
-          value: totalSessionTime,
-        });
-
-        // 4. Emit Domain Event
-        DomainEventBus.emit("focus.session_ended", {
-          type: "focus.session_ended",
-          payload: { session: focusSession },
-        });
-
-        // 5. Update Stats
-        const sessions = await GraphRepository.getFocusSessions();
-        const today = new Date().toDateString();
-        const todaySessions = sessions.filter(
-          (s) => new Date(s.endedAt).toDateString() === today
-        );
-        const finishedToday = todaySessions.length;
-        const totalTime = todaySessions.reduce(
-          (acc, s) => acc + Math.floor(s.durationSeconds / 60),
-          0
-        );
-        const avg = finishedToday > 0 ? Math.round(totalTime / finishedToday) : 0;
-        const longest = todaySessions.reduce(
-          (max, s) => Math.max(max, Math.floor(s.durationSeconds / 60)),
-          0
-        );
-        setCompletedToday(finishedToday);
-        setTotalFocusTime(totalTime);
-        setAverageSessionLength(avg);
-        setLongestSession(longest);
-      } catch (err) {
-        console.warn("Failed to persist focus session:", err);
+      const committed = await completeTimerSession({
+        startTime: startTimeRef.current,
+        duration: totalSessionTime,
+        focusedTaskId,
+        loggedMinutes: loggedMinutesInCurrentSessionRef.current,
+      });
+      if (committed) {
+        AlertFinishWork(focusedTaskId);
       }
-
-      void earnPebble("focus");
-      AlertFinishWork(focusedTaskId);
     } else {
+      await clearActiveSession();
       AlertFinishBreak();
     }
   };
@@ -1097,9 +1212,11 @@ export function useFocusState() {
   const completeLinkedTask = async (taskId: string) => {
     try {
       const folderList = await WorkspaceRepository.getWorkspaces();
-      const folderIds = Array.from(new Set(["default", "unassigned", ...folderList.map((f) => f.id)]));
+      const folderIds = Array.from(
+        new Set([INBOX_WORKSPACE_ID, ...folderList.map((f) => f.id)]),
+      );
       let foundTask = null;
-      let targetFolderId = "default";
+      let targetFolderId = INBOX_WORKSPACE_ID;
       for (const fId of folderIds) {
         const task = await TaskRepository.getTask(taskId, fId);
         if (task) {
@@ -1110,10 +1227,8 @@ export function useFocusState() {
       }
 
       if (foundTask) {
-        await TaskRepository.saveTask({
-          ...foundTask,
-          completed: true,
-          completedAt: Date.now(),
+        await EntityCommandService.completeTask(taskId, targetFolderId, {
+          skipEvents: true,
         });
         emitStateChange("tasks_changed");
         await loadActiveTasks();
@@ -1123,7 +1238,7 @@ export function useFocusState() {
     }
   };
 
-  const handleStartPause = () => {
+  const handleStartPause = async () => {
     const nextActive = !isActive;
     setIsActive(nextActive);
     if (nextActive) {
@@ -1143,7 +1258,9 @@ export function useFocusState() {
       );
       const newElapsed = elapsedBeforeStartRef.current + elapsedThisPeriod;
       elapsedBeforeStartRef.current = newElapsed;
-      logPartialMinutes(newElapsed);
+      // Await the credit before writing the marker so its `loggedMinutes`
+      // reflects the committed checkpoint (see logPartialMinutes).
+      await logPartialMinutes(newElapsed);
       void saveActiveSession(
         pomodoroMode,
         0,
@@ -1308,6 +1425,8 @@ export function useFocusState() {
     handleCustomMinutesSubmitOrBlur,
     toggleGlow,
     transitionToBreak,
+    transitionToWork,
+    transitionToStopwatch,
     completeLinkedTask,
   };
 }

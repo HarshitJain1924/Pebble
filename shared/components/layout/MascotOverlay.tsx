@@ -1,7 +1,8 @@
 import { InteractivePebbleJar } from "@/features/profile/components/InteractivePebbleJar";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { getPebbleCounts } from "@/features/profile/services/pebble.service";
 import {
   getProfile,
@@ -15,6 +16,7 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { usePathname, useRouter } from "expo-router";
 import { getSmartQuickSuggestions } from "@/features/capture/services/quick-suggestions.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import type { Task, Habit, Workspace } from "@/shared/types/domain.types";
 import {
   TaskRepository,
@@ -33,6 +35,8 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { generateId } from "@/shared/utils/id";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -138,13 +142,13 @@ const checkIfDailyClear = async (): Promise<boolean> => {
     const activeWorkspace = uiState.activeWorkspaceId || "default";
     const tasksMap = await TaskRepository.getTasks(activeWorkspace);
     const habitsMap = await HabitRepository.getHabits(activeWorkspace);
-    const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+    const todayStr = getTodayDateKey();
 
     let pendingCount = 0;
     let completedCount = 0;
 
     Object.values(tasksMap).forEach((todo: any) => {
-      if (!todo.archived) {
+      if (!todo.archivedAt) {
         const todoDate = todo.dueDate || todayStr;
         if (todoDate <= todayStr || todo.dueDate === "inbox") {
           if (todo.completed) {
@@ -159,8 +163,10 @@ const checkIfDailyClear = async (): Promise<boolean> => {
     const habits = Object.values(habitsMap);
     const dayOfWeek = new Date().getDay();
     habits.forEach((h: any) => {
-      if (!h.archived) {
-        const isActive = !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
+      if (!h.archivedAt) {
+        // Use canonical recurrence.daysOfWeek
+        const hDays = h.recurrence?.daysOfWeek;
+        const isActive = !hDays || hDays.length === 0 || hDays.includes(dayOfWeek);
         if (isActive) {
           const completedToday = h.completedDates?.includes(todayStr) || false;
           if (completedToday) {
@@ -181,6 +187,7 @@ const checkIfDailyClear = async (): Promise<boolean> => {
 export function MascotOverlay() {
   const pathname = usePathname();
   const colorScheme = useColorScheme();
+  const reducedMotion = useReducedMotion();
   const colors = Colors[colorScheme ?? "dark"];
 
   // State Variables
@@ -220,20 +227,21 @@ export function MascotOverlay() {
   const [rewardStartCount, setRewardStartCount] = useState(0);
   const [rewardTargetCount, setRewardTargetCount] = useState(0);
   const [fallingPebbleType, setFallingPebbleType] = useState<
-    "task" | "habit" | "focus" | undefined
+    "task" | "habit" | "focus" | "checklist" | undefined
   >(undefined);
   const [monthlyTypes, setMonthlyTypes] = useState<{
     task: number;
     habit: number;
     focus: number;
+    checklist: number;
   }>({
     task: 0,
     habit: 0,
     focus: 0,
+    checklist: 0,
   });
 
   const lifetimePebblesRef = useRef(0);
-  const prevLevelRef = useRef(0);
   const prevTodayPebblesRef = useRef(0);
   const lastActiveTimeRef = useRef<number>(0);
   const activityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -351,9 +359,7 @@ export function MascotOverlay() {
     try {
       const prof = await getProfile();
       setProfile(prof);
-      if (prevLevelRef.current === 0 && prof) {
-        prevLevelRef.current = prof.level;
-      }
+      const pebbleStats = await getPebbleCounts();
 
       const settings = await getSettings();
       if (isInitial) {
@@ -362,11 +368,10 @@ export function MascotOverlay() {
         setIsDismissed(!settings.showMascot || isTempDismissed);
       }
 
-      const pebbleStats = await getPebbleCounts();
       setStreak(pebbleStats.streak || 0);
       lifetimePebblesRef.current = pebbleStats.lifetime || 0;
       setMonthlyTypes(
-        pebbleStats.monthlyTypes || { task: 0, habit: 0, focus: 0 },
+        pebbleStats.monthlyTypes || { task: 0, habit: 0, focus: 0, checklist: 0 },
       );
 
       // Parse pebble counts for today and yesterday from log
@@ -379,7 +384,7 @@ export function MascotOverlay() {
 
       log.forEach((entry: any) => {
         const d = new Date(entry.timestamp);
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const dateStr = dateKeyFromDate(d);
         if (dateStr === todayStr) {
           todayCount++;
         } else if (dateStr === yesterdayStr) {
@@ -409,13 +414,12 @@ export function MascotOverlay() {
     }
   };
 
+  // Kept local: adds the offset (canonical getOffsetDateKey subtracts).
+  // Only the YYYY-MM-DD formatting delegates to the canonical helper.
   const getOffsetDateStr = (daysOffset: number) => {
     const d = new Date();
     d.setDate(d.getDate() + daysOffset);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return dateKeyFromDate(d);
   };
 
   useEffect(() => {
@@ -482,7 +486,6 @@ export function MascotOverlay() {
       const newLifetime = pebbleStats.lifetime || 0;
       const prevLifetime = lifetimePebblesRef.current;
 
-      const prevLevel = prevLevelRef.current;
       await loadStats();
 
       if (newLifetime > prevLifetime) {
@@ -491,21 +494,17 @@ export function MascotOverlay() {
         const pType = lastEntry ? lastEntry.type : "task";
 
         // Check Big Win Triggers:
-        // 1. Level up
-        const currentProf = await getProfile();
-        const isLevelUp = currentProf && prevLevel > 0 && currentProf.level > prevLevel;
-        if (currentProf) {
-          prevLevelRef.current = currentProf.level;
-        }
-
-        // 2. Stage/milestone update
+        // 1. Stage/milestone update
         const milestones = [10, 25, 50, 100, 250, 500];
         const isMilestone = milestones.includes(newLifetime);
 
-        // 3. Daily Clear (all tasks/habits checked)
+        // 2. Daily Clear (all tasks/habits checked)
         const isDailyClear = await checkIfDailyClear();
 
-        if (isLevelUp || isMilestone || isDailyClear) {
+        // 3. First daily pebble completion
+        const isFirstPebbleToday = pebbleStats.today === 1;
+
+        if (isMilestone || isDailyClear || isFirstPebbleToday) {
           setRewardStartCount(prevLifetime);
           setRewardTargetCount(newLifetime);
           setFallingPebbleType(pType);
@@ -546,21 +545,30 @@ export function MascotOverlay() {
       springConfig,
     );
 
-    // Apply breathing animation loop dynamically matching the state config
-    breathingY.value = withRepeat(
-      withSequence(
-        withTiming(config.breathingAmplitude, {
-          duration: config.breathingDuration,
-        }),
-        withTiming(0, { duration: config.breathingDuration }),
-      ),
-      -1,
-      true,
-    );
-  }, [mascotState, isDismissed]);
+    // Apply breathing animation loop dynamically matching the state config.
+    // Ambient/idle motion — park the mascot at rest when reduce-motion is on.
+    if (reducedMotion) {
+      breathingY.value = 0;
+    } else {
+      breathingY.value = withRepeat(
+        withSequence(
+          withTiming(config.breathingAmplitude, {
+            duration: config.breathingDuration,
+          }),
+          withTiming(0, { duration: config.breathingDuration }),
+        ),
+        -1,
+        true,
+      );
+    }
+  }, [mascotState, isDismissed, reducedMotion]);
 
   // Micro Animations: Periodic Eye Blinks
   useEffect(() => {
+    // Periodic blinks are ambient personality motion — skip scheduling them
+    // entirely when the user has reduce-motion enabled.
+    if (reducedMotion) return;
+
     let blinkTimeout: ReturnType<typeof setTimeout>;
 
     const triggerBlink = () => {
@@ -581,10 +589,14 @@ export function MascotOverlay() {
     return () => {
       clearTimeout(blinkTimeout);
     };
-  }, [mascotState, isDismissed]);
+  }, [mascotState, isDismissed, reducedMotion]);
 
   // Micro Animations: Occasional Head Tilts
   useEffect(() => {
+    // Occasional head tilts are ambient personality motion — skip when the user
+    // has reduce-motion enabled.
+    if (reducedMotion) return;
+
     let tiltTimeout: ReturnType<typeof setTimeout>;
 
     const triggerTilt = () => {
@@ -607,7 +619,7 @@ export function MascotOverlay() {
     return () => {
       clearTimeout(tiltTimeout);
     };
-  }, [mascotState, isDismissed]);
+  }, [mascotState, isDismissed, reducedMotion]);
 
   // Shake Gesture Summon / Dismiss Detection
   useEffect(() => {
@@ -949,7 +961,7 @@ export function MascotOverlay() {
       const parsedTodos = await TaskRepository.getTasks(activeWorkspace);
       const tasks = Object.values(parsedTodos).map((t: any) => ({
         ...t,
-        scheduledDate: t.dueDate,
+        schedule: t.schedule || (t.dueDate ? { date: t.dueDate } : undefined),
       })) as Task[];
 
       const habitsMap = await HabitRepository.getHabits(activeWorkspace);
@@ -989,7 +1001,7 @@ export function MascotOverlay() {
     }, durationMs);
   };
 
-  const handlePebbleCompletedSuggestion = async (type: "task" | "habit" | "focus") => {
+  const handlePebbleCompletedSuggestion = async (type: "task" | "habit" | "focus" | "checklist") => {
     const phrases: Record<string, string[]> = {
       task: [
         "Task complete! Pebble dropped! Caw! 🦅",
@@ -1120,18 +1132,25 @@ export function MascotOverlay() {
         }, 1500);
 
         const activeWorkspace = (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
+        const todayStr = getTodayDateKey();
 
-        await TaskRepository.saveTask({
-          id: String(Date.now()),
-          workspaceId: activeWorkspace,
-          title: payload.title,
-          completed: false,
-          category: "learning",
-          priority: "medium",
-          dueDate: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+        await EntityCommandService.createTask(
+          {
+            id: generateId("task-"),
+            workspaceId: activeWorkspace,
+            title: payload.title,
+            status: "todo",
+            categoryId: "learning",
+            priority: "medium",
+            schedule: { date: todayStr },
+            revision: 1,
+            lifecycleGeneration: 1,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          activeWorkspace,
+          { skipEvents: true, skipAnalytics: true },
+        );
         emitStateChange("tasks_changed");
         setTimeout(() => {
           triggerBubble("Caw! Suggestion added to tasks! 📋✨", 4000);
@@ -1144,17 +1163,22 @@ export function MascotOverlay() {
 
         const activeWorkspace = (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
 
-        await HabitRepository.saveHabit({
-          id: `habit-${Date.now()}`,
-          workspaceId: activeWorkspace,
-          title: payload.title,
-          streak: 0,
-          bestStreak: 0,
-          completedDates: [],
-          recurrenceRule: "FREQ=DAILY",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+        await EntityCommandService.createHabit(
+          {
+            id: generateId("habit-"),
+            workspaceId: activeWorkspace,
+            title: payload.title,
+            categoryId: "health",
+            recurrence: { frequency: "daily", interval: 1 },
+            completionHistory: [],
+            revision: 1,
+            lifecycleGeneration: 1,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          activeWorkspace,
+          { skipEvents: true, skipAnalytics: true },
+        );
         emitStateChange("habits_changed");
         setTimeout(() => {
           triggerBubble("Caw! Suggestion added to habits! 🔥✨", 4000);
@@ -1256,7 +1280,7 @@ export function MascotOverlay() {
               y1={68}
               x2={166}
               y2={108}
-              stroke={colorScheme === "light" ? "#A78B68" : "#8C714E"}
+              stroke={colorScheme === "light" ? Palette.brown500 : Palette.brown700}
               strokeWidth={1.5}
             />
             {/* Knot at beak */}
@@ -1264,14 +1288,14 @@ export function MascotOverlay() {
               cx={181}
               cy={68}
               r={2.5}
-              fill={colorScheme === "light" ? "#A78B68" : "#8C714E"}
+              fill={colorScheme === "light" ? Palette.brown500 : Palette.brown700}
             />
             {/* Knot at card hole */}
             <Circle
               cx={166}
               cy={108}
               r={2}
-              fill={colorScheme === "light" ? "#A78B68" : "#8C714E"}
+              fill={colorScheme === "light" ? Palette.brown500 : Palette.brown700}
             />
           </Svg>
 
@@ -1391,7 +1415,7 @@ export function MascotOverlay() {
                 }}
                 colors={colors}
                 colorScheme={colorScheme ?? "dark"}
-                monthlyTypes={monthlyTypes}
+                pebbleTypes={monthlyTypes}
                 fallingPebbleType={fallingPebbleType}
                 profileAvatar={profile?.avatar}
               />
@@ -1443,7 +1467,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 6,
@@ -1466,7 +1490,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   suggestionButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 9.5,
     fontWeight: "800",
     textAlign: "center",
@@ -1498,7 +1522,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     padding: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: -2, height: 6 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
@@ -1541,7 +1565,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardButtonText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 9.5,
     fontWeight: "800",
     textAlign: "center",
@@ -1559,7 +1583,7 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: "center",
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,

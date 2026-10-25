@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { AppText as Text, AppTextInput as TextInput } from "@/shared/components/ui/AppText";
 import { RenderAvatar } from "@/features/profile/components/RenderAvatar";
@@ -18,7 +19,7 @@ export type AppHeaderProps = {
   showTrash?: boolean;
   nextReminder?: string | null;
   hasUnreadNotifs?: boolean;
-  profile?: { name: string; avatar: string; level: number } | null;
+  profile?: { name: string; avatar: string } | null;
   streak?: number;
   onStreakPress?: () => void;
   searchQuery?: string;
@@ -77,6 +78,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               setIsSearching(false);
               onSearchQueryChange?.("");
             }}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ padding: 4 }}
           >
             <Feather name="x" size={16} color={colors.textMuted} />
@@ -86,7 +90,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <>
           <View style={styles.left}>
             {kicker && <Text style={[styles.kicker, { color: colors.primary }]}>{kicker.toUpperCase()}</Text>}
-            {title && <Text style={[styles.title, { color: colors.text }]}>{title}</Text>}
+            {title && <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>{title}</Text>}
             {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
           </View>
           {(showNotifications || showProfile || showArchive || showTrash || streak !== undefined || showSearch) && (
@@ -97,12 +101,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Search"
+                  hitSlop={6}
                   onPress={() => setIsSearching(true)}
                 >
                   <Feather name="search" size={16} color={colors.textMuted} />
@@ -115,12 +120,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Open recycle bin"
+                  hitSlop={6}
                   onPress={() => router.push("/recycle-bin")}
                 >
                   <Feather name="trash-2" size={16} color={colors.textMuted} />
@@ -133,12 +139,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Open archive"
+                  hitSlop={6}
                   onPress={() => router.push("/archive")}
                 >
                   <Feather name="archive" size={16} color={colors.textMuted} />
@@ -157,12 +164,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="View streak"
+                  hitSlop={6}
                   onPress={onStreakPress}
                 >
                   <Text style={{ fontSize: 13, marginRight: 3 }}>🔥</Text>
                   <Text
                     style={{
-                      color: isLight ? "#D97706" : "#F97316",
+                      color: isLight ? Palette.amber600 : Palette.orange500,
                       fontSize: 12,
                       fontWeight: "800",
                     }}
@@ -178,12 +186,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     styles.bellButton,
                     {
                       borderColor: colors.border,
-                      backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                      backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Open notifications"
+                  hitSlop={6}
                   onPress={() => router.push("/notifications")}
                 >
                   <Feather name="bell" size={16} color={colors.textMuted} />
@@ -193,7 +202,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                         styles.bellDot,
                         {
                           backgroundColor: colors.primary,
-                          borderColor: isLight ? "#FFFFFF" : "#18181B",
+                          borderColor: isLight ? Palette.white : Palette.zinc900,
                         },
                       ]}
                     />
@@ -206,6 +215,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   style={styles.profileHeaderWrap}
                   accessibilityRole="button"
                   accessibilityLabel="Open profile"
+                  hitSlop={6}
                   onPress={() => router.push("/profile")}
                 >
                   <View
@@ -213,7 +223,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       styles.profileHeaderCircle,
                       {
                         borderColor: colors.border,
-                        backgroundColor: isLight ? "#FFFFFF" : "rgba(255,255,255,0.05)",
+                        backgroundColor: isLight ? Palette.white : "rgba(255,255,255,0.05)",
                       },
                     ]}
                   >
@@ -226,18 +236,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                         ]}
                       />
                     )}
-                  </View>
-                  <View
-                    style={[
-                      styles.profileHeaderBadge,
-                      {
-                        backgroundColor: colors.primary,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.profileHeaderBadgeText}>
-                      {profile ? `Lvl ${profile.level}` : "Lvl 1"}
-                    </Text>
                   </View>
                 </Pressable>
               )}
@@ -316,10 +314,10 @@ const styles = StyleSheet.create({
     paddingVertical: 1.5,
     borderRadius: 8,
     borderWidth: 1.5,
-    borderColor: "#18181B",
+    borderColor: Palette.zinc900,
   },
   profileHeaderBadgeText: {
-    color: "#FFFFFF",
+    color: Palette.white,
     fontSize: 8,
     fontWeight: "800",
   },

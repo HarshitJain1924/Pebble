@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { Palette } from "@/shared/constants/theme";
 import { StyleSheet, View, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Animated, {
@@ -10,6 +11,7 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { VoiceCaptureStatus } from "@/features/capture/hooks/useVoiceCapture"; // Wait! We created hooks/useVoiceCapture.ts. Let's make sure the path is correct.
 
 interface VoiceCaptureButtonProps {
@@ -21,19 +23,21 @@ interface VoiceCaptureButtonProps {
   themePrimary: string;
 }
 
-export function VoiceCaptureButton({
+export const VoiceCaptureButton = React.memo(function VoiceCaptureButton({
   status,
   volume,
   onStart,
   onStop,
   onCancel,
-  themePrimary = "#8B5CF6",
+  themePrimary = Palette.violet500,
 }: VoiceCaptureButtonProps) {
   const idleScale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
-  // Breathing effect when idle
+  // Breathing effect when idle — decorative, so hold the button at rest when
+  // reduce-motion is on.
   useEffect(() => {
-    if (status === "idle") {
+    if (status === "idle" && !reducedMotion) {
       idleScale.value = withRepeat(
         withSequence(
           withTiming(1.06, { duration: 1500 }),
@@ -45,7 +49,7 @@ export function VoiceCaptureButton({
     } else {
       idleScale.value = withSpring(1);
     }
-  }, [status]);
+  }, [status, reducedMotion]);
 
   // Volume-driven glow ring styles
   const glowStyle = useAnimatedStyle(() => {
@@ -85,16 +89,16 @@ export function VoiceCaptureButton({
   const renderIcon = () => {
     switch (status) {
       case "listening":
-        return <Feather name="square" size={18} color="#fff" />;
+        return <Feather name="square" size={18} color={Palette.white} />;
       case "processing":
-        return <ActivityIndicator size="small" color="#fff" />;
+        return <ActivityIndicator size="small" color={Palette.white} />;
       case "completed":
-        return <Feather name="check" size={20} color="#fff" />;
+        return <Feather name="check" size={20} color={Palette.white} />;
       case "error":
-        return <Feather name="alert-circle" size={20} color="#fff" />;
+        return <Feather name="alert-circle" size={20} color={Palette.white} />;
       case "idle":
       default:
-        return <Feather name="mic" size={20} color="#fff" />;
+        return <Feather name="mic" size={20} color={Palette.white} />;
     }
   };
 
@@ -102,13 +106,13 @@ export function VoiceCaptureButton({
   const getButtonBgColor = () => {
     switch (status) {
       case "listening":
-        return "#EF4444"; // Red for recording
+        return Palette.red500; // Red for recording
       case "error":
-        return "#DC2626"; // Dark Red for error
+        return Palette.red600; // Dark Red for error
       case "completed":
-        return "#10B981"; // Green for completed
+        return Palette.emerald500; // Green for completed
       case "processing":
-        return "#6366F1"; // Indigo/Purple for processing
+        return Palette.indigo500; // Indigo/Purple for processing
       case "idle":
       default:
         return themePrimary; // Brand purple
@@ -146,6 +150,19 @@ export function VoiceCaptureButton({
           onPress={handlePress}
           haptic
           hitSlop={20}
+          accessibilityRole="button"
+          accessibilityLabel={
+            status === "listening"
+              ? "Stop voice recording"
+              : status === "processing"
+              ? "Processing voice recording"
+              : status === "completed"
+              ? "Voice recording completed"
+              : status === "error"
+              ? "Voice recording error, tap to retry"
+              : "Start voice recording"
+          }
+          accessibilityState={{ busy: status === "processing" }}
           style={styles.pressableScale}
         >
           <Animated.View
@@ -171,7 +188,9 @@ export function VoiceCaptureButton({
       )}
     </View>
   );
-}
+});
+
+export default VoiceCaptureButton;
 
 const styles = StyleSheet.create({
   container: {
@@ -199,7 +218,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
@@ -223,6 +242,6 @@ const styles = StyleSheet.create({
   eqBar: {
     width: 2.5,
     borderRadius: 1.25,
-    backgroundColor: "#EF4444",
+    backgroundColor: Palette.red500,
   },
 });

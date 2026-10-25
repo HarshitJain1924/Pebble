@@ -1,17 +1,29 @@
-import { type UserProfile } from "@/features/settings/services/settings.service";
-import { addStateListener } from "@/services/events/state-events";
+import {
+  getProfile,
+  type UserProfile,
+} from "@/features/settings/services/settings.service";
+import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import {
   getDashboardFilters,
-  saveDashboardFilter,
+  saveDashboardFilters,
 } from "@/services/storage/storage.service";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { styles } from "@/shared/constants/dashboardStyles";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+  type ScrollViewInstance,
+  type ViewInstance,
+} from "react-native";
+import { StatusBar } from "expo-status-bar";
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
@@ -21,45 +33,54 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { ContinueWorkspaceCard } from "@/features/today/components/ContinueWorkspaceCard";
-import { DashboardFilterBar } from "@/features/today/components/DashboardFilterBar";
-import { PebbleJarProgressCard } from "@/features/today/components/PebbleJarProgressCard";
-import { PebbleSanctuaryModal } from "@/features/today/components/PebbleSanctuaryModal";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { TodayFilterControl } from "@/features/today/components/TodayFilterControl";
+import { TodaySearchEmptyState } from "@/features/today/components/TodaySearchControl";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
 import { ReviewMyDayModal } from "@/features/today/components/ReviewMyDayModal";
-import { StreakBanner } from "@/features/today/components/StreakBanner";
-import { WorkspaceContextCarousel } from "@/features/today/components/WorkspaceContextCarousel";
+import { WorkspaceSectionedStream } from "@/features/today/components/WorkspaceSectionedStream";
 import { ZenModeModal } from "@/features/today/components/ZenModeModal";
 import { useTodayActions } from "@/features/today/hooks/useTodayActions";
 import { useTodayDashboard } from "@/features/today/hooks/useTodayDashboard";
 import { useTodaySelectors } from "@/features/today/hooks/useTodaySelectors";
-import { AppHeader } from "@/shared/components/ui/AppHeader";
-import { type Checklist, type Habit, Task } from "@/shared/types/domain.types";
-
-const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+import { PebbleCircadianHeader } from "@/features/today/components/PebbleCircadianHeader";
+import { NowFocusCard } from "@/features/today/components/NowFocusCard";
+import { getNowFocus, type NowFocusResult } from "@/features/today/utils/getNowFocus";
+import { useLiveClock } from "@/features/today/hooks/useLiveClock";
+import {
+  getPebbleDockClearance,
+  ShorelineSupportBackdrop,
+} from "@/shared/components/navigation/PebbleRadialTabBar";
+import {
+  DEFAULT_TODAY_FILTERS,
+  normalizeTodayFilters,
+  toPersistedTodayFilters,
+  type TodayFilterState,
+} from "@/features/today/utils/todayFilters";
+import type { Checklist, Habit, Task } from "@/shared/types/domain.types";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
+import { createNowFocusActionHandlers } from "@/features/today/utils/nowFocusActions";
+import { launchFocusSession } from "@/features/focus/services/FocusLaunchService";
 
 const getTodoDateKey = (todo: any) => {
-  if (todo.scheduledDate) {
-    return todo.scheduledDate;
+  // Canonical schedule.date (repository normalizes scheduledDate → schedule.date)
+  if (todo.schedule?.date) {
+    return todo.schedule.date;
   }
-  if (todo.alarmTime) {
-    return getDateKey(new Date(todo.alarmTime));
+  // Derive from canonical reminder.triggerAt
+  if (todo.reminder?.triggerAt) {
+    return dateKeyFromDate(new Date(todo.reminder.triggerAt));
   }
   const idNum = Number(todo.id);
   if (!isNaN(idNum) && idNum > 100000000000) {
-    return getDateKey(new Date(idNum));
+    return dateKeyFromDate(new Date(idNum));
   }
-  return getDateKey();
+  return getTodayDateKey();
 };
 
 const getOverdueLabel = (dateStr: string) => {
   if (!dateStr) return "Overdue";
-  const todayStr = getDateKey();
+  const todayStr = getTodayDateKey();
   if (dateStr === todayStr) return "Today";
   const [ty, tm, td] = todayStr.split("-").map(Number);
   const [dy, dm, dd] = dateStr.split("-").map(Number);
@@ -76,14 +97,24 @@ export function TodayScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const bottomClearance = useMemo(
+    () => getPebbleDockClearance(insets.bottom),
+    [insets.bottom],
+  );
 
   const { showUndo } = useUndo();
 
   const [flyingPebbles, setFlyingPebbles] = useState<
     { id: string; startX: number; startY: number; type: "task" | "habit" }[]
   >([]);
-  const miniJarRef = useRef<View>(null);
-  const parentScrollRef = useRef<ScrollView>(null);
+  // RN 0.88 Strict TypeScript API: the generic must be the INSTANCE type, not
+  // the component value (`View`/`ScrollView` now denote the component itself).
+  const miniJarRef = useRef<ViewInstance>(null);
+  const parentScrollRef = useRef<ScrollViewInstance>(null);
+  const scrollOffsetRef = useRef<number>(0);
+  const baseJarCoordsRef = useRef<{ x: number; y: number } | null>(null);
   const [targetCoordinates, setTargetCoordinates] = useState<{
     x: number;
     y: number;
@@ -94,37 +125,9 @@ export function TodayScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   }, []);
 
-  const [lifetimePebbles, setLifetimePebbles] = useState<number>(0);
-  const [monthlyPebbles, setMonthlyPebbles] = useState<number>(0);
-  const [pebbleBalance, setPebbleBalance] = useState<number>(0);
-  const [gemsBalance, setGemsBalance] = useState<number>(0);
-  const [mainStreakRecoveryInfo, setMainStreakRecoveryInfo] =
-    useState<any>(null);
-  const [monthlyTypes, setMonthlyTypes] = useState<{
-    task: number;
-    habit: number;
-    focus: number;
-  }>({
-    task: 0,
-    habit: 0,
-    focus: 0,
-  });
-  const [lifetimeTypes, setLifetimeTypes] = useState<{
-    task: number;
-    habit: number;
-    focus: number;
-  }>({
-    task: 0,
-    habit: 0,
-    focus: 0,
-  });
-  const [fallingPebbleType, setFallingPebbleType] = useState<
-    "task" | "habit" | "focus" | undefined
-  >(undefined);
-  const [streak, setStreak] = useState<number>(0);
-  const [weeklyStatus, setWeeklyStatus] = useState<any[]>([]);
-  const [pebbleJarModalVisible, setPebbleJarModalVisible] = useState(false);
   const [isZenModeActive, setIsZenModeActive] = useState(false);
+  const [zenTaskOverride, setZenTaskOverride] = useState<Task | null>(null);
+  const [zenHabitOverride, setZenHabitOverride] = useState<Habit | null>(null);
   const [isReviewModalVisible, setIsReviewModalVisible] = useState(false);
   const [gratitudeText, setGratitudeText] = useState("");
   const [intentionText, setIntentionText] = useState("");
@@ -132,55 +135,26 @@ export function TodayScreen() {
   const [rewardStartCount, setRewardStartCount] = useState(0);
   const [rewardTargetCount, setRewardTargetCount] = useState(0);
 
-  const [todoStats, setTodoStats] = useState({
-    completed: 0,
-    total: 0,
-    pending: [] as Task[],
-    overdue: [] as Task[],
-  });
-  const [habitStats, setHabitStats] = useState({
-    completed: 0,
-    total: 0,
-    maxStreak: 0,
-  });
-  const [pendingHabits, setPendingHabits] = useState<Habit[]>([]);
-  const [completedHabits, setCompletedHabits] = useState<Habit[]>([]);
-  const [activeSegment, setActiveSegment] = useState<"tasks" | "habits">(
-    "tasks",
+  const [filterState, setFilterState] = useState<TodayFilterState>(
+    DEFAULT_TODAY_FILTERS,
   );
-  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<
-    "all" | "high" | "medium" | "low"
-  >("all");
-  const [selectedFolderFilter, setSelectedFolderFilter] =
-    useState<string>("all");
-  const [selectedSortOption, setSelectedSortOption] = useState<
-    "default" | "priority" | "alphabetical"
-  >("default");
-  const [nextReminder, setNextReminder] = useState<string | null>(null);
-  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>(
-    {},
-  );
+  const [isSearchActive, setIsSearchActive] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [hasUnreadNotifs, setHasUnreadNotifs] = useState<boolean>(false);
-  const [folders, setFolders] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
-  const [allChecklists, setAllChecklists] = useState<
-    Record<string, Checklist[]>
-  >({});
   const [expandedChecklistIds, setExpandedChecklistIds] = useState<
     Record<string, boolean>
   >({});
-  const [allCollections, setAllCollections] = useState<Record<string, any[]>>(
-    {},
-  );
-  const [activeCardIndex, setActiveCardIndex] = useState(0);
-  const jarFillAnim = useSharedValue(0);
-  const cardScrollX = useSharedValue(0);
+  const [allChecklistsLocal, setAllChecklistsLocal] = useState<
+    Record<string, Checklist[]>
+  >({});
   const breathScale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
-    if (isZenModeActive) {
+    // Ambient breathing guide — purely decorative, so skip the loop and hold a
+    // calm static scale when the OS reduce-motion setting is on.
+    if (isZenModeActive && !reducedMotion) {
       breathScale.value = withRepeat(
         withSequence(
           withTiming(1.25, { duration: 4000 }),
@@ -192,7 +166,7 @@ export function TodayScreen() {
     } else {
       breathScale.value = 1;
     }
-  }, [isZenModeActive]);
+  }, [isZenModeActive, reducedMotion]);
 
   const breathStyle = useAnimatedStyle(() => {
     return {
@@ -200,39 +174,48 @@ export function TodayScreen() {
     };
   });
 
-  const onJarLayout = useCallback(() => {
-    setTimeout(() => {
-      miniJarRef.current?.measureInWindow((x, y, width, height) => {
-        if (width > 0 && height > 0) {
-          setTargetCoordinates({
-            x: x + width / 2,
-            y: y + height / 2,
-          });
-        }
-      });
-    }, 150);
-  }, []);
+  const updateJarCoordinates = useCallback(() => {
+    miniJarRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        const currentScrollY = scrollOffsetRef.current;
+        const calculatedBaseY = y + height / 2 + currentScrollY;
+        const calculatedBaseX = x + width / 2;
+        baseJarCoordsRef.current = { x: calculatedBaseX, y: calculatedBaseY };
+        const minTopY = (insets.top || 20) + 16;
+        setTargetCoordinates({
+          x: calculatedBaseX,
+          y: Math.max(minTopY, y + height / 2),
+        });
+      }
+    });
+  }, [insets.top]);
 
-  const { loadDashboardData } = useTodayDashboard({
-    setFolders,
-    setTodoStats,
-    setPendingHabits,
-    setCompletedHabits,
-    setHabitStats,
-    setCategoryCounts,
-    setAllChecklists,
-    setNextReminder,
-    setProfile,
-    setHasUnreadNotifs,
-    setLifetimePebbles,
-    setMonthlyPebbles,
-    setMonthlyTypes,
-    setLifetimeTypes,
-    setStreak,
-    setWeeklyStatus,
-    setGemsBalance,
-    setMainStreakRecoveryInfo,
-  });
+  const onJarLayout = useCallback(() => {
+    setTimeout(updateJarCoordinates, 150);
+  }, [updateJarCoordinates]);
+
+  useEffect(() => {
+    if (flyingPebbles.length > 0) {
+      updateJarCoordinates();
+    }
+  }, [flyingPebbles.length, updateJarCoordinates]);
+
+  // Single source of truth for dashboard data — useTodayDashboard owns all state
+  const {
+    todoStats,
+    pendingHabits,
+    completedHabits,
+    allChecklists,
+    allResources,
+    categoryCounts,
+    habitStats,
+    folders,
+    mainStreak,
+    recoveryInfo: mainStreakRecoveryInfo,
+    closestReminderTime: nextReminder,
+    isLoading,
+    loadDashboardData,
+  } = useTodayDashboard();
 
   const {
     completeTodoFromDashboard,
@@ -244,23 +227,38 @@ export function TodayScreen() {
     loadDashboardData,
     showUndo,
     setFlyingPebbles,
-    setAllChecklists,
+    setAllChecklists: setAllChecklistsLocal,
     gratitudeText,
     setGratitudeText,
     intentionText,
     setIntentionText,
     setIsReviewModalVisible,
+    allTodos: todoStats.pending
+      .concat(todoStats.overdue)
+      .concat(todoStats.completedTasks ?? []),
+    allHabits: pendingHabits.concat(completedHabits),
   });
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const userProfile = await getProfile();
+      setProfile(userProfile);
+    } catch (e) {
+      console.warn("Failed to load profile", e);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadDashboardData();
-    }, [loadDashboardData]),
+      void loadProfile();
+    }, [loadDashboardData, loadProfile]),
   );
 
   // Synchronize dashboard state immediately when tasks/habits/profile are modified in other tabs/modals
   useEffect(() => {
     const unsubscribeTasks = addStateListener("tasks_changed", () => {
+      console.log("[INSTRUMENT] [TodayScreen] tasks_changed listener FIRED, calling loadDashboardData()");
       void loadDashboardData();
     });
 
@@ -270,13 +268,14 @@ export function TodayScreen() {
 
     const unsubscribeProfile = addStateListener("profile_changed", () => {
       void loadDashboardData();
-    });
-
-    const unsubscribePebbles = addStateListener("pebbles_changed", () => {
-      void loadDashboardData();
+      void loadProfile();
     });
 
     const unsubscribeChecklists = addStateListener("checklists_changed", () => {
+      void loadDashboardData();
+    });
+
+    const unsubscribeResources = addStateListener("resources_changed", () => {
       void loadDashboardData();
     });
 
@@ -292,20 +291,19 @@ export function TodayScreen() {
       unsubscribeTasks();
       unsubscribeHabits();
       unsubscribeProfile();
-      unsubscribePebbles();
       unsubscribeChecklists();
+      unsubscribeResources();
       unsubscribeZen();
       unsubscribeReview();
     };
-  }, [loadDashboardData]);
+  }, [loadDashboardData, loadProfile]);
 
   // Load dashboard filters from storage and listen to changes from bottom tab drawer
   useEffect(() => {
     const loadSavedFilters = async () => {
       try {
-        const { filter, priority } = await getDashboardFilters();
-        if (filter) setActiveFilter(filter);
-        if (priority) setSelectedPriorityFilter(priority as any);
+        const persisted = await getDashboardFilters();
+        setFilterState(normalizeTodayFilters(persisted));
       } catch (e) {
         console.warn("Failed to load dashboard filters on mount", e);
       }
@@ -325,17 +323,28 @@ export function TodayScreen() {
     };
   }, []);
 
-  const totalItems = todoStats.total + habitStats.total;
-  const completedItems = todoStats.completed + habitStats.completed;
-  const progressPct = totalItems === 0 ? 0 : completedItems / totalItems;
+  const handleApplyFilters = useCallback(async (next: TodayFilterState) => {
+    setFilterState(next);
+    await saveDashboardFilters(toPersistedTodayFilters(next));
+    emitStateChange("dashboard_filter_changed", "today_filter_sheet");
+  }, []);
 
-  useEffect(() => {
-    jarFillAnim.value = withTiming(progressPct, { duration: 600 });
-  }, [progressPct]);
+  const handleSearchOpen = useCallback(() => {
+    setIsSearchActive(true);
+  }, []);
+
+  const handleSearchExit = useCallback(() => {
+    setIsSearchActive(false);
+    setSearchQuery("");
+  }, []);
+
+  const handleSearchClear = useCallback(() => {
+    setSearchQuery("");
+  }, []);
 
   const getGreetingTime = () => {
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return "Good morning";
+    if (hour >= 4 && hour < 12) return "Good morning";
     if (hour >= 12 && hour < 17) return "Good afternoon";
     if (hour >= 17 && hour < 21) return "Good evening";
     return "Late night";
@@ -362,129 +371,203 @@ export function TodayScreen() {
     completedHabits,
     allChecklists,
     searchQuery,
-    activeFilter,
-    selectedFolderFilter,
-    selectedPriorityFilter,
-    selectedSortOption,
+    filterState,
   });
 
+  const flatChecklists = useMemo(() => {
+    const list: Checklist[] = [];
+    Object.values(allChecklists).forEach((chks) => {
+      chks.forEach((c) => {
+        if (!c.archivedAt) {
+          list.push(c);
+        }
+      });
+    });
+    return list;
+  }, [allChecklists]);
+
+  const filterCategoryIds = useMemo(() => {
+    const categoryIds = [
+      ...todoStats.pending,
+      ...(todoStats.completedTasks ?? []),
+      ...todoStats.overdue,
+      ...pendingHabits,
+      ...completedHabits,
+      ...flatChecklists,
+    ]
+      .map((item) => item.categoryId)
+      .filter((categoryId): categoryId is string => Boolean(categoryId));
+
+    return Array.from(new Set(categoryIds)).sort((a, b) => a.localeCompare(b));
+  }, [
+    todoStats.pending,
+    todoStats.completedTasks,
+    todoStats.overdue,
+    pendingHabits,
+    completedHabits,
+    flatChecklists,
+  ]);
+
+  const currentNow = useLiveClock();
+
+  const nowFocus = useMemo(() => {
+    return getNowFocus({
+      now: currentNow,
+      tasks: todoStats.pending,
+      habits: pendingHabits,
+      checklists: flatChecklists,
+    });
+  }, [currentNow, todoStats.pending, pendingHabits, flatChecklists]);
+
+  const {
+    handleStartNowFocus,
+    handleCompleteNowFocus,
+    handleCompleteNowChecklistItem,
+    handlePressNowCard,
+    handleViewFocus,
+  } = useMemo(
+    () =>
+      createNowFocusActionHandlers({
+        completeTodoFromDashboard,
+        completeHabitFromDashboard,
+        toggleChecklistItemFromDashboard,
+        launchFocus: launchFocusSession,
+        router,
+        getCurrentNow: () => currentNow,
+      }),
+    [
+      completeTodoFromDashboard,
+      completeHabitFromDashboard,
+      toggleChecklistItemFromDashboard,
+      router,
+      currentNow,
+    ],
+  );
+
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: colors.background }]}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar
+        style={colorScheme === "dark" ? "light" : "dark"}
+      />
+
+      {/* Environmental Shoreline Scenic Artwork (Anchored to canvas bottom behind scroll stream) */}
+      <ShorelineSupportBackdrop
+        screenWidth={screenWidth}
+        isDark={colorScheme !== "light"}
+        backgroundColor={colors.background}
+        style={{ zIndex: 0, elevation: 0 }}
+      />
+
       <Animated.View
         entering={FadeInDown.duration(400).springify()}
-        style={{ flex: 1 }}
+        style={{ flex: 1, zIndex: 10, elevation: 10 }}
       >
         <ScrollView
           ref={parentScrollRef}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: 160 }]}
+          style={{ flex: 1, zIndex: 10 }}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: 0, paddingBottom: bottomClearance },
+          ]}
+          contentInsetAdjustmentBehavior="never"
           showsVerticalScrollIndicator={false}
-        >
-          {/* Header */}
-          <AppHeader
-            kicker={getGreetingTime()}
-            title={profile ? profile.name : "User"}
-            profile={profile}
-            nextReminder={nextReminder}
-            hasUnreadNotifs={hasUnreadNotifs}
-            streak={streak}
-            showSearch={true}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-          />
-
-          {/* Glassmorphic Swipeable Progress Cards (Today & Monthly) */}
-          <PebbleJarProgressCard
-            colors={colors}
-            colorScheme={colorScheme ?? "dark"}
-            todoStats={todoStats}
-            habitStats={habitStats}
-            monthlyPebbles={monthlyPebbles}
-            lifetimePebbles={lifetimePebbles}
-            jarFillAnim={jarFillAnim}
-            cardScrollX={cardScrollX}
-            miniJarRef={miniJarRef}
-            onJarLayout={onJarLayout}
-            breathScale={breathScale}
-            parentScrollRef={parentScrollRef}
-          />
-
-          {/* Compact Streak Banner */}
-          <StreakBanner
-            streak={streak}
-            recoveryInfo={mainStreakRecoveryInfo}
-            onRecover={handleRecoverMainStreak}
-            colors={colors}
-            colorScheme={colorScheme ?? "dark"}
-          />
-
-          {/* Continue Working In Recommendation Card */}
-          <ContinueWorkspaceCard
-            continueWorkspace={continueWorkspace}
-            onPressWorkspace={(workspaceId) =>
-              router.push({
-                pathname: "/tasks",
-                params: { folderId: workspaceId },
-              } as any)
+          onScroll={(event) => {
+            const scrollY = event.nativeEvent.contentOffset.y;
+            scrollOffsetRef.current = scrollY;
+            if (baseJarCoordsRef.current) {
+              const minTopY = (insets.top || 20) + 16;
+              const currentY = baseJarCoordsRef.current.y - scrollY;
+              setTargetCoordinates({
+                x: baseJarCoordsRef.current.x,
+                y: Math.max(minTopY, currentY),
+              });
             }
-            colors={colors}
-          />
-
-          {/* Global Filter Row */}
-          <DashboardFilterBar
-            activeFilter={activeFilter}
-            onSelectFilter={async (filterKey) => {
-              setActiveFilter(filterKey);
-              await saveDashboardFilter(filterKey);
-            }}
-            colors={colors}
-          />
-
-          {/* Swipeable Today Contexts Carousel */}
-          <WorkspaceContextCarousel
-            activeContexts={activeContexts}
+          }}
+          scrollEventThrottle={16}
+        >
+          {/* Circadian Scenic Pebble Art Header */}
+          <PebbleCircadianHeader
+            kicker={getGreetingTime()}
+            title={profile?.name}
+            subtitle="Small steps. A calmer you."
+            profile={profile}
+            hasUnreadNotifs={hasUnreadNotifs}
+            showSearch={false}
+            onJarPress={() => router.push("/sanctuary")}
+            jarRef={miniJarRef}
+            onJarLayout={onJarLayout}
             colors={colors}
             colorScheme={colorScheme}
-            expandedChecklistIds={expandedChecklistIds}
-            setExpandedChecklistIds={setExpandedChecklistIds}
-            activeCardIndex={activeCardIndex}
-            setActiveCardIndex={setActiveCardIndex}
-            parentScrollRef={parentScrollRef}
-            router={router}
-            completeTodoFromDashboard={completeTodoFromDashboard}
-            completeHabitFromDashboard={completeHabitFromDashboard}
-            toggleChecklistItemFromDashboard={toggleChecklistItemFromDashboard}
+            style={{
+              marginBottom: 8,
+            }}
           />
+
+          {/* Pebble NOW Focus Card */}
+          <NowFocusCard
+            focus={nowFocus}
+            onComplete={handleCompleteNowFocus}
+            onCompleteChecklistItem={handleCompleteNowChecklistItem}
+            onStartFocus={handleStartNowFocus}
+            onPressCard={handlePressNowCard}
+            onViewFocus={handleViewFocus}
+            colors={colors}
+            colorScheme={colorScheme}
+            style={{ marginBottom: 4 }}
+          />
+
+          <TodayFilterControl
+            value={filterState}
+            folders={folders}
+            categoryIds={filterCategoryIds}
+            colors={colors}
+            onApply={handleApplyFilters}
+            searchQuery={searchQuery}
+            isSearchActive={isSearchActive}
+            onSearchOpen={handleSearchOpen}
+            onSearchQueryChange={setSearchQuery}
+            onSearchExit={handleSearchExit}
+          />
+
+          {/* Workspace-Grouped Today Execution Stream */}
+          {searchQuery.trim() && activeContexts.length === 0 ? (
+            <TodaySearchEmptyState
+              query={searchQuery.trim()}
+              colors={colors}
+              onClear={handleSearchClear}
+            />
+          ) : (
+            <WorkspaceSectionedStream
+              activeContexts={activeContexts}
+              colors={colors}
+              colorScheme={colorScheme}
+              allResources={allResources}
+              expandedChecklistIds={expandedChecklistIds}
+              setExpandedChecklistIds={setExpandedChecklistIds}
+              router={router}
+              completeTodoFromDashboard={completeTodoFromDashboard}
+              completeHabitFromDashboard={completeHabitFromDashboard}
+              toggleChecklistItemFromDashboard={toggleChecklistItemFromDashboard}
+            />
+          )}
         </ScrollView>
       </Animated.View>
 
       {/* Reward Overlay Modal is rendered globally by MascotOverlay */}
 
-      {/* Sanctuary Jar Modal */}
-      <PebbleSanctuaryModal
-        visible={pebbleJarModalVisible}
-        onClose={() => setPebbleJarModalVisible(false)}
-        colorScheme={colorScheme}
-        colors={colors}
-        lifetimePebbles={lifetimePebbles}
-        monthlyPebbles={monthlyPebbles}
-        gemsBalance={gemsBalance}
-        monthlyTypes={monthlyTypes}
-        lifetimeTypes={lifetimeTypes}
-        profileAvatar={profile?.avatar}
-        getMilestoneInfo={getMilestoneInfo}
-      />
-
       {/* Zen Mode Overlay */}
       <ZenModeModal
         visible={isZenModeActive}
-        onClose={() => setIsZenModeActive(false)}
+        onClose={() => {
+          setIsZenModeActive(false);
+          setZenTaskOverride(null);
+          setZenHabitOverride(null);
+        }}
         colorScheme={colorScheme}
         colors={colors}
         breathStyle={breathStyle}
-        activeZenTask={todoStats.pending[0] || null}
-        activeZenHabit={pendingHabits[0] || null}
+        activeZenTask={zenTaskOverride || todoStats.pending[0] || null}
+        activeZenHabit={zenHabitOverride || pendingHabits[0] || null}
         getFolderById={getFolderById}
         onCompleteTask={completeTodoFromDashboard}
         onCompleteHabit={completeHabitFromDashboard}
@@ -514,66 +597,9 @@ export function TodayScreen() {
           onComplete={() => handlePebbleAnimationComplete(pebble.id)}
         />
       ))}
-    </SafeAreaView>
+    </View>
   );
 }
-
-const getMilestoneInfo = (pebbles: number) => {
-  if (pebbles <= 10) {
-    return {
-      stage: 1,
-      name: "First Steps",
-      range: "0-10",
-      desc: "Gathering the first stones of momentum.",
-    };
-  }
-  if (pebbles <= 25) {
-    return {
-      stage: 2,
-      name: "Sprout",
-      range: "11-25",
-      desc: "A small base of habit stones.",
-    };
-  }
-  if (pebbles <= 50) {
-    return {
-      stage: 3,
-      name: "Zen Stream",
-      range: "26-50",
-      desc: "Flowing stream of productivity.",
-    };
-  }
-  if (pebbles <= 100) {
-    return {
-      stage: 4,
-      name: "Sanctuary Base",
-      range: "51-100",
-      desc: "Solid foundation for daily rhythm.",
-    };
-  }
-  if (pebbles <= 250) {
-    return {
-      stage: 5,
-      name: "Pebble Hoarder",
-      range: "101-250",
-      desc: "A significant heap of accomplishments.",
-    };
-  }
-  if (pebbles <= 500) {
-    return {
-      stage: 6,
-      name: "Zen Mountain",
-      range: "251-500",
-      desc: "An impressive, towering mount of zen.",
-    };
-  }
-  return {
-    stage: 7,
-    name: "Ocean of Focus",
-    range: "500+",
-    desc: "Infinite zen achieved. Master level.",
-  };
-};
 
 const localStyles = StyleSheet.create({
   overlayContainer: {
@@ -589,7 +615,7 @@ const localStyles = StyleSheet.create({
     padding: 24,
     alignItems: "center",
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,

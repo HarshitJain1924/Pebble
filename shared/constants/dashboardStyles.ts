@@ -1,11 +1,12 @@
 import { Dimensions, Platform, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_GAP = 10;
 const CARD_WIDTH = (SCREEN_WIDTH - 32 - CARD_GAP) / 2; // 2 columns (pill widgets)
 
 export const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 20,
@@ -85,7 +86,7 @@ export const styles = StyleSheet.create({
   profileHeaderBadgeText: {
     fontSize: 8,
     fontWeight: "800",
-    color: "#ffffff",
+    color: Palette.white,
     lineHeight: 12,
   },
 
@@ -252,7 +253,7 @@ export const styles = StyleSheet.create({
     borderRadius: 12,
   },
   segmentActive: {
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,

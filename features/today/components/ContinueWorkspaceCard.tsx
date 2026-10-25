@@ -1,7 +1,9 @@
 import React from "react";
 import { View, Text } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
+import { Radius } from "@/shared/constants/radii";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
 import { type Workspace } from "@/shared/types/domain.types";
 
@@ -33,12 +35,12 @@ export const ContinueWorkspaceCard: React.FC<ContinueWorkspaceCardProps> = ({
         contentStyle={{ overflow: "hidden" }}
         style={{
           backgroundColor: colors.card,
-          borderRadius: 20,
+          borderRadius: Radius.xl,
           borderWidth: 1.5,
           borderColor: `${accentColor}40`,
           marginHorizontal: 4,
           marginTop: 12,
-          shadowColor: "#000",
+          shadowColor: Palette.black,
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.08,
           shadowRadius: 10,
@@ -71,9 +73,17 @@ export const ContinueWorkspaceCard: React.FC<ContinueWorkspaceCardProps> = ({
               justifyContent: "center",
             }}
           >
-            <Text style={{ fontSize: 24 }}>
-              {continueWorkspace.emoji || "📁"}
-            </Text>
+            {continueWorkspace.iconType === "icon" || (!continueWorkspace.emoji && continueWorkspace.icon) ? (
+              <Feather
+                name={(continueWorkspace.icon || "folder") as any}
+                size={22}
+                color={accentColor}
+              />
+            ) : (
+              <Text style={{ fontSize: 24 }}>
+                {continueWorkspace.emoji || "📁"}
+              </Text>
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <Text

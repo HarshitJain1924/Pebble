@@ -110,19 +110,15 @@ export async function getWorkspaceSuggestions(
   const recycledTitles = new Set<string>();
 
   for (const item of recycleBin) {
-    if (item.itemType === "workspace") {
-      recycledWorkspaceIds.add(item.id);
-      recycledTitles.add(item.title.toLowerCase().trim());
-      if (item.data) {
-        if (Array.isArray(item.data.todos)) {
-          for (const t of item.data.todos) if (t?.title) recycledTitles.add(t.title.toLowerCase().trim());
-        }
-        if (Array.isArray(item.data.habits)) {
-          for (const h of item.data.habits) if (h?.title) recycledTitles.add(h.title.toLowerCase().trim());
-        }
-      }
-    } else {
-      recycledTitles.add(item.title.toLowerCase().trim());
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(item.snapshot);
+    } catch {}
+    const title = parsed.title || parsed.name || "";
+    if (title) recycledTitles.add(title.toLowerCase().trim());
+
+    if (item.entityType === "workspace") {
+      recycledWorkspaceIds.add(item.entityId);
     }
   }
 

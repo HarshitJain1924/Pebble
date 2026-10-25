@@ -1,0 +1,329 @@
+import React from "react";
+import { act, create } from "react-test-renderer";
+import { TodoItem } from "@/features/tasks/components/TaskItem";
+import type { Task, Workspace } from "@/shared/types/domain.types";
+import { Colors, Palette } from "@/shared/constants/theme";
+import { TaskCategoryColors } from "@/shared/constants/categoryColors";
+
+jest.mock("expo-router", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+  }),
+}));
+
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+);
+
+jest.mock("expo-image", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  return {
+    Image: (props: any) => React.createElement(View, { testID: "expo-image", ...props }),
+  };
+});
+
+jest.mock("@/shared/hooks/useReducedMotion", () => ({
+  useReducedMotion: () => false,
+  default: () => false,
+}));
+
+jest.mock("@/shared/components/ui/SwipeableCard", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  return {
+    SwipeableCard: ({ children }: any) => React.createElement(View, null, children),
+  };
+});
+
+jest.mock("@/shared/components/ui/PressableScale", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  const Comp = ({ children, onPress, ...props }: any) =>
+    React.createElement(View, { onPress, ...props }, children);
+  return {
+    __esModule: true,
+    default: Comp,
+    PressableScale: Comp,
+  };
+});
+
+jest.mock("@expo/vector-icons", () => ({
+  Feather: (props: any) => require("react").createElement("FeatherIcon", props),
+  Ionicons: (props: any) => require("react").createElement("IoniconsIcon", props),
+}));
+
+jest.mock("expo-haptics", () => ({
+  impactAsync: jest.fn().mockResolvedValue(undefined),
+  selectionAsync: jest.fn().mockResolvedValue(undefined),
+  notificationAsync: jest.fn().mockResolvedValue(undefined),
+  ImpactFeedbackStyle: { Light: 0, Medium: 1, Heavy: 2 },
+  NotificationFeedbackType: { Success: 0, Warning: 1, Error: 2 },
+}));
+
+const mockWorkspaces: Workspace[] = [
+  {
+    id: "ws-work",
+    name: "Work",
+    color: "#3B82F6",
+    emoji: "💼",
+    icon: "briefcase",
+    iconType: "icon",
+    revision: 1,
+    lifecycleGeneration: 1,
+    createdAt: 1000,
+    updatedAt: 1000,
+  },
+];
+
+const baseTask: Task = {
+  id: "task-ambient-1",
+  title: "Finish portfolio",
+  workspaceId: "ws-work",
+  categoryId: "work",
+  status: "todo",
+  priority: "high",
+  schedule: { date: "2026-10-05" },
+  resourceIds: ["res-1", "res-2"],
+  revision: 1,
+  lifecycleGeneration: 1,
+  createdAt: 1000,
+  updatedAt: 1000,
+};
+
+describe("TaskItem Category Presentation Redesign", () => {
+  it("removes standalone category badge squircle and renders neutral card background with inline category icon", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={baseTask}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+          allResources={[{ id: "res-1", title: "Doc" }, { id: "res-2", title: "Spec" }]}
+        />
+      );
+    });
+
+    const root = renderer.root;
+
+    // 1. Standalone category badge squircle is NOT present
+    const categoryBadges = root.findAllByProps({ style: expect.anything() }).filter((n: any) => {
+      const s = n.props.style;
+      return s && (s.width === 36 && s.height === 36 && s.borderRadius === 11);
+    });
+    expect(categoryBadges).toHaveLength(0);
+
+    // 2. Ambient category wash Svg and ambient icon are NOT rendered (neutral card)
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    expect(root.findAllByProps({ testID: "task-category-ambient-icon" })).toHaveLength(0);
+
+    // 3. Card container has completely neutral background and border
+    const container = root.findByProps({ testID: "entity-item-container" });
+    const flat = Object.assign(
+      {},
+      ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
+    );
+    expect(flat.backgroundColor).toBe(Colors.dark.card);
+    expect(flat.borderColor).toBe("rgba(255, 255, 255, 0.08)");
+
+    // 4. Category is communicated via the small inline icon only
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
+
+    // 5. Row preserves: checkbox, title, resource indicator, overflow button
+    expect(root.findByProps({ accessibilityRole: "checkbox" })).toBeDefined();
+    expect(root.findByProps({ testID: "task-resource-indicator" })).toBeDefined();
+    expect(root.findByProps({ accessibilityLabel: "More options for Finish portfolio" })).toBeDefined();
+
+    const textNodes = root.findAllByType("Text" as any).map((t: any) => t.props.children);
+    expect(textNodes).toContain("Finish portfolio");
+  });
+
+  it("renders light theme with neutral card background and border", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={baseTask}
+          colors={Colors.light}
+          colorScheme="light"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    expect(root.findAllByProps({ testID: "task-category-ambient-icon" })).toHaveLength(0);
+
+    const container = root.findByProps({ testID: "entity-item-container" });
+    const flat = Object.assign(
+      {},
+      ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
+    );
+    expect(flat.backgroundColor).toBe(Palette.white);
+    expect(flat.borderColor).toBe("rgba(0, 0, 0, 0.06)");
+  });
+
+  it("does not render ambient category wash or icon when task has no categoryId", () => {
+    const taskWithoutCategory: Task = {
+      ...baseTask,
+      id: "task-no-cat",
+      categoryId: undefined,
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={taskWithoutCategory}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const ambientWashes = root.findAllByProps({ testID: "task-category-ambient-wash" });
+    expect(ambientWashes).toHaveLength(0);
+    const ambientIcons = root.findAllByProps({ testID: "task-category-ambient-icon" });
+    expect(ambientIcons).toHaveLength(0);
+  });
+
+  it("uses the specific category color for non-work categories on inline icon only", () => {
+    const healthTask: Task = {
+      ...baseTask,
+      id: "task-health",
+      categoryId: "health",
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={healthTask}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    expect(root.findAllByProps({ testID: "task-category-ambient-wash" })).toHaveLength(0);
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.health.color.dark);
+
+    const container = root.findByProps({ testID: "entity-item-container" });
+    const flat = Object.assign(
+      {},
+      ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
+    );
+    expect(flat.backgroundColor).toBe(Colors.dark.card);
+  });
+
+  it("renders small inline category icon before title in TaskItem", () => {
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={baseTask}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.size).toBe(16);
+    expect(inlineIcon.props.name).toBe("briefcase");
+    expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
+  });
+
+  it("renders small inline category icon for keyword match like Shopping in TaskItem", () => {
+    const shoppingTask: Task = {
+      ...baseTask,
+      id: "task-shop",
+      title: "Shopping",
+      categoryId: undefined,
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={shoppingTask}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+    expect(inlineIcon).toBeDefined();
+    expect(inlineIcon.props.size).toBe(16);
+    expect(inlineIcon.props.name).toBe("cart-outline");
+  });
+
+  it("does not render inline category icon when task has no category or keyword match", () => {
+    const taskWithoutCategory: Task = {
+      ...baseTask,
+      id: "task-no-cat",
+      title: "Finish portfolio",
+      categoryId: undefined,
+    };
+
+    let renderer: any;
+    act(() => {
+      renderer = create(
+        <TodoItem
+          item={taskWithoutCategory}
+          colors={Colors.dark}
+          colorScheme="dark"
+          isOverdue={false}
+          lists={mockWorkspaces}
+          selectedWorkspaceId="ws-work"
+          onToggleTodo={jest.fn()}
+          onDeleteTodo={jest.fn()}
+        />
+      );
+    });
+
+    const root = renderer.root;
+    expect(root.findAllByProps({ testID: "task-category-category-icon" })).toHaveLength(0);
+  });
+});

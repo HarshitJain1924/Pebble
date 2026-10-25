@@ -1,4 +1,5 @@
 import React, { FC, FunctionComponent, useCallback, useEffect, useState } from "react";
+import { Palette } from "@/shared/constants/theme";
 import {
   ActivityIndicator,
   Platform,
@@ -11,6 +12,7 @@ import PressableScale from "@/shared/components/ui/PressableScale";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import {
   WorkspaceRepository,
   TaskRepository,
@@ -22,23 +24,26 @@ import * as Haptics from "expo-haptics";
 import type { IPopupRenderContext } from "../typings/motion-tabs";
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
 import { isRecurringOccurrenceForDate } from "@/services/scheduling/recurrence.service";
+import { getTaskOccurrenceState } from "@/shared/utils/domain-selectors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-
-// Helper functions for Date keys
-const getDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
+import {
+  getDashboardFilters,
+  saveDashboardFilter,
+  saveDashboardPriority,
+} from "@/services/storage/storage.service";
 
 const getTodoDateKey = (todo: any) => {
+  // Canonical schedule.date
+  if (todo.schedule?.date) return todo.schedule.date;
+  // Legacy fallback for migration
   if (todo.scheduledDate) return todo.scheduledDate;
-  if (todo.alarmTime) return getDateKey(new Date(todo.alarmTime));
+  // Derive from canonical reminder.triggerAt
+  if (todo.reminder?.triggerAt) return dateKeyFromDate(new Date(todo.reminder.triggerAt));
   const idNum = Number(todo.id);
-  if (!isNaN(idNum) && idNum > 100000000000) return getDateKey(new Date(idNum));
-  return getDateKey();
+  if (!isNaN(idNum) && idNum > 100000000000) return dateKeyFromDate(new Date(idNum));
+  return getTodayDateKey();
 };
 
 const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext> = ({
@@ -67,7 +72,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   // Data Loading Logic
   const loadData = useCallback(async () => {
     try {
-      const todayStr = getDateKey();
+      const todayStr = getTodayDateKey();
 
       // 1. Fetch workspaces lists
       const listFolders = await WorkspaceRepository.getWorkspaces();
@@ -85,9 +90,9 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
         
         let pendingCount = 0;
         Object.values(tasksMap).forEach((todo: any) => {
-          if (todo.archived) return;
-          const todoDate = todo.dueDate || getDateKey();
-          const isTodayOrOverdue = todoDate <= todayStr || todo.dueDate === "inbox";
+          if (todo.archivedAt) return;
+          const todoDate = todo.schedule?.date || getTodayDateKey();
+          const isTodayOrOverdue = todoDate <= todayStr || todo.schedule?.date === "inbox";
           if (isTodayOrOverdue) {
             if (todo.completed) {
               tComp++;
@@ -96,11 +101,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
             }
             tTotal++;
           }
-          const isOverdue = !todo.completed && todoDate < todayStr && todo.dueDate !== "inbox";
+          const isOverdue = getTaskOccurrenceState(todo, todayStr).isOverdue;
           if (isOverdue) {
             overdueList.push({
               ...todo,
-              scheduledDate: todo.dueDate,
+              schedule: todo.schedule || (todo.dueDate ? { date: todo.dueDate } : undefined),
               folderId: wsId,
             });
           }
@@ -127,11 +132,13 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       const dayOfWeek = new Date().getDay();
       
       todayActiveHabits = allHabits.filter((h: any) => {
-        if (h.archived) return false;
+        if (h.archivedAt) return false;
         if (h.recurrence) {
           return isRecurringOccurrenceForDate(h, todayStr);
         }
-        return !h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek);
+        // Use canonical recurrence.daysOfWeek
+        const hDays = h.recurrence?.daysOfWeek;
+        return !hDays || hDays.length === 0 || hDays.includes(dayOfWeek);
       });
       hTotal = todayActiveHabits.length;
       hComp = todayActiveHabits.filter((h: any) => h.completedDates?.includes(todayStr)).length;
@@ -160,10 +167,9 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
       );
 
       // Load Filter States
-      const dashboardFilter = await AsyncStorage.getItem("todoapp:dashboard:filter");
-      const priorityFilter = await AsyncStorage.getItem("todoapp:dashboard:priority");
-      if (dashboardFilter) setActiveFilter(dashboardFilter);
-      if (priorityFilter) setActivePriority(priorityFilter);
+      const { filter, priority } = await getDashboardFilters();
+      if (filter) setActiveFilter(filter);
+      if (priority) setActivePriority(priority);
 
     } catch (e) {
       console.warn("Failed to load drawer data", e);
@@ -191,14 +197,14 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const toggleDashboardFilter = async (filter: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setActiveFilter(filter);
-    await AsyncStorage.setItem("todoapp:dashboard:filter", filter);
+    await saveDashboardFilter(filter);
     emitStateChange("dashboard_filter_changed");
   };
 
   const togglePriorityFilter = async (priority: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setActivePriority(priority);
-    await AsyncStorage.setItem("todoapp:dashboard:priority", priority);
+    await saveDashboardPriority(priority);
     emitStateChange("dashboard_filter_changed");
   };
 
@@ -206,61 +212,21 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       const uiState = await UiStateRepository.getUiState();
-      const activeWorkspace = uiState.activeWorkspaceId || "default";
+      const activeWorkspace = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
       const h = await HabitRepository.getHabit(habitId, activeWorkspace);
       if (!h) return;
 
-      const today = getDateKey();
-      const yesterday = getDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
-      
-      const isCompletedToday = h.completedDates?.includes(today);
-      const nextCompleted = !isCompletedToday;
+      const today = getTodayDateKey();
+      const isCompletedToday = h.completionHistory.some((c) => c.date === today);
 
-      let streak = h.streak || 0;
-      let completedDates = [...(h.completedDates || [])];
-
-      if (nextCompleted) {
-        let nextStreak = 1;
-        const lastDate = (h as any).lastCompletedDate;
-        if (lastDate === today) {
-          nextStreak = h.streak || 1;
-        } else if (lastDate === yesterday) {
-          nextStreak = (h.streak || 0) + 1;
-        }
-        streak = nextStreak;
-        if (!completedDates.includes(today)) {
-          completedDates.push(today);
-        }
+      const { EntityCommandService } = require("@/services/command/EntityCommandService");
+      if (!isCompletedToday) {
+        await EntityCommandService.completeHabit(habitId, activeWorkspace, { source: "popup_drawer" });
       } else {
-        streak = Math.max(0, streak - 1);
-        completedDates = completedDates.filter((d: string) => d !== today);
+        await EntityCommandService.uncompleteHabit(habitId, activeWorkspace, { source: "popup_drawer" });
       }
 
-      await HabitRepository.saveHabit({
-        ...h,
-        streak,
-        bestStreak: Math.max(h.bestStreak || 0, streak),
-        completedDates,
-        lastCompletedDate: nextCompleted ? today : (streak > 0 ? yesterday : undefined),
-        updatedAt: Date.now(),
-      });
-
-      try {
-        const { recordDailyHistorySnapshot } = require("@/services/analytics/productivity-history.service");
-        void recordDailyHistorySnapshot();
-      } catch {}
-
-      try {
-        const { earnPebble, undoLastPebble } = require("@/features/profile/services/pebble.service");
-        if (!isCompletedToday) {
-          await earnPebble("habit");
-        } else {
-          await undoLastPebble("habit");
-        }
-      } catch {}
-
       await loadData();
-      emitStateChange("habits_changed");
     } catch (e) {
       console.warn("Failed to toggle habit in drawer", e);
     }
@@ -269,24 +235,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   const completeTaskInDrawer = async (taskId: string, folderId: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const wsId = folderId || "default";
-      const todo = await TaskRepository.getTask(taskId, wsId);
-      if (todo) {
-        await TaskRepository.saveTask({
-          ...todo,
-          completed: true,
-          completedAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-      }
-
-      try {
-        const { earnPebble } = require("@/features/profile/services/pebble.service");
-        await earnPebble("task");
-      } catch {}
+      const wsId = folderId || INBOX_WORKSPACE_ID;
+      const { EntityCommandService } = require("@/services/command/EntityCommandService");
+      await EntityCommandService.completeTask(taskId, wsId, { source: "popup_drawer" });
 
       await loadData();
-      emitStateChange("tasks_changed");
     } catch (e) {
       console.warn("Failed to complete task in drawer", e);
     }
@@ -307,7 +260,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
   // Workspace Actions
   const selectWorkspace = (wsId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    router.navigate({ pathname: "/tasks", params: { folderId: wsId } });
+    router.navigate({ pathname: "/tasks", params: { workspaceId: wsId } });
     emitStateChange("close_drawer");
   };
 
@@ -316,7 +269,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + offsetDays);
-    const dateStr = getDateKey(targetDate);
+    const dateStr = dateKeyFromDate(targetDate);
 
     await AsyncStorage.setItem("todoapp:calendar:selectedDate", dateStr);
     emitStateChange("tasks_changed");
@@ -392,7 +345,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
               onPress={handleOpenReview}
               haptic
               contentStyle={{
-                backgroundColor: "#F59E0B",
+                backgroundColor: Palette.amber500,
                 borderRadius: 16,
                 paddingVertical: 12,
                 paddingHorizontal: 16,
@@ -402,15 +355,15 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 gap: 8,
                 marginTop: 4,
                 marginBottom: 4,
-                shadowColor: "#F59E0B",
+                shadowColor: Palette.amber500,
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: 0.15,
                 shadowRadius: 6,
                 elevation: 2,
               }}
             >
-              <Feather name="edit-3" size={16} color="#FFFFFF" />
-              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13, letterSpacing: 0.5 }}>
+              <Feather name="edit-3" size={16} color={Palette.white} />
+              <Text style={{ color: Palette.white, fontWeight: "800", fontSize: 13, letterSpacing: 0.5 }}>
                 REVIEW MY DAY
               </Text>
             </PressableScale>
@@ -447,8 +400,8 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 elevation: 2,
               }}
             >
-              <Feather name="target" size={14} color="#FFFFFF" />
-              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12, letterSpacing: 0.5 }}>
+              <Feather name="target" size={14} color={Palette.white} />
+              <Text style={{ color: Palette.white, fontWeight: "800", fontSize: 12, letterSpacing: 0.5 }}>
                 ENTER ZEN MODE
               </Text>
             </PressableScale>
@@ -560,7 +513,11 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 ]}
               >
                 <View style={[styles.workspaceIconContainer, { backgroundColor: `${ws.color || colors.accent}12` }]}>
-                  <Text style={styles.workspaceEmoji}>{ws.emoji || "📁"}</Text>
+                  {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
+                    <Feather name={(ws.icon || "folder") as any} size={16} color={ws.color || colors.accent} />
+                  ) : (
+                    <Text style={styles.workspaceEmoji}>{ws.emoji || "📁"}</Text>
+                  )}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.workspaceName, { color: colors.foreground }]} numberOfLines={1}>
@@ -635,8 +592,8 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
           {[
             { label: "25m Focus", duration: 25, isBreak: false, icon: "zap", accent: colors.accent },
             { label: "50m Focus", duration: 50, isBreak: false, icon: "award", accent: colors.accent },
-            { label: "5m Break", duration: 5, isBreak: true, icon: "coffee", accent: "#10B981" },
-            { label: "15m Break", duration: 15, isBreak: true, icon: "sun", accent: "#F59E0B" },
+            { label: "5m Break", duration: 5, isBreak: true, icon: "coffee", accent: Palette.emerald500 },
+            { label: "15m Break", duration: 15, isBreak: true, icon: "sun", accent: Palette.amber500 },
           ].map((item) => (
             <PressableScale
               key={item.label}

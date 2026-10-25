@@ -1,136 +1,541 @@
 /**
  * TaskRepository.ts
  * ────────────────────────
- * Task persistence — partitioned by workspaceId.
+ * Task persistence — partitioned by workspaceId using canonical Task model.
  */
 import {
-  DEFAULT_WORKSPACE_ID,
+  INBOX_WORKSPACE_ID,
+  type RecurrenceRule,
   type Task,
-} from "@/shared/types/repository.types";
+  type TaskPriority,
+  type TaskStatus,
+} from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
+
+export function normalizeTask(rawTask: any, defaultWorkspaceId: string): Task {
+  const wsId = rawTask.workspaceId || defaultWorkspaceId;
+  const status: TaskStatus =
+    rawTask.status === "completed" || rawTask.completed === true
+      ? "completed"
+      : "todo";
+
+  let priority: TaskPriority = "none";
+  if (rawTask.priority) {
+    if (["none", "low", "medium", "high"].includes(rawTask.priority)) {
+      priority = rawTask.priority as TaskPriority;
+    }
+  }
+
+  // Construct schedule if present
+  let schedule = rawTask.schedule;
+  if (!schedule) {
+    const date = rawTask.scheduledDate || rawTask.dueDate;
+    const startTime = rawTask.scheduledTime;
+    if (date || startTime) {
+      schedule = {
+        date: date || undefined,
+        startTime: startTime || undefined,
+        endTime: rawTask.endTime || undefined,
+        allDay: rawTask.allDay ?? !startTime,
+      };
+    }
+  }
+
+  // Construct canonical Reminder from legacy flat fields if not already present.
+  // Only reconstruct when alarmTime is a valid number — never fall back to Date.now()
+  // because that would silently corrupt the stored timestamp.
+  let reminder = rawTask.reminder;
+  if (!reminder && typeof rawTask.alarmTime === "number") {
+    reminder = {
+      enabled: true,
+      triggerAt: rawTask.alarmTime,
+      notificationIds:
+        rawTask.notificationIds ||
+        (rawTask.alarmId ? [rawTask.alarmId] : undefined),
+    };
+  }
+
+  // Warn about legacy records that have notificationIds but no alarmTime.
+  // These cannot be reconstructed into a valid canonical Reminder and would
+  // have silently produced Date.now() under the old fallback.
+  if (!reminder && rawTask.notificationIds?.length && rawTask.alarmTime == null) {
+    console.warn(
+      "[Reminder] Legacy task " + rawTask.id + " has notificationIds but no alarmTime — reminder not reconstructed"
+    );
+  }
+
+  // Normalize recurrence
+  let recurrence = rawTask.recurrence;
+  if (!recurrence && rawTask.recurrenceConfig) {
+    const rc = rawTask.recurrenceConfig;
+    let freq: RecurrenceRule["frequency"] = "daily";
+    if (rc.type === "weekly" || rc.type === "weekdays") freq = "weekly";
+    else if (rc.type === "monthly") freq = "monthly";
+    recurrence = {
+      frequency: freq,
+      interval: rc.interval || 1,
+      daysOfWeek: rc.days,
+      dayOfMonth: rc.dayOfMonth,
+    };
+  } else if (recurrence && recurrence.type) {
+    // Legacy inline recurrence mapping
+    let freq: RecurrenceRule["frequency"] = "daily";
+    if (recurrence.type === "weekly" || recurrence.type === "weekdays")
+      freq = "weekly";
+    else if (recurrence.type === "monthly") freq = "monthly";
+    else if (recurrence.type === "interval") freq = "custom";
+    recurrence = {
+      frequency: freq,
+      interval: recurrence.interval || 1,
+      daysOfWeek: recurrence.days,
+      dayOfMonth: recurrence.dayOfMonth,
+    };
+  }
+
+  // Normalize resourceIds
+  let resourceIds = rawTask.resourceIds || [];
+  if (rawTask.resourceId && !resourceIds.includes(rawTask.resourceId)) {
+    resourceIds.push(rawTask.resourceId);
+  }
+  if (Array.isArray(rawTask.linkedResourceIds)) {
+    rawTask.linkedResourceIds.forEach((rid: string) => {
+      if (!resourceIds.includes(rid)) resourceIds.push(rid);
+    });
+  }
+
+  const result = {
+    id: rawTask.id,
+    workspaceId: wsId,
+    title: rawTask.title || "",
+    description: rawTask.description || undefined,
+    categoryId: rawTask.categoryId || rawTask.category || undefined,
+    tags: rawTask.tags || undefined,
+    status,
+    priority,
+    schedule: schedule || undefined,
+    reminder: reminder || undefined,
+    recurrence: recurrence || undefined,
+    recurrenceExceptions: rawTask.recurrenceExceptions || undefined,
+    resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
+    createdAt: rawTask.createdAt || Date.now(),
+    updatedAt: rawTask.updatedAt || Date.now(),
+    completedAt:
+      rawTask.completedAt || (status === "completed" ? Date.now() : undefined),
+    archivedAt:
+      rawTask.archivedAt || (rawTask.archived ? Date.now() : undefined),
+    revision: rawTask.revision ?? 1,
+    lifecycleGeneration: rawTask.lifecycleGeneration ?? 1,
+  };
+  return result;
+}
 
 export class TaskRepository {
+  private static validateId(id: unknown, method: string): asserts id is string {
+    if (
+      id === undefined ||
+      id === null ||
+      typeof id !== "string" ||
+      id.trim().length === 0
+    ) {
+      throw new Error(`TaskRepository.${method}: task.id is required`);
+    }
+  }
+
   private static getTasksKey(workspaceId: string) {
     return `pebble:v1:tasks:${workspaceId}`;
   }
 
-  private static getLegacyTasksKey(workspaceId: string) {
-    return `pebble:core:tasks:${workspaceId}`;
+  /**
+   * Parse a stored workspace payload defensively. Malformed JSON (e.g. from a
+   * partial write or corrupted storage) must never crash the consuming screen;
+   * following the repository's tolerant recovery convention, the payload is
+   * logged and treated as empty so callers see a missing/empty collection.
+   */
+  private static parseRecords(
+    raw: string,
+    key: string,
+    method: string,
+  ): Record<string, any> {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>;
+      }
+      throw new Error(
+        `[TaskRepository] Stored value for "${key}" is not a JSON object (${method})`
+      );
+    } catch (e) {
+      console.error(
+        `[TaskRepository] Failed to parse stored value for "${key}" (${method})`,
+        e,
+      );
+      throw e;
+    }
   }
 
   static async getTask(id: string, workspaceId: string): Promise<Task | null> {
     const key = this.getTasksKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyTasksKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
-    const records: Record<string, Task> = JSON.parse(raw);
-    const task = records[id] || null;
-    if (task) {
-      const resolvedWorkspaceId = task.workspaceId || (task as any).folderId || workspaceId;
-      return {
-        ...task,
-        workspaceId: resolvedWorkspaceId,
-        folderId: resolvedWorkspaceId,
-        dueDate: task.dueDate || task.scheduledDate,
-      } as any;
+    const records: Record<string, any> = this.parseRecords(raw, key, "getTask");
+    const rawTask = records[id] || null;
+    if (rawTask) {
+      const result = normalizeTask(rawTask, workspaceId);
+      return result;
     }
     return null;
   }
 
   static async getTasks(workspaceId: string): Promise<Record<string, Task>> {
     const key = this.getTasksKey(workspaceId);
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(this.getLegacyTasksKey(workspaceId));
-    }
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    const records: Record<string, any> = {};
-    Object.entries(parsed).forEach(([id, task]: [string, any]) => {
-      const resolvedWorkspaceId = task.workspaceId || task.folderId || workspaceId;
-      records[id] = {
-        ...task,
-        workspaceId: resolvedWorkspaceId,
-        folderId: resolvedWorkspaceId,
-        dueDate: task.dueDate || task.scheduledDate,
-      };
+    const parsed = this.parseRecords(raw, key, "getTasks");
+    const records: Record<string, Task> = {};
+    Object.entries(parsed).forEach(([id, rawTask]: [string, any]) => {
+      records[id] = normalizeTask(rawTask, workspaceId);
     });
     return records;
   }
 
-  static async saveTask(task: any): Promise<void> {
-    const workspaceId = task.workspaceId || task.folderId || DEFAULT_WORKSPACE_ID;
+  static async saveTask(task: any): Promise<Task> {
+    this.validateId(task?.id, "saveTask");
+    const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(workspaceId);
-    const records = await this.getTasks(workspaceId);
+    
+    return await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
 
-    const cleanTask: Task = {
-      id: task.id,
-      workspaceId,
-      folderId: workspaceId,
-      title: task.title,
-      completed: task.completed,
-      completedAt: task.completedAt,
-      priority: task.priority || "medium",
-      category: task.category || "work",
-      createdAt: task.createdAt || Date.now(),
-      updatedAt: Date.now(),
-      archived: task.archived || false,
-      description: task.description || undefined,
-      scheduledDate: task.scheduledDate || task.dueDate || undefined,
-      scheduledTime: task.scheduledTime || undefined,
-      durationMinutes: task.durationMinutes || undefined,
-      alarmTime: task.alarmTime || undefined,
-      alarmId: task.alarmId || undefined,
-      notificationIds: task.notificationIds || undefined,
-    };
+      const cleanTask: Task = normalizeTask(task, workspaceId);
+      cleanTask.updatedAt = Date.now();
+      cleanTask.revision = (records[task.id]?.revision || 0) + 1;
+      cleanTask.lifecycleGeneration = task.lifecycleGeneration || records[task.id]?.lifecycleGeneration || 1;
 
-    records[task.id] = cleanTask;
-    await AsyncStorage.setItem(key, JSON.stringify(records));
+      // Pre-persistence guard: catch any code path that produces an enabled
+      // reminder with an invalid triggerAt (e.g. Date.now() instead of the
+      // user-selected time). This would have been silently persisted before.
+      const validTrigger =
+        Number.isFinite(cleanTask.reminder?.triggerAt) &&
+        (cleanTask.reminder?.triggerAt ?? 0) > 0;
+      if (cleanTask.reminder?.enabled && !validTrigger) {
+        console.warn(
+          "[Reminder] Invalid triggerAt on task " + cleanTask.id + " before persistence",
+          cleanTask.reminder
+        );
+      }
+
+      records[task.id] = cleanTask;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+      return cleanTask;
+    });
   }
 
   /**
-   * Batch-save multiple tasks for the same workspace in a single write.
-   * Eliminates N redundant read-write cycles when persisting a full workspace.
+   * Unlocked persistence primitive required specifically for TaskCommandHandler.updateTask
+   * to perform a safe workspace-partition read-modify-write without nested deadlocking.
    */
-  static async saveTasks(tasks: any[], workspaceId: string): Promise<void> {
+  static async saveTaskUnlocked(
+    task: any,
+    existingRecords?: Record<string, Task>,
+    options?: { preserveRevision?: boolean },
+  ): Promise<Task> {
+    this.validateId(task?.id, "saveTaskUnlocked");
+    const workspaceId = task.workspaceId || INBOX_WORKSPACE_ID;
     const key = this.getTasksKey(workspaceId);
+    
+    const records = existingRecords ?? (await this.getTasks(workspaceId));
+
+    const cleanTask: Task = normalizeTask(task, workspaceId);
+    cleanTask.updatedAt = options?.preserveRevision && task.updatedAt ? task.updatedAt : Date.now();
+    cleanTask.revision = options?.preserveRevision && typeof task.revision === "number"
+      ? Math.max(task.revision, (records[task.id]?.revision || 0) + 1)
+      : (records[task.id]?.revision || 0) + 1;
+    cleanTask.lifecycleGeneration = task.lifecycleGeneration || records[task.id]?.lifecycleGeneration || 1;
+
+    const validTrigger =
+      Number.isFinite(cleanTask.reminder?.triggerAt) &&
+      (cleanTask.reminder?.triggerAt ?? 0) > 0;
+    if (cleanTask.reminder?.enabled && !validTrigger) {
+      console.warn(
+        "[Reminder] Invalid triggerAt on task " + cleanTask.id + " before persistence",
+        cleanTask.reminder
+      );
+    }
+
+    records[task.id] = cleanTask;
+    await AsyncStorage.setItem(key, JSON.stringify(records));
+    return cleanTask;
+  }
+
+  static async saveTasks(tasks: any[], workspaceId: string): Promise<void> {
+    for (const task of tasks) {
+      this.validateId(task?.id, "saveTasks");
+    }
+    const key = this.getTasksKey(workspaceId);
+    
+    await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
+
+      for (const task of tasks) {
+        const targetWorkspaceId =
+          workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
+        const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
+        cleanTask.updatedAt = Date.now();
+        // Monotonic revision: always advance from the persisted value,
+        // never trust the caller-provided revision in the payload.
+        cleanTask.revision = (records[task.id]?.revision || 0) + 1;
+        records[task.id] = cleanTask;
+      }
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    });
+  }
+
+  /**
+   * Apply a caller-supplied ORDER to the persisted tasks of one workspace
+   * without letting a stale snapshot overwrite concurrent changes.
+   *
+   * `saveTasks` rewrites every supplied record (bumping `revision`/`updatedAt`)
+   * from a caller snapshot, so a list captured before a concurrent edit reverts
+   * a rename or even re-opens a completed task. A reorder snapshot only carries
+   * order, so this method re-keys the CURRENT records and leaves their fields
+   * untouched:
+   *   - tasks the snapshot does not know about keep their place after the
+   *     ordered ones (concurrent create),
+   *   - ids that are no longer persisted are never resurrected (concurrent
+   *     delete/move), and
+   *   - `revision`/`updatedAt` do not change, because order is not an edit.
+   *
+   * Returns the persisted order (ids only) for verification.
+   */
+  static async applyTaskOrder(
+    orderedTasks: Array<{ id?: string }>,
+    workspaceId: string,
+  ): Promise<string[]> {
+    const key = this.getTasksKey(workspaceId);
+    return withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
+      const ordered: Record<string, Task> = {};
+
+      for (const entry of Array.isArray(orderedTasks) ? orderedTasks : []) {
+        const id = entry?.id;
+        if (!id || ordered[id]) continue;
+        if (records[id]) ordered[id] = records[id];
+      }
+      for (const [id, task] of Object.entries(records)) {
+        if (ordered[id]) continue;
+        ordered[id] = task;
+      }
+
+      await AsyncStorage.setItem(key, JSON.stringify(ordered));
+      return Object.keys(ordered);
+    });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler
+   * to restore tasks into a partition while the canonical lock is held dynamically.
+   */
+  static async saveTasksUnlocked(tasks: any[], workspaceId: string): Promise<void> {
+    for (const task of tasks) {
+      this.validateId(task?.id, "saveTasksUnlocked");
+    }
+    const key = this.getTasksKey(workspaceId);
+    
     const records = await this.getTasks(workspaceId);
 
     for (const task of tasks) {
-      const targetWorkspaceId = workspaceId || task.workspaceId || task.folderId || DEFAULT_WORKSPACE_ID;
-      const cleanTask: Task = {
-        id: task.id,
-        workspaceId: targetWorkspaceId,
-        folderId: targetWorkspaceId,
-        title: task.title,
-        completed: task.completed,
-        completedAt: task.completedAt,
-        priority: task.priority || "medium",
-        category: task.category || "work",
-        createdAt: task.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        archived: task.archived || false,
-        description: task.description || undefined,
-        scheduledDate: task.scheduledDate || task.dueDate || undefined,
-        scheduledTime: task.scheduledTime || undefined,
-        durationMinutes: task.durationMinutes || undefined,
-        alarmTime: task.alarmTime || undefined,
-        alarmId: task.alarmId || undefined,
-        notificationIds: task.notificationIds || undefined,
-      };
+      const targetWorkspaceId =
+        workspaceId || task.workspaceId || INBOX_WORKSPACE_ID;
+      const cleanTask: Task = normalizeTask(task, targetWorkspaceId);
+      cleanTask.updatedAt = Date.now();
+      // Monotonic revision: advance from the persisted value, ignoring caller payload.
+      cleanTask.revision = (records[task.id]?.revision || 0) + 1;
       records[task.id] = cleanTask;
     }
     await AsyncStorage.setItem(key, JSON.stringify(records));
   }
 
+  /**
+   * Safely targets notification IDs for modification without disturbing user edits
+   * or touching the updatedAt timestamp.
+   * Handles workspace moves gracefully by returning not_found if the entity is missing.
+   */
+  static async updateNotificationIds(
+    id: string, 
+    workspaceId: string, 
+    notificationIds?: string[],
+    expectedSnapshot?: {
+      reminder?: { enabled: boolean; triggerAt?: number };
+      status?: string;
+      archivedAt?: number | null;
+      updatedAt?: number;
+      revision?: number;
+      lifecycleGeneration?: number;
+    }
+  ): Promise<'updated' | 'not_found' | 'state_changed'> {
+    this.validateId(id, "updateNotificationIds");
+    const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getTasksKey(targetWorkspaceId);
+    
+    return await withLock(key, async () => {
+      const records = await this.getTasks(targetWorkspaceId);
+      const existing = records[id];
+      if (!existing) {
+        return 'not_found';
+      }
+      
+      if (expectedSnapshot) {
+        const reminderMatches = 
+          existing.reminder?.enabled === expectedSnapshot.reminder?.enabled &&
+          existing.reminder?.triggerAt === expectedSnapshot.reminder?.triggerAt;
+        
+        const statusMatches = expectedSnapshot.status === undefined || existing.status === expectedSnapshot.status;
+        const archiveMatches = (existing.archivedAt ?? null) === (expectedSnapshot.archivedAt ?? null);
+        const updatedAtMatches = expectedSnapshot.updatedAt === undefined || existing.updatedAt === expectedSnapshot.updatedAt;
+        const revisionMatches = expectedSnapshot.revision === undefined || existing.revision === expectedSnapshot.revision;
+        const lifecycleMatches =
+          expectedSnapshot.lifecycleGeneration === undefined ||
+          existing.lifecycleGeneration === expectedSnapshot.lifecycleGeneration;
+
+        if (!reminderMatches || !statusMatches || !archiveMatches || !updatedAtMatches || !revisionMatches || !lifecycleMatches) {
+          return 'state_changed';
+        }
+      }
+      
+      // Preserve ALL fields exactly, only modify notificationIds
+      if (existing.reminder) {
+        existing.reminder.notificationIds = notificationIds;
+      } else if (notificationIds && notificationIds.length > 0) {
+        // Safe default if reminder object was missing but we have IDs
+        existing.reminder = { enabled: true, triggerAt: 0, notificationIds };
+      }
+
+      records[id] = existing;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+      return 'updated';
+    });
+  }
+
+  /**
+   * Performs a targeted update to the resourceIds array without incrementing revision
+   * or touching the updatedAt timestamp.
+   * Protects against concurrent user mutations via optional expectedSnapshot.
+   */
+  static async updateResourceIds(
+    id: string,
+    workspaceId: string,
+    resourceIds?: string[],
+    expectedSnapshot?: {
+      updatedAt?: number;
+      revision?: number;
+      lifecycleGeneration?: number;
+    }
+  ): Promise<'updated' | 'not_found' | 'state_changed'> {
+    this.validateId(id, "updateResourceIds");
+    const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
+    const key = this.getTasksKey(targetWorkspaceId);
+
+    return await withLock(key, async () => {
+      const records = await this.getTasks(targetWorkspaceId);
+      const existing = records[id];
+      if (!existing) {
+        return 'not_found';
+      }
+
+      if (expectedSnapshot) {
+        const updatedAtMatches =
+          expectedSnapshot.updatedAt === undefined ||
+          existing.updatedAt === expectedSnapshot.updatedAt;
+        const revisionMatches =
+          expectedSnapshot.revision === undefined ||
+          existing.revision === expectedSnapshot.revision;
+        const lifecycleMatches =
+          expectedSnapshot.lifecycleGeneration === undefined ||
+          existing.lifecycleGeneration === expectedSnapshot.lifecycleGeneration;
+
+        if (!updatedAtMatches || !revisionMatches || !lifecycleMatches) {
+          return 'state_changed';
+        }
+      }
+
+      // Preserve ALL fields exactly, only modify resourceIds
+      existing.resourceIds = resourceIds && resourceIds.length > 0 ? resourceIds : undefined;
+
+      records[id] = existing;
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+      return 'updated';
+    });
+  }
+
   static async deleteTask(id: string, workspaceId: string): Promise<void> {
+    const key = this.getTasksKey(workspaceId);
+    await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
+      if (records[id]) {
+        delete records[id];
+        await AsyncStorage.setItem(key, JSON.stringify(records));
+      }
+    });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for TaskCommandHandler.moveTask
+   * to perform a safe cross-workspace read-modify-write-delete without nested deadlocking.
+   */
+  static async deleteTaskUnlocked(id: string, workspaceId: string): Promise<void> {
     const key = this.getTasksKey(workspaceId);
     const records = await this.getTasks(workspaceId);
     if (records[id]) {
       delete records[id];
       await AsyncStorage.setItem(key, JSON.stringify(records));
     }
+  }
+
+  static async deleteTasks(ids: string[], workspaceId: string): Promise<void> {
+    if (ids.length === 0) return;
+    const key = this.getTasksKey(workspaceId);
+    await withLock(key, async () => {
+      const records = await this.getTasks(workspaceId);
+      let modified = false;
+      for (const id of ids) {
+        if (records[id]) {
+          delete records[id];
+          modified = true;
+        }
+      }
+      if (modified) {
+        await AsyncStorage.setItem(key, JSON.stringify(records));
+      }
+    });
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for TaskCommandHandler.recycleTasks
+   * to perform safe bulk deletions under dynamically held partition locks.
+   */
+  static async deleteTasksUnlocked(ids: string[], workspaceId: string): Promise<void> {
+    if (ids.length === 0) return;
+    const key = this.getTasksKey(workspaceId);
+    const records = await this.getTasks(workspaceId);
+    let modified = false;
+    for (const id of ids) {
+      if (records[id]) {
+        delete records[id];
+        modified = true;
+      }
+    }
+    if (modified) {
+      await AsyncStorage.setItem(key, JSON.stringify(records));
+    }
+  }
+
+  /**
+   * Unlocked persistence primitive required specifically for WorkspaceCommandHandler.deleteWorkspace
+   * to physically wipe the active partition safely under dynamically held locks.
+   */
+  static async deletePartitionUnlocked(workspaceId: string): Promise<void> {
+    const key = this.getTasksKey(workspaceId);
+    await AsyncStorage.removeItem(key);
   }
 }

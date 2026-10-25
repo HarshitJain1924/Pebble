@@ -1,3 +1,5 @@
+import { Palette } from "./theme";
+
 export const AMBIENT_SOUNDS = [
   {
     id: "none",
@@ -62,7 +64,7 @@ export const getSoundMetadata = (id: string, customTracks?: any[]) => {
   if (custom) {
     return {
       icon: "music",
-      gradient: ["#EC4899", "#831843"],
+      gradient: [Palette.pink500, Palette.pink900],
       artist: "Local File",
       description: "User imported audio track",
     };
@@ -71,56 +73,56 @@ export const getSoundMetadata = (id: string, customTracks?: any[]) => {
     case "none":
       return {
         icon: "volume-x",
-        gradient: ["#374151", "#1F2937"],
+        gradient: [Palette.gray700, Palette.gray800],
         artist: "Silence",
         description: "Silent study ambient"
       };
     case "cosmic":
       return {
         icon: "globe",
-        gradient: ["#6366F1", "#312E81"],
+        gradient: [Palette.indigo500, Palette.indigo900],
         artist: "Cosmic Frequency",
         description: "432Hz deep space frequencies"
       };
     case "corporate":
       return {
         icon: "briefcase",
-        gradient: ["#3B82F6", "#1D4ED8"],
+        gradient: [Palette.blue500, Palette.blue700],
         artist: "Deep Focus Lab",
         description: "Binaural beats for high productivity"
       };
     case "studying":
       return {
         icon: "moon",
-        gradient: ["#1E1B4B", "#030712"],
+        gradient: [Palette.inkDeep, Palette.gray950],
         artist: "Lofi Study Beats",
         description: "Late night focus instrumentals"
       };
     case "cafe":
       return {
         icon: "coffee",
-        gradient: ["#8B5CF6", "#4C1D95"],
+        gradient: [Palette.violet500, Palette.violet900],
         artist: "Coffee & Rain",
         description: "Warm acoustic cafe atmosphere"
       };
     case "brainpower":
       return {
         icon: "zap",
-        gradient: ["#F59E0B", "#78350F"],
+        gradient: [Palette.amber500, Palette.amber900],
         artist: "Alpha Brainwaves",
         description: "432Hz cognitive stimulation"
       };
     case "rain":
       return {
         icon: "cloud-rain",
-        gradient: ["#06B6D4", "#0891B2"],
+        gradient: [Palette.cyan500, Palette.cyan600],
         artist: "Nature Sounds",
         description: "Gentle rain and soft wind"
       };
     default:
       return {
         icon: "music",
-        gradient: ["#6B7280", "#374151"],
+        gradient: [Palette.gray500, Palette.gray700],
         artist: "Pebble Ambient",
         description: "Focus soundscape"
       };

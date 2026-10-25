@@ -1,0 +1,962 @@
+import React from "react";
+import { act, create } from "react-test-renderer";
+import {
+  EntityItem,
+  EntityMetaRow,
+  EntityResourceIndicator,
+} from "../EntityItem";
+import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
+import { ChecklistProgressCard } from "@/features/checklists/components/ChecklistProgressCard";
+import { Colors, Palette } from "@/shared/constants/theme";
+import { ROW_SPEC } from "@/shared/constants/rowSpec";
+import { Spacing } from "@/shared/constants/spacing";
+import { TaskCategoryColors } from "@/shared/constants/categoryColors";
+import { Text as RNText, View as RNView } from "react-native";
+
+jest.mock("expo-router", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+  }),
+}));
+
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+);
+
+jest.mock("expo-image", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  return {
+    Image: (props: any) => React.createElement(View, { testID: "expo-image", ...props }),
+  };
+});
+
+jest.mock("@/shared/hooks/useReducedMotion", () => ({
+  useReducedMotion: () => false,
+  default: () => false,
+}));
+
+jest.mock("@/shared/components/ui/SwipeableCard", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  return {
+    SwipeableCard: ({ children }: any) => React.createElement(View, null, children),
+  };
+});
+
+jest.mock("@/shared/components/ui/PressableScale", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  const Comp = ({ children, onPress, ...props }: any) =>
+    React.createElement(View, { onPress, ...props }, children);
+  return {
+    __esModule: true,
+    default: Comp,
+    PressableScale: Comp,
+  };
+});
+
+jest.mock("@expo/vector-icons", () => ({
+  Feather: (props: any) => require("react").createElement("FeatherIcon", props),
+  Ionicons: (props: any) => require("react").createElement("IoniconsIcon", props),
+}));
+
+jest.mock("expo-haptics", () => ({
+  impactAsync: jest.fn().mockResolvedValue(undefined),
+  selectionAsync: jest.fn().mockResolvedValue(undefined),
+  notificationAsync: jest.fn().mockResolvedValue(undefined),
+  ImpactFeedbackStyle: { Light: 0, Medium: 1, Heavy: 2 },
+  NotificationFeedbackType: { Success: 0, Warning: 1, Error: 2 },
+}));
+
+describe("EntityItem Unified Architecture", () => {
+  describe("EntityItem visual primitive", () => {
+    it("renders title, metadata, leadingControl, and resources slots cleanly", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Shared Item Title"
+            leadingControl={<RNView testID="mock-leading" />}
+            metadata={
+              <EntityMetaRow
+                parts={[
+                  { key: "due", text: "Today" },
+                  { key: "time", text: "6:00 PM" },
+                  { key: "resources", text: "2", icon: "paperclip", testID: "mock-resources", onPress: jest.fn() },
+                ]}
+              />
+            }
+            trailingActions={<RNView testID="mock-actions" />}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      expect(root.findByProps({ testID: "mock-leading" })).toBeDefined();
+      expect(root.findByProps({ testID: "mock-resources" })).toBeDefined();
+      expect(root.findByProps({ testID: "mock-actions" })).toBeDefined();
+
+      const textNodes = root.findAllByType(RNText).map((t: any) => t.props.children);
+      expect(textNodes).toContain("Shared Item Title");
+      expect(textNodes).toContain("Today");
+      expect(textNodes).toContain("6:00 PM");
+      expect(textNodes).toContain("2");
+    });
+
+    it("renders optional description text preview (Tier 2) below title", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Design Review"
+            description="Review typography hierarchy and card spacing with the team"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const textNodes = root.findAllByType(RNText).map((t: any) => t.props.children);
+      expect(textNodes).toContain("Design Review");
+      expect(textNodes).toContain("Review typography hierarchy and card spacing with the team");
+    });
+
+    it("renders completely neutral card background without category wash or watermark icon", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Work item"
+            category="work"
+            colorScheme="dark"
+            testIDPrefix="custom-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      expect(root.findAllByProps({ testID: "custom-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "custom-category-ambient-icon" })).toHaveLength(0);
+
+      // Verify neutral surface and neutral border
+      const container = root.findByProps({ testID: "entity-item-container" });
+      const flat = Object.assign(
+        {},
+        ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
+      );
+      expect(flat.backgroundColor).toBe(Colors.dark.card);
+      expect(flat.borderColor).toBe("rgba(255, 255, 255, 0.08)");
+    });
+
+    it("does not render ambient wash or watermark icon when category is null", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Neutral item"
+            category={null}
+            colorScheme="dark"
+            testIDPrefix="custom-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      expect(root.findAllByProps({ testID: "custom-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "custom-category-ambient-icon" })).toHaveLength(0);
+    });
+
+    it("renders priority edge strip when priority is specified", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="High Priority Task"
+            priority="high"
+            colorScheme="dark"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const edgeStrip = root.findByProps({ testID: "task-category-priority-edge-strip" });
+      expect(edgeStrip).toBeDefined();
+    });
+
+    it("applies 0.6 dimmed opacity when completed/dimmed", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Done item"
+            dimmed={true}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const container = root.findByProps({ testID: "entity-item-container" });
+      const flat = Array.isArray(container.props.style)
+        ? Object.assign({}, ...container.props.style)
+        : container.props.style;
+      expect(flat.opacity).toBe(0.6);
+    });
+
+    it("renders small inline category icon directly before title in title row", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Work item"
+            category="work"
+            colorScheme="dark"
+            testIDPrefix="custom-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const inlineIcon = root.findByProps({ testID: "custom-category-category-icon" });
+      expect(inlineIcon).toBeDefined();
+      expect(inlineIcon.props.size).toBe(16);
+      expect(inlineIcon.props.name).toBe("briefcase");
+      expect(inlineIcon.props.color).toBe(TaskCategoryColors.work.color.dark);
+
+      // Verify it has no background card wrapper or extra container surface
+      const iconStyle = Array.isArray(inlineIcon.props.style)
+        ? Object.assign({}, ...inlineIcon.props.style)
+        : inlineIcon.props.style;
+      expect(iconStyle.backgroundColor).toBeUndefined();
+      expect(iconStyle.borderWidth).toBeUndefined();
+      expect(iconStyle.flexShrink).toBe(0);
+    });
+
+    it("renders inline category icon for keyword matched title like Shopping", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Shopping"
+            colorScheme="dark"
+            testIDPrefix="task-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+      expect(inlineIcon).toBeDefined();
+      expect(inlineIcon.props.size).toBe(16);
+      expect(inlineIcon.props.name).toBe("cart-outline");
+      expect(inlineIcon.props.color).toBe(Palette.pink500);
+    });
+
+    it("does not render inline category icon for neutral item without category", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Generic Neutral Task"
+            colorScheme="dark"
+            testIDPrefix="task-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      expect(root.findAllByProps({ testID: "task-category-category-icon" })).toHaveLength(0);
+    });
+
+    it("mutes inline category icon color when item is completed", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityItem
+            title="Shopping"
+            isCompleted={true}
+            colorScheme="dark"
+            testIDPrefix="task-category"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const inlineIcon = root.findByProps({ testID: "task-category-category-icon" });
+      expect(inlineIcon).toBeDefined();
+      expect(inlineIcon.props.color).toBe(Colors.dark.textMuted);
+    });
+  });
+
+  describe("EntityMetaRow metadata refinement", () => {
+    it("separates parts with a drawn dot instead of a '·' text glyph", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityMetaRow
+            parts={[
+              { key: "a", text: "Today" },
+              { key: "b", text: "2:00 PM" },
+              { key: "c", text: "30m before", icon: "bell" },
+            ]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      // One separator sits between each adjacent pair of parts.
+      const separators = root.findAll(
+        (node: any) =>
+          typeof node.type === "string" && node.props?.testID === "entity-meta-separator",
+      );
+      expect(separators).toHaveLength(2);
+      // The old middot glyph is gone, so it no longer steals vertical alignment.
+      const texts = root.findAllByType(RNText).map((t: any) => t.props.children);
+      expect(texts).not.toContain("·");
+    });
+
+    it("renders metadata icons at the row-spec size and hides them from assistive tech", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityMetaRow
+            parts={[
+              { key: "date", text: "Sep 12", icon: "calendar" },
+              { key: "reminder", text: "30m before", icon: "bell" },
+            ]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const icons = root.findAllByType("FeatherIcon" as any);
+      expect(icons).toHaveLength(2);
+      for (const icon of icons) {
+        expect(icon.props.size).toBe(ROW_SPEC.type.metaIcon);
+        expect(icon.props.accessibilityElementsHidden).toBe(true);
+        expect(icon.props.importantForAccessibility).toBe("no");
+      }
+    });
+
+    it("keeps the row single-line by default but wraps dense metadata instead of clipping it", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityMetaRow
+            parts={[
+              { key: "date", text: "Sep 12", icon: "calendar" },
+              { key: "time", text: "4:21\u20135:21 PM", icon: "clock" },
+              { key: "reminder", text: "30m before", icon: "bell" },
+            ]}
+          />
+        );
+      });
+
+      const rows = renderer.root.findAllByProps({ testID: "entity-meta-row" });
+      expect(rows.length).toBeGreaterThan(0);
+      const flat = Object.assign(
+        {},
+        ...(Array.isArray(rows[0].props.style) ? rows[0].props.style : [rows[0].props.style])
+      );
+      // Wrapping is the fallback; horizontal rhythm still comes from the separators.
+      expect(flat.flexWrap).toBe("wrap");
+      expect(flat.rowGap).toBe(Spacing.xs);
+    });
+
+    it("renders nothing when there are no parts", () => {
+      let renderer: any;
+      act(() => {
+        renderer = create(<EntityMetaRow parts={[]} />);
+      });
+      expect(renderer.toJSON()).toBeNull();
+    });
+  });
+
+  describe("HabitStreakCard using EntityItem", () => {
+    it("renders the streak as a trailing badge, keeps it out of metadata, and resolves keyword ambient category for Gym", () => {
+      const mockHabit = {
+        id: "h-gym",
+        title: "Gym Workout",
+        recurrence: { frequency: "daily" },
+        reminder: { triggerAt: new Date(2026, 9, 5, 7, 0).getTime() },
+        resourceIds: ["res-1"],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={12}
+            bestStreak={15}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+            linkedCount={1}
+            linkedResources={[{ id: "res-1", title: "Routine" }]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+
+      // 1. Completely neutral surface without category wash or ambient icon
+      expect(root.findAllByProps({ testID: "habit-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "habit-category-ambient-icon" })).toHaveLength(0);
+
+      const textNodes = root.findAllByType(RNText).map((t: any) =>
+        Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+      );
+      expect(textNodes).toContain("Gym Workout");
+
+      // 2. Streak has moved out of the metadata row entirely
+      expect(textNodes).not.toContain("🔥 12");
+      expect(textNodes.filter((t: any) => t === "Daily")).toHaveLength(1);
+
+      // 3. Streak is now a trailing badge with a meaningful a11y label
+      const streakBadge = root.findByProps({ testID: "habit-streak-badge" });
+      expect(streakBadge).toBeDefined();
+      expect(streakBadge.props.accessibilityLabel).toBe("12 day streak");
+      const streakTexts = streakBadge
+        .findAllByType(RNText)
+        .map((t: any) => t.props.children);
+      expect(streakTexts).toContain(12);
+      expect(streakTexts).toContain("days");
+
+      // 4. Resource indicator still shows count of 1 in the metadata row
+      const resIndicator = root.findByProps({ testID: "habit-resource-indicator" });
+      expect(resIndicator).toBeDefined();
+      const resTexts = resIndicator.findAllByType(RNText).map((t: any) => t.props.children);
+      expect(resTexts).toContain("1");
+
+      // 5. Overflow button is still present and independent of the streak badge
+      const overflowBtn = root.findByProps({ testID: "habit-overflow-button" });
+      expect(overflowBtn).toBeDefined();
+    });
+
+    it("keeps the streak value visible when the habit is completed", () => {
+      const mockHabit = {
+        id: "h-done",
+        title: "Meditate",
+        recurrence: { frequency: "daily" },
+        resourceIds: [],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={0}
+            completedToday={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const streakBadge = root.findByProps({ testID: "habit-streak-badge" });
+      expect(streakBadge.props.accessibilityLabel).toBe("0 day streak");
+
+      const streakTexts = streakBadge
+        .findAllByType(RNText)
+        .map((t: any) => t.props.children);
+      expect(streakTexts).toContain(0);
+      expect(streakTexts).toContain("days");
+
+      // Stage 0 is inactive, so no flame artwork is registered or rendered.
+      expect(streakBadge.findAllByProps({ testID: "habit-streak-flame" })).toHaveLength(0);
+
+      // No extra opacity beyond the row-level dim applied by EntityItem itself.
+      const badgeStyle = Object.assign({}, ...(Array.isArray(streakBadge.props.style)
+        ? streakBadge.props.style
+        : [streakBadge.props.style]));
+      expect(badgeStyle.opacity).toBeUndefined();
+
+      // Completing a habit must not hide the overflow menu.
+      expect(root.findByProps({ testID: "habit-overflow-button" })).toBeDefined();
+    });
+
+    it("hides the overflow button in selection mode while keeping the streak badge", () => {
+      const mockHabit = {
+        id: "h-sel",
+        title: "Read",
+        recurrence: { frequency: "daily" },
+        resourceIds: [],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={1}
+            completedToday={false}
+            isSelectionMode={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      expect(root.findAllByProps({ testID: "habit-overflow-button" })).toHaveLength(0);
+      const streakBadge = root.findByProps({ testID: "habit-streak-badge" });
+      expect(streakBadge.props.accessibilityLabel).toBe("1 day streak");
+      const streakTexts = streakBadge
+        .findAllByType(RNText)
+        .map((t: any) => t.props.children);
+      expect(streakTexts).toContain("day");
+    });
+
+    it("renders habit priority edge strip when priority is high", () => {
+      const mockHabit = {
+        id: "h-prio",
+        title: "High Priority Habit",
+        priority: "high" as const,
+        recurrence: { frequency: "daily" },
+        resourceIds: [],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={5}
+            bestStreak={10}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const prioStrip = root.findByProps({ testID: "habit-category-priority-edge-strip" });
+      expect(prioStrip).toBeDefined();
+    });
+
+    it("tapping compact resource metadata opens Quick Edit and does not expand resources inline", () => {
+      const mockHabit = {
+        id: "h-resources",
+        title: "Study React",
+        recurrence: { frequency: "daily" },
+        resourceIds: ["res-1", "res-2"],
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={7}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+            linkedCount={2}
+            linkedResources={[
+              { id: "res-1", title: "React Docs", type: "link" },
+              { id: "res-2", title: "Notes", type: "note" },
+            ]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const resIndicator = root.findByProps({ testID: "habit-resource-indicator" });
+      expect(resIndicator).toBeDefined();
+
+      // Does not render inline resource rows in the card body
+      const textNodes = root.findAllByType(RNText).map((t: any) =>
+        Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+      );
+      expect(textNodes).not.toContain("React Docs");
+      expect(textNodes).not.toContain("Notes");
+
+      // Quick Edit sheet is initially unmounted
+      expect(root.findAllByProps({ testID: "habit-quick-edit-sheet" })).toHaveLength(0);
+
+      // Tapping the compact resource indicator opens Quick Edit
+      act(() => {
+        resIndicator.props.onPress();
+      });
+
+      expect(root.findByProps({ testID: "habit-quick-edit-sheet" })).toBeDefined();
+    });
+
+    it("applies strengthened category gradient wash and non-colliding ambient watermark", () => {
+      const mockHabit = {
+        id: "h-gym",
+        title: "Gym Workout",
+        recurrence: { frequency: "daily" },
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={14}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      // Completely neutral card background and border regardless of category
+      const container = root.findByProps({ testID: "entity-item-container" });
+      const flatContainer = Object.assign(
+        {},
+        ...(Array.isArray(container.props.style) ? container.props.style : [container.props.style])
+      );
+      expect(flatContainer.backgroundColor).toBe(Colors.dark.card);
+      expect(flatContainer.borderColor).toBe("rgba(255, 255, 255, 0.08)");
+      expect(root.findAllByProps({ testID: "habit-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "habit-category-ambient-icon" })).toHaveLength(0);
+    });
+
+    it("animates the flame when completed, avoids stale ref re-trigger loops, and keeps pill-free layout", () => {
+      const mockHabit = {
+        id: "h-anim",
+        title: "Gym Workout",
+        recurrence: { frequency: "daily" },
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={5}
+            completedToday={false}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const badge = root.findByProps({ testID: "habit-streak-badge" });
+      const flatBadgeStyle = Object.assign(
+        {},
+        ...(Array.isArray(badge.props.style) ? badge.props.style : [badge.props.style])
+      );
+      // Direct editorial content: pill-free (no border or rounded container)
+      expect(flatBadgeStyle.borderWidth).toBeUndefined();
+      expect(flatBadgeStyle.backgroundColor).toBeUndefined();
+
+      // Transition to completedToday: true
+      act(() => {
+        renderer.update(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={6}
+            completedToday={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      // Subsequent re-render with completedToday: true avoids stale ref re-trigger loop
+      act(() => {
+        renderer.update(
+          <HabitStreakCard
+            title={mockHabit.title}
+            streak={6}
+            completedToday={true}
+            onPressToggle={jest.fn()}
+            habit={mockHabit}
+          />
+        );
+      });
+
+      expect(root.findByProps({ testID: "habit-streak-badge" })).toBeDefined();
+
+      // Clean unmount clears the active animation timer via useEffect cleanup
+      act(() => {
+        renderer.unmount();
+      });
+    });
+  });
+
+  describe("ChecklistProgressCard using EntityItem", () => {
+    it("renders checklist with progress bar and resolves keyword ambient category for Shopping", () => {
+      const mockChecklist = {
+        id: "chk-shop",
+        title: "Shopping List",
+        priority: "none" as const,
+        items: [
+          { id: "i1", title: "Apples", completed: true },
+          { id: "i2", title: "Bread", completed: true },
+          { id: "i3", title: "Milk", completed: true },
+          { id: "i4", title: "Eggs", completed: false },
+          { id: "i5", title: "Cheese", completed: false },
+        ],
+        resourceIds: ["res-1"],
+        workspaceId: "ws-1",
+        revision: 1,
+        lifecycleGeneration: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <ChecklistProgressCard
+            checklist={mockChecklist}
+            colors={Colors.dark}
+            colorScheme="dark"
+            isExpanded={false}
+            onToggleExpand={jest.fn()}
+            onToggleChecklist={jest.fn()}
+            onUpdateChecklist={jest.fn()}
+            allResources={[{ id: "res-1", title: "Recipe", type: "note" }]}
+          />
+        );
+      });
+
+      const root = renderer.root;
+
+      // 1. Completely neutral surface without category wash
+      expect(root.findAllByProps({ testID: "checklist-category-ambient-wash" })).toHaveLength(0);
+      expect(root.findAllByProps({ testID: "checklist-category-ambient-icon" })).toHaveLength(0);
+
+      // 2. Progress text metrics
+      const textNodes = root.findAllByType(RNText).map((t: any) =>
+        Array.isArray(t.props.children) ? t.props.children.join("") : t.props.children
+      );
+      expect(textNodes).toContain("Shopping List");
+      expect(textNodes).toContain("3 of 5 completed");
+      expect(textNodes).toContain("2 left");
+
+      // 3. Resource indicator shows count of 1 in metadata row
+      const resIndicator = root.findByProps({ testID: "checklist-resource-indicator" });
+      expect(resIndicator).toBeDefined();
+      const resTexts = resIndicator.findAllByType(RNText).map((t: any) => t.props.children);
+      expect(resTexts).toContain("1");
+    });
+  });
+
+  describe("EntityQuickEditSheet", () => {
+    it("renders title, note, and allows selecting priority", () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onSelectPriorityMock = jest.fn();
+      const onSaveTitleMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={jest.fn()}
+            title="Read 30 mins"
+            onSaveTitle={onSaveTitleMock}
+            description="Focus on chapter 4"
+            priority="none"
+            onSelectPriority={onSelectPriorityMock}
+            scheduleLabel="Daily"
+            scheduleIcon="repeat"
+            hasSchedule={true}
+            onPressSchedule={jest.fn()}
+            testIDPrefix="habit"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      // Sheet exists
+      expect(root.findByProps({ testID: "habit-quick-edit-sheet" })).toBeDefined();
+
+      // Title input has correct value
+      const titleInput = root.findByProps({ testID: "habit-title-input" });
+      expect(titleInput.props.value).toBe("Read 30 mins");
+
+      // Tap priority pill to open picker
+      const prioPill = root.findByProps({ testID: "habit-priority-pill" });
+      act(() => {
+        prioPill.props.onPress();
+      });
+
+      // Priority picker is visible
+      const prioPicker = root.findByProps({ testID: "habit-priority-picker" });
+      expect(prioPicker).toBeDefined();
+
+      // Select 'high'
+      const highOption = root.findByProps({ testID: "habit-priority-option-high" });
+      act(() => {
+        highOption.props.onPress();
+      });
+
+      expect(onSelectPriorityMock).toHaveBeenCalledWith("high");
+    });
+
+    it("EntityItem: renders floating resource deck near top with tiles when resources exist", () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onOpenResourceMock = jest.fn();
+      const onAddResourceMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={jest.fn()}
+            title="Habit with resources"
+            linkedResources={[
+              { id: "res-1", title: "Workout PDF", type: "note" },
+              { id: "res-2", title: "Timer Link", type: "link", url: "https://gymtimer.io" },
+            ]}
+            totalResources={2}
+            onOpenResource={onOpenResourceMock}
+            onAddResource={onAddResourceMock}
+            testIDPrefix="habit"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      // 1. Resource deck is rendered and immediately visible
+      const deck = root.findByProps({ testID: "habit-attachment-deck" });
+      expect(deck).toBeDefined();
+
+      // 2. Resource tiles for each resource
+      const tile1 = root.findByProps({ testID: "habit-attachment-tile-res-1" });
+      expect(tile1).toBeDefined();
+      expect(tile1.props.accessibilityLabel).toBe("Open resource: Workout PDF");
+
+      act(() => {
+        tile1.props.onPress();
+      });
+      expect(onOpenResourceMock).toHaveBeenCalledWith(expect.objectContaining({ id: "res-1" }));
+
+      // 3. Add attachment tile
+      const addBtn = root.findByProps({ testID: "habit-add-attachment-button" });
+      expect(addBtn).toBeDefined();
+      act(() => {
+        addBtn.props.onPress();
+      });
+      expect(onAddResourceMock).toHaveBeenCalled();
+
+      // 4. Resource count is NOT rendered as a property pill in the property rail
+      const propPills = root.findAllByProps({ testID: "habit-resources-pill" });
+      expect(propPills).toHaveLength(0);
+    });
+
+    it("EntityItem: renders subtle + Add resource affordance when no resources exist", () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onAddResourceMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={jest.fn()}
+            title="Habit without resources"
+            linkedResources={[]}
+            totalResources={0}
+            onAddResource={onAddResourceMock}
+            testIDPrefix="habit"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const emptyAdd = root.findByProps({ testID: "habit-add-resource-empty" });
+      expect(emptyAdd).toBeDefined();
+      act(() => {
+        emptyAdd.props.onPress();
+      });
+      expect(onAddResourceMock).toHaveBeenCalled();
+    });
+
+    it("does not commit pending edits when delete button is pressed (prevents resurrection / ghost race)", async () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onSaveTitleMock = jest.fn();
+      const onSaveDescriptionMock = jest.fn();
+      const onDeleteMock = jest.fn();
+      const onCloseMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={onCloseMock}
+            title="Initial Title"
+            description="Initial Desc"
+            onSaveTitle={onSaveTitleMock}
+            onSaveDescription={onSaveDescriptionMock}
+            onDelete={onDeleteMock}
+            testIDPrefix="task"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const titleInput = root.findByProps({ testID: "task-title-input" });
+      // Simulate editing title in draft
+      act(() => {
+        titleInput.props.onChangeText("Edited Title Draft");
+      });
+
+      // Press delete button (and simulate rapid second tap)
+      const deleteButton = root.findByProps({ testID: "task-delete-button" });
+      const onDeletePress = deleteButton.props.onPress;
+      await act(async () => {
+        onDeletePress();
+        onDeletePress();
+        await Promise.resolve();
+      });
+
+      // Verify onDelete was called exactly once, and onSaveTitle was NOT called (no ghost mutation on deleted entity)
+      expect(onDeleteMock).toHaveBeenCalledTimes(1);
+      expect(onSaveTitleMock).not.toHaveBeenCalled();
+      expect(onSaveDescriptionMock).not.toHaveBeenCalled();
+    });
+
+    it("prevents duplicate commits on multiple rapid commit triggers", async () => {
+      const { EntityQuickEditSheet } = require("../EntityQuickEditSheet");
+      const onSaveTitleMock = jest.fn().mockResolvedValue(undefined);
+      const onCloseMock = jest.fn();
+
+      let renderer: any;
+      act(() => {
+        renderer = create(
+          <EntityQuickEditSheet
+            visible={true}
+            onClose={onCloseMock}
+            title="Task Title"
+            onSaveTitle={onSaveTitleMock}
+            testIDPrefix="task"
+          />
+        );
+      });
+
+      const root = renderer.root;
+      const titleInput = root.findByProps({ testID: "task-title-input" });
+      act(() => {
+        titleInput.props.onChangeText("Task Title Updated");
+      });
+
+      // Simulate closing overlay
+      const overlay = root.findByType(require("@/shared/components/ui/AnimatedOverlay").AnimatedOverlay);
+      await act(async () => {
+        await overlay.props.onClose();
+        // Call a second time as if animation finished after external close
+        await overlay.props.onClose();
+      });
+
+      // onSaveTitle should only have been called once despite multiple close invocations
+      expect(onSaveTitleMock).toHaveBeenCalledTimes(1);
+      expect(onSaveTitleMock).toHaveBeenCalledWith("Task Title Updated");
+    });
+  });
+});
+

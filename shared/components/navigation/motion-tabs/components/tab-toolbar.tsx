@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { Pressable, View } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 
 import type { ITabToolbarProps } from "../typings/motion-tabs";
 import { layoutStyles as styles } from "../utils/layout-styles";
@@ -52,7 +53,7 @@ const TabToolbar: FC<ITabToolbarProps> & FunctionComponent<ITabToolbarProps> =
                       }
                     ]}
                   >
-                    {item.icon(false, "#FFFFFF", 24)}
+                    {item.icon(false, Palette.white, 24)}
                   </Pressable>
                 </View>
               );

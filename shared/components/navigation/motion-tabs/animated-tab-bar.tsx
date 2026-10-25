@@ -19,7 +19,6 @@ import {
     Pressable,
     StyleSheet,
     View,
-    useColorScheme,
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -42,6 +41,8 @@ import { palette } from "./utils/palette";
 import { estimateToolbarWidth } from "./utils/toolbar-width";
 
 import { addStateListener, emitStateChange } from "@/services/events/state-events";
+import { Palette } from "@/shared/constants/theme";
+import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -52,7 +53,8 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
   (
     props: IAnimatedTabBarProps & ComponentProps<typeof AnimatedTabBar>,
   ): (ReactNode & ReactElement & JSX.Element) | null => {
-    const { descriptors, navigation, renderPopupBody, state } = props;
+    // SDK 58 replaced the tab bar `navigation` prop with `navigateToTab(routeKey)`.
+    const { descriptors, navigateToTab, renderPopupBody, state } = props;
     const insets = useSafeAreaInsets();
     const scheme = (useColorScheme() ?? "light") as "light" | "dark";
     const colors = useMemo<IPalette>(() => palette(scheme), [scheme]);
@@ -82,8 +84,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
     useEffect(() => {
       const unsub = addStateListener("workspace_segment_changed", (seg) => {
         if (seg) {
-          const normalized = seg === "vault" ? "resources" : seg;
-          setActiveSegment(normalized);
+          setActiveSegment(seg as any);
         }
       });
       return unsub;
@@ -176,7 +177,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
         if (activeSegment === "tasks") return "tasks-tasks";
         if (activeSegment === "habits") return "tasks-habits";
         if (activeSegment === "checklists") return "tasks-checklists";
-        if (activeSegment === "resources" || activeSegment === "vault") return "tasks-resources";
+        if (activeSegment === "resources") return "tasks-resources";
         return "tasks-tasks";
       }
       return transition.view;
@@ -225,7 +226,12 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
 
       const isFocused = state.routes[state.index]?.name === item.routeName;
       if (!isFocused) {
-        navigation.navigate(item.routeName);
+        const targetRoute = state.routes.find(
+          (route) => route.name === item.routeName,
+        );
+        if (targetRoute) {
+          navigateToTab(targetRoute.key);
+        }
         transition.close();
       } else {
         transition.setNextView(item);
@@ -264,7 +270,17 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
           pointerEvents="box-none"
           style={[styles.dock, { paddingBottom: Math.max(insets.bottom, 12) }]}
         >
-          <Animated.View style={[styles.cardShadow, motion.cardStyle]}>
+          <Animated.View
+            style={[
+              styles.cardShadow,
+              motion.cardStyle,
+              Platform.select({
+                android: {
+                  backgroundColor: colors.surface,
+                },
+              }),
+            ]}
+          >
             <BlurView
               intensity={70}
               tint={scheme === "dark" ? "dark" : "light"}
@@ -272,11 +288,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                 styles.card,
                 {
                   borderColor: colors.border,
-                  ...Platform.select({
-                    android: {
-                      backgroundColor: colors.surface,
-                    },
-                  }),
+                  backgroundColor: colors.surface,
                 },
               ]}
             >
@@ -320,7 +332,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                   height: 36,
                   borderRadius: 12,
                   elevation: 6,
-                  shadowColor: "#000",
+                  shadowColor: Palette.black,
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: 0.12,
                   shadowRadius: 8,
@@ -344,13 +356,14 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                   height: "100%",
                   justifyContent: "center",
                   alignItems: "center",
+                  backgroundColor: colors.surface,
                 }}
               >
                 <Feather
                   name="layers"
                   size={16}
                   color={
-                    navMode === "workspace" ? "#7C62F0" : colors.foreground
+                    navMode === "workspace" ? Palette.violetVivid : colors.foreground
                   }
                 />
                 <View
@@ -362,7 +375,7 @@ const AnimatedTabBar: FC<IAnimatedTabBarProps> &
                     height: 6,
                     borderRadius: 3,
                     backgroundColor:
-                      navMode === "workspace" ? "#7C62F0" : colors.foreground,
+                      navMode === "workspace" ? Palette.violetVivid : colors.foreground,
                     opacity: 0.85,
                   }}
                 />

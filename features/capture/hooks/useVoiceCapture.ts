@@ -1,10 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import {
   ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
+  useNativeSpeechRecognitionEvent,
+  useWebSpeechRecognitionEvent,
   SpeechRecognitionService,
 } from "@/features/capture/services/speech-recognition.service";
+
+/**
+ * The platform branch lives here, at the call site, rather than inside a shared
+ * hook body — so neither `useNativeSpeechRecognitionEvent` nor
+ * `useWebSpeechRecognitionEvent` has to call a hook conditionally.
+ *
+ * `Platform.OS` is invariant for the lifetime of a running app instance, so the
+ * selected hook is the same one on every render and React's hook order stays
+ * stable per component instance.
+ */
+const useSpeechRecognitionEvent =
+  Platform.OS === "web"
+    ? useWebSpeechRecognitionEvent
+    : useNativeSpeechRecognitionEvent;
 
 export type VoiceCaptureStatus = "idle" | "listening" | "processing" | "completed" | "error";
 
@@ -21,6 +37,8 @@ export function useVoiceCapture({ onTranscriptComplete, onTranscriptChange }: Us
 
   const isListeningRef = useRef(false);
   const completionTimeoutRef = useRef<any>(null);
+  const callbacksRef = useRef({ onTranscriptComplete, onTranscriptChange });
+  callbacksRef.current = { onTranscriptComplete, onTranscriptChange };
 
   // Safe cleanup on unmount
   useEffect(() => {
@@ -41,7 +59,7 @@ export function useVoiceCapture({ onTranscriptComplete, onTranscriptChange }: Us
     const primaryResult = event.results[0];
     const text = primaryResult?.transcript || "";
     setTranscript(text);
-    onTranscriptChange?.(text);
+    callbacksRef.current.onTranscriptChange?.(text);
 
     // If marked as final by the session event
     if (event.isFinal) {
@@ -89,7 +107,7 @@ export function useVoiceCapture({ onTranscriptComplete, onTranscriptChange }: Us
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch {}
     
-    onTranscriptComplete?.(finalText);
+    callbacksRef.current.onTranscriptComplete?.(finalText);
 
     // Let user see completion checkmark state briefly before resetting to idle
     if (completionTimeoutRef.current) {
@@ -155,7 +173,7 @@ export function useVoiceCapture({ onTranscriptComplete, onTranscriptChange }: Us
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       } catch {}
     }
-  }, [onTranscriptComplete, onTranscriptChange]);
+  }, []);
 
   const stopRecording = useCallback(async () => {
     if (!isListeningRef.current) return;

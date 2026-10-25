@@ -1,11 +1,15 @@
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { withLock } from "@/shared/utils/mutex";
 
 import {
-    HabitRepository,
-    TaskRepository,
-    UiStateRepository,
+  HabitRepository,
+  TaskRepository,
+  UiStateRepository,
 } from "@/repositories";
-import { HISTORY_STORAGE_KEY } from "@/services/storage/storage.service";
+import { HISTORY_STORAGE_KEY, type GratitudeHistoryEntry, getGratitudeHistory, appendGratitudeHistoryEntry } from "@/services/storage/storage.service";
+import { isTaskCompleted, isHabitCompletedToday, getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
+import { dateKeyFromDate, getTodayDateKey } from "@/shared/utils/date-key";
 
 export type DailyHistory = {
   date: string;
@@ -18,40 +22,8 @@ export type DailyHistory = {
   completedTodoTitles: string[];
 };
 
-type HabitLike = {
-  title: string;
-  completedToday: boolean;
-  streak?: number;
-  bestStreak?: number;
-  archived?: boolean;
-};
-
-type TodoLike = {
-  title: string;
-  completed: boolean;
-  archived?: boolean;
-};
-
-type TodosState = {
-  todos?: Record<string, TodoLike[]>;
-};
-
-type DailyState = {
-  dailyHabits?: HabitLike[];
-};
-
-type GratitudeHistoryEntry = {
-  id: string;
-  text: string;
-  timestamp: number;
-};
-
-function getDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+export type { GratitudeHistoryEntry };
+export { getGratitudeHistory, appendGratitudeHistoryEntry };
 
 function toCompletionScore(completed: number, total: number) {
   if (total === 0) {
@@ -60,64 +32,32 @@ function toCompletionScore(completed: number, total: number) {
   return Math.round((completed / total) * 100);
 }
 
-async function loadTodosState(): Promise<TodosState> {
-  try {
-    const uiState = await UiStateRepository.getUiState();
-    const wsId = uiState.activeWorkspaceId || "default";
-
-    const tasksMap = await TaskRepository.getTasks(wsId);
-    const todos = Object.values(tasksMap).map((t: any) => ({
-      title: t.title,
-      completed: t.completed,
-      archived: t.archived,
-    }));
-    return { todos: { [wsId]: todos } };
-  } catch {
-    return { todos: {} };
-  }
-}
-
-async function loadDailyState(): Promise<DailyState> {
-  try {
-    const uiState = await UiStateRepository.getUiState();
-    const wsId = uiState.activeWorkspaceId || "default";
-    const habitsMap = await HabitRepository.getHabits(wsId);
-    const today = getDateKey();
-    const dailyHabits = Object.values(habitsMap).map((h: any) => ({
-      title: h.title,
-      completedToday: h.completedDates?.includes(today) || false,
-      streak: h.streak,
-      bestStreak: h.bestStreak,
-      archived: h.archived,
-    }));
-    return { dailyHabits };
-  } catch {
-    return { dailyHabits: [] };
-  }
-}
-
 export async function getTodaySummary() {
-  const [todosState, dailyState] = await Promise.all([
-    loadTodosState(),
-    loadDailyState(),
-  ]);
-  const habits = (dailyState.dailyHabits ?? []).filter((h) => !h.archived);
-  const todos = Object.values(todosState.todos ?? {})
-    .flat()
-    .filter((t) => !t.archived);
+  const uiState = await UiStateRepository.getUiState();
+  const wsId = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
 
-  const completedHabits = habits.filter((habit) => habit.completedToday).length;
-  const completedTodos = todos.filter((todo) => todo.completed).length;
+  const [tasksMap, habitsMap] = await Promise.all([
+    TaskRepository.getTasks(wsId),
+    HabitRepository.getHabits(wsId),
+  ]);
+
+  const habits = Object.values(habitsMap).filter((h) => !h.archivedAt);
+  const todos = Object.values(tasksMap).filter((t) => !t.archivedAt);
+
+  const completedHabits = habits.filter((habit) => isHabitCompletedToday(habit)).length;
+  const completedTodos = todos.filter((todo) => isTaskCompleted(todo)).length;
+
+  const currentStreak = habits.reduce(
+    (max, habit) => Math.max(max, getHabitCurrentStreak(habit)),
+    0
+  );
 
   return {
     completedToday: completedHabits + completedTodos,
     totalToday: habits.length + todos.length,
-    currentStreak: habits.reduce(
-      (max, habit) => Math.max(max, habit.streak ?? 0),
-      0,
-    ),
+    currentStreak,
     pendingHabits: habits
-      .filter((habit) => !habit.completedToday)
+      .filter((habit) => !isHabitCompletedToday(habit))
       .map((habit) => habit.title),
   };
 }
@@ -135,20 +75,33 @@ export async function getAllHistory(): Promise<DailyHistory[]> {
   }
 }
 
+/**
+ * Serializes the daily-history read-modify-write.
+ *
+ * Nearly every command invokes this fire-and-forget. Without a lock, two
+ * concurrent invocations read the same array and each writes
+ * `[todaySnapshot, ...]`; the second write drops the first snapshot's content
+ * (only today's entry changes, so older days survive, but the derived score can
+ * still regress to a stale value). The lock keeps each writer's read and write
+ * in one critical section.
+ */
+const HISTORY_LOCK = "pebble:v1:history";
+
 export async function recordDailyHistorySnapshot() {
-  const today = getDateKey();
-  const [todosState, dailyState, historyRaw] = await Promise.all([
-    loadTodosState(),
-    loadDailyState(),
-    AsyncStorage.getItem(HISTORY_STORAGE_KEY),
+  const today = getTodayDateKey();
+  const uiState = await UiStateRepository.getUiState();
+  const wsId = uiState.activeWorkspaceId || INBOX_WORKSPACE_ID;
+
+  const [tasksMap, habitsMap] = await Promise.all([
+    TaskRepository.getTasks(wsId),
+    HabitRepository.getHabits(wsId),
   ]);
 
-  const habits = (dailyState.dailyHabits ?? []).filter((h) => !h.archived);
-  const todos = Object.values(todosState.todos ?? {})
-    .flat()
-    .filter((t) => !t.archived);
-  const completedHabits = habits.filter((habit) => habit.completedToday).length;
-  const completedTodos = todos.filter((todo) => todo.completed).length;
+  const habits = Object.values(habitsMap).filter((h) => !h.archivedAt);
+  const todos = Object.values(tasksMap).filter((t) => !t.archivedAt);
+
+  const completedHabits = habits.filter((habit) => isHabitCompletedToday(habit)).length;
+  const completedTodos = todos.filter((todo) => isTaskCompleted(todo)).length;
   const totalHabits = habits.length;
   const totalTodos = todos.length;
   const score = toCompletionScore(
@@ -164,27 +117,30 @@ export async function recordDailyHistorySnapshot() {
     totalTodos,
     score,
     completedHabitTitles: habits
-      .filter((habit) => habit.completedToday)
+      .filter((habit) => isHabitCompletedToday(habit))
       .map((habit) => habit.title),
     completedTodoTitles: todos
-      .filter((todo) => todo.completed)
+      .filter((todo) => isTaskCompleted(todo))
       .map((todo) => todo.title),
   };
 
-  let history: DailyHistory[] = [];
-  if (historyRaw) {
-    try {
-      history = JSON.parse(historyRaw) as DailyHistory[];
-    } catch {
-      history = [];
+  await withLock(HISTORY_LOCK, async () => {
+    const historyRaw = await AsyncStorage.getItem(HISTORY_STORAGE_KEY);
+    let history: DailyHistory[] = [];
+    if (historyRaw) {
+      try {
+        history = JSON.parse(historyRaw) as DailyHistory[];
+      } catch {
+        history = [];
+      }
     }
-  }
 
-  const nextHistory = [
-    snapshot,
-    ...history.filter((entry) => entry.date !== today),
-  ];
-  await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
+    const nextHistory = [
+      snapshot,
+      ...history.filter((entry) => entry.date !== today),
+    ];
+    await AsyncStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
+  });
 
   return snapshot;
 }
@@ -195,28 +151,6 @@ export async function getHistoryForMonth(year: number, monthIndex: number) {
     const [entryYear, entryMonth] = entry.date.split("-").map(Number);
     return entryYear === year && entryMonth === monthIndex + 1;
   });
-}
-
-export async function getGratitudeHistory(): Promise<GratitudeHistoryEntry[]> {
-  try {
-    const raw = await AsyncStorage.getItem("todoapp:gratitude_history");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export async function appendGratitudeHistoryEntry(
-  entry: GratitudeHistoryEntry,
-): Promise<void> {
-  const history = await getGratitudeHistory();
-  history.push(entry);
-  await AsyncStorage.setItem(
-    "todoapp:gratitude_history",
-    JSON.stringify(history),
-  );
 }
 
 export function historyForDate(history: DailyHistory[], dateKey: string) {

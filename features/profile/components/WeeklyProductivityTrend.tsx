@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "@/shared/constants/theme";
 import { View, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
@@ -75,7 +76,7 @@ export function WeeklyProductivityTrend({
           if (day.score >= 90) barColor = colors.success;
           else if (day.score >= 60) barColor = colors.primary;
           else if (day.score >= 30) barColor = colors.warning;
-          else if (day.score > 0) barColor = "#64748b";
+          else if (day.score > 0) barColor = Palette.slate500;
           else barColor = colors.border;
 
           return (
@@ -88,7 +89,7 @@ export function WeeklyProductivityTrend({
                   width: 14,
                   height: 70,
                   backgroundColor:
-                    colorScheme === "light" ? "#F1F5F9" : "#18181B",
+                    colorScheme === "light" ? Palette.slate100 : Palette.zinc900,
                   borderRadius: 8,
                   justifyContent: "flex-end",
                   overflow: "hidden",

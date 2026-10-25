@@ -1,17 +1,13 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import PressableScale from "@/shared/components/ui/PressableScale";
-import { ThemeColors } from "@/shared/constants/theme";
+import { Palette, ThemeColors } from "@/shared/constants/theme";
 import React from "react";
 import { ColorSchemeName, View } from "react-native";
-
-export interface MainStreakRecoveryInfo {
-  eligible: boolean;
-  [key: string]: any;
-}
+import { type StreakRecoveryInfo } from "@/features/profile/services/pebble.service";
 
 export interface StreakBannerProps {
   streak: number;
-  recoveryInfo: MainStreakRecoveryInfo | null;
+  recoveryInfo: StreakRecoveryInfo | null;
   onRecover: () => void;
   colors: ThemeColors;
   colorScheme: ColorSchemeName;
@@ -51,8 +47,8 @@ export const StreakBanner: React.FC<StreakBannerProps> = ({
         borderColor:
           streak > 0
             ? colorScheme === "light"
-              ? "#D97706"
-              : "#B45309"
+              ? Palette.amber600
+              : Palette.amber700
             : colors.border,
         borderWidth: 1.5,
         borderRadius: 14,
@@ -93,8 +89,8 @@ export const StreakBanner: React.FC<StreakBannerProps> = ({
         haptic
         style={{
           backgroundColor:
-            colorScheme === "light" ? "#FEF3C7" : "rgba(245, 158, 11, 0.15)",
-          borderColor: "#F59E0B",
+            colorScheme === "light" ? Palette.amber100 : "rgba(245, 158, 11, 0.15)",
+          borderColor: Palette.amber500,
           borderWidth: 1,
           borderRadius: 8,
           paddingHorizontal: 8,
@@ -108,7 +104,7 @@ export const StreakBanner: React.FC<StreakBannerProps> = ({
           style={{
             fontSize: 10,
             fontWeight: "700",
-            color: "#F59E0B",
+            color: Palette.amber500,
           }}
         >
           💎 Spend 1 Gem to Restore

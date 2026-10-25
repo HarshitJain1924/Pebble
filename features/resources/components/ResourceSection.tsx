@@ -1,8 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
-import * as DocumentPicker from "expo-document-picker";
-import React, { useState, useMemo, useCallback } from "react";
+import { useRouter } from "expo-router";
+import { emitStateChange } from "@/services/events/state-events";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Alert,
   Dimensions,
@@ -12,20 +13,22 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
+import { Image as ExpoImage } from "expo-image";
 
 import { AnimatedOverlay } from "@/shared/components/ui/AnimatedOverlay";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { EmptyState } from "@/shared/components/ui/EmptyState";
+import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import { PressableScale } from "@/shared/components/ui/PressableScale";
-import { Colors } from "@/shared/constants/theme";
+import { ResourceKindColors } from "@/shared/constants/categoryColors";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { Resource, Task, Habit, Checklist } from "@/shared/types/domain.types";
+import { Resource, Task, Habit, Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const QUICK_ACCESS_CARD_WIDTH = Math.min(180, SCREEN_WIDTH * 0.45);
 
-export type FilterType = "all" | "idea" | "note" | "link" | "file" | "archived";
+export type FilterType = "all" | "file" | "media" | "link" | "note" | "idea";
 
 export interface ResourceSectionProps {
   resources?: Record<string, Resource[]>;
@@ -41,6 +44,8 @@ export interface ResourceSectionProps {
   stateHabits?: Habit[];
   stateChecklists?: Checklist[];
   onToggleLinkResource?: (itemId: string, itemType: "task" | "habit" | "checklist", resourceId: string) => void;
+  focusResourceId?: string | null;
+  hideInternalHeader?: boolean;
 }
 
 export function ResourceSection({
@@ -51,26 +56,22 @@ export function ResourceSection({
   toggleArchiveResource,
   togglePinResource,
   searchQuery = "",
-  activeFolderId = "default",
+  activeFolderId = INBOX_WORKSPACE_ID,
   stateTodos = [],
   stateHabits = [],
+  stateChecklists = [],
   onToggleLinkResource,
+  focusResourceId,
+  hideInternalHeader = false,
 }: ResourceSectionProps) {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme ?? "dark"];
+  const router = useRouter();
+  const themeName = useColorScheme() ?? "dark";
+  const theme = Colors[themeName];
 
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
-  const [isAddingResource, setIsAddingResource] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [linkingResource, setLinkingResource] = useState<Resource | null>(null);
-
-  // New Resource Form state
-  const [newResTitle, setNewResTitle] = useState("");
-  const [newResType, setNewResType] = useState<"note" | "link" | "file" | "idea">("note");
-  const [newResUrl, setNewResUrl] = useState("");
-  const [newResContent, setNewResContent] = useState("");
-  const [pickedFile, setPickedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
 
   // Edit Form state
   const [editTitle, setEditTitle] = useState("");
@@ -78,111 +79,81 @@ export function ResourceSection({
   const [editContent, setEditContent] = useState("");
 
   const folderResources = useMemo(() => {
-    const wsId = activeFolderId || "default";
+    const wsId = activeFolderId || INBOX_WORKSPACE_ID;
     return resources[wsId] || [];
   }, [resources, activeFolderId]);
 
-  const pinnedResources = useMemo(() => {
-    return folderResources.filter((r) => r.pinned && !r.archived);
-  }, [folderResources]);
+  // Auto-open resource detail overlay when navigated from "Use Existing"
+  useEffect(() => {
+    if (focusResourceId && folderResources.length > 0) {
+      const target = folderResources.find((r) => r.id === focusResourceId);
+      if (target) {
+        setSelectedResource(target);
+      }
+    }
+  }, [focusResourceId, folderResources]);
+
+  const activeFolderResources = useMemo(
+    () =>
+      hideInternalHeader
+        ? folderResources
+        : folderResources.filter((r) => !r.archivedAt),
+    [folderResources, hideInternalHeader]
+  );
 
   const filteredResources = useMemo(() => {
-    let list = folderResources;
+    let list = activeFolderResources;
 
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase().trim();
       return list.filter(
         (r) =>
           r.title.toLowerCase().includes(q) ||
-          (r.content && r.content.toLowerCase().includes(q)) ||
-          (r.url && r.url.toLowerCase().includes(q))
+          (r.body && r.body.toLowerCase().includes(q))
       );
     }
 
-    if (activeFilter === "archived") {
-      return list.filter((r) => r.archived);
+    if (activeFilter === "media") {
+      return list.filter((r) => {
+        const att = r.attachments?.[0];
+        return Boolean(att && att.mimeType?.startsWith("image/"));
+      });
     }
-
-    list = list.filter((r) => !r.archived);
-
-    if (activeFilter === "idea") {
-      return list.filter((r) => r.kind === "idea" || r.type === "idea");
-    }
-    if (activeFilter === "note") {
-      return list.filter((r) => (r.type === "note" || r.type === "idea") && r.kind !== "idea");
+    if (activeFilter === "file") {
+      return list.filter((r) => {
+        const att = r.attachments?.[0];
+        return Boolean(att && !att.mimeType?.startsWith("image/"));
+      });
     }
     if (activeFilter === "link") {
       return list.filter((r) => r.type === "link");
     }
-    if (activeFilter === "file") {
-      return list.filter((r) => r.type === "file");
+    if (activeFilter === "note") {
+      return list.filter((r) => r.type === "note" && (!r.attachments || r.attachments.length === 0));
+    }
+    if (activeFilter === "idea") {
+      return list.filter((r) => r.type === "idea");
     }
 
     return list;
-  }, [folderResources, activeFilter, searchQuery]);
+  }, [activeFolderResources, activeFilter, searchQuery]);
 
-  const handlePickDocument = useCallback(async () => {
-    try {
-      const res = await DocumentPicker.getDocumentAsync({
-        type: "*/*",
-        copyToCacheDirectory: true,
-      });
-      if (!res.canceled && res.assets && res.assets.length > 0) {
-        setPickedFile(res.assets[0]);
-        if (!newResTitle) {
-          setNewResTitle(res.assets[0].name);
-        }
-      }
-    } catch (e) {
-      console.warn("DocumentPicker error", e);
-    }
-  }, [newResTitle]);
 
-  const handleSaveResource = useCallback(async () => {
-    if (!newResTitle.trim()) {
-      Alert.alert("Required", "Please provide a resource title.");
-      return;
-    }
-
-    const wsId = activeFolderId || "default";
-    const newItemData: any = {
-      type: newResType,
-      kind: newResType === "idea" ? "idea" : undefined,
-      title: newResTitle.trim(),
-      url: newResType === "link" ? newResUrl.trim() : undefined,
-      content: newResType === "note" || newResType === "idea" ? newResContent.trim() : undefined,
-      localUri: pickedFile?.uri,
-      fileName: pickedFile?.name,
-      fileSize: pickedFile?.size,
-      mimeType: pickedFile?.mimeType,
-    };
-
-    if (createResource) {
-      await createResource(wsId, newItemData);
-    }
-
-    setIsAddingResource(false);
-    setNewResTitle("");
-    setNewResUrl("");
-    setNewResContent("");
-    setPickedFile(null);
-  }, [newResTitle, newResType, newResUrl, newResContent, pickedFile, activeFolderId, createResource]);
 
   const handleOpenEdit = useCallback((res: Resource) => {
     setEditingResource(res);
     setEditTitle(res.title);
-    setEditUrl(res.url || "");
-    setEditContent(res.content || "");
+    setEditUrl(res.attachments?.[0]?.uri || "");
+    setEditContent(res.body || "");
     setSelectedResource(null);
   }, []);
 
   const handleSaveEdit = useCallback(async () => {
     if (!editingResource || !editTitle.trim()) return;
-    const wsId = activeFolderId || "default";
-    const updates = {
+    const wsId = activeFolderId || INBOX_WORKSPACE_ID;
+    const updates: Partial<Resource> = {
       title: editTitle.trim(),
-      url: editingResource.type === "link" ? editUrl.trim() : undefined,
-      content: editingResource.type === "note" || editingResource.kind === "idea" ? editContent.trim() : undefined,
+      body: editContent.trim() || undefined,
     };
 
     if (updateResource) {
@@ -190,17 +161,11 @@ export function ResourceSection({
     }
 
     setEditingResource(null);
-  }, [editingResource, editTitle, editUrl, editContent, activeFolderId, updateResource]);
-
-  const handleTogglePin = useCallback(async (res: Resource) => {
-    if (togglePinResource) {
-      await togglePinResource(res.id, activeFolderId || "default");
-    }
-  }, [activeFolderId, togglePinResource]);
+  }, [editingResource, editTitle, editContent, activeFolderId, updateResource]);
 
   const handleToggleArchive = useCallback(async (res: Resource) => {
     if (toggleArchiveResource) {
-      await toggleArchiveResource(res.id, activeFolderId || "default");
+      await toggleArchiveResource(res.id, activeFolderId || INBOX_WORKSPACE_ID);
     }
   }, [activeFolderId, toggleArchiveResource]);
 
@@ -212,7 +177,7 @@ export function ResourceSection({
         style: "destructive",
         onPress: async () => {
           if (deleteResource) {
-            await deleteResource(res.id, activeFolderId || "default");
+            await deleteResource(res.id, activeFolderId || INBOX_WORKSPACE_ID);
           }
           setSelectedResource(null);
         },
@@ -235,140 +200,249 @@ export function ResourceSection({
     }
   }, []);
 
-  const getIconForType = (type: string, kind?: string) => {
-    if (kind === "idea" || type === "idea") return "lightbulb";
-    if (type === "link") return "link";
-    if (type === "file") return "file-text";
-    return "align-left";
+  const getDomain = (url: string) => {
+    try {
+      const target = url.startsWith("http") ? url : `https://${url}`;
+      return new URL(target).hostname.replace("www.", "");
+    } catch {
+      return "link";
+    }
   };
 
-  const getColorForType = (type: string, kind?: string) => {
-    if (kind === "idea" || type === "idea") return "#F59E0B";
-    if (type === "link") return "#3B82F6";
-    if (type === "file") return "#8B5CF6";
-    return "#10B981";
+  const formatSize = (bytes?: number) => {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getLinkedParent = (resId: string) => {
+    const linkedTask = stateTodos.find((t) => t.resourceIds?.includes(resId));
+    if (linkedTask) return { type: "task" as const, title: linkedTask.title };
+    const linkedHabit = stateHabits.find((h) => h.resourceIds?.includes(resId));
+    if (linkedHabit) return { type: "habit" as const, title: linkedHabit.title };
+    const linkedChecklist = stateChecklists.find((c) => c.resourceIds?.includes(resId));
+    if (linkedChecklist) return { type: "checklist" as const, title: linkedChecklist.title };
+    return null;
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
-      {/* Top Action Bar */}
-      <View style={styles.topActionBar}>
-        <Text style={[styles.sectionHeading, { color: theme.text }]}>Resources</Text>
-        <TouchableOpacity
-          style={[styles.createButton, { backgroundColor: theme.primary }]}
-          onPress={() => setIsAddingResource(true)}
-          activeOpacity={0.8}
-        >
-          <Feather name="plus" size={16} color="#FFFFFF" />
-          <Text style={styles.createButtonText}>Add Resource</Text>
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      {/* Workspace Section Header & Filter Tabs (Hidden when external header is used) */}
+      {!hideInternalHeader && (
+        <>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4, marginBottom: 8 }}>
+            <Text accessibilityRole="header" style={{ fontSize: 16, fontWeight: "800", color: theme.text }}>
+              Resources
+            </Text>
+            <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted }}>
+              {folderResources.length} {folderResources.length === 1 ? "item" : "items"}
+            </Text>
+          </View>
 
-      {/* Filter Tabs Bar */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScrollView} contentContainerStyle={styles.filterBarContainer}>
-        {(["all", "idea", "note", "link", "file", "archived"] as FilterType[]).map((filter) => {
-          const isActive = activeFilter === filter;
-          const label = filter === "all" ? "All" : filter === "idea" ? "Ideas" : filter === "note" ? "Notes" : filter === "link" ? "Links" : filter === "file" ? "Files" : "Archived";
-          return (
-            <TouchableOpacity
-              key={filter}
-              style={[
-                styles.filterPill,
-                { backgroundColor: isActive ? theme.primary : theme.border + "22" },
-              ]}
-              onPress={() => {
-                Haptics.selectionAsync().catch(() => {});
-                setActiveFilter(filter);
-              }}
+          <View style={styles.topControlRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterBarContainer}
             >
-              <Text style={[styles.filterPillText, { color: isActive ? "#FFFFFF" : theme.textMuted }]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      {/* Pinned / Quick Access Carousel */}
-      {pinnedResources.length > 0 && activeFilter === "all" && !searchQuery && (
-        <View style={styles.quickAccessSection}>
-          <Text style={[styles.subHeading, { color: theme.textMuted }]}>QUICK ACCESS (PINNED)</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickAccessScroll}>
-            {pinnedResources.map((res) => (
-              <PressableScale
-                key={res.id}
-                style={[styles.quickAccessCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setSelectedResource(res)}
-              >
-                <View style={styles.quickCardHeader}>
-                  <View style={[styles.typeBadge, { backgroundColor: getColorForType(res.type, res.kind) + "20" }]}>
-                    <Feather name={getIconForType(res.type, res.kind) as any} size={12} color={getColorForType(res.type, res.kind)} />
-                  </View>
-                  <Feather name={"pin" as any} size={12} color={theme.primary} />
-                </View>
-                <Text style={[styles.quickCardTitle, { color: theme.text }]} numberOfLines={2}>
-                  {res.title}
-                </Text>
-              </PressableScale>
-            ))}
-          </ScrollView>
-        </View>
+              {(
+                [
+                  { key: "all", label: "All" },
+                  { key: "file", label: "Files 📁" },
+                  { key: "media", label: "Media 🖼️" },
+                  { key: "link", label: "Links 🔗" },
+                  { key: "note", label: "Notes 📝" },
+                  { key: "idea", label: "Ideas 💡" },
+                ] as { key: FilterType; label: string }[]
+              ).map((filter) => {
+                const isActive = activeFilter === filter.key;
+                return (
+                  <PressableScale
+                    key={filter.key}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      setActiveFilter(filter.key);
+                    }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: isActive }}
+                    accessibilityLabel={`${filter.label} filter`}
+                    style={[
+                      styles.filterPill,
+                      {
+                        backgroundColor: isActive ? theme.primary : `${theme.card}`,
+                        borderColor: isActive ? theme.primary : theme.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterPillText,
+                        { color: isActive ? Palette.white : theme.textMuted },
+                      ]}
+                    >
+                      {filter.label}
+                    </Text>
+                  </PressableScale>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </>
       )}
 
-      {/* Resources Flat Database List */}
-      <View style={styles.databaseSection}>
-        <Text style={[styles.subHeading, { color: theme.textMuted }]}>
-          {activeFilter.toUpperCase()} RESOURCES ({filteredResources.length})
-        </Text>
-
+      {/* Compact Resource List (Space-Efficient & Scannable) */}
+      <View style={styles.cardFeed}>
         {filteredResources.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Feather name={"folder-minus" as any} size={36} color={theme.textMuted} />
-            <Text style={[styles.emptyText, { color: theme.textMuted }]}>No resources found</Text>
-          </View>
+          <WorkspaceEmptyState
+            context="resources"
+            searchQuery={searchQuery || (activeFilter !== "all" ? activeFilter : undefined)}
+            onClearSearch={() => {
+              if (activeFilter !== "all") {
+                Haptics.selectionAsync().catch(() => {});
+                setActiveFilter("all");
+              }
+            }}
+            onCreateItem={() => emitStateChange("open_quick_add")}
+            style={{ marginVertical: 8 }}
+          />
         ) : (
           filteredResources.map((res) => {
-            const iconColor = getColorForType(res.type, res.kind);
+            const hasAttachment = Boolean(res.attachments && res.attachments.length > 0);
+            const isImage = Boolean(hasAttachment && res.attachments?.[0]?.mimeType?.startsWith("image/"));
+            const attachment = res.attachments?.[0];
+            const linkedParent = getLinkedParent(res.id);
+
             return (
               <AppCard
                 key={res.id}
-                style={[styles.resourceCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setSelectedResource(res)}
+                onPress={() => router.push(`/resource-details?id=${res.id}&workspaceId=${activeFolderId}`)}
+                style={[
+                  styles.compactCard,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                ]}
               >
-                <View style={styles.cardMainRow}>
-                  <View style={[styles.iconContainer, { backgroundColor: iconColor + "18" }]}>
-                    <Feather name={getIconForType(res.type, res.kind) as any} size={18} color={iconColor} />
-                  </View>
-                  <View style={styles.cardContent}>
-                    <View style={styles.titleRow}>
-                      <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
-                        {res.title}
-                      </Text>
-                      {res.pinned && <Feather name={"pin" as any} size={12} color={theme.primary} style={styles.pinIcon} />}
+                {/* Left Visual Icon / Compact Thumbnail */}
+                <View style={styles.thumbnailBox}>
+                  {isImage && attachment?.uri ? (
+                    <ExpoImage
+                      source={{ uri: attachment.uri }}
+                      style={styles.compactImagePreview}
+                      contentFit="cover"
+                      transition={150}
+                    />
+                  ) : hasAttachment ? (
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.file.dark}15` }]}>
+                      <Feather name="file-text" size={22} color={ResourceKindColors.file.dark} />
+                    </View>
+                  ) : res.type === "link" ? (
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.link.dark}15` }]}>
+                      <Feather name="link" size={22} color={ResourceKindColors.link.dark} />
+                    </View>
+                  ) : res.type === "idea" ? (
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.idea.dark}15` }]}>
+                      <Feather name={"lightbulb" as any} size={22} color={ResourceKindColors.idea.dark} />
+                    </View>
+                  ) : (
+                    <View style={[styles.iconBox, { backgroundColor: `${ResourceKindColors.note.dark}15` }]}>
+                      <Feather name="align-left" size={22} color={ResourceKindColors.note.dark} />
+                    </View>
+                  )}
+                </View>
+
+                {/* Right Content */}
+                <View style={styles.cardInfoCol}>
+                  {/* Top Meta Chips Row */}
+                  <View style={styles.cardTopRow}>
+                    <View style={styles.typeBadgeRow}>
+                      {hasAttachment ? (
+                        <View style={[styles.typeChip, { backgroundColor: `${isImage ? ResourceKindColors.image.dark : ResourceKindColors.file.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: isImage ? ResourceKindColors.image.dark : ResourceKindColors.file.dark }]}>
+                            {isImage ? "Media" : "File"}
+                          </Text>
+                          {attachment?.size ? (
+                            <Text style={[styles.chipMetaText, { color: theme.textMuted }]}>
+                              • {formatSize(attachment.size)}
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : res.type === "link" ? (
+                        <View style={[styles.typeChip, { backgroundColor: `${ResourceKindColors.link.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: ResourceKindColors.link.dark }]}>
+                            {attachment?.uri ? getDomain(attachment.uri) : "Link"}
+                          </Text>
+                        </View>
+                      ) : res.type === "idea" ? (
+                        <View style={[styles.typeChip, { backgroundColor: `${ResourceKindColors.idea.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: ResourceKindColors.idea.dark }]}>Idea</Text>
+                        </View>
+                      ) : (
+                        <View style={[styles.typeChip, { backgroundColor: `${ResourceKindColors.note.dark}15` }]}>
+                          <Text style={[styles.typeChipText, { color: ResourceKindColors.note.dark }]}>Note</Text>
+                        </View>
+                      )}
+
+                      {/* Linked Parent Chip */}
+                      {linkedParent && (
+                        <View style={[styles.linkedChip, { backgroundColor: `${theme.border}40` }]}>
+                          <Feather name="link-2" size={10} color={theme.textMuted} />
+                          <Text style={[styles.linkedChipText, { color: theme.textMuted }]} numberOfLines={1}>
+                            {linkedParent.title}
+                          </Text>
+                        </View>
+                      )}
                     </View>
 
-                    {res.content ? (
-                      <Text style={[styles.cardSnippet, { color: theme.textMuted }]} numberOfLines={2}>
-                        {res.content}
-                      </Text>
-                    ) : res.url ? (
-                      <Text style={[styles.cardUrl, { color: theme.primary }]} numberOfLines={1}>
-                        {res.url}
-                      </Text>
-                    ) : res.fileName ? (
-                      <Text style={[styles.cardSnippet, { color: theme.textMuted }]} numberOfLines={1}>
-                        📎 {res.fileName}
-                      </Text>
-                    ) : null}
+                    {/* Actions on Right */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      {res.type === "link" && attachment?.uri && (
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e?.stopPropagation?.();
+                            void handleOpenLink(attachment.uri);
+                          }}
+                          hitSlop={8}
+                          accessibilityRole="link"
+                          accessibilityLabel={`Open external link: ${res.title}`}
+                          style={[styles.openLinkIconBtn, { backgroundColor: `${theme.primary}12` }]}
+                        >
+                          <Feather name="external-link" size={12} color={theme.primary} />
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          setSelectedResource(res);
+                        }}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Options for resource: ${res.title}`}
+                        style={styles.moreButton}
+                      >
+                        <Feather name="more-vertical" size={16} color={theme.textMuted} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.moreButton}
-                    onPress={() => setSelectedResource(res)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Feather name="more-vertical" size={16} color={theme.textMuted} />
-                  </TouchableOpacity>
+                  {/* Title */}
+                  <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+                    {res.title}
+                  </Text>
+
+                  {/* Snippet preview */}
+                  {res.body ? (
+                    <Text style={[styles.cardSnippet, { color: theme.textMuted }]} numberOfLines={1}>
+                      {res.body}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.cardDateText, { color: theme.textMuted }]}>
+                      {new Date(res.createdAt).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </Text>
+                  )}
                 </View>
               </AppCard>
             );
@@ -376,422 +450,451 @@ export function ResourceSection({
         )}
       </View>
 
-      {/* Add Resource Modal */}
-      <AnimatedOverlay visible={isAddingResource} onClose={() => setIsAddingResource(false)} type="bottom-sheet">
-        {() => (
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Add New Resource</Text>
-            <TouchableOpacity onPress={() => setIsAddingResource(false)}>
-              <Feather name="x" size={20} color={theme.textMuted} />
-            </TouchableOpacity>
-          </View>
 
-          {/* Type Selector */}
-          <View style={styles.typeSelectorRow}>
-            {(["note", "link", "file", "idea"] as const).map((t) => (
-              <TouchableOpacity
-                key={t}
-                style={[
-                  styles.typeTab,
-                  { backgroundColor: newResType === t ? theme.primary : theme.border + "22" },
-                ]}
-                onPress={() => setNewResType(t)}
-              >
-                <Feather
-                  name={getIconForType(t, t === "idea" ? "idea" : undefined) as any}
-                  size={14}
-                  color={newResType === t ? "#FFFFFF" : theme.textMuted}
-                />
-                <Text style={[styles.typeTabText, { color: newResType === t ? "#FFFFFF" : theme.textMuted }]}>
-                  {t.toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
 
-          <TextInput
-            style={[styles.modalInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-            placeholder="Title"
-            placeholderTextColor={theme.textMuted}
-            value={newResTitle}
-            onChangeText={setNewResTitle}
-          />
-
-          {newResType === "link" && (
-            <TextInput
-              style={[styles.modalInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-              placeholder="https://example.com"
-              placeholderTextColor={theme.textMuted}
-              value={newResUrl}
-              onChangeText={setNewResUrl}
-            />
-          )}
-
-          {(newResType === "note" || newResType === "idea") && (
-            <TextInput
-              style={[styles.modalInput, styles.textArea, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-              placeholder="Content / notes..."
-              placeholderTextColor={theme.textMuted}
-              multiline
-              numberOfLines={4}
-              value={newResContent}
-              onChangeText={setNewResContent}
-            />
-          )}
-
-          {newResType === "file" && (
-            <TouchableOpacity style={[styles.filePickerButton, { borderColor: theme.border }]} onPress={handlePickDocument}>
-              <Feather name="upload-cloud" size={20} color={theme.primary} />
-              <Text style={[styles.filePickerText, { color: theme.text }]}>
-                {pickedFile ? pickedFile.name : "Choose File"}
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={[styles.saveButton, { backgroundColor: theme.primary }]}
-            onPress={handleSaveResource}
-          >
-            <Text style={styles.saveButtonText}>Save Resource</Text>
-          </TouchableOpacity>
-        </View>
-        )}
-      </AnimatedOverlay>
-
-      {/* Detail / Action Modal */}
+      {/* Redesigned Polished Bottom Action Menu Sheet */}
       <AnimatedOverlay visible={!!selectedResource} onClose={() => setSelectedResource(null)} type="bottom-sheet">
-        {() => selectedResource ? (
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]} numberOfLines={1}>
-                {selectedResource.title}
-              </Text>
-              <TouchableOpacity onPress={() => setSelectedResource(null)}>
-                <Feather name="x" size={20} color={theme.textMuted} />
-              </TouchableOpacity>
+        {() =>
+          selectedResource ? (
+            <View style={[styles.actionSheetCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {/* Drag Handle Bar */}
+              <View style={styles.sheetHandleBar} />
+
+              {/* Title Header */}
+              <View style={styles.actionSheetHeader}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[styles.actionSheetTitle, { color: theme.text }]} numberOfLines={1}>
+                    {selectedResource.title}
+                  </Text>
+                  <Text style={[styles.actionSheetSub, { color: theme.textMuted }]}>
+                    {selectedResource.attachments?.[0]?.name || `${selectedResource.type.toUpperCase()} RESOURCE`}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setSelectedResource(null)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close resource options"
+                  style={[styles.closeIconBtn, { backgroundColor: `${theme.border}40` }]}
+                >
+                  <Feather name="x" size={16} color={theme.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Action List Items */}
+              <View style={styles.actionMenuDeck}>
+                <TouchableOpacity
+                  style={[styles.actionRowBtn, { backgroundColor: `${theme.border}20` }]}
+                  onPress={() => {
+                    const res = selectedResource;
+                    setSelectedResource(null);
+                    handleOpenEdit(res);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit resource ${selectedResource.title}`}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.actionIconPill, { backgroundColor: `${theme.primary}18` }]}>
+                    <Feather name="edit-2" size={15} color={theme.primary} />
+                  </View>
+                  <Text style={[styles.actionRowText, { color: theme.text }]}>Edit Resource</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionRowBtn, { backgroundColor: `${theme.border}20` }]}
+                  onPress={() => {
+                    setLinkingResource(selectedResource);
+                    setSelectedResource(null);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Link resource ${selectedResource.title} to task or habit`}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.actionIconPill, { backgroundColor: `${ResourceKindColors.link.dark}18` }]}>
+                    <Feather name="link-2" size={15} color={ResourceKindColors.link.dark} />
+                  </View>
+                  <Text style={[styles.actionRowText, { color: theme.text }]}>Link to Task / Habit</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionRowBtn, { backgroundColor: `${theme.border}20` }]}
+                  onPress={() => {
+                    handleToggleArchive(selectedResource);
+                    setSelectedResource(null);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${selectedResource.archivedAt ? "Unarchive" : "Archive"} resource ${selectedResource.title}`}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.actionIconPill, { backgroundColor: `${theme.border}60` }]}>
+                    <Feather name="archive" size={15} color={theme.textMuted} />
+                  </View>
+                  <Text style={[styles.actionRowText, { color: theme.text }]}>
+                    {selectedResource.archivedAt ? "Unarchive" : "Archive"}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionRowBtn, { backgroundColor: "rgba(239,68,68,0.1)" }]}
+                  onPress={() => handleDelete(selectedResource)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete resource ${selectedResource.title}`}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.actionIconPill, { backgroundColor: "rgba(239,68,68,0.15)" }]}>
+                    <Feather name="trash-2" size={15} color={Palette.red500} />
+                  </View>
+                  <Text style={[styles.actionRowText, { color: Palette.red500, fontWeight: "700" }]}>Delete</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-
-            {selectedResource.content ? (
-              <ScrollView style={styles.detailContentBox}>
-                <Text style={[styles.detailText, { color: theme.text }]}>{selectedResource.content}</Text>
-              </ScrollView>
-            ) : null}
-
-            {selectedResource.url ? (
-              <TouchableOpacity style={styles.linkRow} onPress={() => handleOpenLink(selectedResource.url)}>
-                <Feather name="external-link" size={16} color={theme.primary} />
-                <Text style={[styles.linkUrlText, { color: theme.primary }]} numberOfLines={1}>
-                  {selectedResource.url}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-
-            {/* Quick Action Rows */}
-            <View style={styles.actionMenu}>
-              <TouchableOpacity
-                style={styles.actionMenuItem}
-                onPress={() => {
-                  const res = selectedResource;
-                  setSelectedResource(null);
-                  handleOpenEdit(res);
-                }}
-              >
-                <Feather name="edit-2" size={16} color={theme.text} />
-                <Text style={[styles.actionMenuText, { color: theme.text }]}>Edit Resource</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionMenuItem}
-                onPress={() => {
-                  handleTogglePin(selectedResource);
-                  setSelectedResource(null);
-                }}
-              >
-                <Feather name={"pin" as any} size={16} color={theme.text} />
-                <Text style={[styles.actionMenuText, { color: theme.text }]}>
-                  {selectedResource.pinned ? "Unpin" : "Pin"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionMenuItem}
-                onPress={() => {
-                  handleToggleArchive(selectedResource);
-                  setSelectedResource(null);
-                }}
-              >
-                <Feather name="archive" size={16} color={theme.text} />
-                <Text style={[styles.actionMenuText, { color: theme.text }]}>
-                  {selectedResource.archived ? "Unarchive" : "Archive"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionMenuItem}
-                onPress={() => {
-                  setLinkingResource(selectedResource);
-                  setSelectedResource(null);
-                }}
-              >
-                <Feather name="link-2" size={16} color={theme.text} />
-                <Text style={[styles.actionMenuText, { color: theme.text }]}>Link to Task / Habit</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionMenuItem}
-                onPress={() => handleDelete(selectedResource)}
-              >
-                <Feather name="trash-2" size={16} color="#EF4444" />
-                <Text style={[styles.actionMenuText, { color: "#EF4444" }]}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
+          ) : null
+        }
       </AnimatedOverlay>
 
       {/* Edit Modal */}
       <AnimatedOverlay visible={!!editingResource} onClose={() => setEditingResource(null)} type="bottom-sheet">
-        {() => editingResource ? (
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Edit Resource</Text>
-              <TouchableOpacity onPress={() => setEditingResource(null)}>
-                <Feather name="x" size={20} color={theme.textMuted} />
-              </TouchableOpacity>
+        {() =>
+          editingResource ? (
+            <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.sheetHandleBar} />
+              <View style={styles.modalHeader}>
+                <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>Edit Resource</Text>
+                <TouchableOpacity
+                  onPress={() => setEditingResource(null)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close edit resource sheet"
+                >
+                  <Feather name="x" size={20} color={theme.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                style={[
+                  styles.modalInput,
+                  { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
+                ]}
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Title"
+                placeholderTextColor={theme.textMuted}
+                accessibilityLabel="Resource title"
+              />
+
+              {editingResource.body !== undefined && (
+                <TextInput
+                  style={[
+                    styles.modalInput,
+                    styles.textArea,
+                    { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
+                  ]}
+                  value={editContent}
+                  onChangeText={setEditContent}
+                  multiline
+                  numberOfLines={4}
+                  placeholder="Content..."
+                  placeholderTextColor={theme.textMuted}
+                  accessibilityLabel="Resource content"
+                />
+              )}
+
+              <PressableScale
+                style={[styles.savePillBtn, { backgroundColor: theme.primary }]}
+                onPress={handleSaveEdit}
+                haptic
+              >
+                <Text style={styles.savePillBtnText}>Save Changes</Text>
+              </PressableScale>
             </View>
-
-            <TextInput
-              style={[styles.modalInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-              value={editTitle}
-              onChangeText={setEditTitle}
-              placeholder="Title"
-              placeholderTextColor={theme.textMuted}
-            />
-
-            {editingResource.type === "link" && (
-              <TextInput
-                style={[styles.modalInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                value={editUrl}
-                onChangeText={setEditUrl}
-                placeholder="URL"
-                placeholderTextColor={theme.textMuted}
-              />
-            )}
-
-            {(editingResource.type === "note" || editingResource.kind === "idea") && (
-              <TextInput
-                style={[styles.modalInput, styles.textArea, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                value={editContent}
-                onChangeText={setEditContent}
-                multiline
-                numberOfLines={4}
-                placeholder="Content..."
-                placeholderTextColor={theme.textMuted}
-              />
-            )}
-
-            <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.primary }]} onPress={handleSaveEdit}>
-              <Text style={styles.saveButtonText}>Save Changes</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
+          ) : null
+        }
       </AnimatedOverlay>
 
       {/* Link Resource Modal */}
       <AnimatedOverlay visible={!!linkingResource} onClose={() => setLinkingResource(null)} type="bottom-sheet">
-        {() => linkingResource ? (
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Link Resource</Text>
-              <TouchableOpacity onPress={() => setLinkingResource(null)}>
-                <Feather name="x" size={20} color={theme.textMuted} />
-              </TouchableOpacity>
+        {() =>
+          linkingResource ? (
+            <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.sheetHandleBar} />
+              <View style={styles.modalHeader}>
+                <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>Link Resource</Text>
+                <TouchableOpacity
+                  onPress={() => setLinkingResource(null)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close link resource sheet"
+                >
+                  <Feather name="x" size={20} color={theme.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
+                {stateTodos.length > 0 && (
+                  <>
+                    <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 8 }]}>TASKS</Text>
+                    {stateTodos.map((todo) => {
+                      const isLinked = todo.resourceIds?.includes(linkingResource.id);
+                      return (
+                        <TouchableOpacity
+                          key={todo.id}
+                          style={styles.linkItemRow}
+                          onPress={() => {
+                            if (onToggleLinkResource) {
+                              onToggleLinkResource(todo.id, "task", linkingResource.id);
+                            }
+                          }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isLinked }}
+                          accessibilityLabel={`${isLinked ? "Unlink from" : "Link to"} task ${todo.title}`}
+                        >
+                          <Text style={[styles.linkItemText, { color: theme.text }]}>{todo.title}</Text>
+                          <Feather
+                            name={isLinked ? "check-square" : "square"}
+                            size={16}
+                            color={isLinked ? theme.primary : theme.textMuted}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </>
+                )}
+
+                {stateHabits.length > 0 && (
+                  <>
+                    <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 16 }]}>HABITS</Text>
+                    {stateHabits.map((habit) => {
+                      const isLinked = habit.resourceIds?.includes(linkingResource.id);
+                      return (
+                        <TouchableOpacity
+                          key={habit.id}
+                          style={styles.linkItemRow}
+                          onPress={() => {
+                            if (onToggleLinkResource) {
+                              onToggleLinkResource(habit.id, "habit", linkingResource.id);
+                            }
+                          }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isLinked }}
+                          accessibilityLabel={`${isLinked ? "Unlink from" : "Link to"} habit ${habit.title}`}
+                        >
+                          <Text style={[styles.linkItemText, { color: theme.text }]}>{habit.title}</Text>
+                          <Feather
+                            name={isLinked ? "check-square" : "square"}
+                            size={16}
+                            color={isLinked ? theme.primary : theme.textMuted}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </>
+                )}
+
+                {stateChecklists.length > 0 && (
+                  <>
+                    <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 16 }]}>CHECKLISTS</Text>
+                    {stateChecklists.map((checklist) => {
+                      const isLinked = checklist.resourceIds?.includes(linkingResource.id);
+                      return (
+                        <TouchableOpacity
+                          key={checklist.id}
+                          style={styles.linkItemRow}
+                          onPress={() => {
+                            if (onToggleLinkResource) {
+                              onToggleLinkResource(checklist.id, "checklist", linkingResource.id);
+                            }
+                          }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isLinked }}
+                          accessibilityLabel={`${isLinked ? "Unlink from" : "Link to"} checklist ${checklist.title}`}
+                        >
+                          <Text style={[styles.linkItemText, { color: theme.text }]}>{checklist.title}</Text>
+                          <Feather
+                            name={isLinked ? "check-square" : "square"}
+                            size={16}
+                            color={isLinked ? theme.primary : theme.textMuted}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </>
+                )}
+              </ScrollView>
             </View>
-
-            <ScrollView style={{ maxHeight: 300 }}>
-              <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 8 }]}>TASKS</Text>
-              {stateTodos.map((todo) => {
-                const isLinked = todo.linkedResourceIds?.includes(linkingResource.id) || (todo as any).linkedCollectionIds?.includes(linkingResource.id);
-                return (
-                  <TouchableOpacity
-                    key={todo.id}
-                    style={styles.linkItemRow}
-                    onPress={() => {
-                      if (onToggleLinkResource) {
-                        onToggleLinkResource(todo.id, "task", linkingResource.id);
-                      }
-                    }}
-                  >
-                    <Text style={[styles.linkItemText, { color: theme.text }]}>{todo.title}</Text>
-                    <Feather name={isLinked ? "check-square" : "square"} size={16} color={isLinked ? theme.primary : theme.textMuted} />
-                  </TouchableOpacity>
-                );
-              })}
-
-              <Text style={[styles.subHeading, { color: theme.textMuted, marginTop: 16 }]}>HABITS</Text>
-              {stateHabits.map((habit) => {
-                const isLinked = habit.linkedResourceIds?.includes(linkingResource.id) || (habit as any).linkedCollectionIds?.includes(linkingResource.id);
-                return (
-                  <TouchableOpacity
-                    key={habit.id}
-                    style={styles.linkItemRow}
-                    onPress={() => {
-                      if (onToggleLinkResource) {
-                        onToggleLinkResource(habit.id, "habit", linkingResource.id);
-                      }
-                    }}
-                  >
-                    <Text style={[styles.linkItemText, { color: theme.text }]}>{habit.title}</Text>
-                    <Feather name={isLinked ? "check-square" : "square"} size={16} color={isLinked ? theme.primary : theme.textMuted} />
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        ) : null}
+          ) : null
+        }
       </AnimatedOverlay>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    gap: 14,
   },
-  contentContainer: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  topActionBar: {
+  sectionHeaderRow: {
     flexDirection: "row",
+    alignItems: "baseline",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
+    paddingHorizontal: 4,
   },
   sectionHeading: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: -0.2,
   },
-  createButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 6,
-  },
-  createButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
+  itemCountText: {
+    fontSize: 12,
     fontWeight: "600",
   },
-  filterScrollView: {
-    marginBottom: 16,
+  topControlRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
   },
   filterBarContainer: {
     gap: 8,
+    paddingVertical: 2,
   },
   filterPill: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: 18,
+    borderWidth: 1,
   },
   filterPillText: {
     fontSize: 12,
-    fontWeight: "600",
-  },
-  quickAccessSection: {
-    marginBottom: 20,
-  },
-  subHeading: {
-    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.5,
-    marginBottom: 10,
   },
-  quickAccessScroll: {
-    gap: 12,
-  },
-  quickAccessCard: {
-    width: QUICK_ACCESS_CARD_WIDTH,
-    padding: 12,
-    borderRadius: 12,
+  addBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
     borderWidth: 1,
   },
-  quickCardHeader: {
+  addBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  cardFeed: {
+    gap: 8,
+  },
+  compactCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+    minHeight: 74,
+  },
+  thumbnailBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactImagePreview: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
+  },
+  iconBox: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardInfoCol: {
+    flex: 1,
+    gap: 3,
+  },
+  cardTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
   },
-  typeBadge: {
-    padding: 4,
-    borderRadius: 6,
-  },
-  quickCardTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  databaseSection: {
-    gap: 10,
-  },
-  resourceCard: {
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  cardMainRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  iconContainer: {
-    padding: 10,
-    borderRadius: 10,
-  },
-  cardContent: {
-    flex: 1,
-  },
-  titleRow: {
+  typeBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    flex: 1,
   },
-  cardTitle: {
-    fontSize: 15,
+  typeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  typeChipText: {
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  chipMetaText: {
+    fontSize: 10,
     fontWeight: "600",
   },
-  pinIcon: {
-    marginLeft: 4,
+  linkedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    maxWidth: 140,
   },
-  cardSnippet: {
-    fontSize: 13,
-    marginTop: 3,
+  linkedChipText: {
+    fontSize: 10,
+    fontWeight: "600",
   },
-  cardUrl: {
-    fontSize: 12,
-    marginTop: 3,
-    textDecorationLine: "underline",
+  openLinkIconBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   moreButton: {
     padding: 4,
   },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 40,
-    gap: 10,
-  },
-  emptyText: {
+  cardTitle: {
     fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  cardSnippet: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  cardDateText: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  sheetHandleBar: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(150,150,150,0.3)",
+    alignSelf: "center",
+    marginBottom: 12,
   },
   modalCard: {
-    width: SCREEN_WIDTH - 48,
-    padding: 20,
-    borderRadius: 16,
+    width: SCREEN_WIDTH - 32,
+    padding: 18,
+    borderRadius: 22,
     borderWidth: 1,
-    gap: 14,
+    gap: 12,
   },
   modalHeader: {
     flexDirection: "row",
@@ -799,105 +902,100 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    flex: 1,
-  },
-  typeSelectorRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  typeTab: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-    borderRadius: 10,
-    gap: 4,
-  },
-  typeTabText: {
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 17,
+    fontWeight: "800",
   },
   modalInput: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     fontSize: 14,
   },
   textArea: {
-    height: 90,
+    height: 80,
     textAlignVertical: "top",
   },
-  filePickerButton: {
-    flexDirection: "row",
+  savePillBtn: {
+    paddingVertical: 12,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 16,
-    borderRadius: 10,
+    marginTop: 2,
+  },
+  savePillBtnText: {
+    color: Palette.white,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  actionSheetCard: {
+    width: SCREEN_WIDTH - 24,
+    padding: 16,
+    borderRadius: 24,
     borderWidth: 1,
-    borderStyle: "dashed",
+    gap: 14,
+    paddingBottom: 24,
+  },
+  actionSheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  actionSheetTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  actionSheetSub: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  closeIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionMenuDeck: {
     gap: 8,
   },
-  filePickerText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  saveButton: {
-    paddingVertical: 12,
-    borderRadius: 12,
+  actionRowBtn: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
   },
-  saveButtonText: {
-    color: "#FFFFFF",
+  actionIconPill: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionRowText: {
     fontSize: 14,
     fontWeight: "600",
   },
-  detailContentBox: {
-    maxHeight: 180,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: "rgba(0,0,0,0.05)",
-  },
-  detailText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  linkRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginVertical: 4,
-  },
-  linkUrlText: {
-    fontSize: 13,
-    textDecorationLine: "underline",
-  },
-  actionMenu: {
-    gap: 12,
-    marginTop: 10,
-  },
-  actionMenuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 6,
-  },
-  actionMenuText: {
-    fontSize: 14,
-    fontWeight: "500",
+  subHeading: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
   },
   linkItemRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(150,150,150,0.2)",
+    borderBottomColor: "rgba(150,150,150,0.15)",
   },
   linkItemText: {
     fontSize: 14,
+    fontWeight: "500",
+    flex: 1,
+    marginRight: 10,
   },
 });

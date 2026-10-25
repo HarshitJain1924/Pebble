@@ -16,7 +16,8 @@ type EventType =
   | "workspace_segment_changed"
   | "workspace_segment_request"
   | "workspace_nav_mode_changed"
-  | "open_quick_add";
+  | "open_quick_add"
+  | "graph_changed";
 type Listener = (emitterId?: string) => void;
 
 const listeners: Record<EventType, Set<Listener>> = {
@@ -38,6 +39,7 @@ const listeners: Record<EventType, Set<Listener>> = {
   workspace_segment_request: new Set<Listener>(),
   workspace_nav_mode_changed: new Set<Listener>(),
   open_quick_add: new Set<Listener>(),
+  graph_changed: new Set<Listener>(),
 };
 
 /**

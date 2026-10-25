@@ -1,0 +1,306 @@
+import { useCallback, useState } from "react";
+
+import type { Checklist, ChecklistItem, TaskPriority } from "@/shared/types/domain.types";
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
+
+export interface ChecklistFormState {
+  title: string;
+  description: string;
+  workspaceId: string;
+  priority: TaskPriority;
+  items: ChecklistItem[];
+  linkedCollectionIds: string[];
+  newItemText: string;
+  scheduleDate: string;
+  startTime?: string;
+  durationMinutes?: number;
+  showDatePicker: boolean;
+  scheduleTimePickerVisible: boolean;
+  reminderDate?: string;
+  reminderTime?: { hour: number; minute: number };
+  timePickerVisible: boolean;
+  recurrenceType: string;
+  intervalVal: number;
+  /** Preserved from the stored rule; the form does not edit it. */
+  recurrenceUnit?: "hours" | "days";
+  recurrenceDays: number[];
+  recurrenceDayOfMonth: number;
+  /** Preserved from the stored rule; the form does not edit it. */
+  recurrenceEndDate?: string;
+  /** Preserved from the stored rule; the form does not edit it. */
+  recurrenceOccurrences?: number;
+}
+
+const INITIAL_FORM: ChecklistFormState = {
+  title: "",
+  description: "",
+  workspaceId: INBOX_WORKSPACE_ID,
+  priority: "none",
+  items: [],
+  linkedCollectionIds: [],
+  newItemText: "",
+  scheduleDate: "inbox",
+  startTime: undefined,
+  durationMinutes: undefined,
+  showDatePicker: false,
+  scheduleTimePickerVisible: false,
+  reminderDate: undefined,
+  reminderTime: undefined,
+  timePickerVisible: false,
+  recurrenceType: "none",
+  intervalVal: 1,
+  recurrenceDays: [],
+  recurrenceDayOfMonth: 1,
+};
+
+const newItemId = () =>
+  `checklist-item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+/**
+ * Compute the epoch timestamp for a reminder trigger from an hour/minute pair
+ * plus a target reminder date string (YYYY-MM-DD). When no concrete date is given,
+ * falls back to today in local time.
+ */
+export function computeTriggerEpoch(
+  hour: number,
+  minute: number,
+  dateStr?: string,
+): number {
+  if (dateStr && dateStr !== "inbox") {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      return new Date(y, m - 1, d, hour, minute, 0, 0).getTime();
+    }
+  }
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Weekday a weekly series anchors to when the user has not picked explicit
+ * days: the schedule date's weekday, else today's.
+ *
+ * This mirrors the canonical recurrence convention in
+ * `isRecurringOccurrenceForDate` (`daysOfWeek` absent → start-date weekday), so
+ * the editor default and the recurrence engine agree.
+ */
+export function defaultWeeklyDay(scheduleDate?: string): number {
+  if (scheduleDate && scheduleDate !== "inbox") {
+    const [y, m, d] = scheduleDate.split("-").map(Number);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      return new Date(y, m - 1, d).getDay();
+    }
+  }
+  return new Date().getDay();
+}
+
+/**
+ * Resolve the weekday set a weekly rule will actually repeat on.
+ *
+ * A weekly rule with an empty `daysOfWeek` array matches no date at all in the
+ * occurrence engine (an empty array is truthy, so the canonical start-weekday
+ * fallback never applies). The editor therefore always persists a concrete,
+ * non-empty set, derived from the same start-weekday convention.
+ */
+export function effectiveWeeklyDays(
+  days: number[] | undefined,
+  scheduleDate?: string,
+): number[] {
+  const cleaned = Array.from(
+    new Set(
+      (days || []).filter(
+        (d) => Number.isInteger(d) && d >= 0 && d <= 6,
+      ),
+    ),
+  ).sort((a, b) => a - b);
+  return cleaned.length > 0 ? cleaned : [defaultWeeklyDay(scheduleDate)];
+}
+
+/**
+ * Owns the Checklist Detail edit-form state group (title, description,
+ * workspace, items, linked resources, add-item draft, schedule, reminder, recurrence)
+ * plus the derived item interactions.
+ */
+export function useChecklistDetailForm() {
+  const [form, setForm] = useState<ChecklistFormState>(INITIAL_FORM);
+
+  const update = useCallback((patch: Partial<ChecklistFormState>) => {
+    setForm((current) => ({ ...current, ...patch }));
+  }, []);
+
+  const reset = useCallback((data: Checklist) => {
+    const rec = data.recurrence;
+    let reminderDate: string | undefined;
+    let reminderTime: ChecklistFormState["reminderTime"];
+    if (data.reminder?.triggerAt) {
+      const d = new Date(data.reminder.triggerAt);
+      reminderDate = dateKeyFromDate(d);
+      reminderTime = { hour: d.getHours(), minute: d.getMinutes() };
+    }
+
+    let durationMinutes = data.schedule?.durationMinutes;
+    if (durationMinutes === undefined && data.schedule?.startTime && data.schedule?.endTime) {
+      const [sh, sm] = data.schedule.startTime.split(":").map(Number);
+      const [eh, em] = data.schedule.endTime.split(":").map(Number);
+      if (!isNaN(sh) && !isNaN(sm) && !isNaN(eh) && !isNaN(em)) {
+        durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
+        if (durationMinutes <= 0) durationMinutes = 45;
+      }
+    }
+
+    let scheduleDate = data.schedule?.date || "inbox";
+    let recurrenceType = "none";
+    let intervalVal = 1;
+    let recurrenceUnit: "hours" | "days" | undefined;
+    let recurrenceDays: number[] = [];
+    let recurrenceDayOfMonth = 1;
+    let recurrenceEndDate: string | undefined;
+    let recurrenceOccurrences: number | undefined;
+
+    if (rec) {
+      recurrenceType = rec.frequency || "none";
+      intervalVal = rec.interval || 1;
+      recurrenceUnit = rec.unit;
+      recurrenceDays = rec.daysOfWeek || [];
+      recurrenceDayOfMonth = rec.dayOfMonth || 1;
+      recurrenceEndDate = rec.endDate;
+      recurrenceOccurrences = rec.occurrences;
+    }
+
+    // Surface the anchor weekday for a weekly rule that was stored without an
+    // explicit day set, so the editor shows what the series actually repeats on.
+    if (recurrenceType === "weekly" && recurrenceDays.length === 0) {
+      recurrenceDays = [defaultWeeklyDay(scheduleDate)];
+    }
+
+    setForm({
+      title: data.title || "",
+      description: data.description || "",
+      workspaceId: data.workspaceId || INBOX_WORKSPACE_ID,
+      priority: data.priority || "none",
+      items: data.items || [],
+      linkedCollectionIds: data.resourceIds || [],
+      newItemText: "",
+      scheduleDate,
+      startTime: data.schedule?.startTime,
+      durationMinutes,
+      showDatePicker: false,
+      scheduleTimePickerVisible: false,
+      reminderDate,
+      reminderTime,
+      timePickerVisible: false,
+      recurrenceType,
+      intervalVal,
+      recurrenceUnit,
+      recurrenceDays,
+      recurrenceDayOfMonth,
+      recurrenceEndDate,
+      recurrenceOccurrences,
+    });
+  }, []);
+
+  const addItem = useCallback(() => {
+    setForm((current) => {
+      const text = current.newItemText.trim();
+      if (!text) return current;
+      const newItem: ChecklistItem = {
+        id: newItemId(),
+        title: text,
+        completed: false,
+      };
+      return { ...current, items: [...current.items, newItem], newItemText: "" };
+    });
+  }, []);
+
+  const setNewItemText = useCallback((text: string) => {
+    setForm((current) => ({ ...current, newItemText: text }));
+  }, []);
+
+  const deleteItem = useCallback((id: string) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.filter((it) => it.id !== id),
+    }));
+  }, []);
+
+  const renameItem = useCallback((id: string, text: string) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((it) =>
+        it.id === id ? { ...it, title: text } : it,
+      ),
+    }));
+  }, []);
+
+  const moveItemUp = useCallback((index: number) => {
+    if (index === 0) return;
+    setForm((current) => {
+      const next = [...current.items];
+      const temp = next[index];
+      next[index] = next[index - 1];
+      next[index - 1] = temp;
+      return { ...current, items: next };
+    });
+  }, []);
+
+  const moveItemDown = useCallback((index: number) => {
+    setForm((current) => {
+      if (index === current.items.length - 1) return current;
+      const next = [...current.items];
+      const temp = next[index];
+      next[index] = next[index + 1];
+      next[index + 1] = temp;
+      return { ...current, items: next };
+    });
+  }, []);
+
+  const toggleResource = useCallback((resId: string) => {
+    setForm((current) => ({
+      ...current,
+      linkedCollectionIds: current.linkedCollectionIds.includes(resId)
+        ? current.linkedCollectionIds.filter((id) => id !== resId)
+        : [...current.linkedCollectionIds, resId],
+    }));
+  }, []);
+
+  const toggleDay = useCallback((day: number) => {
+    setForm((current) => {
+      const exists = current.recurrenceDays.includes(day);
+      const next = exists
+        ? current.recurrenceDays.filter((d) => d !== day)
+        : [...current.recurrenceDays, day];
+      return { ...current, recurrenceDays: next.sort((a, b) => a - b) };
+    });
+  }, []);
+
+  /**
+   * Select a recurrence type. Choosing "weekly" seeds a visible anchor day so
+   * the editor never presents (or saves) an empty weekday set.
+   */
+  const selectRecurrenceType = useCallback((type: string) => {
+    setForm((current) => ({
+      ...current,
+      recurrenceType: type,
+      ...(type === "weekly" && current.recurrenceDays.length === 0
+        ? { recurrenceDays: [defaultWeeklyDay(current.scheduleDate)] }
+        : {}),
+    }));
+  }, []);
+
+  return {
+    form,
+    update,
+    reset,
+    addItem,
+    setNewItemText,
+    deleteItem,
+    renameItem,
+    moveItemUp,
+    moveItemDown,
+    toggleResource,
+    toggleDay,
+    selectRecurrenceType,
+  };
+}

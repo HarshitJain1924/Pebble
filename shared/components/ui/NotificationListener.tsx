@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Platform } from "react-native";
+import { Platform, AppState } from "react-native";
 
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { getNotificationRoute } from "@/services/scheduling/notification-routes";
@@ -15,6 +15,23 @@ export default function NotificationListener() {
     let subscription: { remove: () => void } | undefined;
     let receivedSubscription: { remove: () => void } | undefined;
 
+    const triggerReconcile = () => {
+      try {
+        const {
+          NotificationReconcilerService,
+        } = require("@/services/notifications/NotificationReconcilerService");
+        void NotificationReconcilerService.reconcileAll();
+      } catch (e) {
+        // Tolerant
+      }
+    };
+
+    const appStateSub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        triggerReconcile();
+      }
+    });
+
     const openNotificationTarget = (
       response: {
         notification: { request: { content: { data: unknown } } };
@@ -29,16 +46,13 @@ export default function NotificationListener() {
         const Notifications = await import("expo-notifications");
         if (!active) return;
 
-        // Request basic permissions but do not force
-        try {
-          const { status } = await Notifications.getPermissionsAsync();
-          console.log("[NotificationListener] getPermissionsAsync status:", status);
-          if (status !== "granted") {
-            const requestResult = await Notifications.requestPermissionsAsync();
-            console.log("[NotificationListener] requestPermissionsAsync status:", requestResult.status);
-          }
-
-          if (Platform.OS === "android") {
+        // Configure Android notification channels. Channel setup is required
+        // for scheduling but NEVER prompts for OS permission. The native
+        // permission dialog is deliberately deferred until the user explicitly
+        // enables alerts (Alert Center "Enable Alerts" action) — cold launch
+        // and listener mounting must not trigger it.
+        if (Platform.OS === "android") {
+          try {
             await Notifications.setNotificationChannelAsync("todo-reminders", {
               name: "Task Reminders",
               importance: Notifications.AndroidImportance.HIGH,
@@ -48,25 +62,24 @@ export default function NotificationListener() {
               importance: Notifications.AndroidImportance.HIGH,
             });
             console.log("[NotificationListener] Android notification channels configured (todo-reminders, daily-habits) with HIGH importance.");
+          } catch (e) {
+            // ignore
           }
-        } catch (e) {
-          // ignore
         }
 
         Notifications.setNotificationHandler({
-          handleNotification: async () =>
-            ({
-              shouldShowAlert: true,
-              shouldPlaySound: true,
-              shouldSetBadge: false,
-              shouldShowBanner: true,
-              shouldShowList: true,
-            }) as any,
+          handleNotification: async () => ({
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+            shouldShowBanner: true,
+            shouldShowList: true,
+          }),
         });
 
         void Notifications.getLastNotificationResponseAsync().then(
           (response) => {
             if (!response) return;
+            triggerReconcile();
             const route = getNotificationRoute(
               response.notification.request.content.data,
             );
@@ -76,6 +89,7 @@ export default function NotificationListener() {
         subscription = Notifications.addNotificationResponseReceivedListener(
           (response) => {
             if (!response) return;
+            triggerReconcile();
             const route = getNotificationRoute(
               response.notification.request.content.data,
             );
@@ -98,6 +112,9 @@ export default function NotificationListener() {
               );
             } catch {}
 
+            // Re-arm next anchored occurrence if a recurring reminder fired in the foreground
+            triggerReconcile();
+
             // Show in-app banner with snooze action
             showBanner({
               title: title as string | undefined,
@@ -105,20 +122,25 @@ export default function NotificationListener() {
               duration: 6000,
               onSnooze: async () => {
                 try {
-                  // schedule a quick snooze 5 minutes later
-                  const Notifications = await import("expo-notifications");
-                  await Notifications.scheduleNotificationAsync({
-                    content: {
-                      title: title || "Snoozed",
-                      body: body || "Reminder",
-                    },
-                    trigger: {
-                      seconds: 60 * 5,
-                      channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-                    } as any,
-                  });
+                  if (data && typeof data === "object") {
+                    const payload = data as Record<string, any>;
+                    const itemId = payload.itemId;
+                    const type = payload.type;
+                    const workspaceId = payload.workspaceId;
+                    if (itemId && type) {
+                      const { EntityCommandService } = await import(
+                        "@/services/command/EntityCommandService"
+                      );
+                      await EntityCommandService.snoozeReminder(
+                        type,
+                        itemId,
+                        workspaceId,
+                        5,
+                      );
+                    }
+                  }
                 } catch (e) {
-                  // ignore
+                  console.warn("[NotificationListener] Failed to snooze reminder", e);
                 }
               },
             });
@@ -131,6 +153,7 @@ export default function NotificationListener() {
 
     return () => {
       active = false;
+      appStateSub.remove();
       subscription?.remove();
       receivedSubscription?.remove();
     };

@@ -6,13 +6,26 @@ import { type Checklist } from "@/shared/types/domain.types";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
+import { isChecklistCompletedForDate } from "@/shared/utils/domain-selectors";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 interface ChecklistSectionProps {
   checklists: Checklist[];
   colors: any;
   colorScheme: "light" | "dark" | null;
+  /** Date the section represents. Completion reads/writes target this key. */
+  selectedDateKey?: string;
   allResources?: any[];
   onUpdateChecklist: (updated: Checklist) => void;
+  onToggleChecklistItem?: (
+    checklist: Checklist,
+    itemId: string,
+    referenceDateKey?: string,
+  ) => void;
+  onToggleAllChecklistItems?: (
+    checklist: Checklist,
+    referenceDateKey?: string,
+  ) => void;
   onDeleteChecklist: (id: string) => void;
   onDuplicateChecklist?: (chk: Checklist) => void;
   onRenameChecklist?: (chk: Checklist) => void;
@@ -23,8 +36,11 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
   checklists,
   colors,
   colorScheme,
+  selectedDateKey,
   allResources = [],
   onUpdateChecklist,
+  onToggleChecklistItem,
+  onToggleAllChecklistItems,
   onDeleteChecklist,
   onDuplicateChecklist,
   onRenameChecklist,
@@ -34,6 +50,10 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
   const [isInProgressCollapsed, setIsInProgressCollapsed] = React.useState(false);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = React.useState(false);
 
+  // The section is date-scoped: completion is evaluated for the day the list
+  // represents, never for an implicit "today".
+  const referenceDateKey = selectedDateKey || getTodayDateKey();
+
   // Group checklists into In Progress vs Completed
   // Completed means it has at least one item, and all items are completed.
   const { inProgress, completed } = React.useMemo(() => {
@@ -41,7 +61,7 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
     const compList: Checklist[] = [];
 
     checklists.forEach((c) => {
-      const isDone = c.items.length > 0 && c.items.every((i) => i.completed);
+      const isDone = isChecklistCompletedForDate(c, referenceDateKey);
       if (isDone) {
         compList.push(c);
       } else {
@@ -50,10 +70,21 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
     });
 
     return { inProgress: ipList, completed: compList };
-  }, [checklists]);
+  }, [checklists, referenceDateKey]);
 
   const toggleChecklistAllItems = (chk: Checklist) => {
-    const isDone = chk.items.length > 0 && chk.items.every((i) => i.completed);
+    if (onToggleAllChecklistItems) {
+      onToggleAllChecklistItems(chk, referenceDateKey);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      return;
+    }
+    // Never silently fall back to master-template mutation for recurring checklists
+    if (chk.recurrence) {
+      console.warn("Cannot toggle all recurring checklist items without occurrence-aware callback");
+      return;
+    }
+    const occurrenceDateKey = referenceDateKey;
+    const isDone = isChecklistCompletedForDate(chk, occurrenceDateKey);
     const nextItems = chk.items.map((i) => ({
       ...i,
       completed: !isDone,
@@ -92,6 +123,7 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
           checklist={chk}
           colors={colors}
           colorScheme={colorScheme}
+          selectedDateKey={referenceDateKey}
           isExpanded={isExpanded}
           onToggleExpand={() => {
             setExpandedIds((prev) => ({
@@ -101,6 +133,8 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           }}
           onToggleChecklist={() => toggleChecklistAllItems(chk)}
+          onToggleChecklistItem={onToggleChecklistItem}
+          onToggleAllChecklistItems={onToggleAllChecklistItems}
           onUpdateChecklist={onUpdateChecklist}
           onToggleLinkResource={onToggleLinkResource}
           allResources={allResources}

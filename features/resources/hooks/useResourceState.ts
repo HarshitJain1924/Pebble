@@ -1,47 +1,36 @@
 import { useState, useCallback } from "react";
 import * as Haptics from "expo-haptics";
-import { Resource } from "@/shared/types/domain.types";
+import { Resource, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
 import { ResourceRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { globalResources, setGlobalResources } from "@/features/tasks/utils/task-formatting";
 
 /**
- * Canonical hook for Resource domain state management (Pebble V3 Flat Database).
+ * Canonical hook for Resource domain state management.
  */
 export function useResourceState(
-  selectedList: string,
+  selectedWorkspaceId: string,
   showToast: (msg: string) => void,
 ) {
   const [resources, setResources] = useState<Record<string, Resource[]>>(() => globalResources || {});
 
+  const setAllResources = useCallback((allMap: Record<string, Resource[]>) => {
+    setResources((prev) => {
+      const next = { ...prev, ...allMap };
+      setGlobalResources(next);
+      return next;
+    });
+  }, []);
+
   const loadResourcesState = useCallback(async (targetWorkspaceId?: string) => {
     try {
-      const activeList = targetWorkspaceId || selectedList || "default";
+      const activeList = targetWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
-      // Fetch all flat current resources from repository
       const resourcesMap = await ResourceRepository.getResources(activeList);
-      const list: Resource[] = Object.values(resourcesMap).map((r: any) => ({
-        id: r.id,
-        workspaceId: r.workspaceId || r.folderId || activeList,
-        type: (r.resourceType || r.type || "note") as any,
-        kind: r.kind || (r.resourceType === "idea" || r.type === "idea" ? "idea" : undefined),
-        title: r.title,
-        content: r.content !== undefined ? r.content : (r.payload?.content || r.body?.content || undefined),
-        url: r.url !== undefined ? r.url : (r.payload?.url || r.body?.url || undefined),
-        mediaUri: r.mediaUri,
-        previewImageUrl: r.previewImageUrl,
-        archived: r.archived || false,
-        pinned: r.pinned || false,
-        linkedItemIds: r.linkedItemIds || [],
-        tags: r.tags || [],
-        createdAt: r.createdAt || Date.now(),
-        updatedAt: r.updatedAt || Date.now(),
-        fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
-        fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
-        mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,
-        localUri: r.localUri || r.payload?.localUri || r.body?.localUri,
-      }));
+      const list: Resource[] = Object.values(resourcesMap);
 
       setResources((prev) => {
         const next = { ...prev, [activeList]: list };
@@ -53,34 +42,34 @@ export function useResourceState(
       console.warn("Failed to load resources state", e);
       return [];
     }
-  }, [selectedList]);
+  }, [selectedWorkspaceId]);
 
   const createResource = useCallback(async (
     workspaceId: string,
     item: Omit<Resource, "id" | "createdAt">
   ) => {
     try {
-      const resourceId = `res-${Date.now()}`;
-      const wsId = workspaceId || selectedList || "default";
-      const payload = item.type === "link" ? { url: item.url || "" } :
-                      item.type === "file" ? { localUri: item.localUri || "", mimeType: item.mimeType || "", fileSize: item.fileSize || 0, fileName: item.fileName || item.title } :
-                      { content: item.content || "" };
+      const resourceId = generateId("res-");
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
 
-      await ResourceRepository.saveResource({
+      const newResource: Resource = {
         id: resourceId,
         workspaceId: wsId,
-        folderId: wsId,
+        type: item.type || "note",
         title: item.title,
+        body: item.body || undefined,
+        tags: item.tags || undefined,
+        attachments: item.attachments || undefined,
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        resourceType: item.type as any,
-        payload,
-        pinned: item.pinned || false,
-        archived: item.archived || false,
-        tags: item.tags || [],
-        linkedItemIds: item.linkedItemIds || [],
-      });
+      };
 
+      await EntityCommandService.createResource(newResource, wsId, {
+        skipEvents: true,
+        skipAnalytics: true,
+      });
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -88,7 +77,7 @@ export function useResourceState(
     } catch (e) {
       console.warn("Failed to create resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   const updateResource = useCallback(async (
     resourceId: string,
@@ -96,25 +85,17 @@ export function useResourceState(
     updates: Partial<Resource>
   ) => {
     try {
-      const wsId = workspaceId || selectedList || "default";
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const existing = await ResourceRepository.getResource(resourceId, wsId);
       if (!existing) return;
 
-      const payload = {
-        ...existing.payload,
-        content: updates.content !== undefined ? updates.content : (existing.payload as any)?.content,
-        url: updates.url !== undefined ? updates.url : (existing.payload as any)?.url,
+      const updatedResource: Resource = {
+        ...existing,
+        ...updates,
+        updatedAt: Date.now(),
       };
 
-      await ResourceRepository.saveResource({
-        ...existing,
-        title: updates.title !== undefined ? updates.title : existing.title,
-        payload,
-        pinned: updates.pinned !== undefined ? updates.pinned : existing.pinned,
-        archived: updates.archived !== undefined ? updates.archived : existing.archived,
-        updatedAt: Date.now(),
-      });
-
+      await EntityCommandService.updateResource(updatedResource.id, wsId, updatedResource, { skipEvents: true, skipAnalytics: true });
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -122,23 +103,15 @@ export function useResourceState(
     } catch (e) {
       console.warn("Failed to update resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   const deleteResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
-      const wsId = workspaceId || selectedList || "default";
-      const existing = await ResourceRepository.getResource(resourceId, wsId);
-      if (existing) {
-        await addToRecycleBin("resource" as any, {
-          id: existing.id,
-          type: existing.resourceType,
-          title: existing.title,
-          content: (existing.payload as any)?.content,
-          url: (existing.payload as any)?.url,
-          createdAt: existing.createdAt,
-        }, wsId);
-      }
-      await ResourceRepository.deleteResource(resourceId, wsId);
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      await EntityCommandService.recycleResource(resourceId, wsId, {
+        source: "tasks_screen",
+        skipEvents: true,
+      });
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -146,60 +119,33 @@ export function useResourceState(
     } catch (e) {
       console.warn("Failed to delete resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   const toggleArchiveResource = useCallback(async (resourceId: string, workspaceId: string) => {
     try {
-      const wsId = workspaceId || selectedList || "default";
-      const existing = await ResourceRepository.getResource(resourceId, wsId);
-      if (!existing) return;
-
-      const nextArchived = !existing.archived;
-      await ResourceRepository.saveResource({
-        ...existing,
-        archived: nextArchived,
-        updatedAt: Date.now(),
+      const wsId = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      
+      const { isArchived } = await EntityCommandService.toggleArchiveResource(resourceId, wsId, { 
+        skipEvents: true, 
+        skipAnalytics: true 
       });
 
       await loadResourcesState(wsId);
       emitStateChange("resources_changed", "tasks_screen");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      showToast(nextArchived ? "✓ Resource archived" : "✓ Resource unarchived");
+      showToast(isArchived ? "✓ Resource archived" : "✓ Resource unarchived");
     } catch (e) {
       console.warn("Failed to toggle archive resource", e);
     }
-  }, [selectedList, loadResourcesState, showToast]);
-
-  const togglePinResource = useCallback(async (resourceId: string, workspaceId: string) => {
-    try {
-      const wsId = workspaceId || selectedList || "default";
-      const existing = await ResourceRepository.getResource(resourceId, wsId);
-      if (!existing) return;
-
-      const nextPinned = !existing.pinned;
-      await ResourceRepository.saveResource({
-        ...existing,
-        pinned: nextPinned,
-        updatedAt: Date.now(),
-      });
-
-      await loadResourcesState(wsId);
-      emitStateChange("resources_changed", "tasks_screen");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      showToast(nextPinned ? "✓ Pinned to Quick Access" : "✓ Removed from Quick Access");
-    } catch (e) {
-      console.warn("Failed to toggle pin resource", e);
-    }
-  }, [selectedList, loadResourcesState, showToast]);
+  }, [selectedWorkspaceId, loadResourcesState, showToast]);
 
   return {
     resources,
-    setResources,
+    setAllResources,
     loadResourcesState,
     createResource,
     updateResource,
     deleteResource,
     toggleArchiveResource,
-    togglePinResource,
   };
 }

@@ -1,31 +1,33 @@
+/**
+ * SuggestionBanner — CURRENTLY NOT RENDERED IN PRACTICE.
+ *
+ * Mounted on the Workspaces landing screen, but it returns null because nothing
+ * populates the suggestion store (see `features/capture/services/suggestions.service.ts`).
+ * Retained for the planned capture suggestion work; see §22 of
+ * `docs/current_state.md` before treating this as a live feature.
+ */
 import React from "react";
 import { View, TouchableOpacity, Alert } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette, colorWithAlpha } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import { resolveSuggestion, type SmartSuggestion } from "@/features/capture/services/suggestions.service";
-import { Task, type Habit, Workspace } from "@/shared/types/domain.types";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Task, type Habit, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { emitStateChange } from "@/services/events/state-events";
 import { TaskRepository, HabitRepository, UiStateRepository } from "@/repositories";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { generateId } from "@/shared/utils/id";
 
 interface SuggestionBannerProps {
   activeSuggestions: SmartSuggestion[];
   loadSuggestions: () => Promise<void> | void;
   setHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
-  persistHabits: (nextHabits: Habit[]) => Promise<void> | void;
   setTodos: React.Dispatch<React.SetStateAction<Record<string, Task[]>>>;
-  persistState: (
-    lists: Workspace[],
-    selected: string,
-    todos: Record<string, Task[]>,
-  ) => Promise<void> | void;
-  lists: Workspace[];
-  selectedList: string;
-  openedFolderId: string | null;
+  activeWorkspaceId: string | null;
+  selectedWorkspaceId: string;
   getDateKey: (date?: Date) => string;
 }
 
@@ -33,12 +35,9 @@ export function SuggestionBanner({
   activeSuggestions,
   loadSuggestions,
   setHabits,
-  persistHabits,
   setTodos,
-  persistState,
-  lists,
-  selectedList,
-  openedFolderId,
+  activeWorkspaceId,
+  selectedWorkspaceId,
   getDateKey,
 }: SuggestionBannerProps) {
   const colorScheme = useColorScheme();
@@ -47,12 +46,10 @@ export function SuggestionBanner({
 
   if (activeSuggestions.length === 0) return null;
 
-  const bannerBg = isDark
-    ? "rgba(99, 102, 241, 0.15)"
-    : "rgba(99, 102, 241, 0.08)";
-  const borderColor = isDark
-    ? "rgba(99, 102, 241, 0.3)"
-    : "rgba(99, 102, 241, 0.2)";
+  // Brand accent (Pine). Kept as a brand-toned card rather than the legacy
+  // hardcoded Indigo so it matches the rest of Pebble's surfaces.
+  const bannerBg = colorWithAlpha(colors.primary, isDark ? 0.15 : 0.08);
+  const borderColor = colorWithAlpha(colors.primary, isDark ? 0.3 : 0.2);
 
   return (
     <View style={{ gap: 8, marginVertical: 8, paddingHorizontal: 4 }}>
@@ -80,7 +77,7 @@ export function SuggestionBanner({
               gap: 10,
             }}
           >
-            <Feather name="zap" size={18} color="#6366F1" />
+            <Feather name="zap" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
               <Text
                 style={{
@@ -111,30 +108,26 @@ export function SuggestionBanner({
                 const activeWorkspace = uiState.activeWorkspaceId || "default";
                 if (suggestion.type === "convert_habit") {
                   const newHabit: Habit = {
-                    id: `habit-${Date.now()}`,
+                    id: generateId("habit-"),
+                    workspaceId: activeWorkspace,
                     title: suggestion.title,
-                    streak: 0,
-                    bestStreak: 0,
-                    completedToday: false,
-                    priority: "medium",
-                    folderId: activeWorkspace,
+                    categoryId: "learning",
+                    recurrence: { frequency: "daily", interval: 1 },
+                    completionHistory: [],
+                    revision: 1,
+                    lifecycleGeneration: 1,
                     createdAt: Date.now(),
+                    updatedAt: Date.now(),
                   };
                   
                   // Load active workspace current habits
                   const habitsMap = await HabitRepository.getHabits(activeWorkspace);
-                  const currentHabits: Habit[] = Object.values(habitsMap).map((h: any) => ({
-                    id: h.id,
-                    title: h.title,
-                    streak: h.streak,
-                    bestStreak: h.bestStreak,
-                    completedToday: h.completedDates?.includes(getDateKey()),
-                    folderId: activeWorkspace,
-                    createdAt: h.createdAt,
-                  }));
+                  const currentHabits: Habit[] = Object.values(habitsMap);
 
                   const updated = [newHabit, ...currentHabits];
-                  await persistHabits(updated);
+                  await EntityCommandService.createHabit(newHabit, activeWorkspace, {
+                    skipEvents: true,
+                  });
                   setHabits(updated);
                   emitStateChange("habits_changed");
                   Alert.alert(
@@ -142,36 +135,32 @@ export function SuggestionBanner({
                     `"${suggestion.title}" has been converted to a recurring daily habit!`,
                   );
                 } else {
-                  const listId = openedFolderId || selectedList || "default";
+                  const listId = activeWorkspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
                   const newTodo: Task = {
-                    id: String(Date.now()),
+                    id: generateId("task-"),
+                    workspaceId: listId,
                     title: `Study schedule: ${suggestion.title}`,
-                    completed: false,
-                    category: "learning",
+                    status: "todo",
+                    categoryId: "learning",
                     priority: "high",
-                    scheduledDate: getDateKey(),
-                    folderId: listId,
+                    schedule: { date: getDateKey() },
+                    revision: 1,
+                    lifecycleGeneration: 1,
                     createdAt: Date.now(),
+                    updatedAt: Date.now(),
                   };
                   
                   // Load active workspace current tasks
                   const tasksMap = await TaskRepository.getTasks(listId);
-                  const listTodos: Task[] = Object.values(tasksMap).map((t: any) => ({
-                    id: t.id,
-                    title: t.title,
-                    completed: t.completed,
-                    priority: t.priority,
-                    scheduledDate: t.dueDate,
-                    folderId: listId,
-                    createdAt: t.createdAt,
-                    category: t.category,
-                  }));
+                  const listTodos: Task[] = Object.values(tasksMap);
 
                   const updatedList = [newTodo, ...listTodos];
                   const updated = {
                     [listId]: updatedList,
                   };
-                  await persistState(lists, listId, updated);
+                  await EntityCommandService.createTask(newTodo, listId, {
+                    skipEvents: true,
+                  });
                   setTodos(updated);
                   emitStateChange("tasks_changed");
                   Alert.alert(
@@ -183,14 +172,14 @@ export function SuggestionBanner({
                 await loadSuggestions();
               }}
               style={{
-                backgroundColor: "#6366F1",
+                backgroundColor: colors.primary,
                 paddingHorizontal: 12,
                 paddingVertical: 6,
                 borderRadius: 10,
               }}
             >
               <Text
-                style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "700" }}
+                style={{ color: Palette.white, fontSize: 11, fontWeight: "700" }}
               >
                 Accept
               </Text>

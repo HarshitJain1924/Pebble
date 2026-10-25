@@ -1,11 +1,13 @@
 import React from "react";
 import { Modal, View, Text, Pressable, StyleSheet } from "react-native";
+import { Palette } from "@/shared/constants/theme";
 import { BlurView } from "expo-blur";
 import Animated from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { AnimatedCheckbox } from "@/shared/components/ui/AnimatedCheckbox";
 import { type Habit, type Task, type Workspace } from "@/shared/types/domain.types";
+import { getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 
 export interface ZenModeModalProps {
   visible: boolean;
@@ -77,7 +79,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                 justifyContent: "center",
                 borderWidth: 1.5,
                 borderColor: colors.border,
-                shadowColor: "#000",
+                shadowColor: Palette.black,
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.1,
                 shadowRadius: 4,
@@ -110,8 +112,8 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
           {/* Content Area */}
           {(() => {
             if (activeZenTask) {
-              const folder = activeZenTask.workspaceId || (activeZenTask as any).folderId
-                ? getFolderById((activeZenTask.workspaceId || (activeZenTask as any).folderId)!)
+              const folder = activeZenTask.workspaceId
+                ? getFolderById(activeZenTask.workspaceId)
                 : null;
               return (
                 <View
@@ -130,7 +132,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                       }}
                     >
                       {folder
-                        ? `${folder.emoji} ${folder.name}`
+                        ? `${folder.emoji ? `${folder.emoji} ` : ""}${folder.name}`
                         : "FOCUS PEBBLE"}
                     </Text>
                   </View>
@@ -153,6 +155,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                   >
                     <AnimatedCheckbox
                       checked={false}
+                      accessibilityLabel={`Mark task as completed: ${activeZenTask.title}`}
                       onToggle={async (e) => {
                         await onCompleteTask(activeZenTask.id, e);
                         setTimeout(() => {
@@ -175,8 +178,8 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                 </View>
               );
             } else if (activeZenHabit) {
-              const folder = activeZenHabit.workspaceId || (activeZenHabit as any).folderId
-                ? getFolderById((activeZenHabit.workspaceId || (activeZenHabit as any).folderId)!)
+              const folder = activeZenHabit.workspaceId
+                ? getFolderById(activeZenHabit.workspaceId)
                 : null;
               return (
                 <View
@@ -188,14 +191,14 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                       style={{
                         fontSize: 10,
                         fontWeight: "800",
-                        color: "#F59E0B",
+                        color: Palette.amber500,
                         textTransform: "uppercase",
                         letterSpacing: 1.5,
                         textAlign: "center",
                       }}
                     >
                       {folder
-                        ? `${folder.emoji} ${folder.name} • HABIT`
+                        ? `${folder.emoji ? `${folder.emoji} ` : ""}${folder.name} • HABIT`
                         : "FOCUS HABIT"}
                     </Text>
                   </View>
@@ -213,16 +216,16 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                     {activeZenHabit.title}
                   </Text>
 
-                  {activeZenHabit.streak > 0 && (
+                  {getHabitCurrentStreak(activeZenHabit) > 0 && (
                     <Text
                       style={{
                         fontSize: 13,
                         fontWeight: "700",
-                        color: "#F59E0B",
+                        color: Palette.amber500,
                         marginTop: -12,
                       }}
                     >
-                      🔥 {activeZenHabit.streak} Day Streak
+                      🔥 {getHabitCurrentStreak(activeZenHabit)} Day Streak
                     </Text>
                   )}
 
@@ -231,6 +234,7 @@ export const ZenModeModal: React.FC<ZenModeModalProps> = ({
                   >
                     <AnimatedCheckbox
                       checked={false}
+                      accessibilityLabel={`Mark habit as completed: ${activeZenHabit.title}`}
                       onToggle={async (e) => {
                         await onCompleteHabit(activeZenHabit.id, e);
                         setTimeout(() => {

@@ -12,7 +12,7 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-type ProgressRingProps = {
+export type ProgressRingProps = {
   progress: number; // 0 to 1
   size?: number;
   strokeWidth?: number;
@@ -54,7 +54,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
   return (
     <View style={[styles.container, { width: size, height: size }]}>
       <Svg width={size} height={size} style={styles.svg}>
-        {/* Background Track Circle */}
+        {/* Classical Continuous Arc Progress Ring */}
         <Circle
           cx={size / 2}
           cy={size / 2}
@@ -63,7 +63,6 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
           strokeWidth={strokeWidth}
           fill="transparent"
         />
-        {/* Animated Progress Circle */}
         <AnimatedCircle
           cx={size / 2}
           cy={size / 2}
@@ -77,6 +76,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </Svg>
+
       {showText && (
         <View style={styles.textContainer}>
           <Text style={[styles.percentageText, { color: theme.text }]}>

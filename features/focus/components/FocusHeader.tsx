@@ -11,6 +11,7 @@ interface FocusHeaderProps {
   glowEnabled: boolean;
   onMusicPress: () => void;
   onGlowToggle: () => void;
+  isBreak?: boolean;
 }
 
 export const FocusHeader: React.FC<FocusHeaderProps> = ({
@@ -20,18 +21,19 @@ export const FocusHeader: React.FC<FocusHeaderProps> = ({
   glowEnabled,
   onMusicPress,
   onGlowToggle,
+  isBreak = false,
 }) => {
   return (
     <View style={styles.headerRow}>
       <View style={styles.header}>
-        <Text style={[styles.kicker, { color: colors.primary }]}>
-          SESSION
+        <Text style={[styles.kicker, { color: isBreak ? colors.success : colors.primary }]}>
+          {isBreak ? "REST & RECHARGE" : "SESSION"}
         </Text>
         <Text style={[styles.title, { color: colors.text }]}>
-          Focus Mode
+          {isBreak ? "Take a Break" : "Focus Mode"}
         </Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Deep focus is the key to deep work.
+          {isBreak ? "Step back, stretch, and take a breath." : "Deep focus is the key to deep work."}
         </Text>
       </View>
       <View style={{ flexDirection: "row", gap: 8 }}>
@@ -70,7 +72,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 0,
   },
   header: {
     gap: 4,

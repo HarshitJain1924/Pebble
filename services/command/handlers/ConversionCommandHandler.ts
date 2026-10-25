@@ -1,0 +1,370 @@
+import {
+  TaskRepository,
+  HabitRepository,
+  ConversionJournalRepository,
+  GraphRepository,
+} from "@/repositories";
+import { recordDailyHistorySnapshot } from "@/services/analytics/productivity-history.service";
+import { emitStateChange } from "@/services/events/state-events";
+import { cancelReminderIds } from "@/services/scheduling/reminders.service";
+import { syncWidgetData } from "@/services/analytics/widget-data.service";
+import { scheduleTaskNotifications, scheduleHabitNotifications } from "../shared/command-notifications";
+import { generateEntityFingerprint } from "@/shared/utils/fingerprint";
+import { withLocks } from "@/shared/utils/mutex";
+import {
+  type Task,
+  type Habit,
+  INBOX_WORKSPACE_ID,
+} from "@/shared/types/domain.types";
+import { CreateEntityOptions } from "../types/command.types";
+
+export class ConversionCommandHandler {
+  /**
+   * Phase 8: convertHabitToTask
+   *
+   * Safely converts an existing Habit into a Task with guaranteed rollback using ConversionJournal.
+   */
+  static async convertHabitToTask(
+    habitId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Task> {
+    const { generateId } = await import("@/shared/utils/id");
+
+    const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
+    const journalLock = "pebble:v1:conversion_journal";
+    const taskLock = `pebble:v1:tasks:${targetWorkspaceId}`;
+    const habitLock = `pebble:v1:habits:${targetWorkspaceId}`;
+    const relLock = "pebble:v1:relationships";
+    const locks = [journalLock, habitLock, taskLock, relLock].sort(); // Deterministic ABBA prevention
+
+    let createdTask: Task | undefined;
+    let oldNotificationIds: string[] | undefined;
+
+    await withLocks(locks, async () => {
+      // 1. Fresh read inside the lock
+      const habitsMap = await HabitRepository.getHabits(targetWorkspaceId);
+      const habit = habitsMap[habitId];
+      if (!habit) {
+        throw new Error(`[ConversionCommandHandler] convertHabitToTask failed: Habit ${habitId} not found in workspace ${targetWorkspaceId}`);
+      }
+
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const isDead = await TombstoneRepository.isTombstoned("habit", habit.id, habit.lifecycleGeneration);
+      if (isDead) {
+        await HabitRepository.deleteHabitUnlocked(habitId, targetWorkspaceId);
+        throw new Error(`[ConversionCommandHandler] convertHabitToTask failed: Habit ${habitId} is permanently deleted.`);
+      }
+
+      // 2. Construct Task
+      const newTaskId = generateId("task-");
+      const newTask: Task = {
+        id: newTaskId,
+        workspaceId: habit.workspaceId || INBOX_WORKSPACE_ID,
+        title: habit.title,
+        description: habit.description,
+        status: "todo",
+        priority: "medium",
+        categoryId: habit.categoryId || "work",
+        schedule: { date: new Date().toISOString().split("T")[0] },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        lifecycleGeneration: 1,
+        revision: 1,
+        resourceIds: habit.resourceIds ? [...habit.resourceIds] : undefined,
+        reminder: habit.reminder
+          ? {
+              enabled: habit.reminder.enabled,
+              triggerAt: habit.reminder.triggerAt,
+              notificationIds: undefined,
+            }
+          : undefined,
+      };
+
+      if (habit.reminder?.notificationIds) {
+        oldNotificationIds = [...habit.reminder.notificationIds];
+      }
+
+      const operationId = `conv-${Date.now()}-${generateId("")}`;
+
+      // Crash-Safe Sequence:
+      // A. Write PREPARED to Journal
+      await ConversionJournalRepository.addOperationUnlocked({
+        operationId,
+        operationType: "habit_to_task",
+        sourceId: habitId,
+        sourceWorkspaceId: targetWorkspaceId,
+        targetId: newTaskId,
+        targetWorkspaceId: targetWorkspaceId,
+        phase: "PREPARED",
+        timestamp: Date.now(),
+        sourceRevision: habit.revision,
+        sourceGeneration: habit.lifecycleGeneration,
+        targetGeneration: newTask.lifecycleGeneration,
+        targetCreatedAt: newTask.createdAt,
+        targetFingerprint: generateEntityFingerprint(newTask),
+      });
+
+      // B. Create Destination (Task)
+      createdTask = await TaskRepository.saveTaskUnlocked(newTask);
+
+      // C. Update Journal to DESTINATION_WRITTEN
+      await ConversionJournalRepository.updateOperationUnlocked(operationId, { phase: "DESTINATION_WRITTEN" });
+
+      // D. Remove Source (Habit)
+      await HabitRepository.deleteHabitUnlocked(habitId, targetWorkspaceId);
+
+      // Transfer graph relationships from source Habit to target Task
+      await GraphRepository.ensureLoadedUnlocked();
+      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
+      for (const rel of relationships) {
+        let changed = false;
+        let s = rel.source;
+        let t = rel.target;
+        if (s.id === habitId && s.type === "habit") {
+          s = { id: newTaskId, type: "task", lifecycleGeneration: newTask.lifecycleGeneration };
+          changed = true;
+        }
+        if (t.id === habitId && t.type === "habit") {
+          t = { id: newTaskId, type: "task", lifecycleGeneration: newTask.lifecycleGeneration };
+          changed = true;
+        }
+        if (changed) {
+          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
+        }
+      }
+
+      // E. Clear Journal
+      await ConversionJournalRepository.removeOperationUnlocked(operationId);
+    });
+
+    if (!createdTask) {
+       throw new Error("Conversion transaction aborted");
+    }
+
+    if (oldNotificationIds && oldNotificationIds.length > 0) {
+      cancelReminderIds(oldNotificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[ConversionCommandHandler] Failed to cancel old reminders for ${habitId}`, e);
+      });
+    }
+
+    if (createdTask.reminder?.enabled) {
+       let newNotificationIds: string[] | undefined = undefined;
+       try {
+           newNotificationIds = await scheduleTaskNotifications(createdTask.id, createdTask as any);
+           if (newNotificationIds && newNotificationIds.length > 0) {
+               const updateResult = await TaskRepository.updateNotificationIds(
+                   createdTask.id, 
+                   createdTask.workspaceId, 
+                   newNotificationIds,
+                   {
+                       reminder: createdTask.reminder,
+                       status: createdTask.status,
+                       archivedAt: createdTask.archivedAt,
+                       updatedAt: createdTask.updatedAt,
+                       revision: createdTask.revision
+                   }
+               );
+               
+               if (updateResult === 'state_changed' || updateResult === 'not_found') {
+                   // A concurrent mutation occurred; cancel our stale native OS notifications.
+                   cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+                   if (createdTask.reminder) createdTask.reminder.notificationIds = undefined;
+               } else {
+                   if (createdTask.reminder) createdTask.reminder.notificationIds = newNotificationIds;
+               }
+           }
+       } catch (e) {
+           console.warn(`[ConversionCommandHandler] Failed to schedule new reminders for ${habitId}`, e);
+           if (newNotificationIds && newNotificationIds.length > 0) {
+             cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+           }
+           if (createdTask.reminder) createdTask.reminder.notificationIds = undefined;
+       }
+    }
+
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+      emitStateChange("habits_changed", options?.source);
+    }
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+    void syncWidgetData().catch(() => {});
+
+    return createdTask;
+  }
+
+  /**
+   * Batch 7F: convertTaskToHabit
+   */
+  static async convertTaskToHabit(
+    taskId: string,
+    workspaceId: string,
+    options?: CreateEntityOptions,
+  ): Promise<Habit> {
+    const { generateId } = await import("@/shared/utils/id");
+
+    const targetWorkspaceId = workspaceId || INBOX_WORKSPACE_ID;
+    const journalLock = "pebble:v1:conversion_journal";
+    const taskLock = `pebble:v1:tasks:${targetWorkspaceId}`;
+    const habitLock = `pebble:v1:habits:${targetWorkspaceId}`;
+    const relLock = "pebble:v1:relationships";
+    const locks = [journalLock, habitLock, taskLock, relLock].sort();
+
+    let createdHabit: Habit | undefined;
+    let oldNotificationIds: string[] | undefined;
+
+    await withLocks(locks, async () => {
+      const tasksMap = await TaskRepository.getTasks(targetWorkspaceId);
+      const task = tasksMap[taskId];
+      if (!task) {
+        throw new Error(`[ConversionCommandHandler] convertTaskToHabit failed: Task ${taskId} not found`);
+      }
+
+      const { TombstoneRepository } = await import("@/repositories/TombstoneRepository");
+      const isDead = await TombstoneRepository.isTombstoned("task", task.id, task.lifecycleGeneration);
+      if (isDead) {
+        await TaskRepository.deleteTaskUnlocked(taskId, targetWorkspaceId);
+        throw new Error(`[ConversionCommandHandler] convertTaskToHabit failed: Task ${taskId} is permanently deleted.`);
+      }
+
+      const habitId = generateId("habit-");
+      const habit: Habit = {
+        id: habitId,
+        workspaceId: task.workspaceId || INBOX_WORKSPACE_ID,
+        title: task.title,
+        description: task.description,
+        categoryId: task.categoryId || "work",
+        tags: task.tags,
+        recurrence: task.recurrence || { frequency: "daily", interval: 1 },
+        recurrenceExceptions: task.recurrenceExceptions,
+        completionHistory: [],
+        reminder: task.reminder
+          ? {
+              enabled: task.reminder.enabled,
+              triggerAt: task.reminder.triggerAt,
+              notificationIds: undefined,
+            }
+          : undefined,
+        resourceIds: task.resourceIds,
+        createdAt: task.createdAt,
+        updatedAt: Date.now(),
+        lifecycleGeneration: 1,
+        revision: 1,
+        archivedAt: task.archivedAt,
+      };
+
+      if (task.reminder?.notificationIds) {
+        oldNotificationIds = [...task.reminder.notificationIds];
+      }
+
+      const operationId = `conv-${Date.now()}-${generateId("")}`;
+
+      // Crash-Safe Sequence:
+      // A. Write PREPARED to Journal
+      await ConversionJournalRepository.addOperationUnlocked({
+        operationId,
+        operationType: "task_to_habit",
+        sourceId: taskId,
+        sourceWorkspaceId: targetWorkspaceId,
+        targetId: habitId,
+        targetWorkspaceId: targetWorkspaceId,
+        phase: "PREPARED",
+        timestamp: Date.now(),
+        sourceRevision: task.revision,
+        sourceGeneration: task.lifecycleGeneration,
+        targetGeneration: habit.lifecycleGeneration,
+        targetCreatedAt: habit.createdAt,
+        targetFingerprint: generateEntityFingerprint(habit),
+      });
+
+      // B. Create Destination (Habit)
+      createdHabit = await HabitRepository.saveHabitUnlocked(habit);
+
+      // C. Update Journal to DESTINATION_WRITTEN
+      await ConversionJournalRepository.updateOperationUnlocked(operationId, { phase: "DESTINATION_WRITTEN" });
+
+      // D. Remove Source (Task)
+      await TaskRepository.deleteTaskUnlocked(taskId, targetWorkspaceId);
+
+      // Transfer graph relationships from source Task to target Habit
+      await GraphRepository.ensureLoadedUnlocked();
+      const relationships = await GraphRepository.getAllRelationshipsUnlocked();
+      for (const rel of relationships) {
+        let changed = false;
+        let s = rel.source;
+        let t = rel.target;
+        if (s.id === taskId && s.type === "task") {
+          s = { id: habitId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
+          changed = true;
+        }
+        if (t.id === taskId && t.type === "task") {
+          t = { id: habitId, type: "habit", lifecycleGeneration: habit.lifecycleGeneration };
+          changed = true;
+        }
+        if (changed) {
+          await GraphRepository.saveRelationshipUnlocked({ ...rel, source: s, target: t });
+        }
+      }
+
+      // E. Clear Journal
+      await ConversionJournalRepository.removeOperationUnlocked(operationId);
+    });
+
+    if (!createdHabit) {
+       throw new Error("Conversion transaction aborted");
+    }
+
+    if (oldNotificationIds && oldNotificationIds.length > 0) {
+      cancelReminderIds(oldNotificationIds, { throwOnError: false }).catch(e => {
+        console.warn(`[ConversionCommandHandler] Failed to cancel old reminders for ${taskId}`, e);
+      });
+    }
+
+    if (createdHabit.reminder?.enabled) {
+       let newNotificationIds: string[] | undefined = undefined;
+       try {
+           newNotificationIds = await scheduleHabitNotifications(createdHabit.id, createdHabit as any);
+           if (newNotificationIds && newNotificationIds.length > 0) {
+               const updateResult = await HabitRepository.updateNotificationIds(
+                   createdHabit.id, 
+                   createdHabit.workspaceId, 
+                   newNotificationIds,
+                   {
+                       reminder: createdHabit.reminder,
+                       archivedAt: createdHabit.archivedAt,
+                       updatedAt: createdHabit.updatedAt,
+                       revision: createdHabit.revision
+                   }
+               );
+
+               if (updateResult === 'state_changed' || updateResult === 'not_found') {
+                   // A concurrent mutation occurred; cancel our stale native OS notifications.
+                   cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+                   if (createdHabit.reminder) createdHabit.reminder.notificationIds = undefined;
+               } else {
+                   if (createdHabit.reminder) createdHabit.reminder.notificationIds = newNotificationIds;
+               }
+           }
+       } catch (e) {
+           console.warn(`[ConversionCommandHandler] Failed to schedule new reminders for ${taskId}`, e);
+           if (newNotificationIds && newNotificationIds.length > 0) {
+             cancelReminderIds(newNotificationIds, { throwOnError: false }).catch(() => {});
+           }
+           if (createdHabit.reminder) createdHabit.reminder.notificationIds = undefined;
+       }
+    }
+
+    if (!options?.skipEvents) {
+      emitStateChange("tasks_changed", options?.source);
+      emitStateChange("habits_changed", options?.source);
+    }
+    if (!options?.skipAnalytics) {
+      void recordDailyHistorySnapshot().catch(() => {});
+    }
+    void syncWidgetData().catch(() => {});
+
+    return createdHabit;
+  }
+}

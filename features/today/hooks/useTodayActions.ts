@@ -1,6 +1,4 @@
-import { useCallback } from "react";
-import { Alert, Dimensions } from "react-native";
-import * as Haptics from "expo-haptics";
+import { getDateKey } from "@/features/tasks/utils/task-formatting";
 import {
   ChecklistRepository,
   HabitRepository,
@@ -8,16 +6,27 @@ import {
   WorkspaceRepository,
 } from "@/repositories";
 import { emitStateChange } from "@/services/events/state-events";
-import { getDateKey } from "@/features/tasks/utils/task-formatting";
-import {
-  handleTaskXpChange,
-  handleHabitXpChange,
-} from "@/features/settings/services/settings.service";
 import { cancelReminderIds } from "@/services/scheduling/reminders.service";
 import { appendGratitudeHistoryEntry } from "@/services/storage/storage.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
+import { Task, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
+import { generateId } from "@/shared/utils/id";
+import { dateKeyFromDate } from "@/shared/utils/date-key";
+import * as Haptics from "expo-haptics";
+import { useNavigation } from "expo-router";
+import { useCallback } from "react";
+import { Alert, Dimensions } from "react-native";
 import { type Checklist } from "@/shared/types/domain.types";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+function getLastCompletionDate(
+  history: { date: string }[],
+): string | undefined {
+  if (!history || history.length === 0) return undefined;
+  const dates = history.map((e) => e.date).sort();
+  return dates[dates.length - 1];
+}
 
 export interface UseTodayActionsOptions {
   loadDashboardData: () => Promise<void>;
@@ -28,7 +37,12 @@ export interface UseTodayActionsOptions {
   }) => void;
   setFlyingPebbles: React.Dispatch<
     React.SetStateAction<
-      Array<{ id: string; startX: number; startY: number; type: "task" | "habit" }>
+      Array<{
+        id: string;
+        startX: number;
+        startY: number;
+        type: "task" | "habit";
+      }>
     >
   >;
   setAllChecklists: React.Dispatch<
@@ -39,6 +53,8 @@ export interface UseTodayActionsOptions {
   intentionText: string;
   setIntentionText: (text: string) => void;
   setIsReviewModalVisible: (visible: boolean) => void;
+  allTodos?: Task[];
+  allHabits?: any[];
 }
 
 export function useTodayActions({
@@ -51,6 +67,8 @@ export function useTodayActions({
   intentionText,
   setIntentionText,
   setIsReviewModalVisible,
+  allTodos = [],
+  allHabits = [],
 }: UseTodayActionsOptions) {
   const handleRecoverMainStreak = useCallback(async () => {
     try {
@@ -78,19 +96,35 @@ export function useTodayActions({
     }
   }, [loadDashboardData]);
 
+  /**
+   * Canonical checklist item toggle used by Today surfaces.
+   *
+   * `dateKey` is forwarded to the canonical command so recurring checklists are
+   * completed against the correct occurrence record (occurrenceHistory[dateKey])
+   * — the same state `getNowFocus` reads back for progress and the next item.
+   * Omitted for non-recurring checklists, preserving existing behavior.
+   */
   const toggleChecklistItemFromDashboard = useCallback(
-    async (checklistId: string, itemId: string, folderId: string) => {
+    async (
+      checklistId: string,
+      itemId: string,
+      folderId: string,
+      dateKey?: string,
+    ) => {
       try {
-        const checklistsMap = await ChecklistRepository.getChecklists(folderId);
-        const checklist = checklistsMap[checklistId];
-        if (checklist) {
-          const updatedChecklist = {
-            ...checklist,
-            items: (checklist.items || []).map((i) =>
-              i.id === itemId ? { ...i, completed: !i.completed } : i,
-            ),
-          };
-          await ChecklistRepository.saveChecklist(updatedChecklist as any);
+        const result = await EntityCommandService.toggleChecklistItem(
+          checklistId,
+          itemId,
+          folderId,
+          dateKey,
+          {
+            skipEvents: true,
+            skipAnalytics: true,
+          },
+        );
+
+        if (result) {
+          const updatedChecklist = result.updated;
 
           setAllChecklists((prev) => {
             const next = { ...prev };
@@ -105,7 +139,7 @@ export function useTodayActions({
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
             () => {},
           );
-          emitStateChange("checklists_changed");
+          emitStateChange("checklists_changed", "today_dashboard");
         }
       } catch (e) {
         console.warn("Failed to toggle checklist item from dashboard", e);
@@ -115,94 +149,71 @@ export function useTodayActions({
   );
 
   const completeTodoFromDashboard = useCallback(
-    async (todoId: string, event?: any) => {
+    async (todoId: string, event?: any, workspaceId?: string) => {
       try {
-        let prevTodo: any = null;
-        let targetFolderId = "default";
-        const folderList = await WorkspaceRepository.getWorkspaces();
-        const folderIds = Array.from(
-          new Set([
-            "default",
-            "unassigned",
-            ...folderList.map((f: any) => f.id),
-          ]),
-        );
+        let prevTodo: any = allTodos.find((t) => t.id === todoId) || null;
+        let wsIdFound: string =
+          workspaceId ||
+          prevTodo?.workspaceId ||
+          prevTodo?.folderId ||
+          INBOX_WORKSPACE_ID;
 
-        for (const fId of folderIds) {
-          const tasksMap = await TaskRepository.getTasks(fId);
-          if (tasksMap[todoId]) {
-            prevTodo = tasksMap[todoId];
-            targetFolderId = fId;
-            break;
+        if (!prevTodo) {
+          const directTask = await TaskRepository.getTask(todoId, wsIdFound);
+          if (directTask) {
+            prevTodo = directTask;
+            wsIdFound = directTask.workspaceId || wsIdFound;
           }
         }
 
-        if (!prevTodo) return;
+        const isCompleting = prevTodo ? prevTodo.status !== "completed" : true;
 
-        const { xpAwarded } = await handleTaskXpChange(prevTodo, true);
-
-        const reminderIdsToClear = [
-          ...(prevTodo.notificationIds || []),
-          ...(prevTodo.alarmId ? [prevTodo.alarmId] : []),
-        ];
-        await cancelReminderIds(reminderIdsToClear);
-        Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success,
-        ).catch(() => {});
-
-        await TaskRepository.saveTask({
-          ...prevTodo,
-          completed: true,
-          completedAt: Date.now(),
-          xpAwarded,
-        });
-
-        // Earn task pebble
-        const {
-          earnPebble,
-        } = require("@/features/profile/services/pebble.service");
-        await earnPebble("task");
-
-        // Spawn flying pebble animation
-        let clickX = SCREEN_WIDTH / 2;
-        let clickY = SCREEN_HEIGHT * 0.8;
-        if (event && event.nativeEvent) {
-          clickX =
-            event.nativeEvent.pageX || event.nativeEvent.locationX || clickX;
-          clickY =
-            event.nativeEvent.pageY || event.nativeEvent.locationY || clickY;
+        let result;
+        if (isCompleting) {
+          result = await EntityCommandService.completeTask(todoId, wsIdFound, { source: "today_dashboard" });
+        } else {
+          result = await EntityCommandService.uncompleteTask(todoId, wsIdFound, { source: "today_dashboard" });
         }
-        const pebbleId = Math.random().toString(36).substring(7);
-        setFlyingPebbles((prev) => [
-          ...prev,
-          { id: pebbleId, startX: clickX, startY: clickY, type: "task" },
-        ]);
+
+        if (!result) return;
+
+        if (isCompleting) {
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success,
+          ).catch(() => {});
+
+          // Spawn flying pebble animation
+          let clickX = SCREEN_WIDTH / 2;
+          let clickY = SCREEN_HEIGHT * 0.8;
+          if (event && event.nativeEvent) {
+            clickX =
+              event.nativeEvent.pageX || event.nativeEvent.locationX || clickX;
+            clickY =
+              event.nativeEvent.pageY || event.nativeEvent.locationY || clickY;
+          }
+          const pebbleId = Math.random().toString(36).substring(7);
+          setFlyingPebbles((prev) => [
+            ...prev,
+            { id: pebbleId, startX: clickX, startY: clickY, type: "task" },
+          ]);
+        }
 
         await loadDashboardData();
-        emitStateChange("tasks_changed");
+        emitStateChange("tasks_changed", "today_dashboard");
+        emitStateChange("pebbles_changed", "today_dashboard");
 
         // show undo snackbar — restore previous todo state when undone
         try {
-          if (showUndo) {
+          if (showUndo && isCompleting) {
             showUndo({
               message: "Pebble marked completed.",
               actionLabel: "Undo",
               onUndo: async () => {
                 try {
-                  if (!prevTodo) return;
-                  await handleTaskXpChange(prevTodo, false);
-                  const {
-                    undoLastPebble,
-                  } = require("@/features/profile/services/pebble.service");
-                  await undoLastPebble("task");
-
-                  await TaskRepository.saveTask({
-                    ...prevTodo,
-                    completed: false,
-                    completedAt: undefined,
-                  });
+                  await EntityCommandService.uncompleteTask(todoId, wsIdFound, { source: "today_dashboard" });
                   await loadDashboardData();
-                  emitStateChange("tasks_changed");
+                  emitStateChange("tasks_changed", "today_dashboard");
+                  emitStateChange("pebbles_changed", "today_dashboard");
                 } catch {
                   // ignore
                 }
@@ -216,101 +227,38 @@ export function useTodayActions({
         // ignore
       }
     },
-    [loadDashboardData, showUndo, setFlyingPebbles],
+    [allTodos, loadDashboardData, showUndo, setFlyingPebbles],
   );
 
   const completeHabitFromDashboard = useCallback(
-    async (habitId: string, event?: any) => {
+    async (habitId: string, event?: any, workspaceId?: string) => {
       try {
-        let prevHabit: any = null;
-        let targetFolderId = "default";
-        const folderList = await WorkspaceRepository.getWorkspaces();
-        const folderIds = Array.from(
-          new Set([
-            "default",
-            "unassigned",
-            ...folderList.map((f: any) => f.id),
-          ]),
-        );
-
-        for (const fId of folderIds) {
-          const habitsMap = await HabitRepository.getHabits(fId);
-          if (habitsMap[habitId]) {
-            prevHabit = habitsMap[habitId];
-            targetFolderId = fId;
-            break;
-          }
-        }
-
-        if (!prevHabit) return;
+        const prevHabit: any = allHabits.find((h) => h.id === habitId) || null;
+        const wsIdFound: string =
+          workspaceId ||
+          prevHabit?.workspaceId ||
+          prevHabit?.folderId ||
+          INBOX_WORKSPACE_ID;
 
         const today = getDateKey();
-        const yesterday = getDateKey(
-          new Date(Date.now() - 24 * 60 * 60 * 1000),
-        );
+        const completedToday =
+          prevHabit?.completionHistory?.some((e: any) => e.date === today) ||
+          false;
+        const isCompleting = !completedToday;
 
-        const habitForXp = {
-          ...prevHabit,
-          completedToday: prevHabit.completedDates?.includes(today) || false,
-        };
-        const nextCompleted = !habitForXp.completedToday;
-        const { xpAwardedDate } = await handleHabitXpChange(
-          habitForXp,
-          nextCompleted,
-          today,
-        );
-
-        let streak = prevHabit.streak || 0;
-        let completedDates = [...(prevHabit.completedDates || [])];
-        if (nextCompleted) {
-          if (!completedDates.includes(today)) {
-            completedDates.push(today);
-          }
-          let nextStreak = 1;
-          if (prevHabit.lastCompletedDate === today) {
-            nextStreak = prevHabit.streak || 1;
-          } else if (prevHabit.lastCompletedDate === yesterday) {
-            nextStreak = (prevHabit.streak || 0) + 1;
-          }
-          streak = nextStreak;
+        let result;
+        if (isCompleting) {
+          result = await EntityCommandService.completeHabit(habitId, wsIdFound, { source: "today_dashboard" });
         } else {
-          completedDates = completedDates.filter((d: string) => d !== today);
-          streak = Math.max(0, streak - 1);
+          result = await EntityCommandService.uncompleteHabit(habitId, wsIdFound, { source: "today_dashboard" });
         }
 
-        const updatedHabit = {
-          ...prevHabit,
-          completedDates,
-          streak,
-          bestStreak: Math.max(prevHabit.bestStreak || 0, streak),
-          lastCompletedDate: nextCompleted
-            ? today
-            : streak > 0
-              ? yesterday
-              : undefined,
-          xpAwardedDate,
-        };
+        if (!result) return;
 
-        await HabitRepository.saveHabit(updatedHabit);
-
-        if (nextCompleted) {
+        if (isCompleting) {
           Haptics.notificationAsync(
             Haptics.NotificationFeedbackType.Success,
           ).catch(() => {});
-        }
-
-        // Record history snapshot
-        const {
-          recordDailyHistorySnapshot,
-        } = require("@/services/analytics/productivity-history.service");
-        void recordDailyHistorySnapshot();
-
-        const {
-          earnPebble,
-          undoLastPebble,
-        } = require("@/features/profile/services/pebble.service");
-        if (nextCompleted) {
-          await earnPebble("habit");
 
           // Spawn flying pebble animation
           let clickX = SCREEN_WIDTH / 2;
@@ -326,17 +274,16 @@ export function useTodayActions({
             ...prev,
             { id: pebbleId, startX: clickX, startY: clickY, type: "habit" },
           ]);
-        } else {
-          await undoLastPebble("habit");
         }
 
         await loadDashboardData();
-        emitStateChange("habits_changed");
+        emitStateChange("habits_changed", "today_dashboard");
+        emitStateChange("pebbles_changed", "today_dashboard");
       } catch (e) {
         console.warn("Failed to complete habit on dashboard", e);
       }
     },
-    [loadDashboardData, setFlyingPebbles],
+    [allHabits, loadDashboardData, setFlyingPebbles],
   );
 
   const handleSaveReview = useCallback(async () => {
@@ -363,20 +310,25 @@ export function useTodayActions({
       if (intentionText.trim()) {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+        const tomorrowStr = dateKeyFromDate(tomorrow);
 
-        const newTodo = {
-          id: String(Date.now()),
+        const newTask: Task = {
+          id: generateId("task-"),
           title: intentionText.trim(),
-          completed: false,
-          priority: "high", // high priority!
-          workspaceId: "default",
-          folderId: "default",
-          scheduledDate: tomorrowStr,
-          created: Date.now(),
+          status: "todo",
+          priority: "high",
+          workspaceId: INBOX_WORKSPACE_ID,
+          schedule: { date: tomorrowStr },
+          revision: 1,
+          lifecycleGeneration: 1,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
         };
 
-        await TaskRepository.saveTask(newTodo);
+        await EntityCommandService.createTask(newTask, INBOX_WORKSPACE_ID, {
+          skipEvents: true,
+          skipAnalytics: true,
+        });
       }
 
       // Reset fields and close
@@ -386,7 +338,7 @@ export function useTodayActions({
 
       // Refresh listings
       await loadDashboardData();
-      emitStateChange("tasks_changed");
+      emitStateChange("tasks_changed", "today_dashboard");
 
       Alert.alert(
         "Review Saved! 🌟",
@@ -395,7 +347,14 @@ export function useTodayActions({
     } catch (e) {
       console.warn("Failed to save review", e);
     }
-  }, [gratitudeText, intentionText, loadDashboardData, setGratitudeText, setIntentionText, setIsReviewModalVisible]);
+  }, [
+    gratitudeText,
+    intentionText,
+    loadDashboardData,
+    setGratitudeText,
+    setIntentionText,
+    setIsReviewModalVisible,
+  ]);
 
   return {
     completeTodoFromDashboard,

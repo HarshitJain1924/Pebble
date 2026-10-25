@@ -5,12 +5,14 @@ import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { SwipeableCard } from "@/shared/components/ui/SwipeableCard";
 import { HabitStreakCard } from "@/features/habits/components/HabitStreakCard";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
-import { EmptyState } from "@/shared/components/ui/EmptyState";
+import { WorkspaceEmptyState } from "@/features/workspaces/components/WorkspaceEmptyState";
 import * as Haptics from "expo-haptics";
 import { type Habit } from "@/shared/types/domain.types";
 import { isRecurringOccurrenceForDate, getDateKey } from "@/services/scheduling/recurrence.service";
+import { isHabitCompletedToday, getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
+import { DateScopedSectionHeader } from "@/features/workspaces/components/DateScopedSectionHeader";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -29,6 +31,11 @@ interface HabitSectionProps {
   allResources?: any[];
   onToggleLinkResource?: (itemId: string, itemType: "habit", resourceId: string) => void;
   onCreateHabit?: () => void;
+  searchQuery?: string;
+  onClearSearch?: () => void;
+  selectedDate?: string;
+  onSelectDate?: (dateKey: string) => void;
+  onOpenDatePicker?: () => void;
 }
 
 export function HabitSection({
@@ -41,6 +48,11 @@ export function HabitSection({
   allResources = [],
   onToggleLinkResource,
   onCreateHabit,
+  searchQuery,
+  onClearSearch,
+  selectedDate,
+  onSelectDate,
+  onOpenDatePicker,
 }: HabitSectionProps) {
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -48,16 +60,13 @@ export function HabitSection({
   const isLight = colorScheme === "light";
 
   // Habit context states
-  const [expandedHabitId, setExpandedHabitId] = useState<string | null>(null);
   const [activeHabitId, setActiveHabitId] = useState<string | null>(null);
   const [showLinkSelector, setShowLinkSelector] = useState(false);
-  const [peekingResourceIds, setPeekingResourceIds] = useState<string[] | null>(null);
-  const [showAllResourcesMap, setShowAllResourcesMap] = useState<Record<string, boolean>>({});
 
   // Section expanded states
   const [todayExpanded, setTodayExpanded] = useState(true);
   const [completedExpanded, setCompletedExpanded] = useState(false);
-  const [pausedExpanded, setPausedExpanded] = useState(false);
+  const [otherDaysExpanded, setOtherDaysExpanded] = useState(false);
 
   const handleOpenUrl = async (url?: string) => {
     if (!url) return;
@@ -67,68 +76,37 @@ export function HabitSection({
     } catch {}
   };
 
-  const peekingResources = useMemo(() => {
-    if (!peekingResourceIds) return [];
-    return peekingResourceIds
-      .map((id) => allResources.find((r) => r.id === id))
-      .filter(Boolean);
-  }, [peekingResourceIds, allResources]);
-
-  const todayKey = getDateKey();
-  const dayOfWeek = new Date().getDay();
+  const selectedDateKey = selectedDate || getDateKey();
 
   // Group habits
   const todayList = useMemo(() => {
     return displayedHabits.filter((h) => {
       const isDueToday = h.recurrence
-        ? isRecurringOccurrenceForDate(h, todayKey)
-        : (!h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek));
-      return isDueToday && !h.completedToday;
+        ? isRecurringOccurrenceForDate(h, selectedDateKey)
+        : true;
+      return isDueToday && !isHabitCompletedToday(h, selectedDateKey);
     });
-  }, [displayedHabits, todayKey, dayOfWeek]);
+  }, [displayedHabits, selectedDateKey]);
 
   const completedList = useMemo(() => {
-    return displayedHabits.filter((h) => h.completedToday);
-  }, [displayedHabits]);
+    return displayedHabits.filter((h) => isHabitCompletedToday(h, selectedDateKey));
+  }, [displayedHabits, selectedDateKey]);
 
-  const pausedList = useMemo(() => {
+  const otherDaysList = useMemo(() => {
     return displayedHabits.filter((h) => {
       const isDueToday = h.recurrence
-        ? isRecurringOccurrenceForDate(h, todayKey)
-        : (!h.reminderDays || h.reminderDays.length === 0 || h.reminderDays.includes(dayOfWeek));
-      return !isDueToday && !h.completedToday;
+        ? isRecurringOccurrenceForDate(h, selectedDateKey)
+        : true;
+      return !isDueToday && !isHabitCompletedToday(h, selectedDateKey);
     });
-  }, [displayedHabits, todayKey, dayOfWeek]);
-
-  // Reset showAllResources state when drawer is collapsed
-  React.useEffect(() => {
-    if (expandedHabitId === null) {
-      setShowAllResourcesMap({});
-    }
-  }, [expandedHabitId]);
+  }, [displayedHabits, selectedDateKey]);
 
   const renderHabitItem = (item: Habit) => {
-    const linkedIds = item.linkedCollectionIds || [];
+    const linkedIds = item.resourceIds || [];
     const linkedCount = linkedIds.length;
-    const isExpanded = expandedHabitId === item.id;
     const linkedResources = linkedIds
-      .map((id) => allResources.find((r) => r.id === id))
+      .map((id: string) => allResources.find((r) => r.id === id))
       .filter(Boolean);
-
-    const showAllResources = !!showAllResourcesMap[item.id];
-    const setShowAllResources = (val: boolean) => {
-      setShowAllResourcesMap(prev => ({ ...prev, [item.id]: val }));
-    };
-
-    const hasHiddenResources = linkedResources.length > 3;
-    const displayedResources = hasHiddenResources && !showAllResources
-      ? linkedResources.slice(0, 2)
-      : linkedResources;
-
-    // Automatically collapse when no resources are left
-    if (linkedCount === 0 && isExpanded) {
-      setExpandedHabitId(null);
-    }
 
     return (
       <View key={item.id} style={styles.habitWrap}>
@@ -141,6 +119,10 @@ export function HabitSection({
             {isSelectionMode && (
               <Pressable
                 onPress={() => onToggleSelectItem?.(item.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: selectedItemIds.has(item.id) }}
+                accessibilityLabel={`Select habit ${item.title}`}
+                hitSlop={8}
                 style={{ paddingLeft: 6, paddingRight: 4 }}
               >
                 <Feather
@@ -153,33 +135,18 @@ export function HabitSection({
             <View style={{ flex: 1 }}>
               <HabitStreakCard
                 title={item.title}
-                streak={item.streak}
-                bestStreak={item.bestStreak}
-                completedToday={item.completedToday}
-                priority={item.priority}
+                streak={getHabitCurrentStreak(item, selectedDateKey)}
+                completedToday={isHabitCompletedToday(item, selectedDateKey)}
+                priority={item.priority ?? "medium"}
+                onDeleteHabit={() => deleteHabit(item.id)}
+                isSelectionMode={isSelectionMode}
                 onPressToggle={isSelectionMode ? () => onToggleSelectItem?.(item.id) : () => toggleHabit(item.id)}
                 onCardPress={isSelectionMode ? () => onToggleSelectItem?.(item.id) : () =>
                   router.push(`/task-details?id=${item.id}&type=habit`)
                 }
                 linkedCount={linkedCount}
-                isExpanded={isExpanded}
-                onPressResources={() => {
-                  if (linkedCount === 0) {
-                    setActiveHabitId(item.id);
-                    setShowLinkSelector(true);
-                  } else {
-                    setExpandedHabitId(expandedHabitId === item.id ? null : item.id);
-                  }
-                }}
-                onLongPressResources={() => {
-                  if (linkedCount > 0) {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                    setPeekingResourceIds(linkedIds);
-                  }
-                }}
                 habit={item}
                 linkedResources={linkedResources}
-                displayedResources={displayedResources}
                 onPressAddResource={() => {
                   setActiveHabitId(item.id);
                   setShowLinkSelector(true);
@@ -193,9 +160,6 @@ export function HabitSection({
                     Alert.alert(res.title, "Image attachment");
                   }
                 }}
-                showAllResources={showAllResources}
-                setShowAllResources={setShowAllResources}
-                hasHiddenResources={hasHiddenResources}
               />
             </View>
           </View>
@@ -204,51 +168,62 @@ export function HabitSection({
     );
   };
 
-  const hasAnyHabits = todayList.length > 0 || completedList.length > 0;
+  const hasAnyHabits =
+    todayList.length > 0 ||
+    completedList.length > 0 ||
+    otherDaysList.length > 0;
 
   return (
     <View style={styles.listContent}>
       {hasAnyHabits ? (
         <View style={{ gap: 14 }}>
-          {/* Today Section */}
-          {todayList.length > 0 && (
-            <View style={styles.sectionContainer}>
-              <Pressable
-                onPress={() => setTodayExpanded(!todayExpanded)}
-                style={styles.sectionHeaderPressable}
-              >
-                <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
-                  {`TODAY (${todayList.length})`}
-                </Text>
-                <Feather
-                  name={todayExpanded ? "chevron-up" : "chevron-down"}
-                  size={14}
-                  color={colors.textMuted}
-                />
-              </Pressable>
-              {todayExpanded && (
+          {/* Today / Selected Date Section */}
+          <View style={styles.sectionContainer}>
+            <DateScopedSectionHeader
+              dateKey={selectedDateKey}
+              onSelectDate={onSelectDate || (() => {})}
+              onOpenDatePicker={onOpenDatePicker}
+              colors={colors}
+              isDark={!isLight}
+              itemCount={todayList.length}
+              isExpanded={todayExpanded}
+              onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+            />
+            {todayExpanded && (
+              todayList.length === 0 ? (
+                <View style={{ paddingVertical: 14, alignItems: "center" }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    No habits due for this day
+                  </Text>
+                </View>
+              ) : (
                 <View style={styles.sectionHabitsList}>
                   {todayList.map(renderHabitItem)}
                 </View>
-              )}
-            </View>
-          )}
+              )
+            )}
+          </View>
 
           {/* Completed Today Section */}
           {completedList.length > 0 && (
             <View style={styles.sectionContainer}>
               <Pressable
                 onPress={() => setCompletedExpanded(!completedExpanded)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: completedExpanded }}
+                accessibilityLabel={`Completed habits, ${completedList.length} items. Tap to ${completedExpanded ? "collapse" : "expand"}`}
                 style={styles.sectionHeaderPressable}
               >
                 <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
                   {`COMPLETED (${completedList.length})`}
                 </Text>
-                <Feather
-                  name={completedExpanded ? "chevron-up" : "chevron-down"}
-                  size={14}
-                  color={colors.textMuted}
-                />
+                {completedList.length > 5 && (
+                  <Feather
+                    name={completedExpanded ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                )}
               </Pressable>
               {completedExpanded && (
                 <View style={styles.sectionHabitsList}>
@@ -257,34 +232,57 @@ export function HabitSection({
               )}
             </View>
           )}
+
+          {/* Other Days Section */}
+          {otherDaysList.length > 0 && (
+            <View style={styles.sectionContainer}>
+              <Pressable
+                onPress={() => setOtherDaysExpanded(!otherDaysExpanded)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: otherDaysExpanded }}
+                accessibilityLabel={`Habits for other days, ${otherDaysList.length} items. Tap to ${otherDaysExpanded ? "collapse" : "expand"}`}
+                style={styles.sectionHeaderPressable}
+              >
+                <Text style={[styles.sectionHeaderText, { color: colors.textMuted }]}>
+                  {`OTHER DAYS (${otherDaysList.length})`}
+                </Text>
+                {otherDaysList.length > 5 && (
+                  <Feather
+                    name={otherDaysExpanded ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                )}
+              </Pressable>
+              {otherDaysExpanded && (
+                <View style={styles.sectionHabitsList}>
+                  {otherDaysList.map(renderHabitItem)}
+                </View>
+              )}
+            </View>
+          )}
         </View>
       ) : (
-        <View style={{ alignItems: "center", gap: 12, marginTop: 10 }}>
-          <EmptyState
-            graphic={<Feather name="activity" size={24} color={colors.textMuted} />}
-            title="No habits yet."
-            description="Small routines become lasting habits."
-            style={{ width: "100%", padding: 32, gap: 8 }}
+        <View style={{ gap: 14 }}>
+          <View style={styles.sectionContainer}>
+            <DateScopedSectionHeader
+              dateKey={selectedDateKey}
+              onSelectDate={onSelectDate || (() => {})}
+              onOpenDatePicker={onOpenDatePicker}
+              colors={colors}
+              isDark={!isLight}
+              itemCount={0}
+              isExpanded={todayExpanded}
+              onToggleExpand={() => setTodayExpanded(!todayExpanded)}
+            />
+          </View>
+          <WorkspaceEmptyState
+            context="habits"
+            searchQuery={searchQuery}
+            onClearSearch={onClearSearch}
+            onCreateItem={onCreateHabit}
+            style={{ marginVertical: 16 }}
           />
-          <TouchableOpacity
-            onPress={onCreateHabit}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.primary,
-              paddingHorizontal: 16,
-              height: 40,
-              borderRadius: 20,
-              gap: 6,
-              marginTop: 4,
-            }}
-          >
-            <Feather name="plus" size={16} color="#FFFFFF" />
-            <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 13 }}>
-              Create Habit
-            </Text>
-          </TouchableOpacity>
         </View>
       )}
 
@@ -331,11 +329,14 @@ export function HabitSection({
               <ScrollView contentContainerStyle={{ gap: 8 }} showsVerticalScrollIndicator={false}>
                 {allResources.map((res) => {
                   const currentHabit = displayedHabits.find(h => h.id === activeHabitId);
-                  const isLinked = !!currentHabit?.linkedCollectionIds?.includes(res.id);
+                  const isLinked = !!currentHabit?.resourceIds?.includes(res.id);
                   return (
                     <TouchableOpacity
                       key={res.id}
                       onPress={() => activeHabitId && onToggleLinkResource?.(activeHabitId, "habit", res.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: isLinked }}
+                      accessibilityLabel={`${isLinked ? "Unlink" : "Link"} resource ${res.title}`}
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
@@ -344,7 +345,7 @@ export function HabitSection({
                         borderRadius: 12,
                         borderWidth: 1,
                         borderColor: isLinked ? colors.primary : colors.border,
-                        backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? "#F8FAFC" : "#1E1E24"),
+                        backgroundColor: isLinked ? `${colors.primary}08` : (isLight ? Palette.slate50 : Palette.ink850),
                       }}
                     >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
@@ -370,6 +371,8 @@ export function HabitSection({
 
             <TouchableOpacity
               onPress={() => setShowLinkSelector(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Done linking resources"
               style={{
                 backgroundColor: colors.primary,
                 paddingVertical: 10,
@@ -378,86 +381,10 @@ export function HabitSection({
                 marginTop: 6,
               }}
             >
-              <Text style={{ color: "#FFFFFF", fontWeight: "700", fontSize: 13 }}>Done</Text>
+              <Text style={{ color: Palette.white, fontWeight: "700", fontSize: 13 }}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-
-      {/* iOS-style Long Press Peek Modal for Habits */}
-      <Modal
-        visible={peekingResourceIds !== null}
-        transparent
-        animationType="none"
-        onRequestClose={() => setPeekingResourceIds(null)}
-      >
-        <Pressable
-          onPress={() => setPeekingResourceIds(null)}
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.6)",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <View
-            style={{
-              width: SCREEN_WIDTH * 0.8,
-              backgroundColor: colors.card,
-              borderRadius: 20,
-              borderColor: colors.border,
-              borderWidth: 1.5,
-              padding: 16,
-              gap: 12,
-              elevation: 10,
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.25,
-              shadowRadius: 15,
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: "800", color: colors.primary, textTransform: "uppercase" }}>
-              Glance Resources
-            </Text>
-            <View style={{ gap: 10 }}>
-              {peekingResources.map((res: any) => (
-                <View
-                  key={res.id}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: isLight ? "#E2E8F0" : "#27272A", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                    {res.type === "image" ? (
-                      <Image
-                        source={{ uri: res.mediaUri || "https://images.unsplash.com/photo-1544005313-94ddf0286df2" }}
-                        style={{ width: "100%", height: "100%" }}
-                      />
-                    ) : (
-                      <Feather
-                        name={res.type === "link" ? "link-2" : "file-text"}
-                        size={12}
-                        color={colors.textMuted}
-                      />
-                    )}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text }} numberOfLines={1}>
-                      {res.title}
-                    </Text>
-                    {res.type === "link" && (
-                      <Text style={{ fontSize: 9, color: colors.textMuted }} numberOfLines={1}>
-                        {res.url}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        </Pressable>
       </Modal>
     </View>
   );

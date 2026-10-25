@@ -1,7 +1,7 @@
 import React from "react";
-import { Platform, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { ScreenSwipeWrapper } from "@/shared/components/layout/ScreenSwipeWrapper";
@@ -13,32 +13,76 @@ import { FocusHeader } from "@/features/focus/components/FocusHeader";
 import { ModeSelector } from "@/features/focus/components/ModeSelector";
 import { TimerCockpit } from "@/features/focus/components/TimerCockpit";
 import { FocusTargetCard } from "@/features/focus/components/FocusTargetCard";
-import { FocusStatsCard } from "@/features/focus/components/FocusStatsCard";
+import { AmbientSoundBar } from "@/features/focus/components/AmbientSoundBar";
 import { TaskPickerModal } from "@/features/focus/components/TaskPickerModal";
 import { MusicPlayerModal } from "@/features/focus/components/MusicPlayerModal";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
 
 export default function FocusScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const insets = useSafeAreaInsets();
+  const { height: windowHeight = 800 } = useWindowDimensions() ?? {};
+  const isCompact = windowHeight > 0 && windowHeight < 700;
 
   const state = useFocusState();
 
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60)
-      .toString()
-      .padStart(2, "0");
-    const s = (secs % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
-  };
+  const targetTitle = state.focusedTaskId
+    ? state.todoList.find((t) => t.id === state.focusedTaskId)?.title ||
+      state.habitList.find((h) => h.id === state.focusedTaskId)?.title
+    : undefined;
+
+  // Atmospheric background layer state resolution for the Focus session workspace
+  const isPomodoroWorkActive = state.pomodoroMode === "work" && state.isActive;
+  const isBreakActive = state.pomodoroMode === "break" && state.isActive;
+  const isBreak = state.pomodoroMode === "break";
+
+  let atmosphereColor = colors.primary;
+  let atmosphereOpacity = 0.07;
+  let atmospherePulseSpeed = 9000;
+
+  if (isPomodoroWorkActive) {
+    atmosphereColor = colors.primary;
+    atmosphereOpacity = 0.16;
+    atmospherePulseSpeed = 7000;
+  } else if (isBreak) {
+    atmosphereColor = colors.success;
+    atmosphereOpacity = isBreakActive ? 0.13 : 0.06;
+    atmospherePulseSpeed = isBreakActive ? 7000 : 9000;
+  }
+
+  const atmosphereSize = isCompact ? 360 : 420;
 
   return (
     <ScreenSwipeWrapper prevRoute="/" nextRoute="/tasks" hideMesh={!state.glowEnabled}>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: "transparent" }]}>
+      <SafeAreaView edges={["top", "left", "right"]} style={[styles.safeArea, { backgroundColor: "transparent" }]}>
         <Animated.View entering={FadeInDown.duration(450).springify()} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Atmospheric background treatment centered behind Focus workspace */}
+          {state.glowEnabled && (
+            <View style={styles.atmosphereWrapper} pointerEvents="none">
+              <FloatingGlow
+                id="focus_workspace_atmosphere"
+                color={atmosphereColor}
+                size={atmosphereSize}
+                opacity={atmosphereOpacity}
+                pulseSpeed={atmospherePulseSpeed}
+                pulseRange={0.12}
+                style={[
+                  styles.atmosphereGlow,
+                  {
+                    top: isCompact ? 75 : 95,
+                  },
+                ]}
+              />
+            </View>
+          )}
+
+          <ScrollView
+            contentContainerStyle={[styles.scrollContent, isCompact && styles.scrollContentCompact]}
+            showsVerticalScrollIndicator={false}
+          >
             {/* Header */}
             <FocusHeader
               colors={colors}
@@ -47,13 +91,35 @@ export default function FocusScreen() {
               glowEnabled={state.glowEnabled}
               onMusicPress={() => state.setShowMusicPlayer(true)}
               onGlowToggle={state.toggleGlow}
+              isBreak={isBreak}
             />
 
             {/* Mode Selector */}
-            <ModeSelector mode={state.mode} setMode={state.setMode} colors={colors} />
+            <ModeSelector
+              mode={state.mode}
+              setMode={state.setMode}
+              pomodoroMode={state.pomodoroMode}
+              setPomodoroMode={state.setPomodoroMode}
+              onSelectFocus={state.transitionToWork}
+              onSelectBreak={state.transitionToBreak}
+              colors={colors}
+            />
 
-            {/* Timer Cockpit */}
+            {/* Unified Focus Session Workspace */}
             <TimerCockpit
+              targetSlot={
+                state.mode === "pomodoro" && state.pomodoroMode === "work" ? (
+                  <FocusTargetCard
+                    focusedTaskId={state.focusedTaskId}
+                    todoList={state.todoList}
+                    habitList={state.habitList}
+                    onLinkPress={() => state.setShowTaskPicker(true)}
+                    onUnlinkPress={() => state.setFocusedTaskId(null)}
+                    colors={colors}
+                  />
+                ) : undefined
+              }
+              targetTitle={targetTitle}
               mode={state.mode}
               pomodoroMode={state.pomodoroMode}
               isActive={state.isActive}
@@ -61,8 +127,6 @@ export default function FocusScreen() {
               colors={colors}
               sessionTime={state.sessionTime}
               totalSessionTime={state.totalSessionTime}
-              focusedTaskId={state.focusedTaskId}
-              todoList={state.todoList}
               swRunning={state.swRunning}
               swTime={state.swTime}
               showCustomInput={state.showCustomInput}
@@ -82,60 +146,23 @@ export default function FocusScreen() {
               setBreakType={state.setBreakType}
               setSessionTime={state.setSessionTime}
               setTotalSessionTime={state.setTotalSessionTime}
+              onStartBreak={state.transitionToBreak}
+              setPomodoroMode={state.setPomodoroMode}
             />
 
-            {/* Focus Target Card */}
-            {state.mode === "pomodoro" && state.pomodoroMode === "work" && (
-              <FocusTargetCard
-                focusedTaskId={state.focusedTaskId}
-                todoList={state.todoList}
-                habitList={state.habitList}
-                onLinkPress={() => state.setShowTaskPicker(true)}
-                onUnlinkPress={() => state.setFocusedTaskId(null)}
-                colors={colors}
-              />
-            )}
-
-            {/* Laps List */}
-            {state.mode === "stopwatch" && state.swLaps.length > 0 && (
-              <AppCard style={styles.lapsCard}>
-                <Text style={{ fontSize: 16, fontWeight: "700", color: colors.text }}>Laps</Text>
-                <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                {state.swLaps.map((lapTime, idx) => (
-                  <View
-                    key={idx}
-                    style={[
-                      styles.lapRow,
-                      {
-                        borderBottomWidth: idx === state.swLaps.length - 1 ? 0 : 1,
-                        borderBottomColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Text style={{ color: colors.textMuted, fontWeight: "600" }}>
-                      Lap {state.swLaps.length - idx}
-                    </Text>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontWeight: "700",
-                        fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-                      }}
-                    >
-                      {formatTime(lapTime)}
-                    </Text>
-                  </View>
-                ))}
-              </AppCard>
-            )}
-
-            {/* Focus Analytics Metrics */}
-            <FocusStatsCard
-              completedToday={state.completedToday}
-              totalFocusTime={state.totalFocusTime}
-              averageSessionLength={state.averageSessionLength}
-              longestSession={state.longestSession}
+            {/* Supporting Ambient Sound Utility */}
+            <AmbientSoundBar
+              isActive={state.isActive}
+              selectedSoundId={state.selectedSoundId}
+              isMuted={state.isMuted}
+              onToggleMute={(muted) => state.setIsMuted(muted)}
+              onPrevTrack={state.handlePrevTrack}
+              onNextTrack={state.handleNextTrack}
+              onTogglePlay={state.handleStartPause}
+              isPlaying={state.isPlaying}
+              onOpenPlayer={() => state.setShowMusicPlayer(true)}
               colors={colors}
+              customTracks={state.customTracks}
             />
           </ScrollView>
         </Animated.View>
@@ -195,24 +222,24 @@ export default function FocusScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
+  safeArea: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 16,
-    paddingBottom: 110,
-  },
-  lapsCard: {
-    padding: 16,
+    paddingTop: 12,
     gap: 12,
+    paddingBottom: 100,
   },
-  divider: {
-    height: 1,
-    opacity: 0.2,
+  scrollContentCompact: {
+    paddingTop: 8,
+    gap: 10,
+    paddingBottom: 80,
   },
-  lapRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
+  atmosphereWrapper: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    zIndex: 0,
+  },
+  atmosphereGlow: {
+    position: "absolute",
   },
 });

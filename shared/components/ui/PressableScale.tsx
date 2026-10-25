@@ -7,13 +7,15 @@ import Animated, {
     withSpring,
 } from "react-native-reanimated";
 
-type Props = Omit<PressableProps, "children"> & {
+type Props = Omit<PressableProps, "children" | "style"> & {
   children?: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
+  style?: StyleProp<ViewStyle> | ((state: any) => StyleProp<ViewStyle>);
   contentStyle?: StyleProp<ViewStyle>;
   scaleTo?: number;
   haptic?: boolean;
 };
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export const PressableScale: React.FC<Props> = ({
   children,
@@ -25,6 +27,8 @@ export const PressableScale: React.FC<Props> = ({
   scaleTo = 0.97,
   haptic = false,
   hitSlop,
+  accessibilityRole,
+  accessibilityState,
   ...rest
 }) => {
   const scale = useSharedValue(1);
@@ -48,17 +52,30 @@ export const PressableScale: React.FC<Props> = ({
     onPressOut?.(e);
   };
 
+  const resolvedRole = accessibilityRole ?? (onPress ? "button" : undefined);
+  const resolvedState =
+    rest.disabled !== undefined || accessibilityState
+      ? { disabled: Boolean(rest.disabled), ...accessibilityState }
+      : undefined;
+
+  const resolvedStyle = typeof style === "function"
+    ? (state: any) => [style(state), contentStyle, aStyle]
+    : [style, contentStyle, aStyle];
+
   return (
-    <Pressable
+    <AnimatedPressable
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={onPress}
+      // Provides an expanded baseline hit area; small sub-28pt visual elements must specify explicit hitSlop or min dimensions to reach 44pt.
       hitSlop={hitSlop ?? 8}
+      accessibilityRole={resolvedRole}
+      accessibilityState={resolvedState}
       {...rest}
-      style={style}
+      style={resolvedStyle as any}
     >
-      <Animated.View pointerEvents="none" style={[StyleSheet.flatten(contentStyle), aStyle]}>{children}</Animated.View>
-    </Pressable>
+      {children}
+    </AnimatedPressable>
   );
 };
 

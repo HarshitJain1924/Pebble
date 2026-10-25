@@ -1,5 +1,5 @@
-import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import type { Route } from "@react-navigation/native";
+import type { BottomTabBarProps } from "expo-router/js-tabs";
+import type { Route } from "./base";
 import type { ReactNode } from "react";
 import type { LayoutChangeEvent } from "react-native";
 import type { IPalette, ISizeMap, TMenuView, TPopupRenderer } from "./base";

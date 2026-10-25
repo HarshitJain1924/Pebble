@@ -4,15 +4,17 @@ import {
   View,
   Dimensions,
   ScrollView,
-  SafeAreaView,
   Platform,
   Image,
+  Alert,
   useWindowDimensions,
+  type ScrollViewInstance,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { OnboardingService } from "@/services/onboarding/onboarding.service";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -28,8 +30,9 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { ScreenSwipeWrapper } from "@/shared/components/layout/ScreenSwipeWrapper";
 import PressableScale from "@/shared/components/ui/PressableScale";
 
@@ -79,14 +82,21 @@ function SlideContent({ index, scrollX, containerWidth, children }: SlideContent
 // Slide 1: Pebble Jar Illustration with Falling Pebbles & Water Level Rise
 function PebbleJarIllustration() {
   const timeline = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative looping illustration — hold a settled frame (pebbles landed,
+    // jar filled) instead of animating when reduce-motion is on.
+    if (reducedMotion) {
+      timeline.value = 0.84;
+      return;
+    }
     timeline.value = withRepeat(
       withTiming(1, { duration: 3800 }),
       -1,
       false
     );
-  }, []);
+  }, [reducedMotion]);
 
   // Pebble 1: lands at progress = 0.22
   const p1Style = useAnimatedStyle(() => {
@@ -247,12 +257,12 @@ function PebbleJarIllustration() {
 
         {/* Existing baseline pebbles */}
         <View style={[styles.pebble, { bottom: 8, left: 10, transform: [{ rotate: "10deg" }], width: 22, height: 14, opacity: 0.4 }]} />
-        <View style={[styles.pebble, { bottom: 6, right: 12, transform: [{ rotate: "-15deg" }], width: 20, height: 13, opacity: 0.4, backgroundColor: "#A78BFA" }]} />
+        <View style={[styles.pebble, { bottom: 6, right: 12, transform: [{ rotate: "-15deg" }], width: 20, height: 13, opacity: 0.4, backgroundColor: Palette.violet400 }]} />
 
         {/* Falling pebbles */}
-        <Animated.View style={[styles.pebble, { left: 35, backgroundColor: "#8B5CF6" }, p1Style]} />
-        <Animated.View style={[styles.pebble, { left: 18, backgroundColor: "#A78BFA" }, p2Style]} />
-        <Animated.View style={[styles.pebble, { left: 48, backgroundColor: "#C4B5FD" }, p3Style]} />
+        <Animated.View style={[styles.pebble, { left: 35, backgroundColor: Palette.violet500 }, p1Style]} />
+        <Animated.View style={[styles.pebble, { left: 18, backgroundColor: Palette.violet400 }, p2Style]} />
+        <Animated.View style={[styles.pebble, { left: 48, backgroundColor: Palette.violet300 }, p3Style]} />
 
         {/* Ripples & Impact Glows */}
         <Animated.View style={[styles.jarRipple, rippleStyle]} />
@@ -277,8 +287,16 @@ function PebbleCaptureIllustration() {
   const h3 = useSharedValue(4);
   const h4 = useSharedValue(4);
   const h5 = useSharedValue(4);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative looping illustration — hold the frame where the structured
+    // task card is fully visible and the waveform is hidden.
+    if (reducedMotion) {
+      timeline.value = 0.8;
+      return;
+    }
+
     timeline.value = withRepeat(
       withTiming(1, { duration: 4800 }),
       -1,
@@ -301,7 +319,7 @@ function PebbleCaptureIllustration() {
     animateWave(h3, 5, 40, 480);
     animateWave(h4, 6, 28, 600);
     animateWave(h5, 4, 18, 520);
-  }, []);
+  }, [reducedMotion]);
 
   const waveContainerStyle = useAnimatedStyle(() => {
     const t = timeline.value;
@@ -354,8 +372,8 @@ function PebbleCaptureIllustration() {
 
     if (t > 0.58) {
       scale = interpolate(t, [0.58, 0.66, 0.74], [0.5, 1.1, 1], "clamp");
-      backgroundColor = "#8B5CF6";
-      borderColor = "#8B5CF6";
+      backgroundColor = Palette.violet500;
+      borderColor = Palette.violet500;
     }
 
     return {
@@ -380,7 +398,7 @@ function PebbleCaptureIllustration() {
       {/* Microphone Waveform */}
       <Animated.View style={[styles.waveContainer, waveContainerStyle]}>
         <View style={styles.micCircle}>
-          <Feather name="mic" size={20} color="#fff" />
+          <Feather name="mic" size={20} color={Palette.white} />
         </View>
         <View style={styles.equalizerRow}>
           <EqBar h={h1} />
@@ -401,7 +419,7 @@ function PebbleCaptureIllustration() {
         <View style={styles.taskCardCheckboxOutline}>
           <Animated.View style={[styles.taskCardCheckboxFill, checkStyle]}>
             <Animated.View style={checkIconStyle}>
-              <Feather name="check" size={10} color="#fff" />
+              <Feather name="check" size={10} color={Palette.white} />
             </Animated.View>
           </Animated.View>
         </View>
@@ -423,8 +441,17 @@ function PebbleCaptureIllustration() {
 function FocusIllustration() {
   const rotation = useSharedValue(0);
   const breath = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative orbit + breathing orb — hold the orbit still and the orb at
+    // rest scale when reduce-motion is on.
+    if (reducedMotion) {
+      rotation.value = 0;
+      breath.value = 1;
+      return;
+    }
+
     rotation.value = withRepeat(
       withTiming(360, { duration: 8000 }),
       -1,
@@ -439,7 +466,7 @@ function FocusIllustration() {
       -1,
       true
     );
-  }, []);
+  }, [reducedMotion]);
 
   const orbStyle = useAnimatedStyle(() => ({
     transform: [{ scale: breath.value }],
@@ -462,21 +489,21 @@ function FocusIllustration() {
       <View style={[styles.orbitRing, { width: 106, height: 106, borderRadius: 53, opacity: 0.25 }]} />
 
       {/* Orbit Track 1: Outer (Clockwise) */}
-      <Animated.View style={[StyleSheet.absoluteFillObject, orbitStyle, { justifyContent: "center", alignItems: "center" }]}>
-        <View style={[styles.orbitPebble, { top: 10, backgroundColor: "#8B5CF6", width: 10, height: 10, borderRadius: 5 }]} />
+      <Animated.View style={[StyleSheet.absoluteFill, orbitStyle, { justifyContent: "center", alignItems: "center" }]}>
+        <View style={[styles.orbitPebble, { top: 10, backgroundColor: Palette.violet500, width: 10, height: 10, borderRadius: 5 }]} />
         <View style={[styles.orbitPebbleTail, { top: 7, left: "53%", width: 6, height: 6, borderRadius: 3, opacity: 0.55 }]} />
         <View style={[styles.orbitPebbleTail, { top: 5, left: "56%", width: 4, height: 4, borderRadius: 2, opacity: 0.25 }]} />
       </Animated.View>
 
       {/* Orbit Track 2: Inner (Counter-Clockwise) */}
-      <Animated.View style={[StyleSheet.absoluteFillObject, orbitStyleOpposite, { justifyContent: "center", alignItems: "center" }]}>
-        <View style={[styles.orbitPebble, { bottom: 27, left: 27, backgroundColor: "#C4B5FD", width: 8, height: 8, borderRadius: 4 }]} />
+      <Animated.View style={[StyleSheet.absoluteFill, orbitStyleOpposite, { justifyContent: "center", alignItems: "center" }]}>
+        <View style={[styles.orbitPebble, { bottom: 27, left: 27, backgroundColor: Palette.violet300, width: 8, height: 8, borderRadius: 4 }]} />
         <View style={[styles.orbitPebbleTail, { bottom: 35, left: 22, width: 5, height: 5, borderRadius: 2.5, opacity: 0.35 }]} />
       </Animated.View>
 
       {/* Central Breathing Orb */}
       <Animated.View style={[styles.innerOrb, orbStyle]}>
-        <Feather name="target" size={24} color="#fff" />
+        <Feather name="target" size={24} color={Palette.white} />
         <Text style={styles.orbText}>25:00</Text>
       </Animated.View>
     </View>
@@ -487,8 +514,16 @@ function FocusIllustration() {
 function WelcomeLogoGlow() {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.2);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Decorative glow pulse — hold the ring at its resting opacity when
+    // reduce-motion is on.
+    if (reducedMotion) {
+      scale.value = 1;
+      opacity.value = 0.2;
+      return;
+    }
     scale.value = withRepeat(
       withSequence(
         withTiming(1.12, { duration: 2200 }),
@@ -505,7 +540,7 @@ function WelcomeLogoGlow() {
       -1,
       true
     );
-  }, []);
+  }, [reducedMotion]);
 
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -533,8 +568,19 @@ function WelcomeParticles() {
   const p4y = useSharedValue(40);
   const p4x = useSharedValue(-40);
   const p4o = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Ambient floating particles — keep them hidden (their resting state) when
+    // reduce-motion is on rather than drifting upward in a loop.
+    if (reducedMotion) {
+      p1o.value = 0;
+      p2o.value = 0;
+      p3o.value = 0;
+      p4o.value = 0;
+      return;
+    }
+
     p1y.value = withRepeat(
       withSequence(
         withTiming(50, { duration: 0 }),
@@ -642,7 +688,7 @@ function WelcomeParticles() {
       -1,
       false
     );
-  }, []);
+  }, [reducedMotion]);
 
   const p1Style = useAnimatedStyle(() => ({
     transform: [{ translateY: p1y.value }, { translateX: p1x.value }],
@@ -662,7 +708,7 @@ function WelcomeParticles() {
   }));
 
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Animated.View style={[styles.particle, { left: "28%" }, p1Style]} />
       <Animated.View style={[styles.particle, { left: "44%", width: 3, height: 3 }, p2Style]} />
       <Animated.View style={[styles.particle, { left: "58%" }, p3Style]} />
@@ -732,7 +778,7 @@ export default function OnboardingScreen() {
   const colors = Colors[colorScheme ?? "dark"];
   const isDark = colorScheme === "dark";
   const router = useRouter();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const { width: windowWidth } = useWindowDimensions();
   
   const [activeIndex, setActiveIndex] = useState(0);
@@ -769,8 +815,23 @@ export default function OnboardingScreen() {
   };
 
   const completeOnboarding = async () => {
-    await AsyncStorage.setItem("todoapp:onboarding_completed", "true");
-    router.replace("/(tabs)");
+    try {
+      const res = await OnboardingService.completeOnboarding();
+      if (res.success) {
+        router.replace("/(tabs)");
+      } else {
+        Alert.alert(
+          "Setup Incomplete",
+          "Could not finish onboarding setup. Please try again.",
+        );
+      }
+    } catch (e) {
+      console.warn("[OnboardingScreen] Error completing onboarding:", e);
+      Alert.alert(
+        "Setup Error",
+        "An error occurred while finishing setup. Please try again.",
+      );
+    }
   };
 
   const handleScroll = (event: any) => {
@@ -784,7 +845,7 @@ export default function OnboardingScreen() {
 
   return (
     <ScreenSwipeWrapper>
-      <SafeAreaView style={styles.safeContainer} onLayout={onLayout}>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.safeContainer} onLayout={onLayout}>
         <Animated.View entering={FadeIn.delay(100).duration(700)} style={{ flex: 1 }}>
           <ScrollView
             ref={scrollRef}
@@ -891,7 +952,7 @@ export default function OnboardingScreen() {
                   haptic
                 >
                   <Text style={styles.nextText}>Next</Text>
-                  <Feather name="arrow-right" size={14} color="#fff" />
+                  <Feather name="arrow-right" size={14} color={Palette.white} />
                 </PressableScale>
               </>
             ) : (
@@ -902,7 +963,7 @@ export default function OnboardingScreen() {
                 haptic
               >
                 <Text style={styles.startText}>Start Building Momentum</Text>
-                <Feather name="check" size={16} color="#fff" />
+                <Feather name="check" size={16} color={Palette.white} />
               </PressableScale>
             )}
           </View>
@@ -966,7 +1027,7 @@ const styles = StyleSheet.create({
   dot: {
     height: 6,
     borderRadius: 3,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
   },
@@ -992,13 +1053,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 24,
     elevation: 2,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
   nextText: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 14,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1010,13 +1071,13 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     elevation: 3,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
   startText: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 15,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1111,10 +1172,10 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: Palette.violet500,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
@@ -1129,7 +1190,7 @@ const styles = StyleSheet.create({
   eqBar: {
     width: 3,
     borderRadius: 1.5,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: Palette.violet500,
   },
   transcribeBubble: {
     position: "absolute",
@@ -1141,14 +1202,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 16,
     borderBottomLeftRadius: 2,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 4,
   },
   transcribeText: {
     fontSize: 12,
-    color: "#C4B5FD",
+    color: Palette.violet300,
     fontWeight: "500", // Maps to Outfit_500Medium
   },
   outputTaskCard: {
@@ -1157,14 +1218,14 @@ const styles = StyleSheet.create({
     width: 190,
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#1C1C21",
+    backgroundColor: Colors.dark.card,
     borderColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 8,
@@ -1175,7 +1236,7 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     borderWidth: 1.5,
-    borderColor: "#8B5CF6",
+    borderColor: Palette.violet500,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -1188,7 +1249,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   taskCardTitle: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 13,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1200,7 +1261,7 @@ const styles = StyleSheet.create({
   },
   taskCardTagText: {
     fontSize: 9,
-    color: "#A78BFA",
+    color: Palette.violet400,
     fontWeight: "600", // Maps to Outfit_600SemiBold
   },
   taskCardTime: {
@@ -1227,7 +1288,7 @@ const styles = StyleSheet.create({
   },
   orbitPebble: {
     position: "absolute",
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.65,
     shadowRadius: 4,
@@ -1240,18 +1301,18 @@ const styles = StyleSheet.create({
     width: 90,
     height: 90,
     borderRadius: 45,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: Palette.violet500,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 5,
   },
   orbText: {
-    color: "#fff",
+    color: Palette.white,
     fontSize: 15,
     fontWeight: "700", // Maps to Outfit_700Bold
   },
@@ -1278,7 +1339,7 @@ const styles = StyleSheet.create({
     borderRadius: 70,
     backgroundColor: "rgba(139, 92, 246, 0.15)",
     zIndex: 1,
-    shadowColor: "#8B5CF6",
+    shadowColor: Palette.violet500,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,
     shadowRadius: 24,
@@ -1288,7 +1349,7 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#C4B5FD",
+    backgroundColor: Palette.violet300,
     zIndex: 3,
   },
 });

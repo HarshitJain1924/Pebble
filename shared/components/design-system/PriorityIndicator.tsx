@@ -1,5 +1,6 @@
 import React from "react";
 import { View, ViewStyle, StyleSheet } from "react-native";
+import { useCategoryColor } from "@/shared/hooks/useCategoryColors";
 
 export interface PriorityIndicatorProps {
   priority?: "low" | "medium" | "high";
@@ -10,11 +11,11 @@ export const PriorityIndicator: React.FC<PriorityIndicatorProps> = ({
   priority,
   style,
 }) => {
+  const color = useCategoryColor("priority", priority ?? "low");
+
   if (!priority || priority === "low") {
     return <View style={[styles.spacer, style]} />;
   }
-
-  const color = priority === "high" ? "#EF4444" : "#F59E0B";
 
   return (
     <View style={[styles.container, style]}>

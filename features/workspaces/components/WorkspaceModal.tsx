@@ -1,40 +1,52 @@
+import {
+  DefaultWorkspaceColor,
+  WorkspaceSwatchColors,
+} from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
+import {
+  HabitRepository,
+  TaskRepository,
+  WorkspaceRepository,
+} from "@/repositories";
+import { emitStateChange } from "@/services/events/state-events";
+import {
+  cancelReminderIds,
+  rescheduleHabitReminders,
+  rescheduleTodoReminders,
+} from "@/services/scheduling/reminders.service";
+import {
+  addToRecycleBin,
+  getRecycleBinItems,
+  saveRecycleBinItems,
+} from "@/services/storage/storage.service";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import {
-    AppText as Text,
-    AppTextInput as TextInput,
+  AppText as Text,
+  AppTextInput as TextInput,
 } from "@/shared/components/ui/AppText";
 import { useUndo } from "@/shared/components/ui/UndoContext";
 import { styles } from "@/shared/constants/taskStyles";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import {
-    cancelReminderIds,
-    rescheduleHabitReminders,
-    rescheduleTodoReminders,
-} from "@/services/scheduling/reminders.service";
-import { emitStateChange } from "@/services/events/state-events";
-import {
-    addToRecycleBin,
-    getRecycleBinItems,
-    saveRecycleBinItems,
-} from "@/services/storage/storage.service";
+  INBOX_WORKSPACE_ID,
+  MY_PEBBLES_WORKSPACE_ID,
+  Task,
+  Workspace,
+  type Habit,
+} from "@/shared/types/domain.types";
 import { Feather } from "@expo/vector-icons";
-import {
-  WorkspaceRepository,
-  TaskRepository,
-  HabitRepository,
-} from "@/repositories";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";
 import {
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    TouchableOpacity,
-    View
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { type Habit, Workspace, Task } from "@/shared/types/domain.types";
 
 async function loadNotifications() {
   return import("expo-notifications");
@@ -43,37 +55,37 @@ async function loadNotifications() {
 interface WorkspaceModalProps {
   visible: boolean;
   onClose: () => void;
-  editingFolderId: string | null;
-  lists: Workspace[];
-  setLists: React.Dispatch<React.SetStateAction<Workspace[]>>;
+  editingWorkspaceId: string | null;
+  workspaces: Workspace[];
+  setWorkspaces: React.Dispatch<React.SetStateAction<Workspace[]>>;
   todos: Record<string, Task[]>;
   setTodos: React.Dispatch<React.SetStateAction<Record<string, Task[]>>>;
-  selectedList: string;
-  setSelectedList: (id: string) => void;
-  openedFolderId: string | null;
-  setOpenedFolderId: (id: string | null) => void;
-  persistState: (
-    lists: Workspace[],
+  selectedWorkspaceId: string;
+  setSelectedWorkspaceId: (id: string) => void;
+  activeWorkspaceId: string | null;
+  setActiveWorkspaceId: (id: string | null) => void;
+  persistState?: (
+    workspaces: Workspace[],
     selected: string,
     todos: Record<string, Task[]>,
   ) => Promise<void>;
   habits: Habit[];
   setHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
-  persistHabits: (nextHabits: Habit[]) => Promise<void>;
+  persistHabits?: (nextHabits: Habit[]) => Promise<void>;
 }
 
 export function WorkspaceModal({
   visible,
   onClose,
-  editingFolderId,
-  lists,
-  setLists,
+  editingWorkspaceId,
+  workspaces,
+  setWorkspaces,
   todos,
   setTodos,
-  selectedList,
-  setSelectedList,
-  openedFolderId,
-  setOpenedFolderId,
+  selectedWorkspaceId,
+  setSelectedWorkspaceId,
+  activeWorkspaceId,
+  setActiveWorkspaceId,
   persistState,
   habits,
   setHabits,
@@ -83,110 +95,131 @@ export function WorkspaceModal({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
 
-  const [folderNameInput, setFolderNameInput] = useState("");
-  const [folderEmojiInput, setFolderEmojiInput] = useState("📚");
-  const [folderIconTypeInput, setFolderIconTypeInput] = useState<
+  const [workspaceNameInput, setWorkspaceNameInput] = useState("");
+  const [workspaceEmojiInput, setWorkspaceEmojiInput] = useState("📚");
+  const [workspaceIconTypeInput, setWorkspaceIconTypeInput] = useState<
     "emoji" | "icon"
   >("emoji");
-  const [folderIconInput, setFolderIconInput] = useState("briefcase");
-  const [folderColorInput, setFolderColorInput] = useState("#6366F1");
-  const [folderDescriptionInput, setFolderDescriptionInput] = useState("");
+  const [workspaceIconInput, setWorkspaceIconInput] = useState("briefcase");
+  const [workspaceColorInput, setWorkspaceColorInput] = useState(
+    DefaultWorkspaceColor.dark,
+  );
+  const [workspaceDescriptionInput, setWorkspaceDescriptionInput] = useState("");
 
-  // Populate inputs when visible or editingFolderId changes
+  // Populate inputs when visible or editingWorkspaceId changes
   useEffect(() => {
     if (visible) {
-      if (editingFolderId) {
-        const folder = lists.find((l) => l.id === editingFolderId);
-        if (folder) {
-          setFolderNameInput(folder.name);
-          setFolderEmojiInput(folder.emoji || "📁");
-          setFolderIconInput(folder.icon || "briefcase");
-          setFolderIconTypeInput(folder.iconType || "emoji");
-          setFolderColorInput(folder.color || "#6366F1");
-          setFolderDescriptionInput(folder.description || "");
+      if (editingWorkspaceId) {
+        const workspace = workspaces.find((l) => l.id === editingWorkspaceId);
+        if (workspace) {
+          setWorkspaceNameInput(workspace.name);
+          const isIcon = workspace.iconType === "icon" || (!workspace.emoji && Boolean(workspace.icon));
+          setWorkspaceIconTypeInput(isIcon ? "icon" : "emoji");
+          setWorkspaceIconInput(workspace.icon || "briefcase");
+          setWorkspaceEmojiInput(workspace.emoji || "📁");
+          setWorkspaceColorInput(workspace.color || DefaultWorkspaceColor.dark);
+          setWorkspaceDescriptionInput(workspace.description || "");
         }
       } else {
-        setFolderNameInput("");
-        setFolderEmojiInput("📚");
-        setFolderIconInput("briefcase");
-        setFolderIconTypeInput("emoji");
-        setFolderColorInput("#6366F1");
-        setFolderDescriptionInput("");
+        setWorkspaceNameInput("");
+        setWorkspaceIconTypeInput("emoji");
+        setWorkspaceEmojiInput("📚");
+        setWorkspaceIconInput("briefcase");
+        setWorkspaceColorInput(DefaultWorkspaceColor.dark);
+        setWorkspaceDescriptionInput("");
       }
     }
-  }, [visible, editingFolderId, lists]);
+  }, [visible, editingWorkspaceId, workspaces]);
 
-  const handleSave = () => {
-    const trimmed = folderNameInput.trim();
+  const handleSave = async () => {
+    const trimmed = workspaceNameInput.trim();
     if (!trimmed) return;
 
-    let updatedLists = [...lists];
-    let updatedTodos = { ...todos };
-    let activeListId = selectedList;
+    const isIconType = workspaceIconTypeInput === "icon";
+    const emojiVal = isIconType ? undefined : workspaceEmojiInput;
+    const iconVal = isIconType ? workspaceIconInput : undefined;
 
-    if (editingFolderId) {
-      updatedLists = lists.map((l) =>
-        l.id === editingFolderId
-          ? {
-              ...l,
-              name: trimmed,
-              emoji: folderEmojiInput,
-              icon: folderIconInput,
-              iconType: folderIconTypeInput,
-              color: folderColorInput,
-              description: folderDescriptionInput.trim() || undefined,
-            }
-          : l,
+    try {
+      const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+
+      if (editingWorkspaceId) {
+        const existing = workspaces.find((l) => l.id === editingWorkspaceId);
+        if (!existing) return;
+
+        const updatedWorkspace: Workspace = {
+          ...existing,
+          name: trimmed,
+          iconType: workspaceIconTypeInput,
+          emoji: emojiVal,
+          icon: iconVal,
+          color: workspaceColorInput,
+          description: workspaceDescriptionInput.trim() || undefined,
+        };
+
+        await EntityCommandService.updateWorkspace(updatedWorkspace);
+
+        setWorkspaces((prev) =>
+          prev.map((l) => (l.id === editingWorkspaceId ? updatedWorkspace : l))
+        );
+        emitStateChange("workspace_changed", "tasks_screen");
+      } else {
+        const newId = `list-${Date.now()}`;
+        const newWorkspace: Workspace = {
+          id: newId,
+          name: trimmed,
+          iconType: workspaceIconTypeInput,
+          emoji: emojiVal,
+          icon: iconVal,
+          color: workspaceColorInput,
+          description: workspaceDescriptionInput.trim() || undefined,
+          revision: 1,
+          lifecycleGeneration: 1,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        await EntityCommandService.createWorkspace(newWorkspace);
+
+        setWorkspaces((prev) => [...prev, newWorkspace]);
+        setTodos((prev) => ({ ...prev, [newId]: [] }));
+        setSelectedWorkspaceId(newId);
+
+        try {
+          const { UiStateRepository } = await import("@/repositories");
+          await UiStateRepository.saveUiState({ activeWorkspaceId: newId });
+        } catch (uiErr) {
+          console.warn("[WorkspaceModal] Ancillary saveUiState failed after workspace creation:", uiErr);
+        }
+
+        emitStateChange("workspace_changed", "tasks_screen");
+        emitStateChange("tasks_changed", "tasks_screen");
+      }
+
+      onClose();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
       );
-    } else {
-      const newId = `list-${Date.now()}`;
-      updatedLists.push({
-        id: newId,
-        name: trimmed,
-        emoji: folderEmojiInput,
-        icon: folderIconInput,
-        iconType: folderIconTypeInput,
-        color: folderColorInput,
-        description: folderDescriptionInput.trim() || undefined,
-        createdAt: Date.now(),
-      });
-      updatedTodos[newId] = [];
-      activeListId = newId;
+    } catch (e) {
+      console.warn("[WorkspaceModal] Failed to save workspace:", e);
+      Alert.alert("Save Failed", "Failed to save workspace. Please try again.");
     }
-
-    console.log("\n==============================");
-    console.log("[SET WORKSPACES WRITE]");
-    console.log("Caller:", "WorkspaceModal.handleSave");
-    console.log("Previous workspace ids:", lists.map((w: any) => w.id));
-    console.log("New workspace ids:", updatedLists.map((w: any) => w.id));
-    console.log("Time:", Date.now());
-    console.trace("setLists stack");
-    console.log("==============================\n");
-
-    console.log("[STATE WRITE]", "setLists", updatedLists);
-    setLists(updatedLists);
-    console.log("[STATE WRITE]", "setTodos", updatedTodos);
-    setTodos(updatedTodos);
-    console.log("[STATE WRITE]", "setSelectedList", activeListId);
-    setSelectedList(activeListId);
-    void persistState(updatedLists, activeListId, updatedTodos).then(() => {
-      emitStateChange("tasks_changed");
-      emitStateChange("habits_changed");
-      emitStateChange("workspace_changed");
-    });
-    onClose();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {},
-    );
   };
 
   const handleDelete = () => {
-    if (!editingFolderId) return;
+    if (!editingWorkspaceId) return;
 
     if (
-      editingFolderId === "default" ||
-      lists.filter((l) => !(l as any).archived).length <= 1
+      editingWorkspaceId === INBOX_WORKSPACE_ID ||
+      editingWorkspaceId === MY_PEBBLES_WORKSPACE_ID
     ) {
+      Alert.alert(
+        "Cannot Delete",
+        "Inbox and My Pebbles are protected workspaces and cannot be deleted.",
+      );
+      return;
+    }
+
+    if (workspaces.filter((l) => !l.archivedAt).length <= 1) {
       Alert.alert(
         "Cannot Delete",
         "You must keep at least one active workspace.",
@@ -203,167 +236,86 @@ export function WorkspaceModal({
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            const workspace = lists.find((l) => l.id === editingFolderId);
+            const workspace = workspaces.find((l) => l.id === editingWorkspaceId);
             if (!workspace) return;
 
-            const workspaceTodos = todos[editingFolderId] || [];
-            const workspaceHabits = habits.filter(
-              (h) => h.folderId === editingFolderId,
-            );
-
-            // 1. Cancel notifications
-            for (const todo of workspaceTodos) {
-              if (todo.notificationIds) {
-                await cancelReminderIds(todo.notificationIds);
-              }
-              const alarmId = todo.alarmId;
-              if (alarmId && !alarmId.startsWith("web-")) {
-                const Notifications = await loadNotifications();
-                await Notifications.cancelScheduledNotificationAsync(
-                  alarmId,
-                ).catch(() => {});
-              }
-              if (alarmId && alarmId.startsWith("web-")) {
-                clearTimeout(Number(alarmId.replace("web-", "")));
-              }
-            }
-
-            for (const habit of workspaceHabits) {
-              if (habit.notificationIds) {
-                await cancelReminderIds(habit.notificationIds);
-              }
-            }
-
-            // 2. Add to Recycle Bin & Purge current Partitioned Storage Files
-            await addToRecycleBin(
-              "workspace",
-              {
-                list: workspace,
-                todos: workspaceTodos,
-                habits: workspaceHabits,
-              },
-              "Workspaces",
-            );
+            let deleteCommitted = false;
             try {
-              await WorkspaceRepository.deleteWorkspace(editingFolderId);
+              const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+              await EntityCommandService.deleteWorkspace(editingWorkspaceId);
+              deleteCommitted = true;
             } catch (e) {
-              console.warn(
-                "Failed to clear workspace via repository:",
-                e,
-              );
+              console.warn("[WorkspaceModal] deleteWorkspace threw:", e);
+              try {
+                const { WorkspaceRepository } = await import("@/repositories");
+                const remainingWorkspaces = await WorkspaceRepository.getWorkspaces();
+                const isStillPresent = remainingWorkspaces.some((w) => w.id === editingWorkspaceId);
+
+                if (isStillPresent) {
+                  Alert.alert("Delete Failed", "Failed to delete workspace. Please try again.");
+                  return;
+                }
+                // Partial success: primary entity delete committed, but ancillary cleanup threw
+                deleteCommitted = true;
+              } catch (repoErr) {
+                Alert.alert("Delete Failed", "Failed to delete workspace. Please try again.");
+                return;
+              }
             }
 
-            // 3. Update state
-            const updatedLists = lists.filter((l) => l.id !== editingFolderId);
-            const updatedTodos = { ...todos };
-            delete updatedTodos[editingFolderId];
-            const updatedHabits = habits.filter(
-              (h) => h.folderId !== editingFolderId,
-            );
+            if (!deleteCommitted) return;
 
-            const fallbackList = updatedLists[0]?.id || "default";
-            if (!updatedTodos[fallbackList]) {
-              updatedTodos[fallbackList] = [];
+            // Reconcile local workspace/task/habit state from authoritative outcome
+            const updatedWorkspaces = workspaces.filter((l) => l.id !== editingWorkspaceId);
+            const fallbackList = updatedWorkspaces.find((w) => !w.archivedAt)?.id || INBOX_WORKSPACE_ID;
+
+            setWorkspaces(updatedWorkspaces);
+            setTodos((prev) => {
+              const next = { ...prev };
+              delete next[editingWorkspaceId];
+              if (!next[fallbackList]) {
+                next[fallbackList] = [];
+              }
+              return next;
+            });
+            setHabits((prev) => prev.filter((h) => h.workspaceId !== editingWorkspaceId));
+            setSelectedWorkspaceId(fallbackList);
+
+            if (activeWorkspaceId === editingWorkspaceId) {
+              setActiveWorkspaceId(null);
             }
 
-            setLists(updatedLists);
-            setTodos(updatedTodos);
-            setHabits(updatedHabits);
-            setSelectedList(fallbackList);
-
-            await persistState(updatedLists, fallbackList, updatedTodos);
-            await persistHabits(updatedHabits);
-            emitStateChange("tasks_changed");
-            emitStateChange("habits_changed");
-            emitStateChange("workspace_changed");
-
-            if (openedFolderId === editingFolderId) {
-              setOpenedFolderId(null);
+            try {
+              const { UiStateRepository } = await import("@/repositories");
+              await UiStateRepository.saveUiState({ activeWorkspaceId: fallbackList });
+            } catch (uiErr) {
+              console.warn("[WorkspaceModal] Ancillary saveUiState failed after delete reconciliation:", uiErr);
             }
+
+            emitStateChange("tasks_changed", "tasks_screen");
+            emitStateChange("habits_changed", "tasks_screen");
+            emitStateChange("workspace_changed", "tasks_screen");
+
             onClose();
             Haptics.notificationAsync(
               Haptics.NotificationFeedbackType.Success,
             ).catch(() => {});
 
-            // 4. Show Undo Toast
+            // Show Undo Toast wired to canonical restoreWorkspace
             showUndo({
               message: `Deleted "${workspace.name}"`,
               onUndo: async () => {
-                // Remove from Recycle Bin
-                const binItems = await getRecycleBinItems();
-                await saveRecycleBinItems(
-                  binItems.filter((item) => item.id !== editingFolderId),
-                );
-
-                // Reschedule reminders
-                const rescheduledTodos = await Promise.all(
-                  workspaceTodos.map((t) => rescheduleTodoReminders(t)),
-                );
-                const rescheduledHabits = await Promise.all(
-                  workspaceHabits.map((h) => rescheduleHabitReminders(h)),
-                );
-
-                // Restore state and persist
-                const currentLists = await WorkspaceRepository.getWorkspaces();
-
-                const currentTodos: Record<string, Task[]> = {};
-                for (const folder of currentLists) {
-                  const wsId = folder.id;
-                  const tasksMap = await TaskRepository.getTasks(wsId);
-                  currentTodos[wsId] = Object.values(tasksMap).map(
-                    (t: any) => ({
-                      ...t,
-                      scheduledDate: t.dueDate,
-                    }),
-                  ) as Task[];
+                try {
+                  const { EntityCommandService } = await import("@/services/command/EntityCommandService");
+                  // Pass the entity id; the command resolves the live bin entry
+                  // itself (ids are `rb-<entityId>` or `rb-<entityId>-g<generation>`).
+                  // Hardcoding `rb-${id}` here duplicated the bin-id shape in a
+                  // component and bypassed the command's resolution contract.
+                  await EntityCommandService.restoreWorkspace(workspace.id);
+                  // restoreWorkspace now emits the child-domain events itself.
+                } catch (e) {
+                  console.warn("Failed to undo workspace delete", e);
                 }
-
-                const restoredLists = currentLists.some(
-                  (l: any) => l.id === editingFolderId,
-                )
-                  ? currentLists
-                  : [...currentLists, workspace];
-
-                const restoredTodos = {
-                  ...currentTodos,
-                  [editingFolderId]: rescheduledTodos,
-                };
-
-                const currentHabits: Habit[] = [];
-                for (const folder of currentLists) {
-                  const wsId = folder.id;
-                  const habitsMap = await HabitRepository.getHabits(wsId);
-                  Object.values(habitsMap).forEach((h: any) => {
-                    currentHabits.push({
-                      ...h,
-                      completedToday:
-                        h.completedDates?.includes(
-                          `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
-                        ) || false,
-                    });
-                  });
-                }
-
-                const restoredHabits = [
-                  ...currentHabits.filter(
-                    (h) => h.folderId !== editingFolderId,
-                  ),
-                  ...rescheduledHabits,
-                ];
-
-                await persistState(
-                  restoredLists,
-                  editingFolderId,
-                  restoredTodos,
-                );
-                await persistHabits(restoredHabits);
-
-                setLists(restoredLists);
-                setTodos(restoredTodos);
-                setHabits(restoredHabits);
-
-                emitStateChange("tasks_changed");
-                emitStateChange("habits_changed");
               },
             });
           },
@@ -388,7 +340,7 @@ export function WorkspaceModal({
                 { color: colors.text, fontWeight: "800" },
               ]}
             >
-              {editingFolderId ? "Edit Workspace" : "New Workspace"}
+              {editingWorkspaceId ? "Edit Workspace" : "New Workspace"}
             </Text>
             <Pressable onPress={onClose} hitSlop={10}>
               <Feather name="x" size={18} color={colors.textMuted} />
@@ -415,8 +367,8 @@ export function WorkspaceModal({
             ]}
           >
             <TextInput
-              value={folderNameInput}
-              onChangeText={setFolderNameInput}
+              value={workspaceNameInput}
+              onChangeText={setWorkspaceNameInput}
               placeholder="E.g. Placement Prep, Gym..."
               placeholderTextColor={colors.textMuted}
               style={{
@@ -448,8 +400,8 @@ export function WorkspaceModal({
             ]}
           >
             <TextInput
-              value={folderDescriptionInput}
-              onChangeText={setFolderDescriptionInput}
+              value={workspaceDescriptionInput}
+              onChangeText={setWorkspaceDescriptionInput}
               placeholder="E.g. Tasks and notes for my activities..."
               placeholderTextColor={colors.textMuted}
               style={{
@@ -464,18 +416,18 @@ export function WorkspaceModal({
           {/* Selector Tabs for Icon Type */}
           <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
             <TouchableOpacity
-              onPress={() => setFolderIconTypeInput("emoji")}
+              onPress={() => setWorkspaceIconTypeInput("emoji")}
               style={{
                 flex: 1,
                 height: 34,
                 borderRadius: 8,
                 backgroundColor:
-                  folderIconTypeInput === "emoji"
+                  workspaceIconTypeInput === "emoji"
                     ? `${colors.primary}15`
                     : colors.cardLight,
                 borderWidth: 1,
                 borderColor:
-                  folderIconTypeInput === "emoji"
+                  workspaceIconTypeInput === "emoji"
                     ? colors.primary
                     : "transparent",
                 alignItems: "center",
@@ -485,7 +437,7 @@ export function WorkspaceModal({
               <Text
                 style={{
                   color:
-                    folderIconTypeInput === "emoji"
+                    workspaceIconTypeInput === "emoji"
                       ? colors.primary
                       : colors.textMuted,
                   fontWeight: "600",
@@ -496,18 +448,18 @@ export function WorkspaceModal({
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => setFolderIconTypeInput("icon")}
+              onPress={() => setWorkspaceIconTypeInput("icon")}
               style={{
                 flex: 1,
                 height: 34,
                 borderRadius: 8,
                 backgroundColor:
-                  folderIconTypeInput === "icon"
+                  workspaceIconTypeInput === "icon"
                     ? `${colors.primary}15`
                     : colors.cardLight,
                 borderWidth: 1,
                 borderColor:
-                  folderIconTypeInput === "icon"
+                  workspaceIconTypeInput === "icon"
                     ? colors.primary
                     : "transparent",
                 alignItems: "center",
@@ -517,7 +469,7 @@ export function WorkspaceModal({
               <Text
                 style={{
                   color:
-                    folderIconTypeInput === "icon"
+                    workspaceIconTypeInput === "icon"
                       ? colors.primary
                       : colors.textMuted,
                   fontWeight: "600",
@@ -529,7 +481,7 @@ export function WorkspaceModal({
             </TouchableOpacity>
           </View>
 
-          {folderIconTypeInput === "emoji" ? (
+          {workspaceIconTypeInput === "emoji" ? (
             <>
               <Text
                 style={{
@@ -562,11 +514,11 @@ export function WorkspaceModal({
                   "🌱",
                   "🧘",
                 ].map((em) => {
-                  const isSel = folderEmojiInput === em;
+                  const isSel = workspaceEmojiInput === em;
                   return (
                     <Pressable
                       key={em}
-                      onPress={() => setFolderEmojiInput(em)}
+                      onPress={() => setWorkspaceEmojiInput(em)}
                       style={{
                         width: 38,
                         height: 38,
@@ -619,11 +571,11 @@ export function WorkspaceModal({
                   "coffee",
                   "tool",
                 ].map((ic) => {
-                  const isSel = folderIconInput === ic;
+                  const isSel = workspaceIconInput === ic;
                   return (
                     <Pressable
                       key={ic}
-                      onPress={() => setFolderIconInput(ic)}
+                      onPress={() => setWorkspaceIconInput(ic)}
                       style={{
                         width: 38,
                         height: 38,
@@ -669,21 +621,12 @@ export function WorkspaceModal({
               flexWrap: "wrap",
             }}
           >
-            {[
-              "#6366F1",
-              "#10B981",
-              "#F59E0B",
-              "#3B82F6",
-              "#EC4899",
-              "#8B5CF6",
-              "#EF4444",
-              "#14B8A6",
-            ].map((col) => {
-              const isSel = folderColorInput === col;
+            {WorkspaceSwatchColors.map((col) => {
+              const isSel = workspaceColorInput === col;
               return (
                 <Pressable
                   key={col}
-                  onPress={() => setFolderColorInput(col)}
+                  onPress={() => setWorkspaceColorInput(col)}
                   style={{
                     width: 28,
                     height: 28,
@@ -700,7 +643,7 @@ export function WorkspaceModal({
           </View>
 
           <View style={{ flexDirection: "row", gap: 10 }}>
-            {editingFolderId && (
+            {editingWorkspaceId && (
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={handleDelete}
@@ -717,7 +660,7 @@ export function WorkspaceModal({
               >
                 <Text
                   style={{
-                    color: "#EF4444",
+                    color: Palette.red500,
                     fontWeight: "700",
                     fontSize: 13,
                   }}
@@ -729,7 +672,7 @@ export function WorkspaceModal({
 
             <TouchableOpacity
               activeOpacity={0.8}
-              disabled={!folderNameInput.trim()}
+              disabled={!workspaceNameInput.trim()}
               onPress={handleSave}
               style={{
                 flex: 2,
@@ -738,17 +681,17 @@ export function WorkspaceModal({
                 backgroundColor: colors.primary,
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: folderNameInput.trim() ? 1 : 0.6,
+                opacity: workspaceNameInput.trim() ? 1 : 0.6,
               }}
             >
               <Text
                 style={{
-                  color: "#FFFFFF",
+                  color: Palette.white,
                   fontWeight: "700",
                   fontSize: 13,
                 }}
               >
-                {editingFolderId ? "Save Changes" : "Create Workspace"}
+                {editingWorkspaceId ? "Save Changes" : "Create Workspace"}
               </Text>
             </TouchableOpacity>
           </View>

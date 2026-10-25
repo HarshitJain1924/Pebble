@@ -1,113 +1,152 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { getRecurrenceLabel } from "@/services/scheduling/recurrence.service";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Image,
-    Pressable,
-    StyleSheet,
-    TouchableOpacity,
-    View
+  StyleSheet,
+  View,
 } from "react-native";
-import { AppCard } from "@/shared/components/ui/AppCard";
 import { ProgressRing } from "@/shared/components/ui/ProgressRing";
 import PressableScale from "@/shared/components/ui/PressableScale";
+import type { TaskPriority } from "@/shared/types/domain.types";
+import { HabitQuickEditSheet } from "./HabitQuickEditSheet";
+import { StreakFlameBadge } from "./StreakFlameBadge";
+import {
+  EntityItem,
+  EntityMetaRow,
+  type EntityMetaPart,
+  resolveEntityCategoryPresentation,
+  resolveResourceIconName,
+} from "@/features/items";
 
-type HabitStreakCardProps = {
+export type HabitStreakCardProps = {
   title: string;
   streak: number;
-  bestStreak: number;
+  bestStreak?: number; // Deprecated: surfaced in Habit Detail screen
   completedToday: boolean;
-  priority?: "low" | "medium" | "high";
+  priority?: TaskPriority | "low" | "medium" | "high" | "none";
   onPressToggle: (event?: any) => void;
   onCardPress?: () => void;
   linkedCount?: number;
-  isExpanded?: boolean;
   onPressResources?: (event?: any) => void;
   onLongPressResources?: () => void;
   habit: any;
+  onDeleteHabit?: () => void;
+  isSelectionMode?: boolean;
 
-  // Resource drawer props passed from HabitSection
+  // Resource drawer props passed down to HabitQuickEditSheet
   linkedResources?: any[];
-  displayedResources?: any[];
   onPressAddResource?: () => void;
   onPressOpenResource?: (res: any) => void;
+
+  // Deprecated compatibility props (no longer expanded inline)
+  isExpanded?: boolean;
+  displayedResources?: any[];
   showAllResources?: boolean;
   setShowAllResources?: (show: boolean) => void;
   hasHiddenResources?: boolean;
-};
-
-type MetaPart = {
-  key: "streak" | "recurrence" | "reminder";
-  text: string;
-  icon?: string;
-  color?: string;
 };
 
 export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
   title,
   streak,
   completedToday,
+  priority,
   onPressToggle,
   onCardPress,
   linkedCount = 0,
-  isExpanded = false,
   onPressResources,
   onLongPressResources,
   habit,
+  onDeleteHabit,
+  isSelectionMode = false,
 
   linkedResources = [],
-  displayedResources = [],
   onPressAddResource,
   onPressOpenResource,
-  showAllResources = false,
-  setShowAllResources,
-  hasHiddenResources = false,
 }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
   const isLight = colorScheme === "light";
+  const isDark = !isLight;
+  const reduceMotion = useReducedMotion();
 
-  const amberColor = "#F59E0B";
+  const amberColor = Palette.amber500;
 
-  // Build single line metadata (including streak value flatly without enclosing badge)
-  const metaParts = useMemo<MetaPart[]>(() => {
-    const parts: MetaPart[] = [];
+  // Priority fallback: priority prop or habit?.priority (defaults to medium for habits)
+  const effectivePriority = (priority !== undefined ? priority : habit?.priority) ?? "medium";
 
-    // 1. Streak flatly (slightly bolder streak value)
-    parts.push({
-      key: "streak",
-      text: `🔥 ${streak}`,
-      color: isLight ? "#B45309" : "#F59E0B",
-    });
+  // Quick edit sheet state
+  const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
 
-    // 2. Schedule / Recurrence
-    let recLabel = "";
-    if (habit.recurrence) {
-      recLabel = getRecurrenceLabel(habit.recurrence) ?? "";
-    } else if (habit.reminderDays && habit.reminderDays.length > 0) {
-      const DAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      const sorted = [...habit.reminderDays].sort((a, b) => a - b);
-      if (sorted.length === 7) {
-        recLabel = "Daily";
-      } else if (
-        sorted.length === 5 &&
-        !sorted.includes(0) &&
-        !sorted.includes(6)
-      ) {
-        recLabel = "Weekdays";
-      } else if (
-        sorted.length === 2 &&
-        sorted.includes(0) &&
-        sorted.includes(6)
-      ) {
-        recLabel = "Weekends";
-      } else {
-        recLabel = sorted.map((d) => DAY_FULL[d]?.substring(0, 3)).join(" ");
+  // Celebrate deliberate streak transitions (newly completed habit or streak increase)
+  const [isStreakAnimating, setIsStreakAnimating] = useState(false);
+  const prevCompletedRef = useRef(completedToday);
+  const prevStreakRef = useRef(streak);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up animation timer on unmount
+  useEffect(() => {
+    return () => {
+      if (animationTimerRef.current) {
+        clearTimeout(animationTimerRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    const newlyCompleted = !prevCompletedRef.current && completedToday;
+    const streakIncreased = streak > prevStreakRef.current;
+
+    // Capture previous values immediately to ensure refs never remain stale
+    prevCompletedRef.current = completedToday;
+    prevStreakRef.current = streak;
+
+    if ((newlyCompleted || streakIncreased) && !reduceMotion) {
+      setIsStreakAnimating(true);
+      if (animationTimerRef.current) {
+        clearTimeout(animationTimerRef.current);
+      }
+      animationTimerRef.current = setTimeout(() => {
+        setIsStreakAnimating(false);
+      }, 3000);
+    }
+  }, [completedToday, streak, reduceMotion]);
+
+  // Category atmosphere resolution (subtle background wash + watermark)
+  const categoryPresentation = useMemo(() => {
+    return resolveEntityCategoryPresentation(
+      {
+        categoryId: habit?.categoryId,
+        title,
+        type: "habit",
+        priority: effectivePriority,
+      },
+      isDark,
+    );
+  }, [habit?.categoryId, title, effectivePriority, isDark]);
+
+  // Primary resource icon derived from first linked resource
+  const resourceIconName = useMemo(() => {
+    return resolveResourceIconName(linkedResources?.[0]);
+  }, [linkedResources]);
+
+  // Build single line supporting metadata.
+  //
+  // The streak deliberately lives in the trailing slot instead (see
+  // `StreakFlameBadge`): it is a consistency value, not a schedule detail, and
+  // giving it its own column keeps it prominent without crowding this row.
+  const metaParts = useMemo<EntityMetaPart[]>(() => {
+    const parts: EntityMetaPart[] = [];
+
+    // 1. Schedule / Recurrence
+    let recLabel = "";
+    if (habit?.recurrence) {
+      recLabel = getRecurrenceLabel(habit.recurrence) ?? "";
     } else {
       recLabel = "Daily";
     }
@@ -120,50 +159,77 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
       });
     }
 
-    // 3. Reminder (no bell icon, clean 12h format e.g. 8:00 AM)
-    if (
-      habit.reminderHour !== undefined &&
-      habit.reminderMinute !== undefined
-    ) {
-      const ampm = habit.reminderHour >= 12 ? "PM" : "AM";
+    // 2. Reminder
+    if (habit?.reminder?.triggerAt) {
+      const d = new Date(habit.reminder.triggerAt);
+      const ampm = d.getHours() >= 12 ? "PM" : "AM";
       const displayHour =
-        habit.reminderHour % 12 === 0 ? 12 : habit.reminderHour % 12;
-      const displayMinute = String(habit.reminderMinute).padStart(2, "0");
+        d.getHours() % 12 === 0 ? 12 : d.getHours() % 12;
+      const displayMinute = String(d.getMinutes()).padStart(2, "0");
       parts.push({
         key: "reminder",
         text: `${displayHour}:${displayMinute} ${ampm}`,
         icon: "clock",
-        color: isLight ? "#4B5563" : "#D1D5DB",
+        color: colors.textMuted,
+      });
+    }
+
+    // 3. Linked Resources (compact indicator in metadata; taps open Quick Edit)
+    if (linkedCount > 0) {
+      parts.push({
+        key: "resources",
+        text: String(linkedCount),
+        icon: resourceIconName,
+        onPress: () => {
+          Haptics.selectionAsync().catch(() => {});
+          setIsQuickEditOpen(true);
+          onPressResources?.();
+        },
+        onLongPress: onLongPressResources,
+        accessibilityRole: "button",
+        accessibilityLabel: `${linkedCount} resources linked to ${title}. Tap to open in quick edit`,
+        testID: "habit-resource-indicator",
       });
     }
 
     return parts;
   }, [
-    streak,
-    habit.recurrence,
-    habit.reminderDays,
-    habit.reminderHour,
-    habit.reminderMinute,
-    isLight,
+    habit?.recurrence,
+    habit?.reminder?.triggerAt,
+    linkedCount,
+    resourceIconName,
+    onPressResources,
+    onLongPressResources,
+    title,
+    colors.textMuted,
   ]);
 
+  const handleToggle = useCallback(
+    (e?: any) => {
+      onPressToggle(e);
+    },
+    [onPressToggle],
+  );
+
   return (
-    <AppCard
-      style={[
-        styles.card,
-        {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          borderWidth: 1,
-          opacity: completedToday ? 0.6 : 1, // Satisfying opacity fade on completion
-        },
-      ]}
-      onPress={onCardPress}
-    >
-      {/* Primary Card Row */}
-      <View style={styles.cardHeaderRow}>
-        {/* Thicker empty ring for satisfying Apple-style fitness feel */}
-        <Pressable onPress={onPressToggle} style={styles.checkButton}>
+    <EntityItem
+      category={categoryPresentation}
+      priority={effectivePriority}
+      dimmed={completedToday}
+      colorScheme={colorScheme}
+      testIDPrefix="habit-category"
+      style={styles.cardContainer}
+      leadingControl={
+        <PressableScale
+          onPress={handleToggle}
+          scaleTo={0.88}
+          haptic
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: completedToday }}
+          accessibilityLabel={`Mark habit ${title} as ${completedToday ? "incomplete" : "completed"}`}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.checkButton}
+        >
           <ProgressRing
             progress={completedToday ? 1 : 0}
             size={24}
@@ -176,309 +242,76 @@ export const HabitStreakCard: React.FC<HabitStreakCardProps> = ({
           />
           {completedToday && (
             <View style={styles.checkTick}>
-              <Feather name="check" size={10} color="#FFFFFF" />
-            </View>
-          )}
-        </Pressable>
-
-        {/* Habit Info Content */}
-        <View style={styles.content}>
-          <Text
-            style={[
-              styles.title,
-              {
-                color: completedToday ? colors.textMuted : colors.text,
-                textDecorationLine: completedToday ? "line-through" : "none",
-              },
-            ]}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-
-          {/* Flat Single Line Metadata with double spacing dots */}
-          <View style={styles.metaRow}>
-            {metaParts.map((part, idx) => {
-              const isStreak = part.key === "streak";
-              return (
-                <React.Fragment key={idx}>
-                  {idx > 0 && (
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      {" "}
-                      •{" "}
-                    </Text>
-                  )}
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 3.5,
-                    }}
-                  >
-                    {part.icon && (
-                      <Feather
-                        name={part.icon as any}
-                        size={10}
-                        color={part.color || colors.textMuted}
-                      />
-                    )}
-                    <Text
-                      style={{
-                        color: part.color || colors.textMuted,
-                        fontSize: 11,
-                        fontWeight: isStreak ? "700" : "500",
-                      }}
-                    >
-                      {part.text}
-                    </Text>
-                  </View>
-                </React.Fragment>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Trailing resource action button (plain icon / label without container pill) */}
-        <PressableScale
-          onPress={onPressResources}
-          onLongPress={linkedCount > 0 ? onLongPressResources : undefined}
-          delayLongPress={350}
-          style={{
-            width: 44,
-            height: 44,
-            justifyContent: "center",
-            alignItems: "center",
-            marginRight: -4,
-          }}
-        >
-          {linkedCount === 0 ? (
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 1 }}
-            >
-              <Feather name="paperclip" size={13} color={colors.textMuted} />
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: "700",
-                  color: colors.textMuted,
-                }}
-              >
-                +
-              </Text>
-            </View>
-          ) : (
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
-            >
-              <Feather
-                name="paperclip"
-                size={12}
-                color={isExpanded ? colors.primary : colors.textMuted}
-              />
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: "700",
-                  color: isExpanded ? colors.primary : colors.textMuted,
-                }}
-              >
-                {linkedCount}
-              </Text>
+              <Feather name="check" size={10} color={Palette.white} />
             </View>
           )}
         </PressableScale>
-      </View>
-
-      {/* Expanded Flat Resource List inside the same card */}
-      {isExpanded && linkedResources.length > 0 && (
-        <View style={styles.expandedContent}>
-          {/* Subtle divider before the resources section */}
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          {/* Flat List (Apple Notes attachment style) */}
-          <View style={styles.resourcesList}>
-            {displayedResources.map((res: any, idx: number) => {
-              const isImage = res.type === "image";
-              const isNote = res.type === "note";
-              const isLink = res.type === "link";
-              const isVideo =
-                isLink &&
-                (res.url?.toLowerCase().includes("youtube") ||
-                  res.url?.toLowerCase().includes("video"));
-
-              return (
-                <View key={res.id}>
-                  <TouchableOpacity
-                    onPress={() => onPressOpenResource?.(res)}
-                    style={styles.resourceRow}
-                  >
-                    {/* Icon or Thumbnail */}
-                    {isImage ? (
-                      <View
-                        style={[
-                          styles.thumbnailWrap,
-                          { backgroundColor: isLight ? "#F1F5F9" : "#27272A" },
-                        ]}
-                      >
-                        <Image
-                          source={{
-                            uri:
-                              res.mediaUri ||
-                              "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
-                          }}
-                          style={{ width: "100%", height: "100%" }}
-                        />
-                      </View>
-                    ) : (
-                      <View
-                        style={[
-                          styles.thumbnailWrap,
-                          { backgroundColor: isLight ? "#F1F5F9" : "#27272A" },
-                        ]}
-                      >
-                        <Feather
-                          name={
-                            isVideo
-                              ? "play-circle"
-                              : isLink
-                                ? "globe"
-                                : isNote
-                                  ? "file-text"
-                                  : "file"
-                          }
-                          size={13}
-                          color={colors.primary}
-                        />
-                      </View>
-                    )}
-
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          fontWeight: "600",
-                          color: colors.text,
-                        }}
-                        numberOfLines={1}
-                      >
-                        {res.title}
-                      </Text>
-                      {isLink && res.url && (
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: colors.textMuted,
-                            marginTop: 1,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {
-                            res.url
-                              .replace(/https?:\/\/(www\.)?/, "")
-                              .split("/")[0]
-                          }
-                        </Text>
-                      )}
-                      {isNote && res.content && (
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: colors.textMuted,
-                            marginTop: 1,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {res.content.trim().split("\n")[0]}
-                        </Text>
-                      )}
-                      {isImage && (
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: colors.textMuted,
-                            marginTop: 1,
-                          }}
-                        >
-                          Image attachment
-                        </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* Inner row separator divider */}
-                  {idx < displayedResources.length - 1 && (
-                    <View
-                      style={[
-                        styles.innerDivider,
-                        { backgroundColor: colors.border + "40" },
-                      ]}
-                    />
-                  )}
-                </View>
-              );
-            })}
-
-            {/* Show More / Less Gate */}
-            {hasHiddenResources && (
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                    () => {},
-                  );
-                  setShowAllResources?.(!showAllResources);
-                }}
-                style={styles.showMoreBtn}
-              >
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: colors.textMuted,
-                    fontWeight: "600",
-                  }}
-                >
-                  {showAllResources
-                    ? "Show less"
-                    : `Show ${linkedResources.length - 2} more`}
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Flat Link Resource Action button (no dashed border) */}
-            <TouchableOpacity
-              onPress={onPressAddResource}
-              style={styles.addResourceBtn}
+      }
+      title={title}
+      isCompleted={completedToday}
+      onPressContent={onCardPress}
+      onLongPressContent={isSelectionMode ? undefined : () => setIsQuickEditOpen(true)}
+      contentAccessibilityRole="button"
+      contentAccessibilityLabel={`Open habit details: ${title}`}
+      metadata={<EntityMetaRow parts={metaParts} dotColor={colors.textMuted} />}
+      trailingAreaStyle={styles.trailingArea}
+      trailingActions={
+        <>
+          <StreakFlameBadge streak={streak} animated={isStreakAnimating} />
+          {!isSelectionMode ? (
+            <PressableScale
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setIsQuickEditOpen(true);
+              }}
+              scaleTo={0.9}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={`More options for habit ${title}`}
+              style={styles.overflowButton}
+              testID="habit-overflow-button"
             >
-              <Feather name="plus" size={14} color={colors.primary} />
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.primary,
-                  fontWeight: "600",
-                }}
-              >
-                Link Resource
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-    </AppCard>
+              <Feather name="more-vertical" size={18} color={colors.textMuted} />
+            </PressableScale>
+          ) : null}
+        </>
+      }
+    >
+      {/* Habit Quick Edit Sheet */}
+      <HabitQuickEditSheet
+        visible={isQuickEditOpen}
+        onClose={() => setIsQuickEditOpen(false)}
+        habit={habit}
+        completedToday={completedToday}
+        onToggleComplete={onPressToggle}
+        onDeleteHabit={onDeleteHabit}
+        onOpenFullDetails={onCardPress}
+        linkedResources={linkedResources}
+        totalResources={linkedCount}
+        onOpenResource={onPressOpenResource}
+        onAddResource={onPressAddResource}
+        colorScheme={colorScheme}
+      />
+    </EntityItem>
   );
 };
 
+export const HabitItem = HabitStreakCard;
+
 const styles = StyleSheet.create({
-  card: {
-    flexDirection: "column",
-    paddingLeft: 14,
-    paddingRight: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
-    borderRadius: 14,
-  },
-  cardHeaderRow: {
-    flexDirection: "row",
+  cardContainer: {},
+  trailingArea: {
+    // Keeps the informational streak badge clear of the overflow button's
+    // expanded hit target while preserving that target's full size.
+    gap: 6,
     alignItems: "center",
-    gap: 12,
+  },
+  overflowButton: {
+    width: 28,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
   },
   checkButton: {
     position: "relative",
@@ -492,64 +325,9 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#F59E0B",
+    backgroundColor: Palette.amber500,
     alignItems: "center",
     justifyContent: "center",
-  },
-  content: {
-    flex: 1,
-    gap: 2,
-  },
-  title: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-  expandedContent: {
-    marginTop: 10,
-    paddingBottom: 4,
-  },
-  divider: {
-    height: 1,
-    width: "100%",
-    marginBottom: 12,
-    opacity: 0.5,
-  },
-  resourcesList: {
-    paddingLeft: 36, // Align neatly with content text offset
-    gap: 4,
-  },
-  resourceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    gap: 12,
-  },
-  thumbnailWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  innerDivider: {
-    height: 1,
-    width: "100%",
-  },
-  showMoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  addResourceBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    gap: 6,
   },
 });
+

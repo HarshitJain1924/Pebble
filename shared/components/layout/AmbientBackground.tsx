@@ -9,8 +9,10 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
+import { AmbientColors } from "@/shared/constants/categoryColors";
 import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 
 // -------------------------------------------------------------
 // GradientOrb Component
@@ -46,8 +48,19 @@ export function GradientOrb({
   const transY = useSharedValue(0);
   const scale = useSharedValue(1);
   const pulseOpacity = useSharedValue(opacity);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Ambient background drift is purely decorative — hold every orb static at
+    // its resting opacity when reduce-motion is on.
+    if (reducedMotion) {
+      transX.value = 0;
+      transY.value = 0;
+      scale.value = 1;
+      pulseOpacity.value = opacity;
+      return;
+    }
+
     // Drifts horizontally
     transX.value = withRepeat(
       withSequence(
@@ -87,7 +100,7 @@ export function GradientOrb({
       -1,
       true
     );
-  }, []);
+  }, [opacity, pulseSpeed, pulseRange, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -140,6 +153,7 @@ type FloatingGlowProps = {
   pulseSpeed?: number;
   pulseRange?: number;
   style?: any;
+  id?: string;
 };
 
 export function FloatingGlow({
@@ -149,11 +163,22 @@ export function FloatingGlow({
   pulseSpeed = 6000,
   pulseRange = 0.18,
   style,
+  id,
 }: FloatingGlowProps) {
   const scale = useSharedValue(1);
   const breathOpacity = useSharedValue(opacity);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    // Localized glow breathing is decorative — hold it static at its resting
+    // scale/opacity when reduce-motion is on.
+    if (reducedMotion) {
+      scale.value = 1;
+      breathOpacity.value = opacity;
+      return;
+    }
+
+    breathOpacity.value = withTiming(opacity, { duration: 600 });
     scale.value = withRepeat(
       withSequence(
         withTiming(1 + pulseRange, { duration: pulseSpeed, easing: Easing.inOut(Easing.ease) }),
@@ -165,13 +190,13 @@ export function FloatingGlow({
 
     breathOpacity.value = withRepeat(
       withSequence(
-        withTiming(opacity * 1.3, { duration: pulseSpeed - 500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(opacity * 0.7, { duration: pulseSpeed - 500, easing: Easing.inOut(Easing.ease) })
+        withTiming(opacity * 1.3, { duration: Math.max(1000, pulseSpeed - 500), easing: Easing.inOut(Easing.ease) }),
+        withTiming(opacity * 0.7, { duration: Math.max(1000, pulseSpeed - 500), easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       true
     );
-  }, []);
+  }, [opacity, pulseSpeed, pulseRange, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -180,7 +205,7 @@ export function FloatingGlow({
     };
   });
 
-  const uniqueId = `glow_${color.replace(/[^a-zA-Z0-9]/g, "")}_${size}`;
+  const uniqueId = id || `glow_${color.replace(/[^a-zA-Z0-9]/g, "")}_${size}`;
 
   return (
     <Animated.View
@@ -219,13 +244,13 @@ export function AnimatedMeshLayer() {
 
   // Dynamic light-safe pastel colors to prevent muddy smudges in light mode
   const orbColors = isLight ? {
-    indigo: "#B0BAFF", // Beautiful rich pastel indigo
-    purple: "#E2C4FF", // Beautiful rich pastel purple
-    cyan: "#AFF5F9",   // Beautiful rich pastel cyan
+    indigo: AmbientColors.indigo.light, // Beautiful rich pastel indigo
+    purple: AmbientColors.purple.light, // Beautiful rich pastel purple
+    cyan: AmbientColors.cyan.light,   // Beautiful rich pastel cyan
   } : {
     indigo: colors.primary,
-    purple: "#8B5CF6",
-    cyan: "#06B6D4",
+    purple: AmbientColors.purple.dark,
+    cyan: AmbientColors.cyan.dark,
   };
 
   const opacities = isLight ? {

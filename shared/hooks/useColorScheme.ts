@@ -25,8 +25,8 @@ AsyncStorage.getItem('pebble:settings').then((raw) => {
   }
 });
 
-export function useColorScheme() {
-  const system = useSystemColorScheme() ?? 'dark';
+export function useColorScheme(): 'light' | 'dark' {
+  const system = (useSystemColorScheme() ?? 'dark') as 'light' | 'dark';
   const [themeSetting, setThemeSetting] = useState<ThemeSetting>(currentSetting);
 
   useEffect(() => {

@@ -5,9 +5,10 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
+import { Radius } from "@/shared/constants/radii";
 import { Shadows } from "@/shared/constants/shadows";
 import { Spacing } from "@/shared/constants/spacing";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 type AppCardProps = {
@@ -15,6 +16,10 @@ type AppCardProps = {
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
   interactive?: boolean;
+  accessibilityRole?: any;
+  accessibilityLabel?: string;
+  accessibilityState?: any;
+  accessible?: boolean;
 };
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -24,6 +29,10 @@ export const AppCard: React.FC<AppCardProps> = ({
   style,
   onPress,
   interactive = !!onPress,
+  accessibilityRole,
+  accessibilityLabel,
+  accessibilityState,
+  accessible,
 }) => {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? "dark"];
@@ -50,7 +59,7 @@ export const AppCard: React.FC<AppCardProps> = ({
 
   const dynamicShadow = colorScheme === "light" ? Platform.select({
     ios: {
-      shadowColor: "#000",
+      shadowColor: Palette.black,
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.05,
       shadowRadius: 12,
@@ -67,7 +76,7 @@ export const AppCard: React.FC<AppCardProps> = ({
   const flatStyle = StyleSheet.flatten([
     styles.card,
     {
-      backgroundColor: colorScheme === "light" ? "#FFFFFF" : "rgba(24, 24, 27, 0.72)",
+      backgroundColor: colorScheme === "light" ? Palette.white : "rgba(24, 24, 27, 0.72)",
       borderColor: colorScheme === "light" ? theme.border : "rgba(255, 255, 255, 0.065)",
     },
     dynamicShadow,
@@ -91,6 +100,10 @@ export const AppCard: React.FC<AppCardProps> = ({
       onPressOut={handlePressOut}
       delayPressIn={80}
       activeOpacity={1}
+      accessible={accessible ?? true}
+      accessibilityRole={accessibilityRole ?? "button"}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
       style={[flatStyle, animatedStyle]}
     >
       {children}
@@ -100,7 +113,7 @@ export const AppCard: React.FC<AppCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 20,
+    borderRadius: Radius.xl,
     padding: Spacing.lg,
     borderWidth: 1,
   },

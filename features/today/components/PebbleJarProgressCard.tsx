@@ -1,4 +1,6 @@
 import { AppText as Text } from "@/shared/components/ui/AppText";
+import { PebbleTypeColors } from "@/shared/constants/categoryColors";
+import { Palette } from "@/shared/constants/theme";
 import React from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import Animated, {
@@ -7,6 +9,7 @@ import Animated, {
   useAnimatedStyle,
   type SharedValue,
 } from "react-native-reanimated";
+import { getMilestoneInfo } from "@/shared/utils/pebble-milestones";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -44,63 +47,6 @@ const PEBBLE_SLOTS = [
   { x: 30, b: 25 },
 ];
 
-const getMilestoneInfo = (pebbles: number) => {
-  if (pebbles <= 10) {
-    return {
-      stage: 1,
-      name: "First Steps",
-      range: "0-10",
-      desc: "Gathering the first stones of momentum.",
-    };
-  }
-  if (pebbles <= 25) {
-    return {
-      stage: 2,
-      name: "Sprout",
-      range: "11-25",
-      desc: "A small base of habit stones.",
-    };
-  }
-  if (pebbles <= 50) {
-    return {
-      stage: 3,
-      name: "Zen Stream",
-      range: "26-50",
-      desc: "Flowing stream of productivity.",
-    };
-  }
-  if (pebbles <= 100) {
-    return {
-      stage: 4,
-      name: "Sanctuary Base",
-      range: "51-100",
-      desc: "Solid foundation for daily rhythm.",
-    };
-  }
-  if (pebbles <= 250) {
-    return {
-      stage: 5,
-      name: "Pebble Hoarder",
-      range: "101-250",
-      desc: "A significant heap of accomplishments.",
-    };
-  }
-  if (pebbles <= 500) {
-    return {
-      stage: 6,
-      name: "Zen Mountain",
-      range: "251-500",
-      desc: "An impressive, towering mount of zen.",
-    };
-  }
-  return {
-    stage: 7,
-    name: "Ocean of Focus",
-    range: "500+",
-    desc: "Infinite zen achieved. Master level.",
-  };
-};
-
 export interface PebbleJarProgressCardProps {
   colors: {
     card: string;
@@ -118,6 +64,9 @@ export interface PebbleJarProgressCardProps {
     completed: number;
     total: number;
   };
+  todayPebbles?: number;
+  todayTypes?: { task: number; habit: number; focus: number; checklist: number };
+  monthlyTypes?: { task: number; habit: number; focus: number; checklist: number };
   monthlyPebbles: number;
   lifetimePebbles: number;
   jarFillAnim: SharedValue<number>;
@@ -133,6 +82,9 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
   colorScheme,
   todoStats,
   habitStats,
+  todayPebbles,
+  todayTypes,
+  monthlyTypes,
   monthlyPebbles,
   lifetimePebbles,
   jarFillAnim,
@@ -142,6 +94,10 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
   breathScale,
   parentScrollRef,
 }) => {
+  const todayPebbleCount =
+    todayPebbles !== undefined
+      ? todayPebbles
+      : Math.min(15, todoStats.completed + habitStats.completed);
   const completedCount = todoStats.completed + habitStats.completed;
   const totalCount = todoStats.total + habitStats.total;
   const progressPct = totalCount > 0 ? completedCount / totalCount : 0;
@@ -166,7 +122,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
       0,
       Math.min(1, cardScrollX.value / (INNER_TEXT_WIDTH || 1)),
     );
-    const todayY = 46 * (1 - jarFillAnim.value);
+    const todayY = 46 * (1 - Math.min(15, todayPebbleCount) / 15);
     const monthlyY = 46 * (1 - Math.min(100, monthlyPebbles) / 100);
     const translateY = todayY + (monthlyY - todayY) * ratio;
 
@@ -176,7 +132,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
     const backgroundColor = interpolateColor(
       cardScrollX.value,
       [0, INNER_TEXT_WIDTH || 1],
-      [colors.primary, "#F59E0B"],
+      [colors.primary, Palette.amber500],
     );
 
     const opacity = 0.22 + (0.25 - 0.22) * ratio;
@@ -224,7 +180,7 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
           borderWidth: 1.5,
           borderRadius: 20,
           marginHorizontal: CARD_MARGIN,
-          shadowColor: "#000",
+          shadowColor: Palette.black,
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: colorScheme === "light" ? 0.04 : 0.2,
           shadowRadius: 12,
@@ -267,46 +223,93 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
             style={{
               width: INNER_TEXT_WIDTH,
               paddingLeft: 16,
-              paddingRight: 8,
-              paddingVertical: 14,
+              paddingRight: 10,
+              paddingVertical: 12,
               justifyContent: "center",
               height: "100%",
             }}
           >
-            <View style={{ gap: 4 }}>
-              <Text
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: "700",
+                    color: colors.primary,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                  }}
+                >
+                  Today's Progress
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "600",
+                    color: colors.textMuted,
+                  }}
+                >
+                  {displayPercent}%
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "baseline", marginVertical: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 22,
+                    fontWeight: "800",
+                    color: colors.text,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  {completedCount}{" "}
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "500",
+                      color: colors.textMuted,
+                    }}
+                  >
+                    / {totalCount || 1}
+                  </Text>
+                </Text>
+              </View>
+
+              {/* Sleek Progress Bar Track */}
+              <View
                 style={{
-                  fontSize: 10,
-                  fontWeight: "800",
-                  color: colors.primary,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
+                  height: 5,
+                  borderRadius: 2.5,
+                  backgroundColor:
+                    colorScheme === "light"
+                      ? Palette.zinc200
+                      : "rgba(255,255,255,0.08)",
+                  width: "92%",
+                  marginVertical: 3,
+                  overflow: "hidden",
                 }}
               >
-                Today's Pebble Jar
-              </Text>
+                <View
+                  style={{
+                    height: "100%",
+                    borderRadius: 2.5,
+                    backgroundColor: colors.primary,
+                    width: `${Math.min(100, displayPercent)}%`,
+                  }}
+                />
+              </View>
+
               <Text
                 style={{
-                  fontSize: 15,
-                  fontWeight: "800",
-                  color: colors.text,
+                  fontSize: 11,
+                  color: colors.textMuted,
+                  fontWeight: "500",
                 }}
                 numberOfLines={1}
               >
-                {totalCount > 0
-                  ? `${completedCount} of ${totalCount} pebbles dropped`
-                  : "No target pebbles today"}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.textMuted,
-                }}
-                numberOfLines={2}
-              >
-                {totalCount > 0
-                  ? `${displayPercent}% of daily jar filled`
-                  : "Add some tasks or habits to get started!"}
+                {completedCount >= totalCount && totalCount > 0
+                  ? "All clear! You did incredible today."
+                  : "You're building a better tomorrow."}
               </Text>
             </View>
           </View>
@@ -316,43 +319,74 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
             style={{
               width: INNER_TEXT_WIDTH,
               paddingLeft: 16,
-              paddingRight: 8,
-              paddingVertical: 14,
+              paddingRight: 10,
+              paddingVertical: 12,
               justifyContent: "center",
               height: "100%",
             }}
           >
-            <View style={{ gap: 4 }}>
-              <Text
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: "700",
+                    color: Palette.amber500,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                  }}
+                >
+                  This month
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "baseline", marginVertical: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 22,
+                    fontWeight: "800",
+                    color: colors.text,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  {monthlyPebblesCount}
+                </Text>
+              </View>
+
+              {/* Sleek Progress Bar Track */}
+              <View
                 style={{
-                  fontSize: 10,
-                  fontWeight: "800",
-                  color: "#F59E0B",
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
+                  height: 5,
+                  borderRadius: 2.5,
+                  backgroundColor:
+                    colorScheme === "light"
+                      ? Palette.zinc200
+                      : "rgba(255,255,255,0.08)",
+                  width: "92%",
+                  marginVertical: 3,
+                  overflow: "hidden",
                 }}
               >
-                Monthly Sanctuary
-              </Text>
+                <View
+                  style={{
+                    height: "100%",
+                    borderRadius: 2.5,
+                    backgroundColor: Palette.amber500,
+                    width: `${Math.min(100, monthlyPebblesCount)}%`,
+                  }}
+                />
+              </View>
+
               <Text
                 style={{
-                  fontSize: 15,
-                  fontWeight: "800",
-                  color: colors.text,
+                  fontSize: 11,
+                  color: colors.textMuted,
+                  fontWeight: "500",
                 }}
                 numberOfLines={1}
               >
-                {monthlyPebblesCount} of 100 pebbles
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.textMuted,
-                }}
-                numberOfLines={2}
-              >
                 {milestoneInfo
-                  ? `Stage ${milestoneInfo.stage} • ${milestoneInfo.name}`
+                  ? `Chapter ${milestoneInfo.stage} — ${milestoneInfo.name}`
                   : "Thirsty Crow Milestone"}
               </Text>
             </View>
@@ -466,14 +500,35 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
               >
                 {(() => {
                   const slots = PEBBLE_SLOTS;
+                  const countToRender = Math.min(todayPebbleCount, 15);
+                  const typeSequence: ("task" | "habit" | "checklist" | "focus")[] = [];
+
+                  if (todayTypes) {
+                    const { task = 0, habit = 0, checklist = 0, focus = 0 } = todayTypes;
+                    for (let i = 0; i < task; i++) typeSequence.push("task");
+                    for (let i = 0; i < habit; i++) typeSequence.push("habit");
+                    for (let i = 0; i < checklist; i++) typeSequence.push("checklist");
+                    for (let i = 0; i < focus; i++) typeSequence.push("focus");
+                  }
+                  if (typeSequence.length === 0) {
+                    for (let i = 0; i < countToRender; i++) {
+                      const isTask = i < todoStats.completed;
+                      typeSequence.push(isTask ? "task" : "habit");
+                    }
+                  }
+
+                  const PEBBLE_TYPE_COLORS: Record<string, string> = {
+                    task: PebbleTypeColors.task.dark,
+                    habit: PebbleTypeColors.habit.dark,
+                    checklist: PebbleTypeColors.checklist.dark,
+                    focus: PebbleTypeColors.focus.dark,
+                  };
+
                   const pebblesToRender = [];
-                  for (
-                    let i = 0;
-                    i < Math.min(completedCount, slots.length);
-                    i++
-                  ) {
+                  for (let i = 0; i < countToRender; i++) {
                     const slot = slots[i];
-                    const isTask = i < todoStats.completed;
+                    const pType = typeSequence[i] || "task";
+                    const color = PEBBLE_TYPE_COLORS[pType] || PebbleTypeColors.task.dark;
                     pebblesToRender.push(
                       <View
                         key={`today-pebble-${i}`}
@@ -484,8 +539,8 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                           width: 6,
                           height: 6,
                           borderRadius: 3,
-                          backgroundColor: isTask ? "#818CF8" : "#F59E0B",
-                          shadowColor: "#000",
+                          backgroundColor: color,
+                          shadowColor: Palette.black,
                           shadowOffset: { width: 0, height: 1 },
                           shadowOpacity: 0.15,
                           shadowRadius: 1,
@@ -504,14 +559,47 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
               >
                 {(() => {
                   const slots = PEBBLE_SLOTS;
+                  const typeSequence: ("task" | "habit" | "checklist" | "focus")[] = [];
+                  if (monthlyTypes) {
+                    const { task = 0, habit = 0, checklist = 0, focus = 0 } = monthlyTypes;
+                    for (let i = 0; i < task; i++) typeSequence.push("task");
+                    for (let i = 0; i < habit; i++) typeSequence.push("habit");
+                    for (let i = 0; i < checklist; i++) typeSequence.push("checklist");
+                    for (let i = 0; i < focus; i++) typeSequence.push("focus");
+                  }
+                  if (typeSequence.length === 0) {
+                    for (let i = 0; i < monthlyPebbles; i++) typeSequence.push("task");
+                  }
+
+                  let dotsToRender = 0;
+                  if (monthlyPebbles > 0) {
+                    if (monthlyPebbles <= 15) {
+                      dotsToRender = monthlyPebbles;
+                    } else {
+                      dotsToRender = Math.min(
+                        slots.length,
+                        15 + Math.floor((monthlyPebbles - 15) / 10)
+                      );
+                    }
+                  }
+
+                  const PEBBLE_TYPE_COLORS: Record<string, string> = {
+                    task: PebbleTypeColors.task.dark,
+                    habit: PebbleTypeColors.habit.dark,
+                    checklist: PebbleTypeColors.checklist.dark,
+                    focus: PebbleTypeColors.focus.dark,
+                  };
+
                   const pebblesToRender = [];
-                  const monthlyPebblesToRender = Math.min(
-                    Math.round(monthlyPebblesCount / 6.5),
-                    15,
-                  );
-                  for (let i = 0; i < monthlyPebblesToRender; i++) {
+                  for (let i = 0; i < dotsToRender; i++) {
                     const slot = slots[i];
-                    const isPurple = i % 2 === 0;
+                    const typeIdx =
+                      monthlyPebbles <= 15
+                        ? i
+                        : Math.floor((i / dotsToRender) * typeSequence.length);
+                    const pType = typeSequence[typeIdx] || "task";
+                    const color = PEBBLE_TYPE_COLORS[pType] || PebbleTypeColors.task.dark;
+
                     pebblesToRender.push(
                       <View
                         key={`monthly-pebble-${i}`}
@@ -522,8 +610,8 @@ export const PebbleJarProgressCard: React.FC<PebbleJarProgressCardProps> = ({
                           width: 6,
                           height: 6,
                           borderRadius: 3,
-                          backgroundColor: isPurple ? "#818CF8" : "#F59E0B",
-                          shadowColor: "#000",
+                          backgroundColor: color,
+                          shadowColor: Palette.black,
                           shadowOffset: { width: 0, height: 1 },
                           shadowOpacity: 0.15,
                           shadowRadius: 1,

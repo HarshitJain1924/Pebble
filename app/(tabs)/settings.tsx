@@ -1,45 +1,16 @@
-import { AppCard } from "@/shared/components/ui/AppCard";
-import {
-  AVATAR_OPTIONS,
-  EMOJI_OPTIONS,
-  RenderAvatar,
-} from "@/features/profile/components/RenderAvatar";
-import { Colors } from "@/shared/constants/theme";
+import { AppText as Text } from "@/shared/components/ui/AppText";
+import { Radius } from "@/shared/constants/radii";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { emitThemeChange, useColorScheme } from "@/shared/hooks/useColorScheme";
-import {
-  GEMS_BONUS_KEY,
-  GEMS_SPENT_KEY,
-  PEBBLE_LOG_KEY,
-  PEBBLE_SPENT_KEY,
-} from "@/features/profile/services/pebble.service";
-import { QUICK_SUGGESTIONS_SEEN_KEY } from "@/features/capture/services/quick-suggestions.service";
-import { cancelAllScheduledNotifications } from "@/services/scheduling/reminders.service";
+import { exportBackupFile } from "@/features/settings/services/export.service";
 import {
   AppSettings,
-  getProfile,
   getSettings,
-  saveProfile,
   saveSettings,
-  UserProfile,
 } from "@/features/settings/services/settings.service";
 import { emitStateChange } from "@/services/events/state-events";
-import {
-  CHECKLISTS_STORAGE_KEY,
-  COLLECTIONS_STORAGE_KEY,
-  DAILY_STORAGE_KEY,
-  DASHBOARD_FILTER_STORAGE_KEY,
-  DASHBOARD_PRIORITY_STORAGE_KEY,
-  HISTORY_STORAGE_KEY,
-  NOTIF_LOG_STORAGE_KEY,
-  PROFILE_STORAGE_KEY,
-  RECYCLE_BIN_STORAGE_KEY,
-  SETTINGS_STORAGE_KEY,
-  TODOS_STORAGE_KEY,
-} from "@/services/storage/storage.service";
-import { clearRepositoryStorage } from "@/repositories";
-import { WIDGET_PAYLOAD_KEY } from "@/services/analytics/widget-data.service";
+import { BackupService } from "@/services/storage/backup.service";
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
@@ -49,49 +20,57 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { FadeInDown } from "react-native-reanimated";
+
+const THEME_OPTIONS = [
+  { key: "system", label: "System" },
+  { key: "light", label: "Light" },
+  { key: "dark", label: "Dark" },
+] as const;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  work: "Work",
+  personal: "Personal",
+  health: "Health",
+  learning: "Learning",
+  creative: "Creative",
+  focus: "Focus",
+  habit: "Habit",
+};
+
+function formatHour(hour: number): string {
+  const h = ((hour % 24) + 24) % 24;
+  const suffix = h < 12 ? "AM" : "PM";
+  const display = h % 12 === 0 ? 12 : h % 12;
+  return `${display}:00 ${suffix}`;
+}
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "dark"];
-
   const router = useRouter();
 
   const [loading, setLoading] = useState<boolean>(true);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
 
-  // Editing profile details
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [avatar, setAvatar] = useState("👨‍💻");
-
-  // Modals for import/export
-  const [exportModalVisible, setExportModalVisible] = useState(false);
-  const [importModalVisible, setImportModalVisible] = useState(false);
-  const [exportDataString, setExportDataString] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
+  const [showRestoreSheet, setShowRestoreSheet] = useState(false);
   const [importDataString, setImportDataString] = useState("");
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [showCategoriesSheet, setShowCategoriesSheet] = useState(false);
+  const [hourPicker, setHourPicker] = useState<"start" | "end" | null>(null);
 
   const loadSettingsData = useCallback(async () => {
     try {
-      const currentSettings = await getSettings();
-      const currentProfile = await getProfile();
-
-      setSettings(currentSettings);
-      setProfile(currentProfile);
-
-      setName(currentProfile.name);
-      setEmail(currentProfile.email);
-      setAvatar(currentProfile.avatar);
+      setSettings(await getSettings());
     } catch {
-      // ignore
+      Alert.alert("Couldn't load settings", "Please try again in a moment.");
     } finally {
       setLoading(false);
     }
@@ -103,171 +82,114 @@ export default function SettingsScreen() {
     }, [loadSettingsData]),
   );
 
-  const saveProfileDetails = async () => {
-    if (!profile) return;
+  /**
+   * Persist a settings change. Notifies the rest of the app on success and
+   * surfaces real failures instead of swallowing them.
+   */
+  const persistSettings = async (
+    next: AppSettings,
+    { silent = false }: { silent?: boolean } = {},
+  ) => {
+    const previous = settings;
+    setSettings(next);
     try {
-      const updatedProfile: UserProfile = {
-        ...profile,
-        name: name.trim() || profile.name,
-        email: email.trim() || profile.email,
-        avatar: avatar,
-      };
-      await saveProfile(updatedProfile);
-      setProfile(updatedProfile);
-      emitStateChange("profile_changed");
-      Alert.alert("Success", "Profile updated successfully!");
+      await saveSettings(next);
+      emitStateChange("settings_changed");
+      return true;
     } catch {
-      Alert.alert("Error", "Could not save profile details.");
+      if (previous) setSettings(previous);
+      if (!silent) {
+        Alert.alert("Couldn't save", "That change wasn't saved. Please try again.");
+      }
+      return false;
     }
+  };
+
+  const updateTheme = async (themeVal: "dark" | "light" | "system") => {
+    if (!settings || settings.theme === themeVal) return;
+    const ok = await persistSettings({ ...settings, theme: themeVal });
+    if (ok) emitThemeChange(themeVal);
   };
 
   const updateQuietHoursToggle = async (enabled: boolean) => {
     if (!settings) return;
-    const next = {
+    await persistSettings({
       ...settings,
-      quietHours: {
-        ...settings.quietHours,
-        enabled,
-      },
-    };
-    await saveSettings(next);
-    setSettings(next);
-    emitStateChange("settings_changed");
+      quietHours: { ...settings.quietHours, enabled },
+    });
   };
 
-  const updateQuietHoursTimes = async (startHour: number, endHour: number) => {
+  const updateQuietHoursHour = async (bound: "start" | "end", hour: number) => {
     if (!settings) return;
-    const next = {
+    await persistSettings({
       ...settings,
       quietHours: {
         ...settings.quietHours,
-        startHour,
-        endHour,
+        [bound === "start" ? "startHour" : "endHour"]: hour,
       },
-    };
-    await saveSettings(next);
-    setSettings(next);
-    emitStateChange("settings_changed");
+    });
   };
 
   const updateCategoryToggle = async (catKey: string, val: boolean) => {
     if (!settings) return;
-    const next = {
+    await persistSettings({
       ...settings,
-      categories: {
-        ...settings.categories,
-        [catKey]: val,
-      },
-    };
-    await saveSettings(next);
-    setSettings(next);
-  };
-
-  const updateTheme = async (themeVal: "dark" | "light" | "system") => {
-    if (!settings) return;
-    const next = {
-      ...settings,
-      theme: themeVal,
-    };
-    await saveSettings(next);
-    setSettings(next);
-    emitThemeChange(themeVal);
-    Alert.alert("Theme Set", `App theme is configured to ${themeVal}.`);
+      categories: { ...settings.categories, [catKey]: val },
+    });
   };
 
   const updateEscalation = async (enabled: boolean) => {
     if (!settings) return;
-    const next = {
-      ...settings,
-      escalationEnabled: enabled,
-    };
-    await saveSettings(next);
-    setSettings(next);
+    await persistSettings({ ...settings, escalationEnabled: enabled });
   };
 
   const updateMascotToggle = async (enabled: boolean) => {
     if (!settings) return;
-    const next = {
-      ...settings,
-      showMascot: enabled,
-    };
-    await saveSettings(next);
-    setSettings(next);
-    emitStateChange("settings_changed");
+    await persistSettings({ ...settings, showMascot: enabled });
   };
 
-  // --- DATA CONSOLE UTILITIES ---
+  const exportBackup = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      await exportBackupFile();
+      // The native share sheet communicates the destination on success.
+    } catch (e: any) {
+      console.warn("Export failed:", e);
+      Alert.alert(
+        "Couldn't export",
+        e?.message || "We couldn't create your backup. Please try again.",
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
-  const clearAllData = async () => {
+  const clearAllData = () => {
     Alert.alert(
-      "⚠️ Dangerous Action",
-      "You are about to wipe your profile, task lists, subtasks, habit streaks, and productivity history. This cannot be undone. Clear all data?",
+      "Clear all data?",
+      "This deletes your tasks, habits, checklists, focus history and progress on this device. It can't be undone.",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "Keep my data", style: "cancel" },
         {
-          text: "Clear Everything",
+          text: "Delete everything",
           style: "destructive",
           onPress: async () => {
             setLoading(true);
             try {
-              await Promise.all([
-                clearRepositoryStorage(),
-                AsyncStorage.removeItem(TODOS_STORAGE_KEY),
-                AsyncStorage.removeItem(DAILY_STORAGE_KEY),
-                AsyncStorage.removeItem(HISTORY_STORAGE_KEY),
-                AsyncStorage.removeItem(PROFILE_STORAGE_KEY),
-                AsyncStorage.removeItem(SETTINGS_STORAGE_KEY),
-                AsyncStorage.removeItem("pebble:schema_version"),
-                AsyncStorage.removeItem("todoapp:onboarding_completed"),
-                AsyncStorage.removeItem("pebble:workspace:history"),
-                AsyncStorage.removeItem("PEBBLE_CAPTURE_CREATION_HISTORY"),
-                AsyncStorage.removeItem("PEBBLE_CAPTURE_ACTIVE_SUGGESTIONS"),
-                AsyncStorage.removeItem(RECYCLE_BIN_STORAGE_KEY),
-                AsyncStorage.removeItem(NOTIF_LOG_STORAGE_KEY),
-                AsyncStorage.removeItem(PEBBLE_LOG_KEY),
-                AsyncStorage.removeItem(QUICK_SUGGESTIONS_SEEN_KEY),
-                AsyncStorage.removeItem(WIDGET_PAYLOAD_KEY),
-                AsyncStorage.removeItem(DASHBOARD_FILTER_STORAGE_KEY),
-                AsyncStorage.removeItem(DASHBOARD_PRIORITY_STORAGE_KEY),
-                AsyncStorage.removeItem("todoapp:focus:stats"),
-                AsyncStorage.removeItem(GEMS_BONUS_KEY),
-                AsyncStorage.removeItem(GEMS_SPENT_KEY),
-                AsyncStorage.removeItem(PEBBLE_SPENT_KEY),
-                AsyncStorage.removeItem("todoapp:focus:current_session"),
-                AsyncStorage.removeItem("todoapp:focus:current_stopwatch"),
-                AsyncStorage.removeItem("todoapp:focus:liked_sound_ids"),
-                AsyncStorage.removeItem("todoapp:focus:custom_tracks"),
-                AsyncStorage.removeItem("todoapp:focus:selected_sound_id"),
-                AsyncStorage.removeItem("todoapp:focus:sound_volume"),
-                AsyncStorage.removeItem("todoapp:focus:is_muted"),
-                AsyncStorage.removeItem("todoapp:focus:is_shuffle"),
-                AsyncStorage.removeItem("todoapp:focus:is_repeat"),
-                AsyncStorage.removeItem("todoapp:focus:glow_enabled"),
-                AsyncStorage.removeItem("todoapp:mascot:dismissed"),
-                AsyncStorage.removeItem("pebble:vault"),
-                AsyncStorage.removeItem(COLLECTIONS_STORAGE_KEY),
-                AsyncStorage.removeItem(CHECKLISTS_STORAGE_KEY),
-                cancelAllScheduledNotifications(),
-              ]);
-              emitStateChange("tasks_changed");
-              emitStateChange("habits_changed");
-              emitStateChange("pebbles_changed");
-              emitStateChange("resources_changed");
+              await BackupService.clearAllData();
               await loadSettingsData();
-              Alert.alert(
-                "Storage Wiped",
-                "All storage keys successfully cleared. App reset to default empty canvas.",
-                [
-                  {
-                    text: "OK",
-                    onPress: () => {
-                      router.replace("/onboarding");
-                    },
-                  },
-                ],
-              );
+              Alert.alert("Your data was cleared.", undefined, [
+                {
+                  text: "OK",
+                  onPress: () => router.replace("/onboarding"),
+                },
+              ]);
             } catch {
-              Alert.alert("Error", "Could not clear storage.");
+              Alert.alert(
+                "Couldn't clear your data",
+                "Nothing was deleted. Please try again.",
+              );
             } finally {
               setLoading(false);
             }
@@ -277,120 +199,35 @@ export default function SettingsScreen() {
     );
   };
 
-  // C. Export Backup
-  const exportBackup = async () => {
-    try {
-      const keys = [
-        TODOS_STORAGE_KEY,
-        DAILY_STORAGE_KEY,
-        HISTORY_STORAGE_KEY,
-        PROFILE_STORAGE_KEY,
-        SETTINGS_STORAGE_KEY,
-      ];
-      const items = await AsyncStorage.multiGet(keys);
-      const backup: Record<string, string | null> = {};
-      items.forEach(([key, val]) => {
-        backup[key] = val;
-      });
-      setExportDataString(JSON.stringify(backup, null, 2));
-      setExportModalVisible(true);
-    } catch {
-      Alert.alert("Error", "Could not compile data backup.");
-    }
-  };
-
-  // D. Import Backup
   const importBackup = async () => {
     if (!importDataString.trim()) {
-      Alert.alert("Error", "Backup payload is empty.");
+      setRestoreError("Paste a backup first.");
       return;
     }
+    setRestoreError(null);
     try {
-      const parsed = JSON.parse(importDataString);
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
-        throw new Error("Backup payload must be a JSON object.");
-      }
-
-      const hasCoreKeys = [
-        TODOS_STORAGE_KEY,
-        DAILY_STORAGE_KEY,
-        PROFILE_STORAGE_KEY,
-      ].some((key) => key in parsed);
-      if (!hasCoreKeys) {
-        throw new Error("Backup does not contain any valid Pebble data keys.");
-      }
-
-      // Validate TODOS_STORAGE_KEY
-      if (TODOS_STORAGE_KEY in parsed) {
-        const rawVal = parsed[TODOS_STORAGE_KEY];
-        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
-        if (
-          !valObj ||
-          !Array.isArray(valObj.lists) ||
-          typeof valObj.todos !== "object"
-        ) {
-          throw new Error("Invalid format for tasks and workspaces.");
-        }
-      }
-
-      // Validate DAILY_STORAGE_KEY
-      if (DAILY_STORAGE_KEY in parsed) {
-        const rawVal = parsed[DAILY_STORAGE_KEY];
-        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
-        if (!valObj || !Array.isArray(valObj.dailyHabits)) {
-          throw new Error("Invalid format for habits.");
-        }
-      }
-
-      // Validate PROFILE_STORAGE_KEY
-      if (PROFILE_STORAGE_KEY in parsed) {
-        const rawVal = parsed[PROFILE_STORAGE_KEY];
-        const valObj = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
-        if (!valObj || typeof valObj !== "object") {
-          throw new Error("Invalid format for user profile.");
-        }
-      }
-
-      const keyValPairs: [string, string][] = [];
-      Object.entries(parsed).forEach(([key, val]) => {
-        if (typeof val === "string") {
-          keyValPairs.push([key, val]);
-        } else if (val) {
-          keyValPairs.push([key, JSON.stringify(val)]);
-        }
-      });
-
-      if (keyValPairs.length === 0) {
-        throw new Error("No valid keys found.");
-      }
-
-      await AsyncStorage.multiSet(keyValPairs);
-      setImportModalVisible(false);
+      setLoading(true);
+      await BackupService.restoreStructuredBackup(importDataString);
+      setShowRestoreSheet(false);
       setImportDataString("");
       await loadSettingsData();
-
-      // Emit changes to all screens to load restored state
-      emitStateChange("tasks_changed");
-      emitStateChange("habits_changed");
-      emitStateChange("profile_changed");
-
-      Alert.alert(
-        "Success",
-        "Backup restored successfully! All lists and parameters are up to date.",
-      );
+      Alert.alert("Backup restored", "Your data has been replaced.");
     } catch (err: any) {
-      Alert.alert(
-        "Restore Failed",
-        `Could not parse or write backup: ${err.message || "Verify formatting."}`,
+      console.warn(err);
+      setRestoreError(
+        `Couldn't restore that backup: ${err?.message || "check the file and try again."}`,
       );
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (loading || !settings || !profile) {
+  const handlePress = (action: () => void) => () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    action();
+  };
+
+  if (loading || !settings) {
     return (
       <SafeAreaView
         style={[
@@ -403,330 +240,153 @@ export default function SettingsScreen() {
     );
   }
 
-  const quietHoursTimes = [
-    { label: "18:00 (6 PM)", val: 18 },
-    { label: "19:00 (7 PM)", val: 19 },
-    { label: "20:00 (8 PM)", val: 20 },
-    { label: "21:00 (9 PM)", val: 21 },
-    { label: "22:00 (10 PM)", val: 22 },
-    { label: "23:00 (11 PM)", val: 23 },
-    { label: "00:00 (Midnight)", val: 0 },
-    { label: "05:00 (5 AM)", val: 5 },
-    { label: "06:00 (6 AM)", val: 6 },
-    { label: "07:00 (7 AM)", val: 7 },
-    { label: "08:00 (8 AM)", val: 8 },
-    { label: "09:00 (9 AM)", val: 9 },
-    { label: "10:00 (10 AM)", val: 10 },
-  ];
+  const sheetColors = {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+  };
 
   return (
     <SafeAreaView
+      edges={["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
+      {/* ── Header: seamless, integrated back ─────────────────────── */}
+      <View style={styles.header}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.headerButton,
+            {
+              backgroundColor: pressed ? colors.cardLight : "transparent",
+              transform: [{ scale: pressed ? 0.95 : 1 }],
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+              () => {},
+            );
+            router.back();
+          }}
+        >
+          <Feather name="arrow-left" size={20} color={colors.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Settings
+        </Text>
+        <View style={styles.headerButtonPlaceholder} />
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Title */}
-        <View style={styles.header}>
-          <Text style={[styles.kicker, { color: colors.primary }]}>
-            PREMIUM CONTROLS
+        {/* ── Experience ───────────────────────────────────────────── */}
+        <Animated.View entering={FadeInDown.duration(350)}>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
+            EXPERIENCE
           </Text>
-          <Text style={[styles.title, { color: colors.text }]}>
-            Settings Console
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Configure quiet schedules, customize your workspace level, and
-            engineer back-ups.
-          </Text>
-        </View>
-
-        {/* 1. Interactive Profile Section */}
-        <Animated.View entering={FadeInDown.duration(400)}>
-          <AppCard style={styles.sectionCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Profile Settings
-            </Text>
-
-            <View style={styles.profileInputsRow}>
-              {/* Current Avatar visual preview */}
+          <View
+            style={[
+              styles.group,
+              { borderColor: colors.border, backgroundColor: colors.card },
+            ]}
+          >
+            <View style={styles.appearanceRow}>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(99, 102, 241, 0.14)"
+                          : "rgba(79, 70, 229, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="moon" size={14} color={colors.primary} />
+                </View>
+                <Text style={[styles.rowTitle, { color: colors.text }]}>
+                  Appearance
+                </Text>
+              </View>
               <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12,
-                  marginBottom: 8,
-                  backgroundColor: "rgba(255,255,255,0.015)",
-                  padding: 10,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
+                style={[
+                  styles.themeSegment,
+                  { borderColor: colors.border, backgroundColor: colors.cardLight },
+                ]}
+                accessibilityRole="tablist"
               >
-                <RenderAvatar avatar={avatar} size={48} />
-                <View style={{ gap: 2 }}>
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      fontWeight: "800",
-                      color: colors.text,
-                    }}
-                  >
-                    Current Companion
+                {THEME_OPTIONS.map((option) => {
+                  const active = settings.theme === option.key;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={option.label}
+                      onPress={() => updateTheme(option.key)}
+                      style={[
+                        styles.themeOption,
+                        {
+                          backgroundColor: active ? colors.primary : "transparent",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.themeOptionText,
+                          { color: active ? Palette.white : colors.textMuted },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+            <View style={styles.toggleRow}>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(245, 158, 11, 0.14)"
+                          : "rgba(217, 119, 6, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="feather" size={14} color={colors.warning} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Companion
                   </Text>
-                  <Text
-                    style={{
-                      fontSize: 10,
-                      fontWeight: "600",
-                      color: colors.textMuted,
-                    }}
-                  >
-                    {avatar.startsWith("avatar_")
-                      ? AVATAR_OPTIONS.find((o) => o.id === avatar)?.label ||
-                        "Mascot Crow"
-                      : "Classic Emoji"}
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Show the crow on the edge of your screen.
                   </Text>
                 </View>
               </View>
-
-              {/* Mascot Personas Selection Row */}
-              <View style={{ gap: 6, marginBottom: 8 }}>
-                <Text
-                  style={{
-                    fontSize: 10,
-                    fontWeight: "800",
-                    color: colors.primary,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.8,
-                  }}
-                >
-                  Mascot Personas
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
-                >
-                  {AVATAR_OPTIONS.map((opt) => {
-                    const isSelected = avatar === opt.id;
-                    return (
-                      <Pressable
-                        key={opt.id}
-                        onPress={() => {
-                          Haptics.impactAsync(
-                            Haptics.ImpactFeedbackStyle.Light,
-                          ).catch(() => {});
-                          setAvatar(opt.id);
-                        }}
-                        style={[
-                          styles.avatarBox,
-                          {
-                            width: 54,
-                            height: 54,
-                            borderRadius: 12,
-                            backgroundColor: isSelected
-                              ? `${colors.primary}18`
-                              : "rgba(255,255,255,0.02)",
-                            borderColor: isSelected
-                              ? colors.primary
-                              : colors.border,
-                          },
-                        ]}
-                      >
-                        <RenderAvatar avatar={opt.id} size={36} />
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              {/* Classic Emojis Selection Row */}
-              <View style={{ gap: 6, marginBottom: 12 }}>
-                <Text
-                  style={{
-                    fontSize: 10,
-                    fontWeight: "800",
-                    color: colors.textMuted,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.8,
-                  }}
-                >
-                  Classic Emojis
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
-                >
-                  {EMOJI_OPTIONS.map((emoji) => {
-                    const isSelected = avatar === emoji;
-                    return (
-                      <Pressable
-                        key={emoji}
-                        onPress={() => {
-                          Haptics.impactAsync(
-                            Haptics.ImpactFeedbackStyle.Light,
-                          ).catch(() => {});
-                          setAvatar(emoji);
-                        }}
-                        style={[
-                          styles.avatarBox,
-                          {
-                            width: 48,
-                            height: 48,
-                            borderRadius: 10,
-                            backgroundColor: isSelected
-                              ? `${colors.primary}18`
-                              : "rgba(255,255,255,0.02)",
-                            borderColor: isSelected
-                              ? colors.primary
-                              : colors.border,
-                          },
-                        ]}
-                      >
-                        <Text style={{ fontSize: 18 }}>{emoji}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
-                  Name
-                </Text>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    {
-                      color: colors.text,
-                      borderColor: colors.border,
-                      backgroundColor: "rgba(255,255,255,0.02)",
-                    },
-                  ]}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Enter name"
-                  placeholderTextColor={colors.textMuted}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
-                  Email
-                </Text>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    {
-                      color: colors.text,
-                      borderColor: colors.border,
-                      backgroundColor: "rgba(255,255,255,0.02)",
-                    },
-                  ]}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="Enter email"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                />
-              </View>
-
               <Pressable
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: pressed ? 0.9 : 1,
-                  },
-                ]}
-                onPress={saveProfileDetails}
-              >
-                <Feather name="save" size={14} color="#FFFFFF" />
-                <Text style={styles.buttonText}>Save Profile</Text>
-              </Pressable>
-            </View>
-          </AppCard>
-        </Animated.View>
-
-        {/* 2. Theme Customization */}
-        <Animated.View entering={FadeInDown.delay(100).duration(450)}>
-          <AppCard style={styles.sectionCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Visual Theme
-            </Text>
-            <View style={styles.themeSelectorRow}>
-              {(["dark", "light", "system"] as const).map((t) => (
-                <Pressable
-                  key={t}
-                  onPress={() => updateTheme(t)}
-                  style={[
-                    styles.themeButton,
-                    {
-                      backgroundColor:
-                        settings.theme === t
-                          ? `${colors.primary}18`
-                          : "rgba(255,255,255,0.02)",
-                      borderColor:
-                        settings.theme === t ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Feather
-                    name={
-                      t === "dark"
-                        ? "moon"
-                        : t === "light"
-                          ? "sun"
-                          : "smartphone"
-                    }
-                    size={16}
-                    color={
-                      settings.theme === t ? colors.primary : colors.textMuted
-                    }
-                  />
-                  <Text
-                    style={[
-                      styles.themeBtnText,
-                      {
-                        color:
-                          settings.theme === t ? colors.primary : colors.text,
-                        textTransform: "capitalize",
-                      },
-                    ]}
-                  >
-                    {t}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </AppCard>
-        </Animated.View>
-
-        {/* Mascot Companion Card */}
-        <Animated.View entering={FadeInDown.delay(110).duration(450)}>
-          <AppCard style={styles.sectionCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Mascot Companion
-            </Text>
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleInfo}>
-                <Text style={[styles.toggleTitle, { color: colors.text }]}>
-                  Enable Companion Crow
-                </Text>
-                <Text style={[styles.toggleDesc, { color: colors.textMuted }]}>
-                  Display the interactive Raven companion on the screen edge.
-                  You can also shake your phone to summon or dismiss it.
-                </Text>
-              </View>
-              <Pressable
+                accessibilityRole="switch"
+                accessibilityLabel="Companion"
+                accessibilityState={{ checked: !!settings.showMascot }}
+                hitSlop={8}
                 onPress={() => updateMascotToggle(!settings.showMascot)}
                 style={[
                   styles.switchTrack,
                   {
                     backgroundColor: settings.showMascot
                       ? colors.success
-                      : "rgba(255,255,255,0.08)",
+                      : colors.border,
                     alignItems: settings.showMascot ? "flex-end" : "flex-start",
                   },
                 ]}
@@ -734,79 +394,56 @@ export default function SettingsScreen() {
                 <View style={styles.switchThumb} />
               </Pressable>
             </View>
-          </AppCard>
+          </View>
         </Animated.View>
 
-        {/* Task & Habit Archive */}
-        <Animated.View entering={FadeInDown.delay(120).duration(450)}>
-          <AppCard style={styles.sectionCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Task & Habit Archive
-            </Text>
-            <Text
-              style={[
-                styles.toggleDesc,
-                {
-                  color: colors.textMuted,
-                  marginBottom: 12,
-                  fontSize: 13,
-                  lineHeight: 18,
-                },
-              ]}
-            >
-              View, restore, or permanently delete items you have archived.
-            </Text>
-            <Pressable
-              style={({ pressed }) => [
-                styles.primaryButton,
-                {
-                  backgroundColor: colors.cardLight,
-                  borderColor: colors.border,
-                  borderWidth: 1,
-                  opacity: pressed ? 0.9 : 1,
-                },
-              ]}
-              onPress={() => router.push("/archive")}
-            >
-              <Feather name="archive" size={14} color={colors.primary} />
-              <Text
-                style={[
-                  styles.buttonText,
-                  { color: colors.text, marginLeft: 6 },
-                ]}
-              >
-                View Archived Items
-              </Text>
-            </Pressable>
-          </AppCard>
-        </Animated.View>
-
-        {/* 3. Notifications, Escalation, Quiet Hours */}
-        <Animated.View entering={FadeInDown.delay(150).duration(450)}>
-          <AppCard style={styles.sectionCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Notification Parameters
-            </Text>
-
-            {/* Toggle escalation */}
+        {/* ── Notifications ────────────────────────────────────────── */}
+        <Animated.View entering={FadeInDown.delay(60).duration(350)}>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
+            NOTIFICATIONS
+          </Text>
+          <View
+            style={[
+              styles.group,
+              { borderColor: colors.border, backgroundColor: colors.card },
+            ]}
+          >
             <View style={styles.toggleRow}>
-              <View style={styles.toggleInfo}>
-                <Text style={[styles.toggleTitle, { color: colors.text }]}>
-                  Escalation Reminders
-                </Text>
-                <Text style={[styles.toggleDesc, { color: colors.textMuted }]}>
-                  Schedule secondary warnings (e.g. 2h later) if objectives
-                  remain pending.
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(99, 102, 241, 0.14)"
+                          : "rgba(79, 70, 229, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="bell" size={14} color={colors.primary} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Reminders
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Send a second reminder if something is still unfinished.
+                  </Text>
+                </View>
               </View>
               <Pressable
+                accessibilityRole="switch"
+                accessibilityLabel="Reminders"
+                accessibilityState={{ checked: !!settings.escalationEnabled }}
+                hitSlop={8}
                 onPress={() => updateEscalation(!settings.escalationEnabled)}
                 style={[
                   styles.switchTrack,
                   {
                     backgroundColor: settings.escalationEnabled
                       ? colors.success
-                      : "rgba(255,255,255,0.08)",
+                      : colors.border,
                     alignItems: settings.escalationEnabled
                       ? "flex-end"
                       : "flex-start",
@@ -817,20 +454,37 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
 
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-            {/* Toggle quiet hours */}
             <View style={styles.toggleRow}>
-              <View style={styles.toggleInfo}>
-                <Text style={[styles.toggleTitle, { color: colors.text }]}>
-                  Enable Quiet Hours
-                </Text>
-                <Text style={[styles.toggleDesc, { color: colors.textMuted }]}>
-                  Mute all scheduled reminders during specified hours (e.g.,
-                  while sleeping).
-                </Text>
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="clock" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Quiet hours
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Mute reminders while you sleep.
+                  </Text>
+                </View>
               </View>
               <Pressable
+                accessibilityRole="switch"
+                accessibilityLabel="Quiet hours"
+                accessibilityState={{ checked: !!settings.quietHours.enabled }}
+                hitSlop={8}
                 onPress={() =>
                   updateQuietHoursToggle(!settings.quietHours.enabled)
                 }
@@ -839,7 +493,7 @@ export default function SettingsScreen() {
                   {
                     backgroundColor: settings.quietHours.enabled
                       ? colors.success
-                      : "rgba(255,255,255,0.08)",
+                      : colors.border,
                     alignItems: settings.quietHours.enabled
                       ? "flex-end"
                       : "flex-start",
@@ -850,634 +504,731 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
 
-            {/* Quiet Hours Times selector */}
             {settings.quietHours.enabled && (
-              <View style={styles.quietTimesBlock}>
-                <Text
-                  style={[
-                    styles.inputLabel,
-                    { color: colors.textMuted, marginBottom: 8 },
+              <>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mute from ${formatHour(settings.quietHours.startHour)}`}
+                  onPress={handlePress(() => setHourPicker("start"))}
+                  style={({ pressed }) => [
+                    styles.subRow,
+                    { opacity: pressed ? 0.7 : 1 },
                   ]}
                 >
-                  Configure Time Window
-                </Text>
-                <View style={styles.timeSelectorInputsRow}>
-                  {/* Start selector */}
-                  <View style={{ flex: 1 }}>
+                  <Text style={[styles.subRowLabel, { color: colors.text }]}>
+                    Mute from
+                  </Text>
+                  <View style={styles.detailValueWrap}>
                     <Text
-                      style={[
-                        styles.subInputLabel,
-                        { color: colors.textMuted },
-                      ]}
+                      style={[styles.detailValue, { color: colors.textMuted }]}
                     >
-                      Mute from:
+                      {formatHour(settings.quietHours.startHour)}
                     </Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.hourPillsContainer}
-                    >
-                      {quietHoursTimes.map((item) => (
-                        <Pressable
-                          key={`start-${item.val}`}
-                          onPress={() =>
-                            updateQuietHoursTimes(
-                              item.val,
-                              settings.quietHours.endHour,
-                            )
-                          }
-                          style={[
-                            styles.hourPill,
-                            {
-                              backgroundColor:
-                                settings.quietHours.startHour === item.val
-                                  ? `${colors.warning}18`
-                                  : "rgba(255,255,255,0.02)",
-                              borderColor:
-                                settings.quietHours.startHour === item.val
-                                  ? colors.warning
-                                  : colors.border,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.hourPillText,
-                              {
-                                color:
-                                  settings.quietHours.startHour === item.val
-                                    ? colors.warning
-                                    : colors.text,
-                              },
-                            ]}
-                          >
-                            {item.label}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
+                    <Feather
+                      name="chevron-right"
+                      size={14}
+                      color={colors.textMuted}
+                    />
                   </View>
-
-                  {/* End selector */}
-                  <View style={{ flex: 1, marginTop: 10 }}>
+                </Pressable>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Resume at ${formatHour(settings.quietHours.endHour)}`}
+                  onPress={handlePress(() => setHourPicker("end"))}
+                  style={({ pressed }) => [
+                    styles.subRow,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.subRowLabel, { color: colors.text }]}>
+                    Resume at
+                  </Text>
+                  <View style={styles.detailValueWrap}>
                     <Text
-                      style={[
-                        styles.subInputLabel,
-                        { color: colors.textMuted },
-                      ]}
+                      style={[styles.detailValue, { color: colors.textMuted }]}
                     >
-                      Unmute at:
+                      {formatHour(settings.quietHours.endHour)}
                     </Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.hourPillsContainer}
-                    >
-                      {quietHoursTimes.map((item) => (
-                        <Pressable
-                          key={`end-${item.val}`}
-                          onPress={() =>
-                            updateQuietHoursTimes(
-                              settings.quietHours.startHour,
-                              item.val,
-                            )
-                          }
-                          style={[
-                            styles.hourPill,
-                            {
-                              backgroundColor:
-                                settings.quietHours.endHour === item.val
-                                  ? `${colors.success}18`
-                                  : "rgba(255,255,255,0.02)",
-                              borderColor:
-                                settings.quietHours.endHour === item.val
-                                  ? colors.success
-                                  : colors.border,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.hourPillText,
-                              {
-                                color:
-                                  settings.quietHours.endHour === item.val
-                                    ? colors.success
-                                    : colors.text,
-                              },
-                            ]}
-                          >
-                            {item.label}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
+                    <Feather
+                      name="chevron-right"
+                      size={14}
+                      color={colors.textMuted}
+                    />
                   </View>
-                </View>
-              </View>
+                </Pressable>
+              </>
             )}
 
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-            {/* Category Reminders Filter */}
-            <View style={{ gap: 8 }}>
-              <Text style={[styles.toggleTitle, { color: colors.text }]}>
-                Category Subscriptions
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Category reminders"
+              onPress={handlePress(() => setShowCategoriesSheet(true))}
+              style={({ pressed }) => [
+                styles.navRow,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="grid" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Category reminders
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Choose which categories can send reminders.
+                  </Text>
+                </View>
+              </View>
+              <Feather
+                name="chevron-right"
+                size={16}
+                color={colors.textMuted}
+              />
+            </Pressable>
+          </View>
+        </Animated.View>
+
+        {/* ── Data ─────────────────────────────────────────────────── */}
+        <Animated.View entering={FadeInDown.delay(120).duration(350)}>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
+            DATA
+          </Text>
+          <View
+            style={[
+              styles.group,
+              { borderColor: colors.border, backgroundColor: colors.card },
+            ]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Archived items"
+              onPress={handlePress(() => router.push("/archive"))}
+              style={({ pressed }) => [
+                styles.navRow,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="archive" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Archived items
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Restore or permanently delete archived items.
+                  </Text>
+                </View>
+              </View>
+              <Feather
+                name="chevron-right"
+                size={16}
+                color={colors.textMuted}
+              />
+            </Pressable>
+
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Export data"
+              accessibilityState={{ disabled: isExporting, busy: isExporting }}
+              disabled={isExporting}
+              onPress={exportBackup}
+              style={({ pressed }) => [
+                styles.navRow,
+                { opacity: isExporting ? 0.6 : pressed ? 0.7 : 1 },
+              ]}
+            >
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="share-2" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Export data
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Save a copy of your Pebble data.
+                  </Text>
+                </View>
+              </View>
+              {isExporting ? (
+                <ActivityIndicator size="small" color={colors.textMuted} />
+              ) : (
+                <Feather
+                  name="chevron-right"
+                  size={16}
+                  color={colors.textMuted}
+                />
+              )}
+            </Pressable>
+
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Restore data"
+              onPress={handlePress(() => {
+                setRestoreError(null);
+                setShowRestoreSheet(true);
+              })}
+              style={({ pressed }) => [
+                styles.navRow,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(161, 161, 170, 0.12)"
+                          : "rgba(100, 116, 139, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="rotate-ccw" size={14} color={colors.textMuted} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    Restore data
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Replace your data with a backup.
+                  </Text>
+                </View>
+              </View>
+              <Feather
+                name="chevron-right"
+                size={16}
+                color={colors.textMuted}
+              />
+            </Pressable>
+          </View>
+        </Animated.View>
+
+        {/* ── Danger zone ──────────────────────────────────────────── */}
+        <Animated.View entering={FadeInDown.delay(180).duration(350)}>
+          <Text style={[styles.sectionLabel, { color: colors.error }]}>
+            DANGER ZONE
+          </Text>
+          <View
+            style={[
+              styles.group,
+              { borderColor: colors.border, backgroundColor: colors.card },
+            ]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear all data"
+              onPress={handlePress(clearAllData)}
+              style={({ pressed }) => [
+                styles.navRow,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <View style={styles.rowLead}>
+                <View
+                  style={[
+                    styles.iconBadge,
+                    {
+                      backgroundColor:
+                        colorScheme === "dark"
+                          ? "rgba(239, 68, 68, 0.14)"
+                          : "rgba(220, 38, 38, 0.09)",
+                    },
+                  ]}
+                >
+                  <Feather name="trash-2" size={14} color={colors.error} />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.error }]}>
+                    Clear all data
+                  </Text>
+                  <Text style={[styles.rowCaption, { color: colors.textMuted }]}>
+                    Delete everything on this device. This can&apos;t be undone.
+                  </Text>
+                </View>
+              </View>
+              <Feather
+                name="chevron-right"
+                size={16}
+                color={colors.error}
+              />
+            </Pressable>
+          </View>
+        </Animated.View>
+      </ScrollView>
+
+      {/* ── Category reminders ─────────────────────────────────────── */}
+      <Modal
+        animationType="slide"
+        transparent
+        visible={showCategoriesSheet}
+        onRequestClose={() => setShowCategoriesSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel="Close category reminders"
+            onPress={() => setShowCategoriesSheet(false)}
+          />
+          <View style={[styles.sheet, sheetColors]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                Category reminders
               </Text>
-              <Text
-                style={[
-                  styles.toggleDesc,
-                  { color: colors.textMuted, marginBottom: 8 },
-                ]}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close category reminders"
+                hitSlop={10}
+                onPress={() => setShowCategoriesSheet(false)}
               >
-                Select which categories trigger reminders. Deselected categories
-                will not fire push alerts.
-              </Text>
-              <View style={styles.categoriesSelectGrid}>
-                {Object.entries(settings.categories).map(([catName, val]) => (
+                <Feather name="x" size={20} color={colors.text} />
+              </Pressable>
+            </View>
+            <Text style={[styles.sheetCaption, { color: colors.textMuted }]}>
+              Choose which categories can send reminders.
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {Object.entries(settings.categories).map(([catKey, val]) => (
+                <View
+                  key={catKey}
+                  style={[styles.sheetRow, { borderColor: colors.border }]}
+                >
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    {CATEGORY_LABELS[catKey] ?? catKey}
+                  </Text>
                   <Pressable
-                    key={catName}
-                    onPress={() => updateCategoryToggle(catName, !val)}
+                    accessibilityRole="switch"
+                    accessibilityLabel={CATEGORY_LABELS[catKey] ?? catKey}
+                    accessibilityState={{ checked: val }}
+                    hitSlop={8}
+                    onPress={() => updateCategoryToggle(catKey, !val)}
                     style={[
-                      styles.categoryCheckboxCard,
+                      styles.switchTrack,
                       {
-                        backgroundColor: val
-                          ? `${colors.primary}12`
-                          : "rgba(255,255,255,0.01)",
-                        borderColor: val ? colors.primary : colors.border,
+                        backgroundColor: val ? colors.success : colors.border,
+                        alignItems: val ? "flex-end" : "flex-start",
                       },
                     ]}
                   >
-                    <Feather
-                      name={val ? "check-square" : "square"}
-                      size={15}
-                      color={val ? colors.primary : colors.textMuted}
-                    />
+                    <View style={styles.switchThumb} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Hour picker ───────────────────────────────────────────── */}
+      <Modal
+        animationType="slide"
+        transparent
+        visible={hourPicker !== null}
+        onRequestClose={() => setHourPicker(null)}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel="Close time picker"
+            onPress={() => setHourPicker(null)}
+          />
+          <View style={[styles.sheet, sheetColors]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                {hourPicker === "end" ? "Resume at" : "Mute from"}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close time picker"
+                hitSlop={10}
+                onPress={() => setHourPicker(null)}
+              >
+                <Feather name="x" size={20} color={colors.text} />
+              </Pressable>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {Array.from({ length: 24 }, (_, hour) => hour).map((hour) => {
+                const active =
+                  hourPicker === "end"
+                    ? settings.quietHours.endHour === hour
+                    : settings.quietHours.startHour === hour;
+                return (
+                  <Pressable
+                    key={hour}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={formatHour(hour)}
+                    onPress={() => {
+                      const bound = hourPicker;
+                      setHourPicker(null);
+                      if (bound) updateQuietHoursHour(bound, hour);
+                    }}
+                    style={[styles.sheetRow, { borderColor: colors.border }]}
+                  >
                     <Text
                       style={[
-                        styles.categoryCheckboxText,
-                        { color: val ? colors.text : colors.textMuted },
+                        styles.rowTitle,
+                        { color: active ? colors.primary : colors.text },
                       ]}
                     >
-                      {catName.toUpperCase()}
+                      {formatHour(hour)}
                     </Text>
+                    {active && (
+                      <Feather name="check" size={18} color={colors.primary} />
+                    )}
                   </Pressable>
-                ))}
-              </View>
-            </View>
-          </AppCard>
-        </Animated.View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
-        {/* 4. Data Engineering Console */}
-        <Animated.View entering={FadeInDown.delay(200).duration(450)}>
-          <AppCard style={styles.sectionCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Storage & Data Engineering
-            </Text>
-            <Text
-              style={[
-                styles.toggleDesc,
-                { color: colors.textMuted, marginBottom: 12 },
-              ]}
-            >
-              Manage underlying JSON datastores, backup archives, or reset the
-              app to a fresh install state.
-            </Text>
-
-            <View style={styles.dataButtonsGrid}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { borderColor: colors.text, opacity: pressed ? 0.8 : 1 },
-                ]}
-                onPress={exportBackup}
-              >
-                <Feather name="share-2" size={14} color={colors.text} />
-                <Text
-                  style={[styles.secondaryButtonText, { color: colors.text }]}
-                >
-                  Export Backup
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { borderColor: colors.text, opacity: pressed ? 0.8 : 1 },
-                ]}
-                onPress={() => setImportModalVisible(true)}
-              >
-                <Feather name="download" size={14} color={colors.text} />
-                <Text
-                  style={[styles.secondaryButtonText, { color: colors.text }]}
-                >
-                  Restore Backup
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { borderColor: colors.error, opacity: pressed ? 0.8 : 1 },
-                ]}
-                onPress={clearAllData}
-              >
-                <Feather name="alert-triangle" size={14} color={colors.error} />
-                <Text
-                  style={[styles.secondaryButtonText, { color: colors.error }]}
-                >
-                  Clear All Data
-                </Text>
-              </Pressable>
-            </View>
-          </AppCard>
-        </Animated.View>
-
-        {/* --- BACKUP MODALS --- */}
-
-        {/* Export Data Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={exportModalVisible}
-          onRequestClose={() => setExportModalVisible(false)}
-        >
-          <View style={styles.modalCenteredView}>
-            <View
-              style={[
-                styles.modalView,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>
-                  JSON Backup Archive
-                </Text>
-                <Pressable
-                  onPress={() => setExportModalVisible(false)}
-                  hitSlop={10}
-                >
-                  <Feather name="x" size={20} color={colors.text} />
-                </Pressable>
-              </View>
-              <Text
-                style={[
-                  styles.toggleDesc,
-                  { color: colors.textMuted, marginBottom: 12 },
-                ]}
-              >
-                Copy the text payload below to backup your complete local-first
-                states.
+      {/* ── Restore ───────────────────────────────────────────────── */}
+      <Modal
+        animationType="slide"
+        transparent
+        visible={showRestoreSheet}
+        onRequestClose={() => setShowRestoreSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel="Close restore"
+            onPress={() => setShowRestoreSheet(false)}
+          />
+          <View style={[styles.sheet, sheetColors]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                Restore data
               </Text>
-              <ScrollView
-                style={[styles.modalScrollView, { backgroundColor: "#000000" }]}
-              >
-                <Text style={[styles.codeText, { color: colors.success }]}>
-                  {exportDataString}
-                </Text>
-              </ScrollView>
               <Pressable
-                style={[
+                accessibilityRole="button"
+                accessibilityLabel="Close restore"
+                hitSlop={10}
+                onPress={() => setShowRestoreSheet(false)}
+              >
+                <Feather name="x" size={20} color={colors.text} />
+              </Pressable>
+            </View>
+            <Text style={[styles.sheetCaption, { color: colors.textMuted }]}>
+              Paste your backup below. This replaces your current data.
+            </Text>
+
+            <TextInput
+              style={[
+                styles.restoreInput,
+                {
+                  color: colors.text,
+                  borderColor: colors.border,
+                  backgroundColor: colors.cardLight,
+                },
+              ]}
+              multiline
+              value={importDataString}
+              onChangeText={setImportDataString}
+              placeholder="Paste backup here…"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Backup contents"
+            />
+
+            {restoreError ? (
+              <Text style={[styles.inlineError, { color: colors.error }]}>
+                {restoreError}
+              </Text>
+            ) : null}
+
+            <View style={styles.sheetActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cancel"
+                onPress={() => setShowRestoreSheet(false)}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  { borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.secondaryButtonText, { color: colors.text }]}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Restore data"
+                onPress={importBackup}
+                style={({ pressed }) => [
                   styles.primaryButton,
-                  { backgroundColor: colors.primary, marginTop: 12 },
+                  { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
                 ]}
-                onPress={() => setExportModalVisible(false)}
               >
-                <Text style={styles.buttonText}>Done</Text>
+                <Text style={styles.primaryButtonText}>Restore</Text>
               </Pressable>
             </View>
           </View>
-        </Modal>
-
-        {/* Import Data Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={importModalVisible}
-          onRequestClose={() => setImportModalVisible(false)}
-        >
-          <View style={styles.modalCenteredView}>
-            <View
-              style={[
-                styles.modalView,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>
-                  Restore Backup
-                </Text>
-                <Pressable
-                  onPress={() => setImportModalVisible(false)}
-                  hitSlop={10}
-                >
-                  <Feather name="x" size={20} color={colors.text} />
-                </Pressable>
-              </View>
-              <Text
-                style={[
-                  styles.toggleDesc,
-                  { color: colors.textMuted, marginBottom: 12 },
-                ]}
-              >
-                Paste your backup JSON archive string below. Restoring will
-                overwrite all current data lists.
-              </Text>
-
-              <TextInput
-                style={[
-                  styles.modalTextInput,
-                  {
-                    color: colors.text,
-                    borderColor: colors.border,
-                    backgroundColor: "#000000",
-                  },
-                ]}
-                multiline={true}
-                value={importDataString}
-                onChangeText={setImportDataString}
-                placeholder="Paste backup JSON string here..."
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-                <Pressable
-                  style={[
-                    styles.primaryButton,
-                    {
-                      backgroundColor: "rgba(255,255,255,0.06)",
-                      flex: 1,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  onPress={() => setImportModalVisible(false)}
-                >
-                  <Text style={[styles.buttonText, { color: colors.text }]}>
-                    Cancel
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.primaryButton,
-                    { backgroundColor: colors.success, flex: 1 },
-                  ]}
-                  onPress={importBackup}
-                >
-                  <Text style={styles.buttonText}>Restore</Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </ScrollView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? 44 : 0 },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 120,
-    gap: 18,
-  },
+  safeArea: { flex: 1 },
   header: {
-    gap: 6,
-    marginBottom: 4,
+    height: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
   },
-  kicker: {
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.pill,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+  },
+  headerButtonPlaceholder: {
+    width: 44,
+    height: 44,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 80,
+    gap: 20,
+  },
+  sectionLabel: {
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1.6,
+    letterSpacing: 1.2,
+    marginBottom: 6,
+    paddingHorizontal: 4,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: -0.5,
+  group: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    overflow: "hidden",
   },
-  subtitle: {
-    fontSize: 13,
-    lineHeight: 18,
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 56,
   },
-  sectionCard: {
-    padding: 16,
-    gap: 14,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  profileInputsRow: {
+  rowLead: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
-  },
-  avatarRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginVertical: 4,
-  },
-  avatarBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inputContainer: {
-    gap: 6,
-  },
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  subInputLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  textInput: {
-    height: 42,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    fontSize: 14,
-  },
-  primaryButton: {
-    height: 42,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  themeSelectorRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  themeButton: {
     flex: 1,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: "row",
+  },
+  iconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.sm,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-  },
-  themeBtnText: {
-    fontSize: 12,
-    fontWeight: "700",
   },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    minHeight: 52,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
-  toggleInfo: {
-    flex: 1,
-    gap: 4,
+  navRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 52,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
-  toggleTitle: {
-    fontSize: 14,
+  appearanceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 52,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  themeSegment: {
+    flexDirection: "row",
+    gap: 2,
+    padding: 2,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  themeOption: {
+    paddingHorizontal: 11,
+    height: 28,
+    borderRadius: Radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  themeOptionText: {
+    fontSize: 12,
     fontWeight: "700",
   },
-  toggleDesc: {
+  subRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 44,
+    paddingVertical: 8,
+    paddingLeft: 56,
+    paddingRight: 16,
+  },
+  subRowLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  detailValueWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  detailValue: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  rowText: {
+    flex: 1,
+    gap: 2,
+  },
+  rowTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  rowCaption: {
     fontSize: 12,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   switchTrack: {
     width: 44,
-    height: 24,
-    borderRadius: 12,
+    height: 26,
+    borderRadius: Radius.pill,
     padding: 2,
     justifyContent: "center",
   },
   switchThumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Palette.white,
   },
-  divider: {
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
-  quietTimesBlock: {
-    backgroundColor: "rgba(0,0,0,0.08)",
-    borderRadius: 12,
-    padding: 12,
-    gap: 4,
-  },
-  timeSelectorInputsRow: {
-    gap: 4,
-  },
-  hourPillsContainer: {
-    gap: 6,
-    paddingVertical: 4,
-  },
-  hourPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 18,
-    borderWidth: 1,
-  },
-  hourPillText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  categoriesSelectGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  categoryCheckboxCard: {
-    width: "48%", // 2 columns approx
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  categoryCheckboxText: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  dataButtonsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  secondaryButton: {
-    width: "48%",
-    height: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "rgba(255,255,255,0.01)",
-  },
-  secondaryButtonText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  modalCenteredView: {
+  sheetOverlay: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
-  modalView: {
-    width: "90%",
-    maxHeight: "80%",
-    borderRadius: 20,
+  sheet: {
+    width: "100%",
+    maxHeight: "85%",
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
     borderWidth: 1,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
     gap: 12,
   },
-  modalHeader: {
+  sheetHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
   },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: "800",
+  sheetTitle: { fontSize: 17, fontWeight: "800" },
+  sheetCaption: { fontSize: 12, lineHeight: 16 },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 44,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  modalScrollView: {
-    borderRadius: 10,
-    padding: 10,
-    maxHeight: 300,
-  },
-  codeText: {
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 11,
-  },
-  modalTextInput: {
-    height: 200,
+  sheetActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  restoreInput: {
+    minHeight: 140,
     borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
-    fontSize: 11,
+    borderRadius: Radius.md,
+    padding: 12,
+    fontSize: 12,
     textAlignVertical: "top",
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
   },
+  inlineError: { fontSize: 12, lineHeight: 16 },
+  primaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: Radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryButtonText: { color: Palette.white, fontSize: 14, fontWeight: "700" },
+  secondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryButtonText: { fontSize: 14, fontWeight: "700" },
 });

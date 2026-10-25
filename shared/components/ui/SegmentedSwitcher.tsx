@@ -6,7 +6,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from "react-native-reanimated";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import * as Haptics from "expo-haptics";
 
@@ -65,10 +65,11 @@ export const SegmentedSwitcher: React.FC<SegmentedSwitcherProps> = ({
   return (
     <View
       onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+      accessibilityRole="tablist"
       style={[
         styles.container,
         {
-          backgroundColor: isLight ? "#E2E8F0" : "#27272A",
+          backgroundColor: isLight ? Palette.slate200 : Palette.zinc800,
         },
       ]}
     >
@@ -90,6 +91,9 @@ export const SegmentedSwitcher: React.FC<SegmentedSwitcherProps> = ({
         return (
           <Pressable
             key={option.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={option.label}
             style={({ pressed }) => [
               styles.button,
               pressed && { opacity: 0.8 },
@@ -100,7 +104,7 @@ export const SegmentedSwitcher: React.FC<SegmentedSwitcherProps> = ({
               style={[
                 styles.text,
                 {
-                  color: isActive ? "#FFFFFF" : theme.textMuted,
+                  color: isActive ? Palette.white : theme.textMuted,
                   fontWeight: isActive ? "700" : "600",
                 },
               ]}
@@ -138,7 +142,7 @@ const styles = StyleSheet.create({
     left: 4,
     borderRadius: 10,
     zIndex: 1,
-    shadowColor: "#000",
+    shadowColor: Palette.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
     shadowRadius: 3,

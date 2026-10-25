@@ -1,7 +1,5 @@
 import {
-  ChecklistRepository,
   HabitRepository,
-  ResourceRepository,
   TaskRepository,
   UiStateRepository,
 } from "@/repositories";
@@ -16,17 +14,20 @@ import {
   Platform,
   TextInput as RNTextInput,
   ScrollView,
+  type ScrollViewInstance,
+  type TextInputInstance,
 } from "react-native";
 
 import {
-  Checklist,
   Habit,
-  Resource,
   Task,
   Workspace,
+  INBOX_WORKSPACE_ID,
 } from "@/shared/types/domain.types";
+import { getTodayDateKey } from "@/shared/utils/date-key";
 
 import { type ParsedProductivityItem } from "@/features/capture/services/nlp-parser.service";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import {
   getActiveSuggestions,
   logTaskCreation,
@@ -39,7 +40,7 @@ import { useResourceLinkState } from "@/features/resources/hooks/useResourceLink
 import { useResourceState } from "@/features/resources/hooks/useResourceState";
 import {
   getProfile,
-  type UserProfile
+  type UserProfile,
 } from "@/features/settings/services/settings.service";
 import { useSelectionState } from "@/features/tasks/hooks/useSelectionState";
 import { useTaskCrud } from "@/features/tasks/hooks/useTaskCrud";
@@ -50,7 +51,9 @@ import {
   TASK_CATEGORY_META,
   type TaskCategory,
 } from "@/features/tasks/services/task-categories";
+import { loadWorkspaceData } from "@/features/tasks/services/workspace-data-loader";
 import {
+  formatAlarm,
   getDateKey,
   getSelectedDateLabel,
   globalHabits,
@@ -66,15 +69,9 @@ import {
 } from "@/services/events/state-events";
 import { useReminderState } from "@/services/scheduling/hooks/useReminderState";
 import { getNotificationLogs } from "@/services/scheduling/notifications-log";
-import {
-  cancelReminderIds,
-  rescheduleHabitReminders,
-  rescheduleTodoReminders,
-  scheduleReminderBatch,
-} from "@/services/scheduling/reminders.service";
+import { rearmWebReminders } from "@/services/scheduling/reminders.service";
 import {
   addToRecycleBin,
-  DAY_MS,
   getRecycleBinItems,
   saveRecycleBinItems,
 } from "@/services/storage/storage.service";
@@ -89,7 +86,7 @@ export function useTasksState() {
     segment?: string;
     category?: string;
     quickAdd?: string;
-    folderId?: string;
+    workspaceId?: string;
   }>();
 
   const {
@@ -111,23 +108,10 @@ export function useTasksState() {
     listsExpanded,
     setListsExpanded,
     loadWorkspaces,
-    handleSelectWorkspace,
-    handleBackToWorkspaces,
+    handleSelectWorkspace: rawHandleSelectWorkspace,
+    handleBackToWorkspaces: rawHandleBackToWorkspaces,
     handleCreateWorkspace,
     handleDeleteWorkspace,
-    // compatibility aliases
-    lists,
-    setLists,
-    selectedList,
-    setSelectedList,
-    openedFolderId,
-    setOpenedFolderId,
-    folderSegment,
-    setFolderSegment,
-    folderModalVisible,
-    setFolderModalVisible,
-    editingFolderId,
-    setEditingFolderId,
   } = useWorkspaceState();
 
   // Selection state
@@ -149,14 +133,13 @@ export function useTasksState() {
   // Resource state
   const {
     resources,
-    setResources,
+    setAllResources,
     loadResourcesState,
     createResource,
     updateResource,
     deleteResource,
     toggleArchiveResource,
-    togglePinResource,
-  } = useResourceState(selectedList, showToast);
+  } = useResourceState(selectedWorkspaceId, showToast);
 
   // Checklist state
   const {
@@ -166,11 +149,16 @@ export function useTasksState() {
     addChecklist,
     updateChecklist,
     deleteChecklist,
+    toggleArchiveChecklist,
     toggleChecklistItem,
-  } = useChecklistState(selectedList);
+    toggleChecklistAllItems,
+    addChecklistItem,
+    deleteChecklistItem,
+  } = useChecklistState(selectedWorkspaceId);
 
-  const scrollViewRef = useRef<ScrollView>(null);
-  const addTaskInputRef = useRef<RNTextInput>(null);
+  // RN 0.88 Strict TypeScript API: refs hold the imperative INSTANCE type.
+  const scrollViewRef = useRef<ScrollViewInstance>(null);
+  const addTaskInputRef = useRef<TextInputInstance>(null);
   const focusTodoId =
     typeof params.focusItemId === "string" && params.focusItemType === "todo"
       ? params.focusItemId
@@ -178,6 +166,11 @@ export function useTasksState() {
 
   const focusHabitId =
     typeof params.focusItemId === "string" && params.focusItemType === "habit"
+      ? params.focusItemId
+      : null;
+
+  const focusResourceId =
+    typeof params.focusItemId === "string" && params.focusItemType === "resource"
       ? params.focusItemId
       : null;
 
@@ -198,8 +191,7 @@ export function useTasksState() {
     "low" | "medium" | "high"
   >("medium");
 
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+
   const [expandedTodoIds, setExpandedTodoIds] = useState<
     Record<string, boolean>
   >({});
@@ -219,9 +211,30 @@ export function useTasksState() {
   );
   const celebrateDateRef = useRef<string | null>(null);
 
-  const [addingTask, setAddingTask] = useState<Task | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayDateKey());
   const [selectedTodoDate, setSelectedTodoDate] =
-    useState<string>(getDateKey());
+    useState<string>(getTodayDateKey());
+
+  const prevWorkspaceIdRef = useRef<string | null>(activeWorkspaceId);
+  useEffect(() => {
+    if (activeWorkspaceId && activeWorkspaceId !== prevWorkspaceIdRef.current) {
+      setSelectedDate(getTodayDateKey());
+    }
+    prevWorkspaceIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
+
+  const handleSelectWorkspace = useCallback(
+    async (id: string) => {
+      setSelectedDate(getTodayDateKey());
+      await rawHandleSelectWorkspace(id);
+    },
+    [rawHandleSelectWorkspace],
+  );
+
+  const handleBackToWorkspaces = useCallback(async () => {
+    setSelectedDate(getTodayDateKey());
+    await rawHandleBackToWorkspaces();
+  }, [rawHandleBackToWorkspaces]);
   const [isAddingHabit, setIsAddingHabit] = useState(false);
   const [statsExpanded, setStatsExpanded] = useState(false);
 
@@ -235,22 +248,34 @@ export function useTasksState() {
   );
 
   // Filtering hook — manages search, date, filter state & derived memoized lists
-  const filtering = useTaskFiltering(todos, habits, lists, selectedList);
+  const filtering = useTaskFiltering(
+    todos,
+    habits,
+    selectedWorkspaceId,
+    selectedDate,
+    workspaces,
+  );
   const {
     searchQuery,
     setSearchQuery,
-    selectedListPriorityFilter,
-    setSelectedListPriorityFilter,
+    selectedWorkspacePriorityFilter,
+    setSelectedWorkspacePriorityFilter,
+    priorityFilter,
+    setPriorityFilter,
+    statusFilter,
+    setStatusFilter,
+    scheduleFilter,
+    setScheduleFilter,
+    reminderFilter,
+    setReminderFilter,
+    activeFilterCount,
+    resetFilters,
     selectedCategoryFilter,
     setSelectedCategoryFilter,
-    selectedListHabitPriorityFilter,
-    setSelectedListHabitPriorityFilter,
-    selectedDate,
-    setSelectedDate,
+    selectedWorkspaceHabitPriorityFilter,
+    setSelectedWorkspaceHabitPriorityFilter,
 
     // Derived values
-    weekDaysStrip,
-    formatSelectedDayName,
     currentTodos,
     filteredTodos,
     overdueTodos,
@@ -276,13 +301,13 @@ export function useTasksState() {
     deleteTodo,
     updateTodoCategory,
     clearCompleted,
-    onSaveEditedTask,
     convertCollectionItemToTask,
+    saveEarlierForLater,
   } = useTaskCrud({
     todos,
     setTodos,
-    selectedList,
-    lists,
+    selectedWorkspaceId,
+    workspaces,
     showUndo,
     showToast,
   });
@@ -293,21 +318,17 @@ export function useTasksState() {
     addHabit: baseAddHabit,
     deleteHabit: baseDeleteHabit,
     toggleHabit: baseToggleHabit,
-    recoverHabitStreak: baseRecoverHabitStreak,
-    handleSaveEditedHabit: baseHandleSaveEditedHabit,
-    handleDeleteEditedHabit: baseHandleDeleteEditedHabit,
   } = useHabitCrud({
     habits,
     setHabits,
-    selectedList,
-    lists,
+    selectedWorkspaceId,
+    workspaces,
     showUndo,
     showToast,
   });
 
   const onSaveNewTask = async (newTask: Task) => {
     await baseSaveNewTask(newTask);
-    setAddingTask(null);
   };
 
   const moveTodoToList = async (
@@ -323,22 +344,21 @@ export function useTasksState() {
     });
   };
 
-  // Reminder state — needs todos, setTodos, currentTodos, remainingCount, persistState, lists
+  // Reminder state — needs todos, setTodos, currentTodos, remainingCount, persistState, workspaces
   const {
     alarmMenu,
     setAlarmMenu,
     scheduleAlarm,
     scheduleAlarmWithDays,
     cancelAlarm,
-    formatAlarm: formatAlarmFromHook,
   } = useReminderState(
     todos,
     setTodos,
-    selectedList,
+    selectedWorkspaceId,
     currentTodos,
     remainingCount,
     persistState,
-    lists,
+    workspaces,
   );
 
   // Resource linking state
@@ -350,10 +370,9 @@ export function useTasksState() {
     checklists,
     setChecklists,
     resources,
-    setResources,
-    selectedList,
-    openedFolderId,
-    lists,
+    selectedWorkspaceId,
+    activeWorkspaceId,
+    workspaces,
     persistState,
     persistHabits,
   );
@@ -379,158 +398,132 @@ export function useTasksState() {
     return () => clearTimeout(timer);
   }, [params.quickAdd]);
 
+  const loadRequestIdRef = useRef(0);
+
   const loadState = useCallback(async () => {
+    const requestId = ++loadRequestIdRef.current;
+    console.log("[INSTRUMENT] [useTasksState] loadState() CALLED, requestId =", requestId);
     try {
       // Load workspaces first and use the returned array directly (never read stale state)
       const currentLists = await loadWorkspaces();
 
       // Query current repositories for ALL folders to preserve counts in WorkspaceGrid
-      const allTodosMap: Record<string, Task[]> = {};
-      const allHabits: Habit[] = [];
-      const allChecklistsMap: Record<string, Checklist[]> = {};
-      const allResourcesMap: Record<string, Resource[]> = {};
+      const {
+        todosMap: allTodosMap,
+        habits: allHabits,
+        checklistsMap: allChecklistsMap,
+        resourcesMap: allResourcesMap,
+      } = await loadWorkspaceData(currentLists);
 
-      for (const folder of currentLists) {
-        const folderId = folder.id;
-
-        // Load tasks
-        const folderTasksMap = await TaskRepository.getTasks(folderId);
-        allTodosMap[folderId] = Object.values(folderTasksMap).map((t) => ({
-          id: t.id,
-          title: t.title,
-          completed: t.completed,
-          priority: t.priority,
-          scheduledDate: t.dueDate,
-          folderId,
-          createdAt: t.createdAt,
-          category: t.category as any,
-        }));
-
-        // Load habits
-        const folderHabitsMap = await HabitRepository.getHabits(folderId);
-        const folderHabitsList = Object.values(folderHabitsMap).map((h) => ({
-          id: h.id,
-          title: h.title,
-          streak: h.streak,
-          bestStreak: h.bestStreak,
-          completedToday: h.completedDates.includes(getDateKey()),
-          folderId,
-          createdAt: h.createdAt,
-        }));
-        allHabits.push(...folderHabitsList);
-
-        // Load checklists
-        const checklistsMap = await ChecklistRepository.getChecklists(folderId);
-        allChecklistsMap[folderId] = Object.values(checklistsMap).map((c) => ({
-          id: c.id,
-          folderId,
-          title: c.title,
-          items: c.items || [],
-          createdAt: c.createdAt,
-          archived: c.archived || false,
-        }));
-
-        // Load flat resources directly from ResourceRepository
-        const resourcesMap = await ResourceRepository.getResources(folderId);
-        allResourcesMap[folderId] = Object.values(resourcesMap).map(
-          (r: any) => ({
-            id: r.id,
-            workspaceId: r.workspaceId || r.folderId || folderId,
-            type: (r.resourceType || r.type || "note") as any,
-            kind:
-              r.kind ||
-              (r.resourceType === "idea" || r.type === "idea"
-                ? "idea"
-                : undefined),
-            title: r.title,
-            content:
-              r.content !== undefined
-                ? r.content
-                : r.payload?.content || r.body?.content,
-            url: r.url !== undefined ? r.url : r.payload?.url || r.body?.url,
-            mediaUri: r.mediaUri,
-            previewImageUrl: r.previewImageUrl,
-            archived: r.archived || false,
-            pinned: r.pinned || false,
-            linkedItemIds: r.linkedItemIds || [],
-            tags: r.tags || [],
-            createdAt: r.createdAt || Date.now(),
-            updatedAt: r.updatedAt || Date.now(),
-            fileName: r.fileName || r.payload?.fileName || r.body?.fileName,
-            fileSize: r.fileSize || r.payload?.fileSize || r.body?.fileSize,
-            mimeType: r.mimeType || r.payload?.mimeType || r.body?.mimeType,
-            localUri: r.localUri || r.payload?.localUri || r.body?.localUri,
-          }),
-        );
+      // Generation counter check — skip commit if a newer load request was initiated
+      if (requestId !== loadRequestIdRef.current) {
+        console.log(`[useTasksState] loadState() request #${requestId} superseded by #${loadRequestIdRef.current} — skipping commit`);
+        return;
       }
 
+      console.log("[INSTRUMENT] [useTasksState] loadState() loaded", Object.keys(allTodosMap).length, "workspaces, calling setTodos(allTodosMap)");
       setTodos(allTodosMap);
+      console.log("[INSTRUMENT] [useTasksState] setTodos(allTodosMap) CALLED — allTodosMap keys:", Object.keys(allTodosMap));
       setHabits(allHabits);
       setChecklists(allChecklistsMap);
-      setResources(allResourcesMap);
+      setAllResources?.(allResourcesMap);
+      await loadResourcesState(selectedWorkspaceId);
+
+      if (requestId !== loadRequestIdRef.current) return;
 
       try {
         const userProfile = await getProfile();
+        if (requestId !== loadRequestIdRef.current) return;
         setProfile(userProfile);
         const logs = await getNotificationLogs();
+        if (requestId !== loadRequestIdRef.current) return;
         const hasUnread = logs.some((l: any) => !l.read);
         setHasUnreadNotifs(hasUnread);
       } catch {}
 
-      if (Platform.OS === "web") {
-        Object.values(allTodosMap).forEach((listTodos) => {
-          listTodos.forEach((t: any) => {
-            if (t.alarmTime && !t.alarmId && t.alarmTime > Date.now()) {
-              const delay = t.alarmTime - Date.now();
-              const timeoutId = setTimeout(() => {
-                try {
-                  new Notification("Task reminder", { body: t.title });
-                } catch {
-                  Alert.alert("Reminder", t.title);
-                }
-              }, delay);
-              setTodos((current) => {
-                const updatedLists = { ...current };
-                for (const lid in updatedLists) {
-                  updatedLists[lid] = updatedLists[lid].map((tt) =>
-                    tt.id === t.id
-                      ? { ...tt, alarmId: `web-${String(timeoutId)}` }
-                      : tt,
-                  );
-                }
-                persistState(currentLists, selectedList, updatedLists);
-                return updatedLists;
-              });
+      if (requestId !== loadRequestIdRef.current) return;
+
+      if (Platform?.OS === "web") {
+        // Re-arm web reminders after reload through the canonical scheduler.
+        // All returned ids are cancellable and the service's cancel-first
+        // semantics keep exactly one active schedule per reminder across
+        // repeated loadState() runs (focus, events, reloads).
+        const rearmedTodos = await rearmWebReminders(
+          Object.values(allTodosMap).flat(),
+        );
+        if (requestId !== loadRequestIdRef.current) return;
+
+        const rearmedById = new Map(rearmedTodos.map((t) => [t.id, t]));
+        let todosChanged = false;
+        const updatedMap: Record<string, Task[]> = {};
+        for (const [listId, listTodos] of Object.entries(allTodosMap)) {
+          updatedMap[listId] = listTodos.map((t) => {
+            const updated = rearmedById.get(t.id);
+            if (updated && updated !== t) {
+              todosChanged = true;
+              return updated;
             }
+            return t;
           });
-        });
+        }
+        if (todosChanged) {
+          setTodos(updatedMap);
+          // Persist notification ids through the canonical CAS primitive, NOT a
+          // whole-record save. `saveTask` replaces the persisted Task with this
+          // pre-scheduling snapshot (and bumps revision), so a concurrent
+          // complete/rename/move committed while the scheduler ran would be
+          // reverted and presented as a fresh user edit. `updateNotificationIds`
+          // only touches notification ids and refuses when the entity changed.
+          for (const updatedTask of rearmedTodos) {
+            const scheduledIds = updatedTask.reminder?.notificationIds;
+            if (!scheduledIds || scheduledIds.length === 0) continue;
+            try {
+              const outcome = await TaskRepository.updateNotificationIds(
+                updatedTask.id,
+                updatedTask.workspaceId,
+                scheduledIds,
+                {
+                  reminder: updatedTask.reminder,
+                  status: updatedTask.status,
+                  archivedAt: updatedTask.archivedAt,
+                  updatedAt: updatedTask.updatedAt,
+                  revision: updatedTask.revision,
+                  lifecycleGeneration: updatedTask.lifecycleGeneration,
+                },
+              );
+              if (outcome !== "updated") {
+                // A concurrent mutation won: the notifications we created for
+                // the stale snapshot must not survive it.
+                const { cancelReminderIds } = await import(
+                  "@/services/scheduling/reminders.service"
+                );
+                await cancelReminderIds(scheduledIds, {
+                  throwOnError: false,
+                }).catch(() => {});
+              }
+            } catch (err) {
+              console.warn("Failed to persist rearmed web reminder", err);
+            }
+          }
+        }
       }
       setIsTasksHydrated(true);
     } catch (e) {
       console.warn("Failed to load state", e);
       setIsTasksHydrated(true);
     }
-  }, [loadWorkspaces, selectedList, persistState, activeWorkspaceId]);
+  }, [loadWorkspaces, selectedWorkspaceId, persistState, activeWorkspaceId]);
 
   const loadHabits = useCallback(
     async (workspaceList?: Workspace[]) => {
       try {
         const targetLists =
-          workspaceList && workspaceList.length > 0 ? workspaceList : lists;
+          workspaceList && workspaceList.length > 0 ? workspaceList : workspaces;
         const allHabits: Habit[] = [];
         for (const folder of targetLists) {
           const folderId = folder.id;
           const folderHabitsMap = await HabitRepository.getHabits(folderId);
-          const folderHabitsList = Object.values(folderHabitsMap).map((h) => ({
-            id: h.id,
-            title: h.title,
-            streak: h.streak,
-            bestStreak: h.bestStreak,
-            completedToday: h.completedDates.includes(getDateKey()),
-            folderId,
-            createdAt: h.createdAt,
-          }));
-          allHabits.push(...folderHabitsList);
+          allHabits.push(...Object.values(folderHabitsMap));
         }
         setHabits(allHabits);
       } catch (e) {
@@ -538,7 +531,7 @@ export function useTasksState() {
         setHabits([]);
       }
     },
-    [lists],
+    [workspaces],
   );
 
   const loadSuggestions = useCallback(async () => {
@@ -548,112 +541,30 @@ export function useTasksState() {
     } catch {}
   }, []);
 
+  /**
+   * ORPHANED legacy entity-creation path — exported but never called.
+   *
+   * This bypasses `CaptureService` and is the only caller of
+   * `logTaskCreation()`. Because it has no callers, the suggestion engine is
+   * effectively dormant. Do not wire new features to it; the ADR
+   * (`docs/architecture/smart_capture_adr.md`) intends this path to be
+   * deprecated in favor of `CaptureService`. See §22 of `docs/current_state.md`.
+   */
   const handleSaveParsedItem = async (
     parsed: ParsedProductivityItem,
     targetWorkspaceId?: string,
   ) => {
     if (!parsed.title || parsed.title.trim() === "") return;
 
+    const destinationWorkspaceId =
+      targetWorkspaceId || activeWorkspaceId || INBOX_WORKSPACE_ID;
+
     if (parsed.type === "task") {
-      const generatedTaskId = String(Date.now());
-      let alarmTime: number | undefined;
-      let notificationIds: string[] = [];
-      let alarmId: string | undefined;
-
-      if (parsed.time && parsed.recurrence) {
-        try {
-          const scheduled = await scheduleReminderBatch({
-            kind: "todo",
-            itemId: generatedTaskId,
-            title: parsed.title,
-            category: parsed.category || DEFAULT_TASK_CATEGORY,
-            dailyTime: {
-              hour: Number(parsed.time.split(":")[0]),
-              minute: Number(parsed.time.split(":")[1]),
-            },
-            recurrence: parsed.recurrence,
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "todo-reminders" : undefined,
-            context: {
-              title: parsed.title,
-              remainingCount: 1,
-              totalCount: 1,
-            },
-          });
-          alarmId = scheduled.primaryId;
-          notificationIds = scheduled.ids;
-        } catch (e) {
-          console.error("Failed to schedule NLP recurring task reminder:", e);
-        }
-      } else if (parsed.time && parsed.date) {
-        const [hours, minutes] = parsed.time.split(":").map(Number);
-        const [year, monthVal, dayVal] = parsed.date.split("-").map(Number);
-        const dateObj = new Date(
-          year,
-          monthVal - 1,
-          dayVal,
-          hours,
-          minutes,
-          0,
-          0,
-        );
-
-        if (parsed.reminderOffsetMinutes) {
-          dateObj.setMinutes(
-            dateObj.getMinutes() - parsed.reminderOffsetMinutes,
-          );
-        }
-
-        if (dateObj.getTime() > Date.now()) {
-          alarmTime = dateObj.getTime();
-          try {
-            const scheduled = await scheduleReminderBatch({
-              kind: "todo",
-              itemId: generatedTaskId,
-              title: parsed.title,
-              category: parsed.category || DEFAULT_TASK_CATEGORY,
-              oneTimeAt: dateObj,
-              escalationMinutes: [120, 240],
-              channelId:
-                Platform.OS === "android" ? "todo-reminders" : undefined,
-              context: {
-                title: parsed.title,
-                remainingCount: 1,
-                totalCount: 1,
-              },
-            });
-            alarmId = scheduled.primaryId;
-            notificationIds = scheduled.ids;
-          } catch (e) {
-            console.error("Failed to schedule NLP task reminder:", e);
-          }
-        }
-      }
-
-      const destinationWorkspaceId =
-        targetWorkspaceId || openedFolderId || "default";
-
-      const newTodo: Task = {
-        id: generatedTaskId,
-        title: parsed.title,
-        completed: false,
-        category: parsed.category || DEFAULT_TASK_CATEGORY,
-        priority: parsed.priority || "medium",
-        scheduledDate: parsed.date || "inbox",
-        alarmTime,
-        alarmId,
-        notificationIds,
-        reminderHour: parsed.time
-          ? Number(parsed.time.split(":")[0])
-          : undefined,
-        reminderMinute: parsed.time
-          ? Number(parsed.time.split(":")[1])
-          : undefined,
-        recurrence: parsed.recurrence,
-        folderId: destinationWorkspaceId,
-        createdAt: Date.now(),
-        createdDate: getDateKey(),
-      };
+      const newTodo = await EntityCommandService.createTask(
+        parsed,
+        destinationWorkspaceId,
+        { source: "tasks_screen" },
+      );
 
       const listTodos = todos[destinationWorkspaceId] ?? [];
       const updatedTodos = {
@@ -663,12 +574,10 @@ export function useTasksState() {
       setTodos(updatedTodos);
 
       const wsName =
-        lists.find((l) => l.id === destinationWorkspaceId)?.name ||
+        workspaces.find((l) => l.id === destinationWorkspaceId)?.name ||
         "My Pebbles";
       showToast(`✓ Task added to ${wsName}`);
 
-      await persistState(lists, selectedList, updatedTodos);
-      emitStateChange("tasks_changed", "tasks_screen");
       pluginManager.dispatchTaskCreated(newTodo);
 
       const newSuggestion = await logTaskCreation(parsed.title);
@@ -676,85 +585,26 @@ export function useTasksState() {
         await loadSuggestions();
       }
     } else {
-      const hour = parsed.time ? Number(parsed.time.split(":")[0]) : undefined;
-      const minute = parsed.time
-        ? Number(parsed.time.split(":")[1])
-        : undefined;
-      let notificationIds: string[] = [];
-
-      let reminderDays: number[] | undefined = undefined;
-      if (parsed.recurrence) {
-        if (parsed.recurrence.type === "weekdays") {
-          reminderDays = [1, 2, 3, 4, 5];
-        } else if (parsed.recurrence.type === "weekly") {
-          reminderDays = parsed.recurrence.days;
-        }
-      }
-
-      const generatedHabitId = `habit-${Date.now()}`;
-      if (hour !== undefined && minute !== undefined) {
-        try {
-          const scheduled = await scheduleReminderBatch({
-            kind: "habit",
-            itemId: generatedHabitId,
-            title: parsed.title,
-            dailyTime: { hour, minute },
-            dailyDays: reminderDays,
-            recurrence: parsed.recurrence,
-            escalationMinutes: [120, 240],
-            channelId: Platform.OS === "android" ? "daily-habits" : undefined,
-            context: {
-              title: parsed.title,
-              remainingCount: 1,
-              totalCount: 1,
-              streak: 0,
-              bestStreak: 0,
-            },
-          });
-          notificationIds = scheduled.ids;
-        } catch (e) {
-          console.error("Failed to schedule NLP habit reminder:", e);
-        }
-      }
-
-      const destinationWorkspaceId =
-        targetWorkspaceId || openedFolderId || "default";
-
-      const newHabit: Habit = {
-        id: generatedHabitId,
-        title: parsed.title,
-        streak: 0,
-        bestStreak: 0,
-        completedToday: false,
-        priority: parsed.priority || "medium",
-        reminderDays,
-        reminderHour: hour,
-        reminderMinute: minute,
-        recurrence: parsed.recurrence,
-        notificationIds,
-        category: parsed.category || "health",
-        folderId: destinationWorkspaceId,
-        createdAt: Date.now(),
-        createdDate: getDateKey(),
-        startDate: getDateKey(),
-      };
+      const newHabit = await EntityCommandService.createHabit(
+        parsed,
+        destinationWorkspaceId,
+        { source: "tasks_screen" },
+      );
 
       const nextHabits = [newHabit, ...habits];
       setHabits(nextHabits);
-      await persistHabits(nextHabits);
 
       const catLabel =
         TASK_CATEGORY_META.find(
-          (c) => c.key === (newHabit.category || "health"),
+          (c) => c.key === (newHabit.categoryId || "health"),
         )?.label || "Health";
       showToast(`✓ Habit added to ${catLabel}`);
-
-      emitStateChange("habits_changed", "tasks_screen");
     }
 
     void syncWidgetData().catch(() => {});
-    void recordDailyHistorySnapshot();
   };
+
+
 
   const handleUpdateExistingFromNLP = async (
     parsed: ParsedProductivityItem,
@@ -764,31 +614,27 @@ export function useTasksState() {
     if (type === "habit") {
       const existing = habits.find((h) => h.id === existingId);
       if (!existing) return;
-      const updatedHabit = {
-        ...existing,
+      const updates: Partial<Habit> = {
         title: parsed.title,
-        category: parsed.category || existing.category,
-        reminderHour: parsed.time
-          ? Number(parsed.time.split(":")[0])
-          : existing.reminderHour,
-        reminderMinute: parsed.time
-          ? Number(parsed.time.split(":")[1])
-          : existing.reminderMinute,
-        recurrence: parsed.recurrence || existing.recurrence,
-        priority: parsed.priority || existing.priority,
+        categoryId: parsed.category || existing.categoryId,
+        recurrence: parsed.recurrence
+          ? {
+              frequency: (parsed.recurrence.type as any) || "daily",
+              interval: parsed.recurrence.interval || 1,
+              daysOfWeek: parsed.recurrence.days,
+            }
+          : existing.recurrence,
       };
-
-      let reminderDays: number[] | undefined = undefined;
-      if (updatedHabit.recurrence) {
-        if (updatedHabit.recurrence.type === "weekdays") {
-          reminderDays = [1, 2, 3, 4, 5];
-        } else if (updatedHabit.recurrence.type === "weekly") {
-          reminderDays = updatedHabit.recurrence.days;
-        }
-      }
-      updatedHabit.reminderDays = reminderDays;
-
-      await baseHandleSaveEditedHabit(updatedHabit);
+      
+      const updatedHabit = await EntityCommandService.updateHabit(
+        existingId,
+        existing.workspaceId || INBOX_WORKSPACE_ID,
+        updates
+      );
+      
+      const next = habits.map((h) => (h.id === updatedHabit.id ? updatedHabit : h));
+      setHabits(next);
+      await persistHabits(next);
       showToast(`✓ Habit updated`);
     } else {
       let existingTask: Task | undefined;
@@ -801,23 +647,20 @@ export function useTasksState() {
       }
       if (!existingTask) return;
 
-      const [hours, minutes] = parsed.time
-        ? parsed.time.split(":").map(Number)
-        : [undefined, undefined];
+      await EntityCommandService.updateTask(
+        existingTask.id,
+        existingTask.workspaceId || INBOX_WORKSPACE_ID,
+        {
+          title: parsed.title,
+          categoryId: parsed.category || existingTask.categoryId,
+          schedule: parsed.date
+            ? { ...existingTask.schedule, date: parsed.date }
+            : existingTask.schedule,
+          priority: parsed.priority || existingTask.priority,
+        },
+        { source: "tasks_screen" }
+      );
 
-      const updatedTask = {
-        ...existingTask,
-        title: parsed.title,
-        category: parsed.category || existingTask.category,
-        scheduledDate: parsed.date || existingTask.scheduledDate,
-        reminderHour: hours !== undefined ? hours : existingTask.reminderHour,
-        reminderMinute:
-          minutes !== undefined ? minutes : existingTask.reminderMinute,
-        recurrence: parsed.recurrence || existingTask.recurrence,
-        priority: parsed.priority || existingTask.priority,
-      };
-
-      onSaveEditedTask(updatedTask);
       showToast(`✓ Task updated`);
     }
   };
@@ -842,20 +685,9 @@ export function useTasksState() {
     await baseToggleHabit(id);
   };
 
-  const recoverHabitStreak = async (
-    id: string,
-    method: "pebbles" | "focus",
-  ): Promise<boolean> => {
-    return baseRecoverHabitStreak(id, method);
-  };
-
-  const handleSaveEditedHabit = async (updated: Habit) => {
-    await baseHandleSaveEditedHabit(updated);
-  };
-
-  const handleDeleteEditedHabit = async (id: string) => {
-    await baseHandleDeleteEditedHabit(id);
-  };
+  const handleSaveEarlierForLater = useCallback(async () => {
+    await saveEarlierForLater(overdueTodos);
+  }, [saveEarlierForLater, overdueTodos]);
 
   useFocusEffect(
     useCallback(() => {
@@ -864,16 +696,15 @@ export function useTasksState() {
     }, [loadState, loadSuggestions]),
   );
 
-  // Sync notification permissions and channels
+  // Ensure Android notification channels exist for scheduled reminders.
+  // OS notification permission is deliberately NOT requested here — screen
+  // mounting must never trigger the native prompt. Permission is only
+  // requested after explicit user intent (Alert Center "Enable Alerts").
   useEffect(() => {
     (async () => {
       try {
-        const Notifications = await import("expo-notifications");
-        const { status } = await Notifications.getPermissionsAsync();
-        if (status !== "granted") {
-          await Notifications.requestPermissionsAsync();
-        }
         if (Platform.OS === "android") {
+          const Notifications = await import("expo-notifications");
           await Notifications.setNotificationChannelAsync("todo-reminders", {
             name: "Task Reminders",
             importance: Notifications.AndroidImportance.DEFAULT,
@@ -916,7 +747,7 @@ export function useTasksState() {
           const normalized = normalizeHabitsForToday(current);
           if (JSON.stringify(normalized) !== JSON.stringify(current)) {
             void persistHabits(normalized).then(() => {
-              emitStateChange("habits_changed");
+              emitStateChange("habits_changed", "tasks_screen");
             });
             return normalized;
           }
@@ -934,13 +765,17 @@ export function useTasksState() {
     setSearchQuery("");
     setIsBulkSelectActive(false);
     setSelectedItemIds(new Set());
-  }, [openedFolderId, activeSegment]);
+  }, [activeWorkspaceId, workspaceSegment]);
 
   // Listen for global task and habit updates to sync state immediately
   useEffect(() => {
     const unsubscribeTasks = addStateListener("tasks_changed", (emitterId) => {
+      console.log("[INSTRUMENT] [useTasksState] tasks_changed listener FIRED, emitterId =", emitterId);
       if (emitterId !== "tasks_screen") {
+        console.log("[INSTRUMENT] [useTasksState] emitterId check PASSED, calling loadState()");
         void loadState();
+      } else {
+        console.log("[INSTRUMENT] [useTasksState] emitterId check SKIPPED (was tasks_screen)");
       }
     });
 
@@ -1004,19 +839,27 @@ export function useTasksState() {
     if (focusHabitId && habits.length > 0) {
       const habit = habits.find((h) => h.id === focusHabitId);
       if (habit) {
-        const folderId = habit.folderId || "default";
-        setOpenedFolderId(folderId);
-        setSelectedList(folderId);
+        const folderId = habit.workspaceId || INBOX_WORKSPACE_ID;
+        setActiveWorkspaceId(folderId);
+        setSelectedWorkspaceId(folderId);
         setHighlightedHabitId(focusHabitId);
         const timer = setTimeout(() => setHighlightedHabitId(null), 2200);
         return () => clearTimeout(timer);
       }
     }
     return undefined;
-  }, [focusHabitId, habits]);
+  }, [focusHabitId, habits, setActiveWorkspaceId, setSelectedWorkspaceId]);
 
-  const selectList = async (listId: string) => {
-    setSelectedList(listId);
+  // Resource focus from "Use Existing" navigation
+  useEffect(() => {
+    if (focusResourceId) {
+      setActiveSegment("resources" as any);
+      setWorkspaceSegment("resources");
+    }
+  }, [focusResourceId]);
+
+  const selectWorkspace = async (listId: string) => {
+    setSelectedWorkspaceId(listId);
     if (listId && listId !== "null") {
       await UiStateRepository.saveUiState({ activeWorkspaceId: listId });
     }
@@ -1027,24 +870,21 @@ export function useTasksState() {
       const activeHabitsMap = await HabitRepository.getHabits(listId);
 
       const activeTodos: Task[] = Object.values(activeTasksMap).map((t) => ({
-        id: t.id,
-        title: t.title,
-        completed: t.completed,
-        priority: t.priority,
-        scheduledDate: t.dueDate,
-        folderId: listId,
-        createdAt: t.createdAt,
-        category: t.category as any,
+        ...t,
+        workspaceId: listId,
+        updatedAt: t.updatedAt || Date.now(),
       }));
 
       const activeHabits: Habit[] = Object.values(activeHabitsMap).map((h) => ({
         id: h.id,
+        workspaceId: listId,
         title: h.title,
-        streak: h.streak,
-        bestStreak: h.bestStreak,
-        completedToday: h.completedDates.includes(getDateKey()),
-        folderId: listId,
+        recurrence: h.recurrence,
+        completionHistory: h.completionHistory || [],
+        revision: h.revision || 1,
+        lifecycleGeneration: h.lifecycleGeneration || 1,
         createdAt: h.createdAt,
+        updatedAt: h.updatedAt,
       }));
 
       setTodos((prev) => ({
@@ -1104,45 +944,66 @@ export function useTasksState() {
     const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
 
     if (taskIds.length > 0) {
-      const nextTodos = { ...todos };
-      for (const listId in nextTodos) {
-        nextTodos[listId] = nextTodos[listId].map((t) => {
+      const itemsToComplete: { taskId: string; workspaceId: string }[] = [];
+      for (const [listId, listTodos] of Object.entries(todos)) {
+        for (const t of listTodos) {
           if (selectedItemIds.has(t.id)) {
-            return { ...t, completed: true, lastUpdated: getDateKey() };
+            itemsToComplete.push({
+              taskId: t.id,
+              workspaceId: t.workspaceId || listId,
+            });
           }
-          return t;
-        });
+        }
       }
-      setTodos(nextTodos);
-      await persistState(lists, selectedList, nextTodos);
-      emitStateChange("tasks_changed", "tasks_screen");
+
+      // Route through ECS so bulk completion has the same lifecycle side effects
+      // as single completion (pebble rewards, reminder cancellation, plugin
+      // events, widget sync, analytics) and writes the canonical status field.
+      // The command isolates per-item failures; this guard only contains an
+      // unexpected rejection so the rest of the batch and the UI state still
+      // update truthfully.
+      try {
+        const updatedTasks = await EntityCommandService.completeTasks(
+          itemsToComplete,
+          { source: "tasks_screen" },
+        );
+
+        if (updatedTasks.length > 0) {
+        const updatedById = new Map(updatedTasks.map((t) => [t.id, t]));
+          setTodos((prev) => {
+            const next: Record<string, Task[]> = {};
+            for (const [listId, listTodos] of Object.entries(prev)) {
+              next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        console.warn("[useTasksState] Bulk complete failed", err);
+        showToast("Some tasks couldn't be completed. Please try again.");
+      }
     }
 
     if (habitIds.length > 0) {
-      const today = getDateKey();
-      const yesterday = getDateKey(new Date(Date.now() - DAY_MS));
-      const nextHabits = habits.map((h) => {
+      const itemsToComplete: { habitId: string; workspaceId: string }[] = [];
+      for (const h of habits) {
         if (selectedItemIds.has(h.id)) {
-          let nextStreak = 1;
-          if (h.lastCompletedDate === today) {
-            nextStreak = h.streak || 1;
-          } else if (h.lastCompletedDate === yesterday) {
-            nextStreak = h.streak + 1;
-          }
-          return {
-            ...h,
-            completedToday: true,
-            lastCompletedDate: today,
-            streak: nextStreak,
-            bestStreak: Math.max(h.bestStreak || 0, nextStreak),
-            lastUpdated: today,
-          };
+          itemsToComplete.push({
+            habitId: h.id,
+            workspaceId: h.workspaceId || INBOX_WORKSPACE_ID,
+          });
         }
-        return h;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-      emitStateChange("habits_changed", "tasks_screen");
+      }
+
+      const updatedHabits = await EntityCommandService.completeHabits(
+        itemsToComplete,
+        { source: "tasks_screen" },
+      );
+
+      if (updatedHabits.length > 0) {
+        const updatedById = new Map(updatedHabits.map((h) => [h.id, h]));
+        setHabits((prev) => prev.map((h) => updatedById.get(h.id) || h));
+      }
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
@@ -1158,42 +1019,63 @@ export function useTasksState() {
     const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
 
     if (taskIds.length > 0) {
-      const nextTodos = { ...todos };
-      for (const listId in nextTodos) {
-        nextTodos[listId] = nextTodos[listId].map((t) => {
+      const itemsToArchive: { taskId: string; workspaceId: string }[] = [];
+      for (const [listId, listTodos] of Object.entries(todos)) {
+        for (const t of listTodos) {
           if (selectedItemIds.has(t.id)) {
-            void cancelReminderIds(t.notificationIds || []);
-            return {
-              ...t,
-              archived: true,
-              notificationIds: [],
-              lastUpdated: getDateKey(),
-            };
+            itemsToArchive.push({
+              taskId: t.id,
+              workspaceId: t.workspaceId || listId,
+            });
           }
-          return t;
-        });
+        }
       }
-      setTodos(nextTodos);
-      await persistState(lists, selectedList, nextTodos);
-      emitStateChange("tasks_changed", "tasks_screen");
+
+      // Route through ECS so bulk archiving cancels native reminders and clears
+      // notification IDs exactly like the single-item archive path. Committed
+      // items are projected even when another item in the batch failed.
+      try {
+        const updatedTasks = await EntityCommandService.archiveTasks(
+          itemsToArchive,
+          { source: "tasks_screen" },
+        );
+
+        if (updatedTasks.length > 0) {
+          const updatedById = new Map(updatedTasks.map((t) => [t.id, t]));
+          setTodos((prev) => {
+            const next: Record<string, Task[]> = {};
+            for (const [listId, listTodos] of Object.entries(prev)) {
+              next[listId] = listTodos.map((t) => updatedById.get(t.id) || t);
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        console.warn("[useTasksState] Bulk archive failed", err);
+        showToast("Some tasks couldn't be archived. Please try again.");
+      }
     }
 
     if (habitIds.length > 0) {
-      const nextHabits = habits.map((h) => {
+      const itemsToArchive: { habitId: string; workspaceId: string }[] = [];
+      for (const h of habits) {
         if (selectedItemIds.has(h.id)) {
-          void cancelReminderIds(h.notificationIds || []);
-          return {
-            ...h,
-            archived: true,
-            notificationIds: [],
-            lastUpdated: getDateKey(),
-          };
+          itemsToArchive.push({
+            habitId: h.id,
+            workspaceId: h.workspaceId || INBOX_WORKSPACE_ID,
+          });
         }
-        return h;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-      emitStateChange("habits_changed", "tasks_screen");
+      }
+
+      const updatedHabits = await EntityCommandService.archiveHabits(
+        itemsToArchive,
+        { source: "tasks_screen" },
+      );
+
+      if (updatedHabits.length > 0) {
+        const updatedById = new Map(updatedHabits.map((h) => [h.id, h]));
+        setHabits((prev) => prev.map((h) => updatedById.get(h.id) || h));
+      }
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
@@ -1222,21 +1104,31 @@ export function useTasksState() {
               (id) => !id.startsWith("habit-"),
             );
             const originalWorkspaceName =
-              lists.find((l) => l.id === selectedList)?.name || "Default";
+              workspaces.find((l) => l.id === selectedWorkspaceId)?.name || "Inbox";
 
             if (taskIds.length > 0) {
-              const listTodos = todos[selectedList] ?? [];
-              const todosToDelete = listTodos.filter((t) =>
-                selectedItemIds.has(t.id),
-              );
+              const todosToDelete: Task[] = [];
+              const itemsToRecycle: { taskId: string; workspaceId: string }[] = [];
 
-              for (const todo of todosToDelete) {
-                await cancelReminderIds(todo.notificationIds || []);
-                const folderName =
-                  lists.find((l) => l.id === (todo.folderId || selectedList))
-                    ?.name || originalWorkspaceName;
-                await addToRecycleBin("task", todo, folderName);
+              for (const [listId, listTodos] of Object.entries(todos)) {
+                for (const t of listTodos) {
+                  if (selectedItemIds.has(t.id)) {
+                    todosToDelete.push(t);
+                    itemsToRecycle.push({
+                      taskId: t.id,
+                      workspaceId: t.workspaceId || listId,
+                    });
+                  }
+                }
               }
+
+              const { EntityCommandService } = await import(
+                "@/services/command/EntityCommandService"
+              );
+              await EntityCommandService.recycleTasks(itemsToRecycle, {
+                originalWorkspaceName,
+                source: "tasks_screen",
+              });
 
               const nextTodos = { ...todos };
               for (const listId in nextTodos) {
@@ -1245,45 +1137,25 @@ export function useTasksState() {
                 );
               }
               setTodos(nextTodos);
-              await persistState(lists, selectedList, nextTodos);
-              emitStateChange("tasks_changed", "tasks_screen");
 
               showUndo({
                 message: `Deleted ${taskIds.length} task(s)`,
                 onUndo: async () => {
-                  const binItems = await getRecycleBinItems();
-                  await saveRecycleBinItems(
-                    binItems.filter((item) => !selectedItemIds.has(item.id)),
-                  );
-
-                  const rescheduledTodos = await Promise.all(
-                    todosToDelete.map((t) => rescheduleTodoReminders(t)),
-                  );
-
-                  for (const todo of rescheduledTodos) {
-                    const listId = todo.folderId || selectedList;
-                    await TaskRepository.saveTask({
-                      ...todo,
-                      folderId: listId,
-                    });
+                  try {
+                    await EntityCommandService.restoreTasks(taskIds);
+                    // Re-read state from current
+                    const refreshedMap =
+                      await TaskRepository.getTasks(selectedWorkspaceId);
+                    const refreshedTodos = Object.values(refreshedMap) as Task[];
+                    const currentTodos = {
+                      ...todos,
+                      [selectedWorkspaceId]: refreshedTodos,
+                    };
+                    setTodos(currentTodos);
+                    emitStateChange("tasks_changed", "tasks_screen");
+                  } catch (e) {
+                    console.error("Failed to undo task deletion", e);
                   }
-                  // Re-read state from current
-                  const refreshedMap =
-                    await TaskRepository.getTasks(selectedList);
-                  const refreshedTodos = Object.values(refreshedMap).map(
-                    (t: any) => ({
-                      ...t,
-                      folderId: selectedList,
-                      scheduledDate: t.scheduledDate || t.dueDate,
-                    }),
-                  ) as Task[];
-                  const currentTodos = {
-                    ...todos,
-                    [selectedList]: refreshedTodos,
-                  };
-                  await persistState(lists, selectedList, currentTodos);
-                  setTodos(currentTodos);
-                  emitStateChange("tasks_changed", "tasks_screen");
                 },
               });
             }
@@ -1294,11 +1166,9 @@ export function useTasksState() {
               );
 
               for (const habit of habitsToDelete) {
-                await cancelReminderIds(habit.notificationIds || []);
-                const folderName =
-                  lists.find((l) => l.id === (habit.folderId || "default"))
-                    ?.name || "Default";
-                await addToRecycleBin("habit", habit, folderName);
+                await EntityCommandService.recycleHabit(habit.id, habit.workspaceId || INBOX_WORKSPACE_ID, {
+                  source: "tasks_screen"
+                });
               }
 
               const nextHabits = habits.filter(
@@ -1311,35 +1181,20 @@ export function useTasksState() {
               showUndo({
                 message: `Deleted ${habitIds.length} habit(s)`,
                 onUndo: async () => {
-                  const binItems = await getRecycleBinItems();
-                  await saveRecycleBinItems(
-                    binItems.filter((item) => !selectedItemIds.has(item.id)),
-                  );
-
-                  const rescheduledHabits = await Promise.all(
-                    habitsToDelete.map((h) => rescheduleHabitReminders(h)),
-                  );
-
-                  for (const habit of rescheduledHabits) {
-                    await HabitRepository.saveHabit({
-                      ...habit,
-                      folderId: selectedList,
-                    });
+                  try {
+                    for (const id of habitIds) {
+                      await EntityCommandService.restoreHabit(id);
+                    }
+                    // Re-read state from current
+                    const refreshedHabitsMap =
+                      await HabitRepository.getHabits(selectedWorkspaceId);
+                    const restored = Object.values(refreshedHabitsMap) as Habit[];
+                    await persistHabits(restored);
+                    setHabits(restored);
+                    emitStateChange("habits_changed", "tasks_screen");
+                  } catch (e) {
+                    console.error("Failed to undo habit deletion", e);
                   }
-                  // Re-read state from current
-                  const refreshedHabitsMap =
-                    await HabitRepository.getHabits(selectedList);
-                  const restored = Object.values(refreshedHabitsMap).map(
-                    (h: any) => ({
-                      ...h,
-                      folderId: selectedList,
-                      completedToday:
-                        h.completedDates?.includes(getDateKey()) || false,
-                    }),
-                  ) as Habit[];
-                  await persistHabits(restored);
-                  setHabits(restored);
-                  emitStateChange("habits_changed", "tasks_screen");
                 },
               });
             }
@@ -1355,59 +1210,131 @@ export function useTasksState() {
     );
   };
 
-  const handleBulkMove = async (targetFolderId: string) => {
+  const handleBulkMove = async (targetWorkspaceId: string) => {
     setIsMoveModalVisible(false);
-    const selectedIdsArray = Array.from(selectedItemIds);
-    const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
-    const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
+    let taskMoveFailed = false;
+    let habitMoveFailed = false;
 
-    if (taskIds.length > 0) {
-      const nextTodos = { ...todos };
-      const itemsToMove: Task[] = [];
-      for (const listId in nextTodos) {
-        const itemsToKeep: Task[] = [];
-        nextTodos[listId].forEach((t) => {
-          if (selectedItemIds.has(t.id)) {
-            itemsToMove.push({
-              ...t,
-              folderId: targetFolderId,
-              lastUpdated: getDateKey(),
-            });
-          } else {
-            itemsToKeep.push(t);
+    try {
+      const selectedIdsArray = Array.from(selectedItemIds);
+      const habitIds = selectedIdsArray.filter((id) => id.startsWith("habit-"));
+      const taskIds = selectedIdsArray.filter((id) => !id.startsWith("habit-"));
+
+      if (taskIds.length > 0) {
+        const movesToExecute: { id: string; oldWorkspaceId: string }[] = [];
+        
+        for (const [listId, listTodos] of Object.entries(todos)) {
+          for (const t of listTodos) {
+            if (selectedItemIds.has(t.id)) {
+              movesToExecute.push({ id: t.id, oldWorkspaceId: t.workspaceId || listId });
+            }
           }
-        });
-        nextTodos[listId] = itemsToKeep;
-      }
-      if (!nextTodos[targetFolderId]) {
-        nextTodos[targetFolderId] = [];
-      }
-      nextTodos[targetFolderId] = [
-        ...itemsToMove,
-        ...nextTodos[targetFolderId],
-      ];
-      setTodos(nextTodos);
-      await persistState(lists, selectedList, nextTodos);
-      emitStateChange("tasks_changed", "tasks_screen");
-    }
-
-    if (habitIds.length > 0) {
-      const nextHabits = habits.map((h) => {
-        if (selectedItemIds.has(h.id)) {
-          return { ...h, folderId: targetFolderId, lastUpdated: getDateKey() };
         }
-        return h;
-      });
-      setHabits(nextHabits);
-      await persistHabits(nextHabits);
-      emitStateChange("habits_changed", "tasks_screen");
-    }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {},
-    );
-    setIsBulkSelectActive(false);
-    setSelectedItemIds(new Set());
+        // allSettled (not all): every move must settle before we reconcile UI
+        // state, so on partial failure the reload observes the final persisted
+        // state instead of an in-flight move.
+        const results = await Promise.allSettled(
+          movesToExecute.map((move) =>
+            EntityCommandService.moveTask(move.id, move.oldWorkspaceId, targetWorkspaceId, {
+              skipEvents: true,
+              skipAnalytics: true,
+            })
+          )
+        );
+        const failures = results.filter(
+          (r): r is PromiseRejectedResult => r.status === "rejected",
+        );
+
+        if (failures.length > 0) {
+          taskMoveFailed = true;
+          console.warn(
+            `Failed to move ${failures.length} of ${results.length} selected task(s)`,
+            failures.map((f) => f.reason),
+          );
+          await loadState();
+          emitStateChange("tasks_changed", "tasks_screen");
+        } else {
+          // Persistence succeeded — reload affected partitions after persistence to ensure authoritative state
+          const affectedWorkspaceIds = new Set<string>([targetWorkspaceId]);
+          movesToExecute.forEach((m) => affectedWorkspaceIds.add(m.oldWorkspaceId));
+
+          const reloadedPartitions: Record<string, Task[]> = {};
+          for (const wsId of affectedWorkspaceIds) {
+            const tasksMap = await TaskRepository.getTasks(wsId);
+            reloadedPartitions[wsId] = Object.values(tasksMap);
+          }
+
+          setTodos((prev) => ({
+            ...prev,
+            ...reloadedPartitions,
+          }));
+          emitStateChange("tasks_changed", "tasks_screen");
+        }
+      }
+
+      if (habitIds.length > 0) {
+        // Persist every selected habit through the canonical single-habit move
+        // command (save to target workspace, then delete from source) — the same
+        // semantics the task branch above uses with moveTask. Events/analytics are
+        // consolidated into a single emission below.
+        const movesToExecute: { id: string; sourceWorkspaceId: string }[] = [];
+        for (const habit of habits) {
+          if (selectedItemIds.has(habit.id)) {
+            movesToExecute.push({
+              id: habit.id,
+              sourceWorkspaceId: habit.workspaceId || INBOX_WORKSPACE_ID,
+            });
+          }
+        }
+
+        // allSettled (not all): every move must settle before we reconcile UI
+        // state, so on partial failure the reload observes the final persisted
+        // state instead of an in-flight move.
+        const results = await Promise.allSettled(
+          movesToExecute.map((move) =>
+            EntityCommandService.moveHabit(
+              move.id,
+              move.sourceWorkspaceId,
+              targetWorkspaceId,
+              {
+                skipEvents: true,
+                skipAnalytics: true,
+              },
+            )
+          ),
+        );
+        const failures = results.filter(
+          (r): r is PromiseRejectedResult => r.status === "rejected",
+        );
+
+        if (failures.length > 0) {
+          // Partial success is possible (each move is independent). Reload from
+          // the repository so the UI reflects exactly what was persisted instead
+          // of claiming every habit moved.
+          habitMoveFailed = true;
+          console.warn(
+            `Failed to move ${failures.length} of ${results.length} selected habit(s)`,
+            failures.map((f) => f.reason),
+          );
+          await loadHabits();
+          emitStateChange("habits_changed", "tasks_screen");
+        } else {
+          // Persistence succeeded — reload habits from repository to ensure authoritative state
+          await loadHabits();
+          emitStateChange("habits_changed", "tasks_screen");
+        }
+      }
+    } finally {
+      const anyFailed = taskMoveFailed || habitMoveFailed;
+      Haptics.notificationAsync(
+        anyFailed
+          ? Haptics.NotificationFeedbackType.Warning
+          : Haptics.NotificationFeedbackType.Success,
+      ).catch(() => {});
+      setIsBulkSelectActive(false);
+      setSelectedItemIds(new Set());
+    }
   };
 
   const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
@@ -1432,8 +1359,6 @@ export function useTasksState() {
     toggleLinkResource,
     activeSegment,
     setActiveSegment,
-    folderSegment,
-    setFolderSegment,
     selectedDate,
     setSelectedDate,
     searchQuery,
@@ -1444,18 +1369,8 @@ export function useTasksState() {
     setSelectedItemIds,
     isMoveModalVisible,
     setIsMoveModalVisible,
-    openedFolderId,
-    setOpenedFolderId,
-    folderModalVisible,
-    setFolderModalVisible,
-    editingFolderId,
-    setEditingFolderId,
     highlightedTodoId,
     setHighlightedTodoId,
-    lists,
-    setLists,
-    selectedList,
-    setSelectedList,
     todos,
     setTodos,
     title,
@@ -1464,14 +1379,21 @@ export function useTasksState() {
     setSelectedTodoCategory,
     selectedTodoPriority,
     setSelectedTodoPriority,
-    selectedListPriorityFilter,
-    setSelectedListPriorityFilter,
+    selectedWorkspacePriorityFilter,
+    setSelectedWorkspacePriorityFilter,
+    priorityFilter,
+    setPriorityFilter,
+    statusFilter,
+    setStatusFilter,
+    scheduleFilter,
+    setScheduleFilter,
+    reminderFilter,
+    setReminderFilter,
+    activeFilterCount,
+    resetFilters,
     selectedCategoryFilter,
     setSelectedCategoryFilter,
-    editingTask,
-    setEditingTask,
-    editingHabit,
-    setEditingHabit,
+
     expandedTodoIds,
     setExpandedTodoIds,
     taskPositions,
@@ -1482,8 +1404,8 @@ export function useTasksState() {
     setHabitTitle,
     selectedHabitPriority,
     setSelectedHabitPriority,
-    selectedListHabitPriorityFilter,
-    setSelectedListHabitPriorityFilter,
+    selectedWorkspaceHabitPriorityFilter,
+    setSelectedWorkspaceHabitPriorityFilter,
     showCelebrate,
     setShowCelebrate,
     highlightedHabitId,
@@ -1492,8 +1414,7 @@ export function useTasksState() {
     setAlarmMenu,
     listsExpanded,
     setListsExpanded,
-    addingTask,
-    setAddingTask,
+
     selectedTodoDate,
     setSelectedTodoDate,
     isAddingHabit,
@@ -1516,8 +1437,7 @@ export function useTasksState() {
     addTaskInputRef,
 
     // Memoized values
-    weekDaysStrip,
-    formatSelectedDayName,
+    currentTodos,
     filteredTodos,
     overdueTodos,
     todayTodos,
@@ -1539,11 +1459,10 @@ export function useTasksState() {
     loadSuggestions,
     handleSaveParsedItem,
     handleUpdateExistingFromNLP,
-    handleSaveEditedHabit,
-    handleDeleteEditedHabit,
+    deleteHabit: baseDeleteHabit,
     persistState,
     persistHabits,
-    selectList,
+    selectWorkspace,
     cycleCategory,
     cyclePriority,
     cycleDate,
@@ -1556,30 +1475,34 @@ export function useTasksState() {
     updateTodoCategory,
     toggleExpand,
     clearCompleted,
+    handleSaveEarlierForLater,
     scheduleAlarm,
     scheduleAlarmWithDays,
-    onSaveEditedTask,
     cancelAlarm,
-    formatAlarm: formatAlarmFromHook,
-    addHabit,
-    deleteHabit,
-    toggleHabit,
-    recoverHabitStreak,
+    formatAlarm: (ms?: number) => formatAlarm(ms),
+    addHabit: baseAddHabit,
+    toggleHabit: baseToggleHabit,
     handleBulkComplete,
     handleBulkArchive,
     handleBulkDelete,
+    handleBulkMove,
     resources,
-    setResources,
     loadResourcesState,
     createResource,
     updateResource,
     deleteResource,
     toggleArchiveResource,
-    togglePinResource,
+    focusResourceId,
     addChecklist,
+    createChecklist: addChecklist,
     updateChecklist,
+    updateChecklistTitle: updateChecklist,
     deleteChecklist,
+    toggleArchiveChecklist,
     toggleChecklistItem,
+    toggleChecklistAllItems,
+    addChecklistItem,
+    deleteChecklistItem,
     loadChecklistsState,
   };
 }

@@ -1,9 +1,10 @@
 // Notification route mapping — determines where tapping a notification navigates the user
 
 export interface NotificationPayload {
-  type: "todo" | "habit";
+  type: "todo" | "task" | "habit" | "checklist";
   itemId: string;
   escalationLevel?: number;
+  workspaceId?: string;
 }
 
 /**
@@ -12,12 +13,13 @@ export interface NotificationPayload {
 export function getNotificationPayload(data: unknown): NotificationPayload | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
-  if (d.type !== "todo" && d.type !== "habit") return null;
+  if (d.type !== "todo" && d.type !== "task" && d.type !== "habit" && d.type !== "checklist") return null;
   if (typeof d.itemId !== "string" || !d.itemId) return null;
   return {
     type: d.type,
     itemId: d.itemId,
     escalationLevel: typeof d.escalationLevel === "number" ? d.escalationLevel : 0,
+    workspaceId: typeof d.workspaceId === "string" ? d.workspaceId : undefined,
   };
 }
 
@@ -29,6 +31,9 @@ export function getRouteForPayload(payload: NotificationPayload): string {
   switch (payload.type) {
     case "habit":
       return `/task-details?id=${payload.itemId}&type=habit`;
+    case "checklist":
+      return `/checklist-details?id=${payload.itemId}`;
+    case "task":
     case "todo":
     default:
       return `/task-details?id=${payload.itemId}&type=task`;

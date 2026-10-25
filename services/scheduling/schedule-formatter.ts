@@ -1,3 +1,5 @@
+import { dateKeyFromDate } from "@/shared/utils/date-key";
+
 export function formatReminderTime(hour?: number, minute?: number): string | null {
   if (hour === undefined || minute === undefined) return null;
   const ampm = hour >= 12 ? "PM" : "AM";
@@ -15,4 +17,30 @@ export function formatScheduleDays(days?: number[]): string | null {
   
   const DAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   return sorted.map((d) => DAY_FULL[d] ?? d).join(", ");
+}
+
+/**
+ * Format reminder display for an entity:
+ * - If reminder date differs from scheduled date: "YYYY-MM-DD at H:MM AM/PM"
+ * - If reminder date is the same as scheduled date: "H:MM AM/PM" (compact)
+ * - If unscheduled or inbox: "YYYY-MM-DD at H:MM AM/PM"
+ */
+export function formatReminderDisplay(
+  triggerAt?: number,
+  scheduledDate?: string,
+): string {
+  if (!triggerAt) return "Off";
+  const d = new Date(triggerAt);
+  const timeStr = formatReminderTime(d.getHours(), d.getMinutes()) || "On";
+  const reminderDateKey = dateKeyFromDate(d);
+  const cleanScheduledDate =
+    scheduledDate && scheduledDate !== "inbox" ? scheduledDate : undefined;
+
+  if (cleanScheduledDate) {
+    if (reminderDateKey !== cleanScheduledDate) {
+      return `${reminderDateKey} at ${timeStr}`;
+    }
+    return timeStr;
+  }
+  return `${reminderDateKey} at ${timeStr}`;
 }

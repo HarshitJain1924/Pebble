@@ -1,4 +1,6 @@
+import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { getTodaySummary } from "@/services/analytics/productivity-history.service";
+import { isTaskCompleted, isHabitCompletedToday, getHabitCurrentStreak } from "@/shared/utils/domain-selectors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export type TodaySummary = Awaited<ReturnType<typeof getTodaySummary>>;
@@ -17,11 +19,6 @@ export type WidgetPayload = {
   activeFocusSessionMinutes: number;
 };
 
-/**
- * Serializes and writes a lightweight JSON payload of active planner and habits data
- * to a shared storage key, allowing future native iOS Swift / Android Kotlin widget extensions
- * to instantly fetch and render real-time streak and goal updates.
- */
 export async function exportWidgetPayload(
   completedTasks: number,
   totalTasks: number,
@@ -49,9 +46,6 @@ export async function exportWidgetPayload(
   return payload;
 }
 
-/**
- * Automatically aggregates data from storage and syncs the widget payload.
- */
 export async function syncWidgetData(
   focusTimeToday = 0,
 ): Promise<WidgetPayload> {
@@ -65,30 +59,22 @@ export async function syncWidgetData(
     const { UiStateRepository, TaskRepository, HabitRepository } =
       await import("@/repositories");
     const activeWorkspace =
-      (await UiStateRepository.getUiState()).activeWorkspaceId || "default";
+      (await UiStateRepository.getUiState()).activeWorkspaceId || INBOX_WORKSPACE_ID;
 
     // Load Tasks
     const tasksMap = await TaskRepository.getTasks(activeWorkspace);
-    const allTodos = Object.values(tasksMap).filter((t: any) => !t.archived);
+    const allTodos = Object.values(tasksMap).filter((t: any) => !t.archivedAt);
     totalTasks = allTodos.length;
-    completedTasks = allTodos.filter((t: any) => t.completed).length;
+    completedTasks = allTodos.filter((t: any) => isTaskCompleted(t)).length;
 
     // Load Habits
     const habitsMap = await HabitRepository.getHabits(activeWorkspace);
-    const allHabits = Object.values(habitsMap).filter((h: any) => !h.archived);
+    const allHabits = Object.values(habitsMap).filter((h: any) => !h.archivedAt);
 
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = `${today.getMonth() + 1}`.padStart(2, "0");
-    const d = `${today.getDate()}`.padStart(2, "0");
-    const todayStr = `${y}-${m}-${d}`;
-
-    const pendingHabits = allHabits.filter(
-      (h: any) => !h.completedDates?.includes(todayStr),
-    );
+    const pendingHabits = allHabits.filter((h: any) => !isHabitCompletedToday(h));
     pendingHabitTitles = pendingHabits.map((h: any) => h.title);
     currentStreak = allHabits.reduce(
-      (max, h: any) => Math.max(max, h.streak || 0),
+      (max, h: any) => Math.max(max, getHabitCurrentStreak(h)),
       0,
     );
     if (pendingHabitTitles.length > 0) {
@@ -118,9 +104,6 @@ export async function syncWidgetData(
   return payload;
 }
 
-/**
- * Reads serialized widget data safely.
- */
 export async function getWidgetTodaySummary(): Promise<WidgetPayload | null> {
   const raw = await AsyncStorage.getItem(WIDGET_PAYLOAD_KEY);
   if (!raw) return null;
@@ -131,12 +114,6 @@ export async function getWidgetTodaySummary(): Promise<WidgetPayload | null> {
   }
 }
 
-/**
- * Returns mock configuration guidelines for Quick Action deep links.
- * Used for App Shortcuts and Home Screen quick action launch triggers:
- * - "pebble://focus?action=launch" -> Starts Pomodoro directly
- * - "pebble://planner?action=quickadd" -> Opens Add Task directly
- */
 export function getQuickAddActions() {
   return [
     {

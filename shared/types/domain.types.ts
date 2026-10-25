@@ -1,53 +1,14 @@
-import { type TaskCategory } from "@/features/tasks/services/task-categories";
-import { type ScheduleConfig } from "@/shared/types/repository.types";
-
 // ==========================================
-// SHARED BUILDING BLOCKS (VALUE OBJECTS)
+// PEBBLE CANONICAL DOMAIN MODEL
 // ==========================================
 
-/** System Audit Trail composed by all root entities */
-export interface AuditInfo {
-  createdAt?: number;
-  updatedAt?: number;
-  archivedAt?: number;
-}
+export const INBOX_WORKSPACE_ID = "inbox";
+export const MY_PEBBLES_WORKSPACE_ID = "my-pebbles";
 
-/** Composable Time Schedule for Tasks */
-export interface Schedule {
-  scheduledDate?: string; // Format: "YYYY-MM-DD"
-  scheduledTime?: string; // Format: "HH:mm"
-  deadlineDate?: string; // Format: "YYYY-MM-DD"
-  durationMinutes?: number;
-}
-
-/** Composable Push Notification Alert Configuration */
-export interface Reminder {
-  alarmTime?: number; // Epoch timestamp (ms)
-  notificationIds?: string[];
-  escalationMinutes?: number[];
-}
-
-/** Composable Recurrence Rule */
-export interface RecurrenceRule {
-  type: "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-  interval?: number;
-  unit?: "hours" | "days";
-  days?: number[]; // 0 = Sunday ... 6 = Saturday
-  dayOfMonth?: number;
-}
-
-/** Composable Physical/Digital Location */
-export interface TaskLocation {
-  locationName?: string;
-  locationUrl?: string;
-}
-
-// ==========================================
-// CONSTITUTIONAL DOMAIN ENTITIES
-// ==========================================
-
-/** Top-Level Workspace Entity */
-export interface Workspace extends AuditInfo {
+/**
+ * 1. Workspace Entity
+ */
+export interface Workspace {
   id: string;
   name: string;
   emoji?: string;
@@ -55,152 +16,321 @@ export interface Workspace extends AuditInfo {
   iconType?: "emoji" | "icon";
   color?: string;
   description?: string;
-  archived?: boolean;
+  type?: "list" | "tag" | "smart";
+  filterRules?: any;
+  order?: number;
+  revision: number;
+  lifecycleGeneration: number;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt?: number;
 }
 
-/** First-Class Task Entity (Atomic Commitment) */
-export interface Task extends AuditInfo, ScheduleConfig {
-  id: string;
-  workspaceId?: string;
-  folderId?: string; // Backwards compatible mapping
-  title: string;
-  description?: string;
-  completed: boolean;
-  completedAt?: number;
-  priority?: "low" | "medium" | "high";
-  category?: TaskCategory;
-  archived?: boolean;
-  isEvent?: boolean;
+/**
+ * 2. Shared Value Objects
+ */
+export type TaskStatus = "todo" | "completed";
+export type TaskPriority = "none" | "low" | "medium" | "high";
 
-  // Composable Value Objects & Scheduling
-  schedule?: Schedule;
-  reminder?: Reminder;
-  location?: TaskLocation;
-  recurrenceConfig?: RecurrenceRule;
-  escalationMinutes?: number[];
-  alarmTime?: number;
-  alarmId?: string;
+export interface TaskSchedule {
+  date?: string; // YYYY-MM-DD
+  startTime?: string; // HH:mm
+  endTime?: string; // HH:mm
+  durationMinutes?: number; // Duration in minutes
+  allDay?: boolean;
+}
+
+export interface Reminder {
+  enabled: boolean;
+  triggerAt: number; // Epoch timestamp in ms
   notificationIds?: string[];
-  dueDate?: string;
-  scheduledDate?: string;
-
-  // Cross-Domain & Legacy Metadata
-  resourceId?: string;
-  linkedResourceIds?: string[];
-  linkedCollectionIds?: string[];
-  xpAwarded?: boolean;
-  createdDate?: string;
-  startDate?: string;
-  lastUpdated?: string;
-  recurrenceExceptions?: string[];
 }
 
-/** First-Class Habit Entity (Behavioral Routine) */
-export interface Habit extends AuditInfo, ScheduleConfig {
+export interface RecurrenceRule {
+  frequency: "daily" | "weekly" | "monthly" | "yearly" | "custom";
+  interval: number;
+  unit?: "hours" | "days";
+  daysOfWeek?: number[]; // 0 = Sunday ... 6 = Saturday
+  dayOfMonth?: number;
+  endDate?: string; // YYYY-MM-DD
+  occurrences?: number;
+}
+
+/**
+ * 3. Task Entity
+ */
+export interface Task {
   id: string;
-  workspaceId?: string;
-  folderId?: string; // Backwards compatible mapping
+  workspaceId: string;
   title: string;
   description?: string;
-  category?: TaskCategory;
-  archived?: boolean;
-  priority?: "low" | "medium" | "high";
-
-  // Streak & History State
-  streak: number;
-  bestStreak: number;
-  completedToday: boolean;
-  completedDates?: string[]; // List of "YYYY-MM-DD" completion dates
-  lastCompletedDate?: string;
-  previousStreak?: number;
-  streakBrokenDate?: string;
-  xpAwardedDate?: string;
-
-  // Recurrence Schedule & Reminders
-  reminderDays?: number[];
-  reminderHour?: number;
-  reminderMinute?: number;
-  escalationMinutes?: number[];
-
-  // Cross-Domain & Legacy Metadata
-  resourceId?: string;
-  linkedResourceIds?: string[];
-  linkedCollectionIds?: string[];
-  createdDate?: string;
-  startDate?: string;
-  lastUpdated?: string;
+  categoryId?: string;
+  tags?: string[];
+  revision: number;
+  lifecycleGeneration: number;
+  status: TaskStatus;
+  priority: TaskPriority;
+  schedule?: TaskSchedule;
+  reminder?: Reminder;
+  recurrence?: RecurrenceRule;
   recurrenceExceptions?: string[];
+  resourceIds?: string[];
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  archivedAt?: number;
 }
 
-/** Individual Checklist Item (Owned by Checklist) */
+/**
+ * 4. Habit Entity & Completion History
+ */
+export interface HabitCompletion {
+  date: string; // YYYY-MM-DD
+  completedAt: number; // Epoch timestamp in ms
+}
+
+export interface Habit {
+  id: string;
+  workspaceId: string;
+  title: string;
+  description?: string;
+  categoryId?: string;
+  priority?: TaskPriority;
+  revision: number;
+  lifecycleGeneration: number;
+  tags?: string[];
+  recurrence: RecurrenceRule;
+  recurrenceExceptions?: string[];
+  completionHistory: HabitCompletion[];
+  schedule?: TaskSchedule;
+  reminder?: Reminder;
+  resourceIds?: string[];
+  createdAt: number;
+  updatedAt: number;
+  archivedAt?: number;
+  streak?: number; // Added for UI tracking
+  bestStreak?: number; // Added for UI tracking
+  lastCompletedDate?: string; // Added for UI tracking
+}
+
+/**
+ * 5. Checklist Entity & Item
+ */
 export interface ChecklistItem {
   id: string;
   title: string;
-  text?: string;
   completed: boolean;
   completedAt?: number;
 }
 
-/** First-Class Checklist Entity (Independent Collection of Checkable Items) */
-export interface Checklist extends AuditInfo {
+export interface ChecklistOccurrenceRecord {
+  completedItemIds?: string[];
+  completedAt?: number;
+}
+
+export interface Checklist {
   id: string;
-  workspaceId?: string;
-  folderId?: string; // Backwards compatible mapping
+  workspaceId: string;
   title: string;
   description?: string;
-  category?: TaskCategory;
-  archived?: boolean;
+  priority: TaskPriority;
   items: ChecklistItem[];
-
-  // Cross-Domain & Legacy Metadata
-  resourceId?: string;
-  linkedResourceIds?: string[];
-  linkedCollectionIds?: string[];
-}
-
-export type ResourceType = "link" | "note" | "idea" | "file";
-
-/** First-Class Resource Entity (Preserved Reference Material) */
-export interface Resource extends AuditInfo {
-  id: string;
-  workspaceId?: string;
-  type: ResourceType;
-  kind?: "idea";
-  title: string;
-  content?: string; // Text content or note snippet
-  url?: string; // Web URL for link resources
-  mediaUri?: string;
-  previewImageUrl?: string;
-  archived?: boolean;
-  pinned?: boolean;
-  linkedItemIds?: string[];
+  categoryId?: string;
   tags?: string[];
+  revision: number;
+  lifecycleGeneration: number;
+  resourceIds?: string[];
   createdAt: number;
-  updatedAt?: number;
+  updatedAt: number;
+  archivedAt?: number;
+  pebbleAwarded?: boolean;
 
-  // File metadata
-  fileName?: string;
-  fileSize?: number;
-  mimeType?: string;
-  localUri?: string;
+  // ── Schedulable Checklist Extensions ──
+  schedule?: TaskSchedule;
+  recurrence?: RecurrenceRule;
+  recurrenceExceptions?: string[];
+  reminder?: Reminder;
+  occurrenceHistory?: Record<string, ChecklistOccurrenceRecord>;
 }
 
-/** Recycle Bin Snapshot Entity */
+/**
+ * 6. Resource Entity, ResourceType & Attachment
+ */
+export type ResourceType = "note" | "link" | "idea";
+
+export interface Attachment {
+  id: string;
+  name: string;
+  uri: string;
+  mimeType: string;
+  size?: number;
+}
+
+export interface Resource {
+  id: string;
+  workspaceId: string;
+  title: string;
+  type: ResourceType;
+  content?: string;
+  body?: string;
+  attachments?: Attachment[];
+  categoryId?: string;
+  tags?: string[];
+  revision: number;
+  lifecycleGeneration: number;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt?: number;
+}
+
+/**
+ * 7. FocusSession Entity
+ */
+export interface FocusSession {
+  id: string;
+  taskId?: string;
+  startedAt: number;
+  endedAt?: number;
+  duration: number; // seconds
+}
+
+/**
+ * 8. RecycleBinItem Entity
+ */
 export interface RecycleBinItem {
   id: string;
-  title: string;
+  entityType: "workspace" | "task" | "habit" | "checklist" | "resource";
+  entityId: string;
+  lifecycleGeneration: number;
+  snapshot: string; // Stringified JSON representation of deleted entity
   deletedAt: number;
-  itemType:
-    | "task"
-    | "habit"
-    | "workspace"
-    | "resource"
-    | "checklist"
-    | "checklist_item"
-    // Legacy support
-    | "vault"
-    | "collection"
-    | "collection_item";
-  originalLocation: string;
-  data: any;
+}
+
+/**
+ * 9. Settings Entity
+ */
+export interface Settings {
+  theme: "dark" | "light" | "system";
+  quietHours: {
+    enabled: boolean;
+    startHour: number;
+    endHour: number;
+  };
+  categories: Record<string, boolean>;
+  escalationEnabled: boolean;
+  showDuration?: boolean;
+  showRepeat?: boolean;
+  showReminder?: boolean;
+  showTags?: boolean;
+  showNotes?: boolean;
+  showMascot?: boolean;
+  defaultTimeEstimate?: number;
+  editorRowOrder?: string[];
+}
+
+/**
+ * 10. UserProfile Entity
+ */
+export interface UserProfile {
+  name: string;
+  email: string;
+  avatar: string;
+}
+
+/**
+ * 11. Category Entity
+ */
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
+  icon: string;
+  order: number;
+  createdAt: number;
+}
+
+/**
+ * 12. UiState Entity
+ */
+export interface UiState {
+  activeWorkspaceId: string | null;
+  completedOnboarding: boolean;
+  themeCache: "dark" | "light";
+}
+
+/**
+ * 13. Relationship Entity
+ */
+export interface Relationship {
+  id: string;
+  source: { id: string; type: string; lifecycleGeneration?: number };
+  target: { id: string; type: string; lifecycleGeneration?: number };
+  relationType:
+    | "supports"
+    | "references"
+    | "blocked_by"
+    | "focuses_on"
+    | "related";
+  createdAt: number;
+}
+
+/**
+ * 14. SystemEventLog Entity
+ */
+export interface SystemEventLog {
+  id: string;
+  workspaceId: string;
+  itemId: string;
+  itemType: "task" | "habit" | "checklist" | "resource" | "focus_session";
+  action: "created" | "completed" | "archived" | "focused" | "status_change";
+  timestamp: number;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * 15. MoveJournalEntry Entity
+ */
+export interface MoveJournalEntry {
+  operationId: string;
+  operationType?: "move" | "recycle" | "restore";
+  entityId: string;
+  entityType: "task" | "habit" | "checklist" | "resource" | "workspace";
+  sourceWorkspaceId: string;
+  targetWorkspaceId: string;
+  timestamp: number;
+  lifecycleGeneration: number;
+  expectedRevision: number;
+  sequence?: number;
+}
+
+/**
+ * 16. ConversionJournalEntry Entity
+ */
+export interface ConversionJournalEntry {
+  operationId: string;
+  operationType: "habit_to_task" | "task_to_habit";
+  sourceId: string;
+  sourceWorkspaceId: string;
+  targetId: string;
+  targetWorkspaceId: string;
+  phase: "PREPARED" | "DESTINATION_WRITTEN";
+  timestamp: number;
+  sourceRevision: number;
+  sourceGeneration: number;
+  targetGeneration: number;
+  targetCreatedAt?: number;
+  targetFingerprint?: string;
+  sequence?: number;
+}
+
+/**
+ * 17. Tombstone Entity
+ */
+export interface Tombstone {
+  id: string;
+  entityType: "task" | "habit" | "checklist" | "resource" | "workspace";
+  entityId: string;
+  lifecycleGeneration: number;
+  deletionRevision?: number;
+  deletedAt: number;
 }

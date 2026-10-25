@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as SplashScreen from "expo-splash-screen";
+import * as SystemUI from "expo-system-ui";
+import * as NavigationBar from "expo-navigation-bar";
+import { Platform } from "react-native";
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from "@expo-google-fonts/outfit";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
     DarkTheme,
     DefaultTheme,
     ThemeProvider,
-} from "@react-navigation/native";
-import {
     Stack,
     useRootNavigationState,
     useRouter,
@@ -16,13 +17,17 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import "react-native-reanimated";
 
 import UndoProvider from "@/shared/components/ui/UndoContext";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
+import { Colors } from "@/shared/constants/theme";
 import NotificationListener from "@/shared/components/ui/NotificationListener";
 
-import { cleanupRecycleBin } from "@/services/storage/storage.service";
+import { NotificationReconcilerService } from "@/services/notifications/NotificationReconcilerService";
+import { OnboardingService } from "@/services/onboarding/onboarding.service";
+import { runStartupRecovery } from "@/services/startup/startup-recovery";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -46,7 +51,14 @@ export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    cleanupRecycleBin();
+    // Moved cleanupRecycleBin to checkOnboarding sequence to prevent race conditions
+  }, []);
+
+  useEffect(() => {
+    // Settings changes (quiet-hours window, category subscriptions, escalation
+    // gate) must also re-align already-scheduled notifications. The hook is
+    // owned by the notification layer itself (idempotent + serialized).
+    return NotificationReconcilerService.registerSettingsChangeReconciliation();
   }, []);
 
   useEffect(() => {
@@ -55,15 +67,25 @@ export default function RootLayout() {
     }
 
     const checkOnboarding = async () => {
+      // Recovery and routing are independent. `runStartupRecovery` isolates its
+      // own steps, but a throw here must still not strand the user on the wrong
+      // screen with onboarding undecided.
       try {
-        const completed = await AsyncStorage.getItem(
-          "todoapp:onboarding_completed",
-        );
+        // Single, testable startup recovery sequence: interrupted-restore
+        // recovery, move/conversion journal replay, ghost pruning, recycle-bin
+        // cleanup, graph reconciliation, and notification reconciliation.
+        await runStartupRecovery();
+      } catch (error) {
+        console.warn("Startup recovery failed unexpectedly:", error);
+      }
+
+      try {
+        const completed = await OnboardingService.isOnboardingCompleted();
         const inOnboarding = segments[0] === "onboarding";
 
-        if (completed !== "true" && !inOnboarding) {
+        if (!completed && !inOnboarding) {
           router.replace("/onboarding");
-        } else if (completed === "true" && inOnboarding) {
+        } else if (completed && inOnboarding) {
           router.replace("/(tabs)");
         }
       } catch (error) {
@@ -82,48 +104,80 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, isReady]);
 
+  const currentTheme = Colors[colorScheme ?? "dark"];
+
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(currentTheme.background).catch(() => {});
+    if (Platform.OS === "android") {
+      NavigationBar.setStyle(colorScheme === "dark" ? "light" : "dark");
+    }
+  }, [currentTheme.background, colorScheme]);
+
+  const navigationTheme = useMemo(() => {
+    const isDark = colorScheme === "dark";
+    const base = isDark ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        background: currentTheme.background,
+        card: currentTheme.card,
+        text: currentTheme.text,
+        border: currentTheme.border,
+        primary: currentTheme.primary,
+      },
+    };
+  }, [colorScheme, currentTheme]);
+
   if (!fontsLoaded || !isReady) {
     return null;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <BottomSheetModalProvider>
-          <UndoProvider>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-              <Stack.Screen name="profile" options={{ headerShown: false }} />
-              <Stack.Screen name="profile/stats" options={{ headerShown: false }} />
-              <Stack.Screen name="profile/achievements" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="notifications"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="task-details"
-                options={{ headerShown: false, presentation: "modal" }}
-              />
-              <Stack.Screen
-                name="checklist-details"
-                options={{ headerShown: false, presentation: "modal" }}
-              />
-              <Stack.Screen
-                name="archive"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="recycle-bin"
-                options={{ headerShown: false }}
-              />
-            </Stack>
-            {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
-            <NotificationListener />
-            <StatusBar style="auto" />
-          </UndoProvider>
-        </BottomSheetModalProvider>
-      </ThemeProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: currentTheme.background }}>
+        <ThemeProvider value={navigationTheme}>
+          <BottomSheetModalProvider>
+            <UndoProvider>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                <Stack.Screen name="profile" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/stats" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/achievements" options={{ headerShown: false }} />
+                <Stack.Screen name="sanctuary" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="notifications"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="task-details"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                <Stack.Screen
+                  name="checklist-details"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                <Stack.Screen
+                  name="resource-details"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                <Stack.Screen
+                  name="archive"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="recycle-bin"
+                  options={{ headerShown: false }}
+                />
+              </Stack>
+              {/* NotificationListener registers listeners and shows in-app banners when notifications arrive */}
+              <NotificationListener />
+              <StatusBar style="auto" />
+            </UndoProvider>
+          </BottomSheetModalProvider>
+        </ThemeProvider>
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }

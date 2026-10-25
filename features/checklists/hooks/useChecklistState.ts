@@ -1,25 +1,46 @@
 import { useState, useCallback } from "react";
-import { Checklist } from "@/shared/types/domain.types";
+import { Checklist, INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { ChecklistRepository } from "@/repositories";
+import { generateId } from "@/shared/utils/id";
+import { EntityCommandService } from "@/services/command/EntityCommandService";
 import { addToRecycleBin } from "@/services/storage/storage.service";
 import { emitStateChange } from "@/services/events/state-events";
 import { globalChecklists } from "@/features/tasks/utils/task-formatting";
+import { getTodayDateKey } from "@/shared/utils/date-key";
+import {
+  getActiveOccurrenceDateKey,
+  isRecurringOccurrenceForDate,
+} from "@/services/scheduling/recurrence.service";
 
-export function useChecklistState(selectedList: string) {
+/**
+ * Resolve the occurrence date a workspace-list interaction must read/write.
+ *
+ * - With an explicit reference date (the day the list represents) the write is
+ *   confined to that day: if the checklist is not an occurrence of it, there is
+ *   no legal target and the caller must not write at all. Falling back to
+ *   "next occurrence" here would silently complete a future date the user is
+ *   not looking at.
+ * - Without one (date-less legacy callers), keep the canonical resolution.
+ */
+function resolveOccurrenceDateKey(
+  checklist: Checklist,
+  referenceDateKey?: string,
+): string | undefined {
+  const baseKey = referenceDateKey || getTodayDateKey();
+  if (isRecurringOccurrenceForDate(checklist, baseKey)) return baseKey;
+  return referenceDateKey
+    ? undefined
+    : getActiveOccurrenceDateKey(checklist, baseKey);
+}
+
+export function useChecklistState(selectedWorkspaceId: string) {
   const [checklists, setChecklists] = useState<Record<string, Checklist[]>>(() => globalChecklists || {});
 
   const loadChecklistsState = useCallback(async () => {
     try {
-      const activeList = selectedList || "default";
+      const activeList = selectedWorkspaceId || INBOX_WORKSPACE_ID;
       const checklistsMap = await ChecklistRepository.getChecklists(activeList);
-      const activeChecklists = Object.values(checklistsMap).map((c) => ({
-        id: c.id,
-        workspaceId: activeList,
-        title: c.title,
-        items: c.items || [],
-        createdAt: c.createdAt,
-        archived: c.archived || false,
-      }));
+      const activeChecklists = Object.values(checklistsMap);
       setChecklists((prev) => ({
         ...prev,
         [activeList]: activeChecklists,
@@ -27,86 +48,233 @@ export function useChecklistState(selectedList: string) {
     } catch (e) {
       console.warn("Failed to load current checklists", e);
     }
-  }, [selectedList]);
+  }, [selectedWorkspaceId]);
 
-  const addChecklist = useCallback(async (title: string, itemTitles: string[], folderId: string) => {
+  const addChecklist = useCallback(async (title: string, itemTitles: string[], workspaceId?: string) => {
     try {
-      const activeList = folderId || selectedList || "default";
-      const newChecklist = {
-        id: `checklist-${Date.now()}`,
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      const newChecklist: Checklist = {
+        id: generateId("checklist-"),
         workspaceId: activeList,
         title,
+        priority: "none",
         items: itemTitles.map((it, idx) => ({
           id: `checklist-item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
           title: it,
           completed: false,
         })),
+        revision: 1,
+        lifecycleGeneration: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        archived: false,
       };
-      await ChecklistRepository.saveChecklist(newChecklist);
+      await EntityCommandService.createChecklist(newChecklist, activeList, {
+        skipEvents: true,
+        skipAnalytics: true,
+      });
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {
       console.warn("Failed to add checklist current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
   const updateChecklist = useCallback(async (updated: Checklist) => {
     try {
-      const activeList = updated.workspaceId || selectedList || "default";
-      await ChecklistRepository.saveChecklist({
-        id: updated.id,
-        workspaceId: activeList,
+      const activeList = updated.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      await EntityCommandService.updateChecklist(updated.id, activeList, {
         title: updated.title,
+        priority: updated.priority,
         items: updated.items,
-        createdAt: updated.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        archived: updated.archived || false,
-      });
+        archivedAt: updated.archivedAt,
+      }, { skipEvents: true, skipAnalytics: true });
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {
       console.warn("Failed to update checklist current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
-  const deleteChecklist = useCallback(async (id: string, folderId: string) => {
+  const deleteChecklist = useCallback(async (id: string, workspaceId?: string) => {
     try {
-      const activeList = folderId || selectedList || "default";
-      const existing = await ChecklistRepository.getChecklist(id, activeList);
-      if (existing) {
-        await addToRecycleBin("checklist", existing, `${activeList}:${id}`);
-      }
-      await ChecklistRepository.deleteChecklist(id, activeList);
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      await EntityCommandService.recycleChecklist(id, activeList, {
+        source: "tasks_screen",
+        skipEvents: true,
+      });
       await loadChecklistsState();
       emitStateChange("checklists_changed", "tasks_screen");
     } catch (e) {
       console.warn("Failed to delete checklist current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
-  const toggleChecklistItem = useCallback(async (checklistId: string, itemId: string, folderId: string) => {
+  /**
+   * Toggle one checklist item from the Workspace list.
+   *
+   * Recurring checklists are completed per occurrence through the canonical
+   * `toggleChecklistItem` command (never by writing the master `items` array).
+   * Non-recurring checklists keep their existing whole-entity update behavior.
+   */
+  const toggleChecklistItem = useCallback(async (
+    checklist: Checklist,
+    itemId: string,
+    referenceDateKey?: string,
+  ) => {
     try {
-      const activeList = folderId || selectedList || "default";
-      const existing = await ChecklistRepository.getChecklist(checklistId, activeList);
-      if (existing) {
-        const nextItems = existing.items.map((i) =>
-          i.id === itemId ? { ...i, completed: !i.completed } : i
+      const activeList = checklist.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+
+      if (checklist.recurrence) {
+        const dateKey = resolveOccurrenceDateKey(checklist, referenceDateKey);
+        if (!dateKey) return;
+        const result = await EntityCommandService.toggleChecklistItem(
+          checklist.id,
+          itemId,
+          activeList,
+          dateKey,
+          {
+            source: "tasks_screen",
+            skipEvents: true, // We emit it below after loading state
+            skipAnalytics: true,
+          },
         );
-        await ChecklistRepository.saveChecklist({
-          ...existing,
-          items: nextItems,
-          updatedAt: Date.now(),
-        });
+        if (!result) return;
+      } else {
+        const nextItems = checklist.items.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                completed: !item.completed,
+                completedAt: !item.completed ? Date.now() : undefined,
+              }
+            : item,
+        );
+        await EntityCommandService.updateChecklist(
+          checklist.id,
+          activeList,
+          { items: nextItems },
+          { skipEvents: true, skipAnalytics: true },
+        );
+      }
+
+      await loadChecklistsState();
+      emitStateChange("checklists_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to toggle checklist item current", e);
+    }
+  }, [selectedWorkspaceId, loadChecklistsState]);
+
+  /**
+   * Complete/uncomplete every item from the Workspace list. Recurring
+   * checklists fan out to the canonical per-item command so only the resolved
+   * occurrence changes; non-recurring checklists keep the existing single write.
+   */
+  const toggleChecklistAllItems = useCallback(async (
+    checklist: Checklist,
+    referenceDateKey?: string,
+  ) => {
+    try {
+      const activeList = checklist.workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+
+      if (checklist.recurrence) {
+        const dateKey = resolveOccurrenceDateKey(checklist, referenceDateKey);
+        if (!dateKey) return;
+        const completedIds = new Set(
+          checklist.occurrenceHistory?.[dateKey || ""]?.completedItemIds || [],
+        );
+        const allCompleted =
+          checklist.items.length > 0 &&
+          checklist.items.every((item) => completedIds.has(item.id));
+
+        for (const item of checklist.items) {
+          const isCompleted = completedIds.has(item.id);
+          if (isCompleted === !allCompleted) continue;
+          await EntityCommandService.toggleChecklistItem(
+            checklist.id,
+            item.id,
+            activeList,
+            dateKey,
+            { skipEvents: true, skipAnalytics: true },
+          );
+        }
+      } else {
+        const allCompleted =
+          checklist.items.length > 0 && checklist.items.every((item) => item.completed);
+        const nextItems = checklist.items.map((item) => ({
+          ...item,
+          completed: !allCompleted,
+          completedAt: !allCompleted ? Date.now() : undefined,
+        }));
+        await EntityCommandService.updateChecklist(
+          checklist.id,
+          activeList,
+          { items: nextItems },
+          { skipEvents: true, skipAnalytics: true },
+        );
+      }
+
+      await loadChecklistsState();
+      emitStateChange("checklists_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to toggle all checklist items", e);
+    }
+  }, [selectedWorkspaceId, loadChecklistsState]);
+
+  const addChecklistItem = useCallback(async (checklistId: string, itemTitle: string, workspaceId?: string) => {
+    try {
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      const result = await EntityCommandService.addChecklistItem(checklistId, itemTitle, activeList, {
+        source: "tasks_screen",
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+
+      if (result) {
         await loadChecklistsState();
         emitStateChange("checklists_changed", "tasks_screen");
       }
     } catch (e) {
-      console.warn("Failed to toggle checklist item current", e);
+      console.warn("Failed to add checklist item current", e);
     }
-  }, [selectedList, loadChecklistsState]);
+  }, [selectedWorkspaceId, loadChecklistsState]);
+
+  const deleteChecklistItem = useCallback(async (checklistId: string, itemId: string, workspaceId?: string) => {
+    try {
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      const result = await EntityCommandService.deleteChecklistItem(checklistId, itemId, activeList, {
+        source: "tasks_screen",
+        skipEvents: true,
+        skipAnalytics: true,
+      });
+
+      if (result) {
+        await loadChecklistsState();
+        emitStateChange("checklists_changed", "tasks_screen");
+      }
+    } catch (e) {
+      console.warn("Failed to delete checklist item current", e);
+    }
+  }, [selectedWorkspaceId, loadChecklistsState]);
+
+  const toggleArchiveChecklist = useCallback(async (id: string, workspaceId?: string) => {
+    try {
+      const activeList = workspaceId || selectedWorkspaceId || INBOX_WORKSPACE_ID;
+      const map = await ChecklistRepository.getChecklists(activeList);
+      const checklist = map[id];
+      if (!checklist) return;
+
+      const isArchived = !!checklist.archivedAt;
+
+      await EntityCommandService.updateChecklist(id, activeList, {
+        archivedAt: isArchived ? undefined : Date.now(),
+      }, { skipEvents: true, skipAnalytics: true });
+
+      await loadChecklistsState();
+      emitStateChange("checklists_changed", "tasks_screen");
+    } catch (e) {
+      console.warn("Failed to toggle archive checklist current", e);
+    }
+  }, [selectedWorkspaceId, loadChecklistsState]);
 
   return {
     checklists,
@@ -115,6 +283,10 @@ export function useChecklistState(selectedList: string) {
     addChecklist,
     updateChecklist,
     deleteChecklist,
+    toggleArchiveChecklist,
     toggleChecklistItem,
+    toggleChecklistAllItems,
+    addChecklistItem,
+    deleteChecklistItem,
   };
 }

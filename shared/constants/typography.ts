@@ -14,6 +14,8 @@ export const Typography = {
     xxl: 24,
     display: 34,
   },
+  // Pebble ships 400, 500, 600, and 700 weights. Weights 700, 800 (heavy), and 900 (black)
+  // intentionally map to Outfit_700Bold via AppText to provide consistent strong-weight hierarchy.
   weights: {
     regular: "400" as const,
     medium: "500" as const,

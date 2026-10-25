@@ -1,10 +1,6 @@
 import React from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
-import { AppCard } from "@/shared/components/ui/AppCard";
+import { StyleSheet, View } from "react-native";
 import { AppText as Text } from "@/shared/components/ui/AppText";
-import { Feather } from "@expo/vector-icons";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export interface ProductivityDashboardProps {
   stats: {
@@ -18,125 +14,64 @@ export interface ProductivityDashboardProps {
   colors: any;
 }
 
+/**
+ * Quiet "At a glance" summary.
+ *
+ * Previously a six-tile equal-weight KPI wall. It now renders three readable
+ * rows — one honest number per row, no bordered tiles. Metric names reflect
+ * what the underlying services actually measure (`avgScore` is the 90-day
+ * average *productivity* score, not a focus score).
+ */
 export function ProductivityDashboard({
   stats,
   colors,
 }: ProductivityDashboardProps) {
+  const rows = [
+    { label: "Tasks completed", value: String(stats.todosCompleted) },
+    { label: "Focus time", value: `${stats.focusTime} min` },
+    { label: "Productivity score", value: `${stats.avgScore}%` },
+  ];
+
   return (
-    <View style={styles.statsGrid}>
-      <AppCard style={styles.statCard}>
-        <View style={[styles.iconBox, { backgroundColor: `${colors.success}10` }]}>
-          <Feather name="check-square" size={16} color={colors.success} />
-        </View>
-        <View>
-          <Text style={[styles.statValue, { color: colors.text }]}>
-            {stats.todosCompleted}
+    <View
+      style={[styles.summary, { borderColor: colors.border }]}
+      accessibilityRole="summary"
+    >
+      {rows.map((row, index) => (
+        <View
+          key={row.label}
+          style={[
+            styles.row,
+            index > 0 && {
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: colors.border,
+            },
+          ]}
+        >
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            {row.label}
           </Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-            Tasks Cleared
-          </Text>
-        </View>
-      </AppCard>
-
-      <AppCard style={styles.statCard}>
-        <View style={[styles.iconBox, { backgroundColor: `${colors.primary}10` }]}>
-          <Feather name="activity" size={16} color={colors.primary} />
-        </View>
-        <View>
-          <Text style={[styles.statValue, { color: colors.text }]}>
-            {stats.habitsCompleted}
-          </Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-            Habits Completed
+          <Text style={[styles.value, { color: colors.text }]}>
+            {row.value}
           </Text>
         </View>
-      </AppCard>
-
-      <AppCard style={styles.statCard}>
-        <View style={[styles.iconBox, { backgroundColor: "#A855F710" }]}>
-          <Feather name="clock" size={16} color="#A855F7" />
-        </View>
-        <View>
-          <Text style={[styles.statValue, { color: colors.text }]}>
-            {stats.focusSessions}
-          </Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-            Focus Sessions
-          </Text>
-        </View>
-      </AppCard>
-
-      <AppCard style={styles.statCard}>
-        <View style={[styles.iconBox, { backgroundColor: "#F9731610" }]}>
-          <Feather name="zap" size={16} color="#F97316" />
-        </View>
-        <View>
-          <Text style={[styles.statValue, { color: colors.text }]}>
-            {stats.focusTime} m
-          </Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-            Focus Time
-          </Text>
-        </View>
-      </AppCard>
-
-      <AppCard style={styles.statCard}>
-        <View style={[styles.iconBox, { backgroundColor: "#06B6D410" }]}>
-          <Feather name="percent" size={16} color="#06B6D4" />
-        </View>
-        <View>
-          <Text style={[styles.statValue, { color: colors.text }]}>
-            {stats.completionRate}%
-          </Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-            Completion Rate
-          </Text>
-        </View>
-      </AppCard>
-
-      <AppCard style={styles.statCard}>
-        <View style={[styles.iconBox, { backgroundColor: `${colors.warning}10` }]}>
-          <Feather name="award" size={16} color={colors.warning} />
-        </View>
-        <View>
-          <Text style={[styles.statValue, { color: colors.text }]}>
-            {stats.avgScore}%
-          </Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-            Productivity Score
-          </Text>
-        </View>
-      </AppCard>
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
+  summary: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  statCard: {
-    width: (SCREEN_WIDTH - 42) / 2, // 2 column layout
-    padding: 12,
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderRadius: 16,
+    justifyContent: "space-between",
+    minHeight: 48,
+    paddingVertical: 12,
   },
-  iconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statValue: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  statLabel: {
-    fontSize: 10,
-  },
+  label: { fontSize: 14 },
+  value: { fontSize: 16, fontWeight: "700" },
 });

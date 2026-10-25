@@ -7,19 +7,21 @@ import Animated, {
   interpolate,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
-import { Colors } from "@/shared/constants/theme";
+import { Colors, Palette } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 
 type AnimatedCheckboxProps = {
   checked: boolean;
   onToggle?: (event?: any) => void;
   size?: number;
+  accessibilityLabel?: string;
 };
 
 export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
   checked,
   onToggle,
   size = 26,
+  accessibilityLabel,
 }) => {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? "dark"];
@@ -65,12 +67,19 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
     }
   };
 
+  const defaultLabel = checked ? "Mark as incomplete" : "Mark as completed";
+
   return (
     <Pressable
       onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={!onToggle}
+      accessible={true}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked, disabled: !onToggle }}
+      accessibilityLabel={accessibilityLabel ?? defaultLabel}
+      hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
     >
       <Animated.View
         style={[
@@ -86,7 +95,7 @@ export const AnimatedCheckbox: React.FC<AnimatedCheckboxProps> = ({
         ]}
       >
         <Animated.View style={[styles.checkmarkWrap, checkMarkStyle]}>
-          <Ionicons name="checkmark" size={size * 0.6} color="#ffffff" />
+          <Ionicons name="checkmark" size={size * 0.6} color={Palette.white} />
         </Animated.View>
       </Animated.View>
     </Pressable>
