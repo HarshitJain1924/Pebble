@@ -148,13 +148,13 @@ function getItemMetaBadges(item: RecycleBinItem): MetaBadge[] {
   const snap = parseSnapshot(item.snapshot);
   const badges: MetaBadge[] = [];
 
-  // Deletion date
+  // 1. Deletion date (always prioritized)
   badges.push({
     label: `Deleted ${formatDate(item.deletedAt)}`,
     icon: "calendar",
   });
 
-  // Workspace badge for non-workspace items
+  // 2. Workspace badge for non-workspace items (always prioritized)
   if (item.entityType !== "workspace") {
     badges.push({
       label: getItemWorkspaceName(item),
@@ -162,10 +162,10 @@ function getItemMetaBadges(item: RecycleBinItem): MetaBadge[] {
     });
   }
 
-  // Domain-specific badges
+  // 3. Single domain badge to avoid chip clutter
   switch (item.entityType) {
     case "task": {
-      if (snap.priority) {
+      if (snap.priority && snap.priority !== "none") {
         const pKey = String(snap.priority).toLowerCase();
         badges.push({
           label: pKey.charAt(0).toUpperCase() + pKey.slice(1),
@@ -177,19 +177,12 @@ function getItemMetaBadges(item: RecycleBinItem): MetaBadge[] {
                 ? Palette.amber500
                 : Palette.slate400,
         });
-      }
-      if (snap.category) {
+      } else if (snap.category) {
         const cat = String(snap.category);
         badges.push({
           label: cat.charAt(0).toUpperCase() + cat.slice(1),
           icon: "tag",
           color: Palette.violet400,
-        });
-      }
-      if (snap.schedule?.date) {
-        badges.push({
-          label: snap.schedule.date,
-          icon: "clock",
         });
       }
       break;
@@ -201,8 +194,7 @@ function getItemMetaBadges(item: RecycleBinItem): MetaBadge[] {
           label: freq.charAt(0).toUpperCase() + freq.slice(1),
           icon: "repeat",
         });
-      }
-      if (snap.category) {
+      } else if (snap.category) {
         const cat = String(snap.category);
         badges.push({
           label: cat.charAt(0).toUpperCase() + cat.slice(1),
@@ -572,12 +564,119 @@ export default function RecycleBinScreen() {
 
   const currentCategoryMeta = CATEGORIES.find((c) => c.key === activeTab);
 
+  // Subtitle text calculation
+  const subtitleText = useMemo(() => {
+    if (items.length === 0) return "No deleted items";
+    if (items.length === 1) {
+      const single = items[0];
+      const cat = CATEGORIES.find((c) => c.key === single.entityType);
+      const catLabel = cat ? cat.label.slice(0, -1).toLowerCase() : "item";
+      return `1 deleted ${catLabel} in Recycle Bin`;
+    }
+    return `${items.length} items across ${activeCategoryCount || 5} categories`;
+  }, [items, activeCategoryCount]);
+
+  const renderCategoryTile = (cat: CategoryMeta) => {
+    const count = categoryCounts[cat.key];
+    const isActive = activeTab === cat.key;
+
+    return (
+      <PressableScale
+        key={cat.key}
+        onPress={() => {
+          setActiveTab(cat.key);
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+            () => {},
+          );
+        }}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: isActive }}
+        accessibilityLabel={`${cat.label} tab, ${count} items`}
+        style={[
+          styles.categoryPill,
+          {
+            backgroundColor: isActive
+              ? isDark
+                ? "rgba(53, 131, 102, 0.2)"
+                : "rgba(44, 108, 84, 0.12)"
+              : colors.card,
+            borderColor: isActive
+              ? isDark
+                ? "rgba(68, 167, 130, 0.6)"
+                : colors.primary
+              : colors.border,
+            borderWidth: isActive ? 1.5 : 1,
+          },
+          isActive && Shadows.soft,
+        ]}
+      >
+        <Feather
+          name={cat.icon}
+          size={15}
+          color={
+            isActive
+              ? isDark
+                ? Palette.pine300
+                : colors.primary
+              : colors.textMuted
+          }
+        />
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.categoryLabel,
+            {
+              color: isActive
+                ? isDark
+                  ? Palette.white
+                  : colors.primary
+                : colors.textMuted,
+              fontWeight: isActive ? "700" : "500",
+            },
+          ]}
+        >
+          {cat.label}
+        </Text>
+        <View
+          style={[
+            styles.countBadge,
+            {
+              backgroundColor: isActive
+                ? isDark
+                  ? "rgba(68, 167, 130, 0.3)"
+                  : "rgba(44, 108, 84, 0.18)"
+                : isDark
+                  ? "rgba(255, 255, 255, 0.08)"
+                  : "rgba(0, 0, 0, 0.06)",
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.categoryCount,
+              {
+                color: isActive
+                  ? isDark
+                    ? Palette.pine200
+                    : colors.primary
+                  : colors.textMuted,
+                fontWeight: isActive ? "700" : "600",
+              },
+            ]}
+          >
+            {count}
+          </Text>
+        </View>
+      </PressableScale>
+    );
+  };
+
   return (
     <SafeAreaView
       edges={["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
-      {/* ─── Top Action Row ────────────────────────────────────────────── */}
+      {/* ─── 1. Fixed Top Action Row (Back + Empty Bin) ───────────────────── */}
       <View style={styles.topBar}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -629,292 +728,210 @@ export default function RecycleBinScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ─── Title & Subtitle ─────────────────────────────────────────── */}
-      <View style={styles.titleWrapper}>
-        <Text
-          accessibilityRole="header"
-          style={[styles.screenTitle, { color: colors.text }]}
-        >
-          Recycle Bin
-        </Text>
-        <Text style={[styles.screenSubtitle, { color: colors.textMuted }]}>
-          {items.length === 0
-            ? "No deleted items"
-            : `${items.length} ${items.length === 1 ? "item" : "items"} across ${activeCategoryCount || 5} categories`}
-        </Text>
-      </View>
-
-      {/* ─── Search Bar ────────────────────────────────────────────────── */}
-      <View style={styles.searchWrapper}>
-        <View
-          style={[
-            styles.searchBar,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <Feather
-            name="search"
-            size={18}
-            color={colors.textMuted}
-            style={{ marginRight: 10 }}
-          />
-          <TextInput
-            placeholder="Search deleted items..."
-            placeholderTextColor={colors.textMuted}
-            accessibilityLabel="Search deleted items"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            style={[styles.searchInput, { color: colors.text }]}
-            returnKeyType="search"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery("")}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityRole="button"
-              accessibilityLabel="Clear search query"
-              style={styles.clearSearchBtn}
-            >
-              <Feather name="x" size={16} color={colors.textMuted} />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
-      {/* ─── Responsive Category Selector ─────────────────────────────── */}
-      <View style={styles.categoriesWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesScroll}
-          accessibilityRole="tablist"
-        >
-          {CATEGORIES.map((cat) => {
-            const count = categoryCounts[cat.key];
-            const isActive = activeTab === cat.key;
-
-            return (
-              <PressableScale
-                key={cat.key}
-                onPress={() => {
-                  setActiveTab(cat.key);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                    () => {},
-                  );
-                }}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: isActive }}
-                accessibilityLabel={`${cat.label} tab, ${count} items`}
-                style={[
-                  styles.categoryTab,
-                  {
-                    backgroundColor: isActive
-                      ? isDark
-                        ? "rgba(99, 102, 241, 0.2)"
-                        : "rgba(99, 102, 241, 0.12)"
-                      : colors.card,
-                    borderColor: isActive
-                      ? isDark
-                        ? "rgba(129, 140, 248, 0.5)"
-                        : Palette.indigo500
-                      : colors.border,
-                    borderWidth: isActive ? 1.5 : 1,
-                  },
-                ]}
-              >
-                <Feather
-                  name={cat.icon}
-                  size={16}
-                  color={
-                    isActive
-                      ? isDark
-                        ? Palette.indigo300
-                        : Palette.indigo600
-                      : colors.textMuted
-                  }
-                  style={{ marginBottom: 4 }}
-                />
-                <Text
-                  style={[
-                    styles.categoryLabel,
-                    {
-                      color: isActive
-                        ? isDark
-                          ? Palette.white
-                          : Palette.indigo900
-                        : colors.textMuted,
-                      fontWeight: isActive ? "700" : "500",
-                    },
-                  ]}
-                >
-                  {cat.label}
-                </Text>
-                <Text
-                  style={[
-                    styles.categoryCount,
-                    {
-                      color: isActive
-                        ? isDark
-                          ? Palette.indigo200
-                          : Palette.indigo600
-                        : colors.textMuted,
-                      fontWeight: isActive ? "700" : "600",
-                    },
-                  ]}
-                >
-                  {count}
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* ─── List Controls Row (Sorting & Restore All) ──────────────────── */}
-      <View style={styles.controlsRow}>
-        <TouchableOpacity
-          onPress={handleToggleSort}
-          accessibilityRole="button"
-          accessibilityLabel={`Sort order: ${sortOrder === "newest" ? "Newest" : sortOrder === "oldest" ? "Oldest" : "Title"}`}
-          style={[
-            styles.sortPill,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-            },
-          ]}
-          hitSlop={6}
-        >
-          <Feather
-            name="sliders"
-            size={12}
-            color={colors.textMuted}
-            style={{ marginRight: 6 }}
-          />
-          <Text style={[styles.sortText, { color: colors.text }]}>
-            {`Deleted: ${
-              sortOrder === "newest"
-                ? "Newest"
-                : sortOrder === "oldest"
-                  ? "Oldest"
-                  : "Title"
-            }`}
+      {/* ─── Scrollable Content ─────────────────────────────────────────── */}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ─── 2. Prominent Heading & Summary ─────────────────────────────── */}
+        <View style={styles.titleWrapper}>
+          <Text
+            accessibilityRole="header"
+            style={[styles.screenTitle, { color: colors.text }]}
+          >
+            Recycle Bin
           </Text>
-          <Feather
-            name="chevron-down"
-            size={13}
-            color={colors.textMuted}
-            style={{ marginLeft: 4 }}
-          />
-        </TouchableOpacity>
+          <Text style={[styles.screenSubtitle, { color: colors.textMuted }]}>
+            {subtitleText}
+          </Text>
+        </View>
 
-        {activeTabItems.length > 0 ? (
-          <TouchableOpacity
+        {/* ─── 3. Search Bar ──────────────────────────────────────────────── */}
+        <View style={styles.searchWrapper}>
+          <View
             style={[
-              styles.restoreAllBtn,
+              styles.searchBar,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Feather
+              name="search"
+              size={18}
+              color={colors.textMuted}
+              style={{ marginRight: 10 }}
+            />
+            <TextInput
+              placeholder="Search deleted items..."
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel="Search deleted items"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              style={[styles.searchInput, { color: colors.text }]}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search query"
+                style={styles.clearSearchBtn}
+              >
+                <Feather name="x" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* ─── 4. Single-Row Horizontal Category Selector ─────────────────── */}
+        <View style={styles.categoriesWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoriesScrollContent}
+            accessibilityRole="tablist"
+          >
+            {CATEGORIES.map((cat) => renderCategoryTile(cat))}
+          </ScrollView>
+        </View>
+
+        {/* ─── 5. List Controls Row (Sorting & Restore All) ───────────────── */}
+        <View style={styles.controlsRow}>
+          <TouchableOpacity
+            onPress={handleToggleSort}
+            accessibilityRole="button"
+            accessibilityLabel={`Sort order: ${sortOrder === "newest" ? "Newest" : sortOrder === "oldest" ? "Oldest" : "Title"}`}
+            style={[
+              styles.sortPill,
               {
-                backgroundColor: isDark
-                  ? "rgba(53, 131, 102, 0.16)"
-                  : "rgba(44, 108, 84, 0.12)",
-                borderColor: isDark ? "rgba(68, 167, 130, 0.45)" : colors.primary,
+                backgroundColor: colors.card,
+                borderColor: colors.border,
               },
             ]}
-            onPress={handleRestoreAll}
-            accessibilityRole="button"
-            accessibilityLabel={`Restore all ${activeTabItems.length} deleted ${currentCategoryMeta?.label.toLowerCase() || activeTab + "s"}`}
             hitSlop={6}
           >
             <Feather
-              name="rotate-ccw"
+              name="sliders"
               size={13}
-              color={isDark ? Palette.pine400 : colors.primary}
+              color={colors.textMuted}
               style={{ marginRight: 6 }}
             />
-            <Text
-              style={[
-                styles.restoreAllText,
-                { color: isDark ? Palette.pine400 : colors.primary },
-              ]}
-            >
-              Restore All ({activeTabItems.length})
+            <Text style={[styles.sortText, { color: colors.text }]}>
+              {`Deleted: ${
+                sortOrder === "newest"
+                  ? "Newest"
+                  : sortOrder === "oldest"
+                    ? "Oldest"
+                    : "Title"
+              }`}
             </Text>
+            <Feather
+              name="chevron-down"
+              size={13}
+              color={colors.textMuted}
+              style={{ marginLeft: 4 }}
+            />
           </TouchableOpacity>
-        ) : (
-          <Text style={[styles.itemCountText, { color: colors.textMuted }]}>
-            0 items
-          </Text>
-        )}
-      </View>
 
-      {/* ─── Content Area ──────────────────────────────────────────────── */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {sortedItems.length === 0 ? (
-            <View
+          {activeTabItems.length > 0 ? (
+            <TouchableOpacity
               style={[
-                styles.emptyStateCard,
-                { borderColor: colors.border, backgroundColor: colors.card },
+                styles.restoreAllBtn,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(53, 131, 102, 0.16)"
+                    : "rgba(44, 108, 84, 0.12)",
+                  borderColor: isDark ? "rgba(68, 167, 130, 0.45)" : colors.primary,
+                },
               ]}
+              onPress={handleRestoreAll}
+              accessibilityRole="button"
+              accessibilityLabel={`Restore all ${activeTabItems.length} deleted ${currentCategoryMeta?.label.toLowerCase() || activeTab + "s"}`}
+              hitSlop={6}
             >
               <Feather
-                name={
-                  searchQuery.trim()
-                    ? "search"
-                    : currentCategoryMeta?.icon || "trash-2"
-                }
-                size={36}
-                color={colors.textMuted}
-                style={{ marginBottom: 12, opacity: 0.6 }}
+                name="rotate-ccw"
+                size={13}
+                color={isDark ? Palette.pine400 : colors.primary}
+                style={{ marginRight: 6 }}
               />
               <Text
                 style={[
-                  styles.emptyStateTitle,
-                  { color: colors.text },
+                  styles.restoreAllText,
+                  { color: isDark ? Palette.pine400 : colors.primary },
                 ]}
               >
-                {searchQuery.trim()
-                  ? "No matching deleted items"
-                  : items.length === 0
-                    ? "Recycle Bin is empty"
-                    : `No deleted ${currentCategoryMeta?.label.toLowerCase() || activeTab + "s"}`}
+                Restore All ({activeTabItems.length})
               </Text>
-              <Text
-                style={[
-                  styles.emptyStateSubtitle,
-                  { color: colors.textMuted },
-                ]}
-              >
-                {searchQuery.trim()
-                  ? `No deleted items match "${searchQuery.trim()}". Check your spelling or clear search.`
-                  : items.length === 0
-                    ? "Items you delete will show up here for 30 days before permanent deletion."
-                    : `There are currently no deleted ${currentCategoryMeta?.label.toLowerCase() || activeTab + "s"} in the bin.`}
-              </Text>
-              {searchQuery.trim().length > 0 && (
-                <TouchableOpacity
-                  onPress={() => setSearchQuery("")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear search query"
-                  style={[
-                    styles.clearFilterBtn,
-                    { borderColor: colors.border, backgroundColor: colors.cardLight },
-                  ]}
-                >
-                  <Text style={[styles.clearFilterText, { color: colors.text }]}>
-                    Clear Search
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            </TouchableOpacity>
           ) : (
-            sortedItems.map((item) => {
+            <Text style={[styles.itemCountText, { color: colors.textMuted }]}>
+              0 items
+            </Text>
+          )}
+        </View>
+
+        {/* ─── 6. Deleted-Item List / Empty State ─────────────────────────── */}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : sortedItems.length === 0 ? (
+          <View
+            style={[
+              styles.emptyStateCard,
+              { borderColor: colors.border, backgroundColor: colors.card },
+            ]}
+          >
+            <Feather
+              name={
+                searchQuery.trim()
+                  ? "search"
+                  : currentCategoryMeta?.icon || "trash-2"
+              }
+              size={36}
+              color={colors.textMuted}
+              style={{ marginBottom: 12, opacity: 0.6 }}
+            />
+            <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
+              {searchQuery.trim()
+                ? "No matching deleted items"
+                : items.length === 0
+                  ? "Recycle Bin is empty"
+                  : `No deleted ${currentCategoryMeta?.label.toLowerCase() || activeTab + "s"}`}
+            </Text>
+            <Text
+              style={[
+                styles.emptyStateSubtitle,
+                { color: colors.textMuted },
+              ]}
+            >
+              {searchQuery.trim()
+                ? `No deleted items match "${searchQuery.trim()}". Check your spelling or clear search.`
+                : items.length === 0
+                  ? "Items you delete will show up here for 30 days before permanent deletion."
+                  : `There are currently no deleted ${currentCategoryMeta?.label.toLowerCase() || activeTab + "s"} in the bin.`}
+            </Text>
+            {searchQuery.trim().length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search filter"
+                style={[
+                  styles.clearFilterBtn,
+                  { borderColor: colors.border, backgroundColor: colors.cardLight },
+                ]}
+              >
+                <Text style={[styles.clearFilterText, { color: colors.text }]}>
+                  Clear Search
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <View style={styles.itemsList}>
+            {sortedItems.map((item) => {
               const itemTitle = getItemTitle(item);
               const subtitle = getItemSubtitle(item);
               const badges = getItemMetaBadges(item);
@@ -949,7 +966,7 @@ export default function RecycleBinScreen() {
                   {/* Center Info Column */}
                   <View style={styles.itemInfo}>
                     <Text
-                      numberOfLines={1}
+                      numberOfLines={2}
                       style={[styles.itemTitle, { color: colors.text }]}
                     >
                       {itemTitle}
@@ -957,7 +974,7 @@ export default function RecycleBinScreen() {
 
                     {subtitle && (
                       <Text
-                        numberOfLines={1}
+                        numberOfLines={2}
                         style={[
                           styles.itemSubtitle,
                           { color: colors.textMuted },
@@ -967,40 +984,42 @@ export default function RecycleBinScreen() {
                       </Text>
                     )}
 
-                    {/* Metadata Chips Row */}
+                    {/* Typographic Metadata Line */}
                     <View style={styles.metaRow}>
                       {badges.map((badge, idx) => (
-                        <View
-                          key={idx}
-                          style={[
-                            styles.chip,
-                            {
-                              backgroundColor: isLight
-                                ? Palette.slate100
-                                : "rgba(255, 255, 255, 0.05)",
-                            },
-                          ]}
-                        >
-                          {badge.icon && (
-                            <Feather
-                              name={badge.icon}
-                              size={11}
-                              color={badge.color || colors.textMuted}
-                              style={{ marginRight: 4 }}
-                            />
+                        <React.Fragment key={idx}>
+                          {idx > 0 && (
+                            <Text
+                              style={[
+                                styles.metaDot,
+                                { color: colors.textMuted },
+                              ]}
+                            >
+                              •
+                            </Text>
                           )}
-                          <Text
-                            numberOfLines={1}
-                            style={[
-                              styles.chipText,
-                              {
-                                color: badge.color || colors.textMuted,
-                              },
-                            ]}
-                          >
-                            {badge.label}
-                          </Text>
-                        </View>
+                          <View style={styles.metaItem}>
+                            {badge.icon && (
+                              <Feather
+                                name={badge.icon}
+                                size={12}
+                                color={badge.color || colors.textMuted}
+                                style={styles.metaIcon}
+                              />
+                            )}
+                            <Text
+                              numberOfLines={1}
+                              style={[
+                                styles.metaText,
+                                {
+                                  color: badge.color || colors.textMuted,
+                                },
+                              ]}
+                            >
+                              {badge.label}
+                            </Text>
+                          </View>
+                        </React.Fragment>
                       ))}
                     </View>
                   </View>
@@ -1026,7 +1045,7 @@ export default function RecycleBinScreen() {
                     >
                       <Feather
                         name="rotate-ccw"
-                        size={18}
+                        size={17}
                         color={isDark ? Palette.pine400 : Palette.pine600}
                       />
                     </PressableScale>
@@ -1048,15 +1067,57 @@ export default function RecycleBinScreen() {
                       ]}
                       hitSlop={6}
                     >
-                      <Feather name="trash-2" size={18} color={colors.error} />
+                      <Feather name="trash-2" size={17} color={colors.error} />
                     </PressableScale>
                   </View>
                 </View>
               );
-            })
-          )}
-        </ScrollView>
-      )}
+            })}
+          </View>
+        )}
+
+        {/* ─── 7. Retention Policy Card ─────────────────────────────────── */}
+        <View
+          style={[
+            styles.retentionCard,
+            {
+              backgroundColor: isDark
+                ? "rgba(255, 255, 255, 0.03)"
+                : "rgba(0, 0, 0, 0.02)",
+              borderColor: isDark
+                ? "rgba(255, 255, 255, 0.06)"
+                : colors.border,
+            },
+          ]}
+        >
+          <View style={styles.retentionHeader}>
+            <View
+              style={[
+                styles.retentionIconCircle,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(53, 131, 102, 0.16)"
+                    : "rgba(44, 108, 84, 0.1)",
+                },
+              ]}
+            >
+              <Feather
+                name="shield"
+                size={16}
+                color={isDark ? Palette.pine400 : Palette.pine600}
+              />
+            </View>
+            <Text style={[styles.retentionTitle, { color: colors.text }]}>
+              30-Day Retention Protection
+            </Text>
+          </View>
+          <Text
+            style={[styles.retentionDescription, { color: colors.textMuted }]}
+          >
+            Items moved to the Recycle Bin are safely retained for 30 days. You can restore them to their original workspaces anytime or permanently purge them.
+          </Text>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -1072,13 +1133,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.xs,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1086,8 +1147,8 @@ const styles = StyleSheet.create({
   emptyBinBtn: {
     flexDirection: "row",
     alignItems: "center",
-    height: 36,
-    paddingHorizontal: 12,
+    height: 38,
+    paddingHorizontal: 14,
     borderRadius: Radius.pill,
     borderWidth: 1,
   },
@@ -1095,29 +1156,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-  titleWrapper: {
+  scrollContent: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.ux,
+  },
+  titleWrapper: {
+    paddingTop: Spacing.xs,
     paddingBottom: Spacing.md,
   },
   screenTitle: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
+    lineHeight: 36,
   },
   screenSubtitle: {
     fontSize: 14,
     fontWeight: "500",
     marginTop: 4,
+    lineHeight: 20,
   },
   searchWrapper: {
-    paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.md,
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    height: 46,
+    height: 48,
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 14,
@@ -1132,82 +1198,90 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   categoriesWrapper: {
+    marginHorizontal: -Spacing.lg,
     marginBottom: Spacing.md,
   },
-  categoriesScroll: {
+  categoriesScrollContent: {
     paddingHorizontal: Spacing.lg,
+    flexDirection: "row",
+    flexWrap: "nowrap",
     gap: 8,
-  },
-  categoryTab: {
-    minWidth: 80,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: Radius.md,
     alignItems: "center",
-    justifyContent: "center",
+  },
+  categoryPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 38,
+    paddingHorizontal: 12,
+    borderRadius: Radius.pill,
+    gap: 7,
   },
   categoryLabel: {
     fontSize: 13,
     letterSpacing: -0.1,
   },
+  countBadge: {
+    minWidth: 20,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   categoryCount: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 14,
   },
   controlsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
   },
   sortPill: {
     flexDirection: "row",
     alignItems: "center",
-    height: 36,
+    height: 38,
     paddingHorizontal: 12,
     borderRadius: Radius.pill,
     borderWidth: 1,
   },
   sortText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
   },
   restoreAllBtn: {
     flexDirection: "row",
     alignItems: "center",
-    height: 36,
+    height: 38,
     paddingHorizontal: 14,
     borderRadius: Radius.pill,
     borderWidth: 1.5,
   },
   restoreAllText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
   },
   itemCountText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "500",
   },
   loadingContainer: {
-    flex: 1,
+    paddingVertical: 60,
     justifyContent: "center",
     alignItems: "center",
   },
-  scrollContent: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xs,
-    paddingBottom: Spacing.xxl,
+  itemsList: {
     gap: Spacing.md,
   },
   emptyStateCard: {
-    paddingVertical: 36,
+    paddingVertical: 44,
     paddingHorizontal: 24,
     borderRadius: Radius.lg,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: Spacing.sm,
+    marginTop: Spacing.xs,
   },
   emptyStateTitle: {
     fontSize: 16,
@@ -1240,58 +1314,94 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: Radius.lg,
     borderWidth: 1,
+    gap: 12,
   },
   iconBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
   },
   itemInfo: {
     flex: 1,
     gap: 3,
   },
   itemTitle: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: "700",
     lineHeight: 21,
     letterSpacing: -0.2,
   },
   itemSubtitle: {
     fontSize: 13,
-    lineHeight: 17,
+    lineHeight: 18,
   },
   metaRow: {
     flexDirection: "row",
+    alignItems: "center",
     flexWrap: "wrap",
-    gap: 6,
+    rowGap: 4,
     marginTop: 3,
   },
-  chip: {
+  metaItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
   },
-  chipText: {
+  metaIcon: {
+    marginRight: 4,
+  },
+  metaDot: {
+    marginHorizontal: 6,
     fontSize: 11,
-    fontWeight: "600",
+    opacity: 0.45,
+  },
+  metaText: {
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
   },
   actions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginLeft: 8,
+    marginLeft: 4,
+    flexShrink: 0,
   },
   actionBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  retentionCard: {
+    marginTop: Spacing.xl,
+    padding: Spacing.md,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+  },
+  retentionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 6,
+  },
+  retentionIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  retentionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  retentionDescription: {
+    fontSize: 12.5,
+    lineHeight: 18,
   },
 });

@@ -220,4 +220,52 @@ describe("RecycleBinScreen", () => {
       texts.some((t) => t.includes("Deleted: ") && t.includes("Oldest")),
     ).toBe(true);
   });
+
+  it("formats singular subtitle when exactly one item is present", async () => {
+    (getRecycleBinItems as jest.Mock).mockResolvedValue([sampleItems[0]]);
+    await act(async () => {
+      renderer = create(<RecycleBinScreen />);
+    });
+    await flushAsync();
+
+    const texts = findTexts();
+    expect(texts).toContain("1 deleted task in Recycle Bin");
+  });
+
+  it("filters items by search query and shows clear button", async () => {
+    await act(async () => {
+      renderer = create(<RecycleBinScreen />);
+    });
+    await flushAsync();
+
+    const searchInput = renderer.root.find(
+      (node: any) =>
+        node.props?.accessibilityLabel === "Search deleted items",
+    );
+    expect(searchInput).toBeDefined();
+
+    // Type query matching nothing
+    await act(async () => {
+      searchInput.props.onChangeText("nonexistent keyword");
+    });
+    await flushAsync();
+
+    let texts = findTexts();
+    expect(texts).toContain("No matching deleted items");
+    expect(texts).toContain("Clear Search");
+
+    // Click Clear Search button
+    const clearBtn = renderer.root.find(
+      (node: any) =>
+        node.props?.accessibilityRole === "button" &&
+        node.props?.accessibilityLabel === "Clear search query",
+    );
+    await act(async () => {
+      clearBtn.props.onPress();
+    });
+    await flushAsync();
+
+    texts = findTexts();
+    expect(texts).toContain("Team meeting");
+  });
 });
