@@ -73,7 +73,7 @@ export const ContinueWorkspaceCard: React.FC<ContinueWorkspaceCardProps> = ({
               justifyContent: "center",
             }}
           >
-            {continueWorkspace.iconType === "icon" || (!continueWorkspace.emoji && continueWorkspace.icon) ? (
+            {continueWorkspace != null && Boolean(continueWorkspace.id) ? (
               <Feather
                 name={(continueWorkspace.icon || "folder") as any}
                 size={22}

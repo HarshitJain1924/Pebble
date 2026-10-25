@@ -37,6 +37,7 @@ export const DetailShell: React.FC<DetailShellProps> = ({
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }, style]}>
       {header}
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         style={styles.scroll}
         contentContainerStyle={[styles.content, contentContainerStyle]}
         showsVerticalScrollIndicator={false}

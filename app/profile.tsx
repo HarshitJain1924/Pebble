@@ -176,7 +176,7 @@ export default function ProfileScreen() {
   if (loading) {
     return (
       <SafeAreaView
-        edges={["top", "left", "right"]}
+        edges={["top", "left", "right", "bottom"]}
         style={[
           styles.safeArea,
           { backgroundColor: colors.background, justifyContent: "center" },
@@ -191,7 +191,7 @@ export default function ProfileScreen() {
   if (loadError || !profile) {
     return (
       <SafeAreaView
-        edges={["top", "left", "right"]}
+        edges={["top", "left", "right", "bottom"]}
         style={[styles.safeArea, { backgroundColor: colors.background }]}
       >
         <Stack.Screen options={{ headerShown: false }} />
@@ -252,7 +252,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView
-      edges={["top", "left", "right"]}
+      edges={["top", "left", "right", "bottom"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       <Stack.Screen options={{ headerShown: false }} />
@@ -305,6 +305,7 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >

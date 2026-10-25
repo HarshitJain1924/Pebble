@@ -67,6 +67,7 @@ import {
 import { useTasksState, getDateKey } from "@/features/tasks/hooks/useTasksState";
 import { getTodayDateKey, getOffsetDateKey, parseDateKey } from "@/shared/utils/date-key";
 import { DEFAULT_TASK_CATEGORY, TASK_CATEGORY_META } from "@/features/tasks/services/task-categories";
+import { getWorkspaceIconName } from "@/shared/utils/workspace-icon";
 
 const DATE_DAY_NAMES = [
   "Sunday",
@@ -563,7 +564,7 @@ export function WorkspacesScreen() {
                               { backgroundColor: `${workspaceAccent}1F` },
                             ]}
                           >
-                            {currentFolder?.emoji || (state.activeWorkspaceId === INBOX_WORKSPACE_ID) ? (
+                            {false ? (
                               <Text style={{ fontSize: 17 }}>
                                 {currentFolder?.emoji || "📥"}
                               </Text>
@@ -766,7 +767,7 @@ export function WorkspacesScreen() {
 
             {/* Active Content Screens */}
             {state.activeWorkspaceId === null ? (
-              <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: getPebbleDockClearance(insets.bottom) }} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.flex} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ paddingBottom: getPebbleDockClearance(insets.bottom) }} showsVerticalScrollIndicator={false}>
                 <SuggestionBanner
                   activeSuggestions={state.activeSuggestions}
                   loadSuggestions={state.loadSuggestions}
@@ -805,6 +806,7 @@ export function WorkspacesScreen() {
               <ScrollView
                 ref={state.scrollViewRef}
                 style={styles.flex}
+                contentInsetAdjustmentBehavior="never"
                 contentContainerStyle={{ gap: 2, paddingBottom: getPebbleDockClearance(insets.bottom) }}
                 showsVerticalScrollIndicator={false}
               >
@@ -1315,7 +1317,7 @@ export function WorkspacesScreen() {
                     gap: 10,
                   }}
                 >
-                  {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
+                  {true ? (
                     <Feather name={(ws.icon || "folder") as any} size={18} color={ws.color || colors.primary} />
                   ) : (
                     <Text style={{ fontSize: 18 }}>{ws.emoji || "📁"}</Text>

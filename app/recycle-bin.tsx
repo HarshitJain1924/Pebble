@@ -109,7 +109,9 @@ function getEntityVisual(
       return {
         icon: "file-text",
         iconColor: isDark ? Palette.indigo400 : Palette.indigo600,
-        bgColor: isDark ? "rgba(99, 102, 241, 0.16)" : "rgba(99, 102, 241, 0.1)",
+        bgColor: isDark
+          ? "rgba(99, 102, 241, 0.16)"
+          : "rgba(99, 102, 241, 0.1)",
       };
     case "habit":
       return {
@@ -301,13 +303,11 @@ export default function RecycleBinScreen() {
   const purgeBinItems = async (
     targets: RecycleBinItem[],
   ): Promise<{ deleted: number; failed: number }> => {
-    const { EntityCommandService } = await import(
-      "@/services/command/EntityCommandService"
-    );
+    const { EntityCommandService } =
+      await import("@/services/command/EntityCommandService");
 
-    const result = await EntityCommandService.permanentlyDeleteRecycleBinItems(
-      targets,
-    );
+    const result =
+      await EntityCommandService.permanentlyDeleteRecycleBinItems(targets);
 
     const deletedIds = new Set(result.deletedIds);
     if (deletedIds.size > 0) {
@@ -332,9 +332,8 @@ export default function RecycleBinScreen() {
   const handleRestoreItem = async (item: RecycleBinItem) => {
     try {
       setLoading(true);
-      const { EntityCommandService } = await import(
-        "@/services/command/EntityCommandService"
-      );
+      const { EntityCommandService } =
+        await import("@/services/command/EntityCommandService");
       const result = await EntityCommandService.restoreRecycleBinItems([item]);
 
       if (result.restoredIds.length > 0) {
@@ -418,12 +417,10 @@ export default function RecycleBinScreen() {
           onPress: async () => {
             setLoading(true);
             try {
-              const { EntityCommandService } = await import(
-                "@/services/command/EntityCommandService"
-              );
-              const result = await EntityCommandService.restoreRecycleBinItems(
-                tabItems,
-              );
+              const { EntityCommandService } =
+                await import("@/services/command/EntityCommandService");
+              const result =
+                await EntityCommandService.restoreRecycleBinItems(tabItems);
 
               const restoredIds = new Set(result.restoredIds);
               if (restoredIds.size > 0) {
@@ -673,7 +670,7 @@ export default function RecycleBinScreen() {
 
   return (
     <SafeAreaView
-      edges={["top", "left", "right"]}
+      edges={["top", "left", "right", "bottom"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       {/* ─── 1. Fixed Top Action Row (Back + Empty Bin) ───────────────────── */}
@@ -730,6 +727,7 @@ export default function RecycleBinScreen() {
 
       {/* ─── Scrollable Content ─────────────────────────────────────────── */}
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -842,7 +840,9 @@ export default function RecycleBinScreen() {
                   backgroundColor: isDark
                     ? "rgba(53, 131, 102, 0.16)"
                     : "rgba(44, 108, 84, 0.12)",
-                  borderColor: isDark ? "rgba(68, 167, 130, 0.45)" : colors.primary,
+                  borderColor: isDark
+                    ? "rgba(68, 167, 130, 0.45)"
+                    : colors.primary,
                 },
               ]}
               onPress={handleRestoreAll}
@@ -902,10 +902,7 @@ export default function RecycleBinScreen() {
                   : `No deleted ${currentCategoryMeta?.label.toLowerCase() || activeTab + "s"}`}
             </Text>
             <Text
-              style={[
-                styles.emptyStateSubtitle,
-                { color: colors.textMuted },
-              ]}
+              style={[styles.emptyStateSubtitle, { color: colors.textMuted }]}
             >
               {searchQuery.trim()
                 ? `No deleted items match "${searchQuery.trim()}". Check your spelling or clear search.`
@@ -920,7 +917,10 @@ export default function RecycleBinScreen() {
                 accessibilityLabel="Clear search filter"
                 style={[
                   styles.clearFilterBtn,
-                  { borderColor: colors.border, backgroundColor: colors.cardLight },
+                  {
+                    borderColor: colors.border,
+                    backgroundColor: colors.cardLight,
+                  },
                 ]}
               >
                 <Text style={[styles.clearFilterText, { color: colors.text }]}>
@@ -1084,9 +1084,7 @@ export default function RecycleBinScreen() {
               backgroundColor: isDark
                 ? "rgba(255, 255, 255, 0.03)"
                 : "rgba(0, 0, 0, 0.02)",
-              borderColor: isDark
-                ? "rgba(255, 255, 255, 0.06)"
-                : colors.border,
+              borderColor: isDark ? "rgba(255, 255, 255, 0.06)" : colors.border,
             },
           ]}
         >
@@ -1114,7 +1112,9 @@ export default function RecycleBinScreen() {
           <Text
             style={[styles.retentionDescription, { color: colors.textMuted }]}
           >
-            Items moved to the Recycle Bin are safely retained for 30 days. You can restore them to their original workspaces anytime or permanently purge them.
+            Items moved to the Recycle Bin are safely retained for 30 days. You
+            can restore them to their original workspaces anytime or permanently
+            purge them.
           </Text>
         </View>
       </ScrollView>

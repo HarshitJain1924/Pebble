@@ -145,7 +145,7 @@ export function useWorkspaceState() {
           name: f.name || f.title || "Untitled Workspace",
           emoji: f.iconType === "icon" ? undefined : (f.emoji || (f.icon ? undefined : "📁")),
           icon: f.icon,
-          iconType: f.iconType || (f.icon ? "icon" : "emoji"),
+          iconType: "icon",
           color: f.color || DefaultWorkspaceColor.dark,
           description: f.description || (f.id === INBOX_WORKSPACE_ID ? "Quick capture" : f.id === MY_PEBBLES_WORKSPACE_ID ? "Personal space" : undefined),
           revision: f.revision || 1,
@@ -161,6 +161,8 @@ export function useWorkspaceState() {
           {
             id: INBOX_WORKSPACE_ID,
             name: "Inbox",
+            icon: "inbox",
+            iconType: "icon",
             emoji: "📥",
             color: DefaultWorkspaceColor.dark,
             description: "Quick capture",
@@ -172,6 +174,8 @@ export function useWorkspaceState() {
           {
             id: MY_PEBBLES_WORKSPACE_ID,
             name: "My Pebbles",
+            icon: "zap",
+            iconType: "icon",
             emoji: "⚡",
             color: Palette.violet500,
             description: "Personal space",

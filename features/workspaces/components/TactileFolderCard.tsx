@@ -16,6 +16,7 @@ import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Workspace, Task } from "@/shared/types/domain.types";
 import { isTaskCompleted } from "@/shared/utils/domain-selectors";
+import { getWorkspaceIconName } from "@/shared/utils/workspace-icon";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export const FOLDER_CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
@@ -287,15 +288,11 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
           <View style={styles.frontPocketContent}>
             <View style={styles.titleColumn}>
               <View style={styles.nameRow}>
-                {workspace.iconType === "icon" || (!workspace.emoji && workspace.icon) ? (
-                  <Feather
-                    name={(workspace.icon || "folder") as any}
-                    size={15}
-                    color={Palette.white}
-                  />
-                ) : workspace.emoji ? (
-                  <Text style={styles.workspaceEmoji}>{workspace.emoji}</Text>
-                ) : null}
+                <Feather
+                  name={getWorkspaceIconName(workspace)}
+                  size={15}
+                  color={Palette.white}
+                />
                 <Text style={styles.workspaceTitle} numberOfLines={1}>
                   {workspace.name}
                 </Text>

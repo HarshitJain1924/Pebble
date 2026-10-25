@@ -171,8 +171,7 @@ export const WorkspaceStreamSection: React.FC<WorkspaceStreamSectionProps> = ({
           >
             {isAggregate ? (
               <Feather name="layers" size={19} color={workspaceColor} />
-            ) : workspace.iconType === "icon" ||
-              (!workspace.emoji && workspace.icon) ? (
+            ) : workspace != null && Boolean(workspace.id) ? (
               <Feather
                 name={(workspace.icon || "folder") as any}
                 size={19}

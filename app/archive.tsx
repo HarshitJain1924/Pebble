@@ -751,7 +751,7 @@ export default function ArchiveScreen() {
 
   return (
     <SafeAreaView
-      edges={["top", "left", "right"]}
+      edges={["top", "left", "right", "bottom"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       {/* ─── 1. Fixed Top Action Row ───────────────────────────────────────── */}
@@ -777,6 +777,7 @@ export default function ArchiveScreen() {
 
       {/* ─── Scrollable Content ───────────────────────────────────────────── */}
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"

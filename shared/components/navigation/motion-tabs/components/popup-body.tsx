@@ -513,7 +513,7 @@ const PopupBody: FC<IPopupRenderContext> & FunctionComponent<IPopupRenderContext
                 ]}
               >
                 <View style={[styles.workspaceIconContainer, { backgroundColor: `${ws.color || colors.accent}12` }]}>
-                  {ws.iconType === "icon" || (!ws.emoji && ws.icon) ? (
+                  {true ? (
                     <Feather name={(ws.icon || "folder") as any} size={16} color={ws.color || colors.accent} />
                   ) : (
                     <Text style={styles.workspaceEmoji}>{ws.emoji || "📁"}</Text>

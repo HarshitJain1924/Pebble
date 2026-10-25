@@ -56,9 +56,9 @@ export default function TabLayout() {
         const currentWorkspaces = workspaceList.map((ws) => ({
           id: ws.id,
           name: ws.name,
-          emoji: ws.iconType === "icon" ? undefined : (ws.emoji || "📁"),
-          icon: ws.icon,
-          iconType: ws.iconType,
+          emoji: undefined,
+          icon: ws.icon || "folder",
+          iconType: "icon" as const,
           color: ws.color || DefaultWorkspaceColor.dark,
           revision: ws.revision || 1,
           lifecycleGeneration: ws.lifecycleGeneration || 1,

@@ -320,7 +320,7 @@ export default function StatsScreen() {
   if (loading) {
     return (
       <SafeAreaView
-        edges={["top", "left", "right"]}
+        edges={["top", "left", "right", "bottom"]}
         style={[
           styles.safeArea,
           { backgroundColor: colors.background, justifyContent: "center" },
@@ -335,7 +335,7 @@ export default function StatsScreen() {
 
   return (
     <SafeAreaView
-      edges={["top", "left", "right"]}
+      edges={["top", "left", "right", "bottom"]}
       style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
       <Stack.Screen options={{ headerShown: false }} />
@@ -363,6 +363,7 @@ export default function StatsScreen() {
       </View>
 
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >

@@ -19,6 +19,7 @@ import { MusicPlayerModal } from "@/features/focus/components/MusicPlayerModal";
 import { AppCard } from "@/shared/components/ui/AppCard";
 import { AppText as Text } from "@/shared/components/ui/AppText";
 import { FloatingGlow } from "@/shared/components/layout/AmbientBackground";
+import { getPebbleDockClearance } from "@/shared/components/navigation/PebbleRadialTabBar";
 
 export default function FocusScreen() {
   const colorScheme = useColorScheme();
@@ -80,7 +81,12 @@ export default function FocusScreen() {
           )}
 
           <ScrollView
-            contentContainerStyle={[styles.scrollContent, isCompact && styles.scrollContentCompact]}
+            contentInsetAdjustmentBehavior="never"
+            contentContainerStyle={[
+              styles.scrollContent,
+              isCompact && styles.scrollContentCompact,
+              { paddingBottom: getPebbleDockClearance(insets.bottom) },
+            ]}
             showsVerticalScrollIndicator={false}
           >
             {/* Header */}

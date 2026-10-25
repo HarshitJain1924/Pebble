@@ -99,7 +99,7 @@ export function WorkspaceModal({
   const [workspaceEmojiInput, setWorkspaceEmojiInput] = useState("📚");
   const [workspaceIconTypeInput, setWorkspaceIconTypeInput] = useState<
     "emoji" | "icon"
-  >("emoji");
+  >("icon");
   const [workspaceIconInput, setWorkspaceIconInput] = useState("briefcase");
   const [workspaceColorInput, setWorkspaceColorInput] = useState(
     DefaultWorkspaceColor.dark,
@@ -114,7 +114,7 @@ export function WorkspaceModal({
         if (workspace) {
           setWorkspaceNameInput(workspace.name);
           const isIcon = workspace.iconType === "icon" || (!workspace.emoji && Boolean(workspace.icon));
-          setWorkspaceIconTypeInput(isIcon ? "icon" : "emoji");
+          setWorkspaceIconTypeInput("icon");
           setWorkspaceIconInput(workspace.icon || "briefcase");
           setWorkspaceEmojiInput(workspace.emoji || "📁");
           setWorkspaceColorInput(workspace.color || DefaultWorkspaceColor.dark);
@@ -122,7 +122,7 @@ export function WorkspaceModal({
         }
       } else {
         setWorkspaceNameInput("");
-        setWorkspaceIconTypeInput("emoji");
+        setWorkspaceIconTypeInput("icon");
         setWorkspaceEmojiInput("📚");
         setWorkspaceIconInput("briefcase");
         setWorkspaceColorInput(DefaultWorkspaceColor.dark);
@@ -135,9 +135,8 @@ export function WorkspaceModal({
     const trimmed = workspaceNameInput.trim();
     if (!trimmed) return;
 
-    const isIconType = workspaceIconTypeInput === "icon";
-    const emojiVal = isIconType ? undefined : workspaceEmojiInput;
-    const iconVal = isIconType ? workspaceIconInput : undefined;
+    const emojiVal = undefined;
+    const iconVal = workspaceIconInput || "folder";
 
     try {
       const { EntityCommandService } = await import("@/services/command/EntityCommandService");
@@ -149,7 +148,7 @@ export function WorkspaceModal({
         const updatedWorkspace: Workspace = {
           ...existing,
           name: trimmed,
-          iconType: workspaceIconTypeInput,
+          iconType: "icon",
           emoji: emojiVal,
           icon: iconVal,
           color: workspaceColorInput,
@@ -167,7 +166,7 @@ export function WorkspaceModal({
         const newWorkspace: Workspace = {
           id: newId,
           name: trimmed,
-          iconType: workspaceIconTypeInput,
+          iconType: "icon",
           emoji: emojiVal,
           icon: iconVal,
           color: workspaceColorInput,
@@ -413,75 +412,7 @@ export function WorkspaceModal({
             />
           </View>
 
-          {/* Selector Tabs for Icon Type */}
-          <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-            <TouchableOpacity
-              onPress={() => setWorkspaceIconTypeInput("emoji")}
-              style={{
-                flex: 1,
-                height: 34,
-                borderRadius: 8,
-                backgroundColor:
-                  workspaceIconTypeInput === "emoji"
-                    ? `${colors.primary}15`
-                    : colors.cardLight,
-                borderWidth: 1,
-                borderColor:
-                  workspaceIconTypeInput === "emoji"
-                    ? colors.primary
-                    : "transparent",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text
-                style={{
-                  color:
-                    workspaceIconTypeInput === "emoji"
-                      ? colors.primary
-                      : colors.textMuted,
-                  fontWeight: "600",
-                  fontSize: 12,
-                }}
-              >
-                Emoji
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setWorkspaceIconTypeInput("icon")}
-              style={{
-                flex: 1,
-                height: 34,
-                borderRadius: 8,
-                backgroundColor:
-                  workspaceIconTypeInput === "icon"
-                    ? `${colors.primary}15`
-                    : colors.cardLight,
-                borderWidth: 1,
-                borderColor:
-                  workspaceIconTypeInput === "icon"
-                    ? colors.primary
-                    : "transparent",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text
-                style={{
-                  color:
-                    workspaceIconTypeInput === "icon"
-                      ? colors.primary
-                      : colors.textMuted,
-                  fontWeight: "600",
-                  fontSize: 12,
-                }}
-              >
-                Feather Icon
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {workspaceIconTypeInput === "emoji" ? (
+          {false ? (
             <>
               <Text
                 style={{

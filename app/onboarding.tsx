@@ -845,9 +845,10 @@ export default function OnboardingScreen() {
 
   return (
     <ScreenSwipeWrapper>
-      <SafeAreaView edges={["top", "left", "right"]} style={styles.safeContainer} onLayout={onLayout}>
+      <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.safeContainer} onLayout={onLayout}>
         <Animated.View entering={FadeIn.delay(100).duration(700)} style={{ flex: 1 }}>
           <ScrollView
+            contentInsetAdjustmentBehavior="never"
             ref={scrollRef}
             horizontal
             pagingEnabled

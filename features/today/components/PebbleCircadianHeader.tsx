@@ -3,15 +3,12 @@ import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   Image,
-  Platform,
   Pressable,
-  StatusBar as RNStatusBar,
   StyleSheet,
   useWindowDimensions,
   View,
 } from "react-native";
 import Animated, { FadeInRight, FadeOutRight } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, {
   Circle,
   Defs,
@@ -113,18 +110,16 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
 }) => {
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const [isSearching, setIsSearching] = useState(false);
   const isDark = colorScheme === "dark";
 
   const period = forcePeriod || getCircadianPeriod();
   const artSource = getCircadianArtSource(period, isDark);
 
-  const topInset = Math.max(
-    insets.top,
-    Platform.OS === "android" ? RNStatusBar.currentHeight || 28 : 20,
-  );
-  const totalHeaderHeight = 180 + topInset;
+  // The Today screen owns the top safe area. Keeping the scenic header inset-free
+  // prevents Expo Go from applying the Android status-bar inset twice.
+  const topInset = 0;
+  const totalHeaderHeight = 180;
 
   const displayKicker = kicker
     ? kicker.endsWith(",")

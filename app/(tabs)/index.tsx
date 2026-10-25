@@ -33,7 +33,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { TodayFilterControl } from "@/features/today/components/TodayFilterControl";
 import { TodaySearchEmptyState } from "@/features/today/components/TodaySearchControl";
 import { ProjectilePebble } from "@/features/today/components/ProjectilePebble";
@@ -445,7 +447,13 @@ export function TodayScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: colors.background,
+        paddingTop: insets.top,
+      }}
+    >
       <StatusBar
         style={colorScheme === "dark" ? "light" : "dark"}
       />

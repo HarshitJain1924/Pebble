@@ -305,7 +305,16 @@ export default function AlertCenterScreen() {
   };
 
   return (
-    <View style={[styles.safeArea, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+    <View
+      style={[
+        styles.safeArea,
+        {
+          backgroundColor: colors.background,
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
       {/* Header */}
       <View style={[styles.header, { borderColor: colors.border }]}>
         <PressableScale
@@ -323,6 +332,7 @@ export default function AlertCenterScreen() {
       </View>
 
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
       >

@@ -103,6 +103,8 @@ export async function completeOnboarding(): Promise<OnboardingCompletionResult> 
       const inboxWs: Workspace = {
         id: INBOX_WORKSPACE_ID,
         name: "Inbox",
+        icon: "inbox",
+        iconType: "icon",
         emoji: "📥",
         color: "#6366F1",
         revision: 1,
@@ -118,6 +120,8 @@ export async function completeOnboarding(): Promise<OnboardingCompletionResult> 
       const myPebblesWs: Workspace = {
         id: MY_PEBBLES_WORKSPACE_ID,
         name: "My Pebbles",
+        icon: "zap",
+        iconType: "icon",
         emoji: "⚡",
         color: "#8B5CF6",
         revision: 1,

@@ -121,9 +121,7 @@ export const WorkspaceStreamTabs: React.FC<WorkspaceStreamTabsProps> = ({
               ]}
               contentStyle={styles.tabContent}
             >
-              {tab.workspace &&
-              (tab.workspace.iconType === "icon" ||
-                (!tab.workspace.emoji && tab.workspace.icon)) ? (
+              {tab.workspace != null && Boolean(tab.workspace.id) ? (
                 <Feather
                   name={(tab.workspace.icon || "folder") as any}
                   size={13}

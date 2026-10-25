@@ -7,7 +7,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   Easing,
   FadeInDown,
@@ -53,8 +53,10 @@ import { EmptyState } from "@/shared/components/ui/EmptyState";
 import { INBOX_WORKSPACE_ID } from "@/shared/types/domain.types";
 import { isTaskCompleted, isHabitCompletedToday } from "@/shared/utils/domain-selectors";
 import { getTodayDateKey } from "@/shared/utils/date-key";
+import { getPebbleDockClearance } from "@/shared/components/navigation/PebbleRadialTabBar";
 
 export default function CalendarScreen() {
+  const insets = useSafeAreaInsets();
   const {
     handleDragStart,
     router,
@@ -355,7 +357,8 @@ export default function CalendarScreen() {
         <ScrollView
           ref={scrollRef}
           scrollEnabled={!isDragging}
-          contentContainerStyle={styles.container}
+          contentInsetAdjustmentBehavior="never"
+          contentContainerStyle={[styles.container, { paddingBottom: getPebbleDockClearance(insets.bottom) }]}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
           onScrollBeginDrag={() => {
