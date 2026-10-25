@@ -141,6 +141,9 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
           height: totalHeaderHeight,
           marginLeft: -16,
           marginRight: -16,
+          // Extend the scenic artwork into the status-bar area when the host
+          // root is inset; the foreground remains safe via paddingTop below.
+          marginTop: -topInset,
         },
         style,
       ]}
