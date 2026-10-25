@@ -725,7 +725,7 @@ export function WorkspacesScreen() {
                 />
 
                 {/* Workspaces Search Bar & Filters Row */}
-                <View style={{ flexDirection: "row", alignItems: "center", marginVertical: 6, gap: 10 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", marginVertical: 10, gap: 10 }}>
                   <View
                     style={{
                       flex: 1,
@@ -734,12 +734,12 @@ export function WorkspacesScreen() {
                       backgroundColor: isDark ? "rgba(255,255,255,0.04)" : Palette.slate100,
                       borderRadius: 16,
                       paddingHorizontal: 14,
-                      height: 44,
+                      height: 50,
                       borderWidth: 1,
                       borderColor: colors.border,
                     }}
                   >
-                    <Feather name="search" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+                    <Feather name="search" size={18} color={colors.textMuted} style={{ marginRight: 10 }} />
                     <TextInput
                       value={state.searchQuery}
                       onChangeText={state.setSearchQuery}

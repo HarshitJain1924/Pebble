@@ -19,7 +19,7 @@ import { isTaskCompleted } from "@/shared/utils/domain-selectors";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export const FOLDER_CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
-export const FOLDER_CARD_HEIGHT = 185;
+export const FOLDER_CARD_HEIGHT = 204;
 export const FOLDER_POCKET_HEIGHT = 94;
 
 interface TactileFolderCardProps {
@@ -84,7 +84,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
     if (checklistCount > 0) {
       list.push({
         key: "checklists",
-        label: checklistCount === 1 ? "Checklist" : "Checklists",
+        label: checklistCount === 1 ? "List" : "Lists",
         count: checklistCount,
         icon: "list",
         color: Palette.emerald500,
@@ -93,7 +93,7 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
     if (resourceCount > 0) {
       list.push({
         key: "resources",
-        label: resourceCount === 1 ? "Resource" : "Resources",
+        label: "Res.",
         count: resourceCount,
         icon: "paperclip",
         color: Palette.violet500,
@@ -234,8 +234,6 @@ export const TactileFolderCard: React.FC<TactileFolderCardProps> = ({
                       { color: isDark ? "rgba(255,255,255,0.9)" : Palette.slate700 },
                     ]}
                     numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.75}
                   >
                     {item.count} {item.label}
                   </Text>
@@ -390,7 +388,7 @@ const styles = StyleSheet.create({
     top: 6,
     left: 9,
     right: 9,
-    height: 125,
+    height: 142,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     borderWidth: 1,
@@ -420,28 +418,30 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   paperHeaderLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
   inventoryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 4,
+    columnGap: 4,
+    rowGap: 5,
     justifyContent: "space-between",
   },
   inventoryChip: {
-    width: "48.5%",
+    width: "48%",
+    minHeight: 23,
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 4.5,
-    paddingVertical: 3.5,
+    gap: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
   },
   inventoryChipText: {
-    fontSize: 8.5,
+    fontSize: 10,
     fontWeight: "600",
     flex: 1,
   },
@@ -498,21 +498,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   workspaceTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "800",
     color: Palette.white,
-    letterSpacing: -0.3,
+    letterSpacing: -0.35,
   },
   workspaceDescription: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: "500",
-    color: "rgba(255,255,255,0.78)",
+    color: "rgba(255,255,255,0.82)",
     marginBottom: 2.5,
   },
   workspaceSubtitle: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: "600",
-    color: "rgba(255,255,255,0.68)",
+    color: "rgba(255,255,255,0.76)",
   },
   actionButtonContainer: {
     position: "absolute",
