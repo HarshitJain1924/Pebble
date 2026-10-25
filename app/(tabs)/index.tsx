@@ -451,11 +451,14 @@ export function TodayScreen() {
       style={{
         flex: 1,
         backgroundColor: colors.background,
-        paddingTop: insets.top,
       }}
     >
+      {/* Draw the Today canvas edge-to-edge; the header itself positions its
+          foreground below the status bar using the safe-area inset. */}
       <StatusBar
         style={colorScheme === "dark" ? "light" : "dark"}
+        translucent
+        backgroundColor="transparent"
       />
 
       {/* Environmental Shoreline Scenic Artwork (Anchored to canvas bottom behind scroll stream) */}

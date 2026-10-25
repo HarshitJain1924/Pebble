@@ -118,9 +118,8 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
   const period = forcePeriod || getCircadianPeriod();
   const artSource = getCircadianArtSource(period, isDark);
 
-  // Extend the scenic art behind Android’s status bar while keeping the
-  // header controls safely below it. The parent already reserves the inset,
-  // so a matching negative top margin avoids shifting the content below.
+  // The Today screen renders edge-to-edge. Extend the artwork into the
+  // status-bar area, but inset only the foreground controls.
   const topInset = insets.top;
   const totalHeaderHeight = 180 + topInset;
 
@@ -142,7 +141,6 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
           height: totalHeaderHeight,
           marginLeft: -16,
           marginRight: -16,
-          marginTop: -topInset,
         },
         style,
       ]}
