@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Image,
   Pressable,
@@ -110,16 +111,18 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
 }) => {
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [isSearching, setIsSearching] = useState(false);
   const isDark = colorScheme === "dark";
 
   const period = forcePeriod || getCircadianPeriod();
   const artSource = getCircadianArtSource(period, isDark);
 
-  // The Today screen owns the top safe area. Keeping the scenic header inset-free
-  // prevents Expo Go from applying the Android status-bar inset twice.
-  const topInset = 0;
-  const totalHeaderHeight = 180;
+  // Extend the scenic art behind Android’s status bar while keeping the
+  // header controls safely below it. The parent already reserves the inset,
+  // so a matching negative top margin avoids shifting the content below.
+  const topInset = insets.top;
+  const totalHeaderHeight = 180 + topInset;
 
   const displayKicker = kicker
     ? kicker.endsWith(",")
@@ -139,6 +142,7 @@ export const PebbleCircadianHeader: React.FC<PebbleCircadianHeaderProps> = ({
           height: totalHeaderHeight,
           marginLeft: -16,
           marginRight: -16,
+          marginTop: -topInset,
         },
         style,
       ]}
