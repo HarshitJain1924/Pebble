@@ -12,7 +12,7 @@ import { Colors } from "@/shared/constants/theme";
 import { useColorScheme } from "@/shared/hooks/useColorScheme";
 import PressableScale from "@/shared/components/ui/PressableScale";
 import { Workspace, Task, type Checklist } from "@/shared/types/domain.types";
-import { TactileFolderCard } from "./TactileFolderCard";
+import { FOLDER_CARD_HEIGHT, TactileFolderCard } from "./TactileFolderCard";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
@@ -60,13 +60,13 @@ export function WorkspaceGrid({
 
     return (
       <View style={{ flex: 1, paddingVertical: 10 }}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 18 }}>
           {[1, 2, 3].map((key) => (
             <View
               key={key}
               style={{
                 width: CARD_WIDTH,
-                height: 185,
+                height: FOLDER_CARD_HEIGHT,
                 marginTop: 18,
                 position: "relative",
               }}
@@ -147,7 +147,7 @@ export function WorkspaceGrid({
       </View>
 
       {/* 2-Column Workspaces Grid */}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 18 }}>
         {filteredWorkspaces.map((workspace) => {
           const workspaceTasks = todos[workspace.id] ?? [];
           const workspaceHabits = habits
@@ -284,7 +284,7 @@ export function WorkspaceGrid({
 
 const gridStyles = StyleSheet.create({
   headerBar: {
-    marginBottom: 4,
+    marginBottom: 9,
     paddingHorizontal: 2,
   },
   sectionLabel: {
@@ -293,7 +293,7 @@ const gridStyles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   newWorkspaceWrapper: {
-    height: 185,
+    height: FOLDER_CARD_HEIGHT,
     marginTop: 18,
     position: "relative",
   },
