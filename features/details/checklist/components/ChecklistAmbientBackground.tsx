@@ -57,52 +57,50 @@ export const ChecklistAmbientBackground: React.FC<ChecklistAmbientBackgroundProp
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Svg width="100%" height="100%">
         <Defs>
-          {/* Primary warm sunset ambient bloom behind the 2x2 cards and upper-right */}
+          {/* Subtle atmospheric charcoal vignette across upper area for dark glass depth */}
           <RadialGradient
-            id={`${radialGlowId}_upper`}
-            cx="72%"
-            cy="28%"
-            rx="75%"
-            ry="40%"
-          >
-            <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.42} />
-            <Stop offset="30%" stopColor={cleanColor} stopOpacity={0.24} />
-            <Stop offset="65%" stopColor="#C85A32" stopOpacity={0.08} />
-            <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
-          </RadialGradient>
-
-          {/* Secondary warm ambient bloom behind the description, items, and quick-add */}
-          <RadialGradient
-            id={`${radialGlowId}_lower`}
-            cx="55%"
-            cy="62%"
-            rx="75%"
+            id={`${radialGlowId}_upper_vignette`}
+            cx="40%"
+            cy="18%"
+            rx="80%"
             ry="45%"
           >
-            <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.46} />
-            <Stop offset="35%" stopColor="#D46238" stopOpacity={0.26} />
-            <Stop offset="70%" stopColor={cleanColor} stopOpacity={0.09} />
+            <Stop offset="0%" stopColor="#1C1C22" stopOpacity={0.45} />
+            <Stop offset="55%" stopColor="#141418" stopOpacity={0.20} />
             <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
           </RadialGradient>
 
-          {/* Smooth diagonal ambient light beam along top-left to bottom-right */}
+          {/* Warm terracotta sunset ember glow positioned in mid-lower section behind description & priority */}
+          <RadialGradient
+            id={`${radialGlowId}_lower`}
+            cx="58%"
+            cy="65%"
+            rx="70%"
+            ry="38%"
+          >
+            <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.32} />
+            <Stop offset="40%" stopColor="#D46238" stopOpacity={0.18} />
+            <Stop offset="75%" stopColor="#8A361C" stopOpacity={0.06} />
+            <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
+          </RadialGradient>
+
+          {/* Gentle diagonal atmospheric warmth along the natural lighting angle */}
           <LinearGradient
             id={diagGradId}
-            x1="5%"
-            y1="15%"
-            x2="95%"
-            y2="85%"
+            x1="10%"
+            y1="30%"
+            x2="90%"
+            y2="90%"
           >
-            <Stop offset="0%" stopColor={cleanColor} stopOpacity={0} />
-            <Stop offset="35%" stopColor={cleanColor} stopOpacity={0} />
-            <Stop offset="60%" stopColor={cleanColor} stopOpacity={0.18} />
-            <Stop offset="85%" stopColor="#C85A32" stopOpacity={0.12} />
+            <Stop offset="0%" stopColor="#0E0E10" stopOpacity={0} />
+            <Stop offset="50%" stopColor={cleanColor} stopOpacity={0.06} />
+            <Stop offset="80%" stopColor="#C85A32" stopOpacity={0.08} />
             <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
           </LinearGradient>
         </Defs>
 
-        {/* Ambient base lighting */}
-        <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_upper)`} />
+        {/* Ambient base lighting layers */}
+        <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_upper_vignette)`} />
         <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_lower)`} />
         <Rect width="100%" height="100%" fill={`url(#${diagGradId})`} />
       </Svg>

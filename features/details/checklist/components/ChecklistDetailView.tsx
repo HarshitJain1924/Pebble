@@ -333,11 +333,23 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = ({
         {/* Quick Add Item Inline Input */}
         <LiquidGlassSurface
           borderRadius={16}
-          style={styles.quickAddWrap}
+          style={[
+            styles.quickAddWrap,
+            isLight
+              ? {
+                  borderTopColor: "rgba(0, 0, 0, 0.08)",
+                  borderLeftColor: "rgba(0, 0, 0, 0.05)",
+                  borderRightColor: "rgba(0, 0, 0, 0.05)",
+                  borderBottomColor: "rgba(0, 0, 0, 0.12)",
+                }
+              : null,
+          ]}
           tintColor={
-            isLight ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.07)"
+            isLight ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.05)"
           }
           intensity={50}
+          blurRadius={20}
+          dim={isLight ? 0 : 0.12}
         >
           <TextInput
             style={[
@@ -513,6 +525,16 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     marginTop: 6,
     gap: 8,
+    borderWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.18)",
+    borderLeftColor: "rgba(255, 255, 255, 0.08)",
+    borderRightColor: "rgba(255, 255, 255, 0.05)",
+    borderBottomColor: "rgba(0, 0, 0, 0.35)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   quickAddInput: {
     flex: 1,

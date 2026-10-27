@@ -1,6 +1,9 @@
 import React from "react";
-import { type StyleProp, type ViewStyle } from "react-native";
-import { LiquidGlassView } from "react-native-liquid-glassmorphism";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import {
+  LiquidGlassView,
+  isLiquidGlassSupported,
+} from "react-native-liquid-glassmorphism";
 
 export interface LiquidGlassSurfaceProps {
   children?: React.ReactNode;
@@ -14,6 +17,10 @@ export interface LiquidGlassSurfaceProps {
   borderRadius?: number;
   thickness?: number;
   edgeReflectionStrength?: number;
+  dim?: number;
+  brightness?: number;
+  variant?: "clear" | "regular";
+  refraction?: boolean;
 }
 
 /**
@@ -21,24 +28,46 @@ export interface LiquidGlassSurfaceProps {
  * Features real-time AGSL refractive-lens optics on Android:
  * - 'clear' variant preserves deep dark-mode obsidian contrast without washing out into grey.
  * - Direct `borderRadius` prop drives native Outline + shader SDF corner rounding.
- * - Tuned lens thickness & edge reflection provide subtle, authentic liquid sheen.
+ * - Directional specular and subtle dimming create authentic smoked-glass depth.
+ * - Clean fallback for unsupported platforms.
  */
 export const LiquidGlassSurface: React.FC<LiquidGlassSurfaceProps> = ({
   children,
   style,
-  tintColor = "rgba(255, 255, 255, 0.06)",
-  intensity = 45,
-  blurRadius = 16,
+  tintColor = "rgba(255, 255, 255, 0.05)",
+  intensity = 50,
+  blurRadius = 20,
   interactive = true,
-  rim = true,
+  rim = false,
   specular = true,
   borderRadius = 16,
   thickness = 0.85,
-  edgeReflectionStrength = 0.5,
+  edgeReflectionStrength = 0.45,
+  dim = 0.12,
+  brightness = 1.05,
+  variant = "clear",
+  refraction = true,
 }) => {
+  if (!isLiquidGlassSupported()) {
+    return (
+      <View
+        style={[
+          styles.fallback,
+          {
+            borderRadius,
+            backgroundColor: tintColor,
+          },
+          style,
+        ]}
+      >
+        {children}
+      </View>
+    );
+  }
+
   return (
     <LiquidGlassView
-      variant="clear"
+      variant={variant}
       tintColor={tintColor}
       intensity={intensity}
       blurRadius={blurRadius}
@@ -48,15 +77,26 @@ export const LiquidGlassSurface: React.FC<LiquidGlassSurfaceProps> = ({
       borderRadius={borderRadius}
       thickness={thickness}
       edgeReflectionStrength={edgeReflectionStrength}
-      brightness={1.12}
+      dim={dim}
+      brightness={brightness}
       legibilityFloor={0.15}
-      refraction={true}
+      refraction={refraction}
       style={style}
     >
       {children}
     </LiquidGlassView>
   );
 };
+
+const styles = StyleSheet.create({
+  fallback: {
+    borderWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.18)",
+    borderLeftColor: "rgba(255, 255, 255, 0.08)",
+    borderRightColor: "rgba(255, 255, 255, 0.05)",
+    borderBottomColor: "rgba(0, 0, 0, 0.35)",
+  },
+});
 
 
 

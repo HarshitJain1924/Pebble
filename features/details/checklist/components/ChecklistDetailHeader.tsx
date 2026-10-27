@@ -36,8 +36,20 @@ export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = ({
       >
         <LiquidGlassSurface
           borderRadius={21}
-          style={styles.circleNavBtn}
-          tintColor={isLight ? "rgba(0,0,0,0.06)" : "rgba(255, 255, 255, 0.08)"}
+          style={[
+            styles.circleNavBtn,
+            isLight
+              ? {
+                  borderTopColor: "rgba(0, 0, 0, 0.08)",
+                  borderLeftColor: "rgba(0, 0, 0, 0.05)",
+                  borderRightColor: "rgba(0, 0, 0, 0.05)",
+                  borderBottomColor: "rgba(0, 0, 0, 0.12)",
+                }
+              : null,
+          ]}
+          tintColor={isLight ? "rgba(0,0,0,0.04)" : "rgba(255, 255, 255, 0.06)"}
+          blurRadius={20}
+          dim={isLight ? 0 : 0.12}
         >
           <Feather
             name="arrow-left"
@@ -94,8 +106,20 @@ export const ChecklistDetailHeader: React.FC<ChecklistDetailHeaderProps> = ({
         >
           <LiquidGlassSurface
             borderRadius={21}
-            style={styles.circleNavBtn}
-            tintColor={isLight ? "rgba(0,0,0,0.06)" : "rgba(255, 255, 255, 0.08)"}
+            style={[
+              styles.circleNavBtn,
+              isLight
+                ? {
+                    borderTopColor: "rgba(0, 0, 0, 0.08)",
+                    borderLeftColor: "rgba(0, 0, 0, 0.05)",
+                    borderRightColor: "rgba(0, 0, 0, 0.05)",
+                    borderBottomColor: "rgba(0, 0, 0, 0.12)",
+                  }
+                : null,
+            ]}
+            tintColor={isLight ? "rgba(0,0,0,0.04)" : "rgba(255, 255, 255, 0.06)"}
+            blurRadius={20}
+            dim={isLight ? 0 : 0.12}
           >
             <Feather
               name="edit-2"
@@ -129,6 +153,16 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.18)",
+    borderLeftColor: "rgba(255, 255, 255, 0.08)",
+    borderRightColor: "rgba(255, 255, 255, 0.05)",
+    borderBottomColor: "rgba(0, 0, 0, 0.35)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   saveBtn: {
     paddingHorizontal: 16,
