@@ -194,8 +194,9 @@ export default function CalendarScreen() {
       const type = getCalendarItemType(item);
       if (type === "checklist") {
         const itemDate = item.occurrenceDate || item.dateKey || item.date || selectedDate;
+        const wsParam = item.workspaceId ? `&workspaceId=${item.workspaceId}` : "";
         router.push(
-          `/checklist-details?id=${item.id}${itemDate ? `&date=${itemDate}` : ""}`,
+          `/checklist-details?id=${item.id}${itemDate ? `&date=${itemDate}` : ""}${wsParam}`,
         );
       } else {
         router.push(

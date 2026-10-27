@@ -76,7 +76,7 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = React.mem
   accentColor,
   paused = false,
 }) => {
-  const activeAccentColor = "#E07A5F";
+  const activeAccentColor = accentColor || "#E07A5F";
 
   return (
     <View style={{ gap: Spacing.xl }}>
@@ -275,7 +275,8 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = React.mem
             No items in this checklist.
           </Text>
         ) : (
-          items.map((cIt) => {
+          (items || []).map((cIt) => {
+            if (!cIt) return null;
             const isCompleted =
               item.recurrence && effectiveOccurrenceDate
                 ? getChecklistItemCompletedForDate(
@@ -283,7 +284,7 @@ export const ChecklistDetailView: React.FC<ChecklistDetailViewProps> = React.mem
                     cIt.id,
                     effectiveOccurrenceDate,
                   )
-                : cIt.completed;
+                : !!cIt.completed;
 
             return (
               <PressableScale

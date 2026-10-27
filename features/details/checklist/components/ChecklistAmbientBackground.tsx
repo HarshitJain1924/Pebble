@@ -24,30 +24,62 @@ export const ChecklistAmbientBackground: React.FC<ChecklistAmbientBackgroundProp
   color,
   isLight = false,
 }) => {
-  // Signature warm terracotta sunset ember from the design mockup (#E07A5F)
-  const cleanColor = "#E07A5F";
-  const uniqueKey = "warm_terracotta";
-  const diagGradId = `diag_ambient_${uniqueKey}`;
-  const radialGlowId = `radial_glow_${uniqueKey}`;
+  // Dynamic category ambient color (defaults to warm terracotta #E07A5F)
+  const cleanColor = color || "#E07A5F";
+  const uniqueKey = cleanColor.replace(/[^a-zA-Z0-9]/g, "");
+  const diagGradId = `diag_ambient_${uniqueKey}_${isLight ? "light" : "dark"}`;
+  const tileGlowId = `tile_glow_${uniqueKey}_${isLight ? "light" : "dark"}`;
+  const lowerGlowId = `lower_glow_${uniqueKey}_${isLight ? "light" : "dark"}`;
 
   if (isLight) {
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Svg width="100%" height="100%">
           <Defs>
+            {/* Light Mode: Soft diagonal atmospheric wash from top-right */}
+            <LinearGradient
+              id={diagGradId}
+              x1="88%"
+              y1="6%"
+              x2="15%"
+              y2="52%"
+            >
+              <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.16} />
+              <Stop offset="40%" stopColor={cleanColor} stopOpacity={0.06} />
+              <Stop offset="100%" stopColor={cleanColor} stopOpacity={0} />
+            </LinearGradient>
+
+            {/* Light Mode: Luminous category ambient glow behind the 4 glass tiles */}
             <RadialGradient
-              id={radialGlowId}
-              cx="58%"
-              cy="52%"
-              rx="65%"
-              ry="38%"
+              id={tileGlowId}
+              cx="66%"
+              cy="24%"
+              rx="56%"
+              ry="26%"
+            >
+              <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.24} />
+              <Stop offset="45%" stopColor={cleanColor} stopOpacity={0.10} />
+              <Stop offset="80%" stopColor={cleanColor} stopOpacity={0.03} />
+              <Stop offset="100%" stopColor={cleanColor} stopOpacity={0} />
+            </RadialGradient>
+
+            {/* Light Mode: Quiet ambient warmth behind items */}
+            <RadialGradient
+              id={lowerGlowId}
+              cx="45%"
+              cy="56%"
+              rx="60%"
+              ry="28%"
             >
               <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.12} />
               <Stop offset="50%" stopColor={cleanColor} stopOpacity={0.04} />
               <Stop offset="100%" stopColor={cleanColor} stopOpacity={0} />
             </RadialGradient>
           </Defs>
-          <Rect width="100%" height="100%" fill={`url(#${radialGlowId})`} />
+
+          <Rect width="100%" height="100%" fill={`url(#${diagGradId})`} />
+          <Rect width="100%" height="100%" fill={`url(#${tileGlowId})`} />
+          <Rect width="100%" height="100%" fill={`url(#${lowerGlowId})`} />
         </Svg>
       </View>
     );
@@ -61,46 +93,47 @@ export const ChecklistAmbientBackground: React.FC<ChecklistAmbientBackgroundProp
           <LinearGradient
             id={diagGradId}
             x1="85%"
-            y1="10%"
+            y1="8%"
             x2="15%"
-            y2="55%"
+            y2="52%"
           >
-            <Stop offset="0%" stopColor="#D96B47" stopOpacity={0.10} />
-            <Stop offset="35%" stopColor="#C25532" stopOpacity={0.04} />
+            <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.15} />
+            <Stop offset="40%" stopColor={cleanColor} stopOpacity={0.06} />
             <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
           </LinearGradient>
 
-          {/* Controlled terracotta ambient glow directly behind the metadata tile grid */}
+          {/* Controlled category ambient glow directly behind the metadata tile grid */}
           <RadialGradient
-            id={`${radialGlowId}_tile_glow`}
+            id={tileGlowId}
             cx="66%"
             cy="24%"
-            rx="52%"
-            ry="24%"
+            rx="56%"
+            ry="26%"
           >
-            <Stop offset="0%" stopColor="#E0724E" stopOpacity={0.20} />
-            <Stop offset="45%" stopColor="#BF5534" stopOpacity={0.08} />
+            <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.28} />
+            <Stop offset="42%" stopColor={cleanColor} stopOpacity={0.13} />
+            <Stop offset="75%" stopColor={cleanColor} stopOpacity={0.04} />
             <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
           </RadialGradient>
 
           {/* Gentle, quiet ambient presence behind description and items */}
           <RadialGradient
-            id={`${radialGlowId}_lower`}
+            id={lowerGlowId}
             cx="45%"
-            cy="54%"
-            rx="58%"
-            ry="26%"
+            cy="55%"
+            rx="60%"
+            ry="28%"
           >
-            <Stop offset="0%" stopColor="#D45E3B" stopOpacity={0.09} />
-            <Stop offset="50%" stopColor="#9C381E" stopOpacity={0.03} />
+            <Stop offset="0%" stopColor={cleanColor} stopOpacity={0.13} />
+            <Stop offset="50%" stopColor={cleanColor} stopOpacity={0.04} />
             <Stop offset="100%" stopColor="#0E0E10" stopOpacity={0} />
           </RadialGradient>
         </Defs>
 
         {/* Ambient base lighting layers */}
         <Rect width="100%" height="100%" fill={`url(#${diagGradId})`} />
-        <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_tile_glow)`} />
-        <Rect width="100%" height="100%" fill={`url(#${radialGlowId}_lower)`} />
+        <Rect width="100%" height="100%" fill={`url(#${tileGlowId})`} />
+        <Rect width="100%" height="100%" fill={`url(#${lowerGlowId})`} />
       </Svg>
     </View>
   );

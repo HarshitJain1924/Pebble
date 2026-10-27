@@ -12,6 +12,7 @@ export const DEFAULT_CHECKLIST_COLOR = "#E07A5F";
  */
 export function getChecklistColor(categoryId?: string | null): string {
   if (!categoryId) return DEFAULT_CHECKLIST_COLOR;
-  const meta = getCategoryMeta(categoryId);
+  if (categoryId.startsWith("#")) return categoryId;
+  const meta = getCategoryMeta(categoryId.toLowerCase().trim());
   return meta?.color || DEFAULT_CHECKLIST_COLOR;
 }

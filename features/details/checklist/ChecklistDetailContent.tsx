@@ -37,13 +37,21 @@ import {
   computeTriggerEpoch,
   effectiveWeeklyDays,
 } from "@/features/details/checklist/hooks/useChecklistDetailForm";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ChecklistDetailForm } from "@/features/details/checklist/components/ChecklistDetailForm";
 import { ChecklistDetailHeader } from "@/features/details/checklist/components/ChecklistDetailHeader";
 import { ChecklistDetailView } from "@/features/details/checklist/components/ChecklistDetailView";
 import { ChecklistWorkspaceModal } from "@/features/details/checklist/components/ChecklistWorkspaceModal";
 import { ChecklistRecurringModal } from "@/features/details/checklist/components/ChecklistRecurringModal";
 import { ChecklistAmbientBackground } from "@/features/details/checklist/components/ChecklistAmbientBackground";
+import { ChecklistDetailSkeleton } from "@/features/details/checklist/components/ChecklistDetailSkeleton";
 import { getChecklistColor } from "@/features/checklists/utils/checklist-colors";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 export interface ChecklistDetailContentProps {
   checklistId: string;
@@ -79,11 +87,40 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
   const [isTransitionReady, setIsTransitionReady] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    let mounted = true;
+    if (process.env.NODE_ENV === "test") {
       setIsTransitionReady(true);
-    }, 280);
-    return () => clearTimeout(timer);
+      return;
+    }
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    const frameId = requestAnimationFrame(() => {
+      timerId = setTimeout(() => {
+        if (mounted) {
+          setIsTransitionReady(true);
+        }
+      }, 120);
+    });
+    return () => {
+      mounted = false;
+      cancelAnimationFrame(frameId);
+      if (timerId) clearTimeout(timerId);
+    };
   }, []);
+
+  const contentOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (!loading && item) {
+      contentOpacity.value = withTiming(1, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+      });
+    }
+  }, [loading, item, contentOpacity]);
+
+  const contentAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+  }));
 
   // Editor modal sub-states
   const [workspacePickerVisible, setWorkspacePickerVisible] = useState(false);
@@ -234,11 +271,13 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       return true;
 
     // Compare items
-    if (form.items.length !== item.items.length) return true;
-    for (let i = 0; i < form.items.length; i++) {
-      if (form.items[i].id !== item.items[i].id) return true;
-      if (form.items[i].title.trim() !== item.items[i].title.trim()) return true;
-      if (form.items[i].completed !== item.items[i].completed) return true;
+    const formItems = form.items || [];
+    const itemItems = item.items || [];
+    if (formItems.length !== itemItems.length) return true;
+    for (let i = 0; i < formItems.length; i++) {
+      if (formItems[i]?.id !== itemItems[i]?.id) return true;
+      if ((formItems[i]?.title || "").trim() !== (itemItems[i]?.title || "").trim()) return true;
+      if (formItems[i]?.completed !== itemItems[i]?.completed) return true;
     }
 
     // Compare resourceIds
@@ -325,35 +364,78 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     if (!checklistId) return;
     setLoading(true);
     try {
-      // 1. FAST PATH: If workspaceId is provided, query target workspace immediately
-      let foundChecklist: Checklist | null = null;
+      // Concurrent resolution: Query primary candidates (direct workspaceId, INBOX, MY_PEBBLES)
+      // simultaneously with WorkspaceRepository.getWorkspaces() so resolution is near-instantaneous.
+      const primaryPromises: Promise<Checklist | null>[] = [];
       if (workspaceId) {
-        foundChecklist = await ChecklistRepository.getChecklist(
-          checklistId,
-          workspaceId,
+        primaryPromises.push(
+          ChecklistRepository.getChecklist(checklistId, workspaceId).catch(() => null),
         );
       }
+      primaryPromises.push(
+        ChecklistRepository.getChecklist(checklistId, INBOX_WORKSPACE_ID).catch(() => null),
+      );
+      primaryPromises.push(
+        ChecklistRepository.getChecklist(checklistId, MY_PEBBLES_WORKSPACE_ID).catch(() => null),
+      );
 
-      // Fetch workspaces concurrently
-      const foldersPromise = WorkspaceRepository.getWorkspaces();
+      const foldersPromise = WorkspaceRepository.getWorkspaces().catch(() => []);
 
-      // If not resolved via direct workspaceId, search candidate workspaces in parallel
+      const [primaryResults, loadedFolders] = await Promise.all([
+        Promise.all(primaryPromises),
+        foldersPromise,
+      ]);
+
+      let foundChecklist: Checklist | null = primaryResults.find(Boolean) || null;
+
+      // Fallback 1: If not in primary workspaces, check candidate custom workspace folders
       if (!foundChecklist) {
-        const loadedFolders = await foldersPromise;
-        const candidateIds = Array.from(
-          new Set([
-            workspaceId || INBOX_WORKSPACE_ID,
-            INBOX_WORKSPACE_ID,
-            MY_PEBBLES_WORKSPACE_ID,
-            ...loadedFolders.map((f) => f.id),
-          ]),
-        );
-        const checklistResults = await Promise.all(
-          candidateIds.map((fId) =>
-            ChecklistRepository.getChecklist(checklistId, fId),
-          ),
-        );
-        foundChecklist = checklistResults.find(Boolean) || null;
+        const remainingCandidateIds = loadedFolders
+          .map((f) => f.id)
+          .filter(
+            (id) =>
+              id !== workspaceId &&
+              id !== INBOX_WORKSPACE_ID &&
+              id !== MY_PEBBLES_WORKSPACE_ID,
+          );
+
+        if (remainingCandidateIds.length > 0) {
+          const customResults = await Promise.all(
+            remainingCandidateIds.map((fId) =>
+              ChecklistRepository.getChecklist(checklistId, fId).catch(() => null),
+            ),
+          );
+          foundChecklist = customResults.find(Boolean) || null;
+        }
+      }
+
+      // Fallback 2: Direct scan of all checklist partitions in storage
+      if (!foundChecklist) {
+        try {
+          const allKeys = await AsyncStorage.getAllKeys();
+          const checklistKeys = allKeys.filter((k) =>
+            k.startsWith("pebble:v1:checklists:"),
+          );
+          for (const key of checklistKeys) {
+            const wsId = key.replace("pebble:v1:checklists:", "");
+            if (
+              wsId !== workspaceId &&
+              wsId !== INBOX_WORKSPACE_ID &&
+              wsId !== MY_PEBBLES_WORKSPACE_ID
+            ) {
+              const candidate = await ChecklistRepository.getChecklist(
+                checklistId,
+                wsId,
+              ).catch(() => null);
+              if (candidate) {
+                foundChecklist = candidate;
+                break;
+              }
+            }
+          }
+        } catch {
+          // ignore scan error
+        }
       }
 
       if (foundChecklist) {
@@ -368,7 +450,6 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
       }
 
       // 2. Set workspaces state
-      const loadedFolders = await foldersPromise;
       const loadedWorkspaces: Workspace[] = loadedFolders.map((folder) => ({
         id: folder.id,
         name: folder.name,
@@ -715,32 +796,14 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
     return `${dateStr} (All Day)`;
   }, [item, occurrenceDate]);
 
-  if (loading || !item) {
-    return (
-      <SafeAreaView
-        style={[styles.safeArea, { backgroundColor: colors.background }]}
-      >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <Text style={{ color: colors.textMuted }}>Loading checklist...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const createdDate = item.createdAt
+  const createdDate = item?.createdAt
     ? new Date(item.createdAt).toLocaleDateString(undefined, {
         dateStyle: "medium",
       })
     : "Unknown";
 
   const checklistColor = getChecklistColor(
-    isEditing ? form.categoryId : item.categoryId,
+    isEditing ? form.categoryId : item?.categoryId,
   );
 
   return (
@@ -767,8 +830,11 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
         }
         contentContainerStyle={{ paddingBottom: 60 }}
       >
-        {!isEditing ? (
-          <ChecklistDetailView
+        {loading || !item ? (
+          <ChecklistDetailSkeleton isLight={isLight} />
+        ) : !isEditing ? (
+          <Animated.View style={contentAnimatedStyle}>
+            <ChecklistDetailView
             item={item}
             items={form.items}
             effectiveOccurrenceDate={effectiveOccurrenceDate}
@@ -792,7 +858,9 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
             accentColor={checklistColor}
             paused={!isTransitionReady}
           />
-        ) : (
+        </Animated.View>
+      ) : (
+        <Animated.View style={contentAnimatedStyle}>
           <ChecklistDetailForm
             form={form}
             update={update}
@@ -810,8 +878,9 @@ export const ChecklistDetailContent: React.FC<ChecklistDetailContentProps> = ({
             onOpenWorkspacePicker={() => setWorkspacePickerVisible(true)}
             onOpenLinkPicker={() => setLinkPickerVisible(true)}
           />
-        )}
-      </DetailShell>
+        </Animated.View>
+      )}
+    </DetailShell>
 
       {/* WORKSPACE PICKER MODAL */}
       <ChecklistWorkspaceModal

@@ -124,7 +124,8 @@ export function createNowFocusActionHandlers({
     } else if (focus.type === "habit") {
       router.push(`/task-details?id=${focus.item.id}&type=habit`);
     } else if (focus.type === "checklist") {
-      router.push(`/checklist-details?id=${focus.item.id}`);
+      const wsParam = focus.item.workspaceId ? `&workspaceId=${focus.item.workspaceId}` : "";
+      router.push(`/checklist-details?id=${focus.item.id}${wsParam}`);
     }
   };
 
